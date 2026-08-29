@@ -1696,6 +1696,14 @@ const MUTANTS = [
   },
   {
     id: "lock/attempt-release-not-scoped",
+    id: "promo/decline-keeps-the-grant",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M70 (Codex P1 on #233, unanswered for two days) — the DECLINE was the one exit that freed the cart and kept the pinned promo grant. The webhook's payment_failed arm released the lock and the freeze; nothing released `promo_granted_cents`, so the diner came back to an editable basket still carrying an authorized discount, `mms_pin_promo_grant` no-op'd on the non-null pin at the next checkout, and a grant earned by a $30 basket priced a $20 one — charged for real. Dropping the era makes it a cart-wide clear instead, which is the successor-wiping hazard the scoping exists to prevent",
+    find: "    p_attempt: attempt,",
+    replace: "    p_attempt: null,",
+  },
+  {
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: "W6c review (confirmed HIGH) — without the settle_by predicate, a release that outlived its attempt (a late webhook canceled/failed delivery after a cancel→retry, a stale panel, a double-tap loser) nulls a SUCCESSOR attempt's live freeze and reopens the reader-vs-phone double-collect",

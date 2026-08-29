@@ -209,6 +209,41 @@ export async function extendSettlement(cartId: string): Promise<void> {
 }
 
 /**
+ * Release the promo grant this attempt pinned (M70 · Codex P1 on #233, unanswered until now).
+ *
+ * `create-intent` pins `promo_granted_cents` at authorization so a promo that expires or a basket
+ * that changes mid-settlement cannot move the amount the diner was charged. Three exits release it
+ * again — the abandon paths in create-intent, and "Edit order" / the pagehide beacon via
+ * `mms_release_promo_grant_for_holder`. A DECLINE was the fourth exit and released nothing: the
+ * webhook freed the lock and the freeze, so the cart came back editable with the pin still set. The
+ * diner then drops a $30 basket to $20, re-checks out, `mms_pin_promo_grant` is a no-op because the
+ * pin is not null, and `mms_promo_discount` hands back the OLD grant — a discount priced against a
+ * basket that never earned it, charged for real.
+ *
+ * ⚠️ ERA-SCOPED, and the CALL ORDER is part of the guard. The RPC matches on
+ * `locked_at is null or locked_at is not distinct from p_attempt`, so it must run BEFORE
+ * `releaseCartLock` nulls `locked_at` — after it, every era matches and a redelivered decline could
+ * wipe a successor attempt's live pin. That is the same era-confusion class `releaseSettlementFor`
+ * exists for, and here the ordering is what supplies the predicate its meaning.
+ *
+ * Lives here rather than inline in the webhook route deliberately: `app/api/**` sits outside
+ * `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s mutant set, so a money rule
+ * written there cannot be guarded at all (the W17 lesson, in CLAUDE.md).
+ */
+export async function releasePromoGrantFor(cartId: string, attempt: string): Promise<ReleaseError> {
+  // No era, no release. An intent minted before the era rode in metadata has nothing to prove it is
+  // the current attempt, and a cart-wide clear is exactly the successor-wiping hazard above — so the
+  // pin stays and the next honest re-derivation (or the cart closing) settles it.
+  if (!attempt) return null;
+  const db = serviceClient();
+  const { error } = await db.rpc("mms_release_promo_grant", {
+    p_cart_id: cartId,
+    p_attempt: attempt,
+  });
+  return error;
+}
+
+/**
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.

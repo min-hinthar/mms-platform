@@ -4,6 +4,40 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The Codex back-sweep — a money P1 that sat unanswered for two days (2026-08-29)
+
+Asked to check every Codex review for fixes, so the twelve PRs before #239 were swept as well:
+**76 findings, 12 PRs.** Most were fixed or justified at the time. Sixteen were never clearly
+answered — almost all because the review landed AFTER the merge — and eight of those verify as still
+live against `main` today. One of them is a money defect.
+
+**The decline was the one exit that freed the cart and kept the promo grant** (Codex P1 on #233,
+posted 2026-08-26, no reply). M70 pins `promo_granted_cents` at authorization so a promo that
+expires — or a basket that changes — cannot move the amount already charged, and it releases that
+pin on three exits: create-intent's abandon paths, "Edit order", and the pagehide beacon. A DECLINE
+was the fourth, and released nothing: `payment_intent.payment_failed` freed the cart lock and the
+settlement freeze, so the cart came back **editable with the pin still set**. The diner drops a $30
+basket to $20, re-checks out, `mms_pin_promo_grant` no-ops because the pin is not null, and
+`mms_promo_discount` hands back the old grant — a discount priced against a basket that never earned
+it, charged for real. The migration's own §6 fixed exactly this shape for the Edit-order exit and
+missed the decline.
+
+The fix is era-scoped and the **call order is part of the guard**: the RPC matches on
+`locked_at is null or locked_at is not distinct from p_attempt`, so it must run BEFORE
+`releaseCartLock` nulls `locked_at` — after it, every era matches and a redelivered decline could
+wipe a successor attempt's live pin. Single-pay intents now carry their era in metadata (they
+carried it only for manual capture, which is why the decline path had nothing to scope by), and the
+decision lives in `lib/lock.ts` as `releasePromoGrantFor` rather than inline in the route, because
+`app/api/**` sits outside `verify:slice`'s mutant set and a money rule written there cannot be
+guarded at all. Four assertions, three mutations watched red, and a 228th `verify:slice` mutant.
+
+Filed rather than fixed, all post-merge Codex findings that verify as live: **M146** (`data-fx="off"`
+still parallaxes for desktop diners — the block suppresses `animation` but not `translate`, and the
+checked-in comment claims the opposite), **M147** (a throwing `localStorage` read takes the
+device-tier fallback down with it, so the weakest device loses `lite`), **M149** (the promo-pin and
+migration-name guards run only in `verify:slice`, which no workflow invokes), **M148** and **M150**
+(documentation claims Codex corrected, and three narrower live findings).
+
 ### Codex was right, nine minutes too late — three P2s from a post-merge review (2026-08-29)
 
 `#239` was marked ready and squashed inside a minute, and Codex's review landed on `9155abf` at

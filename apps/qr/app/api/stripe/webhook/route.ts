@@ -3,7 +3,12 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import { releaseCartLock, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
+import {
+  releaseCartLock,
+  releasePromoGrantFor,
+  releaseSettlement,
+  releaseSettlementFor,
+} from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
@@ -683,14 +688,27 @@ export async function POST(req: NextRequest) {
       // (a `serviceClient()` construction failure, say) free to escape into the handler's outer
       // catch and 500 — quietly re-opening the redelivery hazard the comment says must not exist.
       try {
+        // ⚠️ THE GRANT GOES FIRST, and the order is the guard (M70 · Codex P1 on #233). This release
+        // is era-scoped on `locked_at`, and `releaseCartLock` below NULLS `locked_at` — so run after
+        // it and every era matches, which is precisely the successor-wiping hazard the scoping
+        // exists to prevent. Before it, the predicate still means something: a redelivered decline
+        // whose cart has since been re-locked by a new attempt matches zero rows and leaves that
+        // attempt's pin alone.
+        //
+        // Without this the decline was the ONE exit that freed the cart and kept the pin: the diner
+        // came back to an editable basket still carrying an authorized discount, and the next
+        // create-intent's `mms_pin_promo_grant` is a no-op while the pin is non-null — so a $10
+        // grant priced a basket that no longer earned it, and that amount was charged.
+        const grantErr = await releasePromoGrantFor(cartId, intent.metadata?.attempt ?? "");
         const lockErr = await releaseCartLock(cartId, null);
         const settleErr = await releaseSettlement(cartId);
-        if (lockErr || settleErr)
+        if (lockErr || settleErr || grantErr)
           console.error("[stripe webhook] payment_failed release(s) failed", {
             cartId,
             paymentIntent: intent.id,
             lockError: lockErr?.message,
             settleError: settleErr?.message,
+            grantError: grantErr?.message,
           });
       } catch (e) {
         console.error("[stripe webhook] payment_failed release threw", {

@@ -366,17 +366,20 @@ export async function POST(req: NextRequest) {
           cartId,
           tipRate: String(tipRate),
           earnerUid: uid,
+          // M70 follow-up (Codex P1 on #233) — the era rides EVERY single-pay intent, not just the
+          // manual-capture ones it was added for. The decline path has to release the promo pin
+          // era-scoped, and an intent that cannot name its era leaves the webhook nothing to prove
+          // the cart still belongs to this attempt. `attemptEra` is the value OUR acquisition wrote.
+          attempt: attemptEra ?? "",
           // The discriminant the webhook's amount_capturable_updated arm keys on. Split shares use
           // the same event with kind='split_share', so this must be present and distinct — without
           // it an authorized pickup would fall through that arm and its hold would simply expire.
-          ...(manualCapture && {
-            kind: "pickup_manual" as const,
-            // The ERA this authorization belongs to. `acquireCartLock` lets the SAME diner reacquire,
-            // so a re-checkout (a different tip, say) produces a second hold over one cart and the
-            // FIRST one's webhook still names them as lock holder. The settle path compares this
-            // against the cart's live `locked_at` and refuses a superseded era.
-            attempt: attemptStamp,
-          }),
+          // The ERA this authorization belongs to is carried above for every intent now.
+          // `acquireCartLock` lets the SAME diner reacquire, so a re-checkout (a different tip, say)
+          // produces a second hold over one cart and the FIRST one's webhook still names them as
+          // lock holder; the settle path compares the era against the cart's live `locked_at` and
+          // refuses a superseded one.
+          ...(manualCapture && { kind: "pickup_manual" as const }),
         },
       },
       // Include tipRate in the key so two different tip choices that happen to land on the same

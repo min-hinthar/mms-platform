@@ -31,8 +31,17 @@ let updateError: { message: string } | null = null;
 let statusRow: { status: string } | null = null;
 let statusError: { message: string } | null = null;
 
+/** M70 — the RPC half. `releasePromoGrantFor` calls `mms_release_promo_grant`, so the era it passes
+ *  (and whether it calls at all) is the assertable surface. */
+let rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+let rpcError: { message: string } | null = null;
+
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
+    rpc: (fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ error: rpcError });
+    },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
         const q: Q = { table, payload, eq: [] };
@@ -60,10 +69,13 @@ function countChain() {
   return api;
 }
 
-const { releaseSettlementFor, releaseSettlement, acquireCartLock } = await import("./lock");
+const { releaseSettlementFor, releaseSettlement, releasePromoGrantFor, acquireCartLock } =
+  await import("./lock");
 
 beforeEach(() => {
   queries = [];
+  rpcCalls = [];
+  rpcError = null;
   updateCount = 0;
   updateError = null;
   statusRow = { status: "open" };
@@ -143,5 +155,49 @@ describe("acquireCartLock — an unreadable status is not a closed order", () =>
     // be a different millisecond, so the returned era would name an attempt the row does not hold.
     const written = queries.find((q) => "locked_at" in q.payload)?.payload.locked_at;
     expect(written).toBe(ok.era);
+  });
+});
+
+/**
+ * M70 · Codex P1 on #233 — the DECLINE was the one exit that freed the cart and kept the promo pin.
+ * The webhook's `payment_failed` arm released the lock and the freeze; nothing released the grant,
+ * so the diner came back to an editable basket still carrying an authorized discount and the next
+ * `mms_pin_promo_grant` no-op'd on the non-null pin.
+ *
+ * Asserted here rather than in the route because `app/api/**` is outside MONEY_PATHS and outside
+ * `verify:slice`'s mutant set — a money rule written there cannot be guarded (CLAUDE.md, W17).
+ */
+describe("releasePromoGrantFor — the decline releases the grant, era-scoped", () => {
+  it("clears the pin through the era-scoped RPC", async () => {
+    const err = await releasePromoGrantFor("cart-1", "2026-08-29T00:00:00.000Z");
+    expect(err).toBeNull();
+    expect(rpcCalls).toEqual([
+      {
+        fn: "mms_release_promo_grant",
+        args: { p_cart_id: "cart-1", p_attempt: "2026-08-29T00:00:00.000Z" },
+      },
+    ]);
+  });
+
+  it("passes the ERA, never a cart-wide clear — a successor's pin must survive a late decline", async () => {
+    await releasePromoGrantFor("cart-1", "era-A");
+    // The era is the whole predicate: the RPC matches `locked_at is not distinct from p_attempt`,
+    // so a redelivered decline for era-A finds zero rows once era-B holds the cart. An empty or
+    // absent attempt would match every era and wipe the live pin.
+    expect(rpcCalls[0]?.args.p_attempt).toBe("era-A");
+    expect(rpcCalls[0]?.args.p_attempt).not.toBe("");
+  });
+
+  it("does NOT clear anything when the intent cannot name its era", async () => {
+    const err = await releasePromoGrantFor("cart-1", "");
+    expect(err).toBeNull();
+    // An intent minted before the era rode in metadata has nothing proving it is the current
+    // attempt; a cart-wide clear is the successor-wiping hazard the scoping exists to prevent.
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("surfaces the write error instead of swallowing it", async () => {
+    rpcError = { message: "boom" };
+    expect(await releasePromoGrantFor("cart-1", "era-A")).toEqual({ message: "boom" });
   });
 });
