@@ -11,8 +11,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### 🔴 2026-08-27 — M22 · M70 · M72a APPLIED to production, closing a LIVE money-path outage
 >
-> Prod is at **97 migrations**. All nine RPCs the app calls now exist with one shape each and
-> `service_role`-only grants, verified with `has_function_privilege` after each apply.
+> Prod is at **97 migrations**. The **nine RPCs M22 · M70 · M72a touch** now exist with one shape
+> each and `service_role`-only grants, verified with `has_function_privilege` after each apply.
+> ⚠️ **Nine is the count THIS apply covered, not the app's RPC surface** (M148, Codex on #236):
+> a repo-wide search finds **57** distinct literal `.rpc()` names. The earlier wording — "all
+> nine RPCs the app calls" — made a narrow verification read as an exhaustive schema-drift
+> check, which is the kind of claim the next reader stops looking behind.
 >
 > **What had happened, because the shape of it will recur:** the app half of a migration deploys to
 > production automatically on merge to `main` (Vercel), while the SQL half needs a MANUAL apply.
@@ -32,10 +36,16 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > indexes, policies or data and define no function).
 >
 > ⚠️ **Prod's migration history is DIVERGENT from this repo** — see `CLAUDE.md:46`. The versions are
-> MCP-generated and share **zero** values with the repo filenames. Plain `db push` REFUSES on that
-> divergence rather than replaying (an earlier draft of this note said it replays from `create table`;
-> Codex corrected that on #236 — `--include-all` is the flag that would force a replay, and on this
-> drift it is destructive). Apply one file at a time with the MCP `apply_migration`, verifying the
+> MCP-generated and share **zero** values with the repo filenames. **`db push` in ANY form cannot be
+> used here until the histories are reconciled** — and this note has now been wrong TWICE by
+> inferring CLI behaviour instead of observing it (M148). Draft 1 said plain `db push` replays from
+> `create table`; draft 2 said `--include-all` WOULD force that replay and is "genuinely
+> destructive". Both unverified. Codex reports (#236, round 2) that `FindPendingMigrations` rejects
+> remote versions absent from the local directory **regardless of the flag**, and that `includeAll`
+> only admits local migrations preceding the latest remote version — so with 97 remote-only stamps
+> BOTH forms stop before applying anything. `CLAUDE.md`'s fence carries the measured-vs-unmeasured
+> split; do not restate a failure mode you have not run. Apply one file at a time with the MCP
+> `apply_migration`, verifying the
 > objects THAT file creates before the next — `pg_proc` is not universal, since column/index/policy
 > migrations leave no function row. Reconciling the histories is filed as **M125**.
 >
@@ -227,7 +237,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 228 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1094 qr tests + 133 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 228 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1102 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

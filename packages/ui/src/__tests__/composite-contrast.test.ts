@@ -483,3 +483,105 @@ describe("the moments' light bands — a wash across a surface that carries text
     }
   }
 });
+
+describe("the reward shimmer — a light band that crosses TEXT, not an edge", () => {
+  /**
+   * M150(a), found by Codex on #238 and RE-found on #242 after I wrongly closed it as
+   * unreproducible. The finding named `--print-head`; the actual consumer is
+   * `.checkout-reward-applied::after`, which sweeps a band across the reward card while
+   * `RewardField` renders `--t2` Burmese and reward-shortfall text on top. I searched for the
+   * token the finding named instead of looking at the element it named, and closed a live defect.
+   *
+   * The card's own background is `linear-gradient(color-mix(--gold 14%, --cd), color-mix(--gold
+   * 7%, --cd))`, so the band's worst backdrop is the 14% stop — that is the pair asserted here.
+   * At --sheen's Night 0.11 this measured 3.8745; `--reward-shine` is 0.05.
+   *
+   * Reduced-motion sets `content: none` on the pseudo-element, so the band exists only on the
+   * motion path — which is most people, and is why this is a floor rather than a note.
+   */
+  /**
+   * ⚠️ THE TOKEN IS READ OUT OF THE SELECTOR, not named here (Codex P2 on #242 round 2).
+   *
+   * The first version of this suite measured `--reward-shine` directly and never checked that
+   * anything USES it. Swapping `.checkout-reward-applied::after` back to `var(--sheen)` left all 35
+   * assertions green — including the negative one asserting --sheen fails — while restoring the
+   * 3.8745:1 defect in production. A guard that measures a token nothing consumes is measuring a
+   * constant, and this repo has now shipped that shape four times in one session.
+   *
+   * So the band's token is DERIVED from the shipped rule. If the selector changes to a different
+   * token, these assertions follow it there and fail on its real value; if the rule disappears or
+   * stops carrying a `var()`, the extraction throws rather than passing vacuously.
+   */
+  const BAND_TOKEN = (() => {
+    const globals = readFileSync(
+      fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+      "utf8",
+    );
+    // Comments stripped FIRST, and ambiguity refused (Codex P2 on #242 round 3). Matching the first
+    // textual occurrence would pick a commented-out copy of the rule sitting above the live one —
+    // the same "found a string that is not the shipped thing" mistake the fx-boot extraction made
+    // twice. Blanked rather than deleted so nothing shifts under a future offset-based read.
+    const live = globals.replace(/\/\*[\s\S]*?\*\//g, "");
+
+    // The selector legitimately appears TWICE — the rule that paints the band, and the
+    // reduced-motion override that sets `content: none` to remove it. So identify the PAINTING one
+    // structurally (it is the one declaring a `background`) rather than by position, and still
+    // refuse ambiguity if a second painting rule ever appears.
+    const painting = [...live.matchAll(/\.checkout-reward-applied::after\s*\{([^}]*)\}/g)]
+      .map((m) => m[1]!)
+      .filter((body) => /background:\s*[^;]*;/i.test(body));
+    if (painting.length !== 1) {
+      throw new Error(
+        `globals.css has ${painting.length} live \`.checkout-reward-applied::after\` rules that paint ` +
+          "a background. This suite asserts a contrast floor for that band, so exactly one rule has " +
+          "to own it — zero means the shimmer moved, two means it is ambiguous which one a diner sees.",
+      );
+    }
+
+    const decl = /background:\s*([^;]*);/i.exec(painting[0]!)!;
+
+    // EVERY custom property in the declaration, not the first — a gradient that grows a second
+    // `var()` before the centre stop would otherwise silently re-point these assertions at it.
+    const vars = [...decl[1]!.matchAll(/var\((--[a-z0-9-]+)\)/gi)].map((m) => m[1]!);
+    const unique = [...new Set(vars)];
+    if (unique.length !== 1) {
+      throw new Error(
+        `the shimmer's background names ${unique.length} custom properties (${unique.join(", ") || "none"}). ` +
+          "This suite asserts a contrast floor for the BAND, so it must be unambiguous which token " +
+          "paints it — name the band's colour in one property, or teach this extraction which stop " +
+          "carries it.",
+      );
+    }
+    return unique[0]!;
+  })();
+
+  const stop = (map: Record<string, string>, pct: number) =>
+    mixOklab(t(map, "--gold"), pct, t(map, "--cd"));
+
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    // Labelled, not computed: `${0.14 * 100}` prints "14.000000000000002" in a test name.
+    for (const [label, pct] of [
+      ["14%", 0.14],
+      ["7%", 0.07],
+    ] as const) {
+      it(`${theme} · --t2 survives the shimmer over the ${label} gold stop`, () => {
+        const under = over(t(map, BAND_TOKEN), stop(map, pct));
+        expect(ratio(t(map, "--t2"), under)).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
+
+  it("is BOUNDED below --sheen in Night — the two are different budgets", () => {
+    // Also pins the binding itself: if the selector were switched back to --sheen, BAND_TOKEN
+    // would BE --sheen and the two ratios below would be equal, failing the strict inequality.
+    // The regression this guards is someone collapsing the token back to --sheen because they
+    // look alike. Asserting the ORDER rather than the literal keeps that from being a silent edit
+    // without pinning a hex that a re-tune would have to fight.
+    const worst = mixOklab(t(dark, "--gold"), 0.14, t(dark, "--cd"));
+    const withShine = ratio(t(dark, "--t2"), over(t(dark, BAND_TOKEN), worst));
+    const withSheen = ratio(t(dark, "--t2"), over(t(dark, "--sheen"), worst));
+    expect(withSheen).toBeLessThan(AA); // the value this token replaced, still failing
+    expect(withShine).toBeGreaterThan(withSheen);
+  });
+});

@@ -4,6 +4,104 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Four guards written this session, four ways they measured nothing (2026-08-29)
+
+Codex's second round on #242 landed the sharpest finding of the sweep, and it is the same shape as
+the three before it: **a guard that verifies a constant rather than the thing it claims to guard.**
+
+(Round 3 then closed two remaining false-CLEAN doors in the same two guards: the CSS extraction was
+still first-textual-match, so a commented-out copy of the rule above a regressed live one would have
+been measured, and a gradient growing a second `var()` would have silently re-pointed the
+assertions — it now strips CSS comments, identifies the PAINTING rule structurally rather than by
+position (the selector legitimately appears twice, the second being the reduced-motion override),
+and refuses more than one custom property in the declaration. And `isDead` recognised only
+`false &&` while its own comment claimed ternaries, so `{false ? <script/> : null}` and
+`{0 && <script/>}` still read as live; it now covers literal-falsy `&&`, truthy `||` and both
+ternary arms. Four dead-branch shapes and both CSS shapes falsified.)
+
+`composite-contrast.test.ts` measured `--reward-shine` by name and never checked that anything
+CONSUMES it. Swapping `.checkout-reward-applied::after` back to `var(--sheen)` left all 35
+assertions green — **including the negative one asserting `--sheen` fails** — while restoring the
+3.8745:1 defect in production. Reproduced before fixing. The band's token is now READ OUT of the
+shipped rule, so the assertions follow the selector wherever it points and the extraction throws if
+the rule stops carrying a `var()`. Falsified three ways: selector swapped back, token loosened to
+0.11, whole rule deleted — all red.
+
+The `fx-boot` extraction needed the same lesson a second time. Requiring exactly one textual
+candidate proved uniqueness, and **uniqueness is not liveness**: a good copy in `{false && <script/>}`
+or behind a comment, plus a live script that regressed by dropping the storage key, leaves the DEAD
+copy as the sole candidate and every assertion passes against code that never ships. Text can say
+"there is a string like this"; it cannot say "this renders". So this asks the compiler too, the same
+instrument `check-promo-grant-pin.mjs` moved to for the same reason — matching a JSX `<script>` whose
+`__html` names the key, skipping dead branches, and refusing ambiguity. Both of Codex's scenarios now
+fail.
+
+And a citation this repo's own rule should have caught: the M150 row cited `tokens.css:277` for
+`--pa-parallax-mid: 13px` — a line number **invalidated by the very commit that wrote it**, since
+adding `--reward-shine` above shifted it to 283 and 277 now names `--pa-grid-far`. Every reference
+cites the token instead. "Never transcribe a number" has a sibling: never cite a line.
+
+### The post-merge Codex findings, finally answered — and half of them were already fixed (2026-08-29)
+
+The back-sweep filed six rows of Codex findings that had landed after a merge and never been
+answered. Working them turned out to be as much re-verification as repair: **two sub-items were
+already fixed by later work, and one does not reproduce against current source at all.** Acting on
+the filed text without re-reading the code would have produced changes for problems that no longer
+exist.
+
+**M146 — `data-fx="off"` still moved the room, and the CSS alone would not have fixed it.** The `off`
+block nulled `animation` on the two ambient planes and nothing else, so on a fine pointer
+`AmbientMotion` kept writing `--pa-px`/`--pa-py` every frame and both full-viewport planes kept
+translating — with `--fx-promote: auto` having just removed their layer promotion, so "off" was doing
+_unpromoted_ compositing work. `.pa-pause` is `display: none` there and never renders on a fine
+pointer anyway, so that diner had motion and no stop control (WCAG 2.2.2). The `off` rule now mirrors
+the reduced-motion block exactly, **and** `AmbientMotion` reads the dial so the listener is never
+attached — with a `MutationObserver` on `data-fx`, because `FxDial` writes the attribute at runtime
+and reading it once at mount would strand a diner who turns effects off mid-session. Codex's tell was
+the right one: the reduced-motion block three rules down already killed all four properties, which is
+what makes the narrow shape an oversight rather than a decision.
+
+**M147 — a `localStorage` throw took the device-tier fallback with it.** The boot script read storage
+and derived the hardware tier inside one `try`, so a browser that throws on storage access — Safari
+private mode, cookies blocked, a partitioned iframe — skipped the tier derivation too. The browser
+most likely to throw is a locked-down mobile one: exactly the low-end device `lite` exists for, and
+the one getting the full budget. Now two `try` blocks, and pinned by `apps/qr/lib/fx-boot.test.ts` —
+8 assertions that read `layout.tsx` and **evaluate the shipped literal**, so a test cannot stay green
+while the real script rots. Its first draft anchored the extraction on the post-fix prefix, which made
+the regression _unfindable_ and reported "no tests" instead of a failure; a guard that disappears on
+the thing it guards is worse than none, so it now anchors on the storage key.
+
+**M150 — all four, and one of them I had closed wrongly.** `.pa-mid` was `inset: 0` while translating
+13px (the value of `--pa-parallax-mid`), pulling its own edge into frame; it is now `inset: -16px`. The
+`verify-mode-authority` chain inference and the M17 tax truth table were both already corrected, each
+with a comment crediting the round that caught it.
+
+The fourth is the one worth reading. I closed the reward-shimmer contrast finding as **"does not
+reproduce"**, because it named `--print-head` and that token's only consumer in source is the
+receipt's, measured at 4.6028 and documented. Codex's round on #242 named the actual element:
+`.checkout-reward-applied::after` sweeps a `--sheen` band across the reward card while `RewardField`
+renders `--t2` Burmese and reward-shortfall text on top of it. Measured in Night, not estimated:
+`--t2` on the card's `color-mix(--gold 14%, --cd)` stop is **5.4243** bare and **3.8745** under the
+band — and the 7% stop fails too, 6.3427 → **4.4930**. **I searched for the token the finding named
+instead of looking at the element it named**, and closed a live AA failure on the strength of it. A
+wrongly-closed finding is worse than an open one.
+
+The fix is a bounded token of its own — `--reward-shine`, Night **0.05** (4.6609 on the worst stop;
+the limit is 0.0610 and it backs off for headroom exactly as `--print-head` took 0.08 over its own
+limit). Light keeps 0.55 unchanged, because white over an already-light ground only brightens it and
+moves dark text the safe way (5.2563 → 5.5775). Five assertions in `composite-contrast.test.ts`,
+including one that keeps the token bounded BELOW `--sheen` so the two cannot be collapsed back
+together by someone who notices they look alike; red-first, restoring 0.11 fails both Night stops.
+Reduced-motion sets `content: none` on that pseudo-element, so the band only ever existed on the
+motion path — which is most people.
+
+**M148 — two documentation claims corrected, two left open honestly.** `HANDOFF.md` said "all nine
+RPCs the app calls"; there are **57** distinct `.rpc()` names, and the wording made a narrow
+post-apply verification read as an exhaustive drift check. And both `HANDOFF.md` and this file still
+carried "`--include-all` … would force a replay … genuinely destructive" — the second unverified
+inference in a row about a command nobody here has run. That claim is **removed rather than replaced
+with a third guess**; the conclusion never depended on the mechanism.
+
 ### The Codex wait is a required check now, and Rice is out of the promoted order (2026-08-29)
 
 Two owner asks: _"wire the wait into the flow properly. don't have Rice as top seller."_
@@ -868,9 +966,18 @@ project has actually taken — and verified before the next: signature, shape co
 menu_categories`. That was wrong, and Codex corrected it on #236.** The CLI validates divergent
 remote history and REFUSES; `--include-all` ("Include all migrations not found on remote history
 table") is the flag that would force a replay. `db push` is still not the command to reach for here —
-it cannot apply anything until the histories are reconciled, and `--include-all` on this drift is
-genuinely destructive — but "it refuses" and "it replays" are very different facts, and the fence in
-`CLAUDE.md` now states the real one. Codex's deeper point also stands: that fence prescribed
+it cannot apply anything until the histories are reconciled — but "it refuses" and "it replays" are
+very different facts, and the fence in `CLAUDE.md` now states the real one.
+
+⚠️ **This paragraph was itself corrected again (M148, 2026-08-29).** It used to end "`--include-all`
+on this drift is genuinely destructive", which was the SECOND unverified inference in a row about a
+command nobody here has run — there is no DB connection string in the agent environment, so
+`--dry-run` could not be executed against prod. Codex's round 2 on #236 reports that
+`FindPendingMigrations` rejects remote versions absent from the local directory **regardless of the
+flag**, and that `includeAll` only admits local migrations preceding the latest remote version — so
+with 97 remote-only stamps BOTH forms stop before applying anything. The claim is removed rather than
+replaced with a third guess. What is safe to rely on is the conclusion, which never depended on the
+mechanism: `db push` in any form is unusable here until the histories are reconciled (M125). Codex's deeper point also stands: that fence prescribed
 perpetuating the drift rather than fixing it, so reconciling the histories with
 `supabase migration repair` is filed as **M125** rather than left implicit.
 

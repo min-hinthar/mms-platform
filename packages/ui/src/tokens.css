@@ -123,6 +123,12 @@
   --surface-elevated: #ffffff;
   /* inner top-highlight on lifted surfaces (stays a faint white in BOTH themes — see .dark) */
   --sheen: rgba(255, 255, 255, 0.55);
+  /* The reward shimmer's SWEEPING light band — a different budget from the resting bevel above,
+     which is why it is its own token (M150a, Codex on #238 and again on #242). A bevel sits on an
+     edge; this band crosses TEXT. In light it is free: white over an already-light ground can only
+     brighten it, and `--t2` on the 14% gold stop measures 5.2563 bare and 5.5775 under the full
+     0.55 — it moves the wrong way to hurt. Night is where it bites; see `.dark`. */
+  --reward-shine: rgba(255, 255, 255, 0.55);
   /* M126 · light halves of the four tokens Night gained. Declared here so components can read them
      unconditionally — the alternative is a theme fork at 80+ call sites. Two are honest asymmetries
      rather than parity, and saying so is the point:
@@ -491,6 +497,16 @@
      `.checkout-reward-applied` are both built on --sheen and have effectively not existed in
      Night. They come back. */
   --sheen: rgba(255, 255, 255, 0.11);
+  /* ⚠️ NOT --sheen, and the numbers are the reason (M150a). `.checkout-reward-applied::after`
+     sweeps this band across `--t2` Burmese + reward-shortfall text sitting on the card's
+     `color-mix(--gold 14%, --cd)` stop. Measured in Night, not estimated: `--t2` clears AA on that
+     stop bare at **5.4243**, and --sheen's 0.11 drags it to **3.8745** — below the floor while the
+     sweep passes. The 7% stop fails too (6.3427 → 4.4930). The largest alpha that still clears 4.5
+     on the worst stop is 0.0610; this backs off to **0.05** for headroom (4.6609 on the 14% stop,
+     5.4448 on the 7%), the same way --print-head took 0.08 rather than sitting on its limit.
+     Reduced-motion sets `content: none` on that pseudo-element, so this only ever applies to the
+     motion path. Pinned by packages/ui/src/__tests__/composite-contrast.test.ts. */
+  --reward-shine: rgba(255, 255, 255, 0.05);
   --edge-lo: color-mix(in oklab, var(--scrim) 70%, transparent);
   --sh-glow: 0 6px 22px color-mix(in oklab, var(--ac) 22%, transparent);
   --sh-lift: 0 2px 8px -1px color-mix(in oklab, var(--ac) 52%, transparent);
