@@ -4,6 +4,49 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The Codex wait is a required check now, and Rice is out of the promoted order (2026-08-29)
+
+Two owner asks: _"wire the wait into the flow properly. don't have Rice as top seller."_
+
+**The wait was a rule, and the rule kept failing the same way.** It was written down and followed
+for months. Codex only fires when a PR LEAVES DRAFT, and the merge flow marks-ready-and-squashes in
+one motion, so its review lands minutes after the merge on a closed PR nobody re-reads. On #191 that
+buried 2×P1 + 2×P2. On #239 it buried three P2s by NINE minutes, all of which reached `main`. The
+back-sweep above then found 76 findings across twelve PRs, sixteen never answered — including the
+money P1 that sat open for two days. Every one of those arrived post-merge, which makes it a
+sequencing problem, and a sequencing problem is what a required check fixes.
+
+`.github/workflows/require-codex-review.yml` is red until Codex has reviewed the commit that is
+actually about to merge. It re-reds on every push, because a review of the previous head says nothing
+about the code that would land now — that being exactly the #239 case. Drafts are exempt BY DESIGN
+rather than as a loophole: Codex is not triggered on a draft, so gating one would be a permanently-red
+check, and a check that is always red teaches people to ignore red checks. The gate arms itself the
+instant the PR is marked ready, which is the same instant Codex starts.
+
+The decision is a tested module (`scripts/codex-review-gate.mjs`, 9 assertions in
+`apps/qr/lib/codex-review-gate.test.ts`) and not an inline expression, because a required check that
+answers "yes" for the wrong reason is worse than no check — it converts an unread review into a
+green tick, and this repo has shipped that class before. So the near-misses are what get asserted:
+a review of the PREVIOUS head, a HUMAN writing the word "Codex", a Codex comment that names no
+commit, a malformed head. Matching is on the sha, never on vocabulary. It accepts both shapes Codex
+reports in — a submitted review pinned via `commit_id`, and the no-findings issue comment that names
+its commit only in prose. **What it cannot do is prove anyone read the review**; it proves one exists
+on the commit about to merge, which turns merging past it into a deliberate act rather than an
+accident of timing. Two rounds and fix-or-justify remain a human discipline.
+
+**Rice is no longer promoted** (OPEN-ITEMS M136, open since M135 as an explicit owner question).
+`NOT_PROMOTED_SLUGS = ["rice"]` in `posPopular.ts`, filtered in `posPopularIds`, so Rice leaves both
+the "Most ordered" badge set and the suggestion order; the promoted head is now `kyay-o` (1975),
+ahead of `burmese-milk-tea` (1791) and `mohinga` (1068), and 75 of the 76 POS rows survive. Three
+things it deliberately does not do. The **data file is untouched** — `pos-popularity.json` still
+reads the till verbatim at `rice(2052)`, asserted by a test, because the moment the export carries a
+product opinion nobody can tell a sales change from an edit. It is **not a Sides-and-Drinks rule**:
+Coconut Rice is a Side and stays, Milk Tea and Faluda are Drinks and stay, since a diner orders those
+on purpose and a category rule would be this app inventing a policy from one sentence. And the filter
+is at **read time**, so the next export drops in without re-deciding anything. Four assertions --
+including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
+`"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
+
 ### The Codex back-sweep — a money P1 that sat unanswered for two days (2026-08-29)
 
 Asked to check every Codex review for fixes, so the twelve PRs before #239 were swept as well:

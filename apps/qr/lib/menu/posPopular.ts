@@ -22,11 +22,12 @@ import posPopularity from "./pos-popularity.json";
  * owner asked for the data "instead of ranking them or numbering", and a numeral was the one thing
  * this data was never going to support gracefully anyway.
  *
- * ⚠️ IT IS UNITS, SO SIDES AND DRINKS WIN. Plain Rice (2052) and Burmese Milk Tea (1791) top the
- * list ahead of Mohinga (1068), because they ride along with other orders. That is the honest
- * reading of the data and it is deliberately NOT filtered here — inventing a "real dish" rule would
- * be this app deciding what the owner's sales mean. The category round-robin in `startHereRows`
- * already keeps one dish per category, so a side cannot take over a row.
+ * ⚠️ IT IS UNITS, SO SIDES AND DRINKS RANK HIGH. Plain Rice (2052) and Burmese Milk Tea (1791) sat
+ * ahead of Mohinga (1068) because they ride along with other orders. The DATA is still unfiltered —
+ * this file reads the till verbatim — but M136 asked the owner what to promote rather than deciding
+ * it here, and they answered (2026-08-29): not Rice. `NOT_PROMOTED_SLUGS` below carries that one
+ * decision by name; Milk Tea and Faluda stay, because a diner orders those on purpose. The category
+ * round-robin in `startHereRows` still keeps one dish per category on top of it.
  */
 export type PosPopular = { slug: string; qty: number };
 
@@ -44,6 +45,30 @@ export const POS_POPULARITY: readonly PosPopular[] = Object.freeze(
 export const POS_BADGE_MAX = 12;
 
 /**
+ * Dishes the till sells in volume that this app must NOT promote as most-ordered (M136 — owner,
+ * 2026-08-29: "don't have Rice as top seller").
+ *
+ * The units are real and the file that carries them stays untouched: `pos-popularity.json` is the
+ * restaurant's own order and it is not this app's place to edit it. What IS this app's decision is
+ * what it holds up as a recommendation, and plain **Rice** at 2052 outsold every real dish because
+ * it rides along with them — a bowl of it lands beside the curry someone actually chose. Leading
+ * "Start here" with it, and stamping it "Most ordered", answers "what should I eat?" with "rice".
+ *
+ * ⚠️ A NAMED LIST, never a category rule. `Sides` also holds Coconut Rice (434) and `Drinks` holds
+ * Burmese Milk Tea (1791) and Faluda (451) — all things a diner orders deliberately and might well
+ * want recommended. A `category === "Sides"` heuristic would silently drop those too and keep
+ * dropping whatever lands in the category next, which is exactly how a presentation rule turns into
+ * an invisible policy nobody chose. One slug is here because the owner named one slug; adding
+ * another is a one-line decision they can make out loud.
+ *
+ * Excluded from the ORDER itself, not just the badge — the ask was about being the top seller, and
+ * the same list drives the badge, row A, the category round-robin and the surprise draw. Rice is
+ * still on the menu, still searchable, still orderable in its own section; it is simply not held up
+ * as an answer to "what do people order here?".
+ */
+export const NOT_PROMOTED_SLUGS: readonly string[] = ["rice"];
+
+/**
  * Map the POS order onto the ids of the menu actually being rendered, dropping anything this menu
  * does not carry. Order is preserved, so index 0 is the most-sold dish present.
  *
@@ -55,5 +80,8 @@ export const POS_BADGE_MAX = 12;
 export function posPopularIds(items: readonly { id: string; slug?: string | null }[]): string[] {
   const idBySlug = new Map<string, string>();
   for (const i of items) if (i.slug) idBySlug.set(i.slug, i.id);
-  return POS_POPULARITY.map((p) => idBySlug.get(p.slug)).filter((id): id is string => !!id);
+  const notPromoted = new Set(NOT_PROMOTED_SLUGS);
+  return POS_POPULARITY.filter((p) => !notPromoted.has(p.slug))
+    .map((p) => idBySlug.get(p.slug))
+    .filter((id): id is string => !!id);
 }

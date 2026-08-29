@@ -1,0 +1,105 @@
+name: Require Codex review
+# Pre-merge gate: a ready-for-review PR must carry a Codex review OF ITS CURRENT HEAD.
+#
+# WHY THIS IS A WORKFLOW AND NOT A RULE IN CLAUDE.md. The rule existed and was followed for months;
+# it still failed, twice, in the same way. Codex only fires when a PR LEAVES DRAFT, and the merge
+# flow marks-ready-and-squashes in one motion — so its review lands minutes AFTER the merge, on a
+# closed PR nobody re-reads. On #191 that buried 2×P1 + 2×P2, all four real. On #239 it buried three
+# P2s by NINE MINUTES: a collapsed photo slot, a false count in the dietary sheet, and a scroll-spy
+# regression, all of which reached `main`. A sweep of the twelve PRs before it then found 76 Codex
+# findings, 16 never answered, 8 still live — including a money-path P1 open for two days (a declined
+# payment left an authorized promo grant pinned to a re-editable cart, so the next checkout charged a
+# discount the new basket never earned).
+#
+# Every one of those arrived post-merge. That is not a discipline problem, it is a sequencing one,
+# and a sequencing problem is exactly what a required check fixes: this job is RED until Codex has
+# reviewed the commit that is actually about to merge, so merging without reading it becomes a
+# deliberate act rather than an accident of timing.
+on:
+  # `ready_for_review` is the moment Codex is triggered, so the gate opens red at exactly the point
+  # the old flow merged. `synchronize` re-reds it on every new push: a review of the previous head
+  # says nothing about the code that would land now.
+  pull_request:
+    types: [opened, reopened, ready_for_review, synchronize]
+  # The event that turns it green. Codex reports as a REVIEW on some runs and, when it finds nothing,
+  # as an ISSUE COMMENT ("Codex Review: Didn't find any major issues … Reviewed commit: <sha>") — so
+  # both are listened for, and both are accepted below.
+  pull_request_review:
+    types: [submitted]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  # Keyed on the PR, not the SHA: a newer push should cancel the older wait rather than leave two.
+  group: codex-gate-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  codex-reviewed:
+    runs-on: ubuntu-latest
+    # Drafts are exempt BY DESIGN, not as a loophole: Codex is not triggered on a draft, so gating one
+    # would be a permanently-red check that teaches people to ignore red checks. The gate arms itself
+    # the instant the PR is marked ready — which is the same instant Codex starts.
+    if: >-
+      github.event_name != 'issue_comment' ||
+      github.event.issue.pull_request != null
+    steps:
+      # The decision lives in `scripts/codex-review-gate.mjs` and is unit-tested in
+      # `apps/qr/lib/codex-review-gate.test.ts` — a required check that answers "yes" for the wrong
+      # reason is worse than no check, so the matching is falsifiable rather than inline here.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/codex-review-gate.mjs
+          sparse-checkout-cone-mode: false
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const { hasCodexReview } = await import(
+              `${process.env.GITHUB_WORKSPACE}/scripts/codex-review-gate.mjs`
+            );
+
+            const num = context.payload.pull_request?.number ?? context.payload.issue?.number;
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: num });
+
+            // Drafts are exempt BY DESIGN, not as a loophole: Codex is not triggered on a draft, so
+            // gating one would be a permanently-red check — and a check that is always red teaches
+            // people to ignore red checks. The gate arms itself the instant the PR is marked ready,
+            // which is the same instant Codex starts.
+            if (pr.draft) {
+              core.info(`PR #${num} is a draft — Codex is not triggered on drafts; gate stands down.`);
+              return;
+            }
+
+            const [reviews, comments] = await Promise.all([
+              github.paginate(github.rest.pulls.listReviews, {
+                ...context.repo, pull_number: num, per_page: 100,
+              }),
+              github.paginate(github.rest.issues.listComments, {
+                ...context.repo, issue_number: num, per_page: 100,
+              }),
+            ]);
+
+            const head = pr.head.sha;
+            const { reviewed, via } = hasCodexReview({ headSha: head, reviews, comments });
+
+            if (reviewed) {
+              core.info(
+                `Codex has reviewed ${head.slice(0, 10)} (via ${via}). Now READ it: this check only ` +
+                  `proves the review EXISTS on the commit about to merge, never that anyone acted on ` +
+                  `it. Two rounds, fix-or-justify each, per CLAUDE.md.`,
+              );
+              return;
+            }
+
+            core.setFailed(
+              `No Codex review of ${head.slice(0, 10)} yet.\n\n` +
+                `This check is red on purpose and goes green on its own the moment Codex reports. It ` +
+                `exists because Codex's findings have repeatedly landed minutes AFTER a merge, unread ` +
+                `— see the header of this workflow for the three occasions and what shipped.\n\n` +
+                `If it has not fired, comment "@codex review" on the PR.`,
+            );
