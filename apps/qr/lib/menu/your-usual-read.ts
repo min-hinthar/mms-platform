@@ -35,7 +35,7 @@ import {
  * ── Degradation ─────────────────────────────────────────────────────────────────────────────────
  * The whole body is inside try/catch, including `serviceClient()` itself, which throws on a missing
  * or rotated key. This is a decorative recognition card on the highest-traffic page in the app: a
- * config gap must degrade to "no card", never to a 500 on the menu. Same rule `mostLoved` states.
+ * config gap must degrade to "no card", never to a 500 on the menu. The rule the retired `mostLoved` stated.
  *
  * verify:slice-exempt — `server-only` cannot be imported by `apps/qr`'s node vitest, so no mutant can
  * run against this file; every rule that CAN be tested was deliberately put in `your-usual.ts` next
@@ -46,7 +46,7 @@ import {
  * guarded as TEXT: `your-usual.test.ts` reads this file with `readFileSync` and asserts the scoping.
  */
 
-/** Strict canonical uuid — the same discriminator `mostLoved` uses to tell a menu dish from a
+/** Strict canonical uuid — the discriminator that tells a menu dish from a
  *  grocery barcode line (`menu_item_id` is a soft text ref that holds both). */
 const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

@@ -52,6 +52,13 @@ export function MarqueeRail<T>({
   "aria-labelledby"?: string;
 }) {
   const [scroller, setScroller] = useState<HTMLElement | null>(null);
+  // M133 — whether ONE set of cards genuinely overflows the rail, i.e. whether a loop is possible
+  // at all. Starts false so the very first paint is the plain rail: rendering the duplicate set and
+  // then discovering it can't drift is the bug this exists to fix (owner: "what is wrong with the
+  // numberings duplicates on the cards of Start here?"). With a short row on a wide viewport the
+  // drift effect bailed at its own `loop <= clientWidth` guard, but the copies stayed in the DOM —
+  // so the whole sequence, rank seals and all, sat there printed twice and perfectly still.
+  const [canLoop, setCanLoop] = useState(false);
   const playingRef = useRef(playing);
   // The drift effect parks its restart hook here so the `playing` flip can wake a stopped loop.
   const resumeRef = useRef<() => void>(() => {});
@@ -60,9 +67,35 @@ export function MarqueeRail<T>({
     if (playing) resumeRef.current();
   }, [playing]);
 
+  // Measured off the REAL set alone, so it never depends on the copies it decides about. Kept in
+  // its own effect with a ResizeObserver: a rotation or a split-screen resize can move a rail
+  // across the threshold in both directions, and the drift effect below can't observe anything in
+  // the case where it returns early. `measure()` runs once before the observer, so a browser
+  // without ResizeObserver still gets a correct first answer rather than the `false` seed.
   useEffect(() => {
     const el = scroller;
     if (!el || !motion) return;
+    const measure = () => {
+      const lis = [...el.querySelectorAll<HTMLElement>(":scope > li:not([data-dupe])")];
+      const first = lis[0];
+      const last = lis[lis.length - 1];
+      if (!first || !last) return;
+      const gap = Number.parseFloat(getComputedStyle(el).columnGap) || 0;
+      // One full set incl. its trailing gap — the same quantity the drift effect derives from the
+      // first duplicate's offset, computed the one way that works before any duplicate exists.
+      const set = last.offsetLeft + last.offsetWidth - first.offsetLeft + gap;
+      setCanLoop(set > el.clientWidth + 24);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scroller, motion, items.length]);
+
+  useEffect(() => {
+    const el = scroller;
+    if (!el || !motion || !canLoop) return;
     const firstReal = el.querySelector<HTMLElement>("li");
     const firstDupe = el.querySelector<HTMLElement>("li[data-dupe]");
     if (!firstReal || !firstDupe) return;
@@ -203,7 +236,7 @@ export function MarqueeRail<T>({
       document.removeEventListener("visibilitychange", onVis);
       io.disconnect();
     };
-  }, [scroller, motion, direction, speed, items.length]);
+  }, [scroller, motion, canLoop, direction, speed, items.length]);
 
   return (
     <Rail
@@ -211,7 +244,7 @@ export function MarqueeRail<T>({
       role="list"
       scrollerRef={setScroller}
       {...railProps}
-      className={`start-here-rail${motion ? " start-here-marquee" : ""} ${railProps.className ?? ""}`.trimEnd()}
+      className={`start-here-rail${motion && canLoop ? " start-here-marquee" : ""} ${railProps.className ?? ""}`.trimEnd()}
     >
       {items.map((i) => (
         <li key={itemKey(i)}>{renderItem(i, false)}</li>
@@ -222,6 +255,7 @@ export function MarqueeRail<T>({
           focus on the twin BEFORE the dupe's own onClick opens the sheet, so the sheet's
           focus-restore target is always a real, AT-visible card. */}
       {motion &&
+        canLoop &&
         items.map((i, idx) => (
           <li
             key={`dupe-${itemKey(i)}`}

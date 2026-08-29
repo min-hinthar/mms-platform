@@ -101,16 +101,24 @@ const COUNT_RULES = [
 const HISTORICAL = /^.{0,24}?(at (?:the )?time|at that point|as of \d|historical)/is;
 
 /**
- * Blanks a wrapped shell-comment continuation so a count that straddles two lines is still ONE
- * phrase to the rules. Found by the W22-docs review: README states the gate's size inside a fenced
- * `bash` block whose comment wraps, so `124 verify:slice` ended one line and `# mutants` began the
- * next — the `#` sits where the rules expect whitespace, and EVERY rule silently missed it (a
- * planted 999 stayed green). The `#` and its padding become spaces while the newline SURVIVES, so
- * offsets and line numbers are byte-identical to the original and the reported anchor stays exact.
+ * Blanks a wrapped CONTINUATION MARKER so a count that straddles two lines is still ONE phrase to
+ * the rules. Found by the W22-docs review: README states the gate's size inside a fenced `bash`
+ * block whose comment wraps, so `124 verify:slice` ended one line and `# mutants` began the next —
+ * the `#` sits where the rules expect whitespace, and EVERY rule silently missed it (a planted 999
+ * stayed green). The marker and its padding become spaces while the newline SURVIVES, so offsets
+ * and line numbers are byte-identical to the original and the reported anchor stays exact.
+ *
+ * `>` joined the list in M131, from the same defect one notation over: HANDOFF's gate line wraps
+ * inside a BLOCKQUOTE, so a `sed` that lost its capture left `1049 qr tests +` ending one line and
+ * `>  ui tests` beginning the next. The numberless twin below could not see it — the `+` was
+ * followed by a newline, and the continuation line began with `>` where the rule expects only
+ * whitespace — so `check:docs` reported CLEAN on a gate line with a missing number in it, which is
+ * the exact failure the twin was added to stop. A rule that normalizes one notation and not the
+ * other is a rule that only works where it was tested.
  */
 const joinWrappedComments = (text) =>
   text.replace(
-    /\n([ \t]*)#([ \t]*)/g,
+    /\n([ \t]*)[#>]([ \t]*)/g,
     (_m, before, after) => "\n" + " ".repeat(before.length + 1 + after.length),
   );
 

@@ -4,6 +4,341 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The rendered-surface pass — the app in a real browser, judged on its pixels (2026-08-29)
+
+The owner asked for a deep adversarial pass on UI/UX quality and production readiness, so this one
+ran against the RENDERED app, not the diff: headless Chromium drove the live preview (head
+`2b2aeb1`), captured 28 screenshots across mobile/desktop × light/Night × reduced-motion, and
+measured what a script can measure — tap boxes, focus destinations, scroll landings, overflow,
+console, network. Three blind auditors judged the evidence against `DESIGN-LANGUAGE.md` and the
+rubric; survivors were adversarially refuted. 23 distinct findings; 5 survived refutation at high
+confidence; 17 hand-triaged; 1 refuted by geometry.
+
+**CRITICAL — the Dietary sheet was the horizontal scroller.** `.rail-shell`, the chip rail's
+wrapper, sat as a grid item inside `.menu-diet-sheet` with no `min-width: 0`, so its min-content
+width (the un-wrapped five-chip rail, ~700px) set the grid track wider than the 390px sheet. The
+inner `.taste-rail` — the intended scroller — was stretched wide enough to never overflow, and the
+overflow landed on `.mms-sheet` itself: reaching **Gluten-free panned the entire dialog sideways**,
+scrolling away the title and grab handle, floating the ✕ mid-air at the left, and clipping the
+allergen disclaimer to _"bout any allergy."_ — the sheet read broken precisely on the allergy path.
+Three fixes, layered: `.rail-shell` is shrinkable (`min-width: 0`); the sheet can never scroll
+sideways again (`overflow-x: clip` — the belt); and inside the sheet the chips now **wrap** — all
+five dietary options visible at once, no sideways gesture between a diner and an allergy filter.
+
+**The jump-nav undershoot (M139) was measured, then fixed.** Heading top 193 vs pinned toolbar
+bottom 229 — 36px of every jumped-to section title under the toolbar, unconditional (the QR header
+never retracts; the earlier hedge was wrong). `toolbarH` now adds the toolbar's _resolved_ sticky
+offset (`getComputedStyle(el).top` — the whole `calc`, lend ribbon included), and that one binding
+drives both `scrollMarginTop` and the scroll-spy inset. The spy also stopped flattering the
+PREVIOUS tab while a full viewport of the next section was on screen: active is now the last
+section whose top crossed the reading line, recomputed from section rects.
+
+**The arrival screen contradicted itself on the menu's default state.** Bare `/menu` defaults to
+`scango`; the eyebrow's ternary lacked that branch, so the masthead said **TO-GO** over the
+greeting card's **SCAN & GO** — two door claims on one screen, shipped since M131. The door is
+named ONCE now (`doorFor` in `ArrivalBeat`), and both surfaces read it.
+
+Smaller confirmed findings, all fixed: the search pill's real hit target was a 24px-tall input
+inside a 44px field (the wrapper is a `<label>` and the input stretches — every tap on the pill,
+glyph included, lands the caret); toggling a diet inside the modal sheet announced nothing (the
+page's status region is `aria-hidden` under Radix's dialog) — the sheet now states the consequence
+of each toggle in its own `role="status"` line ("14 dishes fit." / "Nothing on the menu fits these
+filters — ease one."), which also lets a sighted diner see the effect the covered list can't show;
+the pinned free-from disclaimer is one line at phone widths ("Allergen info is a guide — tell our
+staff." — same claim, shorter; the sheet keeps the full sentence); the empty state's button says
+what it clears ("Clear search & filters" / "Clear search" / "Clear filters"); the stale-catalog
+strip stopped claiming "a few minutes ago" (the snapshot's age is bounded by the outage, not any
+clock — it says "a little earlier"); the surprise cards are flex columns so "How about this?" sits
+on every card's bottom edge; and the narrowed search placeholder cuts with an ellipsis, not
+mid-word.
+
+**Verified working in production, for the record:** the surprise tap moves focus to "Shuffle
+again"; the sheet restores focus to its opener; reduced-motion mounts no duplicate rail DOM and
+hides the pause control; no horizontal document overflow anywhere; search keeps focus while
+typing on an empty result; the search input was already 16px (no iOS zoom-lock). One finding was
+**refuted by geometry**: the ambient pause coin does not occlude card titles — the "missing"
+glyphs sit at negative x, clipped by the rail's own overflow, left of the coin.
+
+Deferred to `docs/OPEN-ITEMS.md` as owner decisions: **M142** — four dishes' `image_url`s point at
+DELETED storage objects (Rice — the top seller, leading "Start here" with a placeholder card —
+Kayah Sausages, Tomato Salad, Grilled Aubergine Salad; re-upload or null the four URLs; Vercel's
+image cache makes them show intermittently per size); **M143** — the last-good-catalog snapshot is
+per-instance memory, weakest during rush-hour scale-out (KV/Edge-Config write-through is the
+durable home); **M144** — whether Surprise should prefer photographed dishes; **M145** — the UA
+search-cancel ✕ and the unproven mid-tier animation load.
+
+### The blind adversarial pass on #239 — six defects, and three guards that could not fail (2026-08-28)
+
+Three blind auditors read `.review-bundle/` and nothing else — product truth, a11y/interaction, and
+algorithmic correctness + guard integrity — then one skeptic per finding was pointed at the source
+and told to refute it. 27 filed, 6 survived refutation, and hand-triage of the rest found 5 more that
+were real. Every finding was re-verified against source before it was acted on; three were refuted
+outright and are recorded below so nobody re-files them.
+
+**Two false statements a diner could read.** The Start-here sub-heading still said _"what tables
+love"_ after M135 replaced its evidence with the owner's till export — the same commit that renamed
+the badge off "Table favorite" for exactly that reason, since the export is every counter sale and
+to-go bag too and `posPopular.ts` says so in as many words. It reads **"the most ordered here"**. And
+the taste band's empty line blamed the diner's dietary filters for picks lost to a **sold-out** flag,
+rendering that sentence verbatim with **zero filters lit** — the cause is genuinely unknowable from
+there, so it now states the fact and the remedy and attributes nothing (W17's rule).
+
+**The first tap destroyed the button that was tapped.** The invitation panel and the stood-down
+"Shuffle again" line are different elements at the same position, so activating Surprise unmounted
+the activated control and focus fell to `<body>` — the repo's own focus-on-remove rule, cited three
+files away in `DietFilterButton`. Focus now moves to the shuffle button, which is described by an
+sr-only line naming the outcome, so the tap announces what it produced without a second live region.
+Two more in the same family: the menu's empty-state effect reached **out of the open dietary dialog**
+to focus a button behind it (it now stands down while focus is inside a `role="dialog"`), and the
+free-from disclaimer was a bare flex item of the new one-line search row, so `.menu-search` — the
+`flex: 1; min-width: 0` item — collapsed to absorb it whenever an allergy filter was lit.
+
+**The Clear-all label measured 1.8708:1.** It stays in the tab order on purpose (`aria-disabled`,
+never native `disabled`, so clearing the last filter cannot destroy anyone's place), which means its
+label is read by exactly the people that choice protects — and `opacity: .45` put it below even the
+3:1 non-text floor. Nothing under opacity 0.94 clears AA in light, so the unavailable state rides the
+border and the accessible name.
+
+**`pos-popularity.json` skipped the price-agreement correction its own script applies one loop
+earlier.** W21d added that filter because a $100 catering tray's units were being attributed to the
+$10 dish; the new generated output summed every exact-name row instead, so `oil-rice-with-peas`
+shipped at **26** while the doc's units cell — same join, same run — read **6**. One dish differs and
+the badge top-12 is byte-identical either way, which is why this is filed as real but not critical.
+The tie-break also moved off `localeCompare` (no locale argument resolves against the runtime's
+default, so two machines could order a tie differently and `--check` would fail on a file nobody
+touched).
+
+**Three guards were green for the wrong reason, and all three now fail red-first.** The assertion
+labelled `THE DISCRIMINATOR` did not discriminate: deleting ROUND 2 outright left it green, because
+the buckets are rank-sorted internally and round 3's tie-break reaches for the same dish. It has its
+own fixture now with an **unranked category first**, and the mutation reports
+`expected 'Curries-2' to be 'Noodles-2'`. `"no ranking is a NO-OP"` compared `[]` against `undefined`
+— and `undefined` resolves to that same `[]` default, so it proved that JS default parameters work;
+it pins the computed draw instead, plus a ranked draw that must differ, and ignoring `popularIds`
+now turns it red. And `"strictly descending by units"` asserted only non-increasing on data that
+carries 7 tied values — the title said something the shipped file violates.
+
+**Refuted, so nobody re-files them:** `PullToRefresh` is not live under the dietary sheet (`.ptr`
+carries no z-index and the sheet paints over it); `menu_items.slug` exists in `database.types.ts` and
+the select is uncast, so `tsc` validates it; and `check:docs` _does_ re-check the generated outputs —
+it is `check-docs.mjs && gen-menu-reference.mjs --check`, and `package.json` was not in the bundle.
+
+Deferred to `docs/OPEN-ITEMS.md` rather than widened into this PR: **M139** (the jump-nav offset
+omits `--header-height` — pre-dates M133, needs a browser to settle, and the comment that asserted
+otherwise has been corrected), **M140** (the full 76-dish sales order reaches the public RSC payload
+— the owner's business data, and their call), **M141** (neither new component has a behavioural test;
+every defect above was found by reading, not by a red one).
+
+### One tap, not eight — the taste band rebuilt, the filters folded away (M137, 2026-08-28)
+
+The owner: _"dietary filters take too much space. make surprise your taste buds the one and only
+main feature for explore your burmese taste buds section so let's reimagine it."_
+
+**Surprise is the section now, so it stopped being a chip.** W21 built the band as a craving picker:
+eight pills (🍜 noodles, 🌶 heat, 🧁 sweet …) with the surprise chip beside them, and W22 briefly
+parked the dietary pills here too — three pill vocabularies on one band, two of which asked the
+diner to already know what they wanted. That is the opposite of what a first-timer's section is for.
+The pills are **deleted**, along with `CRAVINGS`, `recommendByTaste`, their types and the saved-picks
+`localStorage` read; the section is now one invitation panel on the shipped paper surface — glyph,
+bilingual title, one honest line, one action — which after the tap stands down to a single
+"✨ Here's what we picked / Shuffle again" line so up to eight dishes get the room.
+
+The invitation copy makes **no claim on purpose**: "Not sure where to start? Tap once and we'll pick
+a few." The draw prefers the most-ordered dishes, but it tops up from the rest when it must, so
+"what people order most" would be true of the algorithm and not of every card. The cards say
+"How about this?" and mean it.
+
+**The dietary filters cost the sticky toolbar three rows and now cost one.** The toolbar was
+carrying a search field, a category nav, a two-line caption and a five-pill rail — and it is
+`position: sticky`, so that was its height at _every_ scroll position, not just at the top. Search
+and a new 44px **Dietary** chip share one row; the pills live in a `Sheet` behind it. The chip keeps
+the count visible when a filter is lit, and the count is in the accessible name too, so it is never
+a colour-only signal.
+
+⚠️ **The free-from disclaimer renders in BOTH places.** The standing rule is that an active
+free-from filter is never on screen without its warning (Codex P1 on #194 caught the search state
+dropping it) — and a sheet the diner has closed is not on screen, which is exactly when it matters.
+It is in the sheet beside the pills, and in the toolbar whenever such a filter is lit.
+
+**A guard nobody had to remember caught the new `Sheet` caller.** `sheet-busy-callers.test.ts`
+discovers every `Sheet` on disk and asserts an allowlist, so adding the twelfth turned it red until
+`DietFilterButton` was placed deliberately: its sheet toggles client-side filters and writes nothing,
+so it belongs in the **unguarded** list — locking a filter picker mid-tap would be the "lock with no
+reason" the `busy` prop's own doc forbids. Its "Clear all" is `aria-disabled` rather than
+conditionally unmounted, for the WCAG 2.4.3 reason §16 states about the sheet's own ✕: clearing the
+last filter is precisely when that button has focus.
+
+### The till, not our own history — POS units replace the ranking, and the seals come off (M135, 2026-08-27)
+
+The owner: _"you can refer to the actual paypal pos data insights for the menu items for most
+ordered items, instead of ranking them or numbering. also explore your burmese taste buds
+suggestions (including surprise your taste buds) should offer at most 8 menu items and displayed as
+one row. taste-diet-cap should be moved back inside menu-toolbar."_
+
+**The popularity source is the owner's own PayPal/Zettle export, which was already in the repo.**
+`docs/data/pos_2026_prices.json` (Jan–Jul 2026) has been sitting beside `MENU_REFERENCE.md` since
+W17, carrying a units-sold column nothing read. `scripts/gen-menu-reference.mjs` already joins it to
+our catalog on the **Burmese** dish name, so the same join now emits a second generated file —
+`apps/qr/lib/menu/pos-popularity.json`, 76 of our 97 dishes ordered by real units — and
+`pnpm check:docs` fails if either output drifts from its inputs.
+
+|                        | the retired `mostLoved`             | the POS export                      |
+| ---------------------- | ----------------------------------- | ----------------------------------- |
+| source                 | this app's own paid orders, 60 days | the restaurant's till, Jan–Jul 2026 |
+| evidence               | 77 line rows                        | 149 POS rows                        |
+| dishes it can separate | 17                                  | 76                                  |
+| cost per menu render   | a service-role aggregate            | none — a static import              |
+
+**EXACT Burmese matches only, and that is load-bearing.** The generator's own long-standing rule for
+prices — approx matches are "kept for discovery, never used to conclude anything" — applies harder
+to a units count, because this one ORDERS THE MENU. Loosening it was run as a mutation and the new
+double-claim assert named the damage: Coconut Rice's units would have gone to Coconut Chicken &
+Rice, and White Peas' to Oil Rice with Peas.
+
+**The rank seals are gone, not restyled** — `.start-here-rank`, `soleRanks`, `competitionRanks`,
+`--bloom-gold-seal`, all deleted. The numeral was the only thing on the band making an ordinal
+claim, and M133 had already found it unreadable on the old data (five cards wearing "8"). Row A is
+now a SET of most-ordered dishes in sales order. The seal's bloom was **not** moved onto the price
+tag: it existed for one coin, and a rail renders ten tags — ten gold halos is the overspend the glow
+economy forbids.
+
+**The badge is renamed, because the new data cannot support the old words.** "Table favorite"
+claimed something about diners at this app's tables; POS units know nothing about tables or about
+this app. It reads **"Most ordered"**, which is exactly what the number counts.
+
+**Every taste row is one row of at most 8.** The two-row `start-here-rail-wall` grid is deleted —
+the taste band was its only caller, at 8 cards it made the rail twice as tall as the pills above it,
+and an odd count left a hole in the last column. The per-card cascade survives on the single row.
+
+**The dietary caption and pills moved back into the sticky toolbar, unconditionally.** W22 had put
+them in the taste band and left the toolbar mirroring them only during a search or with a filter
+already lit — so the one control that narrows the whole menu was reachable only from a band the
+diner scrolls past. Cravings recommend, diets filter; a filter belongs on the surface that persists.
+
+⚠️ **Worth the owner's eye: the honest reading of units puts sides first.** Plain Rice (2052) and
+Burmese Milk Tea (1791) outrank Mohinga (1068), because they ride along with other orders. That is
+deliberately NOT filtered — a "real dish" rule would be this app deciding what the owner's sales
+mean. The category round-robin already keeps one dish per category, so a side cannot take over a
+row, but the "Most ordered" badge will sit on Rice.
+
+### The suggestions are SELECTED from the top 50 now, and the rank seals stop repeating (M133, 2026-08-27)
+
+The owner, on the M131 preview: _"menu items for a little of everything and explore your burmese
+taste buds (surprise your taste buds, something sweet, etc.,) menu item suggestions should mostly
+selected from the top 50 of popular, customer most ordered menu items. Menu-toolbar should be
+positioned after taste-h before All-day breakfast so customers can view the start-here and taste-h
+contents first. all explore your burmese taste buds suggestions (including surprise your taste
+buds) should offer at least 4 and at most 7 menu items. and what is wrong with the numberings
+duplicates on the cards of Start here?"_
+
+**The numbering duplicates were two separate defects, and both were real.** Measured against the
+live database rather than guessed at:
+
+1. **Tied ranks, correctly shared and completely unreadable.** Over the 60-day paid window the menu
+   has 77 order lines and 17 dishes clearing the ≥2-distinct-orders floor, so the top twelve rank
+   **1, 2, 2, 4, 5, 5, 5, 8, 8, 8, 8, 8** — five cards wearing an identical "8". Competition ranking
+   is right and stays (tied dishes must share a numeral; the counts establish no order between
+   them), but a numeral repeated five times has stopped working as a rank for the person reading
+   it. `soleRanks` now withholds every SHARED numeral: a seal renders only where the rank is
+   unique, and a tied dish keeps its place in the row while making no ordinal claim. Ties break on
+   their own as order history accumulates. Deliberately not "fixed" by breaking ties on price or
+   name — that manufactures an order the data doesn't contain and prints it as a fact.
+2. **The marquee printed its loop copy even when it could not loop.** `MarqueeRail` renders a
+   duplicate card set for the seamless drift, and the drift effect bails when one set doesn't
+   overflow the rail — but the copies stayed in the DOM. A short row on a wide viewport therefore
+   showed the whole sequence, seals and all, twice and perfectly still. The rail now measures the
+   real set on its own (with a `ResizeObserver`, so a rotation re-evaluates) and renders the copies
+   only when a loop is genuinely possible.
+
+**Row B and the taste rows now SELECT from the ranking, not merely order by it.** M131's change was
+too small: sorting each category bucket meant a category holding a ranked dish and one holding none
+contributed equally, so the row could be mostly unranked while claiming to prefer what tables
+order. Row B runs two phases over the same balance — phase 1 serves only top-50 dishes, phase 2
+fills the rest — and each turn goes to the LEAST-served category, so no category takes a second
+dish while another has none. Phase 2 is what keeps "a little of everything" true: with 17 eligible
+dishes today and row A taking ten, filtering to the top 50 would quietly collapse the row to three
+or four categories while the caption still promised coverage.
+
+**Every taste row is 4–7 cards.** Surprise was 3, cravings capped at 8. The MAX is a hard slice; the
+MIN is reached only in the honest direction — matches keep the craving line they earned, and
+top-up cards say "Something else to try", never a craving they didn't match. The surprise row is
+deliberately NOT topped up: its emptiness is information ("your favorites already cover everything
+that fits"), and padding it would replace an honest answer with a filler one.
+
+**The sticky toolbar moved below the taste band** so the start-here and taste content read first.
+It is `position: sticky`, so this changes only where it starts — it still pins under the header on
+scroll, and every section's `scrollMarginTop` is measured from its height rather than its position.
+
+**Codex round 2 found two more, and both were right.** (1) The ranked round ran unbounded, and
+"least-served" only balances buckets that HAVE an eligible dish — a bucket with nothing ranked is
+skipped rather than waited for, so ten ranked dishes in one category would take the whole ten-card
+cap and leave "a little of everything" showing exactly one. Coverage is bought FIRST now: round 1
+is one dish per category (its best-ranked, since the buckets are rank-sorted), round 2 spends the
+remaining slots on the ranking, round 3 fills anything left. (2) The surprise row could fall below
+its own advertised floor — draw seven, switch a dietary filter on, three survive, and the row
+rendered three cards because only the ZERO case was treated as empty. `refillSurprise` tops a
+PARTIAL row back up (deterministically, ranked-first, hearted dishes still excluded) while an
+EMPTY one is still never padded, because its emptiness is the honest answer.
+
+Two more defects found by the tests during the build, both in code written this session: phase 2
+restarted its own lap counter and bailed on the first pass (row B silently vanished under its
+3-card floor), and before that the ranked category was served twice before an untouched category
+appeared at all. A `TASTE_ROW_MAX` mutant also SURVIVED — the cap test asserted through the
+constant, which is a tautology; the bounds are pinned as literals now.
+
+### The first screen, reorganized — the door, the headings and the card wall (M131, 2026-08-27)
+
+The owner: _"arrival-beat contents, start-here-h contents, taste-h contents, for both dine-in and
+to-go modes have to be organized, enhanced, enriched, positioned, organized, styled, reimagined.
+surprise your tastebuds should be first option … a little bit of everything, and explore your
+burmese taste bud menu item suggestions should mostly be selected from the top 50 of popular,
+customer most ordered items. and the card ul display … should be more creative, styled, rendered."_
+
+**The suggestions now draw from the top 50 — and the badge deliberately does not.** `getMostLoved`
+returned twelve rows, and that one list was doing two incompatible jobs: it seeded the Start-here
+rank seals AND it was the set behind every **"Table favorite"** badge on the menu. Widening it to
+fifty would have widened the badge with it, so a claim a diner READS would have quietly gone from
+"one of the twelve most ordered" to "one of the fifty" without a word of copy changing. It is now
+two named bounds — `LOVED_BADGE_MAX` (12, what anyone reads as a claim) and `LOVED_POOL_MAX` (50,
+what gets offered first and never becomes copy). Three consumers take the wider pool as a
+**preference, never a filter**: the taste rail's craving matches break ties toward it (the match
+count still wins, or the card's "why" line would be reading out a weaker reason than the one that
+earned the card its place), "Surprise your taste buds" draws from a ranked tier first and tops up
+from the rest, and _a little of everything_ orders each category's bucket by it. That last one is
+sorted rather than filtered on purpose: filtering to the top 50 would silently drop any category
+with nothing in it, and the row would stop being a little of everything while still saying it was.
+An empty ranking is a no-op everywhere — a thin history degrades to the row that shipped before.
+
+**"Surprise your taste buds" leads the rail.** Every other chip asks the diner to already know what
+they want; this one asks nothing, which makes it the right opening move for the first-timer the
+band exists for. It is an ACTION, not a toggle — no `aria-pressed`, the dashed affordance, and its
+own description — so being first among filters cannot make it read as one.
+
+**The arrival beat says which door you came through.** Dine-in and to-go were typographically
+identical; only the wording differed. There is a mode eyebrow now (At the table · To go · Scan &
+go), the live table number rides it as a gold chip rather than trailing the greeting, the greeting
+takes the display face, and the exit — previously a run-on sentence at the greeting's weight, and
+longer than it — is two door tiles below a hairline, each with its promise on its own line.
+
+**The section headings finally sit between the page title and the cards.** They were 15px body face
+— the same size as the card names beneath them — so a heading read as a label. Display face at
+19px, the sub on its own line, and a hairline closing the header.
+
+**The card wall.** 4:3 photos instead of a 1.45:1 letterbox (the old crop took the top and bottom
+off a plated dish, which is most of what makes food look like food), a price tag floating on the
+photo's corner opposite the rank coin, the taste card's honesty line promoted from grey caption to
+an earned chip, 166px cells, and a per-card cascade in.
+
+**Two contrast defects found while measuring, one of them shipped.** `.start-here-rank-top` — the
+**#1** seal, the most prominent numeral on the band — has worn `color: var(--oa)` since W20. `--oa`
+is on-ACCENT ink, sized for the dark amber `--ac`; on that gold gradient it measures **2.0458:1**
+in the light theme. It is `--ink` now (worst 5.4353 light / 9.6157 Night). The second was caught
+before it shipped: the new exit tile's promise line was `--t3` over a 7% accent tint, **4.3708:1**.
+Both classes were invisible to `contrast-audit.test.ts` for the same structural reason — it asserts
+token PAIRS, and neither a gradient nor a `color-mix` is a token — so `composite-contrast.test.ts`
+now pins the fill across every share it paints, plus both tinted grounds, with the negative guards
+that record WHY each ink was chosen.
+
 ### Night, deepened — the room, the glass and the moments, behind one dial (2026-08-27)
 
 The owner asked twice. First _"Make Night more enriched, enhanced, layered, shades, effects"_, which

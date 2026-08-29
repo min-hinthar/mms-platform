@@ -9,11 +9,11 @@ import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
 import { buildStartHereRows } from "@/lib/menu/startHereRows";
-import { DietPills, FreeFromDisclaimer } from "./DietPills";
+import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
-import { ArrivalBeat } from "./ArrivalBeat";
+import { ArrivalBeat, doorFor } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
@@ -36,6 +36,9 @@ import type { WelcomeBack } from "@/lib/rewards";
 
 export type MenuItem = {
   id: string;
+  /** M135 — the join key to the owner's PayPal/Zettle POS export (lib/menu/posPopular.ts). Prod and
+   *  the catalog snapshot agree on 97/97 distinct slugs; ids would rot when an item is recreated. */
+  slug: string | null;
   name_en: string;
   name_my: string | null;
   description_en: string | null;
@@ -75,6 +78,7 @@ export function MenuBrowser({
   items,
   mode,
   favorites = [],
+  popularIds = [],
   heartedIds = [],
   welcome = null,
   usual,
@@ -84,12 +88,16 @@ export function MenuBrowser({
 }: {
   items: MenuItem[];
   mode: string;
-  /** J2: menu-item ids ranked by REAL paid-order counts (lib/menu/mostLoved.ts, server-computed,
-   *  counts-only), each with its tie-aware competition rank (W21 — competitionRanks: tied dishes
+  /** M135: menu-item ids ordered by REAL units sold, from the owner's PayPal/Zettle till export
+   *  (lib/menu/posPopular.ts), top `POS_BADGE_MAX` only. No rank travels with them (
    *  share a numeral, so a seal never orders what the data left tied). Drives the "Start here" band
-   *  + the data-backed "Table favorite" badge. Empty while order history is thin → the band falls
+   *  + the data-backed "Most ordered" badge. Empty when the POS export matches nothing → the band falls
    *  back to `popular`-tagged items, badges to the manual tag. */
-  favorites?: { id: string; rank: number }[];
+  favorites?: { id: string }[];
+  /** M131 — the FULL most-ordered order (all 76 matched dishes), most-sold first. A SELECTION
+   *  preference for the guided rows and the taste suggestions; it never becomes copy, so it is
+   *  deliberately broader than `favorites`, which backs the visible "Most ordered" claim. */
+  popularIds?: string[];
   /** J5: the CALLER's own hearted item ids (qr_favorites, RLS-scoped, newest first) — drives the
    *  "Your favorites" rail + the sheet's heart state. Distinct from `favorites` (the crowd). */
   heartedIds?: string[];
@@ -128,14 +136,16 @@ export function MenuBrowser({
   // Category order as fetched (the server sorted by sort_order); first occurrence wins.
   const allCats = useMemo(() => [...new Set(items.map((i) => i.category))], [items]);
 
-  // J2 guided start → W22 twin rows: the data-backed favorite set (badges) + the "Start here"
-  // rows. Row A claims table behavior ("what tables love") ONLY when counts back it (tie-aware
-  // ranks carried in from the page; sold-out keeps its numeral off-screen), honest `popular`
-  // fallback otherwise; row B is the category round-robin ("a little of everything" — a curation
-  // rule, not a ranking, so no seals). All the honesty rules live in lib/menu/startHereRows.ts
-  // where a test can watch them fail.
+  // J2 guided start → W22 twin rows → M135: the POS-backed most-ordered set (badges) + the "Start
+  // here" rows. Row A says "the most ordered here" ONLY when the till export backs it, honest
+  // `popular` fallback otherwise; no rank travels with either row (M135 deleted the seals). Row B
+  // is the category round-robin ("a little of everything" — a curation rule, not a ranking). All
+  // the honesty rules live in lib/menu/startHereRows.ts where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
-  const startHere = useMemo(() => buildStartHereRows(items, favorites), [items, favorites]);
+  const startHere = useMemo(
+    () => buildStartHereRows(items, favorites, popularIds),
+    [items, favorites, popularIds],
+  );
 
   // J5 — the diner's own hearts: optimistic local set over the server-fetched ids. A toggle flips the
   // heart instantly and reverts if the RLS-scoped write fails (toggleFavorite returns null) — the
@@ -363,13 +373,18 @@ export function MenuBrowser({
   useEffect(() => {
     const el = toolbarRef.current;
     if (!el) return;
-    const lendOffset = () => {
-      const n = parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue("--lend-offset"),
-      );
+    // The RESOLVED sticky offset, not just the lend ribbon: `.menu-toolbar` pins at
+    // `calc(--header-height + safe-area + --lend-offset)`, and a jump must clear ALL of it. The old
+    // measure added only `--lend-offset`, so every category tap under-shot by exactly the 56px app
+    // header (+ notch inset) and parked the section heading under the pinned toolbar — measured
+    // live on #239's preview: heading top 193 vs toolbar bottom 229 (M139, adversarial pass).
+    // `getComputedStyle(el).top` resolves the whole calc, lend offset included, so it replaces the
+    // old hand-read of the one variable rather than adding to it.
+    const stickyTop = () => {
+      const n = parseFloat(getComputedStyle(el).top);
       return Number.isFinite(n) ? n : 0;
     };
-    const measure = () => setToolbarH(el.getBoundingClientRect().height + lendOffset());
+    const measure = () => setToolbarH(el.getBoundingClientRect().height + stickyTop());
     measure();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
@@ -383,16 +398,25 @@ export function MenuBrowser({
   // Scroll-spy: mark the section nearest the top (just under the sticky toolbar) as the active tab.
   useEffect(() => {
     if (cats.length === 0) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const onScreen = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (onScreen) setActiveCat(onScreen.target.getAttribute("data-cat"));
-      },
-      // Top inset = measured toolbar height so a section counts as "active" once it clears the toolbar.
-      { rootMargin: `-${Math.round(toolbarH)}px 0px -55% 0px`, threshold: 0 },
-    );
+    // Recompute from the section rects, not from the changed entries: "first intersecting entry"
+    // kept the PREVIOUS tab lit while a whole viewport of the next section was on screen (its tail
+    // still cut the band — adversarial pass on #239, desktop shots). The active section is the LAST
+    // one whose top has crossed the reading line under the pinned toolbar; the observer is only the
+    // scheduler that tells us a boundary moved.
+    const pickActive = () => {
+      let active: string | null = null;
+      for (const c of cats) {
+        const rect = sectionRefs.current.get(c)?.getBoundingClientRect();
+        if (rect && rect.top <= toolbarH + 1) active = c;
+      }
+      if (active) setActiveCat(active);
+    };
+    const io = new IntersectionObserver(pickActive, {
+      // Top inset = the toolbar's full occluded band (height + sticky offset — same binding as
+      // scrollMarginTop) so boundary events fire around the real reading line.
+      rootMargin: `-${Math.round(toolbarH)}px 0px -55% 0px`,
+      threshold: 0,
+    });
     for (const c of cats) {
       const el = sectionRefs.current.get(c);
       if (el) io.observe(el);
@@ -436,7 +460,12 @@ export function MenuBrowser({
     if (!empty) return;
     const active = document.activeElement;
     const typing = active instanceof HTMLInputElement && active.type === "search";
-    if (!typing) clearBtnRef.current?.focus();
+    // M137 — the dietary pills moved INTO a modal sheet, so toggling one can empty the list while
+    // focus is inside an open dialog. `clearBtnRef` is on the page behind it: focusing it either
+    // escapes Radix's focus trap or is yanked straight back by it, and either way the diner loses
+    // their place on the pill they just pressed. The live region still announces the empty result.
+    const inDialog = active instanceof Element && !!active.closest('[role="dialog"]');
+    if (!typing && !inDialog) clearBtnRef.current?.focus();
   }, [empty]);
 
   function jumpTo(cat: string) {
@@ -471,7 +500,7 @@ export function MenuBrowser({
             Ordering stays safe: every add re-derives price/tax server-side at write time. */}
         {catalogStale && (
           <DegradedStrip live={false} style={{ marginBottom: 12 }}>
-            We’re having a little trouble on our end — this is the menu from a few minutes ago.
+            We’re having a little trouble on our end — this is the menu from a little earlier.
             Prices are confirmed when you add a dish.
           </DegradedStrip>
         )}
@@ -484,9 +513,10 @@ export function MenuBrowser({
             propagation — so the pull would otherwise claim the sheet's own scroll. NOT suppressed
             while the catalog is stale: that says the LAST read failed, not the next one. */}
         <div className="menu-eyebrow-row">
-          <p className="eyebrow">
-            {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
-          </p>
+          {/* The same DOOR vocabulary as the arrival card below it — one map, so the masthead can
+              never contradict the greeting (the pass caught "TO-GO" over "SCAN & GO" on bare /menu,
+              whose default mode is scango and whose branch this ternary used to lack). */}
+          <p className="eyebrow">{doorFor(mode).label}</p>
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
@@ -533,17 +563,84 @@ export function MenuBrowser({
         )}
       </header>
 
+      {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
+          FINDING (search text or a diet filter active), when the band would be noise between them and
+          their result. Tapping a card opens the same item sheet as a row. */}
+      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
+          the start-here band is a first-timer's opening, not a permanent fixture. */}
+      {!q.trim() &&
+        diets.length === 0 &&
+        (favRail.length > 0 ? (
+          <div style={{ padding: "0 20px" }}>
+            <FavoritesRail items={favRail} onSelect={setSheetItem} />
+          </div>
+        ) : (
+          <div style={{ padding: "0 20px" }}>
+            <StartHereBand
+              rowA={startHere.rowA}
+              rowB={startHere.rowB}
+              dataBacked={startHere.dataBacked}
+              onSelect={setSheetItem}
+            />
+          </div>
+        ))}
+
+      {/* W21 → W22 → M137 — "Explore your Burmese taste buds", now ONE feature: Surprise. The
+          dietary pills are NOT here any more (M137 moved them into the toolbar's sheet), but the
+          band still renders while a diet is active, because the draw respects those filters and a
+          diner who has narrowed the menu is exactly who wants a pick from what is left. Only a
+          typed query hides it — that means the diner is FINDING, not exploring. */}
+      {!q.trim() && (
+        <div style={{ padding: "0 20px" }}>
+          <TasteBand
+            items={items}
+            popularIds={popularIds}
+            heartedIds={hearts}
+            diets={diets}
+            onSelect={setSheetItem}
+          />
+        </div>
+      )}
+
+      {/* M133 (owner: "Menu-toolbar should be positioned after taste-h before All-day breakfast so
+          customers can view the start-here and taste-h contents first"). It is `position: sticky`,
+          so moving it DOWN the document changes only where it starts: it still pins under the app
+          header the moment the diner scrolls past the bands, and every section's `scrollMarginTop`
+          is measured from the toolbar's real height rather than its position, so moving it does not
+          change the jump-nav offset. (That offset is the toolbar height ALONE — it does not add
+          `--header-height`, which the toolbar's own sticky `top` does. Unchanged by this move and
+          filed as M139; whether it under-shoots depends on whether the app header is retracted at
+          the moment of the tap, which needs a browser to settle, not a re-read.) When a search or a diet hides the bands above, the toolbar simply
+          becomes the first thing under the header again — which is the right place for it exactly
+          when the diner is FINDING rather than exploring. */}
       <div className="menu-toolbar" ref={toolbarRef}>
-        <div className="menu-search">
-          <Icon name="search" size={18} />
-          <input
-            ref={searchRef}
-            type="search"
-            inputMode="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search dishes, drinks…"
-            aria-label="Search the menu"
+        {/* M137 (owner: "dietary filters take too much space") — search and the dietary control share
+            ONE 44px row. The toolbar is `position: sticky`, so every row it carries is a row the
+            diner loses at EVERY scroll position, not just at the top; it was carrying a search
+            field, a category nav, a two-line caption and a five-pill rail. The pills now live in a
+            sheet behind `DietFilterButton`, whose chip keeps the count visible and the filter one
+            tap away. */}
+        <div className="menu-search-row">
+          {/* A <label>, not a <div> (adversarial pass on #239): the pill is the visual field, so a
+              tap on the glyph or the padding must focus the input — label association does it
+              natively, no handler. */}
+          <label className="menu-search">
+            <Icon name="search" size={18} />
+            <input
+              ref={searchRef}
+              type="search"
+              inputMode="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search dishes, drinks…"
+              aria-label="Search the menu"
+            />
+          </label>
+          <DietFilterButton
+            diets={diets}
+            matches={visible.length}
+            onToggle={toggleDiet}
+            onClear={() => setDiets([])}
           />
         </div>
 
@@ -567,59 +664,7 @@ export function MenuBrowser({
             })}
           </nav>
         )}
-
-        {/* W22 — the dietary pills moved into the taste band below ("Explore your Burmese taste
-            buds"); the state stays here (they filter this whole view). The STICKY toolbar renders
-            the same shared rail whenever the band can't speak for it (Codex P1+P2 + review MED on
-            #194): while a typed search hides the band (a search-first diner still needs the
-            filters), and while any diet is ACTIVE (a filter that silently empties categories deep
-            in the scroll needs a persistent lit indicator and a way out) — and an active
-            free-from filter is never on screen without its safety disclaimer. */}
-        {(q.trim() !== "" || diets.length > 0) && (
-          <>
-            <DietPills diets={diets} onToggle={toggleDiet} />
-            {hasFreeFrom(diets) && <FreeFromDisclaimer />}
-          </>
-        )}
       </div>
-
-      {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
-          FINDING (search text or a diet filter active), when the band would be noise between them and
-          their result. Tapping a card opens the same item sheet as a row. */}
-      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
-          the start-here band is a first-timer's opening, not a permanent fixture. */}
-      {!q.trim() &&
-        diets.length === 0 &&
-        (favRail.length > 0 ? (
-          <div style={{ padding: "0 20px" }}>
-            <FavoritesRail items={favRail} onSelect={setSheetItem} />
-          </div>
-        ) : (
-          <div style={{ padding: "0 20px" }}>
-            <StartHereBand
-              rowA={startHere.rowA}
-              rowB={startHere.rowB}
-              dataBacked={startHere.dataBacked}
-              onSelect={setSheetItem}
-            />
-          </div>
-        ))}
-
-      {/* W21 → W22 — "Explore your Burmese taste buds": craving pills → an honest "here's why"
-          rail + Surprise-me, and now the HOME of the dietary pills (they filter this whole view,
-          so the band must stay visible while a diet is active — the search gate alone hides it,
-          since a typed query means the diner is FINDING, not exploring). */}
-      {!q.trim() && (
-        <div style={{ padding: "0 20px" }}>
-          <TasteBand
-            items={items}
-            heartedIds={hearts}
-            diets={diets}
-            onToggleDiet={toggleDiet}
-            onSelect={setSheetItem}
-          />
-        </div>
-      )}
 
       {cats.map((c) => (
         <section
@@ -788,7 +833,13 @@ export function MenuBrowser({
                 cursor: "pointer",
               }}
             >
-              Clear filters
+              {/* Says what it CLEARS (it clears both — a typed query vanished under a button that
+                  named only filters; adversarial pass on #239). */}
+              {q && diets.length > 0
+                ? "Clear search & filters"
+                : q
+                  ? "Clear search"
+                  : "Clear filters"}
             </button>
           )}
         </div>

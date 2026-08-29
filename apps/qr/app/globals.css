@@ -136,6 +136,12 @@ h3 {
   max-height: 90vh;
   max-height: calc(var(--sheet-max-h) - var(--kb-inset, 0px));
   overflow-y: auto;
+  /* Never a horizontal scroller (the belt for the `.rail-shell` min-width fix): with only
+     `overflow-y` set, overflow-x COMPUTES to auto, so any child that out-grows the sheet turns the
+     whole dialog into a sideways pan — title, handle and ✕ scroll away with it. Note `clip` beside
+     an `auto` axis computes to `hidden` (css-overflow-3), which is exactly enough: no user panning,
+     and after the min-width fix there is no overflow left to hide. */
+  overflow-x: clip;
   /* M126 — was var(--pg), the app's LOWEST tone on its HIGHEST plane. Against the defocus scrim the
      sheet separated by only 1.0385:1; on --cd it reads 1.3216, and the head one rung above it
      (--cd-raised) then reads as pinned chrome over its own body rather than a seam. Deliberately
@@ -1230,6 +1236,119 @@ html[data-fx="off"] .pa-pause {
 }
 
 /* Search field — 16px text (no iOS focus-zoom), pill, leading 🔍 set by the wrapper. */
+/* M137 — search and the dietary chip share one 44px row (owner: "dietary filters take too much
+   space"). The toolbar is sticky, so a row saved here is a row the diner keeps at every scroll
+   position. */
+.menu-search-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+/* The free-from disclaimer's row. A full basis so it wraps BELOW the search field and the chip
+   rather than competing with them for the line — see DietFilterButton for what happened without
+   it. `gap` already supplies the vertical rhythm, so the note carries no extra top margin here. */
+.menu-diet-note {
+  flex: 0 0 100%;
+  min-width: 0;
+}
+.menu-diet-note > p {
+  margin-top: 0;
+}
+.menu-search-row .menu-search {
+  flex: 1;
+  min-width: 0;
+}
+/* The dietary chip. Same 44px height and pill radius as the search field beside it, so the row
+   reads as one control strip rather than a field with something bolted on. Lit state is the
+   count — never colour alone, and the accessible name carries it too. */
+.menu-diet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--sf);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.menu-diet-btn-on {
+  border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+  color: var(--tx);
+}
+.menu-diet-count {
+  display: grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-diet-btn {
+    transition: none;
+  }
+}
+/* The sheet body — `Sheet` renders children straight after its head, with no padding of its own. */
+/* Inside the sheet the chips WRAP: all five dietary options visible at once, no sideways gesture
+   between a diner and an allergy filter. The band context keeps the rail; the negative edge-bleed
+   margins are for that context and come off here. */
+.menu-diet-sheet .taste-rail {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  margin: 2px 0 8px;
+  padding: 0;
+}
+.menu-diet-sheet {
+  display: grid;
+  gap: 10px;
+  padding: 4px 20px 20px;
+}
+/* The in-sheet consequence line — quiet, one rung under body ink; role="status" carries it to AT. */
+.menu-diet-matches {
+  margin: 2px 2px 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.menu-diet-clear {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+  cursor: pointer;
+}
+.menu-diet-clear[aria-disabled="true"] {
+  /* NOT `opacity`. This control deliberately stays in the tab order (see DietFilterButton — a
+     natively-disabled or unmounted button destroys the place of whoever just cleared the last
+     filter, WCAG 2.4.3), so its label is READ by exactly the people the aria-disabled choice
+     exists to protect. At the 0.45 fade this rule used to carry, `--t2` measured 1.8708:1 in light
+     and 2.7052:1 in Night — below even the 3:1 non-text floor. Nothing under opacity 0.94 clears
+     AA in light, so the unavailable state rides the BORDER (non-text chrome, 3:1) and the
+     accessible name, which says it in words. */
+  border-color: color-mix(in oklab, var(--bd) 45%, transparent);
+  cursor: default;
+}
+
 .menu-search {
   display: flex;
   align-items: center;
@@ -1243,6 +1362,11 @@ html[data-fx="off"] .pa-pause {
 .menu-search input {
   flex: 1;
   min-width: 0;
+  /* Fill the pill (adversarial pass on #239): the input's natural box was 24px tall inside the
+     44px field, so the glyph and the bands above/below the text line were dead to taps on the
+     toolbar's primary control. The wrapper is a <label>, so every tap focuses it regardless — this
+     makes the caret land where the finger did. */
+  align-self: stretch;
   border: none;
   background: transparent;
   color: var(--tx);
@@ -1250,6 +1374,10 @@ html[data-fx="off"] .pa-pause {
 }
 .menu-search input::placeholder {
   color: var(--t3);
+  /* The field narrows when the Dietary chip gains its count badge — cut the placeholder with an
+     ellipsis, never mid-word. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .menu-search input:focus {
   outline: none;
@@ -4678,34 +4806,206 @@ html[data-seen-surface] .mms-stagger {
    decoration) and the horizontal guided-start rail of table favorites. Entrances ride `.mms-stagger`
    (once per session via SurfaceMemory, reduced-motion-gated). Tokens only; opaque surfaces (mobile GPU
    budget — no blur). */
+/* ── M131 · the arrival beat, as a place setting ──────────────────────────────────────────────
+   Owner: the arrival-beat contents "for both dine-in and to-go modes have to be organized,
+   enhanced, enriched, positioned, organized, styled, reimagined".
+
+   What was wrong is a hierarchy problem, not a decoration one. Three stacked <p>s at 15/13/13 put
+   the EXIT INSTRUCTIONS at the same visual weight as the greeting — and the exit line is the
+   longest of the three, so the eye landed on navigation before welcome. And dine-in and to-go were
+   typographically identical: only the wording differed, so the screen never SAID which door you
+   came through.
+
+   Now: the card carries `.card` (the shipped paper surface — reuse, never a second recipe), a mode
+   eyebrow names the door in three words, the greeting takes the display face, and the exit demotes
+   below a hairline into small chips. Three tiers where there was one. */
 .arrival-beat {
-  margin: 2px 0 0;
+  margin: 8px 0 0;
+  padding: 11px 14px 9px;
+}
+/* The door, named. This is the whole "both modes" ask: dine-in, to-go and scan-and-go now differ
+   before a word is read. Tokens only — no new hue, and deliberately NOT gold: the glow economy
+   spends gold on selection and action, and an eyebrow is neither. */
+.arrival-mode {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 5px;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.arrival-mode-glyph {
+  font-size: 13px;
+  line-height: 1;
+}
+/* The live table label — the one place this row earns accent, because it is a FACT the session
+   carries (K2), not a decoration. */
+.arrival-table {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  /* --ink, NOT --oa. `--oa` is on-ACCENT ink: in light it is #fffdf8, sized for the dark amber
+     `--ac` fill, and on `--gold` it measures 2.0458:1. `--ink` is the CONSTANT deep ink that exists
+     for exactly this — a bright fill that is bright in BOTH themes — and it clears at worst 5.4353
+     (light) / 9.6157 (Night) across the gradient. Guarded in composite-contrast.test.ts. */
+  color: var(--ink);
+  background: linear-gradient(160deg, var(--gold), color-mix(in oklab, var(--gold) 45%, var(--ac)));
+  box-shadow: inset 0 1px 0 var(--sheen);
 }
 .arrival-greeting {
   margin: 0;
-  font-size: 15px;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+}
+.arrival-greeting-my {
+  font-family: var(--font-my);
   color: var(--ac-strong);
-  letter-spacing: 0.01em;
 }
 .arrival-line {
-  margin: 2px 0 0;
-  font-size: 13px;
+  margin: 3px 0 0;
+  font-size: 13.5px;
   color: var(--t2);
   line-height: 1.5;
 }
+/* The exit, demoted AND rebuilt as DOORS. It was a run-on sentence with two links buried in it,
+   at the same weight as the greeting and longer than it. Two tiles instead: each names its door and
+   keeps its own promise on the line beneath, so the diner reads a choice rather than a paragraph.
+
+   ⚠️ Tiles, not chips-in-a-sentence, for a mechanical reason as well as a compositional one. The
+   first draft kept the sentence and gave each link `min-height: 44px; margin: -11px 0` — the
+   real-target-without-growing-the-row trick `.mms-sheet-close` uses. That trick is only safe on a
+   control that is ALONE on its line: in this wrapping row (row-gap 4px) a 44px opaque chip on the
+   second line overlaps the first line's text by ~9px. The shipped W19 version had the same shape
+   (an inline-flex `.nav-link` at 44px inside a 1.5-line-height <p>) and got away with it only
+   because the link had no background to cover anything with.
+
+   `auto-fit` + `minmax`: two doors side by side wherever they fit, stacked below that, and the
+   solo modes' single door takes the full width. No breakpoint to keep in sync with anything. */
+.arrival-exit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(148px, 1fr));
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--bd);
+}
+.arrival-exit-link {
+  display: grid;
+  align-content: center;
+  gap: 1px;
+  /* A real 44px target that the layout actually pays for — no negative margin, nothing to overlap. */
+  min-height: 44px;
+  padding: 6px 11px;
+  border: 1px solid var(--bd);
+  border-radius: 10px;
+  /* `--sf` is darker than the `--cd` card in BOTH themes, so the tile reads as a recessed well
+     rather than another raised card competing with the beat above it. */
+  background: var(--sf);
+  text-decoration: none;
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+.arrival-exit-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  color: var(--tx);
+}
+.arrival-exit-note {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  line-height: 1.3;
+  /* `--t2`, not the `--t3` a caption would take. Two reasons, and the second is the binding one:
+     this line is the PROMISE ("the table stays open for everyone else"), which is the honest half
+     of the control, not decoration. And light `--t3` on `--sf` is only 4.7595 at rest — the hover
+     tint below darkens the ground, and at any tint worth seeing `--t3` drops under AA (5% → 4.4795).
+     `--t2` holds 4.7930 there. Measured in composite-contrast.test.ts, which pins both grounds. */
+  color: var(--t2);
+}
+@media (hover: hover) {
+  .arrival-exit-link:hover {
+    border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+    /* 5%, not more: `--ac` is a DARK amber in light, so this tint darkens the well and eats the
+       note's contrast. The guard pins this exact mix. */
+    background: color-mix(in oklab, var(--ac) 5%, var(--sf));
+  }
+  /* The arrow's travel is keyed on `.nav-link:hover` up in the nav section, so a `.nav-arrow-fwd`
+     adopted by a different parent renders static. Re-stated here for THIS parent rather than
+     widening the nav selector, which would then have to be kept in sync with every future host. */
+  .arrival-exit-link:hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .arrival-exit-link {
+    transition: none;
+  }
+  /* `.nav-arrow { transition: none }` is already global under reduced motion, but the hover
+     TRANSFORM is per-parent — an instant 3px jump is still motion. Cancelled for this parent the
+     same way the nav section cancels its own. */
+  .arrival-exit-link:hover .nav-arrow-fwd {
+    transform: none;
+  }
+}
+/* ── M131 · section headers ───────────────────────────────────────────────────────────────────
+   Owner: the start-here and taste headings "have to be organized, enhanced, enriched, positioned,
+   organized, styled, reimagined".
+
+   They were 15px body-face with the sub trailing inline — the same size as the card names beneath
+   them, so a "section heading" read as a label and the page had no tier between <h1>Menu</h1> and
+   the cards. Now: the display face at 19px (the tier that was missing), the sub dropped onto its
+   own line by a flex-basis break rather than a markup change, and a hairline rule closing the
+   header so the band below reads as belonging to it.
+
+   Deliberately NO gold here beyond the ✦ the heading already carried: gold is the selection and
+   action colour, and three gold section rules competing with a lit cap is exactly the glow-economy
+   overspend W22d wrote down. The rule is `--bd`; the hierarchy comes from face and size. */
 .start-here-h {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin: 0 0 8px;
-  font-size: 15px;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
 }
 .start-here-sub {
-  font-size: 12px;
+  /* Its own line: a flex break, so the heading markup (and its accessible name) is untouched. */
+  flex-basis: 100%;
+  margin-top: 1px;
+  font-family: var(--font-body);
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--t3);
   letter-spacing: 0.02em;
+}
+/* The closing rule — a third flex item on its own line, so it works whether the h2 stands alone
+   (TasteBand, FavoritesRail) or sits beside the pause control inside `.start-here-hrow`. */
+.start-here-h::after {
+  content: "";
+  flex-basis: 100%;
+  height: 1px;
+  margin-top: 8px;
+  background: linear-gradient(90deg, var(--bd), transparent 78%);
 }
 /* Horizontal rail: native scroll + snap; edge padding so the first/last card can center. Cards are real
    buttons (≥44px) on the `.card` surface with the gold-wash lift the band's "favorite" framing implies. */
@@ -4721,21 +5021,35 @@ html[data-seen-surface] .mms-stagger {
   scroll-snap-type: x proximity;
   -webkit-overflow-scrolling: touch;
 }
-/* W21 (owner: "same size and larger and maybe two rows?") — the two-row wall is a MODIFIER the
-   component adds only when it has the cards for it (>3): as the base style it gave a 1-heart
-   FavoritesRail a card-sized blank second row (review LOW — an fr row inherits the first row's
-   height). Uniform cells: rows share height, columns the fixed width, so no card runs ragged. */
-.start-here-rail-wall {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(2, 1fr);
-  grid-auto-columns: 158px;
-}
-.start-here-rail:not(.start-here-rail-wall) > li {
-  flex: none;
-  width: 158px;
+/* M135 — the two-row `start-here-rail-wall` grid is DELETED, not left unused. W21 added it for the
+   taste band ("same size and larger and maybe two rows?") and the taste band was its only caller;
+   the owner has now asked for that band as "one row", so the modifier has nobody left. At up to 8
+   cards it made the rail twice as tall as the pills above it and pushed the menu below the fold,
+   and an odd count left a hole in the last column. Every rail on this surface is one snapping
+   flex row again, which is also the shape of the pill rails either side of them. */
+/* M131 → M135 — the per-card CASCADE survives the wall's removal and moves onto the taste rail,
+   which is the row that has enough cards to make one read (owner, M131: "the card ul display …
+   should be more creative, styled, rendered"). `--i` is set per card by the component, which is
+   exactly what mmsRise's docblock says the caller does: "the caller sets `animation-delay` per item
+   for the stagger". The delay is capped so an eight-card row never leaves the last one waiting.
+
+   ⚠️ The container's rise is REPLACED, not stacked. The <ul> carries `.mms-rise`, and a parent's
+   transform composes with its children's — leaving both on would translate the row 16px instead of
+   8 and still land every card at the same moment, which is the opposite of a cascade. Under reduced
+   motion neither runs: `.mms-rise` is already cancelled by the shared block, and this whole block is
+   gated `no-preference`, so the cards render in their settled state. */
+@media (prefers-reduced-motion: no-preference) {
+  .taste-rail-row.mms-rise {
+    animation: none;
+  }
+  .taste-rail-row > li {
+    animation: mmsRise var(--dur-base) var(--ease-out) both;
+    animation-delay: calc(min(var(--i, 0) * 45ms, 360ms));
+  }
 }
 .start-here-rail > li {
+  flex: none;
+  width: 166px;
   scroll-snap-align: start;
   min-width: 0;
 }
@@ -4777,40 +5091,24 @@ html[data-seen-surface] .mms-stagger {
     transform: scale(1.05);
   }
 }
-/* W20 — the rank seal (data-backed rails only; the component gates it). A quiet vellum coin; #1
-   wears the lit-gold cap the selection vocabulary already speaks (.checkout-pill-on's recipe). */
-.start-here-rank {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  color: var(--tx);
-  background: var(--cd);
-  border: 1px solid color-mix(in oklab, var(--gold) 45%, var(--bd));
-  box-shadow: inset 0 1px 0 var(--sheen);
-}
-.start-here-rank-top {
-  color: var(--oa);
-  background: linear-gradient(160deg, var(--gold), color-mix(in oklab, var(--gold) 45%, var(--ac)));
-  border-color: transparent;
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    0 0 12px -4px var(--glow-gold);
-}
+/* M135 — the rank seal is GONE (`.start-here-rank` / `-top`), not restyled. The owner asked for
+   the PayPal POS sales data "instead of ranking them or numbering", and the numeral was the only
+   thing on this band making an ordinal claim. Row A is now a SET of most-ordered dishes in sales
+   order. `--bloom-gold-seal` existed only for that coin and is deleted with it. Nothing replaced
+   the seal — the price tag already owns a card corner, and it stays unglowed. */
 .start-here-photo {
   display: block;
-  margin: 0 0 4px;
-  border-radius: 9px;
+  position: relative;
+  margin: 0 0 6px;
+  border-radius: 10px;
   overflow: hidden;
-  aspect-ratio: 128 / 88;
+  /* M131 — 128/88 (1.45:1) → 4/3. The old ratio was a letterbox: a plated dish shot square-ish
+     lost its top and bottom to the crop, which is most of what makes food look like food. */
+  aspect-ratio: 4 / 3;
+  /* The foot of the photo darkens into the card so the name below reads as attached to it rather
+     than stacked under it. A gradient, never a filter: twenty filtered thumbnails on a menu grid
+     is twenty backing stores, and the photo-treatment rule in DESIGN-LANGUAGE says so. */
+  box-shadow: inset 0 -18px 22px -18px var(--shadow-ink);
 }
 .start-here-photo img {
   width: 100%;
@@ -4839,12 +5137,37 @@ html[data-seen-surface] .mms-stagger {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* M131 — the price becomes a TAG on the photo's top-right, mirroring the rank coin the same card
+   already floats top-left: the two read as a matched pair, and the card body gets its row back for
+   the name and the why-chip. Over-photo chrome, so it carries its OWN opaque plate and takes only
+   tokens that key off the real theme — the delivery repo's melded-chrome lesson, applied here
+   before it can happen.
+
+   ⚠️ Positioned against the CARD, not the photo, and the element stays where it is in the DOM —
+   AFTER the name. The button's accessible name is built from source order, so moving the price
+   markup into the photo span (which comes first) would have every card announce "$14.00 Mohinga"
+   instead of "Mohinga … $14.00". The photo has a fixed aspect at the card's top, so the same two
+   offsets land on its corner either way; only the announcement differs. */
 .start-here-price {
-  font-size: 12.5px;
+  position: absolute;
+  /* The SAME inset as `.start-here-rank`'s coin on the opposite corner — that is what makes the two
+     read as a pair rather than two separately-placed badges. */
+  top: 12px;
+  right: 12px;
+  z-index: 1;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  font-size: 12px;
   font-weight: 800;
-  color: var(--ac-strong);
   font-variant-numeric: tabular-nums;
+  color: var(--tx);
+  background: var(--cd);
+  border: 1px solid color-mix(in oklab, var(--gold) 42%, var(--bd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
 }
+
 @media (prefers-reduced-motion: reduce) {
   .start-here-card,
   .start-here-photo img {
@@ -4916,12 +5239,18 @@ html[data-seen-surface] .mms-stagger {
    so it never joins the heading's (and the rails') accessible name. */
 .start-here-hrow {
   display: flex;
-  align-items: center;
+  /* M131 — the h2 grew a second line (the sub) and a closing rule, so centring the pause coin
+     against the whole block floated it beside the sub instead of the title. `baseline` on a
+     wrapping flex item aligns to its FIRST line, which is the title — where the control belongs. */
+  align-items: baseline;
   gap: 8px;
-  margin: 0 0 8px;
+  margin: 0 0 10px;
 }
 .start-here-hrow > .start-here-h {
   flex: 1;
+  /* The row owns the spacing here; the bare-h2 case (TasteBand, FavoritesRail) keeps its own.
+     The heading's closing rule stops short of the pause coin in this arrangement, which is
+     invisible in practice: the gradient has already faded to transparent by 78%. */
   margin: 0;
 }
 /* The pause/play control (WCAG 2.2.2) — a 44px hit area wearing a small vellum coin, sitting at
@@ -5057,20 +5386,21 @@ html[data-seen-surface] .mms-stagger {
   color: inherit;
   opacity: 0.85;
 }
-/* Surprise-me is an ACTION, not a toggle — the dashed affordance the reward field taught. */
-.taste-chip-surprise {
-  border-style: dashed;
-  border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
-  color: var(--ac);
-}
+/* M137 — `.taste-chip-surprise` is deleted with the chip it styled. Surprise is no longer one
+   option in a rail; it is the section, and it wears `.taste-invite-btn` above. The dashed
+   action-not-a-toggle affordance is still the right idea and still lives in the reward field that
+   taught it — this band simply has no rail left to distinguish itself inside of. */
 /* The dietary rail's caption — the pills below filter the WHOLE menu, and this line owns saying
    so before any pill is lit (a filter that looks like a recommender would be a trap). */
+/* M135 — this caption's ONE call site is now the sticky toolbar (it moved back out of the taste
+   band), so it is tuned for that home: a little air above it separating it from the category nav,
+   and a little below before its own pills, rather than the band's asymmetric lead-in. */
 .taste-caption {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 2px 0;
+  margin: 8px 2px 6px;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -5086,11 +5416,180 @@ html[data-seen-surface] .mms-stagger {
   font-weight: 600;
   color: var(--t3);
 }
-/* The card's honesty line — why this dish is being offered. */
-.taste-why {
+/* ── M137 · the taste band, reimagined around ONE feature ─────────────────────────────────────
+   Owner: "make surprise your taste buds the one and only main feature for explore your burmese
+   taste buds section so let's reimagine it."
+
+   The eight craving pills are gone, so the surprise control is no longer a chip competing in a
+   rail — it is the section. It gets a real panel on the shipped paper surface: the glyph, the
+   bilingual title, one honest line, and a single action. Nothing here invents a surface; `card
+   card-textured` is the same paper every other card on this page is made of. */
+.taste-band {
+  padding: 10px 0 2px;
+}
+.taste-invite {
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+  padding: 14px 16px 15px;
+}
+.taste-invite-glyph {
+  font-size: 22px;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+.taste-invite-title {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+}
+.taste-invite-my {
+  font-family: var(--font-my);
+  /* 13px — the Burmese floor (W12/W16e). */
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ac-strong);
+}
+.taste-invite-line {
+  margin: 2px 0 0;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--t2);
+}
+/* The one action. It takes the ACCENT fill, not the lit-gold cap: gold is the selection vocabulary
+   (DESIGN-LANGUAGE §2) and nothing here is selected — this is a thing you DO. `--oa` is the
+   on-accent ink and correct by construction on an `--ac` fill. */
+.taste-invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin-top: 10px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: inset 0 1px 0 var(--sheen);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    filter var(--dur-base) var(--ease-out);
+}
+@media (hover: hover) {
+  .taste-invite-btn:hover {
+    filter: var(--bloom-gold);
+  }
+  .taste-invite-btn:hover .nav-arrow-fwd {
+    transform: translateX(3px);
+  }
+}
+.taste-invite-btn:active {
+  transform: scale(0.98);
+}
+/* After the tap the invitation stands down to one line, so the dishes get the room. */
+.taste-again {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0 2px 8px;
+}
+.taste-again-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+}
+.taste-again-btn {
+  min-height: 44px;
+  /* The visible chip stays small; the 44px target is padding plus a negative margin, so the row
+     does not grow. Safe here because this control is ALONE on its line (the label flexes) — the
+     M131 lesson about a wrapping row of chips does not apply. */
+  margin: -11px 0;
+  padding: 0 12px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  font: inherit;
   font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--tx);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+@media (hover: hover) {
+  .taste-again-btn:hover {
+    border-color: color-mix(in oklab, var(--ac) 40%, var(--bd));
+  }
+}
+.taste-empty {
+  margin: 4px 2px 8px;
+  font-size: var(--fs-sm);
   color: var(--t3);
+}
+@media (prefers-reduced-motion: reduce) {
+  .taste-invite-btn,
+  .taste-again-btn {
+    transition: none;
+  }
+  .taste-invite-btn:active {
+    transform: none;
+  }
+  .taste-invite-btn:hover .nav-arrow-fwd {
+    transform: none;
+  }
+}
+
+/* The card's honesty line — why this dish is being offered. */
+/* M131 — the honesty line becomes a CHIP. It was plain grey text at the card's foot, reading as a
+   caption the eye skips; it is the whole point of the card (the literal rule this dish matched), so
+   it now looks like a thing the dish EARNED. Self-contained on one element, the way every other
+   state in this app is. */
+/* In the surprise rail the cards are flex COLUMNS so the "How about this?" chip sits on the
+   bottom edge of every card, whatever the name's line count — the grid default packed it under the
+   price and the row read ragged (adversarial pass on #239). */
+.taste-rail-row .start-here-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.taste-rail-row .taste-why {
+  margin-top: auto;
+}
+.taste-why {
+  justify-self: start;
+  margin-top: 1px;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 700;
   line-height: 1.35;
+  color: var(--t2);
+  background: color-mix(in oklab, var(--gold) 9%, var(--sf));
+  border: 1px solid color-mix(in oklab, var(--gold) 22%, var(--bd));
+  /* Two lines maximum: three cravings matched at once would otherwise grow one cell and, in the
+     `1fr` wall rows, every cell with it. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 @media (prefers-reduced-motion: reduce) {
   .taste-chip,
@@ -7346,6 +7845,14 @@ html[data-seen-surface] .mms-stagger {
    the 44px touch rule doesn't apply to a control that can't render on touch. */
 .rail-shell {
   position: relative;
+  /* Shrinkable as a flex/grid ITEM (adversarial pass on #239, CRITICAL). In block layout this line
+     is inert, but as a grid item (the Dietary sheet's `.menu-diet-sheet` is `display: grid`) the
+     default `min-width: auto` makes this shell's min-content width — the full un-wrapped chip rail,
+     ~700px — the track's floor. The track then exceeds the 390px sheet, the inner `.taste-rail`
+     is stretched wide enough to never overflow, and the SHEET becomes the horizontal scroller:
+     reaching Gluten-free panned the whole dialog, scrolling away the title, the ✕ and most of the
+     allergen disclaimer. `min-width: 0` returns the overflow to the rail, where the scroller is. */
+  min-width: 0;
 }
 .rail-nudge {
   display: none;
@@ -8154,13 +8661,10 @@ html[data-fx="lite"] .mms-scrim {
   filter: var(--bloom-gold-lit);
   transition: filter var(--dur-base) var(--ease-out);
 }
-/* The rank seal sits 12px inside its card, so it takes the SHORT recipe — the full 14px halo would
-   run past the card edge. Same precedent as --sh-lift vs --sh-glow. Static: a seal is a statement
-   about the row, not a thing the diner just did. */
-.start-here-rank-top {
-  box-shadow: inset 0 1px 0 var(--sheen);
-  filter: var(--bloom-gold-seal);
-}
+/* M135 — `.start-here-rank-top` retired with the seal, and `--bloom-gold-seal` deleted with it
+   (tokens.css). It was NOT moved onto the price tag: that bloom existed for ONE coin, the #1 seal,
+   and a rail renders ten price tags — ten gold halos is exactly the overspend the glow economy
+   forbids. Nothing else consumed the rung, and no guard required it to be consumed. */
 @keyframes mmsIgnite {
   0% {
     filter: var(--bloom-gold-off);
@@ -8263,7 +8767,6 @@ html[data-fx="lite"] .mms-scrim {
   .checkout-pill-on,
   .checkout-tip-on,
   .taste-chip-on,
-  .start-here-rank-top,
   .mms-send-beat,
   .pay-success-check,
   .mms-confetti-pc,

@@ -25,6 +25,10 @@ import { dirname, join } from "node:path";
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => JSON.parse(readFileSync(join(root, p), "utf8"));
 const OUT = "docs/data/MENU_REFERENCE.md";
+// M135 — the second generated output: the owner's POS units, as a popularity ORDER the app reads.
+// Emitted from the SAME join as the doc so the two can never disagree about which POS row is which
+// dish, and checked by the same `--check` so a stale one fails `pnpm check:docs`.
+const POP_OUT = "apps/qr/lib/menu/pos-popularity.json";
 
 const catalog = read("docs/data/menu_catalog.json");
 const pos = read("docs/data/pos_2026_prices.json");
@@ -284,21 +288,88 @@ lines.push("");
 
 const doc = lines.join("\n");
 
+/**
+ * ── M135 · POS popularity ────────────────────────────────────────────────────────────────────────
+ * Owner: "you can refer to the actual paypal pos data insights for the menu items for most ordered
+ * items, instead of ranking them or numbering."
+ *
+ * EXACT Burmese matches only. This file's own rule for prices — approx matches are "kept for
+ * discovery, never used to conclude anything" — applies at least as hard to a units count: the
+ * loose key `ပဲပြုတ်` (White Peas) is a substring of `ပဲပြုတ်ထမင်းကြော်` (Burmese Fried Rice), so an
+ * approx join would hand one dish's sales to another and then ORDER THE MENU by it.
+ *
+ * Summed across a dish's exact matches, because a dish can legitimately ring as more than one POS
+ * row (Kyay-O / Si-Chat is two). Verified at generation time that no POS row is claimed by two
+ * dishes, so nothing is double-counted; the assert below keeps that true if either input changes.
+ *
+ * Keyed by SLUG, not by menu-item id: the catalog snapshot and prod share slugs (97/97 distinct,
+ * measured), while ids would rot the moment an item is recreated. The app maps slug → id against
+ * the live menu it already loaded.
+ */
+const claimedBy = new Map();
+const popularity = [];
+for (const item of catalog) {
+  const ours = keysOf(item.name_my);
+  if (ours.length === 0) continue;
+  const exact = pos.filter((p) => keysOf(p.pos).some((t) => ours.includes(t)));
+  if (exact.length === 0) continue;
+  // THE SAME price-agreement rule the units column above applies, and for the same reason (W21d,
+  // Codex P2 on #187): summing every exact-name hit attributes a $100 catering tray's units to the
+  // $10 dish. Summing them here too shipped `oil-rice-with-peas` at 26 while the doc's own units
+  // cell — generated one loop earlier, from the same rows — read 6. Two generated outputs, one
+  // join, two different numbers for one dish. When at least one exact row rings OUR price only the
+  // agreeing rows count; when none does (a price we deliberately diverge on) all exact rows still
+  // count, because zero would misread as "never sold".
+  const agrees = (p) => Math.round((p.price ?? 0) * 100) === item.base_price_cents;
+  const agreeing = exact.filter((p) => agrees(p));
+  const counted = agreeing.length > 0 ? agreeing : exact;
+  const qty = counted.reduce((sum, p) => sum + (p.qty ?? 0), 0);
+  if (qty <= 0) continue; // a matched row with no sales is not a popularity signal
+  // Claimed on the EXACT set, not the counted one: two dishes matching the same POS row is a broken
+  // join whether or not the price filter would later drop it, and that is what this assert is for.
+  for (const p of exact) claimedBy.set(p.pos, [...(claimedBy.get(p.pos) ?? []), item.slug]);
+  popularity.push({ slug: item.slug, qty });
+}
+const doubleClaimed = [...claimedBy].filter(([, slugs]) => slugs.length > 1);
+if (doubleClaimed.length) {
+  console.error(
+    "menu reference … a POS row is claimed by more than one dish, so its units would be counted twice:\n" +
+      doubleClaimed.map(([row, slugs]) => `  ${row} -> ${slugs.join(", ")}`).join("\n"),
+  );
+  process.exit(1);
+}
+// Most-sold first; slug breaks a tie so the file is byte-stable across runs. Plain code-unit order,
+// NOT `localeCompare` — with no locale argument that resolves against the runtime's default, so two
+// machines could order a tie differently and `--check` would fail on a file nobody changed. Slugs
+// are ASCII, so `<` is the total order this needs.
+popularity.sort((a, b) => b.qty - a.qty || (a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0));
+const popDoc = JSON.stringify(popularity, null, 2) + "\n";
+
+const outputs = [
+  [OUT, doc],
+  [POP_OUT, popDoc],
+];
+
 if (process.argv.includes("--check")) {
-  let current = "";
-  try {
-    current = readFileSync(join(root, OUT), "utf8");
-  } catch {
-    /* missing file — reported as stale below */
-  }
-  if (current !== doc) {
-    console.error(
-      `menu reference … STALE — ${OUT} does not match its inputs. Run: node scripts/gen-menu-reference.mjs`,
-    );
-    process.exit(1);
+  for (const [path, want] of outputs) {
+    let current = "";
+    try {
+      current = readFileSync(join(root, path), "utf8");
+    } catch {
+      /* missing file — reported as stale below */
+    }
+    if (current !== want) {
+      console.error(
+        `menu reference … STALE — ${path} does not match its inputs. Run: node scripts/gen-menu-reference.mjs`,
+      );
+      process.exit(1);
+    }
   }
   console.log("menu reference … fresh");
 } else {
-  writeFileSync(join(root, OUT), doc);
-  console.log(`wrote ${OUT} — ${catalog.length} catalog items, ${pos.length} POS items`);
+  for (const [path, want] of outputs) writeFileSync(join(root, path), want);
+  console.log(
+    `wrote ${OUT} — ${catalog.length} catalog items, ${pos.length} POS items; ` +
+      `${POP_OUT} — ${popularity.length} ranked by POS units`,
+  );
 }

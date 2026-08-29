@@ -48,14 +48,25 @@ photography), it **never nests**, and a **selected element is never glass** (§2
 
 ## 2 · The selection vocabulary — one language, every surface
 
-A selected thing wears the **lit gold cap**: gradient fill + `--oa` ink + inner sheen + a soft
-`--glow-gold` halo (`.checkout-pill-on`, `.checkout-tip-on`, `.slot-time-on`, `.taste-chip-on`,
-`.slot-day-on`, the `#1` rank seal). Idle candidates are **vellum ghosts** — warm translucent
-fill, gold hairline. Two hard rules learned the expensive way:
+A selected thing wears the **lit gold cap**: gradient fill + inner sheen + a soft `--glow-gold`
+halo (`.checkout-pill-on`, `.checkout-tip-on`, `.slot-time-on`, `.taste-chip-on`, `.slot-day-on`,
+the `#1` rank seal). Idle candidates are **vellum ghosts** — warm translucent fill, gold hairline.
+Three hard rules learned the expensive way:
 
 - **Self-contained active state.** Background and label live on ONE element — never a separately
   measured/positioned indicator supplying the contrast behind selected text (the recurring
   dark-on-dark active-tab bug, root-caused in the delivery repo and honored here).
+- **The ink follows the FILL, not the vocabulary — `--oa` on an accent fill, `--ink` on a gold one.**
+  This section itself read "gradient fill + `--oa` ink" with the rank seal listed beside the mode
+  pills, and that sentence is what shipped the bug: every other surface here fills with
+  `--ac` (or an `--ac`→`--ac-strong` ramp), where `--oa` is on-ACCENT ink and correct by
+  construction. `.start-here-rank-top` is the one that fills with **`--gold`**, and `--oa` on gold
+  measures **2.0458:1** in light — the band's most prominent numeral, unreadable in the default
+  theme, from W20 until M131. `--ink` is the CONSTANT deep ink for a fill that is bright in both
+  themes; on that gradient it clears 5.4353 (light) / 9.6157 (Night). Before writing an ink onto a
+  new lit surface, ask what the FILL is, and remember that `contrast-audit.test.ts` cannot ask that
+  question for you — it asserts token PAIRS and does not know which fill an ink lands on. A
+  gradient or a `color-mix` ground belongs in `composite-contrast.test.ts` instead.
 - **The mode pills, tip chips, day cards, taste chips and rank seals may never drift apart.**
   New selectable surfaces adopt the existing classes or extend them in `globals.css` beside them.
 

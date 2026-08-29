@@ -260,6 +260,151 @@ describe("the room — the worst pixel of the page ambient, both themes", () => 
   });
 });
 
+/**
+ * OKLab mixing, for the ONE gradient whose stops are a `color-mix` of two real tokens. The main
+ * audit carries the same helper for tint recipes; this file needs it because `resolve()` above only
+ * understands mixing with `transparent`, and a stop mixed with another COLOUR is a different sum.
+ */
+function srgbToLin(c: number) {
+  const v = c / 255;
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+function linToSrgb(c: number) {
+  const v = c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
+  return v * 255;
+}
+function toOklab([r, g, b]: [number, number, number]) {
+  const R = srgbToLin(r);
+  const G = srgbToLin(g);
+  const B = srgbToLin(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+  const m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+  const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s,
+  ] as [number, number, number];
+}
+function fromOklab([L2, a, b]: [number, number, number]): Rgba {
+  const l = (L2 + 0.3963377774 * a + 0.2158037573 * b) ** 3;
+  const m = (L2 - 0.1055613458 * a - 0.0638541728 * b) ** 3;
+  const s = (L2 - 0.0894841775 * a - 1.291485548 * b) ** 3;
+  return {
+    r: linToSrgb(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+    g: linToSrgb(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+    b: linToSrgb(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
+    a: 1,
+  };
+}
+function mixOklab(x: Rgba, weight: number, y: Rgba): Rgba {
+  const A = toOklab([x.r, x.g, x.b]);
+  const B = toOklab([y.r, y.g, y.b]);
+  return fromOklab(
+    [0, 1, 2].map((i) => A[i]! * weight + B[i]! * (1 - weight)) as [number, number, number],
+  );
+}
+
+describe("the gold chip's ink — a bright fill needs the CONSTANT ink, not the on-accent one", () => {
+  /**
+   * M131 found this SHIPPED: `.start-here-rank-top` (the #1 seal on the Start-here band, the most
+   * prominent numeral there) wore `color: var(--oa)` on a GOLD gradient. `--oa` is on-ACCENT ink —
+   * in light it is #fffdf8, sized for the dark amber `--ac` fill — and on `--gold` it measures
+   * 2.0458:1. Unreadable, in the default theme, since W20.
+   *
+   * ⚠️ THAT SELECTOR NO LONGER EXISTS — M135 deleted the rank seals outright (the owner asked for
+   * the sales data "instead of ranking them or numbering"), so do not go looking for it. The rule
+   * stayed because the FILL did: `.arrival-table` (globals.css) is the live consumer today, same
+   * gradient, and it is the one this guard protects. The bound is on the tokens, so it covers the
+   * next chip to reach for that gradient as well as this one.
+   *
+   * The whole class is invisible to the main audit for a structural reason worth stating: that
+   * audit asserts PAIRS OF TOKENS, and nothing there knows which fill a given ink is painted on.
+   * `--oa` on `--ac` is fine and asserted; `--oa` on `--gold` is a different pair that no rule
+   * named. So this guards the FILL itself, across every share the gradient actually paints.
+   *
+   * `.kds-new-pill` has the same pair and is deliberately NOT included: it renders inside
+   * `.kds-root.dark`, a Night-forced wall board, where `--oa` on `--gold` clears comfortably —
+   * 10.2712:1 at the gradient's WORST pixel (12.1235 at its best; quote the worst, it is the one
+   * that has to hold).
+   *
+   * RED-FIRST: reverting the chip to `--oa` is a CSS change this file cannot see, so the guard
+   * is on the TOKENS — putting `--oa` where `--ink` is asserted turns LIGHT red (the first sampled
+   * share reports 3.2229, the worst 2.0458) while Night stays green at 10.2712, which is the honest
+   * shape of the defect: `--oa` on gold is a light-theme failure only.
+   *
+   * The painted range, read off the rule itself:
+   *   background: linear-gradient(160deg, var(--gold), color-mix(in oklab, var(--gold) 45%, var(--ac)))
+   * so every pixel is an oklab blend of `--gold` and `--ac` whose GOLD share runs from 100% (the
+   * near stop) down to 45% (the far stop) — and no further. Pure `--ac` is NOT on this chip, which
+   * matters: `--ink` on bare light `--ac` is 3.6173, so asserting a stop the rule never paints
+   * would fail the guard over a pixel that does not exist. Sampled densely rather than at the two
+   * endpoints, because "the worst point is an endpoint" is an assumption about oklab interpolation
+   * and this costs nothing to not assume.
+   */
+  const GOLD_SHARE = Array.from({ length: 12 }, (_, k) => 0.45 + (k * (1 - 0.45)) / 11);
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    it(`${theme} · --ink clears AA across the whole painted gradient`, () => {
+      const gold = t(map, "--gold");
+      const ac = t(map, "--ac");
+      const ink = t(map, "--ink");
+      for (const w of GOLD_SHARE) {
+        expect(ratio(ink, mixOklab(gold, w, ac))).toBeGreaterThanOrEqual(AA);
+      }
+    });
+  }
+  it("light · --oa is NOT that ink, and this is why the rule exists", () => {
+    // A negative guard, the same shape the main audit uses for `plain ac on sf`: it pins the
+    // REASON. If a future palette change ever made --oa legible on gold, this fails and the comment
+    // above stops being true — which is exactly when someone should re-read it.
+    expect(ratio(t(light, "--oa"), t(light, "--gold"))).toBeLessThan(AA);
+  });
+});
+
+describe("M131's tinted grounds — two color-mix surfaces that carry text", () => {
+  /**
+   * Both are `color-mix(… , <surface>)` fills, so `contrast-audit.test.ts` cannot name either: it
+   * asserts token PAIRS, and neither ground is a token. Both are also thin in the LIGHT theme,
+   * which is the whole reason they are here rather than trusted:
+   *
+   *   .taste-why            --t2 on `--gold` 9%  + `--sf`   (the honesty chip on a taste card)
+   *   .arrival-exit-link:hover  --t2 on `--ac` 5% + `--sf`  (the exit door's promise line, hovered)
+   *
+   * The second one caught a live defect while it was being written: the tile's note was `--t3` over
+   * a 7% `--ac` tint, which measures 4.3708 — under AA, in the default theme, on the line that
+   * tells a diner their table stays open. `--t3` on bare light `--sf` is only 4.7595 to begin with,
+   * so ANY darkening tint is enough to sink it; the fix was the ink and the tint together.
+   *
+   * RED-FIRST, and the second mutation corrected the first draft of this note: `--t2` → `--t3`
+   * fails at 4.4795 (the ink is genuinely pinned). Raising the hover tint 5% → 9% does NOT fail —
+   * `--t2` still measures above AA there — so the tint is bounded, but loosely: light `--t2` crosses
+   * AA between 10% (4.5060) and 11% (4.4501). Worth stating rather than implying a tighter bound
+   * than exists: what this guard actually guarantees is the INK, plus a ceiling on the tint that a
+   * doubling would not reach.
+   */
+  const GROUNDS = [
+    { name: ".taste-why", fill: "--gold", pct: 0.09 },
+    { name: ".arrival-exit-link:hover", fill: "--ac", pct: 0.05 },
+  ] as const;
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    for (const g of GROUNDS) {
+      it(`${theme} · --t2 clears AA on ${g.name}`, () => {
+        const ground = mixOklab(t(map, g.fill), g.pct, t(map, "--sf"));
+        expect(ratio(t(map, "--t2"), ground)).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
+  it("light · --t3 does NOT clear the hovered exit tile — this is why the note is --t2", () => {
+    // A REASON guard, not a bound: raising the tint only pushes this further below AA, so it never
+    // trips on that. It exists so the day a palette change makes `--t3` legible here, this fails
+    // and someone re-reads the note above instead of inheriting a rule whose reason has expired.
+    const ground = mixOklab(t(light, "--ac"), 0.05, t(light, "--sf"));
+    expect(ratio(t(light, "--t3"), ground)).toBeLessThan(AA);
+  });
+});
+
 describe("--grad — the one ornament gradient nothing else pins", () => {
   /**
    * M127 records that four tokens this milestone moves are held by review alone: nothing in the
