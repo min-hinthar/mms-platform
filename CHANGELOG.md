@@ -4,6 +4,167 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The Codex wait is a required check now, and Rice is out of the promoted order (2026-08-29)
+
+Two owner asks: _"wire the wait into the flow properly. don't have Rice as top seller."_
+
+**The wait was a rule, and the rule kept failing the same way.** It was written down and followed
+for months. Codex only fires when a PR LEAVES DRAFT, and the merge flow marks-ready-and-squashes in
+one motion, so its review lands minutes after the merge on a closed PR nobody re-reads. On #191 that
+buried 2×P1 + 2×P2. On #239 it buried three P2s by NINE minutes, all of which reached `main`. The
+back-sweep above then found 76 findings across twelve PRs, sixteen never answered — including the
+money P1 that sat open for two days. Every one of those arrived post-merge, which makes it a
+sequencing problem, and a sequencing problem is what a required check fixes.
+
+`.github/workflows/require-codex-review.yml` is red until Codex has reviewed the commit that is
+actually about to merge. It re-reds on every push, because a review of the previous head says nothing
+about the code that would land now — that being exactly the #239 case. Drafts are exempt, and the
+reason is **not** that Codex cannot review one: it can, on an `@codex review` comment, and it did so
+twice on this PR while it was still a draft. The exemption is about what a draft MEANS. It is
+mid-iteration, pushes land minutes apart, and a check that reddens on each one — clearable only by
+asking a metered reviewer to re-read unfinished code — would either burn Codex rounds on WIP or,
+far more likely, teach everyone to ignore a permanently-red check. The gate arms at
+`ready_for_review`, which is also when Codex fires by itself, so it is red across exactly the window
+where the merge button is live and nowhere else.
+
+The decision is a tested module (`scripts/codex-review-gate.mjs`, 9 assertions in
+`apps/qr/lib/codex-review-gate.test.ts`) and not an inline expression, because a required check that
+answers "yes" for the wrong reason is worse than no check — it converts an unread review into a
+green tick, and this repo has shipped that class before. So the near-misses are what get asserted:
+a review of the PREVIOUS head, a HUMAN writing the word "Codex", a Codex comment that names no
+commit, a malformed head. Matching is on the sha, never on vocabulary. It accepts both shapes Codex
+reports in — a submitted review pinned via `commit_id`, and the no-findings issue comment that names
+its commit only in prose. **What it cannot do is prove anyone read the review**; it proves one exists
+on the commit about to merge, which turns merging past it into a deliberate act rather than an
+accident of timing. Two rounds and fix-or-justify remain a human discipline.
+
+**Rice is no longer promoted** (OPEN-ITEMS M136, open since M135 as an explicit owner question).
+`NOT_PROMOTED_SLUGS = ["rice"]` in `posPopular.ts`, filtered in `posPopularIds`, so Rice leaves both
+the "Most ordered" badge set and the suggestion order; the promoted head is now `kyay-o` (1975),
+ahead of `burmese-milk-tea` (1791) and `mohinga` (1068), and 75 of the 76 POS rows survive. Three
+things it deliberately does not do. The **data file is untouched** — `pos-popularity.json` still
+reads the till verbatim at `rice(2052)`, asserted by a test, because the moment the export carries a
+product opinion nobody can tell a sales change from an edit. It is **not a Sides-and-Drinks rule**:
+Coconut Rice is a Side and stays, Milk Tea and Faluda are Drinks and stay, since a diner orders those
+on purpose and a category rule would be this app inventing a policy from one sentence. And the filter
+is at **read time**, so the next export drops in without re-deciding anything. Four assertions --
+including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
+`"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
+
+### Codex round 2 on #240 — the gate's own P1, and a regression it caught in my fix (2026-08-29)
+
+The required check went red on purpose (see below), Codex reviewed the head, and the round returned
+**4×P1 + 1×P2**. Four were fixed; every one was verified against source before acting, and two of
+them were defects in work committed hours earlier in this same PR.
+
+- **The gate could never have gone green from a comment** (P1, on the workflow this PR adds). A
+  workflow's implicit check run attaches to the SHA the RUN is for, and only `pull_request` events
+  give that the PR head. Measured on #240: four runs, **none from `issue_comment`** — that event
+  runs from the default branch, where the file does not exist yet. So Codex's no-findings comment,
+  which names its commit only in prose, could never clear a `pull_request` failure sitting on the
+  head, and the gate would have wedged the PR permanently red — the exact "check nobody can satisfy"
+  outcome the draft exemption exists to avoid. The verdict is now a check run the job **creates**
+  against `pr.head.sha`, so the attachment is explicit rather than incidental, and the draft
+  stand-down publishes success rather than staying silent (an unpublished required check reads as
+  pending and blocks just as hard as a red one).
+- **My own money fix had made an inline retry worse** (P1) — see the section below. Before it, a
+  declined-then-retried card matched its pinned grant and settled correctly; the release turned that
+  into a charge fulfillment could not re-derive. Moved to the next attempt.
+- **A stale decline could wipe a successor's lock era** (P1) and **a reused automatic-capture intent
+  carries a stale era** (P1) — both dissolved by the same move.
+- **A duplicate `id:` key silently stole the next mutant's identity** (P2), leaving the W6c
+  `settle_by` mutant with none. A full `verify:slice` run stayed green because it filters nothing
+  and never reads `m.id`; `--only=lock` crashed on `undefined.includes`, and that mutant was
+  untargetable. Green for the wrong reason, exactly the class this repo keeps re-learning: a count
+  of 228 caught proves 228 mutations still fail their suites, and cannot prove they are still
+  _addressable_. `verify:slice` now refuses to run on a missing or duplicate id, with both halves
+  watched red.
+
+### The Codex back-sweep — a money P1 that sat unanswered for two days (2026-08-29)
+
+Asked to check every Codex review for fixes, so the twelve PRs before #239 were swept as well:
+**76 findings, 12 PRs.** Most were fixed or justified at the time. Sixteen were never clearly
+answered — almost all because the review landed AFTER the merge — and eight of those verify as still
+live against `main` today. One of them is a money defect.
+
+**The decline was the one exit that freed the cart and kept the promo grant** (Codex P1 on #233,
+posted 2026-08-26, no reply). M70 pins `promo_granted_cents` at authorization so a promo that
+expires — or a basket that changes — cannot move the amount already charged, and it releases that
+pin on three exits: create-intent's abandon paths, "Edit order", and the pagehide beacon. A DECLINE
+was the fourth, and released nothing: `payment_intent.payment_failed` freed the cart lock and the
+settlement freeze, so the cart came back **editable with the pin still set**. The diner drops a $30
+basket to $20, re-checks out, `mms_pin_promo_grant` no-ops because the pin is not null, and
+`mms_promo_discount` hands back the old grant — a discount priced against a basket that never earned
+it, charged for real. The migration's own §6 fixed exactly this shape for the Edit-order exit and
+missed the decline.
+
+**The fix is not where it looked like it should go, and Codex round 2 is why.** The obvious repair
+was to release the pin in the decline webhook — that is the exit that leaves the editable cart. It
+was written that way first and it was wrong, for three reasons that only surface on the paths a
+happy-path read skips. An inline decline **does not end the attempt**: `PaymentSection.confirm()`
+keeps the same Elements and clientSecret mounted and hands back a live Pay button, so the same
+PaymentIntent is retried at its original, grant-inclusive amount — clearing the pin there turns a
+retry that works today into a charge fulfillment can no longer re-derive (a charged guest, no
+order). The `releaseCartLock` beside it is **cart-wide**, so a stale decline nulls the `locked_at`
+that the era predicate reads, and on redelivery the `locked_at is null` branch clears a _successor's_
+live pin. And an automatic-capture idempotency key carries **no era**, so a re-entered checkout gets
+the first PaymentIntent back with the first era in its metadata while the cart is locked under a new
+one.
+
+So the release belongs to the attempt that **replaces** the pin, not the one that failed:
+`create-intent` now releases the previous grant under the era it just acquired and re-derives from
+the basket as it stands. It holds the lock it releases under, so there is no successor to wipe and
+no metadata to trust, and an intent nobody re-minted keeps the pin its amount was built from. The
+era metadata stays scoped to manual capture, whose idempotency key does carry the era — widening it
+would have put a stale value on every replayed intent. The decision lives in `lib/lock.ts` as
+`releasePromoGrantFor` rather than inline in the route, because `app/api/**` sits outside
+`verify:slice`'s mutant set and a money rule written there cannot be guarded at all. Four
+assertions, three mutations watched red, and a 228th `verify:slice` mutant.
+
+Filed rather than fixed, all post-merge Codex findings that verify as live: **M146** (`data-fx="off"`
+still parallaxes for desktop diners — the block suppresses `animation` but not `translate`, and the
+checked-in comment claims the opposite), **M147** (a throwing `localStorage` read takes the
+device-tier fallback down with it, so the weakest device loses `lite`), **M149** (the promo-pin and
+migration-name guards run only in `verify:slice`, which no workflow invokes), **M148** and **M150**
+(documentation claims Codex corrected, and three narrower live findings).
+
+### Codex was right, nine minutes too late — three P2s from a post-merge review (2026-08-29)
+
+`#239` was marked ready and squashed inside a minute, and Codex's review landed on `9155abf` at
+**00:44:56 — nine minutes after the 00:35:50 merge**. That is the precise failure the repo's own
+rule was written to prevent ("its findings landed minutes AFTER the merge, unread"), and all three
+of its P2s were real. All three were against code written in the rendered-surface pass, so they
+shipped to `main` before anyone read them.
+
+**The photo slot collapsed to nothing on any dish without a photo.** Making the surprise cards flex
+columns to bottom-anchor the "How about this?" chip, I added `align-items: flex-start` — which turns
+off the stretch `.start-here-photo` depends on. `PhotoPlaceholder` is absolutely positioned and
+contributes no intrinsic width, so on a photoless dish the slot shrank to **0×0**: measured on the
+deployed preview, two of eight cards. With the slot gone the name rides up under the
+absolutely-positioned price tag, so "Beef Jerky (Gril" sat struck through by its own "$19.00" over
+an empty card. Only the chip wanted to hug its text, so only the chip says so now
+(`align-self: flex-start`); the card keeps the default stretch.
+
+**The dietary sheet's new count was wrong in two opposite ways, and Codex found both.** Round 1:
+`matches={visible.length}` passed the intersection of query _and_ diets into a sentence reading
+"Nothing on the menu fits these filters — ease one", so searching "mohinga" and lighting Vegetarian
+denied that vegetarian dishes exist — a true number attached to the wrong CAUSE. The first fix
+counted diets alone; round 2 caught that this misstates the OUTCOME instead, announcing "72 dishes
+fit" when closing the sheet reveals an empty menu, because the list behind it still applies both
+constraints. Neither count is wrong — the sentence was. It reports the number the diner will
+actually land on now, and names every constraint that produced it: _"12 dishes match “mohinga” with
+these filters."_ when a search is active, the plain filters-only wording when it is not. Same family
+as the taste band's sold-out-blamed-on-filters line: the number was never the problem.
+
+**The first category tab never lit on the opening scroll.** Rewriting the scroll-spy to "the last
+section whose top crossed the reading line" made the observer a pure recompute — but an
+IntersectionObserver only fires on threshold _crossings_, and a section's top passing the reading
+line is not one. What schedules that pick is the PREVIOUS section leaving the band at the same
+moment; the first category has no predecessor to leave. So on the opening scroll the callback ran,
+found nothing crossed, and set nothing — no tab was current until the second category arrived. A
+nearest-approaching fallback covers exactly that gap, and once anything has crossed the rule is
+unchanged.
+
 ### The rendered-surface pass — the app in a real browser, judged on its pixels (2026-08-29)
 
 The owner asked for a deep adversarial pass on UI/UX quality and production readiness, so this one

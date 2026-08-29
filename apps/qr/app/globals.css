@@ -5568,9 +5568,16 @@ html[data-seen-surface] .mms-stagger {
 .taste-rail-row .start-here-card {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
 }
+/* ⚠️ NO `align-items: flex-start` on the card — Codex P2 on #239, and it was RIGHT: shrink-to-fit
+   collapses `.start-here-photo` to ZERO on any dish whose photo is null or 404s, because the
+   `PhotoPlaceholder` inside it is absolutely positioned and contributes no intrinsic width. Measured
+   on the deployed preview: photoW 0, photoH 0 on two of eight cards — and with the slot gone the
+   name rides up under the absolutely-positioned price tag, so the card read as a void with the
+   dish's name struck through by its own price. The default `stretch` is what the photo slot needs;
+   only the chip wants to hug its text, so it says so itself. */
 .taste-rail-row .taste-why {
+  align-self: flex-start;
   margin-top: auto;
 }
 .taste-why {

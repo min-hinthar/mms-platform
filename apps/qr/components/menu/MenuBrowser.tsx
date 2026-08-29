@@ -404,12 +404,23 @@ export function MenuBrowser({
     // one whose top has crossed the reading line under the pinned toolbar; the observer is only the
     // scheduler that tells us a boundary moved.
     const pickActive = () => {
-      let active: string | null = null;
+      let crossed: string | null = null;
+      let approaching: string | null = null;
       for (const c of cats) {
         const rect = sectionRefs.current.get(c)?.getBoundingClientRect();
-        if (rect && rect.top <= toolbarH + 1) active = c;
+        if (!rect) continue;
+        if (rect.top <= toolbarH + 1) crossed = c;
+        // The nearest section that has NOT crossed yet but already reaches past the reading line.
+        else if (approaching === null && rect.bottom > toolbarH + 1) approaching = c;
       }
-      if (active) setActiveCat(active);
+      // ⚠️ The fallback is load-bearing (Codex P2 on #239). The observer only fires on threshold
+      // CROSSINGS: section N's top passing the reading line is not one — what schedules that pick is
+      // section N-1 LEAVING the band at the same moment. The first category has no predecessor to
+      // leave, so on the opening scroll the callback ran, found nothing crossed, and set nothing —
+      // no tab was current until the SECOND category arrived. `approaching` covers exactly that gap;
+      // once anything has crossed, `crossed` wins and the rule is unchanged.
+      const next = crossed ?? approaching;
+      if (next) setActiveCat(next);
     };
     const io = new IntersectionObserver(pickActive, {
       // Top inset = the toolbar's full occluded band (height + sticky offset — same binding as
@@ -636,9 +647,17 @@ export function MenuBrowser({
               aria-label="Search the menu"
             />
           </label>
+          {/* The count the diner will actually SEE (`visible`), plus the query it was measured under
+              — Codex found BOTH halves of this on #239/#240, and they are opposite errors. The
+              intersection count under a filters-only sentence misattributes the CAUSE ("nothing fits
+              these filters" when the search emptied it); a diet-only count misstates the OUTCOME
+              ("72 dishes fit", then the menu behind the sheet is empty). One number and one sentence
+              that names every constraint that produced it is the only answer that is true on both
+              axes. */}
           <DietFilterButton
             diets={diets}
             matches={visible.length}
+            query={q.trim()}
             onToggle={toggleDiet}
             onClear={() => setDiets([])}
           />

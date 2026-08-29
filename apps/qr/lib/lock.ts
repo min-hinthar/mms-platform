@@ -209,6 +209,66 @@ export async function extendSettlement(cartId: string): Promise<void> {
 }
 
 /**
+ * Release the promo grant this attempt pinned (M70 · Codex P1 on #233, unanswered until now).
+ *
+ * `create-intent` pins `promo_granted_cents` at authorization so a promo that expires or a basket
+ * that changes mid-settlement cannot move the amount the diner was charged. Three exits release it
+ * again — the abandon paths in create-intent, and "Edit order" / the pagehide beacon via
+ * `mms_release_promo_grant_for_holder`. A DECLINE was the fourth exit and released nothing: the
+ * webhook freed the lock and the freeze, so the cart came back editable with the pin still set. The
+ * diner then drops a $30 basket to $20, re-checks out, `mms_pin_promo_grant` is a no-op because the
+ * pin is not null, and `mms_promo_discount` hands back the OLD grant — a discount priced against a
+ * basket that never earned it, charged for real.
+ *
+ * ⚠️ ERA-SCOPED. The RPC matches on `locked_at is null or locked_at is not distinct from
+ * p_attempt`, so it only ever clears a pin on a cart THIS attempt holds.
+ *
+ * ⚠️ WHERE IT IS CALLED FROM IS THE GUARD. A stale pin is cleared by the attempt that is about to REPLACE it, never by the attempt that
+ * failed. That distinction is the whole design, and Codex round 2 on #240 is why it exists.
+ *
+ * The obvious place to release was the decline webhook — the exit that left an editable cart
+ * carrying an authorized discount. It is the wrong place, for three reasons that only show up on
+ * the paths a happy-path read skips:
+ *
+ *   1. AN INLINE DECLINE DOES NOT END THE ATTEMPT. `PaymentSection.confirm()` keeps the same
+ *      Elements and the same clientSecret mounted and returns the diner to a live Pay button, so
+ *      the SAME PaymentIntent is retried at its original, grant-inclusive amount. Clearing the pin
+ *      on `payment_intent.payment_failed` means a successful retry captures a discount that
+ *      fulfillment can no longer re-derive — a charged guest with no order, and a REGRESSION on a
+ *      path that worked before, since the un-released pin used to make those amounts agree.
+ *   2. THE LOCK RELEASE BESIDE IT IS CART-WIDE. `releaseCartLock(cartId, null)` nulls `locked_at`
+ *      unconditionally, so a stale decline arriving after a successor acquired the cart erases the
+ *      era this predicate reads. On redelivery the `locked_at is null` branch then matches and
+ *      clears the SUCCESSOR's live pin.
+ *   3. A REUSED INTENT CARRIES A STALE ERA. An automatic-capture idempotency key has no era in it,
+ *      so a re-entered checkout gets the first PaymentIntent back with the FIRST era in its
+ *      metadata, while the cart is locked under a new one — the release would match nothing and the
+ *      pin would survive anyway.
+ *
+ * Releasing at the next `create-intent` dissolves all three: the caller holds the lock it is
+ * releasing under, so there is no successor to wipe and no metadata to trust, and an intent nobody
+ * re-minted keeps the pin its amount was built from. The pin is then immediately re-derived from
+ * the basket as it stands, which is what "the amount charged is the amount this attempt derived"
+ * actually requires.
+ *
+ * Lives here rather than inline in the route deliberately: `app/api/**` sits outside
+ * `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s mutant set, so a money rule
+ * written there cannot be guarded at all (the W17 lesson, in CLAUDE.md).
+ */
+export async function releasePromoGrantFor(cartId: string, attempt: string): Promise<ReleaseError> {
+  // No era, no release. The caller passes the era ITS OWN acquisition wrote; an empty one means we
+  // cannot show the cart is ours, and a cart-wide clear is exactly the successor-wiping hazard
+  // above — so the pin stays and the next honest re-derivation (or the cart closing) settles it.
+  if (!attempt) return null;
+  const db = serviceClient();
+  const { error } = await db.rpc("mms_release_promo_grant", {
+    p_cart_id: cartId,
+    p_attempt: attempt,
+  });
+  return error;
+}
+
+/**
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.

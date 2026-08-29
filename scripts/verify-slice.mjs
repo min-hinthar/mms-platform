@@ -1695,6 +1695,14 @@ const MUTANTS = [
     replace: "      1,\n    );",
   },
   {
+    id: "promo/decline-keeps-the-grant",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M70 (Codex P1 on #233) — a pin is a statement about ONE attempt's basket, so create-intent releases the previous one under the era it just acquired before re-deriving; `mms_pin_promo_grant` no-ops on a non-null pin, so without the release a grant earned by a $30 basket prices the $20 basket the diner re-checks-out with, charged for real. Dropping the era makes it a cart-wide clear, which is the successor-wiping hazard the scoping exists to prevent — and Codex round 2 on #240 is why this runs from the NEXT attempt rather than the decline webhook, where it would have cleared the pin under a still-retryable PaymentIntent",
+    find: "    p_attempt: attempt,",
+    replace: "    p_attempt: null,",
+  },
+  {
     id: "lock/attempt-release-not-scoped",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
@@ -2053,6 +2061,33 @@ try {
   });
 } catch {
   process.exit(1);
+}
+
+// Every mutant must carry a UNIQUE id, checked before anything else runs.
+//
+// This is here because it already happened, and a full run could not see it. A new mutant was
+// written with TWO `id:` keys; the later one won, so the object was fine — but the duplicate had
+// silently taken the id of the NEXT mutant in the list, which was left with none. A full run stayed
+// green (it filters nothing, so it never reads `m.id`), while `--only=lock` crashed on
+// `undefined.includes` and the W6c settle_by mutant became untargetable. A count of 228 caught
+// proved 228 mutations still fail their suites; it could not prove they are still ADDRESSABLE, and
+// an id is how a human re-runs the one mutant they are iterating on.
+{
+  const seen = new Map();
+  const bad = [];
+  MUTANTS.forEach((m, i) => {
+    if (typeof m.id !== "string" || !m.id) bad.push(`#${i} (${m.file}) has no id`);
+    else if (seen.has(m.id)) bad.push(`"${m.id}" is used by #${seen.get(m.id)} and #${i}`);
+    else seen.set(m.id, i);
+  });
+  if (bad.length) {
+    console.error(c.red(c.bold("\n\u2717 mutant ids are not unique:\n")));
+    for (const b of bad) console.error(`  ${b}`);
+    console.error(
+      c.dim("\n  A duplicate key silently steals the next mutant's id — JS keeps the last one.\n"),
+    );
+    process.exit(1);
+  }
 }
 
 const targets = MUTANTS.filter((m) => !only || m.id.includes(only));
