@@ -845,8 +845,13 @@ the list is the lesson:
 - The fx-boot extraction took a first-textual match, then "exactly one candidate". **Uniqueness is
   not liveness**: a known-good copy parked in `{false && <script/>}` plus a regressed live script
   leaves the DEAD copy as the sole candidate, every assertion green against code that never ships.
-  Bind the extraction to what RENDERS, evaluate the shipped literal, and refuse ambiguity — throw on
-  two candidates rather than picking by position.
+  Bind the extraction to the live candidate and evaluate the shipped literal, refusing ambiguity —
+  throw on two candidates rather than picking by position. And state the bound honestly: the guard
+  excludes the _enumerated literal-dead shapes_ a person actually writes (`{false && …}`, `{0 && …}`,
+  dead ternary arms) — it is NOT a reachability proof, and a good copy inside an uncalled helper
+  component still counts as live. Full reachability needs the type checker and control-flow analysis
+  the guard has no business carrying; the honest claim is "not fooled by parked dead copies", and the
+  guard's own comment says exactly that.
 - `opts.cores ?? 8` silently rewrote the explicitly-`undefined` case (the real browser case being
   asserted) to 8 cores; a test regex anchored on the post-fix shape made the suite **vanish**
   ("no tests") on regression instead of failing; a visitor written `(c) => walk(c)` returned the
@@ -858,7 +863,12 @@ comment the call out, park a dead copy, split the statement — watch red, resto
 rule already said this; what #60 adds is _where to aim it_: at the guard's own matching, not only at
 the rule it encodes. When writing any guard, ask "what text would satisfy my matcher without
 shipping the behaviour?" — and if the answer involves a comment, a dead branch, or a reordering,
-the matcher needs the compiler, not more regex.
+and the subject is executable JS/TS, the matcher needs the compiler, not more regex. Where no
+compiler exists for the subject — the composite-contrast band guard reads CSS — the honest shape is
+a BOUNDED scan, and that is how that guard was actually hardened: comments stripped first, the
+painting rule selected by what it _declares_ (a `background`) rather than by position, more than one
+custom property refused. Parse where a parser exists; where none does, constrain the scan and aim
+the same falsification at it.
 
 ## #61 — The gate built in the morning was walked past in the afternoon (#241, 2026-08-29)
 

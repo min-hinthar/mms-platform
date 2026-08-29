@@ -9,7 +9,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 Docs-only distillation of the #240–#242 arc into durable rules. `.claude/LEARNINGS.md` gains **#60**
 (the guard-falsification class: eleven of thirteen Codex findings were in guards written the same
 session, every one a matcher satisfied by a name, substring, count, position, or constant — guards
-parse, they never scan) and **#61** (#241 was squash-merged eleven seconds after `codex-review` went
+about executable behaviour parse, never scan; where no parser exists for the subject, the scan is
+bounded and falsified) and **#61** (#241 was squash-merged eleven seconds after `codex-review` went
 red on its head; mark-ready and merge are never one motion, and a merge-conflict resolution is
 verified as a set operation, never from a remembered list). `docs/WORKFLOW.md` gains the explicit
 six-step **merge ritual** with the event-driven wait as its own step; CLAUDE.md's Pre-PR sweep gains
