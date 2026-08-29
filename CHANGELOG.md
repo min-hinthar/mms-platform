@@ -4,6 +4,69 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The rendered-surface pass — the app in a real browser, judged on its pixels (2026-08-29)
+
+The owner asked for a deep adversarial pass on UI/UX quality and production readiness, so this one
+ran against the RENDERED app, not the diff: headless Chromium drove the live preview (head
+`2b2aeb1`), captured 28 screenshots across mobile/desktop × light/Night × reduced-motion, and
+measured what a script can measure — tap boxes, focus destinations, scroll landings, overflow,
+console, network. Three blind auditors judged the evidence against `DESIGN-LANGUAGE.md` and the
+rubric; survivors were adversarially refuted. 23 distinct findings; 5 survived refutation at high
+confidence; 17 hand-triaged; 1 refuted by geometry.
+
+**CRITICAL — the Dietary sheet was the horizontal scroller.** `.rail-shell`, the chip rail's
+wrapper, sat as a grid item inside `.menu-diet-sheet` with no `min-width: 0`, so its min-content
+width (the un-wrapped five-chip rail, ~700px) set the grid track wider than the 390px sheet. The
+inner `.taste-rail` — the intended scroller — was stretched wide enough to never overflow, and the
+overflow landed on `.mms-sheet` itself: reaching **Gluten-free panned the entire dialog sideways**,
+scrolling away the title and grab handle, floating the ✕ mid-air at the left, and clipping the
+allergen disclaimer to _"bout any allergy."_ — the sheet read broken precisely on the allergy path.
+Three fixes, layered: `.rail-shell` is shrinkable (`min-width: 0`); the sheet can never scroll
+sideways again (`overflow-x: clip` — the belt); and inside the sheet the chips now **wrap** — all
+five dietary options visible at once, no sideways gesture between a diner and an allergy filter.
+
+**The jump-nav undershoot (M139) was measured, then fixed.** Heading top 193 vs pinned toolbar
+bottom 229 — 36px of every jumped-to section title under the toolbar, unconditional (the QR header
+never retracts; the earlier hedge was wrong). `toolbarH` now adds the toolbar's _resolved_ sticky
+offset (`getComputedStyle(el).top` — the whole `calc`, lend ribbon included), and that one binding
+drives both `scrollMarginTop` and the scroll-spy inset. The spy also stopped flattering the
+PREVIOUS tab while a full viewport of the next section was on screen: active is now the last
+section whose top crossed the reading line, recomputed from section rects.
+
+**The arrival screen contradicted itself on the menu's default state.** Bare `/menu` defaults to
+`scango`; the eyebrow's ternary lacked that branch, so the masthead said **TO-GO** over the
+greeting card's **SCAN & GO** — two door claims on one screen, shipped since M131. The door is
+named ONCE now (`doorFor` in `ArrivalBeat`), and both surfaces read it.
+
+Smaller confirmed findings, all fixed: the search pill's real hit target was a 24px-tall input
+inside a 44px field (the wrapper is a `<label>` and the input stretches — every tap on the pill,
+glyph included, lands the caret); toggling a diet inside the modal sheet announced nothing (the
+page's status region is `aria-hidden` under Radix's dialog) — the sheet now states the consequence
+of each toggle in its own `role="status"` line ("14 dishes fit." / "Nothing on the menu fits these
+filters — ease one."), which also lets a sighted diner see the effect the covered list can't show;
+the pinned free-from disclaimer is one line at phone widths ("Allergen info is a guide — tell our
+staff." — same claim, shorter; the sheet keeps the full sentence); the empty state's button says
+what it clears ("Clear search & filters" / "Clear search" / "Clear filters"); the stale-catalog
+strip stopped claiming "a few minutes ago" (the snapshot's age is bounded by the outage, not any
+clock — it says "a little earlier"); the surprise cards are flex columns so "How about this?" sits
+on every card's bottom edge; and the narrowed search placeholder cuts with an ellipsis, not
+mid-word.
+
+**Verified working in production, for the record:** the surprise tap moves focus to "Shuffle
+again"; the sheet restores focus to its opener; reduced-motion mounts no duplicate rail DOM and
+hides the pause control; no horizontal document overflow anywhere; search keeps focus while
+typing on an empty result; the search input was already 16px (no iOS zoom-lock). One finding was
+**refuted by geometry**: the ambient pause coin does not occlude card titles — the "missing"
+glyphs sit at negative x, clipped by the rail's own overflow, left of the coin.
+
+Deferred to `docs/OPEN-ITEMS.md` as owner decisions: **M142** — four dishes' `image_url`s point at
+DELETED storage objects (Rice — the top seller, leading "Start here" with a placeholder card —
+Kayah Sausages, Tomato Salad, Grilled Aubergine Salad; re-upload or null the four URLs; Vercel's
+image cache makes them show intermittently per size); **M143** — the last-good-catalog snapshot is
+per-instance memory, weakest during rush-hour scale-out (KV/Edge-Config write-through is the
+durable home); **M144** — whether Surprise should prefer photographed dishes; **M145** — the UA
+search-cancel ✕ and the unproven mid-tier animation load.
+
 ### The blind adversarial pass on #239 — six defects, and three guards that could not fail (2026-08-28)
 
 Three blind auditors read `.review-bundle/` and nothing else — product truth, a11y/interaction, and

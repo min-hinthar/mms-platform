@@ -27,10 +27,14 @@ import { hasFreeFrom, type Diet } from "@/lib/menu/dietary";
  */
 export function DietFilterButton({
   diets,
+  matches,
   onToggle,
   onClear,
 }: {
   diets: Diet[];
+  /** How many dishes currently pass the menu's filters — the sheet shows the consequence of each
+   *  toggle, because the list it filters is COVERED by the sheet while the diner is toggling. */
+  matches: number;
   onToggle: (d: Diet) => void;
   onClear: () => void;
 }) {
@@ -73,7 +77,12 @@ export function DietFilterButton({
           basis so it wraps onto its own line under the row instead. */}
       {hasFreeFrom(diets) && (
         <div className="menu-diet-note">
-          <FreeFromDisclaimer />
+          {/* Compact: this copy is PINNED (the toolbar is sticky), and the full sentence costs a
+              second line at phone widths — 27% of a 390px viewport was chrome with one filter lit.
+              The claim is identical, only shorter; the full sentence stays in the sheet, where the
+              filter is chosen. The presence rule (an active free-from filter is never on screen
+              without its warning) is untouched. */}
+          <FreeFromDisclaimer compact />
         </div>
       )}
 
@@ -87,6 +96,21 @@ export function DietFilterButton({
             </span>
           </p>
           <DietPills diets={diets} onToggle={onToggle} labelledBy="taste-diet-cap" />
+          {/* The consequence of each toggle, said INSIDE the dialog (adversarial pass on #239): the
+              filtered list is covered by this sheet, and the page's own "Nothing matches" status is
+              aria-hidden by the modal while it is open — a screen-reader user toggling here heard
+              nothing. One live region: the page's is silenced by the dialog for exactly as long as
+              this one exists, so the one-per-view rule holds at every moment. Rendered only while a
+              filter is lit — with none, the count is just the menu. */}
+          {n > 0 && (
+            <p role="status" className="menu-diet-matches">
+              {matches === 0
+                ? "Nothing on the menu fits these filters — ease one."
+                : matches === 1
+                  ? "1 dish fits."
+                  : `${matches} dishes fit.`}
+            </p>
+          )}
           {hasFreeFrom(diets) && <FreeFromDisclaimer />}
           {/* ALWAYS rendered, `aria-disabled` when there is nothing to clear — never conditionally
               unmounted and never natively `disabled`. Both would destroy the place of anyone who

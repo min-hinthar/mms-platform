@@ -23,6 +23,26 @@ import type { WelcomeBack } from "@/lib/rewards";
  * decoration): `lang="my"` for correct SR pronunciation (WCAG 3.1.2) + the Padauk face; the ✦ is
  * decorative and hidden. No live region — this is static place-setting, announced once in reading order.
  */
+/**
+ * The ONE door vocabulary (name-it-ONCE, applied to identity — see brand.ts/track-order.ts for the
+ * rule). The adversarial pass on #239 caught the menu eyebrow speaking its own dialect: bare /menu
+ * defaults to scango (page.tsx), whose branch the eyebrow's ternary lacked, so the masthead said
+ * "TO-GO" over this card's "SCAN & GO" — two door claims on one screen. Both surfaces read this map
+ * now, so a new mode that misses a branch falls back visibly to the same word everywhere instead of
+ * silently disagreeing.
+ */
+const DOOR = {
+  dinein: { glyph: "🍽", label: "At the table" },
+  pickup: { glyph: "🥡", label: "To go" },
+  scango: { glyph: "🛒", label: "Scan & go" },
+} as const;
+
+/** The door for a mode string, unknown modes falling back VISIBLY to scan & go — the same word on
+ *  every surface beats a per-surface guess. */
+export function doorFor(mode: string): { glyph: string; label: string } {
+  return (DOOR as Record<string, { glyph: string; label: string }>)[mode] ?? DOOR.scango;
+}
+
 export function ArrivalBeat({
   mode,
   welcome = null,
@@ -43,16 +63,10 @@ export function ArrivalBeat({
 
   /**
    * M131 (owner: the arrival beat "for both dine-in and to-go modes have to be … reimagined").
-   * The door, named in three words. Before this the two modes were typographically identical and
-   * only the wording differed, so the screen never SAID which one you were in until you read a
-   * sentence. The glyph is decorative and hidden; the words carry it.
+   * The door, named in three words — from the shared DOOR map above, which the menu eyebrow reads
+   * too. The glyph is decorative and hidden; the words carry it.
    */
-  const door =
-    mode === "dinein"
-      ? { glyph: "🍽", label: "At the table" }
-      : mode === "pickup"
-        ? { glyph: "🥡", label: "To go" }
-        : { glyph: "🛒", label: "Scan & go" };
+  const door = doorFor(mode);
 
   const name = welcome?.name?.trim() || null;
   const backLine =

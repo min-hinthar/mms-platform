@@ -136,6 +136,12 @@ h3 {
   max-height: 90vh;
   max-height: calc(var(--sheet-max-h) - var(--kb-inset, 0px));
   overflow-y: auto;
+  /* Never a horizontal scroller (the belt for the `.rail-shell` min-width fix): with only
+     `overflow-y` set, overflow-x COMPUTES to auto, so any child that out-grows the sheet turns the
+     whole dialog into a sideways pan — title, handle and ✕ scroll away with it. Note `clip` beside
+     an `auto` axis computes to `hidden` (css-overflow-3), which is exactly enough: no user panning,
+     and after the min-width fix there is no overflow left to hide. */
+  overflow-x: clip;
   /* M126 — was var(--pg), the app's LOWEST tone on its HIGHEST plane. Against the defocus scrim the
      sheet separated by only 1.0385:1; on --cd it reads 1.3216, and the head one rung above it
      (--cd-raised) then reads as pinned chrome over its own body rather than a seam. Deliberately
@@ -1298,10 +1304,25 @@ html[data-fx="off"] .pa-pause {
   }
 }
 /* The sheet body — `Sheet` renders children straight after its head, with no padding of its own. */
+/* Inside the sheet the chips WRAP: all five dietary options visible at once, no sideways gesture
+   between a diner and an allergy filter. The band context keeps the rail; the negative edge-bleed
+   margins are for that context and come off here. */
+.menu-diet-sheet .taste-rail {
+  flex-wrap: wrap;
+  overflow-x: visible;
+  margin: 2px 0 8px;
+  padding: 0;
+}
 .menu-diet-sheet {
   display: grid;
   gap: 10px;
   padding: 4px 20px 20px;
+}
+/* The in-sheet consequence line — quiet, one rung under body ink; role="status" carries it to AT. */
+.menu-diet-matches {
+  margin: 2px 2px 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
 }
 .menu-diet-clear {
   justify-self: start;
@@ -1341,6 +1362,11 @@ html[data-fx="off"] .pa-pause {
 .menu-search input {
   flex: 1;
   min-width: 0;
+  /* Fill the pill (adversarial pass on #239): the input's natural box was 24px tall inside the
+     44px field, so the glyph and the bands above/below the text line were dead to taps on the
+     toolbar's primary control. The wrapper is a <label>, so every tap focuses it regardless — this
+     makes the caret land where the finger did. */
+  align-self: stretch;
   border: none;
   background: transparent;
   color: var(--tx);
@@ -1348,6 +1374,10 @@ html[data-fx="off"] .pa-pause {
 }
 .menu-search input::placeholder {
   color: var(--t3);
+  /* The field narrows when the Dietary chip gains its count badge — cut the placeholder with an
+     ellipsis, never mid-word. */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .menu-search input:focus {
   outline: none;
@@ -5532,6 +5562,17 @@ html[data-seen-surface] .mms-stagger {
    caption the eye skips; it is the whole point of the card (the literal rule this dish matched), so
    it now looks like a thing the dish EARNED. Self-contained on one element, the way every other
    state in this app is. */
+/* In the surprise rail the cards are flex COLUMNS so the "How about this?" chip sits on the
+   bottom edge of every card, whatever the name's line count — the grid default packed it under the
+   price and the row read ragged (adversarial pass on #239). */
+.taste-rail-row .start-here-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.taste-rail-row .taste-why {
+  margin-top: auto;
+}
 .taste-why {
   justify-self: start;
   margin-top: 1px;
@@ -7804,6 +7845,14 @@ html[data-seen-surface] .mms-stagger {
    the 44px touch rule doesn't apply to a control that can't render on touch. */
 .rail-shell {
   position: relative;
+  /* Shrinkable as a flex/grid ITEM (adversarial pass on #239, CRITICAL). In block layout this line
+     is inert, but as a grid item (the Dietary sheet's `.menu-diet-sheet` is `display: grid`) the
+     default `min-width: auto` makes this shell's min-content width — the full un-wrapped chip rail,
+     ~700px — the track's floor. The track then exceeds the 390px sheet, the inner `.taste-rail`
+     is stretched wide enough to never overflow, and the SHEET becomes the horizontal scroller:
+     reaching Gluten-free panned the whole dialog, scrolling away the title, the ✕ and most of the
+     allergen disclaimer. `min-width: 0` returns the overflow to the rail, where the scroller is. */
+  min-width: 0;
 }
 .rail-nudge {
   display: none;

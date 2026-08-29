@@ -13,7 +13,7 @@ import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
 import { itemBadges } from "@/lib/menu/badges";
 import { ItemSheet } from "./ItemSheet";
-import { ArrivalBeat } from "./ArrivalBeat";
+import { ArrivalBeat, doorFor } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
@@ -373,13 +373,18 @@ export function MenuBrowser({
   useEffect(() => {
     const el = toolbarRef.current;
     if (!el) return;
-    const lendOffset = () => {
-      const n = parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue("--lend-offset"),
-      );
+    // The RESOLVED sticky offset, not just the lend ribbon: `.menu-toolbar` pins at
+    // `calc(--header-height + safe-area + --lend-offset)`, and a jump must clear ALL of it. The old
+    // measure added only `--lend-offset`, so every category tap under-shot by exactly the 56px app
+    // header (+ notch inset) and parked the section heading under the pinned toolbar — measured
+    // live on #239's preview: heading top 193 vs toolbar bottom 229 (M139, adversarial pass).
+    // `getComputedStyle(el).top` resolves the whole calc, lend offset included, so it replaces the
+    // old hand-read of the one variable rather than adding to it.
+    const stickyTop = () => {
+      const n = parseFloat(getComputedStyle(el).top);
       return Number.isFinite(n) ? n : 0;
     };
-    const measure = () => setToolbarH(el.getBoundingClientRect().height + lendOffset());
+    const measure = () => setToolbarH(el.getBoundingClientRect().height + stickyTop());
     measure();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
@@ -393,16 +398,25 @@ export function MenuBrowser({
   // Scroll-spy: mark the section nearest the top (just under the sticky toolbar) as the active tab.
   useEffect(() => {
     if (cats.length === 0) return;
-    const io = new IntersectionObserver(
-      (entries) => {
-        const onScreen = entries
-          .filter((e) => e.isIntersecting)
-          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-        if (onScreen) setActiveCat(onScreen.target.getAttribute("data-cat"));
-      },
-      // Top inset = measured toolbar height so a section counts as "active" once it clears the toolbar.
-      { rootMargin: `-${Math.round(toolbarH)}px 0px -55% 0px`, threshold: 0 },
-    );
+    // Recompute from the section rects, not from the changed entries: "first intersecting entry"
+    // kept the PREVIOUS tab lit while a whole viewport of the next section was on screen (its tail
+    // still cut the band — adversarial pass on #239, desktop shots). The active section is the LAST
+    // one whose top has crossed the reading line under the pinned toolbar; the observer is only the
+    // scheduler that tells us a boundary moved.
+    const pickActive = () => {
+      let active: string | null = null;
+      for (const c of cats) {
+        const rect = sectionRefs.current.get(c)?.getBoundingClientRect();
+        if (rect && rect.top <= toolbarH + 1) active = c;
+      }
+      if (active) setActiveCat(active);
+    };
+    const io = new IntersectionObserver(pickActive, {
+      // Top inset = the toolbar's full occluded band (height + sticky offset — same binding as
+      // scrollMarginTop) so boundary events fire around the real reading line.
+      rootMargin: `-${Math.round(toolbarH)}px 0px -55% 0px`,
+      threshold: 0,
+    });
     for (const c of cats) {
       const el = sectionRefs.current.get(c);
       if (el) io.observe(el);
@@ -486,7 +500,7 @@ export function MenuBrowser({
             Ordering stays safe: every add re-derives price/tax server-side at write time. */}
         {catalogStale && (
           <DegradedStrip live={false} style={{ marginBottom: 12 }}>
-            We’re having a little trouble on our end — this is the menu from a few minutes ago.
+            We’re having a little trouble on our end — this is the menu from a little earlier.
             Prices are confirmed when you add a dish.
           </DegradedStrip>
         )}
@@ -499,9 +513,10 @@ export function MenuBrowser({
             propagation — so the pull would otherwise claim the sheet's own scroll. NOT suppressed
             while the catalog is stale: that says the LAST read failed, not the next one. */}
         <div className="menu-eyebrow-row">
-          <p className="eyebrow">
-            {mode === "dinein" ? "Dine-in" : mode === "pickup" ? "Pickup" : "To-go"}
-          </p>
+          {/* The same DOOR vocabulary as the arrival card below it — one map, so the masthead can
+              never contradict the greeting (the pass caught "TO-GO" over "SCAN & GO" on bare /menu,
+              whose default mode is scango and whose branch this ternary used to lack). */}
+          <p className="eyebrow">{doorFor(mode).label}</p>
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
@@ -606,7 +621,10 @@ export function MenuBrowser({
             sheet behind `DietFilterButton`, whose chip keeps the count visible and the filter one
             tap away. */}
         <div className="menu-search-row">
-          <div className="menu-search">
+          {/* A <label>, not a <div> (adversarial pass on #239): the pill is the visual field, so a
+              tap on the glyph or the padding must focus the input — label association does it
+              natively, no handler. */}
+          <label className="menu-search">
             <Icon name="search" size={18} />
             <input
               ref={searchRef}
@@ -617,8 +635,13 @@ export function MenuBrowser({
               placeholder="Search dishes, drinks…"
               aria-label="Search the menu"
             />
-          </div>
-          <DietFilterButton diets={diets} onToggle={toggleDiet} onClear={() => setDiets([])} />
+          </label>
+          <DietFilterButton
+            diets={diets}
+            matches={visible.length}
+            onToggle={toggleDiet}
+            onClear={() => setDiets([])}
+          />
         </div>
 
         {cats.length > 1 && (
@@ -810,7 +833,13 @@ export function MenuBrowser({
                 cursor: "pointer",
               }}
             >
-              Clear filters
+              {/* Says what it CLEARS (it clears both — a typed query vanished under a button that
+                  named only filters; adversarial pass on #239). */}
+              {q && diets.length > 0
+                ? "Clear search & filters"
+                : q
+                  ? "Clear search"
+                  : "Clear filters"}
             </button>
           )}
         </div>

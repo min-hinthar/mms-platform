@@ -57,7 +57,7 @@ export function DietPills({
  * the pills (taste band while browsing, toolbar while searching), so an active free-from filter is
  * never on screen without its warning (the Codex P1: the search state dropped it).
  */
-export function FreeFromDisclaimer() {
+export function FreeFromDisclaimer({ compact = false }: { compact?: boolean } = {}) {
   return (
     <p
       role="note"
@@ -73,7 +73,13 @@ export function FreeFromDisclaimer() {
         size={13}
         style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
       />
-      Allergen info is a guide — please tell our staff about any allergy.
+      {/* `compact` is the PINNED-toolbar cut of the same claim (one line at 390px); the sheet keeps
+          the full sentence. Same warning, never a different one — the free-from presence rule cares
+          that it is on screen, and a two-line pinned strip was the cost being paid for the longer
+          wording at every scroll position. */}
+      {compact
+        ? "Allergen info is a guide — tell our staff."
+        : "Allergen info is a guide — please tell our staff about any allergy."}
     </p>
   );
 }
