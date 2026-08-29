@@ -882,8 +882,11 @@ was built to replace. Two durable changes:
 
 - **Mark-ready and merge are never one motion.** The ritual, now in `docs/WORKFLOW.md`: final push →
   mark ready → `@codex review` → **WAIT** for the `codex-review` check to be green _with a summary
-  naming the merge head SHA_ (event-driven — subscribe to the PR; never sleep-poll) → fetch the
-  round, fix-or-justify → merge. #242 ran exactly this: the gate held red for four minutes across
+  that SAYS "Codex has reviewed" the merge head_ (green-plus-SHA is not enough — the draft
+  stand-down is green and names the SHA while asserting the opposite; event-driven — subscribe to
+  the PR; never sleep-poll) → fetch the round, fix-or-justify — _a pushed fix is a new head: loop
+  back through the wait for it_ → merge, only ever a head whose own reviewed verdict is green.
+  #242 ran exactly this: the gate held red for four minutes across
   three re-evaluations until Codex reported, and the merge followed the green, not the urge.
 - **An advisory check is a ritual, not a gate.** #241 is the measured proof C16 needs: until
   `codex-review` is required by branch protection, the gate's whole value rests on the discipline it

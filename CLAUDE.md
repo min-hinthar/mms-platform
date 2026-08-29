@@ -27,8 +27,9 @@ what runs:
   into branch protection (OPEN-ITEMS C16, owner-only)** — and #241 was squash-merged **eleven
   seconds after that check went red on its head**, by the same session that built the gate, putting
   a money-path commit (`8f2b11b`) on `main` unreviewed. Until C16 is wired, the merge ritual in
-  `docs/WORKFLOW.md` (final push → ready → `@codex review` → WAIT for green-on-head → triage →
-  merge) is all that stands between the gate and #241 happening again. Wire `codex-review`, never
+  `docs/WORKFLOW.md` (final push → ready → `@codex review` → WAIT for a summary saying "Codex has
+  reviewed" the head → triage, looping any fix push back through the wait → merge) is all that
+  stands between the gate and #241 happening again. Wire `codex-review`, never
   the retired `codex-reviewed`.
 - **Guards get audited harder than the code they guard.** Thirteen Codex findings across #241/#242;
   **eleven were in guards written that same session**, zero in the product code changed beside them
