@@ -24,6 +24,7 @@
  * this exits 1 naming which rule broke.
  */
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -36,11 +37,98 @@ const c = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
-const src = readFileSync(path.join(ROOT, FILE), "utf8");
+const raw = readFileSync(path.join(ROOT, FILE), "utf8");
 
-// Match the CALL, not a mention: a comment naming the RPC must not satisfy this guard.
-const pinAt = src.indexOf('.rpc("mms_pin_promo_grant"');
-const totalsAt = src.indexOf("getCartTotals(");
+/**
+ * PARSED, not scanned — and the third attempt at this, which is the point.
+ *
+ * The question this guard asks is "does executable code call `mms_pin_promo_grant`, and does it do
+ * so before the amount is derived". Text search cannot answer it, and each textual near-miss shipped
+ * a FALSE CLEAN over a live money regression:
+ *
+ *   1. `indexOf` matched the RPC name inside a comment, so commenting the pin out read as clean
+ *      (Codex P1, #241 round 1).
+ *   2. A hand-rolled comment/string scanner replaced it, and a regex literal containing a quote
+ *      defeated it: `if (/['"]/.test(cartId)) …` opened fabricated string state, an apostrophe in a
+ *      following comment closed it, and the rest of that comment was scanned as code — so
+ *      `// don't await db.rpc("mms_pin_promo_grant", …)` read as clean again (Codex P1, round 2).
+ *
+ * Both failures are the same mistake at different resolutions: approximating a JavaScript parser.
+ * The second one is instructive because the scanner was *more* careful than the first and still lost
+ * — regex-versus-division cannot be decided without the preceding token, and that is the doorway to
+ * the next exploit. So this asks the compiler instead. `typescript` is already a dependency, the
+ * parse is a few milliseconds on one file, and **comments are not AST nodes** — which makes
+ * "is this executable?" structural rather than textual, and closes the whole class rather than the
+ * two instances that were found.
+ */
+const sf = ts.createSourceFile(FILE, raw, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+
+/**
+ * Every call expression in the file, with positions, so the ordering rule can compare them.
+ *
+ * ⚠️ THE VISITOR MUST RETURN UNDEFINED. `ts.forEachChild` is a SEARCH primitive: it stops at the
+ * first callback that returns a truthy value and hands that value back. A visitor written as
+ * `(c) => walk(c, out)` therefore aborts after the first child, because `out` is a non-empty array
+ * — the walk silently covers a sliver of the file and the guard reports clean on almost anything.
+ * Caught here by the guard failing on a file that plainly contains the call; it would otherwise
+ * have been the third false CLEAN in a row.
+ */
+const calls = [];
+(function walk(node) {
+  if (ts.isCallExpression(node)) calls.push(node);
+  ts.forEachChild(node, (c) => {
+    walk(c);
+  });
+})(sf);
+
+/** `x.rpc("<name>")` — a real call, with the name as a genuine string literal argument. */
+const isRpcCall = (n, name) =>
+  ts.isPropertyAccessExpression(n.expression) &&
+  n.expression.name.text === "rpc" &&
+  n.arguments.length > 0 &&
+  ts.isStringLiteralLike(n.arguments[0]) &&
+  n.arguments[0].text === name;
+
+/** A bare or member call whose callee is named `getCartTotals`. */
+const isNamedCall = (n, name) =>
+  (ts.isIdentifier(n.expression) && n.expression.text === name) ||
+  (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name);
+
+const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
+const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
+/**
+ * The rule is SEQUENCING, not lexical order — Codex P1 on #241 round 3.
+ *
+ * Comparing `getStart()` positions proves only that the pin is written above the derivation, and
+ * two refactors satisfy that while destroying the guarantee:
+ *
+ *   • `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` — the pin is FIRST
+ *     in the AST and the two run concurrently, so the amount can be derived from a promo value the
+ *     pin has not frozen yet;
+ *   • a fire-and-forget `db.rpc(…)` statement above the derivation — earlier in the file, and with
+ *     no guarantee it has completed, or completed successfully, by the time totals are read.
+ *
+ * Both recreate exactly the hold-versus-pinned-grant divergence M70 exists to remove. So the guard
+ * asks for what the rule actually requires: the pin is AWAITED, and it is awaited in a statement
+ * that FINISHES before the statement deriving the amount begins. Different statements is what rules
+ * out the `Promise.all` shape — concurrency inside one statement is invisible to position alone.
+ */
+const stmtOf = (node) => {
+  for (let n = node; n; n = n.parent) if (ts.isStatement(n)) return n;
+  return undefined;
+};
+/** Awaited somewhere between the call and the statement that contains it. */
+const isAwaited = (call) => {
+  for (let n = call.parent; n && !ts.isStatement(n); n = n.parent) {
+    if (ts.isAwaitExpression(n)) return true;
+  }
+  return false;
+};
+
+const pinStmt = pinCall ? stmtOf(pinCall) : undefined;
+const totalsStmt = totalsCall ? stmtOf(totalsCall) : undefined;
+const pinAt = pinCall ? pinCall.getStart(sf) : -1;
+const totalsAt = totalsCall ? totalsCall.getStart(sf) : -1;
 
 process.stdout.write("promo grant pin — taken, and taken before the amount … ");
 
@@ -68,7 +156,27 @@ if (totalsAt === -1) {
   );
 }
 
-if (pinAt > totalsAt) {
+if (pinCall && !isAwaited(pinCall)) {
+  fail(
+    "the promo grant pin is not AWAITED.\n  " +
+      'M70: a fire-and-forget `db.rpc("mms_pin_promo_grant", …)` is earlier in the file and ' +
+      "carries\n  no guarantee it has completed — or succeeded — before the amount is derived. The " +
+      "hold\n  would then be minted against a promo value nothing has frozen, which is the exact\n  " +
+      "divergence the pin exists to remove. Await it.",
+  );
+}
+
+if (pinStmt && totalsStmt && pinStmt === totalsStmt) {
+  fail(
+    "the pin and the amount are derived in the SAME statement.\n  " +
+      'M70: `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` puts the ' +
+      "pin\n  first in the AST and runs both CONCURRENTLY, so the amount can be derived from a promo\n  " +
+      "value the pin has not frozen yet. Lexical order is not sequencing. Pin in its own statement,\n  " +
+      "awaited, before the one that derives the amount.",
+  );
+}
+
+if (pinStmt && totalsStmt && pinStmt.end > totalsStmt.getStart(sf)) {
   fail(
     "the promo grant is pinned AFTER the amount is derived.\n  " +
       "M70: deriving first mints the Stripe amount from the LIVE promo value and then pins a\n  " +

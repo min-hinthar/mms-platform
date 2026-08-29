@@ -2177,8 +2177,18 @@ process.stdout.write("\norphan-suite guard … ");
 // and made the gate unusable at exactly the moment it is supposed to run. `--cached --others
 // --exclude-standard` is tracked + untracked-minus-ignored, so a brand-new test file is still checked
 // before it is committed, and no future artifact directory can trip this again.
-const find = (pattern) =>
-  run("bash", ["-c", `git ls-files --cached --others --exclude-standard -- '${pattern}'`], ROOT)
+// VARIADIC, deliberately: the caller below passes three non-running suffixes, and a single-pattern
+// signature would have silently dropped two of them into the shell as nothing — a guard quietly
+// looking for less than it says it does, which is the exact class this file exists to prevent.
+const find = (...patterns) =>
+  run(
+    "bash",
+    [
+      "-c",
+      `git ls-files --cached --others --exclude-standard -- ${patterns.map((p) => `'${p}'`).join(" ")}`,
+    ],
+    ROOT,
+  )
     .split("\n")
     .filter(Boolean)
     .map((p) => `./${p}`);
@@ -2210,8 +2220,14 @@ if (allTs.length < 10 || unseen.length) {
   process.exit(1);
 }
 const tsOrphans = allTs.filter((p) => !SUITE_ROOTS.some((r) => r.re.test(p)));
-const tsxAny = find("*.test.tsx"); // no vitest config includes .tsx — any is an orphan
-const orphans = [...tsOrphans, ...tsxAny];
+// `.test.tsx` and BOTH `.spec` suffixes are matched by NO vitest config at any path (apps/qr
+// includes `**/*.test.ts`, packages/ui `src/**/*.test.ts`), so any of them is an orphan
+// wherever it sits. `.spec` joined this list from T5 / Codex P2 on #241: the orphan guard had
+// only ever enumerated the `.test` suffix, so a conventional `packages/db/foo.spec.ts` ran
+// nowhere AND was reported by nothing — the original invisible-test hole, under a different
+// filename. Keep in step with the mirror in ci.yml.
+const nonRunners = find("*.test.tsx", "*.spec.ts", "*.spec.tsx");
+const orphans = [...tsOrphans, ...nonRunners];
 console.log(orphans.length ? c.red("FAIL") : c.green("clean"));
 for (const o of orphans)
   console.log(`  ${c.red("orphan")} ${o} ${c.dim("— no vitest config runs this")}`);
