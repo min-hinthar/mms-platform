@@ -53,7 +53,12 @@ export function AmbientMotion() {
       window.removeEventListener("pointermove", onPointer);
       root.style.removeProperty("--pa-px");
       root.style.removeProperty("--pa-py");
-      const motionOk = !rm.matches;
+      // M146 (Codex P2 on #238) — the dial is part of the motion decision, not just a CSS selector.
+      // This listener used to read `prefers-reduced-motion` and pointer type ONLY, so a desktop
+      // diner who set the dial to `off` still had `--pa-px`/`--pa-py` written every frame and both
+      // planes translating. `off` is an explicit "still the room", so it belongs here beside the OS
+      // preference; the CSS block mirrors it as a belt.
+      const motionOk = !rm.matches && root.dataset.fx !== "off";
       setDrift(motionOk && !fine.matches);
       if (motionOk && fine.matches) {
         window.addEventListener("pointermove", onPointer, { passive: true });
@@ -61,6 +66,12 @@ export function AmbientMotion() {
     };
 
     apply();
+    // The dial WRITES `data-fx` at runtime (`FxDial.tsx` sets/deletes `root.dataset.fx`), so
+    // reading it once at mount would leave the listener attached for the rest of the session on a
+    // diner who turns effects off. A MutationObserver on the one attribute is the cheapest thing
+    // that reacts, and it is symmetrical with the media-query listeners below.
+    const fx = new MutationObserver(apply);
+    fx.observe(root, { attributes: true, attributeFilter: ["data-fx"] });
     // Legacy MediaQueryList (Safari/iOS <14, still targeted here — cf. the <15.4 dvh sheet
     // fallback) lacks addEventListener, and calling it would THROW at mount and trip the page's
     // error boundary over a decorative layer. The repo already holds this line in three places
@@ -75,6 +86,7 @@ export function AmbientMotion() {
     };
     const unlisten = [listen(rm), listen(fine)];
     return () => {
+      fx.disconnect();
       for (const off of unlisten) off();
       window.removeEventListener("pointermove", onPointer);
       if (raf) cancelAnimationFrame(raf);

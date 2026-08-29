@@ -584,7 +584,13 @@ h3 {
    it bottoms out around 18-55% instead of reaching zero two-thirds up the screen. */
 .pa-mid {
   position: absolute;
-  inset: 0;
+  /* OVERSCANNED, not `inset: 0` (M150b, Codex on #238). `--pa-px`/`--pa-py` run -1..1 and this
+     plane translates by `--pa-parallax-mid` (13px, tokens.css:277), so at full deflection an
+     `inset: 0` plane pulls its own trailing edge 13px into frame and exposes a hairline of bare
+     `--pg` along one side. 16 > 13 with room for a future bump; `.paper-ambient` is
+     `overflow: hidden`, so the extra never paints outside the room. The far plane moves 6px and is
+     `transform`-driven from a still base, so it does not need this. */
+  inset: -16px;
   opacity: var(--pa-mid-op);
   background-image:
     radial-gradient(120% 62% at 50% -8%, var(--pa-pool), transparent 62%),
@@ -660,12 +666,27 @@ html[data-ambient="paused"] .pa-mid {
    the same rule that keeps it off desktop. `display: none` (not `visibility`) so it leaves the
    accessibility tree and the tab order too, and it tracks the attribute live rather than depending
    on a React read of `dataset` that nothing would re-run. */
+/* `off` must still the room the SAME way reduced-motion does (M146, Codex P2 on #238). This block
+   used to null `animation` alone, which stops the coarse-pointer drift and nothing else: on a fine
+   pointer `AmbientMotion` writes `--pa-px`/`--pa-py` every frame, so both full-viewport planes kept
+   translating ±6px/±13px — with `--fx-promote: auto` having just REMOVED their layer promotion, so
+   the "off" setting was doing unpromoted compositing work. `.pa-pause` is `display: none` here, and
+   the pause control never renders on a fine pointer anyway, so that diner had motion and NO stop
+   control (WCAG 2.2.2). The reduced-motion block below is the correct shape and is mirrored here on
+   purpose — if you edit one, edit both. The dial is also read in `AmbientMotion` now, so the
+   listener is not attached at all; this rule is the belt that holds if that ever regresses. */
 html[data-fx="off"] .pa-far,
 html[data-fx="off"] .pa-mid {
   animation: none;
+  translate: none;
+  transition: none;
+  will-change: auto;
 }
 html[data-fx="off"] .pa-far {
   transform: var(--pa-still);
+}
+html[data-fx="off"] .pa-mid {
+  transform: none;
 }
 html[data-fx="off"] .pa-pause {
   display: none;

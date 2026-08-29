@@ -127,11 +127,20 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
               devices the escape hatch exists for, which is where that first composite is the thing
               that OOM-crashed a WebKit tab. Same shape as the theme script: `try/catch`, no
               dependencies, one attribute. `FxDial` below still runs — it is the React-side owner of
-              the value and it re-applies on a tier change; this only wins the first paint. */}
+              the value and it re-applies on a tier change; this only wins the first paint.
+
+              ⚠️ TWO `try` BLOCKS, and the split IS the fix (M147, Codex P2 on #238). The storage
+              read and the hardware-tier derivation used to share one `try`, so a browser that
+              THROWS on `localStorage` access — Safari private mode, cookies blocked, a partitioned
+              iframe — skipped the tier derivation too. The browser most likely to throw is a
+              locked-down mobile one, i.e. exactly the low-end device the `lite` fallback exists
+              for, and it was the one getting the FULL effect budget. Reading storage into a
+              pre-declared `f` degrades a throw to "no manual override" instead of "no dial at
+              all". Pinned by `lib/fx-boot.test.ts`, which evaluates this very string. */}
           <script
             nonce={nonce}
             dangerouslySetInnerHTML={{
-              __html: `try{var f=localStorage.getItem("mms.fx");if(f!=="full"&&f!=="lite"&&f!=="off")f=(navigator.hardwareConcurrency||0)<4?"lite":null;if(f&&f!=="full")document.documentElement.dataset.fx=f}catch(e){}`,
+              __html: `var f=null;try{f=localStorage.getItem("mms.fx")}catch(e){}try{if(f!=="full"&&f!=="lite"&&f!=="off")f=(navigator.hardwareConcurrency||0)<4?"lite":null;if(f&&f!=="full")document.documentElement.dataset.fx=f}catch(e){}`,
             }}
           />
           <FxDial />
