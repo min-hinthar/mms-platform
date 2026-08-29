@@ -24,6 +24,7 @@
  * this exits 1 naming which rule broke.
  */
 import { readFileSync } from "node:fs";
+import ts from "typescript";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,73 +40,64 @@ const c = {
 const raw = readFileSync(path.join(ROOT, FILE), "utf8");
 
 /**
- * Blank out comments and string bodies, preserving offsets.
+ * PARSED, not scanned — and the third attempt at this, which is the point.
  *
- * This guard's whole claim is "the CALL is there, and it is first". A plain `indexOf` cannot make
- * that claim: `// await db.rpc("mms_pin_promo_grant", …)` contains the searched substring exactly,
- * so commenting the pin out left the guard GREEN while no pin executed — a green tick over a live
- * money regression, and the one failure mode a required check must never have. Codex P1 on #241
- * caught it, against a file whose own comment already said "a comment naming the RPC must not
- * satisfy this guard": the intent was written down and never implemented.
+ * The question this guard asks is "does executable code call `mms_pin_promo_grant`, and does it do
+ * so before the amount is derived". Text search cannot answer it, and each textual near-miss shipped
+ * a FALSE CLEAN over a live money regression:
  *
- * Offsets are preserved (each removed character becomes a space) because the SECOND rule is an
- * ORDERING comparison — collapsing the text would move the two call sites relative to each other.
- * String bodies are blanked for the same reason comments are: a fixture or an error message quoting
- * the RPC name is not a call either.
+ *   1. `indexOf` matched the RPC name inside a comment, so commenting the pin out read as clean
+ *      (Codex P1, #241 round 1).
+ *   2. A hand-rolled comment/string scanner replaced it, and a regex literal containing a quote
+ *      defeated it: `if (/['"]/.test(cartId)) …` opened fabricated string state, an apostrophe in a
+ *      following comment closed it, and the rest of that comment was scanned as code — so
+ *      `// don't await db.rpc("mms_pin_promo_grant", …)` read as clean again (Codex P1, round 2).
+ *
+ * Both failures are the same mistake at different resolutions: approximating a JavaScript parser.
+ * The second one is instructive because the scanner was *more* careful than the first and still lost
+ * — regex-versus-division cannot be decided without the preceding token, and that is the doorway to
+ * the next exploit. So this asks the compiler instead. `typescript` is already a dependency, the
+ * parse is a few milliseconds on one file, and **comments are not AST nodes** — which makes
+ * "is this executable?" structural rather than textual, and closes the whole class rather than the
+ * two instances that were found.
  */
-function stripNonCode(text) {
-  const out = text.split("");
-  let i = 0;
-  const blank = (from, to) => {
-    for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
-  };
-  while (i < text.length) {
-    const two = text.slice(i, i + 2);
-    if (two === "//") {
-      let j = text.indexOf("\n", i);
-      if (j === -1) j = text.length;
-      blank(i, j);
-      i = j;
-    } else if (two === "/*") {
-      let j = text.indexOf("*/", i + 2);
-      j = j === -1 ? text.length : j + 2;
-      blank(i, j);
-      i = j;
-    } else if (text[i] === '"' || text[i] === "'" || text[i] === "`") {
-      const q = text[i];
-      let j = i + 1;
-      while (j < text.length) {
-        if (text[j] === "\\") j += 2;
-        else if (text[j] === q) break;
-        else j++;
-      }
-      // Keep the quotes, blank the body — so `.rpc("mms_pin_promo_grant"` stops matching on the
-      // NAME while the call shape around it stays greppable.
-      blank(i + 1, j);
-      i = j + 1;
-    } else {
-      i++;
-    }
-  }
-  return out.join("");
-}
+const sf = ts.createSourceFile(FILE, raw, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
 
-// Executable text only. `src` is the same LENGTH as the file, so every index below is a real
-// offset into it and the ordering comparison stays meaningful.
-const src = stripNonCode(raw);
+/**
+ * Every call expression in the file, with positions, so the ordering rule can compare them.
+ *
+ * ⚠️ THE VISITOR MUST RETURN UNDEFINED. `ts.forEachChild` is a SEARCH primitive: it stops at the
+ * first callback that returns a truthy value and hands that value back. A visitor written as
+ * `(c) => walk(c, out)` therefore aborts after the first child, because `out` is a non-empty array
+ * — the walk silently covers a sliver of the file and the guard reports clean on almost anything.
+ * Caught here by the guard failing on a file that plainly contains the call; it would otherwise
+ * have been the third false CLEAN in a row.
+ */
+const calls = [];
+(function walk(node) {
+  if (ts.isCallExpression(node)) calls.push(node);
+  ts.forEachChild(node, (c) => {
+    walk(c);
+  });
+})(sf);
 
-// The name lives inside a string, which `stripNonCode` blanks — so match the call SHAPE and then
-// confirm the name at that offset in the raw text. That keeps "is it code?" and "is it the right
-// RPC?" as two separate questions, each answered by the source that can answer it.
-const RPC = '.rpc("mms_pin_promo_grant"';
-let pinAt = -1;
-for (let k = src.indexOf('.rpc("'); k !== -1; k = src.indexOf('.rpc("', k + 1)) {
-  if (raw.startsWith(RPC, k)) {
-    pinAt = k;
-    break;
-  }
-}
-const totalsAt = src.indexOf("getCartTotals(");
+/** `x.rpc("<name>")` — a real call, with the name as a genuine string literal argument. */
+const isRpcCall = (n, name) =>
+  ts.isPropertyAccessExpression(n.expression) &&
+  n.expression.name.text === "rpc" &&
+  n.arguments.length > 0 &&
+  ts.isStringLiteralLike(n.arguments[0]) &&
+  n.arguments[0].text === name;
+
+/** A bare or member call whose callee is named `getCartTotals`. */
+const isNamedCall = (n, name) =>
+  (ts.isIdentifier(n.expression) && n.expression.text === name) ||
+  (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name);
+
+const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
+const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
+const pinAt = pinCall ? pinCall.getStart(sf) : -1;
+const totalsAt = totalsCall ? totalsCall.getStart(sf) : -1;
 
 process.stdout.write("promo grant pin — taken, and taken before the amount … ");
 

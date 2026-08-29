@@ -95,11 +95,27 @@ out and the guard reported **clean** while no pin executed. Reproduced before fi
 tolerable while it was one signal among several in a local gate; this PR makes it the route's only CI
 coverage, which turns it into a green tick over a live money regression. The file's own comment
 already said "a comment naming the RPC must not satisfy this guard" — the intent was written down and
-never implemented. It now blanks comments and string bodies while PRESERVING offsets (the second rule
-is an ordering comparison, so collapsing the text would move the call sites relative to each other),
-then matches the call shape in code and confirms the RPC name at that offset in the raw source.
-Falsified four ways — line-commented, block-commented, deleted, and name-present-only-in-a-string —
-all red, with the real call still clean.
+never implemented. The first repair blanked comments and string bodies with a hand-rolled scanner. **Codex round 2
+broke that too**, with a working exploit: a regex literal containing a quote opens fabricated string
+state, and an apostrophe in a following comment closes it, exposing the rest of that comment as
+"code" — so `if (/['"]/.test(cartId)) …` followed by `// don't await db.rpc("mms_pin_promo_grant", …)`
+read as CLEAN again.
+
+Both failures are the same mistake at different resolutions: approximating a JavaScript parser. The
+second is the instructive one, because the scanner was _more_ careful than the `indexOf` and still
+lost — regex-versus-division cannot be decided without the preceding token, which is the doorway to
+the next exploit. So the guard now **asks the compiler**. `typescript` is already a dependency, the
+parse costs milliseconds on one file, and comments are not AST nodes — which makes "is this
+executable?" structural rather than textual and closes the class rather than the two instances found.
+
+Writing it surfaced a third would-be false CLEAN, caught locally: `ts.forEachChild` is a SEARCH
+primitive that stops at the first callback returning a truthy value, so a visitor written as
+`(c) => walk(c, out)` aborts after the first child — the walk covers a sliver of the file and the
+guard passes on almost anything. It is noted in the source, because the next person to write a TS
+walker here will reach for exactly that shape.
+
+Falsified six ways — line-commented, block-commented, deleted, name-only-in-a-string, the regex-quote
+exploit, and the pin moved below `getCartTotals` — all red, with the real call still clean.
 
 Docs swept holistically at the owner's request: README's workflow table was still describing **three**
 workflows after #240 added a fourth, and the review section did not mention that the Codex wait is now
