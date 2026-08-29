@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Codex was right, nine minutes too late — three P2s from a post-merge review (2026-08-29)
+
+`#239` was marked ready and squashed inside a minute, and Codex's review landed on `9155abf` at
+**00:44:56 — nine minutes after the 00:35:50 merge**. That is the precise failure the repo's own
+rule was written to prevent ("its findings landed minutes AFTER the merge, unread"), and all three
+of its P2s were real. All three were against code written in the rendered-surface pass, so they
+shipped to `main` before anyone read them.
+
+**The photo slot collapsed to nothing on any dish without a photo.** Making the surprise cards flex
+columns to bottom-anchor the "How about this?" chip, I added `align-items: flex-start` — which turns
+off the stretch `.start-here-photo` depends on. `PhotoPlaceholder` is absolutely positioned and
+contributes no intrinsic width, so on a photoless dish the slot shrank to **0×0**: measured on the
+deployed preview, two of eight cards. With the slot gone the name rides up under the
+absolutely-positioned price tag, so "Beef Jerky (Gril" sat struck through by its own "$19.00" over
+an empty card. Only the chip wanted to hug its text, so only the chip says so now
+(`align-self: flex-start`); the card keeps the default stretch.
+
+**The dietary sheet's new count reported the search, and blamed the filters.** `matches={visible.length}`
+passed the intersection of query _and_ diets into a sentence that reads "Nothing on the menu fits
+these filters — ease one." Search "mohinga", light Vegetarian, and the sheet denies that vegetarian
+dishes exist. It is the same defect class as the taste band's sold-out-blamed-on-filters line fixed
+one commit earlier — a true number attached to the wrong cause — and it now counts `passesDiets`
+against the whole catalog.
+
+**The first category tab never lit on the opening scroll.** Rewriting the scroll-spy to "the last
+section whose top crossed the reading line" made the observer a pure recompute — but an
+IntersectionObserver only fires on threshold _crossings_, and a section's top passing the reading
+line is not one. What schedules that pick is the PREVIOUS section leaving the band at the same
+moment; the first category has no predecessor to leave. So on the opening scroll the callback ran,
+found nothing crossed, and set nothing — no tab was current until the second category arrived. A
+nearest-approaching fallback covers exactly that gap, and once anything has crossed the rule is
+unchanged.
+
 ### The rendered-surface pass — the app in a real browser, judged on its pixels (2026-08-29)
 
 The owner asked for a deep adversarial pass on UI/UX quality and production readiness, so this one

@@ -343,6 +343,16 @@ export function MenuBrowser({
   }, [reorderId, cartId, announce, refresh]);
 
   // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.
+  // What the DIET filters alone leave on the menu — deliberately not `visible.length`, which is the
+  // intersection with the search query (Codex P2 on #239, and it was right). The sheet says "Nothing
+  // on the menu fits these filters", so a diner searching "mohinga" and then lighting Vegetarian
+  // would have been told no vegetarian dishes exist. Same defect class as the taste band's
+  // sold-out-blamed-on-filters sentence: a true number attached to the wrong cause.
+  const dietMatches = useMemo(
+    () => (diets.length === 0 ? items.length : items.filter((i) => passesDiets(i, diets)).length),
+    [items, diets],
+  );
+
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return items.filter((i) => {
@@ -404,12 +414,23 @@ export function MenuBrowser({
     // one whose top has crossed the reading line under the pinned toolbar; the observer is only the
     // scheduler that tells us a boundary moved.
     const pickActive = () => {
-      let active: string | null = null;
+      let crossed: string | null = null;
+      let approaching: string | null = null;
       for (const c of cats) {
         const rect = sectionRefs.current.get(c)?.getBoundingClientRect();
-        if (rect && rect.top <= toolbarH + 1) active = c;
+        if (!rect) continue;
+        if (rect.top <= toolbarH + 1) crossed = c;
+        // The nearest section that has NOT crossed yet but already reaches past the reading line.
+        else if (approaching === null && rect.bottom > toolbarH + 1) approaching = c;
       }
-      if (active) setActiveCat(active);
+      // ⚠️ The fallback is load-bearing (Codex P2 on #239). The observer only fires on threshold
+      // CROSSINGS: section N's top passing the reading line is not one — what schedules that pick is
+      // section N-1 LEAVING the band at the same moment. The first category has no predecessor to
+      // leave, so on the opening scroll the callback ran, found nothing crossed, and set nothing —
+      // no tab was current until the SECOND category arrived. `approaching` covers exactly that gap;
+      // once anything has crossed, `crossed` wins and the rule is unchanged.
+      const next = crossed ?? approaching;
+      if (next) setActiveCat(next);
     };
     const io = new IntersectionObserver(pickActive, {
       // Top inset = the toolbar's full occluded band (height + sticky offset — same binding as
@@ -638,7 +659,7 @@ export function MenuBrowser({
           </label>
           <DietFilterButton
             diets={diets}
-            matches={visible.length}
+            matches={dietMatches}
             onToggle={toggleDiet}
             onClear={() => setDiets([])}
           />
