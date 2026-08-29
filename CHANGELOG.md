@@ -51,6 +51,44 @@ is at **read time**, so the next export drops in without re-deciding anything. F
 including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
 `"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
 
+### The CI fast lane grows teeth, and it caught #240's own drift (2026-08-29)
+
+Three guards existed and none of them gated a merge. Wiring them took minutes; the interesting part
+is what the first one found.
+
+**`format:check` ran in ZERO workflows** (T6). `lint` is plain `eslint .` with no prettier plugin,
+and the fast lane read docs, tokens and generated types — nothing read general source formatting. The
+row filing this said "the tree is currently clean so it would land green." **That was already false.**
+`apps/qr/app/api/stripe/webhook/route.ts` was sitting on `main` unformatted, merged hours earlier by
+#240 — whose round-2 rework removed a symbol from an import and left it wrapped across four lines
+that now fit on one. Every required check on that PR was green. The guard's justification was
+demonstrated by the PR that filed it, which is why the drift is recorded here rather than quietly
+swept.
+
+**Two correctness guards were reachable only from a local `verify:slice`** (M149, Codex P2 on #233
+and #227, both post-merge, neither answered). `check:migration-versions` catches a filename shape the
+Supabase CLI SILENTLY SKIPS — the exact failure M17 already cost a CI cycle for — and
+`check-promo-grant-pin.mjs` catches the promo pin being deleted or reordered on a route that has no
+test file. A contributor who does not run the local gate could merge either. Both now run in `ci.yml`
+as `pnpm check:migration-versions` and a new `pnpm check:promo-pin`, file-read-only and about a
+second each. Red-first all three ways: the pin call replaced with `const pinErr = null` → RED; a
+`.sqlx` extension → RED; a duplicate version prefix → RED.
+
+One half of M149 was already stale and is corrected rather than repeated: `check-migration-versions.mjs`
+no longer filters `.endsWith(".sql")` before checking shape — it reads every directory entry, with a
+comment crediting the Codex round that fixed it.
+
+**T5 is downgraded rather than fixed**, because its harm is gone. It says a test placed in
+`packages/db` or `packages/config` is "invisible forever with no warning"; W8's orphan-suite guard now
+fails CI on any `*.test.ts` outside `apps/qr/` or `packages/ui/src/`, so such a file is rejected
+loudly instead. Adding vitest deps and configs to two packages with no tests would be machinery for
+no need, and would require relaxing the guard currently protecting them.
+
+Docs swept holistically at the owner's request: README's workflow table was still describing **three**
+workflows after #240 added a fourth, and the review section did not mention that the Codex wait is now
+mechanical. CLAUDE.md gains a dated "Where things stand" block so a resuming session reads progress —
+the moved promo pin, the unwired `codex-review` check, the grown fast lane — before it reads rules.
+
 ### Codex round 2 on #240 — the gate's own P1, and a regression it caught in my fix (2026-08-29)
 
 The required check went red on purpose (see below), Codex reviewed the head, and the round returned
