@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-08-29 — the back-sweep arc #240–#242 is MERGED; the backlog is mostly non-code)
+> ## ⏭️ NEXT SESSION — start here (2026-08-29 — the back-sweep arc #240–#242 is MERGED; the backlog is mostly CODE: 90 of 148 open rows are Money/security/hardening)
 >
 > `main` is at #242. The arc closed: the money-path promo-pin move + the `codex-review` gate + Rice
 > off the promoted POS order (#240), the CI fast-lane teeth — `format:check` ·
