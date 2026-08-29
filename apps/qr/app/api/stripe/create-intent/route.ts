@@ -290,6 +290,16 @@ export async function POST(req: NextRequest) {
     // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
     // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
     // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
+    //
+    // ⚠️ SOUND FOR SEQUENTIAL ATTEMPTS, NOT YET FOR OVERLAPPING ONES (OPEN-ITEMS M151, Codex round
+    // 3). Holding the lock stops us clearing a SUCCESSOR's pin; it does not make a PREDECESSOR's
+    // PaymentIntent unusable. `acquireCartLock` lets the same payer re-acquire by design, and
+    // `withinMutationRate` is a rate limit rather than a mutex — so two overlapping requests can
+    // mint two live intents whose pins differ, and if the promo's state changes between them,
+    // confirming the older one charges an amount fulfillment re-derives differently. Narrow (it
+    // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
+    // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
+    // cancelled before its pin is replaced; there is no such column today.
     const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
     if (staleGrantErr)
       console.error("[create-intent] stale promo grant not released", {
