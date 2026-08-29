@@ -36,10 +36,75 @@ const c = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
-const src = readFileSync(path.join(ROOT, FILE), "utf8");
+const raw = readFileSync(path.join(ROOT, FILE), "utf8");
 
-// Match the CALL, not a mention: a comment naming the RPC must not satisfy this guard.
-const pinAt = src.indexOf('.rpc("mms_pin_promo_grant"');
+/**
+ * Blank out comments and string bodies, preserving offsets.
+ *
+ * This guard's whole claim is "the CALL is there, and it is first". A plain `indexOf` cannot make
+ * that claim: `// await db.rpc("mms_pin_promo_grant", …)` contains the searched substring exactly,
+ * so commenting the pin out left the guard GREEN while no pin executed — a green tick over a live
+ * money regression, and the one failure mode a required check must never have. Codex P1 on #241
+ * caught it, against a file whose own comment already said "a comment naming the RPC must not
+ * satisfy this guard": the intent was written down and never implemented.
+ *
+ * Offsets are preserved (each removed character becomes a space) because the SECOND rule is an
+ * ORDERING comparison — collapsing the text would move the two call sites relative to each other.
+ * String bodies are blanked for the same reason comments are: a fixture or an error message quoting
+ * the RPC name is not a call either.
+ */
+function stripNonCode(text) {
+  const out = text.split("");
+  let i = 0;
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < out.length; k++) if (out[k] !== "\n") out[k] = " ";
+  };
+  while (i < text.length) {
+    const two = text.slice(i, i + 2);
+    if (two === "//") {
+      let j = text.indexOf("\n", i);
+      if (j === -1) j = text.length;
+      blank(i, j);
+      i = j;
+    } else if (two === "/*") {
+      let j = text.indexOf("*/", i + 2);
+      j = j === -1 ? text.length : j + 2;
+      blank(i, j);
+      i = j;
+    } else if (text[i] === '"' || text[i] === "'" || text[i] === "`") {
+      const q = text[i];
+      let j = i + 1;
+      while (j < text.length) {
+        if (text[j] === "\\") j += 2;
+        else if (text[j] === q) break;
+        else j++;
+      }
+      // Keep the quotes, blank the body — so `.rpc("mms_pin_promo_grant"` stops matching on the
+      // NAME while the call shape around it stays greppable.
+      blank(i + 1, j);
+      i = j + 1;
+    } else {
+      i++;
+    }
+  }
+  return out.join("");
+}
+
+// Executable text only. `src` is the same LENGTH as the file, so every index below is a real
+// offset into it and the ordering comparison stays meaningful.
+const src = stripNonCode(raw);
+
+// The name lives inside a string, which `stripNonCode` blanks — so match the call SHAPE and then
+// confirm the name at that offset in the raw text. That keeps "is it code?" and "is it the right
+// RPC?" as two separate questions, each answered by the source that can answer it.
+const RPC = '.rpc("mms_pin_promo_grant"';
+let pinAt = -1;
+for (let k = src.indexOf('.rpc("'); k !== -1; k = src.indexOf('.rpc("', k + 1)) {
+  if (raw.startsWith(RPC, k)) {
+    pinAt = k;
+    break;
+  }
+}
 const totalsAt = src.indexOf("getCartTotals(");
 
 process.stdout.write("promo grant pin — taken, and taken before the amount … ");

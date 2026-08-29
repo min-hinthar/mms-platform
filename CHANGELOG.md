@@ -78,11 +78,28 @@ One half of M149 was already stale and is corrected rather than repeated: `check
 no longer filters `.endsWith(".sql")` before checking shape — it reads every directory entry, with a
 comment crediting the Codex round that fixed it.
 
-**T5 is downgraded rather than fixed**, because its harm is gone. It says a test placed in
-`packages/db` or `packages/config` is "invisible forever with no warning"; W8's orphan-suite guard now
-fails CI on any `*.test.ts` outside `apps/qr/` or `packages/ui/src/`, so such a file is rejected
-loudly instead. Adding vitest deps and configs to two packages with no tests would be machinery for
-no need, and would require relaxing the guard currently protecting them.
+**T5 was downgraded, and Codex showed the downgrade was wrong.** The argument was that W8's
+orphan-suite guard already rejected a stray suite, so the "invisible forever" harm was gone. That held
+only for the `.test` suffix: the guard enumerated `*.test.ts` / `*.test.tsx`, so a conventional
+`packages/db/foo.spec.ts` was **neither rejected nor executed** — the original failure mode intact
+under a different filename. Neither vitest config includes `.spec` at any path, so such a file runs
+nowhere; `*.spec.ts` and `*.spec.tsx` now sit beside `*.test.tsx` in the non-running set, in `ci.yml`
+and its mirror in `verify-slice.mjs`. Fixing the mirror surfaced a second defect of the same kind:
+`find()` accepted ONE pattern, so the variadic call would have dropped two suffixes into the shell as
+nothing — a guard quietly looking for less than it claims. It is variadic now.
+
+**The promo-pin guard could be satisfied by a COMMENT, and it now had to be right** (Codex P1 on
+#241). `check-promo-grant-pin.mjs` located the call with `indexOf('.rpc("mms_pin_promo_grant"')`, so
+`// await db.rpc("mms_pin_promo_grant", …)` contained the searched substring exactly: comment the pin
+out and the guard reported **clean** while no pin executed. Reproduced before fixing. That was
+tolerable while it was one signal among several in a local gate; this PR makes it the route's only CI
+coverage, which turns it into a green tick over a live money regression. The file's own comment
+already said "a comment naming the RPC must not satisfy this guard" — the intent was written down and
+never implemented. It now blanks comments and string bodies while PRESERVING offsets (the second rule
+is an ordering comparison, so collapsing the text would move the call sites relative to each other),
+then matches the call shape in code and confirms the RPC name at that offset in the raw source.
+Falsified four ways — line-commented, block-commented, deleted, and name-present-only-in-a-string —
+all red, with the real call still clean.
 
 Docs swept holistically at the owner's request: README's workflow table was still describing **three**
 workflows after #240 added a fourth, and the review section did not mention that the Codex wait is now
