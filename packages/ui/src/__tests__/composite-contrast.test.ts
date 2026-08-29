@@ -499,6 +499,36 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
    * Reduced-motion sets `content: none` on the pseudo-element, so the band exists only on the
    * motion path — which is most people, and is why this is a floor rather than a note.
    */
+  /**
+   * ⚠️ THE TOKEN IS READ OUT OF THE SELECTOR, not named here (Codex P2 on #242 round 2).
+   *
+   * The first version of this suite measured `--reward-shine` directly and never checked that
+   * anything USES it. Swapping `.checkout-reward-applied::after` back to `var(--sheen)` left all 35
+   * assertions green — including the negative one asserting --sheen fails — while restoring the
+   * 3.8745:1 defect in production. A guard that measures a token nothing consumes is measuring a
+   * constant, and this repo has now shipped that shape four times in one session.
+   *
+   * So the band's token is DERIVED from the shipped rule. If the selector changes to a different
+   * token, these assertions follow it there and fail on its real value; if the rule disappears or
+   * stops carrying a `var()`, the extraction throws rather than passing vacuously.
+   */
+  const BAND_TOKEN = (() => {
+    const globals = readFileSync(
+      fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+      "utf8",
+    );
+    const rule = /\.checkout-reward-applied::after\s*\{([^}]*)\}/.exec(globals);
+    if (!rule) throw new Error(".checkout-reward-applied::after not found in globals.css");
+    const band = /background:\s*linear-gradient\([^;]*?var\((--[a-z0-9-]+)\)[^;]*;/i.exec(rule[1]!);
+    if (!band) {
+      throw new Error(
+        ".checkout-reward-applied::after no longer paints a var() light band — this suite measures " +
+          "whatever token that rule uses, so it cannot silently keep passing against the old one.",
+      );
+    }
+    return band[1]!;
+  })();
+
   const stop = (map: Record<string, string>, pct: number) =>
     mixOklab(t(map, "--gold"), pct, t(map, "--cd"));
 
@@ -510,18 +540,20 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
       ["7%", 0.07],
     ] as const) {
       it(`${theme} · --t2 survives the shimmer over the ${label} gold stop`, () => {
-        const under = over(t(map, "--reward-shine"), stop(map, pct));
+        const under = over(t(map, BAND_TOKEN), stop(map, pct));
         expect(ratio(t(map, "--t2"), under)).toBeGreaterThanOrEqual(AA);
       });
     }
   }
 
   it("is BOUNDED below --sheen in Night — the two are different budgets", () => {
+    // Also pins the binding itself: if the selector were switched back to --sheen, BAND_TOKEN
+    // would BE --sheen and the two ratios below would be equal, failing the strict inequality.
     // The regression this guards is someone collapsing the token back to --sheen because they
     // look alike. Asserting the ORDER rather than the literal keeps that from being a silent edit
     // without pinning a hex that a re-tune would have to fight.
     const worst = mixOklab(t(dark, "--gold"), 0.14, t(dark, "--cd"));
-    const withShine = ratio(t(dark, "--t2"), over(t(dark, "--reward-shine"), worst));
+    const withShine = ratio(t(dark, "--t2"), over(t(dark, BAND_TOKEN), worst));
     const withSheen = ratio(t(dark, "--t2"), over(t(dark, "--sheen"), worst));
     expect(withSheen).toBeLessThan(AA); // the value this token replaced, still failing
     expect(withShine).toBeGreaterThan(withSheen);

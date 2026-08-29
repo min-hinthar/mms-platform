@@ -585,7 +585,7 @@ h3 {
 .pa-mid {
   position: absolute;
   /* OVERSCANNED, not `inset: 0` (M150b, Codex on #238). `--pa-px`/`--pa-py` run -1..1 and this
-     plane translates by `--pa-parallax-mid` (13px, tokens.css:277), so at full deflection an
+     plane translates by `--pa-parallax-mid` (13px, the `--pa-parallax-mid` token), so at full deflection an
      `inset: 0` plane pulls its own trailing edge 13px into frame and exposes a hairline of bare
      `--pg` along one side. 16 > 13 with room for a future bump; `.paper-ambient` is
      `overflow: hidden`, so the extra never paints outside the room. The far plane moves 6px and is

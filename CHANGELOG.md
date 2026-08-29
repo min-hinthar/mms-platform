@@ -4,6 +4,33 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Four guards written this session, four ways they measured nothing (2026-08-29)
+
+Codex's second round on #242 landed the sharpest finding of the sweep, and it is the same shape as
+the three before it: **a guard that verifies a constant rather than the thing it claims to guard.**
+
+`composite-contrast.test.ts` measured `--reward-shine` by name and never checked that anything
+CONSUMES it. Swapping `.checkout-reward-applied::after` back to `var(--sheen)` left all 35
+assertions green — **including the negative one asserting `--sheen` fails** — while restoring the
+3.8745:1 defect in production. Reproduced before fixing. The band's token is now READ OUT of the
+shipped rule, so the assertions follow the selector wherever it points and the extraction throws if
+the rule stops carrying a `var()`. Falsified three ways: selector swapped back, token loosened to
+0.11, whole rule deleted — all red.
+
+The `fx-boot` extraction needed the same lesson a second time. Requiring exactly one textual
+candidate proved uniqueness, and **uniqueness is not liveness**: a good copy in `{false && <script/>}`
+or behind a comment, plus a live script that regressed by dropping the storage key, leaves the DEAD
+copy as the sole candidate and every assertion passes against code that never ships. Text can say
+"there is a string like this"; it cannot say "this renders". So this asks the compiler too, the same
+instrument `check-promo-grant-pin.mjs` moved to for the same reason — matching a JSX `<script>` whose
+`__html` names the key, skipping dead branches, and refusing ambiguity. Both of Codex's scenarios now
+fail.
+
+And a citation this repo's own rule should have caught: the M150 row cited `tokens.css:277` for
+`--pa-parallax-mid: 13px` — a line number **invalidated by the very commit that wrote it**, since
+adding `--reward-shine` above shifted it to 283 and 277 now names `--pa-grid-far`. Every reference
+cites the token instead. "Never transcribe a number" has a sibling: never cite a line.
+
 ### The post-merge Codex findings, finally answered — and half of them were already fixed (2026-08-29)
 
 The back-sweep filed six rows of Codex findings that had landed after a merge and never been
@@ -35,7 +62,7 @@ the regression _unfindable_ and reported "no tests" instead of a failure; a guar
 the thing it guards is worse than none, so it now anchors on the storage key.
 
 **M150 — all four, and one of them I had closed wrongly.** `.pa-mid` was `inset: 0` while translating
-13px (measured at `tokens.css:277`), pulling its own edge into frame; it is now `inset: -16px`. The
+13px (the value of `--pa-parallax-mid`), pulling its own edge into frame; it is now `inset: -16px`. The
 `verify-mode-authority` chain inference and the M17 tax truth table were both already corrected, each
 with a comment crediting the round that caught it.
 

@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 /**
@@ -21,36 +22,97 @@ import { describe, expect, it } from "vitest";
 const SCRIPT = (() => {
   const src = readFileSync(join(__dirname, "..", "app", "layout.tsx"), "utf8");
 
-  // Bound to the RENDERED <script>, and rejecting ambiguity rather than picking the first match
-  // (Codex P2 on #242). Two earlier shapes were both wrong in the same direction — they could find
-  // a string that is not the shipped script:
-  //
-  //   1. anchoring on the post-fix `var f=null;` prefix made a REGRESSION unfindable, so vitest
-  //      reported "no tests" instead of failing;
-  //   2. taking the first `__html` template containing the storage key would happily read a
-  //      known-good initializer left behind in a JSX comment or a dead branch ABOVE a regressed
-  //      live one — a realistic edit in a file this heavily annotated — and every assertion below
-  //      would then pass against a snippet nobody ships.
-  //
-  // So: strip JSX comments first (that is where a stale copy would sit), then require EXACTLY ONE
-  // surviving candidate. Ambiguity fails loudly; it is never resolved by position.
-  const live = src.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
-  const candidates = [...live.matchAll(/__html: `([^`]*mms\.fx[^`]*)`/g)].map((m) => m[1]!);
+  /**
+   * PARSED, and bound to a script that actually RENDERS — the fourth shape of this extraction.
+   *
+   * Every earlier shape could find a string that is not the shipped script, each in a new way:
+   *   1. anchored on the post-fix `var f=null;` prefix → a REGRESSION was unfindable, and vitest
+   *      reported "no tests" instead of failing;
+   *   2. first textual `__html` containing the key → a known-good copy left ABOVE a regressed one
+   *      would be tested instead;
+   *   3. strip JSX comments, require exactly one candidate → **uniqueness is not liveness**
+   *      (Codex P2, round 2). A good copy in `{false && <script …/>}` or behind a `//` comment,
+   *      plus a live script that regressed by dropping the key, leaves the DEAD copy as the sole
+   *      candidate and every assertion passes against code that never ships.
+   *
+   * Text can express "there is a string like this"; it cannot express "this renders". So this asks
+   * the compiler, the same instrument `check-promo-grant-pin.mjs` moved to for the same reason:
+   * comments are not AST nodes, and a `<script>` inside `{false && …}` is a node whose guard can be
+   * inspected. Requires exactly one LIVE candidate; ambiguity throws rather than being resolved by
+   * position.
+   */
+  const sf = ts.createSourceFile(
+    "layout.tsx",
+    src,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TSX,
+  );
 
-  if (candidates.length === 0) {
+  /** Is this node inside a `false && …` / `0 ? … : x` style dead branch? */
+  const isDead = (node: ts.Node): boolean => {
+    for (let n: ts.Node | undefined = node.parent; n; n = n.parent) {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        n.left.kind === ts.SyntaxKind.FalseKeyword
+      ) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // Every JSX <script> whose dangerouslySetInnerHTML __html names the storage key.
+  const found: string[] = [];
+  const visit = (node: ts.Node) => {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+      const tag = node.tagName.getText(sf);
+      if (tag === "script" && !isDead(node)) {
+        for (const attr of node.attributes.properties) {
+          if (
+            !ts.isJsxAttribute(attr) ||
+            attr.name.getText(sf) !== "dangerouslySetInnerHTML" ||
+            !attr.initializer ||
+            !ts.isJsxExpression(attr.initializer) ||
+            !attr.initializer.expression ||
+            !ts.isObjectLiteralExpression(attr.initializer.expression)
+          ) {
+            continue;
+          }
+          for (const prop of attr.initializer.expression.properties) {
+            if (
+              ts.isPropertyAssignment(prop) &&
+              prop.name.getText(sf) === "__html" &&
+              ts.isNoSubstitutionTemplateLiteral(prop.initializer) &&
+              prop.initializer.text.includes("mms.fx")
+            ) {
+              found.push(prop.initializer.text);
+            }
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  };
+  visit(sf);
+
+  if (found.length === 0) {
     throw new Error(
-      "fx boot script not found in layout.tsx — did the storage key change, or is the only " +
-        "remaining copy inside a JSX comment? Either way the shipped dial is unverified.",
+      'No RENDERED <script> in layout.tsx sets __html naming "mms.fx". A copy in a comment or a ' +
+        "dead branch does not count — if the live dial script changed shape, teach this guard the " +
+        "new shape rather than letting it pass against something that never ships.",
     );
   }
-  if (candidates.length > 1) {
+  if (found.length > 1) {
     throw new Error(
-      `layout.tsx has ${candidates.length} live scripts naming "mms.fx". This guard cannot know ` +
-        "which one ships, and picking the first is how a stale copy gets tested while a regressed " +
-        "one runs. Delete the dead one, or teach this guard to identify the live script.",
+      `layout.tsx renders ${found.length} scripts naming "mms.fx". This guard cannot know which ` +
+        "one wins, and picking the first is how a stale copy gets tested while a regressed one runs.",
     );
   }
-  return candidates[0]!;
+  return found[0]!;
 })();
 
 /** Run the shipped string against a fake document/window, and report what the dial ended up as. */
