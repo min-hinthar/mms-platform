@@ -43,7 +43,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  codex-reviewed:
+  # ⚠️ THE REQUIRED STATUS CHECK IS `codex-review`, NOT THIS JOB.
+  #
+  # This job publishes the verdict as a check run it CREATES (see the script below); its own
+  # implicit check run only says "the gate evaluated without crashing", and is green even when the
+  # verdict is red. Naming the job something clearly different from `codex-review` is deliberate:
+  # two checks a single letter apart, one of them always green, is exactly how the wrong one ends
+  # up wired into branch protection — and a gate protecting nothing is worse than no gate, because
+  # everyone believes it is working.
+  publish-codex-verdict:
     runs-on: ubuntu-latest
     # Drafts are exempt BY DESIGN, and the reason is NOT that Codex cannot review one — it can, and
     # does. Its own trigger list is "opened for review · marked ready · commented @codex review", and
