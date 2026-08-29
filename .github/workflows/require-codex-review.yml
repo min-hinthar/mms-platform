@@ -33,6 +33,9 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  # The verdict is published as a check run this job CREATES, against the PR head — see the block
+  # below for why the job's own implicit check cannot be the gate.
+  checks: write
 
 concurrency:
   # Keyed on the PR, not the SHA: a newer push should cancel the older wait rather than leave two.
@@ -73,8 +76,50 @@ jobs:
 
             // Exempt because a draft is mid-iteration, NOT because Codex cannot review one — it
             // can, on an `@codex review` comment, and did on this very PR. See the header.
+            // ── Publishing the verdict ───────────────────────────────────────────────────────
+            // The verdict is a check run this job CREATES against `pr.head.sha`, and the required
+            // status check is that run's name (`codex-review`), NOT this job's own check
+            // (`codex-reviewed`).
+            //
+            // This is not indirection for its own sake — Codex round 2 on #240 caught the reason.
+            // A workflow's implicit check run is attached to the SHA the RUN is for, and only the
+            // `pull_request` events give that the PR head. `issue_comment` runs are default-branch
+            // runs: they carry the default branch's SHA, and (measured on #240 — four runs, none
+            // from `issue_comment`) they do not even start until the workflow file EXISTS on the
+            // default branch. So the one path that has to be able to turn this green — Codex
+            // reporting "no major issues" as a plain comment, which names its commit only in prose
+            // — could never clear a `pull_request` failure sitting on the PR head. The gate would
+            // wedge the PR permanently red, which is exactly the "check nobody can satisfy"
+            // outcome the draft exemption exists to avoid.
+            //
+            // Creating the run ourselves makes the attachment explicit instead of incidental: it
+            // lands on the head the PR would merge no matter which event woke us.
+            const report = async (ok, sha, via) => {
+              const summary = ok
+                ? `Codex has reviewed \`${sha.slice(0, 10)}\` (via ${via}).\n\n**Now read it.** This ` +
+                  `check only proves a review EXISTS on the commit about to merge — never that ` +
+                  `anyone acted on it. Two rounds, fix-or-justify each, per CLAUDE.md.`
+                : `No Codex review of \`${sha.slice(0, 10)}\` yet.\n\nThis check is red on purpose ` +
+                  `and goes green on its own the moment Codex reports. It exists because Codex's ` +
+                  `findings have repeatedly landed minutes AFTER a merge, unread — see the header ` +
+                  `of this workflow for the three occasions and what shipped.\n\nIf it has not ` +
+                  `fired, comment "@codex review" on the PR.`;
+              await github.rest.checks.create({
+                ...context.repo,
+                name: "codex-review",
+                head_sha: sha,
+                status: "completed",
+                conclusion: ok ? "success" : "failure",
+                output: { title: ok ? "Codex reviewed this commit" : "Waiting on Codex", summary },
+              });
+              core.info(summary);
+            };
+
             if (pr.draft) {
-              core.info(`PR #${num} is a draft — mid-iteration, so the gate stands down. It arms at ready-for-review.`);
+              // Reported, not skipped. A required check that is never PUBLISHED reads as pending
+              // and blocks the merge just as hard as a red one, so the stand-down has to say so out
+              // loud on the head SHA.
+              await report(true, pr.head.sha, "draft stand-down — Codex is not gated mid-iteration");
               return;
             }
 
@@ -90,19 +135,4 @@ jobs:
             const head = pr.head.sha;
             const { reviewed, via } = hasCodexReview({ headSha: head, reviews, comments });
 
-            if (reviewed) {
-              core.info(
-                `Codex has reviewed ${head.slice(0, 10)} (via ${via}). Now READ it: this check only ` +
-                  `proves the review EXISTS on the commit about to merge, never that anyone acted on ` +
-                  `it. Two rounds, fix-or-justify each, per CLAUDE.md.`,
-              );
-              return;
-            }
-
-            core.setFailed(
-              `No Codex review of ${head.slice(0, 10)} yet.\n\n` +
-                `This check is red on purpose and goes green on its own the moment Codex reports. It ` +
-                `exists because Codex's findings have repeatedly landed minutes AFTER a merge, unread ` +
-                `— see the header of this workflow for the three occasions and what shipped.\n\n` +
-                `If it has not fired, comment "@codex review" on the PR.`,
-            );
+            await report(reviewed, head, via);

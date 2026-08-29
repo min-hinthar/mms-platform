@@ -159,15 +159,21 @@ describe("acquireCartLock — an unreadable status is not a closed order", () =>
 });
 
 /**
- * M70 · Codex P1 on #233 — the DECLINE was the one exit that freed the cart and kept the promo pin.
- * The webhook's `payment_failed` arm released the lock and the freeze; nothing released the grant,
- * so the diner came back to an editable basket still carrying an authorized discount and the next
- * `mms_pin_promo_grant` no-op'd on the non-null pin.
+ * M70 · Codex P1 on #233 — a promo pin is a statement about ONE attempt's basket, and
+ * `mms_pin_promo_grant` no-ops while the pin is non-null. So an attempt that inherits a previous
+ * pin prices its basket with a grant that basket never earned: drop a $30 basket to $20, re-check
+ * out, and the old grant is charged for real.
+ *
+ * WHO releases it is the design, and Codex round 2 on #240 moved it. The decline webhook looked
+ * like the place — it is the exit that leaves an editable cart carrying an authorized discount —
+ * and it is wrong: an inline decline re-confirms the SAME PaymentIntent at the amount the pin
+ * authorized, so clearing it there turns a working retry into a charge fulfillment cannot
+ * re-derive. The release belongs to the NEXT attempt, which holds the lock it releases under.
  *
  * Asserted here rather than in the route because `app/api/**` is outside MONEY_PATHS and outside
  * `verify:slice`'s mutant set — a money rule written there cannot be guarded (CLAUDE.md, W17).
  */
-describe("releasePromoGrantFor — the decline releases the grant, era-scoped", () => {
+describe("releasePromoGrantFor — the next attempt clears the previous pin, era-scoped", () => {
   it("clears the pin through the era-scoped RPC", async () => {
     const err = await releasePromoGrantFor("cart-1", "2026-08-29T00:00:00.000Z");
     expect(err).toBeNull();
@@ -179,20 +185,20 @@ describe("releasePromoGrantFor — the decline releases the grant, era-scoped", 
     ]);
   });
 
-  it("passes the ERA, never a cart-wide clear — a successor's pin must survive a late decline", async () => {
+  it("passes the ERA, never a cart-wide clear — a successor's pin must survive", async () => {
     await releasePromoGrantFor("cart-1", "era-A");
     // The era is the whole predicate: the RPC matches `locked_at is not distinct from p_attempt`,
-    // so a redelivered decline for era-A finds zero rows once era-B holds the cart. An empty or
-    // absent attempt would match every era and wipe the live pin.
+    // so a caller holding era-A finds zero rows once era-B holds the cart. An empty or absent
+    // attempt would match every era and wipe the live pin.
     expect(rpcCalls[0]?.args.p_attempt).toBe("era-A");
     expect(rpcCalls[0]?.args.p_attempt).not.toBe("");
   });
 
-  it("does NOT clear anything when the intent cannot name its era", async () => {
+  it("does NOT clear anything when the caller cannot name its era", async () => {
     const err = await releasePromoGrantFor("cart-1", "");
     expect(err).toBeNull();
-    // An intent minted before the era rode in metadata has nothing proving it is the current
-    // attempt; a cart-wide clear is the successor-wiping hazard the scoping exists to prevent.
+    // A caller that cannot name the era it acquired has nothing proving the cart is its own; a
+    // cart-wide clear is the successor-wiping hazard the scoping exists to prevent.
     expect(rpcCalls).toEqual([]);
   });
 

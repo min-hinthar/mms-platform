@@ -51,6 +51,35 @@ is at **read time**, so the next export drops in without re-deciding anything. F
 including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
 `"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
 
+### Codex round 2 on #240 — the gate's own P1, and a regression it caught in my fix (2026-08-29)
+
+The required check went red on purpose (see below), Codex reviewed the head, and the round returned
+**4×P1 + 1×P2**. Four were fixed; every one was verified against source before acting, and two of
+them were defects in work committed hours earlier in this same PR.
+
+- **The gate could never have gone green from a comment** (P1, on the workflow this PR adds). A
+  workflow's implicit check run attaches to the SHA the RUN is for, and only `pull_request` events
+  give that the PR head. Measured on #240: four runs, **none from `issue_comment`** — that event
+  runs from the default branch, where the file does not exist yet. So Codex's no-findings comment,
+  which names its commit only in prose, could never clear a `pull_request` failure sitting on the
+  head, and the gate would have wedged the PR permanently red — the exact "check nobody can satisfy"
+  outcome the draft exemption exists to avoid. The verdict is now a check run the job **creates**
+  against `pr.head.sha`, so the attachment is explicit rather than incidental, and the draft
+  stand-down publishes success rather than staying silent (an unpublished required check reads as
+  pending and blocks just as hard as a red one).
+- **My own money fix had made an inline retry worse** (P1) — see the section below. Before it, a
+  declined-then-retried card matched its pinned grant and settled correctly; the release turned that
+  into a charge fulfillment could not re-derive. Moved to the next attempt.
+- **A stale decline could wipe a successor's lock era** (P1) and **a reused automatic-capture intent
+  carries a stale era** (P1) — both dissolved by the same move.
+- **A duplicate `id:` key silently stole the next mutant's identity** (P2), leaving the W6c
+  `settle_by` mutant with none. A full `verify:slice` run stayed green because it filters nothing
+  and never reads `m.id`; `--only=lock` crashed on `undefined.includes`, and that mutant was
+  untargetable. Green for the wrong reason, exactly the class this repo keeps re-learning: a count
+  of 228 caught proves 228 mutations still fail their suites, and cannot prove they are still
+  _addressable_. `verify:slice` now refuses to run on a missing or duplicate id, with both halves
+  watched red.
+
 ### The Codex back-sweep — a money P1 that sat unanswered for two days (2026-08-29)
 
 Asked to check every Codex review for fixes, so the twelve PRs before #239 were swept as well:
@@ -69,14 +98,28 @@ basket to $20, re-checks out, `mms_pin_promo_grant` no-ops because the pin is no
 it, charged for real. The migration's own §6 fixed exactly this shape for the Edit-order exit and
 missed the decline.
 
-The fix is era-scoped and the **call order is part of the guard**: the RPC matches on
-`locked_at is null or locked_at is not distinct from p_attempt`, so it must run BEFORE
-`releaseCartLock` nulls `locked_at` — after it, every era matches and a redelivered decline could
-wipe a successor attempt's live pin. Single-pay intents now carry their era in metadata (they
-carried it only for manual capture, which is why the decline path had nothing to scope by), and the
-decision lives in `lib/lock.ts` as `releasePromoGrantFor` rather than inline in the route, because
-`app/api/**` sits outside `verify:slice`'s mutant set and a money rule written there cannot be
-guarded at all. Four assertions, three mutations watched red, and a 228th `verify:slice` mutant.
+**The fix is not where it looked like it should go, and Codex round 2 is why.** The obvious repair
+was to release the pin in the decline webhook — that is the exit that leaves the editable cart. It
+was written that way first and it was wrong, for three reasons that only surface on the paths a
+happy-path read skips. An inline decline **does not end the attempt**: `PaymentSection.confirm()`
+keeps the same Elements and clientSecret mounted and hands back a live Pay button, so the same
+PaymentIntent is retried at its original, grant-inclusive amount — clearing the pin there turns a
+retry that works today into a charge fulfillment can no longer re-derive (a charged guest, no
+order). The `releaseCartLock` beside it is **cart-wide**, so a stale decline nulls the `locked_at`
+that the era predicate reads, and on redelivery the `locked_at is null` branch clears a _successor's_
+live pin. And an automatic-capture idempotency key carries **no era**, so a re-entered checkout gets
+the first PaymentIntent back with the first era in its metadata while the cart is locked under a new
+one.
+
+So the release belongs to the attempt that **replaces** the pin, not the one that failed:
+`create-intent` now releases the previous grant under the era it just acquired and re-derives from
+the basket as it stands. It holds the lock it releases under, so there is no successor to wipe and
+no metadata to trust, and an intent nobody re-minted keeps the pin its amount was built from. The
+era metadata stays scoped to manual capture, whose idempotency key does carry the era — widening it
+would have put a stale value on every replayed intent. The decision lives in `lib/lock.ts` as
+`releasePromoGrantFor` rather than inline in the route, because `app/api/**` sits outside
+`verify:slice`'s mutant set and a money rule written there cannot be guarded at all. Four
+assertions, three mutations watched red, and a 228th `verify:slice` mutant.
 
 Filed rather than fixed, all post-merge Codex findings that verify as live: **M146** (`data-fx="off"`
 still parallaxes for desktop diners — the block suppresses `animation` but not `translate`, and the

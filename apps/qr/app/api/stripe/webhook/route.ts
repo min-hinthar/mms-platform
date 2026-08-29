@@ -5,7 +5,6 @@ import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
 import {
   releaseCartLock,
-  releasePromoGrantFor,
   releaseSettlement,
   releaseSettlementFor,
 } from "@/lib/lock";
@@ -688,27 +687,29 @@ export async function POST(req: NextRequest) {
       // (a `serviceClient()` construction failure, say) free to escape into the handler's outer
       // catch and 500 — quietly re-opening the redelivery hazard the comment says must not exist.
       try {
-        // ⚠️ THE GRANT GOES FIRST, and the order is the guard (M70 · Codex P1 on #233). This release
-        // is era-scoped on `locked_at`, and `releaseCartLock` below NULLS `locked_at` — so run after
-        // it and every era matches, which is precisely the successor-wiping hazard the scoping
-        // exists to prevent. Before it, the predicate still means something: a redelivered decline
-        // whose cart has since been re-locked by a new attempt matches zero rows and leaves that
-        // attempt's pin alone.
+        // ⚠️ THE PROMO PIN IS DELIBERATELY NOT RELEASED HERE (M70 · Codex round 2 on #240).
         //
-        // Without this the decline was the ONE exit that freed the cart and kept the pin: the diner
-        // came back to an editable basket still carrying an authorized discount, and the next
-        // create-intent's `mms_pin_promo_grant` is a no-op while the pin is non-null — so a $10
-        // grant priced a basket that no longer earned it, and that amount was charged.
-        const grantErr = await releasePromoGrantFor(cartId, intent.metadata?.attempt ?? "");
+        // A decline is not the end of the attempt. `PaymentSection.confirm()` keeps the same
+        // Elements and clientSecret mounted and hands the diner back a live Pay button, so the SAME
+        // PaymentIntent is retried at its original, grant-inclusive amount. Clearing the pin on the
+        // way past would mean a successful retry captures a discount fulfillment can no longer
+        // re-derive — a charged guest and no order, on a path that works today precisely BECAUSE
+        // the pin outlives the decline.
+        //
+        // The stale-grant hole this arm looked like the place to fix (an editable cart still
+        // carrying an authorized discount) is closed in `create-intent` instead, where the next
+        // attempt releases the previous pin under the era it just acquired and re-derives the grant
+        // from the basket as it now stands. That is the only point where "this discount is stale"
+        // is knowable: here we would be guessing from `intent.metadata.attempt`, which a reused
+        // automatic-capture idempotency key can leave naming an era the cart no longer has.
         const lockErr = await releaseCartLock(cartId, null);
         const settleErr = await releaseSettlement(cartId);
-        if (lockErr || settleErr || grantErr)
+        if (lockErr || settleErr)
           console.error("[stripe webhook] payment_failed release(s) failed", {
             cartId,
             paymentIntent: intent.id,
             lockError: lockErr?.message,
             settleError: settleErr?.message,
-            grantError: grantErr?.message,
           });
       } catch (e) {
         console.error("[stripe webhook] payment_failed release threw", {

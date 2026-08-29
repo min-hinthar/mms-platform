@@ -18,7 +18,7 @@ import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
-import { acquireCartLock, releaseCartLock } from "@/lib/lock";
+import { acquireCartLock, releaseCartLock, releasePromoGrantFor } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
@@ -280,6 +280,22 @@ export async function POST(req: NextRequest) {
     // amount is still server-derived from the same authority, and `planCapture` still refuses to
     // charge more than was authorized. Failing the mint would trade a rare cancelled settlement for
     // a certain refused checkout.
+    // RELEASE THE PREVIOUS ATTEMPT'S PIN, THEN RE-DERIVE (M70 · Codex round 2 on #240). A pin is a
+    // statement about ONE attempt's basket, so every attempt must make its own: `mms_pin_promo_grant`
+    // is a no-op while the pin is non-null, and without this release a grant earned by a $30 basket
+    // would price the $20 basket the diner re-checks-out with — charged for real.
+    //
+    // This is the one place where "the old pin is stale" is actually knowable. We hold the lock we
+    // are releasing under, so the era-scoped RPC cannot touch a successor, and no intent's metadata
+    // has to be trusted. Releasing from the DECLINE webhook instead — the obvious spot, and where
+    // this started — breaks the inline retry, which re-confirms the SAME PaymentIntent at the amount
+    // the pin authorized; see `releasePromoGrantFor` for all three ways that goes wrong.
+    const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
+    if (staleGrantErr)
+      console.error("[create-intent] stale promo grant not released", {
+        cartId,
+        error: staleGrantErr.message,
+      });
     const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
@@ -366,20 +382,24 @@ export async function POST(req: NextRequest) {
           cartId,
           tipRate: String(tipRate),
           earnerUid: uid,
-          // M70 follow-up (Codex P1 on #233) — the era rides EVERY single-pay intent, not just the
-          // manual-capture ones it was added for. The decline path has to release the promo pin
-          // era-scoped, and an intent that cannot name its era leaves the webhook nothing to prove
-          // the cart still belongs to this attempt. `attemptEra` is the value OUR acquisition wrote.
-          attempt: attemptEra ?? "",
           // The discriminant the webhook's amount_capturable_updated arm keys on. Split shares use
           // the same event with kind='split_share', so this must be present and distinct — without
           // it an authorized pickup would fall through that arm and its hold would simply expire.
-          // The ERA this authorization belongs to is carried above for every intent now.
+          //
+          // `attempt` rides ONLY here, with manual capture, and that narrowness is deliberate
+          // (Codex round 2 on #240). `settleAuthorizedPickup` is its one reader, and the
+          // manual-capture idempotency key carries `_m${attemptStamp}` — so a reused intent can
+          // never come back naming an era the cart has since moved past. Widening it to automatic
+          // capture would put a stale era on every replayed PaymentIntent (that key has no era in
+          // it, by design, so one cart/amount/tip/payer maps to one intent), and any future reader
+          // would be trusting a value the replay froze. Nothing outside manual capture needs it:
+          // the promo pin is released by the NEXT attempt under the era it holds, not from metadata.
+          //
           // `acquireCartLock` lets the SAME diner reacquire, so a re-checkout (a different tip, say)
           // produces a second hold over one cart and the FIRST one's webhook still names them as
           // lock holder; the settle path compares the era against the cart's live `locked_at` and
           // refuses a superseded one.
-          ...(manualCapture && { kind: "pickup_manual" as const }),
+          ...(manualCapture && { kind: "pickup_manual" as const, attempt: attemptEra ?? "" }),
         },
       },
       // Include tipRate in the key so two different tip choices that happen to land on the same
