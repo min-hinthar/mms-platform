@@ -21,12 +21,16 @@ absolutely-positioned price tag, so "Beef Jerky (Gril" sat struck through by its
 an empty card. Only the chip wanted to hug its text, so only the chip says so now
 (`align-self: flex-start`); the card keeps the default stretch.
 
-**The dietary sheet's new count reported the search, and blamed the filters.** `matches={visible.length}`
-passed the intersection of query _and_ diets into a sentence that reads "Nothing on the menu fits
-these filters — ease one." Search "mohinga", light Vegetarian, and the sheet denies that vegetarian
-dishes exist. It is the same defect class as the taste band's sold-out-blamed-on-filters line fixed
-one commit earlier — a true number attached to the wrong cause — and it now counts `passesDiets`
-against the whole catalog.
+**The dietary sheet's new count was wrong in two opposite ways, and Codex found both.** Round 1:
+`matches={visible.length}` passed the intersection of query _and_ diets into a sentence reading
+"Nothing on the menu fits these filters — ease one", so searching "mohinga" and lighting Vegetarian
+denied that vegetarian dishes exist — a true number attached to the wrong CAUSE. The first fix
+counted diets alone; round 2 caught that this misstates the OUTCOME instead, announcing "72 dishes
+fit" when closing the sheet reveals an empty menu, because the list behind it still applies both
+constraints. Neither count is wrong — the sentence was. It reports the number the diner will
+actually land on now, and names every constraint that produced it: _"12 dishes match “mohinga” with
+these filters."_ when a search is active, the plain filters-only wording when it is not. Same family
+as the taste band's sold-out-blamed-on-filters line: the number was never the problem.
 
 **The first category tab never lit on the opening scroll.** Rewriting the scroll-spy to "the last
 section whose top crossed the reading line" made the observer a pure recompute — but an

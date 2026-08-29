@@ -28,13 +28,19 @@ import { hasFreeFrom, type Diet } from "@/lib/menu/dietary";
 export function DietFilterButton({
   diets,
   matches,
+  query,
   onToggle,
   onClear,
 }: {
   diets: Diet[];
-  /** How many dishes currently pass the menu's filters — the sheet shows the consequence of each
-   *  toggle, because the list it filters is COVERED by the sheet while the diner is toggling. */
+  /** How many dishes the diner will SEE when this sheet closes — the menu's own visible count, which
+   *  is the diets AND any active search. The sheet shows the consequence of each toggle because the
+   *  list it filters is COVERED by the sheet while the diner is toggling, so the number has to be
+   *  the one they land on, not a hypothetical. */
   matches: number;
+  /** The active search text, or "" — it must appear in the sentence whenever it is narrowing the
+   *  count, or the number gets blamed on the filters alone. */
+  query: string;
   onToggle: (d: Diet) => void;
   onClear: () => void;
 }) {
@@ -104,11 +110,13 @@ export function DietFilterButton({
               filter is lit — with none, the count is just the menu. */}
           {n > 0 && (
             <p role="status" className="menu-diet-matches">
-              {matches === 0
-                ? "Nothing on the menu fits these filters — ease one."
-                : matches === 1
-                  ? "1 dish fits."
-                  : `${matches} dishes fit.`}
+              {query
+                ? matches === 0
+                  ? `Nothing matches “${query}” with these filters — ease one, or clear the search.`
+                  : `${matches} ${matches === 1 ? "dish matches" : "dishes match"} “${query}” with these filters.`
+                : matches === 0
+                  ? "Nothing on the menu fits these filters — ease one."
+                  : `${matches} ${matches === 1 ? "dish fits" : "dishes fit"}.`}
             </p>
           )}
           {hasFreeFrom(diets) && <FreeFromDisclaimer />}

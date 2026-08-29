@@ -343,16 +343,6 @@ export function MenuBrowser({
   }, [reorderId, cartId, announce, refresh]);
 
   // Visible items = search match (EN/MY/description) ∩ dietary filters. Pure, recomputed on input.
-  // What the DIET filters alone leave on the menu — deliberately not `visible.length`, which is the
-  // intersection with the search query (Codex P2 on #239, and it was right). The sheet says "Nothing
-  // on the menu fits these filters", so a diner searching "mohinga" and then lighting Vegetarian
-  // would have been told no vegetarian dishes exist. Same defect class as the taste band's
-  // sold-out-blamed-on-filters sentence: a true number attached to the wrong cause.
-  const dietMatches = useMemo(
-    () => (diets.length === 0 ? items.length : items.filter((i) => passesDiets(i, diets)).length),
-    [items, diets],
-  );
-
   const visible = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return items.filter((i) => {
@@ -657,9 +647,17 @@ export function MenuBrowser({
               aria-label="Search the menu"
             />
           </label>
+          {/* The count the diner will actually SEE (`visible`), plus the query it was measured under
+              — Codex found BOTH halves of this on #239/#240, and they are opposite errors. The
+              intersection count under a filters-only sentence misattributes the CAUSE ("nothing fits
+              these filters" when the search emptied it); a diet-only count misstates the OUTCOME
+              ("72 dishes fit", then the menu behind the sheet is empty). One number and one sentence
+              that names every constraint that produced it is the only answer that is true on both
+              axes. */}
           <DietFilterButton
             diets={diets}
-            matches={dietMatches}
+            matches={visible.length}
+            query={q.trim()}
             onToggle={toggleDiet}
             onClear={() => setDiets([])}
           />
