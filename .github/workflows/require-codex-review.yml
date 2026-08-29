@@ -42,9 +42,14 @@ concurrency:
 jobs:
   codex-reviewed:
     runs-on: ubuntu-latest
-    # Drafts are exempt BY DESIGN, not as a loophole: Codex is not triggered on a draft, so gating one
-    # would be a permanently-red check that teaches people to ignore red checks. The gate arms itself
-    # the instant the PR is marked ready — which is the same instant Codex starts.
+    # Drafts are exempt BY DESIGN, and the reason is NOT that Codex cannot review one — it can, and
+    # does. Its own trigger list is "opened for review · marked ready · commented @codex review", and
+    # #240 was reviewed twice while still a draft. The exemption is about what a draft MEANS: it is
+    # mid-iteration, pushes land minutes apart, and a check that reddens on each one — clearable only
+    # by asking a metered reviewer to re-read unfinished code — would either burn Codex rounds on WIP
+    # or, far more likely, teach everyone to ignore a permanently-red check. The gate arms at
+    # `ready_for_review`, which is also when Codex fires by itself, so it is red across exactly the
+    # window where the merge button is live and nowhere else.
     if: >-
       github.event_name != 'issue_comment' ||
       github.event.issue.pull_request != null
@@ -66,12 +71,10 @@ jobs:
             const num = context.payload.pull_request?.number ?? context.payload.issue?.number;
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: num });
 
-            // Drafts are exempt BY DESIGN, not as a loophole: Codex is not triggered on a draft, so
-            // gating one would be a permanently-red check — and a check that is always red teaches
-            // people to ignore red checks. The gate arms itself the instant the PR is marked ready,
-            // which is the same instant Codex starts.
+            // Exempt because a draft is mid-iteration, NOT because Codex cannot review one — it
+            // can, on an `@codex review` comment, and did on this very PR. See the header.
             if (pr.draft) {
-              core.info(`PR #${num} is a draft — Codex is not triggered on drafts; gate stands down.`);
+              core.info(`PR #${num} is a draft — mid-iteration, so the gate stands down. It arms at ready-for-review.`);
               return;
             }
 

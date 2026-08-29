@@ -18,10 +18,14 @@ sequencing problem, and a sequencing problem is what a required check fixes.
 
 `.github/workflows/require-codex-review.yml` is red until Codex has reviewed the commit that is
 actually about to merge. It re-reds on every push, because a review of the previous head says nothing
-about the code that would land now — that being exactly the #239 case. Drafts are exempt BY DESIGN
-rather than as a loophole: Codex is not triggered on a draft, so gating one would be a permanently-red
-check, and a check that is always red teaches people to ignore red checks. The gate arms itself the
-instant the PR is marked ready, which is the same instant Codex starts.
+about the code that would land now — that being exactly the #239 case. Drafts are exempt, and the
+reason is **not** that Codex cannot review one: it can, on an `@codex review` comment, and it did so
+twice on this PR while it was still a draft. The exemption is about what a draft MEANS. It is
+mid-iteration, pushes land minutes apart, and a check that reddens on each one — clearable only by
+asking a metered reviewer to re-read unfinished code — would either burn Codex rounds on WIP or,
+far more likely, teach everyone to ignore a permanently-red check. The gate arms at
+`ready_for_review`, which is also when Codex fires by itself, so it is red across exactly the window
+where the merge button is live and nowhere else.
 
 The decision is a tested module (`scripts/codex-review-gate.mjs`, 9 assertions in
 `apps/qr/lib/codex-review-gate.test.ts`) and not an inline expression, because a required check that
