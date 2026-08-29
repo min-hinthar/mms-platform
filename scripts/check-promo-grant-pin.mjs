@@ -96,6 +96,37 @@ const isNamedCall = (n, name) =>
 
 const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
 const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
+/**
+ * The rule is SEQUENCING, not lexical order — Codex P1 on #241 round 3.
+ *
+ * Comparing `getStart()` positions proves only that the pin is written above the derivation, and
+ * two refactors satisfy that while destroying the guarantee:
+ *
+ *   • `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` — the pin is FIRST
+ *     in the AST and the two run concurrently, so the amount can be derived from a promo value the
+ *     pin has not frozen yet;
+ *   • a fire-and-forget `db.rpc(…)` statement above the derivation — earlier in the file, and with
+ *     no guarantee it has completed, or completed successfully, by the time totals are read.
+ *
+ * Both recreate exactly the hold-versus-pinned-grant divergence M70 exists to remove. So the guard
+ * asks for what the rule actually requires: the pin is AWAITED, and it is awaited in a statement
+ * that FINISHES before the statement deriving the amount begins. Different statements is what rules
+ * out the `Promise.all` shape — concurrency inside one statement is invisible to position alone.
+ */
+const stmtOf = (node) => {
+  for (let n = node; n; n = n.parent) if (ts.isStatement(n)) return n;
+  return undefined;
+};
+/** Awaited somewhere between the call and the statement that contains it. */
+const isAwaited = (call) => {
+  for (let n = call.parent; n && !ts.isStatement(n); n = n.parent) {
+    if (ts.isAwaitExpression(n)) return true;
+  }
+  return false;
+};
+
+const pinStmt = pinCall ? stmtOf(pinCall) : undefined;
+const totalsStmt = totalsCall ? stmtOf(totalsCall) : undefined;
 const pinAt = pinCall ? pinCall.getStart(sf) : -1;
 const totalsAt = totalsCall ? totalsCall.getStart(sf) : -1;
 
@@ -125,7 +156,27 @@ if (totalsAt === -1) {
   );
 }
 
-if (pinAt > totalsAt) {
+if (pinCall && !isAwaited(pinCall)) {
+  fail(
+    "the promo grant pin is not AWAITED.\n  " +
+      'M70: a fire-and-forget `db.rpc("mms_pin_promo_grant", …)` is earlier in the file and ' +
+      "carries\n  no guarantee it has completed — or succeeded — before the amount is derived. The " +
+      "hold\n  would then be minted against a promo value nothing has frozen, which is the exact\n  " +
+      "divergence the pin exists to remove. Await it.",
+  );
+}
+
+if (pinStmt && totalsStmt && pinStmt === totalsStmt) {
+  fail(
+    "the pin and the amount are derived in the SAME statement.\n  " +
+      'M70: `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` puts the ' +
+      "pin\n  first in the AST and runs both CONCURRENTLY, so the amount can be derived from a promo\n  " +
+      "value the pin has not frozen yet. Lexical order is not sequencing. Pin in its own statement,\n  " +
+      "awaited, before the one that derives the amount.",
+  );
+}
+
+if (pinStmt && totalsStmt && pinStmt.end > totalsStmt.getStart(sf)) {
   fail(
     "the promo grant is pinned AFTER the amount is derived.\n  " +
       "M70: deriving first mints the Stripe amount from the LIVE promo value and then pins a\n  " +

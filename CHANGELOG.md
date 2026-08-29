@@ -133,8 +133,23 @@ primitive that stops at the first callback returning a truthy value, so a visito
 guard passes on almost anything. It is noted in the source, because the next person to write a TS
 walker here will reach for exactly that shape.
 
-Falsified six ways — line-commented, block-commented, deleted, name-only-in-a-string, the regex-quote
-exploit, and the pin moved below `getCartTotals` — all red, with the real call still clean.
+Round 3 then found that the guard was still measuring the wrong property. Comparing source POSITIONS
+proves lexical order, not **sequencing**, and two refactors satisfy the first while destroying the
+guarantee: `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` puts the pin
+first in the AST and runs both concurrently, so the amount can be derived from a promo value the pin
+has not frozen; and a fire-and-forget `db.rpc(…)` above the derivation is earlier in the file with no
+guarantee it completed, or succeeded. Both reproduce the hold-versus-pinned-grant divergence M70
+exists to remove, and both read CLEAN. The guard now asks what the rule actually requires — the pin
+is **awaited**, in a statement that **finishes before** the one deriving the amount begins. Different
+statements is what rules out the `Promise.all` shape, because concurrency inside a single statement
+is invisible to position.
+
+Falsified seven ways — line-commented, block-commented, deleted, name-only-in-a-string, the
+regex-quote exploit, fire-and-forget, a promise stored and never awaited, and the pin moved below
+`getCartTotals` — all red, with the real call still clean. One correction to my own testing along the
+way: the first `Promise.all` mutation paired the pin with `Promise.resolve()`, which genuinely does
+await it — a mis-constructed test, not a hole. Pairing it with `getCartTotals`, which is the actual
+hazard, goes red.
 
 Docs swept holistically at the owner's request: README's workflow table was still describing **three**
 workflows after #240 added a fourth, and the review section did not mention that the Codex wait is now
