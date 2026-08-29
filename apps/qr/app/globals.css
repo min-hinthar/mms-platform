@@ -2604,7 +2604,9 @@ html[data-fx="off"] .pa-pause {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(105deg, transparent 34%, var(--sheen) 50%, transparent 66%);
+  /* --reward-shine, NOT --sheen: this band crosses `--t2` text on the card's gold stop, where
+     --sheen's Night alpha measured 3.8745 (M150a). See the token for the numbers. */
+  background: linear-gradient(105deg, transparent 34%, var(--reward-shine) 50%, transparent 66%);
   transform: translateX(-120%);
   animation: checkoutShine 0.9s var(--ease-out) 0.05s;
 }

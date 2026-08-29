@@ -20,17 +20,37 @@ import { describe, expect, it } from "vitest";
 
 const SCRIPT = (() => {
   const src = readFileSync(join(__dirname, "..", "app", "layout.tsx"), "utf8");
-  // Anchored on the STORAGE KEY alone, deliberately — not on the fixed `var f=null;` prefix.
+
+  // Bound to the RENDERED <script>, and rejecting ambiguity rather than picking the first match
+  // (Codex P2 on #242). Two earlier shapes were both wrong in the same direction — they could find
+  // a string that is not the shipped script:
   //
-  // The first draft matched the post-fix shape, which meant reverting M147 made the script
-  // unfindable: this IIFE threw at import and vitest reported "no tests" rather than a red
-  // assertion. A guard that DISAPPEARS on the regression it exists to catch is worse than no
-  // guard, because "no tests" reads like nothing was wrong. Matching the key finds whatever
-  // script is there, so a regression fails on the assertion below with its real reason.
-  const m = /__html: `([^`]*mms\.fx[^`]*)`/.exec(src);
-  if (!m?.[1])
-    throw new Error("fx boot script not found in layout.tsx — did the storage key change?");
-  return m[1];
+  //   1. anchoring on the post-fix `var f=null;` prefix made a REGRESSION unfindable, so vitest
+  //      reported "no tests" instead of failing;
+  //   2. taking the first `__html` template containing the storage key would happily read a
+  //      known-good initializer left behind in a JSX comment or a dead branch ABOVE a regressed
+  //      live one — a realistic edit in a file this heavily annotated — and every assertion below
+  //      would then pass against a snippet nobody ships.
+  //
+  // So: strip JSX comments first (that is where a stale copy would sit), then require EXACTLY ONE
+  // surviving candidate. Ambiguity fails loudly; it is never resolved by position.
+  const live = src.replace(/\{\/\*[\s\S]*?\*\/\}/g, "");
+  const candidates = [...live.matchAll(/__html: `([^`]*mms\.fx[^`]*)`/g)].map((m) => m[1]!);
+
+  if (candidates.length === 0) {
+    throw new Error(
+      "fx boot script not found in layout.tsx — did the storage key change, or is the only " +
+        "remaining copy inside a JSX comment? Either way the shipped dial is unverified.",
+    );
+  }
+  if (candidates.length > 1) {
+    throw new Error(
+      `layout.tsx has ${candidates.length} live scripts naming "mms.fx". This guard cannot know ` +
+        "which one ships, and picking the first is how a stale copy gets tested while a regressed " +
+        "one runs. Delete the dead one, or teach this guard to identify the live script.",
+    );
+  }
+  return candidates[0]!;
 })();
 
 /** Run the shipped string against a fake document/window, and report what the dial ended up as. */

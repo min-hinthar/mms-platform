@@ -483,3 +483,47 @@ describe("the moments' light bands — a wash across a surface that carries text
     }
   }
 });
+
+describe("the reward shimmer — a light band that crosses TEXT, not an edge", () => {
+  /**
+   * M150(a), found by Codex on #238 and RE-found on #242 after I wrongly closed it as
+   * unreproducible. The finding named `--print-head`; the actual consumer is
+   * `.checkout-reward-applied::after`, which sweeps a band across the reward card while
+   * `RewardField` renders `--t2` Burmese and reward-shortfall text on top. I searched for the
+   * token the finding named instead of looking at the element it named, and closed a live defect.
+   *
+   * The card's own background is `linear-gradient(color-mix(--gold 14%, --cd), color-mix(--gold
+   * 7%, --cd))`, so the band's worst backdrop is the 14% stop — that is the pair asserted here.
+   * At --sheen's Night 0.11 this measured 3.8745; `--reward-shine` is 0.05.
+   *
+   * Reduced-motion sets `content: none` on the pseudo-element, so the band exists only on the
+   * motion path — which is most people, and is why this is a floor rather than a note.
+   */
+  const stop = (map: Record<string, string>, pct: number) =>
+    mixOklab(t(map, "--gold"), pct, t(map, "--cd"));
+
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    // Labelled, not computed: `${0.14 * 100}` prints "14.000000000000002" in a test name.
+    for (const [label, pct] of [
+      ["14%", 0.14],
+      ["7%", 0.07],
+    ] as const) {
+      it(`${theme} · --t2 survives the shimmer over the ${label} gold stop`, () => {
+        const under = over(t(map, "--reward-shine"), stop(map, pct));
+        expect(ratio(t(map, "--t2"), under)).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
+
+  it("is BOUNDED below --sheen in Night — the two are different budgets", () => {
+    // The regression this guards is someone collapsing the token back to --sheen because they
+    // look alike. Asserting the ORDER rather than the literal keeps that from being a silent edit
+    // without pinning a hex that a re-tune would have to fight.
+    const worst = mixOklab(t(dark, "--gold"), 0.14, t(dark, "--cd"));
+    const withShine = ratio(t(dark, "--t2"), over(t(dark, "--reward-shine"), worst));
+    const withSheen = ratio(t(dark, "--t2"), over(t(dark, "--sheen"), worst));
+    expect(withSheen).toBeLessThan(AA); // the value this token replaced, still failing
+    expect(withShine).toBeGreaterThan(withSheen);
+  });
+});

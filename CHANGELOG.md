@@ -34,12 +34,29 @@ while the real script rots. Its first draft anchored the extraction on the post-
 the regression _unfindable_ and reported "no tests" instead of a failure; a guard that disappears on
 the thing it guards is worse than none, so it now anchors on the storage key.
 
-**M150 — one fixed, two already fixed, one unreproducible.** `.pa-mid` was `inset: 0` while
-translating 13px (measured at `tokens.css:277`), pulling its own edge into frame; it is now
-`inset: -16px`. The `verify-mode-authority` chain inference and the M17 tax truth table had both
-already been corrected, each with a comment crediting the round that caught it. And the reward-shimmer
-contrast finding names a consumer of `--print-head` that does not exist — the only one in source is
-the receipt's, measured at 4.6028 and documented as deliberately not `--sheen`.
+**M150 — all four, and one of them I had closed wrongly.** `.pa-mid` was `inset: 0` while translating
+13px (measured at `tokens.css:277`), pulling its own edge into frame; it is now `inset: -16px`. The
+`verify-mode-authority` chain inference and the M17 tax truth table were both already corrected, each
+with a comment crediting the round that caught it.
+
+The fourth is the one worth reading. I closed the reward-shimmer contrast finding as **"does not
+reproduce"**, because it named `--print-head` and that token's only consumer in source is the
+receipt's, measured at 4.6028 and documented. Codex's round on #242 named the actual element:
+`.checkout-reward-applied::after` sweeps a `--sheen` band across the reward card while `RewardField`
+renders `--t2` Burmese and reward-shortfall text on top of it. Measured in Night, not estimated:
+`--t2` on the card's `color-mix(--gold 14%, --cd)` stop is **5.4243** bare and **3.8745** under the
+band — and the 7% stop fails too, 6.3427 → **4.4930**. **I searched for the token the finding named
+instead of looking at the element it named**, and closed a live AA failure on the strength of it. A
+wrongly-closed finding is worse than an open one.
+
+The fix is a bounded token of its own — `--reward-shine`, Night **0.05** (4.6609 on the worst stop;
+the limit is 0.0610 and it backs off for headroom exactly as `--print-head` took 0.08 over its own
+limit). Light keeps 0.55 unchanged, because white over an already-light ground only brightens it and
+moves dark text the safe way (5.2563 → 5.5775). Five assertions in `composite-contrast.test.ts`,
+including one that keeps the token bounded BELOW `--sheen` so the two cannot be collapsed back
+together by someone who notices they look alike; red-first, restoring 0.11 fails both Night stops.
+Reduced-motion sets `content: none` on that pseudo-element, so the band only ever existed on the
+motion path — which is most people.
 
 **M148 — two documentation claims corrected, two left open honestly.** `HANDOFF.md` said "all nine
 RPCs the app calls"; there are **57** distinct `.rpc()` names, and the wording made a narrow
