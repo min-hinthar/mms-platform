@@ -822,3 +822,66 @@ backdrop-filter — mobile GPU budget" three thousand lines above the rule that 
 pointers to `ambient-contrast.test.ts` (a file that does not exist), and a bevel figure that did not
 reproduce. A milestone that spends a commit fixing that class will introduce more of it than it
 thinks; grep your own diff for the claims it makes.
+
+## #60 — Thirteen findings, eleven in the guards: a check that matches a NAME is not a guard (#241 · #242, 2026-08-29)
+
+One session wrote roughly a dozen guards — the promo-pin ordering check, the fx-boot script test,
+the composite-contrast band extraction, the codex-review gate, two CI orphan sweeps — and Codex
+found **eleven real defects in them across four rounds, against zero in the product code the same
+PRs changed**. Every one reduced to the same move: the guard verified a _name, substring, count,
+position, or constant_, and the thing it claimed to guard was _behaviour_. The instances, because
+the list is the lesson:
+
+- `indexOf("mms_pin_promo_grant")` matched the RPC name **inside a comment** — commenting the pin
+  out read as clean. The hand-rolled comment/string scanner that replaced it was beaten by a regex
+  literal containing a quote (fabricated string state swallowed the rest of the file). Both are the
+  same mistake at different resolutions: **approximating a JavaScript parser**. TypeScript is
+  already a dependency; parse. Comments are not AST nodes, which turns "is this executable?" from
+  textual to structural and closes the class, not the instance.
+- Comparing `getStart()` positions proved the pin was **written above** the derivation —
+  `await Promise.all([pin, totals])` satisfies that while running both concurrently. **Lexical
+  order is not sequencing.** A sequencing rule asserts _awaited_, in a _statement that finishes
+  before_ the dependent statement begins. Same statement = concurrency invisible to position.
+- The fx-boot extraction took a first-textual match, then "exactly one candidate". **Uniqueness is
+  not liveness**: a known-good copy parked in `{false && <script/>}` plus a regressed live script
+  leaves the DEAD copy as the sole candidate, every assertion green against code that never ships.
+  Bind the extraction to what RENDERS, evaluate the shipped literal, and refuse ambiguity — throw on
+  two candidates rather than picking by position.
+- `opts.cores ?? 8` silently rewrote the explicitly-`undefined` case (the real browser case being
+  asserted) to 8 cores; a test regex anchored on the post-fix shape made the suite **vanish**
+  ("no tests") on regression instead of failing; a visitor written `(c) => walk(c)` returned the
+  accumulator, and **`ts.forEachChild` is a SEARCH primitive** — it stops at the first truthy
+  return, so the walk silently covered a sliver of the file.
+
+The discipline that actually caught these, when it was applied: **falsify the specific evasion** —
+comment the call out, park a dead copy, split the statement — watch red, restore. The red-first
+rule already said this; what #60 adds is _where to aim it_: at the guard's own matching, not only at
+the rule it encodes. When writing any guard, ask "what text would satisfy my matcher without
+shipping the behaviour?" — and if the answer involves a comment, a dead branch, or a reordering,
+the matcher needs the compiler, not more regex.
+
+## #61 — The gate built in the morning was walked past in the afternoon (#241, 2026-08-29)
+
+#241 was marked ready at 19:50:52Z, `require-codex-review` went red on the head at 19:51:01Z, and
+the PR was squash-merged at 19:51:12Z — **eleven seconds after the gate said stop**, by the same
+session that had shipped the gate the previous PR. `8f2b11b`, a money-path guard rewrite, reached
+`main` with no Codex review of it. Nothing malfunctioned: the check was red, correctly, and the
+merge went through anyway because branch protection does not yet require it (C16) and the hands on
+the merge button were mid-flow. The lesson is not "be more careful" — that was the regime the gate
+was built to replace. Two durable changes:
+
+- **Mark-ready and merge are never one motion.** The ritual, now in `docs/WORKFLOW.md`: final push →
+  mark ready → `@codex review` → **WAIT** for the `codex-review` check to be green _with a summary
+  naming the merge head SHA_ (event-driven — subscribe to the PR; never sleep-poll) → fetch the
+  round, fix-or-justify → merge. #242 ran exactly this: the gate held red for four minutes across
+  three re-evaluations until Codex reported, and the merge followed the green, not the urge.
+- **An advisory check is a ritual, not a gate.** #241 is the measured proof C16 needs: until
+  `codex-review` is required by branch protection, the gate's whole value rests on the discipline it
+  was built because discipline fails.
+
+Same merge flow, same afternoon, same root shape: the conflict-resolution list handed to Codex for
+verification was quoted from memory and was wrong twice (M148 was not a conflict; T5/T6 were
+omitted). The resolution itself was right — proven only afterwards, as a **set operation**:
+`closed(parent1)`, `closed(parent2)`, `closed(merge)`; assert _lost = ∅_ and _invented = ∅_; paste
+the computed sets. "Never transcribe a number into an assertion" applies to lists: a merge
+resolution is verified by deriving the sets, never by recalling them.

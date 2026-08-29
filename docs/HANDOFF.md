@@ -1,9 +1,26 @@
-# Session Handoff — MMS Platform (2026-08-20)
+# Session Handoff — MMS Platform (2026-08-29)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+
+> ## ⏭️ NEXT SESSION — start here (2026-08-29 — the back-sweep arc #240–#242 is MERGED; the backlog is mostly non-code)
+>
+> `main` is at #242. The arc closed: the money-path promo-pin move + the `codex-review` gate (#240),
+> the CI fast-lane teeth — `format:check` · `check:migration-versions` · `check:promo-pin` in `ci.yml`
+> (#241), and the four back-sweep leftovers M146 · M147 · M148 · M150 (#242). Two new LEARNINGS
+> entries carry the session's real lessons: **#60** (eleven of thirteen Codex findings were in guards
+> written that day — a matcher satisfied by a name/substring/count/position/constant while the
+> behaviour regressed; guards PARSE, they never scan) and **#61** (#241 was merged **eleven seconds
+> past a red `codex-review`** — mark-ready and merge are never one motion; the merge ritual is now
+> `docs/WORKFLOW.md` §Review step 5, and C16 is what makes the gate real).
+>
+> **Next open, in order of value:** **C16** (owner-only — require the `codex-review` check in branch
+> protection; #241 is the measured proof) · **M151** (high — concurrent create-intents can hold
+> different promo pins; needs `qr_carts.live_payment_intent_id`, i.e. a prod migration, gated on
+> **M125** history reconciliation) · then the OPEN-ITEMS sweep (~150 open rows, most owner-config /
+> photo shoot / hardware / SKU import, not code).
 
 > ## ⏭️ NEXT SESSION — start here (2026-08-21 — the M-registry backlog is being worked in severity order; W22d proper SPLITS — its **dark half is UNBLOCKED and in progress as M126** (Night enriched, not re-hued; the aubergine direction was built, rejected and reverted), its **light/maroon half stays OWNER-BLOCKED on M86**)
 >
