@@ -14,6 +14,34 @@ Project guide for Claude Code working in this repo. Read this first. Memory of m
 
 Turborepo monorepo for the **QR** app: `apps/qr` (dine-in/pickup + grocery scan-and-go) + `packages/ui`, `packages/db`, `packages/config`. The **delivery** PWA is a **separate repo** (`min-hinthar/mandalay-morning-star-delivery-app`) — **not** in this monorepo. The two apps share **one Stripe account** and each run on their **own** Supabase project (QR `fasnpdhtvqtzjlvruqcu`, delivery `ukuzkhuppqwtrdkjqrkv` — see `docs/BACKEND_ARCHITECTURE.md`; `docs/DATA_RECONCILIATION.md` is the superseded shared-project history). **M5 (reshaped 2026-06-24): repos stay separate; QR _learns from_ delivery** — adopts its hardened mobile/a11y/motion patterns + reusable primitives (`docs/M5_DESIGN.md`, `docs/QR_FROM_DELIVERY.md`); full co-location reconsidered at M6. Full spec: `docs/ARCHITECTURE.md`. Plan: `ROADMAP.md`. Loop: `docs/WORKFLOW.md`. **Research context** (the _why_ — decisions, QA gate, rubric, red-team standards, the v7.2 prototype): `docs/context/INDEX.md`.
 
+## Where things stand (2026-08-29)
+
+Shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**), then
+**#240** — the Codex back-sweep. What #240 changed that affects how you work here, not just what
+runs:
+
+- **The Codex wait is a required check.** `require-codex-review.yml` is RED until Codex has reviewed
+  the PR's CURRENT head, publishing its verdict as a check run named **`codex-review`** against
+  `pr.head.sha`. ⚠️ **It is not yet wired into branch protection (OPEN-ITEMS C16, owner-only)** — so
+  today it is an advisory red tick anyone can merge past. Wire `codex-review`, never the retired
+  `codex-reviewed`.
+- **The money-path promo pin moved.** The stale-grant release now runs from the NEXT attempt in
+  `create-intent`, not from the decline webhook — an inline decline re-confirms the SAME
+  PaymentIntent, so clearing the pin there charged an amount fulfillment could not re-derive. Read
+  `releasePromoGrantFor`'s docblock in `apps/qr/lib/lock.ts` before touching any of it; the remaining
+  concurrent-attempt hole is **OPEN-ITEMS M151** (high) and needs a `qr_carts.live_payment_intent_id`
+  column, i.e. a prod migration.
+- **The CI fast lane grew teeth** (T6 · M149). `format:check`, `check:migration-versions` and
+  `check:promo-pin` now run in `ci.yml` beside `check:docs` / `check:theme` / `check:types-sorted` —
+  all file-read-only, seconds, no build and no DB. Before this, prettier drift merged silently (it
+  DID: #240 landed an unformatted `webhook/route.ts` with every check green), and both correctness
+  guards were reachable only through a local `verify:slice` nobody is obliged to run.
+
+**The backlog is `docs/OPEN-ITEMS.md` and it is large** (~190 open rows). Most of what is left is not
+code: owner config (C1–C16), a photo shoot (C5), hardware (C7), a grocery SKU import (G1), and the
+prod-migration items blocked on the divergent history (M123 · M124 · M125 · M151). Sweep it before
+claiming anything is done.
+
 ## Commands
 
 ```bash

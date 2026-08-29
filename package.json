@@ -23,6 +23,7 @@
     "verify:mode-authority": "node scripts/verify-mode-authority.mjs",
     "review:bundle": "node scripts/review-bundle.mjs",
     "check:migration-versions": "node scripts/check-migration-versions.mjs",
+    "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",
     "check:types-sorted": "node scripts/check-generated-types-sorted.mjs"
   },
   "devDependencies": {

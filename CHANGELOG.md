@@ -149,6 +149,111 @@ is at **read time**, so the next export drops in without re-deciding anything. F
 including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
 `"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
 
+### The Codex gate's own green tick was asserting something false (2026-08-29)
+
+Spotted while verifying a `codex-review` success on a head pushed a minute earlier — the kind of
+"that was too fast" reflex that is worth following. The check was behaving correctly: #241 is a
+draft, and the gate stands down on drafts by design. **What it printed was a lie:**
+
+> Codex has reviewed `b37e8c35e4` (via draft stand-down — Codex is not gated mid-iteration).
+
+Nothing had been reviewed. The stand-down reason was being interpolated into a sentence that asserts
+a review happened, because `report()` had only two outcomes — reviewed and waiting — and the draft
+path borrowed the first one to get a green conclusion. A green tick that ASSERTS a review nobody
+performed is precisely the failure this workflow exists to prevent, one level up from where it
+prevents it.
+
+Three outcomes now, and only one of them claims a review: **reviewed** (green, names how),
+**stood-down** (green, and says in as many words that this is _not_ a statement the commit was
+reviewed), **waiting** (red). The draft still reports success, because an unpublished required check
+reads as pending and blocks a merge as hard as a red one — what changed is only what it claims.
+
+### The CI fast lane grows teeth, and it caught #240's own drift (2026-08-29)
+
+Three guards existed and none of them gated a merge. Wiring them took minutes; the interesting part
+is what the first one found.
+
+**`format:check` ran in ZERO workflows** (T6). `lint` is plain `eslint .` with no prettier plugin,
+and the fast lane read docs, tokens and generated types — nothing read general source formatting. The
+row filing this said "the tree is currently clean so it would land green." **That was already false.**
+`apps/qr/app/api/stripe/webhook/route.ts` was sitting on `main` unformatted, merged hours earlier by
+#240 — whose round-2 rework removed a symbol from an import and left it wrapped across four lines
+that now fit on one. Every required check on that PR was green. The guard's justification was
+demonstrated by the PR that filed it, which is why the drift is recorded here rather than quietly
+swept.
+
+**Two correctness guards were reachable only from a local `verify:slice`** (M149, Codex P2 on #233
+and #227, both post-merge, neither answered). `check:migration-versions` catches a filename shape the
+Supabase CLI SILENTLY SKIPS — the exact failure M17 already cost a CI cycle for — and
+`check-promo-grant-pin.mjs` catches the promo pin being deleted or reordered on a route that has no
+test file. A contributor who does not run the local gate could merge either. Both now run in `ci.yml`
+as `pnpm check:migration-versions` and a new `pnpm check:promo-pin`, file-read-only and about a
+second each. Red-first all three ways: the pin call replaced with `const pinErr = null` → RED; a
+`.sqlx` extension → RED; a duplicate version prefix → RED.
+
+One half of M149 was already stale and is corrected rather than repeated: `check-migration-versions.mjs`
+no longer filters `.endsWith(".sql")` before checking shape — it reads every directory entry, with a
+comment crediting the Codex round that fixed it.
+
+**T5 was downgraded, and Codex showed the downgrade was wrong.** The argument was that W8's
+orphan-suite guard already rejected a stray suite, so the "invisible forever" harm was gone. That held
+only for the `.test` suffix: the guard enumerated `*.test.ts` / `*.test.tsx`, so a conventional
+`packages/db/foo.spec.ts` was **neither rejected nor executed** — the original failure mode intact
+under a different filename. Neither vitest config includes `.spec` at any path, so such a file runs
+nowhere; `*.spec.ts` and `*.spec.tsx` now sit beside `*.test.tsx` in the non-running set, in `ci.yml`
+and its mirror in `verify-slice.mjs`. Fixing the mirror surfaced a second defect of the same kind:
+`find()` accepted ONE pattern, so the variadic call would have dropped two suffixes into the shell as
+nothing — a guard quietly looking for less than it claims. It is variadic now.
+
+**The promo-pin guard could be satisfied by a COMMENT, and it now had to be right** (Codex P1 on
+#241). `check-promo-grant-pin.mjs` located the call with `indexOf('.rpc("mms_pin_promo_grant"')`, so
+`// await db.rpc("mms_pin_promo_grant", …)` contained the searched substring exactly: comment the pin
+out and the guard reported **clean** while no pin executed. Reproduced before fixing. That was
+tolerable while it was one signal among several in a local gate; this PR makes it the route's only CI
+coverage, which turns it into a green tick over a live money regression. The file's own comment
+already said "a comment naming the RPC must not satisfy this guard" — the intent was written down and
+never implemented. The first repair blanked comments and string bodies with a hand-rolled scanner. **Codex round 2
+broke that too**, with a working exploit: a regex literal containing a quote opens fabricated string
+state, and an apostrophe in a following comment closes it, exposing the rest of that comment as
+"code" — so `if (/['"]/.test(cartId)) …` followed by `// don't await db.rpc("mms_pin_promo_grant", …)`
+read as CLEAN again.
+
+Both failures are the same mistake at different resolutions: approximating a JavaScript parser. The
+second is the instructive one, because the scanner was _more_ careful than the `indexOf` and still
+lost — regex-versus-division cannot be decided without the preceding token, which is the doorway to
+the next exploit. So the guard now **asks the compiler**. `typescript` is already a dependency, the
+parse costs milliseconds on one file, and comments are not AST nodes — which makes "is this
+executable?" structural rather than textual and closes the class rather than the two instances found.
+
+Writing it surfaced a third would-be false CLEAN, caught locally: `ts.forEachChild` is a SEARCH
+primitive that stops at the first callback returning a truthy value, so a visitor written as
+`(c) => walk(c, out)` aborts after the first child — the walk covers a sliver of the file and the
+guard passes on almost anything. It is noted in the source, because the next person to write a TS
+walker here will reach for exactly that shape.
+
+Round 3 then found that the guard was still measuring the wrong property. Comparing source POSITIONS
+proves lexical order, not **sequencing**, and two refactors satisfy the first while destroying the
+guarantee: `await Promise.all([db.rpc("mms_pin_promo_grant", …), getCartTotals(…)])` puts the pin
+first in the AST and runs both concurrently, so the amount can be derived from a promo value the pin
+has not frozen; and a fire-and-forget `db.rpc(…)` above the derivation is earlier in the file with no
+guarantee it completed, or succeeded. Both reproduce the hold-versus-pinned-grant divergence M70
+exists to remove, and both read CLEAN. The guard now asks what the rule actually requires — the pin
+is **awaited**, in a statement that **finishes before** the one deriving the amount begins. Different
+statements is what rules out the `Promise.all` shape, because concurrency inside a single statement
+is invisible to position.
+
+Falsified seven ways — line-commented, block-commented, deleted, name-only-in-a-string, the
+regex-quote exploit, fire-and-forget, a promise stored and never awaited, and the pin moved below
+`getCartTotals` — all red, with the real call still clean. One correction to my own testing along the
+way: the first `Promise.all` mutation paired the pin with `Promise.resolve()`, which genuinely does
+await it — a mis-constructed test, not a hole. Pairing it with `getCartTotals`, which is the actual
+hazard, goes red.
+
+Docs swept holistically at the owner's request: README's workflow table was still describing **three**
+workflows after #240 added a fourth, and the review section did not mention that the Codex wait is now
+mechanical. CLAUDE.md gains a dated "Where things stand" block so a resuming session reads progress —
+the moved promo pin, the unwired `codex-review` check, the grown fast lane — before it reads rules.
+
 ### Codex round 2 on #240 — the gate's own P1, and a regression it caught in my fix (2026-08-29)
 
 The required check went red on purpose (see below), Codex reviewed the head, and the round returned

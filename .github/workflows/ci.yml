@@ -43,6 +43,22 @@ jobs:
       # with every `supabase/tests/*.sql` assertion still unrun — so a migration reads "checked" when
       # nothing about it was. This says the same thing in milliseconds, and names the exact pair.
       - run: pnpm check:types-sorted
+      # T6 — `format:check` ran in ZERO workflows, so prettier drift merged silently. `lint` is
+      # plain `eslint .` with no prettier plugin, and the three guards above read docs, tokens and
+      # generated types — none of them reads general source formatting. Proven live, not theorised:
+      # M70's round-1 fix commit pushed an unformatted `create-intent/route.ts` and every required
+      # check stayed green; it was caught only because a later local `prettier --check` happened to
+      # run. ⚠️ The generated docs are in `.prettierignore` on purpose — prettier INTRODUCES GFM
+      # header/delimiter breaks, which is the drift `check:docs` above exists to catch.
+      - run: pnpm format:check
+      # M149 (Codex P2 on #233 and #227, both post-merge, neither answered) — these two guards were
+      # reachable ONLY through the local `pnpm verify:slice`, which no workflow invokes. A
+      # contributor who does not run it could merge green with the promo-pin call deleted, or with a
+      # malformed migration filename that the Supabase CLI then SILENTLY SKIPS — the exact failure
+      # M17 already cost a CI cycle for. Both are file-read-only and take about a second, so the
+      # only reason they were not here was that nobody wired them.
+      - run: pnpm check:migration-versions
+      - run: pnpm check:promo-pin
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
@@ -76,11 +92,19 @@ jobs:
             exit 1
           fi
           ts_orphans=$(echo "$all_ts" | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)
-          tsx_any=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx' || true)
-          if [ -n "$ts_orphans" ] || [ -n "$tsx_any" ]; then
+          # `.test.tsx` and BOTH `.spec` suffixes run NOWHERE: apps/qr includes `**/*.test.ts` and
+          # packages/ui `src/**/*.test.ts`, so none of these three is matched by any config, at any
+          # path. `.spec` is here because of T5 and Codex P2 on #241 — the downgrade of that row
+          # claimed W8's guard had closed the "invisible test" hole, and it had closed it only for
+          # the `.test` suffix. A conventional `packages/db/foo.spec.ts` was neither enumerated here
+          # nor executed by any package's `test` script, which is the ORIGINAL failure mode intact
+          # under a different filename. Rejecting the suffix outright is the honest fix: this repo
+          # has one test-file convention, and a file that cannot run should never land quietly.
+          nonrunners=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx' '*.spec.ts' '*.spec.tsx' || true)
+          if [ -n "$ts_orphans" ] || [ -n "$nonrunners" ]; then
             echo "::error::Test file(s) that NO vitest config runs — they never execute:"
             [ -n "$ts_orphans" ] && echo "$ts_orphans"
-            [ -n "$tsx_any" ] && echo "$tsx_any  (no config includes *.test.tsx — see the note in ci.yml)"
+            [ -n "$nonrunners" ] && echo "$nonrunners  (no config includes *.test.tsx or *.spec.* — see the note in ci.yml)"
             exit 1
           fi
           echo "No orphaned test files."

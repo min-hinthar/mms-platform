@@ -102,23 +102,44 @@ jobs:
             //
             // Creating the run ourselves makes the attachment explicit instead of incidental: it
             // lands on the head the PR would merge no matter which event woke us.
-            const report = async (ok, sha, via) => {
-              const summary = ok
-                ? `Codex has reviewed \`${sha.slice(0, 10)}\` (via ${via}).\n\n**Now read it.** This ` +
-                  `check only proves a review EXISTS on the commit about to merge — never that ` +
-                  `anyone acted on it. Two rounds, fix-or-justify each, per CLAUDE.md.`
-                : `No Codex review of \`${sha.slice(0, 10)}\` yet.\n\nThis check is red on purpose ` +
-                  `and goes green on its own the moment Codex reports. It exists because Codex's ` +
-                  `findings have repeatedly landed minutes AFTER a merge, unread — see the header ` +
-                  `of this workflow for the three occasions and what shipped.\n\nIf it has not ` +
-                  `fired, comment "@codex review" on the PR.`;
+            // THREE outcomes, not two — and conflating the middle one with the first is a bug this
+            // check shipped with. `report(true, sha, "draft stand-down …")` rendered the sentence
+            // "Codex has reviewed <sha> (via draft stand-down)", which is FALSE: nothing was
+            // reviewed, the gate simply is not armed on a draft. A green tick that ASSERTS a review
+            // nobody performed is the same failure this workflow exists to prevent, one level up —
+            // so the stand-down says what it actually did.
+            const report = async (outcome, sha, via) => {
+              const short = sha.slice(0, 10);
+              const summary =
+                outcome === "reviewed"
+                  ? `Codex has reviewed \`${short}\` (via ${via}).\n\n**Now read it.** This check ` +
+                    `only proves a review EXISTS on the commit about to merge — never that anyone ` +
+                    `acted on it. Two rounds, fix-or-justify each, per CLAUDE.md.`
+                  : outcome === "stood-down"
+                    ? `Not gated: this PR is a draft, so the Codex wait is not armed. **This is ` +
+                      `NOT a statement that \`${short}\` has been reviewed** — it has not been ` +
+                      `checked. The gate arms the moment the PR is marked ready for review, which ` +
+                      `is also when Codex fires by itself. Asking "@codex review" on a draft works ` +
+                      `too, and is the habit CLAUDE.md prescribes.`
+                    : `No Codex review of \`${short}\` yet.\n\nThis check is red on purpose and ` +
+                      `goes green on its own the moment Codex reports. It exists because Codex's ` +
+                      `findings have repeatedly landed minutes AFTER a merge, unread — see the ` +
+                      `header of this workflow for the three occasions and what shipped.\n\nIf it ` +
+                      `has not fired, comment "@codex review" on the PR.`;
+              const title = {
+                reviewed: "Codex reviewed this commit",
+                "stood-down": "Draft — not gated, and not reviewed",
+                waiting: "Waiting on Codex",
+              }[outcome];
               await github.rest.checks.create({
                 ...context.repo,
                 name: "codex-review",
                 head_sha: sha,
                 status: "completed",
-                conclusion: ok ? "success" : "failure",
-                output: { title: ok ? "Codex reviewed this commit" : "Waiting on Codex", summary },
+                // A draft still reports SUCCESS: an unpublished required check reads as pending and
+                // blocks a merge as hard as a red one. What changes above is only what it CLAIMS.
+                conclusion: outcome === "waiting" ? "failure" : "success",
+                output: { title, summary },
               });
               core.info(summary);
             };
@@ -127,7 +148,7 @@ jobs:
               // Reported, not skipped. A required check that is never PUBLISHED reads as pending
               // and blocks the merge just as hard as a red one, so the stand-down has to say so out
               // loud on the head SHA.
-              await report(true, pr.head.sha, "draft stand-down — Codex is not gated mid-iteration");
+              await report("stood-down", pr.head.sha);
               return;
             }
 
@@ -143,4 +164,4 @@ jobs:
             const head = pr.head.sha;
             const { reviewed, via } = hasCodexReview({ headSha: head, reviews, comments });
 
-            await report(reviewed, head, via);
+            await report(reviewed ? "reviewed" : "waiting", head, via);
