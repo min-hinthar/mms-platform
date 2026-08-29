@@ -51,6 +51,25 @@ is at **read time**, so the next export drops in without re-deciding anything. F
 including a first-promoted-slug COMPUTED from the list rather than transcribed, since a hardcoded
 `"kyay-o"` goes green forever the day the till changes — and two mutations watched red.
 
+### The Codex gate's own green tick was asserting something false (2026-08-29)
+
+Spotted while verifying a `codex-review` success on a head pushed a minute earlier — the kind of
+"that was too fast" reflex that is worth following. The check was behaving correctly: #241 is a
+draft, and the gate stands down on drafts by design. **What it printed was a lie:**
+
+> Codex has reviewed `b37e8c35e4` (via draft stand-down — Codex is not gated mid-iteration).
+
+Nothing had been reviewed. The stand-down reason was being interpolated into a sentence that asserts
+a review happened, because `report()` had only two outcomes — reviewed and waiting — and the draft
+path borrowed the first one to get a green conclusion. A green tick that ASSERTS a review nobody
+performed is precisely the failure this workflow exists to prevent, one level up from where it
+prevents it.
+
+Three outcomes now, and only one of them claims a review: **reviewed** (green, names how),
+**stood-down** (green, and says in as many words that this is _not_ a statement the commit was
+reviewed), **waiting** (red). The draft still reports success, because an unpublished required check
+reads as pending and blocks a merge as hard as a red one — what changed is only what it claims.
+
 ### The CI fast lane grows teeth, and it caught #240's own drift (2026-08-29)
 
 Three guards existed and none of them gated a merge. Wiring them took minutes; the interesting part
