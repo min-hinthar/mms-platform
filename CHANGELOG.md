@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The checkout attempt gets a name — M124 closed, M123(a′) closed (2026-09-01)
+
+Three open `high` money-path rows (M123 · M124 · M151) were never three problems: each needed the
+same missing primitive, and the M70 migration says so in its own words — _"these two callers are
+clients: they never saw a `locked_at` and cannot name their era."_ `create-intent` had always
+computed that era and simply never returned it.
+
+**M124 — closed.** The pay-lock beacon and "Edit order" both released the promo pin through
+`mms_release_promo_grant_for_holder`, which matches on `locked_by = uid` ALONE. `acquireCartLock`
+lets the same diner re-acquire with a fresh era, so one diner's abandoned tab satisfied that
+predicate against their LIVE tab and cleared its pin — landing between capture and the fulfilment
+webhook, the re-derive drops the discount and strands a charged card with no order. `create-intent`
+now returns the era, the client echoes it on both exits, and both go through one era-scoped
+statement that clears lock and pin together. A superseded tab matches zero rows and is told so.
+
+**M123 — half closed, and its filed premise was wrong.** #240 had already fixed the charged amount
+on the create-intent path. Verification found something narrower and worse instead: six early exits
+released the LOCK without the GRANT and returned above the pin block, leaving `locked = false` over
+a live pin — the exact state `acquireSettlement`'s raw `locked` gate admits to cash, Terminal and
+split, where the stale discount is charged, recorded, and burns a redemption the basket never
+earned. No concurrency and no second tab required. All six now release through `abandonAttempt`.
+Its display half (b) stays open.
+
+**M152 — filed.** Verifying the above surfaced a distinct live defect from two directions:
+`applyPromo`'s TTL-aware predicate, and `create-intent`'s stale-grant release, can each clear a pin
+a CAPTURED PaymentIntent still reconciles against. Same fix as M151 — a cart→intent link — so the
+three are now marked to ship together.
+
+`check:pay-attempt` (AST, in the CI fast lane) pins the three facts no test can reach: the token is
+returned, the uid-only RPC is unreachable from executable code, and the route releases the lock only
+through `abandonAttempt`. Four `verify:slice` mutants and 14 tests cover the rest, each watched
+failing against the mutation it names.
+
 ### The session's lessons, written into the harness (2026-08-29)
 
 Docs-only distillation of the #240–#242 arc into durable rules. `.claude/LEARNINGS.md` gains **#60**

@@ -178,6 +178,24 @@ export const grocerySearchInput = z.object({
 /** getCartView — a member-gated read of a cart's lines + server-authoritative totals. */
 export const cartViewInput = z.object({ cartId: uuid });
 
+/**
+ * M124 — release the pay lock AND the promo pin for a NAMED checkout attempt.
+ *
+ * A SEPARATE export, never a widening of `cartViewInput`. That schema is shared by `getCartView`, a
+ * display read; growing it with a money field would let an attempt token ride in on a path that has
+ * no business carrying one, and every future reader of `cartViewInput` would inherit it silently.
+ *
+ * `attempt` is `.optional()` and NOT `.nullable()`: a client bundle can outlive a deploy, so a body
+ * from the previous build arrives with the field absent. That degrades to naming no attempt — which
+ * releases no pin — rather than being rejected at a page-unload beacon nobody can see fail. It is an
+ * ISO instant because `qr_carts.locked_at` is a timestamptz; the server re-normalizes it before it
+ * reaches any filter (`lib/pay-attempt.ts normalizeEra`), so this check is the shape, not the trust.
+ */
+export const releaseAttemptInput = z.object({
+  cartId: uuid,
+  attempt: z.string().datetime({ offset: true }).optional(),
+});
+
 /** setPickupSlot — the client asserts a cart id + a chosen slot (ISO instant). The server re-validates
  *  it against live availability + capacity, so a stale/forged/full slot is rejected, never trusted. */
 export const setPickupSlotInput = z.object({
@@ -669,4 +687,5 @@ export type CreateIntentInput = z.infer<typeof createIntentInput>;
 export type ScanInput = z.infer<typeof scanInput>;
 export type GrocerySearchInput = z.infer<typeof grocerySearchInput>;
 export type CartViewInput = z.infer<typeof cartViewInput>;
+export type ReleaseAttemptInput = z.infer<typeof releaseAttemptInput>;
 export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
