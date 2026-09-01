@@ -7,6 +7,7 @@ import {
   applyRewardInput,
   assignLineInput,
   cartViewInput,
+  releaseAttemptInput,
   makeItNowInput,
   sendToKitchenInput,
   setKioskTipInput,
@@ -20,7 +21,8 @@ import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, releaseCartLock } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, releasePayAttempt } from "./lock";
+import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
@@ -723,33 +725,45 @@ export async function getCartView(cartId: string): Promise<{
 
 /**
  * Release the pay-window lock the caller holds (the "Edit order" path). Authorized as a member, then
- * scoped to the caller's own seat (lib/lock releaseCartLock with uid) — a member can only release
- * THEIR lock, never unlock another diner mid-checkout. assertCartMember returns the lock (doesn't
+ * scoped to the caller's own seat AND to the attempt it names (lib/lock releasePayAttempt) — a
+ * member can only release THEIR lock, and only for the tab that minted it. assertCartMember returns the lock (doesn't
  * throw on it), so this is callable on a locked-but-open cart. Idempotent + safe to call when unlocked.
  */
-export async function releasePayLock(cartId: string): Promise<void> {
-  const { cartId: id } = cartViewInput.parse({ cartId });
+export async function releasePayLock(cartId: string, attempt?: string): Promise<PayLockRelease> {
+  const { cartId: id, attempt: era } = releaseAttemptInput.parse({ cartId, attempt });
   const { uid } = await assertCartMember(id);
   // W1·Q6 flood guard — a rate-limited release just no-ops (the lock TTL is the backstop, so a
   // legit diner who somehow hits the cap recovers on the next tap or the TTL; never throw here).
-  if (!(await withinMutationRate(uid))) return;
-  // M70 (Codex round 2, P1) — the grant goes with the lock. A successful create-intent returns a
-  // client secret but mints NO authorization: the diner is on the reversible Payment Element, and
-  // tapping "Edit order" lands here. Leaving the pin behind means the re-checkout's
-  // `mms_pin_promo_grant` is a no-op (not null), so a $10 grant taken on a $30 basket prices the
-  // $24 basket the diner just edited down to — below the promo's own $25 minimum.
+  if (!(await withinMutationRate(uid))) return { released: false, reason: "rate_limited" };
+  // M124 — ONE era-scoped statement. The old pair (`mms_release_promo_grant_for_holder` then
+  // `releaseCartLock`) proved ownership with `locked_by = uid`, which cannot tell one diner's two
+  // tabs apart: `acquireCartLock` lets the same uid re-acquire with a fresh era, so a stale tab
+  // tapping "Edit order" cleared the LIVE tab's pin and unfroze its cart mid-checkout.
   //
-  // BEFORE the release, not after: the RPC proves ownership with `locked_by = uid`, which is only
-  // true while we still hold the lock. Swapped, it would clear nothing. Errors are logged and
-  // swallowed for the same reason the release below is best-effort — a stale discount is worth less
-  // than a stranded lock, and the next attempt re-derives.
-  const { error: grantErr } = await serviceClient().rpc("mms_release_promo_grant_for_holder", {
-    p_cart_id: id,
-    p_uid: uid,
+  // The returned `released` is the honest answer to a superseded tab: false means this attempt no
+  // longer owns the cart, so the caller says so rather than dropping the diner on a review step that
+  // will refuse every edit (`cart.ts` throws "Order is locked while someone checks out").
+  // ⚠️ THREE DIFFERENT FACTS, NOT ONE (adversarial pass on #244, and it was right).
+  //
+  // A bare `released: false` conflates a rate-limit short-circuit, a transport failure, and a
+  // genuine zero-row match — and the caller then renders ONE sentence for all three. Two of them
+  // are our outage, not the diner's tab being superseded, so telling them "this tab is no longer
+  // the one checking out" is a fabricated diagnosis on a money surface: the exact class M116/M119
+  // spent four PRs removing. Only a write that SUCCEEDED and matched nothing proves supersession.
+  const ourEra = normalizeEra(era);
+  const res = await releasePayAttempt(id, uid, ourEra);
+  if (res.error)
+    console.error("[cart] pay attempt not released", { cartId: id, error: res.error.message });
+  // The zero-row read is LAZY — a second query only on the cold path where the release matched
+  // nothing (an "Edit order" tap that did not own the lock), never on the ordinary success.
+  return await classifyRelease(res, async () => {
+    const { data } = await serviceClient()
+      .from("qr_carts")
+      .select("locked,locked_at")
+      .eq("id", id)
+      .maybeSingle();
+    return classifyZeroRow(ourEra, data ?? null, Date.now(), CART_LOCK_TTL_MS);
   });
-  if (grantErr)
-    console.error("[cart] promo grant not released", { cartId: id, error: grantErr.message });
-  await releaseCartLock(id, uid);
 }
 
 /**

@@ -21,6 +21,7 @@ import {
   setQty as setQtyAction,
   type PromoReason,
 } from "@/lib/cart";
+import { attemptReleaseBody, readPayAttempt, type PayAttempt } from "@/lib/pay-attempt";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
 import {
@@ -380,7 +381,12 @@ export function Checkout({
   // review→pay) enter from the right, back flips from the left. State (not a ref) — the wrapper
   // className reads it during render, and render-phase ref reads are a compiler violation.
   const [stepDir, setStepDir] = useState<"forward" | "back">("forward");
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  // M124 — the client secret and the attempt token that names the era it was minted under are ONE
+  // value. Held as two `useState`s they can drift (a second create-intent resolving out of order
+  // updates one and not the other), and the abandon exits would then echo an era that is not the one
+  // whose pin the mounted Element depends on — which is the M124 defect re-created client-side.
+  const [payAttempt, setPayAttempt] = useState<PayAttempt | null>(null);
+  const clientSecret = payAttempt?.clientSecret ?? null;
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
   const [loadingPay, setLoadingPay] = useState(false);
 
@@ -546,19 +552,33 @@ export function Checkout({
   //   • not on the pay step — nothing to release.
   //
   // Deliberately NOT `visibilitychange`: it fires on every app-switch to a wallet.
-  const payAbandonRef = useRef({ onPay: false, paying: false, cartId });
+  const payAbandonRef = useRef<{
+    onPay: boolean;
+    paying: boolean;
+    cartId: string;
+    attempt: string | null;
+  }>({ onPay: false, paying: false, cartId, attempt: null });
   // Synced in an effect, not during render (a render-phase ref write is a React Compiler violation).
   // The listener below only ever reads this on a real teardown, which is always after a commit.
   useEffect(() => {
-    payAbandonRef.current = { onPay: !!onPay, paying, cartId };
-  }, [onPay, paying, cartId]);
+    payAbandonRef.current = {
+      onPay: !!onPay,
+      paying,
+      cartId,
+      attempt: payAttempt?.attempt ?? null,
+    };
+  }, [onPay, paying, cartId, payAttempt]);
   const releaseLockBeacon = useCallback(() => {
-    const { onPay: active, paying: mid, cartId: id } = payAbandonRef.current;
+    const { onPay: active, paying: mid, cartId: id, attempt } = payAbandonRef.current;
     if (!active || mid) return;
     try {
       navigator.sendBeacon?.(
+        // M124 — name the attempt being abandoned. Without it the server cannot tell this beacon
+        // from one fired by a tab that has since been superseded, and the release would clear the
+        // LIVE attempt's pin. `attemptReleaseBody` omits the field entirely when unknown so the
+        // body still satisfies the schema (an old bundle mid-deploy), and the server fails closed.
         "/api/cart/release-lock",
-        new Blob([JSON.stringify({ cartId: id })], { type: "application/json" }),
+        new Blob([JSON.stringify(attemptReleaseBody(id, attempt))], { type: "application/json" }),
       );
     } catch {
       // Beacon unavailable/refused — the lock TTL is the backstop, and there is no UI left to tell.
@@ -764,6 +784,7 @@ export function Checkout({
       const data = (await res.json()) as {
         clientSecret?: string;
         totals?: CartTotals;
+        attempt?: string;
         error?: string;
       };
       if (!res.ok || !data.clientSecret || !data.totals) {
@@ -783,7 +804,9 @@ export function Checkout({
       // still move the live lines later (the view stays honest; the frozen totals then disagree —
       // and the webhook reconcile refuses the mismatched charge, so the money is safe either way).
       await refresh();
-      setClientSecret(data.clientSecret);
+      // M124 — one write, so the secret and its attempt token can never disagree. `readPayAttempt`
+      // returns null only when the secret is missing, which the guard above already excluded.
+      setPayAttempt(readPayAttempt(data));
       setPayTotals(data.totals);
       setStepDir("forward"); // W13 — the pay step is the deepest cut
       setStep("pay");
@@ -808,13 +831,32 @@ export function Checkout({
     // Release the pay-window lock we took at create-intent (P3.2-lock) so the table can edit again,
     // then re-sync. Best-effort — the TTL is the backstop if the release call fails.
     try {
-      await releasePayLock(cartId);
+      // M124 — echo the attempt this tab minted. A tab that has been superseded (the diner
+      // re-checked-out elsewhere) names a stale era, matches no row, and releases NOTHING — which is
+      // the point: it must not clear the live tab's pin or unfreeze its cart. `released === false`
+      // is then the honest answer, and saying so beats returning the diner to a review step that
+      // will refuse every edit ("Order is locked while someone checks out").
+      const res = await releasePayLock(cartId, payAttempt?.attempt ?? undefined);
+      // Only a SUPERSEDED tab is a terminal state, and only it earns that sentence. A rate-limit or
+      // a transport error is our problem, not a fact about this diner's tab — saying otherwise
+      // fabricates a diagnosis (M116/M119). Those two fall through to the normal transition, where
+      // the lock TTL is the backstop exactly as before this change.
+      if (!res.released && res.reason === "superseded") {
+        // RETURN, not just an error line: falling through to the review step lands the diner on
+        // controls that LOOK editable — a successor opened by the same diner has
+        // `lockedBy === mySeat`, so `lockedByPeer` stays false — while every mutation is refused by
+        // the live lock. Staying put with an honest sentence beats a screen that lies by omission.
+        setPayError(
+          "Another tab took over this checkout — that one is paying. Reopen the order to edit it.",
+        );
+        return;
+      }
     } catch {
       // non-fatal; the lock auto-expires via its TTL
     }
     setStepDir("back"); // W13 — leaving the pay step slides back
     setStep("review");
-    setClientSecret(null);
+    setPayAttempt(null);
     setPayTotals(null);
     await refresh();
   }

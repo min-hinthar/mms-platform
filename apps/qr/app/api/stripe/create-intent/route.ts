@@ -439,7 +439,18 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ clientSecret: intent.client_secret, totals });
+    // M124 — the attempt token the client echoes when it abandons.
+    //
+    // `acquireCartLock` has always computed this era; it was simply never returned, which is why the
+    // two abandon exits had to fall back to a uid-only predicate that cannot tell one diner's two
+    // tabs apart. Handing it to the client closes that: an echo names an ATTEMPT.
+    //
+    // ⚠️ LOSING THIS ONE LINE IS SILENT. `readPayAttempt` would yield `attempt: null`, both exits
+    // would fail closed and release nothing, and every abandoned checkout would hold its table's
+    // cart for the full `CART_LOCK_TTL_MS` with nothing in the logs. `check-pay-attempt.mjs` parses
+    // this file and fails if the 200 body stops carrying it — a test cannot see a route this repo
+    // has no runner for.
+    return NextResponse.json({ clientSecret: intent.client_secret, totals, attempt: attemptEra });
   } catch (e) {
     // A post-acquire failure (totals / Stripe / etc.) must not strand the lock — release now so the
     // table isn't frozen on a transient error (the TTL is the backstop). Best-effort; never mask `e`.

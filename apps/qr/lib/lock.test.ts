@@ -46,7 +46,7 @@ vi.mock("@mms/db/server", () => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
         const q: Q = { table, payload, eq: [] };
         queries.push(q);
-        return opts?.count ? countChain() : chain(q);
+        return opts?.count ? countChain(q) : chain(q);
       },
       select: () => {
         const api: Record<string, unknown> = {
@@ -59,9 +59,15 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-function countChain() {
+/** M124 — the count-chain now RECORDS its `.eq` terms. `releasePayAttempt` uses `{count:"exact"}`
+ *  (the PostgREST-14 representation trap), so without this its predicate — the whole defence — was
+ *  invisible to every assertion: a test could only see that some update ran. */
+function countChain(q?: Q) {
   const api: Record<string, unknown> = {
-    eq: () => api,
+    eq: (col: string, val: unknown) => {
+      q?.eq.push([col, val]);
+      return api;
+    },
     or: () => api,
     then: (r: (v: { count: number | null; error: unknown }) => unknown) =>
       Promise.resolve({ count: updateCount, error: updateError }).then(r),
@@ -69,8 +75,13 @@ function countChain() {
   return api;
 }
 
-const { releaseSettlementFor, releaseSettlement, releasePromoGrantFor, acquireCartLock } =
-  await import("./lock");
+const {
+  releaseSettlementFor,
+  releaseSettlement,
+  releasePromoGrantFor,
+  acquireCartLock,
+  releasePayAttempt,
+} = await import("./lock");
 
 beforeEach(() => {
   queries = [];
@@ -205,5 +216,71 @@ describe("releasePromoGrantFor — the next attempt clears the previous pin, era
   it("surfaces the write error instead of swallowing it", async () => {
     rpcError = { message: "boom" };
     expect(await releasePromoGrantFor("cart-1", "era-A")).toEqual({ message: "boom" });
+  });
+});
+
+describe("releasePayAttempt — M124: one statement, and it names the ATTEMPT", () => {
+  it("releases lock AND pin together, scoped to this seat and this era", async () => {
+    updateCount = 1;
+    const { released, error } = await releasePayAttempt(
+      "cart-1",
+      "uid-1",
+      "2026-09-01T10:00:00.000Z",
+    );
+    expect(error).toBeNull();
+    expect(released).toBe(true);
+    const q = queries[0]!;
+    expect(q.table).toBe("qr_carts");
+    // THE PIN IS IN THE SAME PAYLOAD AS THE LOCK. Two statements are two chances to half-apply, and
+    // the half that lands leaves `locked = false` over a live pin — the state cash/Terminal/split
+    // charge (M123 a′).
+    expect(q.payload).toEqual({
+      promo_granted_cents: null,
+      locked: false,
+      locked_at: null,
+      locked_by: null,
+    });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["locked_by", "uid-1"]);
+    // Without this term the predicate is `_for_holder`'s again and an abandoned tab clears the live
+    // tab's pin — the entire M124 defect.
+    expect(q.eq).toContainEqual(["locked_at", "2026-09-01T10:00:00.000Z"]);
+  });
+
+  it("THE M124 CASE: a superseded tab matches zero rows and reports it, clearing nothing", async () => {
+    // The row now carries era B; this caller echoes era A. PostgREST matches nothing.
+    updateCount = 0;
+    const { released, error } = await releasePayAttempt(
+      "cart-1",
+      "uid-1",
+      "2026-09-01T09:00:00.000Z",
+    );
+    expect(error).toBeNull();
+    // `released: false` is the honest answer "Edit order" renders — not a silent no-op.
+    expect(released).toBe(false);
+    expect(queries[0]!.eq).toContainEqual(["locked_at", "2026-09-01T09:00:00.000Z"]);
+  });
+
+  it("FAILS CLOSED with no era: issues NO statement at all", async () => {
+    // An old client bundle mid-deploy, or a forged/unparseable token normalized to null. Releasing
+    // on that basis is M124 with extra steps, so the only safe move is to do nothing and let the
+    // lock TTL be the backstop.
+    const { released, error } = await releasePayAttempt("cart-1", "uid-1", null);
+    expect(released).toBe(false);
+    expect(error).toBeNull();
+    expect(queries).toHaveLength(0);
+  });
+
+  it("surfaces the write error instead of swallowing it", async () => {
+    updateError = { message: "boom" };
+    updateCount = null;
+    const { released, error } = await releasePayAttempt(
+      "cart-1",
+      "uid-1",
+      "2026-09-01T10:00:00.000Z",
+    );
+    expect(error).toEqual({ message: "boom" });
+    // A null count on an errored write must never read as a successful release.
+    expect(released).toBe(false);
   });
 });

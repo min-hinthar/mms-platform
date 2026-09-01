@@ -4,6 +4,51 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The checkout attempt gets a name — M124 narrowed (2026-09-01)
+
+`create-intent` had always computed the era `acquireCartLock` stamps and never returned it, which is
+why the two client abandon exits fell back to `mms_release_promo_grant_for_holder` — a predicate
+matching `locked_by = uid` ALONE. `acquireCartLock` lets the same diner re-acquire with a fresh era,
+so one diner's abandoned tab satisfied that against their LIVE tab and cleared its promo pin;
+between capture and the fulfilment webhook that re-derives without the pin and strands a charged
+card with no order.
+
+The era is now returned, echoed by the client, and both exits go through one statement clearing lock
+and pin together under `.eq("locked_by", uid).eq("locked_at", era)` — with no `is null` disjunct,
+because the pin must outlive the lock.
+
+The release reports only outcomes it can establish (`rate_limited` · `error` · `not_held` ·
+`superseded` · `unknown`). A zero-row match is **not** proof another tab took over — the predicate
+fails whenever any of its terms stopped holding, and the reachable counter-example is an ordinary
+declined card: the webhook's `payment_failed` arm releases the lock cart-wide while the Element
+stays mounted, so "Edit order" matches nothing. Claiming supersession there would tell the diner
+something false and block them from editing an order that is genuinely editable. The reason is now
+READ back — supersession requires a lock still fresh under a different era — and only that answer is
+terminal.
+
+**Narrowed, not closed, and the review is why.** Codex found that `locked_at` is minted at
+millisecond resolution before the await, so two same-uid requests inside one millisecond share an
+era — a window inherited from #240, not introduced here. The predicate replaced collided for any two
+attempts by one diner; this one collides only inside a millisecond. That is a large narrowing and it
+is stated as such in `lock.ts`, OPEN-ITEMS M124, and here.
+
+**M123(a′) was attempted and reverted.** Making six early exits clear a taken-over pin closes a real
+cash/Terminal/split leak, but breaks the reconcile of a predecessor whose PaymentIntent captured and
+whose webhook is merely delayed — trading a lesser defect for a worse one. Codex and the blind
+adversarial pass found this independently; it must ship with the live-intent column (M151/M152),
+never before it. M123's filed premise is corrected in the registry: #240 already fixed the part the
+row describes.
+
+**Filed:** M152 (a pin can be cleared while a captured intent still reconciles against it — via
+`applyPromo`'s TTL-aware predicate and via `create-intent`'s stale-grant release) and M153
+(`abandonAttempt`'s lock release is uid-only, so a losing attempt unfreezes the winner's cart —
+pre-existing on `main`).
+
+`check:pay-attempt` (AST, CI fast lane) asserts the token is bound to `attemptEra` (not merely
+present — `attempt: attemptEra ?? ""` was proven to pass a name-only check), that the banned RPC is
+unreachable including through const-bound and unresolvable names, and that its own file enumeration
+never reports clean having read nothing.
+
 ### The session's lessons, written into the harness (2026-08-29)
 
 Docs-only distillation of the #240–#242 arc into durable rules. `.claude/LEARNINGS.md` gains **#60**

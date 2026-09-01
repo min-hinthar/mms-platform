@@ -269,6 +269,94 @@ export async function releasePromoGrantFor(cartId: string, attempt: string): Pro
 }
 
 /**
+ * M124 — release the pay lock AND the promo pin, for the ONE attempt that names itself.
+ *
+ * This replaces the pair the two client exits used to run — `mms_release_promo_grant_for_holder`
+ * followed by `releaseCartLock(cartId, uid)` — with a single conditional UPDATE, because the pair
+ * had two separate defects and one of them was the pair itself.
+ *
+ * ## What was wrong
+ *
+ * `_for_holder` matches on `locked_by = p_uid` alone. `acquireCartLock` deliberately lets the SAME
+ * uid re-acquire (a refresh, a second tab, a re-checkout with a different tip) and REFRESHES
+ * `locked_at`, so one diner's two attempts share a uid and differ only by era. A late `pagehide`
+ * beacon from the abandoned attempt therefore satisfies that predicate against the LIVE one and
+ * clears its pin. Land that between capture and the fulfilment webhook and `getCartTotals`
+ * re-derives without the pin: the reconcile disagrees with the captured amount, which is a charged
+ * card and no order. `releaseCartLock(cartId, uid)` had the identical hole one statement later — it
+ * unfroze the successor's cart mid-checkout.
+ *
+ * ## Why ONE statement
+ *
+ * Two statements are two chances to half-apply. The old order was grant-then-lock precisely because
+ * the grant RPC's proof of ownership (`locked_by = uid`) stops being true once the lock is dropped —
+ * so a failure between them left a released lock with a live pin, which is exactly the state
+ * OPEN-ITEMS M123(a′) describes and cash/Terminal/split will happily charge. Releasing both in one
+ * UPDATE makes that state unreachable: same row, same predicate, same statement.
+ *
+ * ## The predicate, and the disjunct that is deliberately ABSENT
+ *
+ * `.eq("locked_by", uid).eq("locked_at", era)` — this seat, this attempt. There is **no
+ * `locked_at is null` disjunct**, and that omission is load-bearing rather than an oversight.
+ * `mms_release_promo_grant` carries one (`locked_at is null or locked_at is not distinct from
+ * p_attempt`) because its caller holds the lock it is releasing under; a client echo does not, and
+ * an `is null` arm would let a stale token clear a pin the moment any release or TTL nulled the era
+ * — which is the window M70's header says the pin MUST survive:
+ *
+ *   > "The pin has to outlive the lock for the charge to reconcile at all."
+ *
+ * A webhook delayed past `CART_LOCK_TTL_MS` (Stripe retries up to three times at an 80s timeout)
+ * must still re-derive WITH the pin. So: no era, no match, no release.
+ *
+ * ## ⚠️ WHAT THIS DOES NOT CLOSE — the sub-millisecond collision (Codex P1 on #244)
+ *
+ * `locked_at` is the discriminator, and `acquireCartLock` mints it as `new Date().toISOString()`
+ * BEFORE awaiting its UPDATE — millisecond resolution. Two same-uid requests that enter within the
+ * SAME millisecond therefore compute and write the SAME era (same-uid re-acquire is allowed by
+ * design), and an abandon from the first still matches the second. That window is inherited from
+ * `mms_release_promo_grant`, which has keyed on `locked_at` since #240 — it is not introduced here.
+ *
+ * This is still a strict improvement, and the size of it is the point: the predicate it replaces
+ * (`locked_by = uid` alone) collided for ANY two attempts by one diner, minutes apart; this one
+ * collides only for two inside one millisecond. But it is a narrowing, NOT a closure, and calling it
+ * closed would be the kind of overstatement the next reader would trust. A real closure needs a
+ * discriminator whose uniqueness does not depend on wall-clock separation — a distinct token column,
+ * which is the same migration OPEN-ITEMS M151/M152 already require. Tracked there.
+ *
+ * ⚠️ `{ count: "exact" }`, never `.select()` — the PostgREST-14 `return=representation` trap
+ * documented on `acquireCartLock` above. The count is also the ANSWER: `released: false` tells
+ * "Edit order" its tab was superseded, so it can say so instead of dropping the diner on a review
+ * step that will refuse every edit.
+ *
+ * Best-effort by contract (returns the error, never throws): the callers are a page-unload beacon
+ * that cannot surface anything and a Server Action whose diner is mid-tap. The TTL is the backstop.
+ */
+export async function releasePayAttempt(
+  cartId: string,
+  uid: string,
+  era: string | null,
+): Promise<{ released: boolean; error: ReleaseError }> {
+  // No era, no release — the fail-closed arm. An old client bundle (mid-deploy) and a forged or
+  // unparseable token land here alike, and all three mean the same thing: this caller cannot show
+  // which attempt it is. Releasing anything on that basis is the M124 defect with extra steps.
+  if (!era) return { released: false, error: null };
+  const db = serviceClient();
+  const { count, error } = await db
+    .from("qr_carts")
+    // The pin goes in the SAME payload as the lock. Dropping `promo_granted_cents` here leaves every
+    // predicate assertion green while releasing a lock over a live pin — the `verify:slice` mutant
+    // `lock/grant-dropped-from-payload` exists for exactly that, because it is invisible otherwise.
+    .update(
+      { promo_granted_cents: null, locked: false, locked_at: null, locked_by: null },
+      { count: "exact" },
+    )
+    .eq("id", cartId)
+    .eq("locked_by", uid)
+    .eq("locked_at", era);
+  return { released: (count ?? 0) > 0, error };
+}
+
+/**
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cartViewInput } from "@mms/db/schemas";
+import { releaseAttemptInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError } from "@/lib/authz";
-import { serviceClient } from "@mms/db/server";
-import { releaseCartLock } from "@/lib/lock";
+import { releasePayAttempt } from "@/lib/lock";
+import { normalizeEra } from "@/lib/pay-attempt";
 import { withinMutationRate } from "@/lib/rate";
 
 /**
@@ -25,8 +25,8 @@ import { withinMutationRate } from "@/lib/rate";
  *
  * Authorization is the same as every mutation: the caller must be a verified member of the cart's
  * active session (`assertCartMember` reads the anon-auth cookie, which sendBeacon sends same-origin),
- * and `releaseCartLock` is additionally scoped `.eq("locked_by", uid)` so a member can only ever drop
- * their OWN lock, never a tablemate's.
+ * and `releasePayAttempt` is additionally scoped `.eq("locked_by", uid).eq("locked_at", era)` — so a
+ * member can only ever drop their OWN lock, and only for the ATTEMPT this beacon was fired by.
  */
 export async function POST(req: NextRequest) {
   // No Origin check here, deliberately. The session cookie is `SameSite=Lax`, so a cross-site POST
@@ -36,10 +36,11 @@ export async function POST(req: NextRequest) {
   // INVISIBLE: every release would 403 and nobody would ever learn. A guard nobody can watch fail is
   // worse than no guard (see the red-first rule in CLAUDE.md).
   let cartId: string;
+  let attempt: string | undefined;
   try {
     // sendBeacon can't set headers, so the body arrives as whatever Blob type we gave it; parse the
     // text rather than trusting a Content-Type we didn't get to negotiate.
-    ({ cartId } = cartViewInput.parse(JSON.parse(await req.text())));
+    ({ cartId, attempt } = releaseAttemptInput.parse(JSON.parse(await req.text())));
   } catch {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
@@ -49,19 +50,19 @@ export async function POST(req: NextRequest) {
     // Per-device flood guard (P3.4), consistent with `releasePayLock`. A rate-limited release just
     // no-ops — the TTL is the backstop, and this path must never throw at a page that's unloading.
     if (await withinMutationRate(uid)) {
-      // M70 (Codex round 2, P1) — same rule as `releasePayLock`: a successful create-intent mints no
-      // authorization, so a diner who leaves the pay step abandons a pinned grant with nothing
-      // behind it, and the next checkout's pin is a no-op. The grant is released on the same
-      // authority as the lock (`locked_by = uid`) and BEFORE it, since that predicate is only true
-      // while the lock is still ours.
-      const { error: grantErr } = await serviceClient().rpc("mms_release_promo_grant_for_holder", {
-        p_cart_id: cartId,
-        p_uid: uid,
-      });
+      // M70 (Codex round 2, P1) — a successful create-intent mints no authorization, so a diner who
+      // leaves the pay step abandons a pinned grant with nothing behind it and the next checkout's
+      // pin is a no-op. The grant must go with the lock.
+      // M124 — ONE era-scoped statement, replacing `mms_release_promo_grant_for_holder` + a bare
+      // `releaseCartLock`. Both matched on `locked_by = uid` alone, and `acquireCartLock` lets the
+      // SAME diner re-acquire with a fresh era — so this beacon, fired late by an abandoned tab,
+      // used to clear the LIVE tab's pin and unfreeze its cart mid-checkout. Naming the attempt is
+      // what separates them; `normalizeEra` re-emits it server-side so the value reaching the
+      // filter is ours, and an absent or unparseable token releases NOTHING (fail-closed).
+      const { error: relErr } = await releasePayAttempt(cartId, uid, normalizeEra(attempt));
       // Logged, never thrown: this page is unloading and `sendBeacon` discards the response.
-      if (grantErr)
-        console.error("[cart] promo grant not released", { cartId, error: grantErr.message });
-      await releaseCartLock(cartId, uid);
+      if (relErr)
+        console.error("[cart] pay attempt not released", { cartId, error: relErr.message });
     }
   } catch (e) {
     // Every authorization outcome answers 204. There is nothing for the caller to do with a refusal —
