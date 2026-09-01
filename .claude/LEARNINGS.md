@@ -898,3 +898,76 @@ omitted). The resolution itself was right — proven only afterwards, as a **set
 `closed(parent1)`, `closed(parent2)`, `closed(merge)`; assert _lost = ∅_ and _invented = ∅_; paste
 the computed sets. "Never transcribe a number into an assertion" applies to lists: a merge
 resolution is verified by deriving the sets, never by recalling them.
+
+## #62 — "Safer" is a claim about a caller, not about a predicate (#245, 2026-09-01)
+
+Two abandon paths in `create-intent` ran an era-scoped `mms_release_promo_grant` and then a uid-only
+`releaseCartLock`. Fixing the lock's predicate (M153) was correct. Collapsing the pair into
+`releasePayAttempt` — one statement, era-scoped, no half-apply — looked like the same fix done
+better, and the commit argued it in those words: the tighter predicate "fails closed", which "is the
+M70 invariant applied".
+
+It was a regression, and Codex and a blind adversarial pass found it independently. The two
+functions differ by one disjunct — `locked_at is null` — and that disjunct is correct for one caller
+and wrong for the other, in opposite directions:
+
+- **A client exit** (a `pagehide` beacon, "Edit order") cannot show the pin is its own. If a TTL or a
+  cart-wide release nulled the era, an `is null` arm would let a stale token clear a pin a captured
+  PaymentIntent still reconciles against. It must fail closed.
+- **`create-intent`** holds the lock it pinned under. The pin is ITS OWN, seconds old, with no intent
+  behind it. A predecessor's delayed `payment_failed` webhook calls `releaseCartLock(cartId, null)`
+  — cart-wide, nulling `locked_at` — and if that lands between our pin and our abandon, the era-only
+  predicate matches zero rows and strands our orphan pin on an unlocked cart. `acquireSettlement`
+  gates on the raw `locked` column, so cash / Terminal / split then charge it. **The narrowing
+  manufactured the exact defect it was meant to avoid (M123 a′).**
+
+The failure wasn't the code, it was the reasoning: I checked the invariant ("the pin must outlive the
+lock") against the case it was written for and never asked _whose pin_. **When two helpers differ by
+a predicate term, the term is not a safety dial — it encodes which caller can prove what. Before
+swapping one for the other, name the proof each caller holds.** Both are now guarded: `check-pay-attempt.mjs`
+bans `releasePayAttempt` AND `releaseCartLock` inside that route, as parsed absence rules.
+
+## #63 — A display basis is only safe once you enumerate every consumer that CHARGES
+
+M123 (b): `getCartView` quotes `coalesce(pin, live)`, so a declined card leaves an orphan pin that
+makes the review step promise a discount the card path won't honour. The fix looks obvious — quote
+live. I verified it against `create-intent`, which releases the pin under its own era and re-derives,
+and concluded "the quote and the charge agree."
+
+That sentence was true of exactly one charge path. **Five others — cash (`staff-cart.ts:281`),
+secure-tab close (`:528`), Terminal (`terminal.ts:136`), split (`split.ts:246`) and the floor settle
+quote (`floor.ts:360`) — all derive on the authorized basis and charge the PIN.** Before the change
+the review step agreed with them; after it, a guest reads one number on their phone and is charged
+another at the till. Reachable with no concurrency at all, because nothing re-validates a promo code
+on a line edit (`20260620000000_promo_validation.sql:93` says so in its own comment): apply at $60,
+edit to $45, pay (pin 0), decline, edit back to $60 (live 1000), settle at the counter.
+
+Reverted. The real finding is that **there is no correct display basis while an orphan pin can
+outlive the attempt that made it** — quoting the pin lies about the phone, quoting live lies about
+the counter, and the second is worse. (b) is refiled with (a′) as blocked on the cart→intent link.
+
+Two transferable rules:
+
+- **A "display-only" change to a shared derivation is not display-only.** `getCartTotals` has nine
+  callers; `getCartView` alone feeds six consumers, including every mutation response. Enumerate
+  them — `grep` the function, not the surface you have in mind — before deciding a default.
+- **The blind pass earns its keep on exactly this.** In-context review agreed with my framing because
+  I had written the framing. The auditor got the diff and nothing else, and asked the question I
+  hadn't: agree with _which_ charge?
+
+## #64 — A heading search that "finds the next section" will eat the sections in between
+
+Rewriting a `CHANGELOG.md` entry in a Python one-liner: `i = s.index("### My entry")`, then
+`j = s.index("\n## ", i)`, then `s[:i] + new + s[j+1:]`. `\n## ` does not match `\n### `, so `j`
+skipped every `###` entry under `[Unreleased]` and landed on the next `##` version heading —
+**deleting 8,190 lines of project history**, which `format`, `lint`, `typecheck`, `build`, `test`
+and `check:docs` all pass cleanly over, because a shorter changelog is still valid markdown.
+
+Caught only by reading `git diff --stat` and seeing `CHANGELOG.md | 8268 +-----`. Rules:
+
+- **Prepend, never span.** To add an entry, `replace(anchor, anchor + entry, 1)` on the heading above
+  it. Never compute an end offset you did not verify.
+- **Read `--stat` before every commit that touches a doc by script.** A line count is the cheapest
+  possible check and the only one that would have caught this.
+- After a scripted doc edit, assert an invariant that survives it: entry count is exactly +1, section
+  headings are preserved. I checked the other three files for the same shape and they were clean.
