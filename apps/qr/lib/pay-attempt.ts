@@ -102,16 +102,56 @@ export function attemptReleaseBody(
   return attempt ? { cartId, attempt } : { cartId };
 }
 
-/** The three genuinely different outcomes of releasing a pay attempt. */
+/** The outcomes of releasing a pay attempt — each one a fact we can actually establish. */
 export type PayLockRelease =
   | { released: true }
-  | { released: false; reason: "rate_limited" | "error" | "superseded" };
+  | { released: false; reason: "rate_limited" | "error" | "unknown" | "not_held" | "superseded" };
+
+/** The cart lock state, as read back when a release matched nothing. */
+export type LockRow = { locked: boolean; locked_at: string | null } | null;
+
+/**
+ * Why did an era-scoped release match ZERO rows?
+ *
+ * ⚠️ A ZERO-ROW MATCH IS NOT PROOF OF SUPERSESSION (Codex P2 on #244 round 2 — a defect this
+ * module's previous version introduced, so it is worth spelling out). The predicate is
+ * `locked_by = uid AND locked_at = era`; it fails whenever ANY of its terms stopped holding, and
+ * supersession is only one of the ways that happens. The reachable counter-example is an ordinary
+ * declined card: the webhook's `payment_intent.payment_failed` arm calls `releaseCartLock(cartId,
+ * null)` — cart-wide, nulling `locked_at` — while `PaymentSection.confirm()` deliberately keeps the
+ * same Element and client secret mounted. The diner then taps "Edit order", this matches nothing,
+ * and inferring "another tab took over" tells them something false AND blocks them from editing a
+ * cart that is now genuinely editable. That is the fabricated-diagnosis class (M116 · M119), and a
+ * refusal on a money surface has to name a reason it actually established.
+ *
+ * So the reason is READ, not assumed — the same move `acquireCartLock` makes when its own UPDATE
+ * matches nothing. Supersession requires a lock that is still FRESH and stamped with a DIFFERENT
+ * era; anything else is `not_held` (a decline release, a TTL expiry, a staff action — all of which
+ * mean "there is nothing of ours to release", which is not an error and must not block the diner).
+ * An unreadable row is `unknown`: we do not get to guess on this surface.
+ */
+export function classifyZeroRow(
+  ourEra: string | null,
+  lock: LockRow,
+  nowMs: number,
+  ttlMs: number,
+): "superseded" | "not_held" | "unknown" {
+  if (!lock) return "unknown";
+  if (!lock.locked || !lock.locked_at) return "not_held";
+  const at = new Date(lock.locked_at).getTime();
+  if (!Number.isFinite(at)) return "unknown";
+  // A stale lock is not a live successor — `acquireCartLock`'s own TTL disjunct would let anyone
+  // take it over, so nobody is mid-checkout behind it.
+  if (nowMs - at >= ttlMs) return "not_held";
+  // Fresh, and stamped by an era that is not ours: someone genuinely holds this checkout now.
+  return normalizeEra(lock.locked_at) === ourEra ? "not_held" : "superseded";
+}
 
 /**
  * Classify a `releasePayAttempt` result — and keep the three facts APART.
  *
- * A bare `released: false` conflates a rate-limit short-circuit, a transport failure, and a genuine
- * zero-row match. The caller renders a sentence from it, and two of those three are OUR outage
+ * A bare `released: false` conflates a rate-limit short-circuit, a transport failure, and a
+ * zero-row match — and the zero-row case is itself several different facts (see `classifyZeroRow`). The caller renders a sentence from it, and two of those three are OUR outage
  * rather than a fact about the diner's tab — so collapsing them makes the UI state "another tab
  * took over your checkout", which is a fabricated diagnosis on a money surface. That is the exact
  * class M116 and M119 spent four PRs removing from this codebase; it is not being reintroduced here.
@@ -126,10 +166,12 @@ export type PayLockRelease =
  * Lives here, not in `cart.ts` or `Checkout.tsx`: this is decision logic, and the component has no
  * test runner while `app/api/**` sits outside `verify:slice`'s mutant set (the W17 lesson).
  */
-export function classifyRelease(res: {
-  released: boolean;
-  error: { message: string } | null;
-}): PayLockRelease {
+export async function classifyRelease(
+  res: { released: boolean; error: { message: string } | null },
+  zeroRow: () => Promise<"superseded" | "not_held" | "unknown">,
+): Promise<PayLockRelease> {
   if (res.error) return { released: false, reason: "error" };
-  return res.released ? { released: true } : { released: false, reason: "superseded" };
+  if (res.released) return { released: true };
+  // Zero rows: ask what actually happened rather than naming the most dramatic possibility.
+  return { released: false, reason: await zeroRow() };
 }

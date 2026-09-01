@@ -22,7 +22,7 @@ import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, releasePayAttempt } from "./lock";
-import { classifyRelease, normalizeEra, type PayLockRelease } from "./pay-attempt";
+import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
@@ -750,10 +750,20 @@ export async function releasePayLock(cartId: string, attempt?: string): Promise<
   // are our outage, not the diner's tab being superseded, so telling them "this tab is no longer
   // the one checking out" is a fabricated diagnosis on a money surface: the exact class M116/M119
   // spent four PRs removing. Only a write that SUCCEEDED and matched nothing proves supersession.
-  const res = await releasePayAttempt(id, uid, normalizeEra(era));
+  const ourEra = normalizeEra(era);
+  const res = await releasePayAttempt(id, uid, ourEra);
   if (res.error)
     console.error("[cart] pay attempt not released", { cartId: id, error: res.error.message });
-  return classifyRelease(res);
+  // The zero-row read is LAZY — a second query only on the cold path where the release matched
+  // nothing (an "Edit order" tap that did not own the lock), never on the ordinary success.
+  return await classifyRelease(res, async () => {
+    const { data } = await serviceClient()
+      .from("qr_carts")
+      .select("locked,locked_at")
+      .eq("id", id)
+      .maybeSingle();
+    return classifyZeroRow(ourEra, data ?? null, Date.now(), CART_LOCK_TTL_MS);
+  });
 }
 
 /**

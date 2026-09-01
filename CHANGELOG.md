@@ -15,10 +15,16 @@ card with no order.
 
 The era is now returned, echoed by the client, and both exits go through one statement clearing lock
 and pin together under `.eq("locked_by", uid).eq("locked_at", era)` — with no `is null` disjunct,
-because the pin must outlive the lock. The release is classified into its three real outcomes
-(`rate_limited` · `error` · `superseded`) so an outage is never rendered as "another tab took over
-your checkout"; only a succeeded write matching zero rows earns that sentence, and it is terminal
-rather than a fall-through onto controls that look editable and refuse every edit.
+because the pin must outlive the lock.
+
+The release reports only outcomes it can establish (`rate_limited` · `error` · `not_held` ·
+`superseded` · `unknown`). A zero-row match is **not** proof another tab took over — the predicate
+fails whenever any of its terms stopped holding, and the reachable counter-example is an ordinary
+declined card: the webhook's `payment_failed` arm releases the lock cart-wide while the Element
+stays mounted, so "Edit order" matches nothing. Claiming supersession there would tell the diner
+something false and block them from editing an order that is genuinely editable. The reason is now
+READ back — supersession requires a lock still fresh under a different era — and only that answer is
+terminal.
 
 **Narrowed, not closed, and the review is why.** Codex found that `locked_at` is minted at
 millisecond resolution before the await, so two same-uid requests inside one millisecond share an

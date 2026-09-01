@@ -323,6 +323,22 @@ const MUTANTS = [
     replace: "  if (!era) era = null as unknown as string;",
   },
   {
+    id: "pay-attempt/zero-row-assumed-superseded",
+    file: "apps/qr/lib/pay-attempt.ts",
+    suite: "lib/pay-attempt.test.ts",
+    why: 'M124, Codex round 2 on #244 \u2014 a zero-row match is NOT proof another tab took over. The predicate is `locked_by = uid AND locked_at = era`; it fails whenever any term stopped holding. The reachable counter-example is an ordinary DECLINED CARD: the webhook\'s payment_failed arm calls `releaseCartLock(cartId, null)` cart-wide, nulling `locked_at`, while `PaymentSection.confirm()` keeps the same Element mounted \u2014 so "Edit order" matches nothing. Assuming supersession there tells the diner something false AND blocks them from editing an order that is genuinely editable: the fabricated-diagnosis class M116/M119 removed. The reason has to be READ',
+    find: "  return { released: false, reason: await zeroRow() };",
+    replace: '  return { released: false, reason: "superseded" };',
+  },
+  {
+    id: "pay-attempt/stale-lock-reads-as-successor",
+    file: "apps/qr/lib/pay-attempt.ts",
+    suite: "lib/pay-attempt.test.ts",
+    why: "M124 \u2014 a lock past CART_LOCK_TTL_MS is not a live successor: `acquireCartLock`'s own staleness disjunct would let anyone take it over, so nobody is mid-checkout behind it. Counting it as supersession blocks a diner from editing a cart the server itself considers free \u2014 over-blocking, which this repo has paid for as dearly as under-blocking",
+    find: '  if (nowMs - at >= ttlMs) return "not_held";',
+    replace: "",
+  },
+  {
     id: "pay-attempt/outage-reported-as-supersession",
     file: "apps/qr/lib/pay-attempt.ts",
     suite: "lib/pay-attempt.test.ts",

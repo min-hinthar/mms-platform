@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { attemptReleaseBody, classifyRelease, normalizeEra, readPayAttempt } from "./pay-attempt";
+import {
+  attemptReleaseBody,
+  classifyRelease,
+  classifyZeroRow,
+  normalizeEra,
+  readPayAttempt,
+} from "./pay-attempt";
 
 /**
  * M124 — the attempt token's shape rules, tested as BEHAVIOUR rather than as a signature.
@@ -104,33 +110,86 @@ describe("attemptReleaseBody — omit, never null", () => {
   });
 });
 
-describe("classifyRelease — three facts, three answers", () => {
-  it("a matched write is a real release", () => {
-    expect(classifyRelease({ released: true, error: null })).toEqual({ released: true });
-  });
+describe("classifyRelease — every answer is a fact we established", () => {
+  const never = async () => {
+    throw new Error("zeroRow must NOT be consulted on this path");
+  };
 
-  it("THE CASE THAT MATTERS: only a SUCCEEDED write matching nothing means superseded", () => {
-    expect(classifyRelease({ released: false, error: null })).toEqual({
-      released: false,
-      reason: "superseded",
+  it("a matched write is a real release, and asks nothing further", async () => {
+    expect(await classifyRelease({ released: true, error: null }, never)).toEqual({
+      released: true,
     });
   });
 
-  it("a transport failure is OUR outage, never a claim about the diner's tab", () => {
-    // MUTATION: test `released` before `error` → a failed write (count null → released false)
-    // reports "superseded", and the UI tells a diner mid-checkout that another tab took over.
-    // That is a fabricated diagnosis on a money surface (the M116 / M119 class).
-    expect(classifyRelease({ released: false, error: { message: "boom" } })).toEqual({
+  it("a transport failure is OUR outage, never a claim about the diner's tab", async () => {
+    expect(await classifyRelease({ released: false, error: { message: "boom" } }, never)).toEqual({
       released: false,
       reason: "error",
     });
   });
 
-  it("an error wins even if the driver also reported a match", () => {
-    // Defensive: a client that returns both is incoherent, and the safe read is "we do not know".
-    expect(classifyRelease({ released: true, error: { message: "boom" } })).toEqual({
+  it("an error wins even if the driver also reported a match", async () => {
+    // MUTATION: test `released` before `error` → an outcome nobody can explain is confirmed as a
+    // release. Incoherent results must fail closed.
+    expect(await classifyRelease({ released: true, error: { message: "boom" } }, never)).toEqual({
       released: false,
       reason: "error",
     });
+  });
+
+  it("THE ROUND-2 FIX: a zero-row match DEFERS to the read, it does not assume supersession", async () => {
+    // MUTATION: `return { released: false, reason: "superseded" }` → this returns "superseded"
+    // and the declined-card diner is told another tab took over. Codex P2, round 2.
+    expect(await classifyRelease({ released: false, error: null }, async () => "not_held")).toEqual(
+      { released: false, reason: "not_held" },
+    );
+    expect(
+      await classifyRelease({ released: false, error: null }, async () => "superseded"),
+    ).toEqual({ released: false, reason: "superseded" });
+  });
+});
+
+describe("classifyZeroRow — supersession must be READ, never inferred", () => {
+  const TTL = 5 * 60 * 1000;
+  const NOW = Date.parse("2026-09-01T10:00:00.000Z");
+  const ours = "2026-09-01T09:59:00.000Z";
+
+  it("THE DECLINED-CARD CASE: the webhook nulled the lock, so nothing of ours is held", () => {
+    // `payment_intent.payment_failed` calls `releaseCartLock(cartId, null)` cart-wide while the
+    // Element stays mounted. Calling this "superseded" tells the diner something false AND blocks
+    // them from editing an order that is genuinely editable.
+    expect(classifyZeroRow(ours, { locked: false, locked_at: null }, NOW, TTL)).toBe("not_held");
+  });
+
+  it("a live successor holding a DIFFERENT era is the one real supersession", () => {
+    expect(
+      classifyZeroRow(ours, { locked: true, locked_at: "2026-09-01T09:59:30.000Z" }, NOW, TTL),
+    ).toBe("superseded");
+  });
+
+  it("a STALE lock is not a successor — anyone may take it over", () => {
+    // 6 minutes old, past the 5-minute TTL: `acquireCartLock`'s own staleness disjunct would admit
+    // a takeover, so nobody is mid-checkout behind it.
+    expect(
+      classifyZeroRow(ours, { locked: true, locked_at: "2026-09-01T09:54:00.000Z" }, NOW, TTL),
+    ).toBe("not_held");
+  });
+
+  it("our OWN era still on the row is not a supersession (a lost race, not a takeover)", () => {
+    expect(classifyZeroRow(ours, { locked: true, locked_at: ours }, NOW, TTL)).toBe("not_held");
+  });
+
+  it("an unreadable row is UNKNOWN — we do not guess on a money surface", () => {
+    expect(classifyZeroRow(ours, null, NOW, TTL)).toBe("unknown");
+    expect(classifyZeroRow(ours, { locked: true, locked_at: "nonsense" }, NOW, TTL)).toBe(
+      "unknown",
+    );
+  });
+
+  it("compares instants, not spellings", () => {
+    // An offset spelling of OUR era must not read as someone else's.
+    expect(
+      classifyZeroRow(ours, { locked: true, locked_at: "2026-09-01T09:59:00.000+00:00" }, NOW, TTL),
+    ).toBe("not_held");
   });
 });
