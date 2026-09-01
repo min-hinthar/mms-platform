@@ -22,7 +22,7 @@ import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS, releasePayAttempt } from "./lock";
-import { normalizeEra } from "./pay-attempt";
+import { classifyRelease, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
@@ -729,15 +729,12 @@ export async function getCartView(cartId: string): Promise<{
  * member can only release THEIR lock, and only for the tab that minted it. assertCartMember returns the lock (doesn't
  * throw on it), so this is callable on a locked-but-open cart. Idempotent + safe to call when unlocked.
  */
-export async function releasePayLock(
-  cartId: string,
-  attempt?: string,
-): Promise<{ released: boolean }> {
+export async function releasePayLock(cartId: string, attempt?: string): Promise<PayLockRelease> {
   const { cartId: id, attempt: era } = releaseAttemptInput.parse({ cartId, attempt });
   const { uid } = await assertCartMember(id);
   // W1·Q6 flood guard — a rate-limited release just no-ops (the lock TTL is the backstop, so a
   // legit diner who somehow hits the cap recovers on the next tap or the TTL; never throw here).
-  if (!(await withinMutationRate(uid))) return { released: false };
+  if (!(await withinMutationRate(uid))) return { released: false, reason: "rate_limited" };
   // M124 — ONE era-scoped statement. The old pair (`mms_release_promo_grant_for_holder` then
   // `releaseCartLock`) proved ownership with `locked_by = uid`, which cannot tell one diner's two
   // tabs apart: `acquireCartLock` lets the same uid re-acquire with a fresh era, so a stale tab
@@ -746,9 +743,17 @@ export async function releasePayLock(
   // The returned `released` is the honest answer to a superseded tab: false means this attempt no
   // longer owns the cart, so the caller says so rather than dropping the diner on a review step that
   // will refuse every edit (`cart.ts` throws "Order is locked while someone checks out").
-  const { released, error } = await releasePayAttempt(id, uid, normalizeEra(era));
-  if (error) console.error("[cart] pay attempt not released", { cartId: id, error: error.message });
-  return { released };
+  // ⚠️ THREE DIFFERENT FACTS, NOT ONE (adversarial pass on #244, and it was right).
+  //
+  // A bare `released: false` conflates a rate-limit short-circuit, a transport failure, and a
+  // genuine zero-row match — and the caller then renders ONE sentence for all three. Two of them
+  // are our outage, not the diner's tab being superseded, so telling them "this tab is no longer
+  // the one checking out" is a fabricated diagnosis on a money surface: the exact class M116/M119
+  // spent four PRs removing. Only a write that SUCCEEDED and matched nothing proves supersession.
+  const res = await releasePayAttempt(id, uid, normalizeEra(era));
+  if (res.error)
+    console.error("[cart] pay attempt not released", { cartId: id, error: res.error.message });
+  return classifyRelease(res);
 }
 
 /**

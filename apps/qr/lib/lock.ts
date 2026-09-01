@@ -308,6 +308,21 @@ export async function releasePromoGrantFor(cartId: string, attempt: string): Pro
  * A webhook delayed past `CART_LOCK_TTL_MS` (Stripe retries up to three times at an 80s timeout)
  * must still re-derive WITH the pin. So: no era, no match, no release.
  *
+ * ## ⚠️ WHAT THIS DOES NOT CLOSE — the sub-millisecond collision (Codex P1 on #244)
+ *
+ * `locked_at` is the discriminator, and `acquireCartLock` mints it as `new Date().toISOString()`
+ * BEFORE awaiting its UPDATE — millisecond resolution. Two same-uid requests that enter within the
+ * SAME millisecond therefore compute and write the SAME era (same-uid re-acquire is allowed by
+ * design), and an abandon from the first still matches the second. That window is inherited from
+ * `mms_release_promo_grant`, which has keyed on `locked_at` since #240 — it is not introduced here.
+ *
+ * This is still a strict improvement, and the size of it is the point: the predicate it replaces
+ * (`locked_by = uid` alone) collided for ANY two attempts by one diner, minutes apart; this one
+ * collides only for two inside one millisecond. But it is a narrowing, NOT a closure, and calling it
+ * closed would be the kind of overstatement the next reader would trust. A real closure needs a
+ * discriminator whose uniqueness does not depend on wall-clock separation — a distinct token column,
+ * which is the same migration OPEN-ITEMS M151/M152 already require. Tracked there.
+ *
  * ⚠️ `{ count: "exact" }`, never `.select()` — the PostgREST-14 `return=representation` trap
  * documented on `acquireCartLock` above. The count is also the ANSWER: `released: false` tells
  * "Edit order" its tab was superseded, so it can say so instead of dropping the diner on a review

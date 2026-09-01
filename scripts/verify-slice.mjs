@@ -323,6 +323,14 @@ const MUTANTS = [
     replace: "  if (!era) era = null as unknown as string;",
   },
   {
+    id: "pay-attempt/outage-reported-as-supersession",
+    file: "apps/qr/lib/pay-attempt.ts",
+    suite: "lib/pay-attempt.test.ts",
+    why: 'M124 \u2014 the release has THREE outcomes and the checkout renders a sentence from them, so an outage must never be reported as "another tab took over this checkout" (the fabricated-diagnosis class M116/M119 removed). Testing `released` first answers `released: true` for a driver that reports BOTH a match and an error \u2014 an incoherent result whose only safe reading is "we do not know". Precisely: the ordering does not change the ordinary failed write (count null + error still lands on the error arm either way); it is the both-set case that flips, and an outcome nobody can explain must fail closed rather than confirm a release',
+    find: '  if (res.error) return { released: false, reason: "error" };',
+    replace: "  if (res.released) return { released: true };",
+  },
+  {
     id: "pay-attempt/echo-passed-through",
     file: "apps/qr/lib/pay-attempt.ts",
     suite: "lib/pay-attempt.test.ts",

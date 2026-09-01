@@ -4,38 +4,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### The checkout attempt gets a name — M124 closed, M123(a′) closed (2026-09-01)
+### The checkout attempt gets a name — M124 narrowed (2026-09-01)
 
-Three open `high` money-path rows (M123 · M124 · M151) were never three problems: each needed the
-same missing primitive, and the M70 migration says so in its own words — _"these two callers are
-clients: they never saw a `locked_at` and cannot name their era."_ `create-intent` had always
-computed that era and simply never returned it.
+`create-intent` had always computed the era `acquireCartLock` stamps and never returned it, which is
+why the two client abandon exits fell back to `mms_release_promo_grant_for_holder` — a predicate
+matching `locked_by = uid` ALONE. `acquireCartLock` lets the same diner re-acquire with a fresh era,
+so one diner's abandoned tab satisfied that against their LIVE tab and cleared its promo pin;
+between capture and the fulfilment webhook that re-derives without the pin and strands a charged
+card with no order.
 
-**M124 — closed.** The pay-lock beacon and "Edit order" both released the promo pin through
-`mms_release_promo_grant_for_holder`, which matches on `locked_by = uid` ALONE. `acquireCartLock`
-lets the same diner re-acquire with a fresh era, so one diner's abandoned tab satisfied that
-predicate against their LIVE tab and cleared its pin — landing between capture and the fulfilment
-webhook, the re-derive drops the discount and strands a charged card with no order. `create-intent`
-now returns the era, the client echoes it on both exits, and both go through one era-scoped
-statement that clears lock and pin together. A superseded tab matches zero rows and is told so.
+The era is now returned, echoed by the client, and both exits go through one statement clearing lock
+and pin together under `.eq("locked_by", uid).eq("locked_at", era)` — with no `is null` disjunct,
+because the pin must outlive the lock. The release is classified into its three real outcomes
+(`rate_limited` · `error` · `superseded`) so an outage is never rendered as "another tab took over
+your checkout"; only a succeeded write matching zero rows earns that sentence, and it is terminal
+rather than a fall-through onto controls that look editable and refuse every edit.
 
-**M123 — half closed, and its filed premise was wrong.** #240 had already fixed the charged amount
-on the create-intent path. Verification found something narrower and worse instead: six early exits
-released the LOCK without the GRANT and returned above the pin block, leaving `locked = false` over
-a live pin — the exact state `acquireSettlement`'s raw `locked` gate admits to cash, Terminal and
-split, where the stale discount is charged, recorded, and burns a redemption the basket never
-earned. No concurrency and no second tab required. All six now release through `abandonAttempt`.
-Its display half (b) stays open.
+**Narrowed, not closed, and the review is why.** Codex found that `locked_at` is minted at
+millisecond resolution before the await, so two same-uid requests inside one millisecond share an
+era — a window inherited from #240, not introduced here. The predicate replaced collided for any two
+attempts by one diner; this one collides only inside a millisecond. That is a large narrowing and it
+is stated as such in `lock.ts`, OPEN-ITEMS M124, and here.
 
-**M152 — filed.** Verifying the above surfaced a distinct live defect from two directions:
-`applyPromo`'s TTL-aware predicate, and `create-intent`'s stale-grant release, can each clear a pin
-a CAPTURED PaymentIntent still reconciles against. Same fix as M151 — a cart→intent link — so the
-three are now marked to ship together.
+**M123(a′) was attempted and reverted.** Making six early exits clear a taken-over pin closes a real
+cash/Terminal/split leak, but breaks the reconcile of a predecessor whose PaymentIntent captured and
+whose webhook is merely delayed — trading a lesser defect for a worse one. Codex and the blind
+adversarial pass found this independently; it must ship with the live-intent column (M151/M152),
+never before it. M123's filed premise is corrected in the registry: #240 already fixed the part the
+row describes.
 
-`check:pay-attempt` (AST, in the CI fast lane) pins the three facts no test can reach: the token is
-returned, the uid-only RPC is unreachable from executable code, and the route releases the lock only
-through `abandonAttempt`. Four `verify:slice` mutants and 14 tests cover the rest, each watched
-failing against the mutation it names.
+**Filed:** M152 (a pin can be cleared while a captured intent still reconciles against it — via
+`applyPromo`'s TTL-aware predicate and via `create-intent`'s stale-grant release) and M153
+(`abandonAttempt`'s lock release is uid-only, so a losing attempt unfreezes the winner's cart —
+pre-existing on `main`).
+
+`check:pay-attempt` (AST, CI fast lane) asserts the token is bound to `attemptEra` (not merely
+present — `attempt: attemptEra ?? ""` was proven to pass a name-only check), that the banned RPC is
+unreachable including through const-bound and unresolvable names, and that its own file enumeration
+never reports clean having read nothing.
 
 ### The session's lessons, written into the harness (2026-08-29)
 

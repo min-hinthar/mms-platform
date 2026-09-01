@@ -836,9 +836,20 @@ export function Checkout({
       // the point: it must not clear the live tab's pin or unfreeze its cart. `released === false`
       // is then the honest answer, and saying so beats returning the diner to a review step that
       // will refuse every edit ("Order is locked while someone checks out").
-      const { released } = await releasePayLock(cartId, payAttempt?.attempt ?? undefined);
-      if (!released) {
-        setPayError("This tab is no longer the one checking out — reopen the order to edit it.");
+      const res = await releasePayLock(cartId, payAttempt?.attempt ?? undefined);
+      // Only a SUPERSEDED tab is a terminal state, and only it earns that sentence. A rate-limit or
+      // a transport error is our problem, not a fact about this diner's tab — saying otherwise
+      // fabricates a diagnosis (M116/M119). Those two fall through to the normal transition, where
+      // the lock TTL is the backstop exactly as before this change.
+      if (!res.released && res.reason === "superseded") {
+        // RETURN, not just an error line: falling through to the review step lands the diner on
+        // controls that LOOK editable — a successor opened by the same diner has
+        // `lockedBy === mySeat`, so `lockedByPeer` stays false — while every mutation is refused by
+        // the live lock. Staying put with an honest sentence beats a screen that lies by omission.
+        setPayError(
+          "Another tab took over this checkout — that one is paying. Reopen the order to edit it.",
+        );
+        return;
       }
     } catch {
       // non-fatal; the lock auto-expires via its TTL

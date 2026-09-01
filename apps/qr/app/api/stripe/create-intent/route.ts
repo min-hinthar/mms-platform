@@ -74,58 +74,6 @@ export async function POST(req: NextRequest) {
     const attemptEra = acq.era;
     acquired = { cartId, uid, era: attemptEra };
 
-    // Hoisted with `abandonAttempt` below, which closes over it.
-    const db = serviceClient();
-    // M123(a′) — HOISTED so the refusals below can use it, and that hoist IS the fix.
-    //
-    // Six early exits (session-mode read, the pickup-slot and ASAP gates, the contact requirement,
-    // the availability gate) used to call a bare `releaseCartLock(cartId, uid)` and return from
-    // ABOVE the pin block. Each one sets `locked = false` while a PREDECESSOR's pin is still on the
-    // cart — this attempt took the lock over from a diner who walked away, refuses for its own
-    // reason, and hands back an unlocked cart carrying a frozen discount.
-    //
-    // That state is not idle. `acquireSettlement` gates on the RAW `locked` column, not the
-    // TTL-aware effective lock, so `locked = false` is exactly what admits the counter authorities:
-    // cash (`staff-cart.ts settleCash`), Terminal and split all derive from `getCartTotals`, which
-    // returns the pin outright, and `mms_fulfill_cash_order` re-derives only the SUBTOTAL — so the
-    // stale discount is charged, recorded, and burns a `mms_promo_consume` redemption for a code the
-    // basket never qualified for. No second tab, no concurrency, no promo expiry: one 86'd dish and
-    // one counter payment. It is the most reachable money loss in the registry.
-    //
-    // Releasing here is sound on these paths for the reason the block's own header gives: this
-    // attempt minted no PaymentIntent, and the pin it clears belongs to an attempt whose lock it
-    // just took over. It does NOT make a predecessor's already-captured intent safe — the same gap
-    // the pin-release below carries today (OPEN-ITEMS M151), closed for both at once by the
-    // `live_payment_intent_id` link in the follow-up.
-    // M70 (Codex round 1, P1) — every exit BETWEEN the pin and a live PaymentIntent must release the
-    // grant, because a grant with no hold behind it authorizes nothing. The lock alone is not enough:
-    // the diner edits the now-unlocked cart, re-checks-out, and `mms_pin_promo_grant` is a no-op
-    // (the pin is not null) — so the abandoned attempt's grant prices the NEW basket. Both directions
-    // are wrong: a $10 grant survives onto a basket that no longer clears the minimum, and a 0 grant
-    // survives onto one that has become eligible. Cancellation cannot cover this — that records the
-    // end of a hold that EXISTED, and here none ever did.
-    const abandonAttempt = async (id: string, u: string) => {
-      // ERA-SCOPED (Codex round 2, P1). `acquireCartLock` lets the same diner re-acquire and
-      // REFRESHES `locked_at`, so two overlapping create-intent requests are two eras on one cart.
-      // A cart-wide release from the loser's catch would wipe the grant the WINNER's PaymentIntent
-      // was minted under, and its webhook would then re-derive a different amount against a charged
-      // payment. `attemptEra` is the value OUR acquisition wrote, so the RPC can tell whether the
-      // cart still belongs to us.
-      const { error } = await db.rpc("mms_release_promo_grant", {
-        p_cart_id: id,
-        p_attempt: attemptEra,
-      });
-      // Logged, never thrown: this runs on paths that are already returning an error to the diner,
-      // and the pin's own `status = 'open'` gate plus the next attempt's re-derivation bound the
-      // damage. Failing here would replace a stale discount with a stranded lock.
-      if (error)
-        console.error("[create-intent] promo grant not released", {
-          cartId: id,
-          error: error.message,
-        });
-      await releaseCartLock(id, u);
-    };
-
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
     // the kitchen's open-hours + per-slot capacity limits by forging state.
@@ -133,6 +81,7 @@ export async function POST(req: NextRequest) {
     //   • ASAP (null slot) → mms_pickup_asap atomically SNAPS the earliest bookable slot (consuming its
     //     capacity, only within open hours / while capacity remains) and fires now (fire_at=null). If the
     //     kitchen is closed or fully booked, ASAP is refused — never take a paid order we can't fulfill.
+    const db = serviceClient();
     // W21 (Codex P1 on #192) — the mode read FAILS CLOSED: every mode-keyed gate below (the W5e
     // pickup slot/ASAP honesty checks AND the W21 contact requirement) hangs off `sess`, so a
     // dropped read error used to let a pickup order charge as if it were scango — no slot
@@ -144,7 +93,7 @@ export async function POST(req: NextRequest) {
       .single();
     if (sessErr || !sess) {
       if (sessErr) console.error("[create-intent] session mode read failed:", sessErr.message);
-      await abandonAttempt(cartId, uid);
+      await releaseCartLock(cartId, uid);
       return NextResponse.json(
         { error: "Couldn’t start checkout — please try again." },
         { status: 500 },
@@ -177,7 +126,7 @@ export async function POST(req: NextRequest) {
     // be served.
     const soldOutNames = await unavailableLineNames(cartId);
     if (soldOutNames.length > 0) {
-      await abandonAttempt(cartId, uid);
+      await releaseCartLock(cartId, uid);
       return NextResponse.json(
         {
           error:
@@ -200,7 +149,7 @@ export async function POST(req: NextRequest) {
       // capacity for a payment this response is about to refuse.
       const contactMissing = pickupContactMissing(firstName ?? "", phone ?? "");
       if (contactMissing) {
-        await abandonAttempt(cartId, uid);
+        await releaseCartLock(cartId, uid);
         return NextResponse.json(
           {
             error:
@@ -232,7 +181,7 @@ export async function POST(req: NextRequest) {
         const slotMs = cart.pickup_slot ? new Date(cart.pickup_slot).getTime() : NaN;
         const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
         if (!open) {
-          await abandonAttempt(cartId, uid);
+          await releaseCartLock(cartId, uid);
           return NextResponse.json(
             { error: "That pickup time just filled — please pick another." },
             { status: 409 },
@@ -248,7 +197,7 @@ export async function POST(req: NextRequest) {
         });
         const row = asap?.[0];
         if (asapErr || !row?.ok) {
-          await abandonAttempt(cartId, uid);
+          await releaseCartLock(cartId, uid);
           const msg =
             row?.reason === "closed"
               ? "The kitchen’s closed right now — please order during open hours."
@@ -297,7 +246,7 @@ export async function POST(req: NextRequest) {
       if (contactErr || !contactRows?.length) {
         if (contactErr)
           console.error("[create-intent] pickup contact write failed:", contactErr.message);
-        await abandonAttempt(cartId, uid);
+        await releaseCartLock(cartId, uid);
         return NextResponse.json(
           { error: "Couldn’t save your pickup contact — please try again." },
           { status: 400 },
@@ -360,6 +309,35 @@ export async function POST(req: NextRequest) {
     const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
+
+    // M70 (Codex round 1, P1) — every exit BETWEEN the pin and a live PaymentIntent must release the
+    // grant, because a grant with no hold behind it authorizes nothing. The lock alone is not enough:
+    // the diner edits the now-unlocked cart, re-checks-out, and `mms_pin_promo_grant` is a no-op
+    // (the pin is not null) — so the abandoned attempt's grant prices the NEW basket. Both directions
+    // are wrong: a $10 grant survives onto a basket that no longer clears the minimum, and a 0 grant
+    // survives onto one that has become eligible. Cancellation cannot cover this — that records the
+    // end of a hold that EXISTED, and here none ever did.
+    const abandonAttempt = async (id: string, u: string) => {
+      // ERA-SCOPED (Codex round 2, P1). `acquireCartLock` lets the same diner re-acquire and
+      // REFRESHES `locked_at`, so two overlapping create-intent requests are two eras on one cart.
+      // A cart-wide release from the loser's catch would wipe the grant the WINNER's PaymentIntent
+      // was minted under, and its webhook would then re-derive a different amount against a charged
+      // payment. `attemptEra` is the value OUR acquisition wrote, so the RPC can tell whether the
+      // cart still belongs to us.
+      const { error } = await db.rpc("mms_release_promo_grant", {
+        p_cart_id: id,
+        p_attempt: attemptEra,
+      });
+      // Logged, never thrown: this runs on paths that are already returning an error to the diner,
+      // and the pin's own `status = 'open'` gate plus the next attempt's re-derivation bound the
+      // damage. Failing here would replace a stale discount with a stranded lock.
+      if (error)
+        console.error("[create-intent] promo grant not released", {
+          cartId: id,
+          error: error.message,
+        });
+      await releaseCartLock(id, u);
+    };
 
     const totals = await getCartTotals(cartId, tipRate);
     const amount = totals.totalCents; // already cents, server-derived
@@ -463,9 +441,9 @@ export async function POST(req: NextRequest) {
 
     // M124 — the attempt token the client echoes when it abandons.
     //
-    // `acquireCartLock` has always computed this era; it was simply never returned, which is the
-    // whole reason the two abandon exits had to fall back to a uid-only predicate that cannot tell
-    // one diner's two tabs apart. Handing it to the client closes that: an echo names an ATTEMPT.
+    // `acquireCartLock` has always computed this era; it was simply never returned, which is why the
+    // two abandon exits had to fall back to a uid-only predicate that cannot tell one diner's two
+    // tabs apart. Handing it to the client closes that: an echo names an ATTEMPT.
     //
     // ⚠️ LOSING THIS ONE LINE IS SILENT. `readPayAttempt` would yield `attempt: null`, both exits
     // would fail closed and release nothing, and every abandoned checkout would hold its table's

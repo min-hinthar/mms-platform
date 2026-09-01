@@ -101,3 +101,35 @@ export function attemptReleaseBody(
 ): { cartId: string; attempt?: string } {
   return attempt ? { cartId, attempt } : { cartId };
 }
+
+/** The three genuinely different outcomes of releasing a pay attempt. */
+export type PayLockRelease =
+  | { released: true }
+  | { released: false; reason: "rate_limited" | "error" | "superseded" };
+
+/**
+ * Classify a `releasePayAttempt` result — and keep the three facts APART.
+ *
+ * A bare `released: false` conflates a rate-limit short-circuit, a transport failure, and a genuine
+ * zero-row match. The caller renders a sentence from it, and two of those three are OUR outage
+ * rather than a fact about the diner's tab — so collapsing them makes the UI state "another tab
+ * took over your checkout", which is a fabricated diagnosis on a money surface. That is the exact
+ * class M116 and M119 spent four PRs removing from this codebase; it is not being reintroduced here.
+ *
+ * ⚠️ ERROR IS CHECKED FIRST. Being precise about what that does and does not buy: an ordinary
+ * failed write yields `count: null` → `released: false`, and lands on the error arm under EITHER
+ * ordering, so this is not what saves the common case. What it decides is the incoherent one — a
+ * driver reporting both a match and an error — where testing `released` first would confirm a
+ * release nobody can explain. An outcome we cannot account for must fail closed, and "we do not
+ * know" is the honest answer rather than "your tab was superseded".
+ *
+ * Lives here, not in `cart.ts` or `Checkout.tsx`: this is decision logic, and the component has no
+ * test runner while `app/api/**` sits outside `verify:slice`'s mutant set (the W17 lesson).
+ */
+export function classifyRelease(res: {
+  released: boolean;
+  error: { message: string } | null;
+}): PayLockRelease {
+  if (res.error) return { released: false, reason: "error" };
+  return res.released ? { released: true } : { released: false, reason: "superseded" };
+}

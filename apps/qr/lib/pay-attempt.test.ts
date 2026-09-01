@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attemptReleaseBody, normalizeEra, readPayAttempt } from "./pay-attempt";
+import { attemptReleaseBody, classifyRelease, normalizeEra, readPayAttempt } from "./pay-attempt";
 
 /**
  * M124 — the attempt token's shape rules, tested as BEHAVIOUR rather than as a signature.
@@ -101,5 +101,36 @@ describe("attemptReleaseBody — omit, never null", () => {
     const body = attemptReleaseBody("cart-1", null);
     expect(body).toEqual({ cartId: "cart-1" });
     expect("attempt" in body).toBe(false);
+  });
+});
+
+describe("classifyRelease — three facts, three answers", () => {
+  it("a matched write is a real release", () => {
+    expect(classifyRelease({ released: true, error: null })).toEqual({ released: true });
+  });
+
+  it("THE CASE THAT MATTERS: only a SUCCEEDED write matching nothing means superseded", () => {
+    expect(classifyRelease({ released: false, error: null })).toEqual({
+      released: false,
+      reason: "superseded",
+    });
+  });
+
+  it("a transport failure is OUR outage, never a claim about the diner's tab", () => {
+    // MUTATION: test `released` before `error` → a failed write (count null → released false)
+    // reports "superseded", and the UI tells a diner mid-checkout that another tab took over.
+    // That is a fabricated diagnosis on a money surface (the M116 / M119 class).
+    expect(classifyRelease({ released: false, error: { message: "boom" } })).toEqual({
+      released: false,
+      reason: "error",
+    });
+  });
+
+  it("an error wins even if the driver also reported a match", () => {
+    // Defensive: a client that returns both is incoherent, and the safe read is "we do not know".
+    expect(classifyRelease({ released: true, error: { message: "boom" } })).toEqual({
+      released: false,
+      reason: "error",
+    });
   });
 });

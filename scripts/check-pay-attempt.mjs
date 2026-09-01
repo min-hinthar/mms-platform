@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * M124 — the three facts the attempt-token design rests on that NO TEST CAN REACH.
+ * M124 — the two facts the attempt-token design rests on that NO TEST CAN REACH.
  *
  * The token closes a money-path race: an abandoned tab's `pagehide` beacon used to satisfy
  * `locked_by = uid` against the LIVE tab and clear its promo pin, which — landing between capture
@@ -14,16 +14,13 @@
  *      nothing in the logs. The route has no test file (`app/api/**` is outside MONEY_PATHS and
  *      outside `verify:slice`'s mutant set), so nothing else can see it go.
  *   2. Nothing may call `mms_release_promo_grant_for_holder`. It matches on uid alone and cannot
- *      tell one diner's two tabs apart; re-introducing a call anywhere re-opens M124 exactly.
- *   3. `create-intent` must release the lock ONLY through `abandonAttempt`. Six early exits used to
- *      call a bare `releaseCartLock` and return above the pin block, leaving `locked = false` over a
- *      live pin — the state cash/Terminal/split then charge (OPEN-ITEMS M123(a′)).
- *
+ *      tell one diner's two tabs apart; re-introducing a call anywhere re-opens M124 exactly. *
  * PARSED, not scanned (LEARNINGS #60). A substring search for `attempt` is satisfied by the very
  * comment that explains it; a search for the RPC name matches the sentence forbidding it.
  *
- * Red-first: delete `attempt: attemptEra` from the 200 body, or call `_for_holder` anywhere, or move
- * a `releaseCartLock` back out of `abandonAttempt`, and this exits 1 naming which rule broke.
+ * Red-first: delete `attempt: attemptEra` from the 200 body, rebind it to anything else, or call
+ * `_for_holder` anywhere — literally, through a const, or dynamically — and this exits 1 naming
+ * which rule broke.
  */
 import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -114,7 +111,26 @@ if (successBodies.length > 1) {
       "checked while a regressed one runs. Collapse them, or teach the guard to tell them apart.",
   );
 }
-if (!propNames(successBodies[0]).includes("attempt")) {
+// ⚠️ THE INITIALIZER, NOT THE NAME (Codex P2 on #244, and it was right about my own guard).
+// Checking only that a property called `attempt` exists is the matcher-vs-behaviour mistake this
+// file's own header warns about: `attempt: undefined`, `attempt: null`, or `attempt: someOtherVar`
+// all keep the name and all break the token — JSON drops `undefined` entirely, so both abandon
+// exits fail closed for the full TTL with the guard still green. The invariant is that the body
+// returns THIS acquisition's era, so the assertion has to name the binding.
+const attemptProp = successBodies[0].properties.find(
+  (p) =>
+    (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) &&
+    p.name &&
+    p.name.getText(intentSf) === "attempt",
+);
+const boundToEra =
+  attemptProp &&
+  ((ts.isShorthandPropertyAssignment(attemptProp) && attemptProp.name.text === "attemptEra") ||
+    (ts.isPropertyAssignment(attemptProp) &&
+      ts.isIdentifier(attemptProp.initializer) &&
+      attemptProp.initializer.text === "attemptEra"));
+
+if (!attemptProp) {
   fail(
     `${INTENT}'s success body no longer returns \`attempt\`.\n  ` +
       "M124: without it `readPayAttempt` yields a null attempt, so BOTH abandon exits fail closed\n  " +
@@ -122,6 +138,16 @@ if (!propNames(successBodies[0]).includes("attempt")) {
       "CART_LOCK_TTL_MS, with every test green and nothing in the logs. This route has no test file\n  " +
       "(app/api/** is outside MONEY_PATHS and outside verify:slice), so this guard is the only\n  " +
       "thing that can see it go.",
+  );
+}
+if (!boundToEra) {
+  fail(
+    `${INTENT} returns \`attempt\`, but not bound to \`attemptEra\`.\n  ` +
+      "M124: the token must be the era THIS acquisition wrote. `attempt: undefined` is dropped by\n  " +
+      "JSON entirely, `attempt: null` normalizes to null, and any other binding names an era the\n  " +
+      "cart does not hold — all three leave both abandon exits failing closed for the full\n  " +
+      "CART_LOCK_TTL_MS while every check stays green. If the variable was renamed, teach the guard\n  " +
+      "the new name; do not relax it to a name-only check.",
   );
 }
 
@@ -139,6 +165,59 @@ const sourceFiles = execFileSync(
   .filter(Boolean)
   .filter((f) => !f.endsWith(".d.ts"));
 
+// ⚠️ A FLOOR, because an ABSENCE rule that reads zero files prints the same word as a clean one.
+// If the pathspecs ever stop matching — a layout move out of `apps/`/`packages/`, a workspace
+// rename, a future `src/` root — `git ls-files` exits 0 with empty output, `offenders` stays empty,
+// and this would report the banned RPC "unreachable" having inspected nothing. The repo already
+// codified this counter-rule one file over (`check-money-coverage`'s coverage floors); the number
+// is deliberately far below the real count so ordinary churn never trips it.
+const FILE_FLOOR = 200;
+if (sourceFiles.length < FILE_FLOOR) {
+  fail(
+    `the absence scan enumerated only ${sourceFiles.length} source files (floor ${FILE_FLOOR}).\n  ` +
+      "That is not a clean result, it is a BLIND one: `git ls-files` exits 0 with empty output when\n  " +
+      "its pathspecs stop matching, so this rule would report `" +
+      BANNED_RPC +
+      "` unreachable\n  having read nothing. Fix the pathspecs (or lower the floor deliberately, with a reason).",
+  );
+}
+
+/**
+ * Does this `.rpc()` first argument name the banned function?
+ *
+ * ⚠️ A STRING-LITERAL CHECK IS NOT ENOUGH (Codex P2 on #244). `const fn = "mms_release_…"; db.rpc(fn)`
+ * is an executable call to the banned RPC that a literal-only matcher waves straight through, so the
+ * "unreachable" invariant this file advertises could regress with CI green — the guard-falsification
+ * class, in the guard written to prevent it.
+ *
+ * So: literals (quoted and no-substitution template) match directly; a bare identifier is RESOLVED
+ * against const declarations in the same file; and anything still unresolved is treated as a MATCH,
+ * because an absence rule cannot afford to assume. That last arm can only ever produce a false
+ * positive on a dynamic RPC name — which is itself worth a human look on a money path, and is
+ * silenced by naming the function inline.
+ */
+const rpcNameMatches = (sf, arg) => {
+  if (ts.isStringLiteralLike(arg)) return arg.text === BANNED_RPC;
+  if (ts.isIdentifier(arg)) {
+    let resolved;
+    for (const n of allNodes(sf)) {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        n.name.text === arg.text &&
+        n.initializer &&
+        ts.isStringLiteralLike(n.initializer)
+      ) {
+        resolved = n.initializer.text;
+      }
+    }
+    // Resolved to something else → genuinely not this function. Unresolvable → assume the worst.
+    return resolved === undefined ? true : resolved === BANNED_RPC;
+  }
+  // A template with substitutions, a call, a member access — cannot be read statically.
+  return true;
+};
+
 const offenders = [];
 for (const rel of sourceFiles) {
   const sf = parse(rel);
@@ -148,8 +227,7 @@ for (const rel of sourceFiles) {
       ts.isPropertyAccessExpression(n.expression) &&
       n.expression.name.text === "rpc" &&
       n.arguments.length > 0 &&
-      ts.isStringLiteralLike(n.arguments[0]) &&
-      n.arguments[0].text === BANNED_RPC
+      rpcNameMatches(sf, n.arguments[0])
     ) {
       const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
       offenders.push(`${rel}:${line + 1}`);
@@ -167,44 +245,6 @@ if (offenders.length) {
   );
 }
 
-// ── 3. create-intent releases the lock only inside abandonAttempt ────────────────────────────────
-const lockReleases = intentNodes.filter(
-  (n) =>
-    ts.isCallExpression(n) &&
-    ts.isIdentifier(n.expression) &&
-    n.expression.text === "releaseCartLock",
-);
-
-/** Is this node lexically inside the `abandonAttempt` initializer? */
-const insideAbandon = (node) => {
-  for (let n = node; n; n = n.parent) {
-    if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.name.text === "abandonAttempt"
-    ) {
-      return true;
-    }
-  }
-  return false;
-};
-
-const stray = lockReleases.filter((n) => !insideAbandon(n)).length;
-// The outer catch releases by cart id + uid captured in `acquired`, deliberately outside the
-// closure (it runs when `abandonAttempt`'s scope may never have been entered). One stray is that
-// catch; more than one means an early exit has gone back to a bare release.
-if (stray > 1) {
-  fail(
-    `${INTENT} calls \`releaseCartLock\` ${stray} times outside \`abandonAttempt\`.\n  ` +
-      "M123(a′): an exit that releases the LOCK without the GRANT leaves `locked = false` over a\n  " +
-      "live pin. `acquireSettlement` gates on the RAW `locked` column, so that state is exactly what\n  " +
-      "admits cash / Terminal / split — each derives from `getCartTotals`, which returns the pin\n  " +
-      "outright, and `mms_fulfill_cash_order` re-derives only the SUBTOTAL. The stale discount is\n  " +
-      "charged, recorded, and burns a promo redemption the basket never earned. Release through\n  " +
-      "`abandonAttempt`, which clears both.",
-  );
-}
-
 process.stdout.write(
-  `${c.green("clean")}${c.dim(` — token returned · ${BANNED_RPC} unreachable · ${lockReleases.length - stray} scoped release${lockReleases.length - stray === 1 ? "" : "s"}`)}\n`,
+  `${c.green("clean")}${c.dim(` — token bound to attemptEra · ${BANNED_RPC} unreachable across ${sourceFiles.length} files`)}\n`,
 );
