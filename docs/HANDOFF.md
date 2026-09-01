@@ -5,6 +5,46 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-01 — #244/#245 finished the attempt-token work that needs no schema change; EVERYTHING else on that arc is one prod migration, designed and un-applied)
+>
+> `main` is at #244; **#245** adds M153. The through-line: `locked_at` is the checkout ATTEMPT's
+> name, and every release that touches the lock now says which attempt it is. #244 gave the client
+> that token (M124); #245 did the server side — one `freeLock()` helper over
+> `releaseCartLockFor` for all seven refusal exits, and the era-scoped lock release in both abandon
+> paths.
+>
+> **⚠️ READ THIS BEFORE TOUCHING THE PIN.** #245 first tried collapsing each abandon pair into
+> `releasePayAttempt`, and it was a REGRESSION that Codex and the blind adversarial pass caught
+> independently. `mms_release_promo_grant`'s `locked_at is null` disjunct is load-bearing for
+> `create-intent` and NOT for a client exit: the pin is the route's own, and a predecessor's delayed
+> `payment_failed` webhook nulls `locked_at` cart-wide, so an era-only predicate strands that pin on
+> an unlocked cart — manufacturing M123 (a′). A client cannot show the pin is its own and must fail
+> closed; this caller holds the lock it pinned under and must not. `check-pay-attempt.mjs` rules 3
+> and 4 now hold both directions.
+>
+> **⚠️ M123 (b) IS STILL OPEN — it was attempted and reverted, and the reason is worth inheriting.**
+> Making `getCartView` quote the live promo agrees with what `create-intent` derives and DISAGREES
+> with the five counter rails (cash, secure-tab close, Terminal, split, the floor settle quote),
+> which all charge the pin. Quoting the pin lies about the phone; quoting live lies about the till.
+> There is no correct display basis until the pin's validity is decidable.
+>
+> **⚠️ THE REST OF THIS ARC IS ONE PROD MIGRATION AND IT IS NOT APPLIED.**
+> `docs/CART_INTENT_LINK.md` is the design — read it before touching **M151**, **M152 (a/b/c)**, or
+> **M123 (a′ and b)**, which are all the same missing fact: no cart→intent link exists between mint
+> and fulfilment, so no pin-clearer and no display can ask "does a live PaymentIntent depend on
+> this?". Settled there: a **service-role-only sidecar**, never a `qr_carts` column (that table is on
+> `supabase_realtime` and fans its full row to every anonymous tablemate — the `mms_tab_secure`
+> precedent, cited). Still open there: the stuck-link hazard, whose three candidate answers must be
+> **checked against Stripe's documented behaviour, not inferred** — the `db push` warning in
+> `CLAUDE.md` was wrong twice for exactly that reason. The apply is one file at a time via Supabase
+> MCP against the divergent history, and **needs the owner's explicit say-so.**
+>
+> **Next open, in order of value:** **C16** (owner-only — require the `codex-review` check in branch
+> protection; #241 is the measured proof) · the **cart→intent link** slice (M151 · M152 · M123 a′+b,
+> high, migration-gated on **M125**) · **M148 (b) + (d)** (low) · **M154** (low — the sibling uid-only
+> lock release in `manual-capture-run.ts`, left alone on purpose; the row says why) · then the
+> OPEN-ITEMS sweep.
+
 > ## ⏭️ NEXT SESSION — start here (2026-08-29 — the back-sweep arc #240–#242 is MERGED; the backlog is mostly CODE: 90 of 148 open rows are Money/security/hardening)
 >
 > `main` is at #242. The arc closed: the money-path promo-pin move + the `codex-review` gate + Rice
@@ -260,7 +300,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 236 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1127 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 239 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1132 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -982,7 +1022,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (236 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (239 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -299,12 +299,43 @@ const MUTANTS = [
     replace: '  if (data !== "ok") return { ok: true };\n  // No touchCart: mms_fire_line\'s write',
   },
   {
+    id: "lock/refusal-release-not-era-scoped",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M153 \u2014 create-intent's six refusal exits (a sold-out line, a filled pickup slot, a missing pickup contact) release the pay lock, and the predicate used to be `locked_by = uid` ALONE. `acquireCartLock` deliberately lets the SAME diner re-acquire with a fresh era, so a losing overlapping attempt's refusal released the WINNER's lock and dropped a cart back to editable underneath a mounted Payment Element \u2014 the peer-mutation-during-checkout hole the lock exists to close, opened by its own release",
+    find: '    .update({ locked: false, locked_at: null, locked_by: null })\n    .eq("id", cartId)\n    .eq("locked_by", uid)\n    .eq("locked_at", era);',
+    replace:
+      '    .update({ locked: false, locked_at: null, locked_by: null })\n    .eq("id", cartId)\n    .eq("locked_by", uid);',
+  },
+  {
+    id: "lock/refusal-release-clears-the-pin",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M123(a\u2032) \u2014 the ONE thing `releaseCartLockFor` must NOT copy from `releasePayAttempt`. These callers exit ABOVE `mms_pin_promo_grant`, so any pin on the row belongs to a PREDECESSOR, and a predecessor's captured-but-unfulfilled PaymentIntent still reconciles against it (M70: the pin has to outlive the lock). PR #244 shipped exactly this widening and reverted it \u2014 Codex P1 and the blind adversarial pass agreed independently that it traded a lesser defect for a worse one",
+    find: '  if (!era) return null;\n  const db = serviceClient();\n  const { error } = await db\n    .from("qr_carts")\n    .update({ locked: false, locked_at: null, locked_by: null })',
+    replace:
+      '  if (!era) return null;\n  const db = serviceClient();\n  const { error } = await db\n    .from("qr_carts")\n    .update({ promo_granted_cents: null, locked: false, locked_at: null, locked_by: null })',
+  },
+  {
+    id: "lock/refusal-release-no-era-releases-anyway",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M153 \u2014 the fail-closed arm, same rule as `releasePayAttempt`. A caller that cannot name its attempt cannot show the lock is its own, so it issues no statement at all and the TTL is the backstop. Removing the guard sends a null era into the filter, which is an argument about how nulls compare rather than a decision anyone made",
+    find: "  if (!era) return null;\n  const db = serviceClient();",
+    replace: "  const db = serviceClient();",
+  },
+  {
     id: "lock/attempt-token-dropped",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: "M124 \u2014 without the era term the predicate is `mms_release_promo_grant_for_holder`'s again: `locked_by = uid` alone, which cannot tell one diner's two tabs apart. `acquireCartLock` lets the SAME uid re-acquire with a fresh era, so an abandoned tab's late pagehide beacon satisfies it against the LIVE tab and clears its pin. Landing between capture and the fulfilment webhook, the re-derive drops the discount and strands a charged card with no order",
-    find: '    .eq("locked_by", uid)\n    .eq("locked_at", era);',
-    replace: '    .eq("locked_by", uid);',
+    // ⚠️ ANCHORED ON THE `count: "exact"` PAYLOAD, not on the two `.eq` terms alone. M153 gave
+    // `releaseCartLockFor` the identical trailing predicate, at which point the shorter pattern
+    // matched TWICE and this mutant went STALE — which is the gate doing its job: a `find` that
+    // matches two statements would mutate whichever the replace happened to reach, so the mutant
+    // would stop naming the rule it was written for.
+    find: '      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("locked_by", uid)\n    .eq("locked_at", era);',
+    replace: '      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("locked_by", uid);',
   },
   {
     id: "lock/grant-dropped-from-payload",

@@ -18,8 +18,12 @@ function chain(q: Q) {
       q.eq.push([col, val]);
       return api;
     },
-    then(res: (v: { error: null }) => unknown) {
-      return Promise.resolve({ error: null }).then(res);
+    // M153 — the plain (non-count) chain carries `updateError` too. It used to hardcode `{ error:
+    // null }`, so a test asserting "this helper surfaces its write error" could only ever assert
+    // null: a decorative assertion, satisfied by a helper that swallowed everything. Every existing
+    // test runs with `updateError = null`, so their expectations are unchanged.
+    then(res: (v: { error: { message: string } | null }) => unknown) {
+      return Promise.resolve({ error: updateError }).then(res);
     },
   };
   return api;
@@ -81,6 +85,8 @@ const {
   releasePromoGrantFor,
   acquireCartLock,
   releasePayAttempt,
+  releaseCartLockFor,
+  releaseCartLock,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -282,5 +288,71 @@ describe("releasePayAttempt — M124: one statement, and it names the ATTEMPT", 
     expect(error).toEqual({ message: "boom" });
     // A null count on an errored write must never read as a successful release.
     expect(released).toBe(false);
+  });
+});
+
+/**
+ * M153 — the LOCK release had the same uid-only hole the PIN release did, one statement later.
+ *
+ * `create-intent`'s refusal paths (a sold-out line, a filled pickup slot, a missing pickup contact)
+ * exit ABOVE the promo pin and used `releaseCartLock(cartId, uid)`. `acquireCartLock` deliberately
+ * lets the SAME diner re-acquire with a fresh era, so a losing overlapping attempt's refusal
+ * released the WINNER's lock and dropped a cart back to editable underneath a mounted Payment
+ * Element — the peer-mutation-during-checkout hole the lock exists to close, opened by its own
+ * release.
+ */
+describe("releaseCartLockFor — M153: the refusal paths name their attempt", () => {
+  it("scopes the release to this seat AND this era", async () => {
+    const err = await releaseCartLockFor("cart-1", "uid-1", "2026-09-01T10:00:00.000Z");
+    expect(err).toBeNull();
+    const q = queries[0]!;
+    expect(q.table).toBe("qr_carts");
+    expect(q.payload).toEqual({ locked: false, locked_at: null, locked_by: null });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["locked_by", "uid-1"]);
+    // MUTATION: drop this term → the predicate is the old uid-only one and a losing attempt
+    // unfreezes the winner's cart mid-checkout.
+    expect(q.eq).toContainEqual(["locked_at", "2026-09-01T10:00:00.000Z"]);
+  });
+
+  it("LEAVES THE PIN ALONE — these callers exit above it, so any pin is a PREDECESSOR's", async () => {
+    // The one thing that must NOT be copied from `releasePayAttempt`. PR #244 tried clearing the
+    // pin on exactly these exits and reverted it: a predecessor's captured-but-unfulfilled
+    // PaymentIntent still reconciles against that pin ("the pin has to outlive the lock", M70).
+    // MUTATION: add `promo_granted_cents: null` to the payload → this fails, and the reverted
+    // defect is back.
+    await releaseCartLockFor("cart-1", "uid-1", "2026-09-01T10:00:00.000Z");
+    expect(queries[0]!.payload).not.toHaveProperty("promo_granted_cents");
+  });
+
+  it("FAILS CLOSED with no era: issues NO statement at all", async () => {
+    // Same rule as `releasePayAttempt`. A caller that cannot name its attempt cannot show the lock
+    // is its own, and the TTL is the backstop.
+    // MUTATION: drop the `if (!era)` guard → a statement IS issued with a null era term, and this
+    // fails on `queries`. Not issuing it at all is the shape that needs no argument about how a
+    // null compares in a filter.
+    const err = await releaseCartLockFor("cart-1", "uid-1", null);
+    expect(err).toBeNull();
+    expect(queries).toHaveLength(0);
+  });
+
+  it("surfaces the write error instead of swallowing it", async () => {
+    // W10c's rule: best-effort at the call site is a DECISION, not an excuse to never know.
+    // MUTATION: `return null` instead of `return error` → create-intent's refusal paths would log
+    // nothing while every lock they meant to free stayed held for the full TTL.
+    updateError = { message: "boom" };
+    expect(await releaseCartLockFor("cart-1", "uid-1", "2026-09-01T10:00:00.000Z")).toEqual({
+      message: "boom",
+    });
+  });
+
+  it("the CART-WIDE release stays cart-wide — the webhook's decline path is untouched", async () => {
+    // `releaseCartLock(cartId, null)` is the decline arm: the charge failed, so free the cart for
+    // everyone. Era-scoping that would strand a table whose payer has gone.
+    await releaseCartLock("cart-1", null);
+    const q = queries[0]!;
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq.some(([col]) => col === "locked_by")).toBe(false);
+    expect(q.eq.some(([col]) => col === "locked_at")).toBe(false);
   });
 });

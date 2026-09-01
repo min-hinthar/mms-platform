@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
+
+`acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's
+two overlapping create-intents share a uid and differ only by era. Every lock release in the route
+matched `locked_by` alone — so a losing attempt's exit released the WINNER's lock and dropped a cart
+back to editable underneath a mounted Payment Element, which is the peer-mutation-during-checkout
+hole the lock exists to close, opened by its own release.
+
+All seven refusal exits now go through one `freeLock()` helper calling the new
+`releaseCartLockFor(cartId, uid, era)` — lock only, era-scoped, pin untouched, and it BINDS the
+returned error so a failed release is not invisible. `abandonAttempt` and the outer catch keep
+`mms_release_promo_grant` for the pin and add the era-scoped release for the lock.
+
+A first draft collapsed each pair into `releasePayAttempt` and argued the narrowing was safer. It was
+a regression, caught independently by Codex (P1) and the blind adversarial pass:
+`mms_release_promo_grant`'s `locked_at is null` disjunct is load-bearing for this caller in a way it
+is not for a client exit. The pin is ours, and a predecessor's delayed `payment_failed` webhook nulls
+`locked_at` cart-wide — so an era-only predicate matches zero rows and strands our own pin on an
+unlocked cart, manufacturing the very M123 (a′) state cash/Terminal/split charge. A client exit
+cannot show the pin is its own and must fail closed; this caller holds the lock it pinned under and
+must not. Two functions, one word, opposite correct answers.
+
+`scripts/check-pay-attempt.mjs` gained two absence rules banning `releasePayAttempt` and
+`releaseCartLock` in this route — added because the blind pass demonstrated that reverting all eight
+call sites left `lock.test.ts`, all the mutants and CI green. The wiring is where it dies silently.
+
+Also here: a failed stale-grant release now REFUSES the mint (503) instead of logging and continuing.
+`mms_pin_promo_grant` only writes where the pin is null, so a failed release leaves a predecessor's
+grant in place and the pin step silently no-ops — this attempt then charges a discount a different
+basket earned, and the reconcile agrees with it, so nothing downstream notices. Found by Codex (P2).
+The pin failing stays non-fatal; the release failing is a different fact.
+
+**M123 (b) was attempted and reverted.** Making `getCartView` quote the live promo agrees with what
+`create-intent` derives — and disagrees with the five COUNTER rails (cash, secure-tab close,
+Terminal, split, the floor settle quote), which all charge the pin. Quoting the pin lies about the
+phone; quoting live lies about the till, which is worse. There is no correct display basis until the
+pin's own validity is decidable, so (b) is refiled alongside (a′) as blocked on the cart→intent link.
+`docs/CART_INTENT_LINK.md` is that design — sidecar settled with citations, the stuck-link hazard
+explicitly still open and flagged as needing measurement against Stripe rather than inference.
+
 ### The checkout attempt gets a name — M124 narrowed (2026-09-01)
 
 `create-intent` had always computed the era `acquireCartLock` stamps and never returned it, which is
