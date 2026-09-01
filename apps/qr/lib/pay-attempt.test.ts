@@ -179,6 +179,18 @@ describe("classifyZeroRow — supersession must be READ, never inferred", () => 
     expect(classifyZeroRow(ours, { locked: true, locked_at: ours }, NOW, TTL)).toBe("not_held");
   });
 
+  it("THE ROUND-3 CASE: no era means no verdict, even against a live lock", () => {
+    // Deployment skew: a client bundle got a 200 with no `attempt`, so no write was issued at all.
+    // Without this guard every real `locked_at` compares unequal to null and the diner's OWN fresh
+    // lock reads as a successor — the terminal takeover screen on a cart nobody took over.
+    // MUTATION: drop `if (!ourEra) return "unknown"` → this returns "superseded".
+    expect(
+      classifyZeroRow(null, { locked: true, locked_at: "2026-09-01T09:59:00.000Z" }, NOW, TTL),
+    ).toBe("unknown");
+    // …and it stays unknown regardless of what the lock happens to say.
+    expect(classifyZeroRow(null, { locked: false, locked_at: null }, NOW, TTL)).toBe("unknown");
+  });
+
   it("an unreadable row is UNKNOWN — we do not guess on a money surface", () => {
     expect(classifyZeroRow(ours, null, NOW, TTL)).toBe("unknown");
     expect(classifyZeroRow(ours, { locked: true, locked_at: "nonsense" }, NOW, TTL)).toBe(

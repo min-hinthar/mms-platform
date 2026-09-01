@@ -136,6 +136,15 @@ export function classifyZeroRow(
   nowMs: number,
   ttlMs: number,
 ): "superseded" | "not_held" | "unknown" {
+  // ⚠️ NO ERA, NO VERDICT (Codex P2 on #244 round 3 — the residue of round 2's own fix). A caller
+  // that cannot name its attempt issued no write at all: `releasePayAttempt` short-circuits on a
+  // null era by design, and `readPayAttempt` produces one whenever deployment skew hands a client
+  // bundle a 200 from a build that predates the token. Falling through would compare every real
+  // `locked_at` against null, find them unequal, and report the diner's OWN fresh lock as a
+  // successor — the terminal "another tab took over" screen, on a cart nobody took over. The
+  // documented contract for a missing era is fail-closed with the TTL as backstop, and `unknown`
+  // is what that is: no claim, no block.
+  if (!ourEra) return "unknown";
   if (!lock) return "unknown";
   if (!lock.locked || !lock.locked_at) return "not_held";
   const at = new Date(lock.locked_at).getTime();

@@ -331,6 +331,14 @@ const MUTANTS = [
     replace: '  return { released: false, reason: "superseded" };',
   },
   {
+    id: "pay-attempt/null-era-reads-as-successor",
+    file: "apps/qr/lib/pay-attempt.ts",
+    suite: "lib/pay-attempt.test.ts",
+    why: 'M124, Codex round 3 on #244 \u2014 a caller that cannot name its attempt issued NO write (releasePayAttempt short-circuits on a null era), which happens whenever deployment skew hands a client bundle a 200 from a build predating the token. Without this guard the comparison runs anyway, every real `locked_at` differs from null, and the diner\'s OWN fresh lock is reported as a successor \u2014 the terminal "another tab took over" screen on a cart nobody took over, contradicting the fail-closed-with-TTL-backstop contract documented one function above',
+    find: '  if (!ourEra) return "unknown";',
+    replace: "",
+  },
+  {
     id: "pay-attempt/stale-lock-reads-as-successor",
     file: "apps/qr/lib/pay-attempt.ts",
     suite: "lib/pay-attempt.test.ts",
