@@ -245,6 +245,70 @@ if (offenders.length) {
   );
 }
 
+// ── 3. create-intent releases its OWN pin through the disjunct-carrying RPC ──────────────────────
+// Codex P1 on #245, mechanized because the regression it caught was a deliberate, argued edit — the
+// most dangerous kind to leave un-guarded.
+//
+// `releasePayAttempt` fails CLOSED on a nulled era, which is right for the CLIENT exits it was
+// written for: a `pagehide` beacon cannot show the pin is its own, and M70's invariant says the pin
+// must outlive the lock so a delayed capture can still reconcile. `create-intent` is the opposite
+// case — it HOLDS the lock it pinned under, so `mms_release_promo_grant`'s `locked_at is null`
+// disjunct is what lets it clean up its own pin after a predecessor's delayed `payment_failed`
+// webhook has nulled the era cart-wide (`releaseCartLock(cartId, null)`).
+//
+// Swap one for the other and the abandon matches zero rows: OUR pin survives on an unlocked cart
+// with no hold behind it, and `acquireSettlement` gates on the raw `locked` column — so cash,
+// Terminal and split read it through `getCartTotals`' authorized default and charge a discount this
+// basket never earned. That is OPEN-ITEMS M123 (a′), manufactured by the change meant to prevent it.
+//
+// PARSED as an absence rule, so a copy parked in `{false && …}` fails too: dead code is one revert
+// from live. A mention in a comment is fine — comments are not AST nodes.
+const attemptReleaseCalls = intentNodes
+  .filter((n) => ts.isCallExpression(n) && ts.isIdentifier(n.expression))
+  .filter((n) => n.expression.text === "releasePayAttempt")
+  .map((n) => intentSf.getLineAndCharacterOfPosition(n.getStart(intentSf)).line + 1);
+
+if (attemptReleaseCalls.length) {
+  fail(
+    `${INTENT} calls \`releasePayAttempt\` (line${attemptReleaseCalls.length > 1 ? "s" : ""} ` +
+      `${attemptReleaseCalls.join(", ")}).\n  ` +
+      "It is the CLIENT-exit primitive and fails closed on a nulled era, by design. This route holds\n  " +
+      "the lock it pinned under, so it must release its own pin through `mms_release_promo_grant`,\n  " +
+      "whose `locked_at is null` disjunct survives a predecessor's delayed payment_failed webhook\n  " +
+      "nulling the era cart-wide. With the era-only predicate the abandon matches zero rows and\n  " +
+      "leaves THIS attempt's pin on an unlocked cart — the M123 (a′) state cash/Terminal/split\n  " +
+      "charge. Use `releaseCartLockFor` for the lock and `mms_release_promo_grant` for the pin.",
+  );
+}
+
+// ── 4. THE LOCK: every release in this route names its attempt ───────────────────────────────────
+// The blind adversarial pass on #245 named this gap precisely, and it was right. Reverting all eight
+// release call sites to `releaseCartLock(cartId, uid)` left `lib/lock.test.ts` green (it tests the
+// helper in isolation), left all six new `verify:slice` mutants green (they mutate `lib/lock.ts`,
+// not the route), and left CI green — `verify:slice` does not run there, and this file carries
+// `verify:slice-exempt` besides. The entire behaviour M153 is named for had no executable guard.
+//
+// `releaseCartLock` matches `locked_by` ALONE, and `acquireCartLock` deliberately lets the SAME
+// diner re-acquire with a fresh era — so a LOSING overlapping attempt's refusal releases the
+// WINNER's lock and drops a cart back to editable underneath a mounted Payment Element.
+const cartLockCalls = intentNodes
+  .filter((n) => ts.isCallExpression(n) && ts.isIdentifier(n.expression))
+  .filter((n) => n.expression.text === "releaseCartLock")
+  .map((n) => intentSf.getLineAndCharacterOfPosition(n.getStart(intentSf)).line + 1);
+
+if (cartLockCalls.length) {
+  fail(
+    `${INTENT} calls \`releaseCartLock\` (line${cartLockCalls.length > 1 ? "s" : ""} ` +
+      `${cartLockCalls.join(", ")}).\n  ` +
+      "M153: that predicate is `locked_by = uid` ALONE, and `acquireCartLock` lets the same diner\n  " +
+      "re-acquire with a fresh era — so a LOSING overlapping attempt's exit releases the WINNER's\n  " +
+      "lock and the cart goes editable under a live Payment Element, which is the\n  " +
+      "peer-mutation-during-checkout hole the lock exists to close. Use `releaseCartLockFor`, which\n  " +
+      "names the attempt. (The webhook's cart-wide `releaseCartLock(cartId, null)` is a DIFFERENT\n  " +
+      "caller and stays as it is: a declined charge must free the cart for everyone.)",
+  );
+}
+
 process.stdout.write(
-  `${c.green("clean")}${c.dim(` — token bound to attemptEra · ${BANNED_RPC} unreachable across ${sourceFiles.length} files`)}\n`,
+  `${c.green("clean")}${c.dim(` — token bound to attemptEra · every release era-scoped, own pin via mms_release_promo_grant · ${BANNED_RPC} unreachable across ${sourceFiles.length} files`)}\n`,
 );

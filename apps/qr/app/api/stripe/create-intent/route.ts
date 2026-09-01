@@ -18,7 +18,7 @@ import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
-import { acquireCartLock, releaseCartLock, releasePromoGrantFor } from "@/lib/lock";
+import { acquireCartLock, releaseCartLockFor, releasePromoGrantFor } from "@/lib/lock";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
@@ -74,6 +74,20 @@ export async function POST(req: NextRequest) {
     const attemptEra = acq.era;
     acquired = { cartId, uid, era: attemptEra };
 
+    // M153 — ONE place the era-scoped lock release is spelled, so the refusal exits below cannot
+    // drift apart and none of them can quietly go back to a uid-only predicate.
+    //
+    // It BINDS the error, which the bare `await releaseCartLock(...)` calls it replaces never did
+    // (blind adversarial pass on #245, which correctly pointed out that `lock.test.ts` asserted a
+    // consequence no caller produced). W10c's rule is that best-effort at the call site is a
+    // DECISION, not an excuse never to know: a failed release leaves the table frozen for the full
+    // CART_LOCK_TTL_MS on a checkout we just refused, and that must not be invisible. Logged rather
+    // than thrown — the response already carries an error to the diner, and the TTL is the backstop.
+    const freeLock = async () => {
+      const err = await releaseCartLockFor(cartId, uid, attemptEra);
+      if (err) console.error("[create-intent] lock not released", { cartId, error: err.message });
+    };
+
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
     // the kitchen's open-hours + per-slot capacity limits by forging state.
@@ -93,7 +107,7 @@ export async function POST(req: NextRequest) {
       .single();
     if (sessErr || !sess) {
       if (sessErr) console.error("[create-intent] session mode read failed:", sessErr.message);
-      await releaseCartLock(cartId, uid);
+      await freeLock();
       return NextResponse.json(
         { error: "Couldn’t start checkout — please try again." },
         { status: 500 },
@@ -126,7 +140,7 @@ export async function POST(req: NextRequest) {
     // be served.
     const soldOutNames = await unavailableLineNames(cartId);
     if (soldOutNames.length > 0) {
-      await releaseCartLock(cartId, uid);
+      await freeLock();
       return NextResponse.json(
         {
           error:
@@ -149,7 +163,7 @@ export async function POST(req: NextRequest) {
       // capacity for a payment this response is about to refuse.
       const contactMissing = pickupContactMissing(firstName ?? "", phone ?? "");
       if (contactMissing) {
-        await releaseCartLock(cartId, uid);
+        await freeLock();
         return NextResponse.json(
           {
             error:
@@ -181,7 +195,7 @@ export async function POST(req: NextRequest) {
         const slotMs = cart.pickup_slot ? new Date(cart.pickup_slot).getTime() : NaN;
         const open = (slots ?? []).some((s) => new Date(s.slot_time).getTime() === slotMs);
         if (!open) {
-          await releaseCartLock(cartId, uid);
+          await freeLock();
           return NextResponse.json(
             { error: "That pickup time just filled — please pick another." },
             { status: 409 },
@@ -197,7 +211,7 @@ export async function POST(req: NextRequest) {
         });
         const row = asap?.[0];
         if (asapErr || !row?.ok) {
-          await releaseCartLock(cartId, uid);
+          await freeLock();
           const msg =
             row?.reason === "closed"
               ? "The kitchen’s closed right now — please order during open hours."
@@ -246,7 +260,7 @@ export async function POST(req: NextRequest) {
       if (contactErr || !contactRows?.length) {
         if (contactErr)
           console.error("[create-intent] pickup contact write failed:", contactErr.message);
-        await releaseCartLock(cartId, uid);
+        await freeLock();
         return NextResponse.json(
           { error: "Couldn’t save your pickup contact — please try again." },
           { status: 400 },
@@ -300,12 +314,33 @@ export async function POST(req: NextRequest) {
     // needs the overlap AND a promo change), and narrower than the sequential hole this closes,
     // which every decline used to open. The fix is a cart→intent link so a superseded intent can be
     // cancelled before its pin is replaced; there is no such column today.
+    // ⚠️ A FAILED RELEASE IS FATAL, and that is a different call from the failed PIN below (Codex P2
+    // on #245). The paragraph above says a pin failure is non-fatal because "the pin is an
+    // improvement on the settlement outcome, not an authority over the amount" — true of the PIN,
+    // false of the RELEASE. `mms_pin_promo_grant` only writes `where promo_granted_cents is null`,
+    // so a release that failed leaves the PREDECESSOR's grant in place and the pin step silently
+    // no-ops: this attempt then derives, mints and charges against a discount a different basket
+    // earned, and the fulfilment reconcile agrees with it, so nothing downstream ever notices.
+    //
+    // M123 (b) sharpened the reason to refuse rather than creating it. The review step now quotes
+    // the LIVE discount, so on this path the diner reads one number and the card is charged another
+    // — but even before that the charge itself was wrong, just wrong in a way the screen matched.
+    // `getCartTotals`' own rule applies (`totals.ts`: "never return a total we are not certain of");
+    // a recoverable outage is the one thing a retry actually fixes, so refuse and let them retry.
     const staleGrantErr = await releasePromoGrantFor(cartId, attemptEra ?? "");
-    if (staleGrantErr)
+    if (staleGrantErr) {
       console.error("[create-intent] stale promo grant not released", {
         cartId,
         error: staleGrantErr.message,
       });
+      // Nothing was pinned by THIS attempt yet, so the lock is all there is to give back — and it
+      // goes back era-scoped like every other refusal above.
+      await freeLock();
+      return NextResponse.json(
+        { error: "We’re having trouble on our end — try again in a moment." },
+        { status: 503 },
+      );
+    }
     const { error: pinErr } = await db.rpc("mms_pin_promo_grant", { p_cart_id: cartId });
     if (pinErr)
       console.error("[create-intent] promo grant not pinned", { cartId, error: pinErr.message });
@@ -322,8 +357,26 @@ export async function POST(req: NextRequest) {
       // REFRESHES `locked_at`, so two overlapping create-intent requests are two eras on one cart.
       // A cart-wide release from the loser's catch would wipe the grant the WINNER's PaymentIntent
       // was minted under, and its webhook would then re-derive a different amount against a charged
-      // payment. `attemptEra` is the value OUR acquisition wrote, so the RPC can tell whether the
-      // cart still belongs to us.
+      // payment. `attemptEra` is the value OUR acquisition wrote, so the statement can tell whether
+      // the cart still belongs to us.
+      //
+      // ⚠️ TWO STATEMENTS, AND THE PIN KEEPS ITS OWN PREDICATE — Codex P1 on #245, which caught this
+      // PR collapsing the pair into `releasePayAttempt` and calling the narrowing "safer". It is not.
+      // `mms_release_promo_grant` matches `locked_at is null OR locked_at is not distinct from
+      // p_attempt`, and that FIRST disjunct is load-bearing HERE in a way it is not for a client
+      // exit: this pin is OURS, installed a few statements up by `mms_pin_promo_grant`. A
+      // predecessor's DELAYED `payment_failed` webhook calls `releaseCartLock(cartId, null)` —
+      // cart-wide, nulling `locked_at` (webhook/route.ts §payment_failed) — and if that lands
+      // between our pin and this abandon, an era-only predicate matches ZERO rows and leaves OUR pin
+      // on an unlocked cart with no hold behind it. `acquireSettlement` gates on the raw `locked`
+      // column, so cash / Terminal / split then read that pin through `getCartTotals`' authorized
+      // default and charge a discount this basket never earned: OPEN-ITEMS M123 (a′), manufactured
+      // by the very change that was meant to be more conservative.
+      //
+      // The direction the two callers differ in is the whole point. A CLIENT exit cannot show the
+      // pin is its own, so `releasePayAttempt` fails closed on a nulled era (M70: the pin has to
+      // outlive the lock for a delayed capture to reconcile). This caller CAN: it holds the lock it
+      // pinned under. Same word, opposite correct answer — hence two functions, not one.
       const { error } = await db.rpc("mms_release_promo_grant", {
         p_cart_id: id,
         p_attempt: attemptEra,
@@ -336,7 +389,13 @@ export async function POST(req: NextRequest) {
           cartId: id,
           error: error.message,
         });
-      await releaseCartLock(id, u);
+      // M153 — the LOCK release is what this PR actually fixes: `releaseCartLock(id, u)` matched
+      // `locked_by` ALONE, and since `acquireCartLock` lets the same diner re-acquire with a fresh
+      // era, a losing overlapping attempt's abandon released the WINNER's lock and dropped a cart
+      // back to editable underneath a mounted Payment Element. Era-scoped, and grant-BEFORE-lock is
+      // the order that survives a half-apply: the grant RPC's own proof of ownership stops being
+      // true once the lock is dropped.
+      await releaseCartLockFor(id, u, attemptEra);
     };
 
     const totals = await getCartTotals(cartId, tipRate);
@@ -458,7 +517,23 @@ export async function POST(req: NextRequest) {
     // M70 — and it must not strand the promo GRANT either. This is the path that reaches here after
     // `mms_pin_promo_grant` succeeded and `getCartTotals` or `paymentIntents.create` then threw: a
     // pin with no PaymentIntent behind it. Released inline rather than via `abandonAttempt`, which
-    // is scoped to the try block; same two writes, same best-effort posture.
+    // is scoped to the try block; same posture, best-effort.
+    //
+    // M153 — only the LOCK release changes here: `releaseCartLock(cart, uid)` matched `locked_by`
+    // alone, so a losing overlapping attempt's throw released the WINNER's lock. The grant release
+    // keeps `mms_release_promo_grant` and its `locked_at is null` disjunct for the reason spelled
+    // out on `abandonAttempt` above (Codex P1 on #245) — collapsing the pair into an era-only
+    // predicate leaves OUR pin on an unlocked cart when a predecessor's delayed decline webhook has
+    // nulled the era, which is the exact M123 (a′) state cash / Terminal / split charge.
+    //
+    // ⚠️ ONE THING THIS STILL GETS WRONG, unchanged from `main` and filed rather than patched here.
+    // A throw from ABOVE the pin block (an availability read, a pickup RPC) also lands here, and by
+    // then any pin on the row belongs to a PREDECESSOR — so this clears a pin whose PaymentIntent
+    // may have captured with a merely-delayed webhook, under either arm of the disjunct. That is the
+    // third mouth of OPEN-ITEMS **M152**, and like the other two it needs the cart→intent link: the
+    // predicate has to be able to say `and live_payment_intent_id is null`, which no column supports
+    // today. Not narrowed by a `pinned` flag here, because a money rule written in `app/api/**` sits
+    // outside MONEY_PATHS and outside `verify:slice`'s mutant set — it could not be guarded at all.
     if (acquired) {
       const { cartId: abandonedCart, uid: abandonedUid, era: abandonedEra } = acquired;
       try {
@@ -474,7 +549,7 @@ export async function POST(req: NextRequest) {
       } catch {
         /* best-effort, exactly like the lock release below — never mask `e` */
       }
-      await releaseCartLock(abandonedCart, abandonedUid).catch(() => {});
+      await releaseCartLockFor(abandonedCart, abandonedUid, abandonedEra).catch(() => {});
     }
     if (e instanceof AuthzError)
       return NextResponse.json({ error: e.message }, { status: e.status });

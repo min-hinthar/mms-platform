@@ -357,6 +357,63 @@ export async function releasePayAttempt(
 }
 
 /**
+ * M153 — release the lock for the ONE attempt that still holds it (the refusal paths in
+ * `create-intent` that exit ABOVE the promo pin).
+ *
+ * ## Why the uid-only release was not enough
+ *
+ * `releaseCartLock(cartId, uid)` matches on `locked_by = uid` alone, and `acquireCartLock`
+ * deliberately lets the SAME diner re-acquire — refreshing `locked_at` — so one diner's two
+ * overlapping create-intents share a uid and differ only by era. The LOSING attempt's refusal
+ * (a sold-out line, a filled pickup slot, a missing pickup contact) then satisfies that predicate
+ * against the WINNER's lock and unfreezes a cart that is mid-checkout behind a mounted Payment
+ * Element. That is the peer-mutation-during-checkout hole the lock exists to close, opened by the
+ * lock's own release. Same shape as `releaseSettlementFor` vs `releaseSettlement`, and same fix.
+ *
+ * ## Why this releases the LOCK ONLY, and never the pin
+ *
+ * `releasePayAttempt` clears both because its callers abandon an attempt that pinned. These callers
+ * exit BEFORE `mms_pin_promo_grant` runs, so any pin on the row belongs to a PREDECESSOR — and a
+ * predecessor's pin may be the one a captured-but-unfulfilled PaymentIntent reconciles against:
+ *
+ *   > "The pin has to outlive the lock for the charge to reconcile at all." (M70)
+ *
+ * PR #244 tried clearing it here and REVERTED — Codex P1 and the blind adversarial pass agreed it
+ * traded a lesser defect for a worse one. The state this leaves behind (`locked = false` over a live
+ * pin, which cash/Terminal/split will charge) is real and is OPEN-ITEMS **M123 (a′)**; it needs the
+ * cart→intent link to fix safely, not a wider release here.
+ *
+ * ## Why era-scoping cannot strand a table
+ *
+ * A non-matching predicate means someone ELSE holds the lock: either a live successor, which frees
+ * it on its own exits, or nobody (`locked_at` already null). There is no state where this refuses
+ * and the lock has no owner to release it — so the "a transient failure strands the table for the
+ * full TTL" worry filed against M153 does not survive contact with `acquireCartLock`'s contract.
+ * Fails CLOSED on a null era for the `releasePayAttempt` reason: a caller that cannot name its
+ * attempt cannot show the lock is its own.
+ *
+ * ⚠️ Inherits the sub-millisecond collision `releasePayAttempt` documents: `locked_at` has
+ * millisecond resolution and is minted before the await, so two same-uid acquisitions inside one
+ * millisecond write the same era. A narrowing, not a closure; the real discriminator is the token
+ * column OPEN-ITEMS M151/M152 require.
+ */
+export async function releaseCartLockFor(
+  cartId: string,
+  uid: string,
+  era: string | null,
+): Promise<ReleaseError> {
+  if (!era) return null;
+  const db = serviceClient();
+  const { error } = await db
+    .from("qr_carts")
+    .update({ locked: false, locked_at: null, locked_by: null })
+    .eq("id", cartId)
+    .eq("locked_by", uid)
+    .eq("locked_at", era);
+  return error;
+}
+
+/**
  * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
  * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
  * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.
