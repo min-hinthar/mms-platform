@@ -184,6 +184,23 @@ the wrong boolean. The terms are now required as accesses on the local holding t
 found by what it is read from. That is the FOURTH time in this one file a matcher has had to be
 bound rather than spelled — the recurrence itself is now the headline of LEARNINGS #65.
 
+**And a late round-7 batch on the previous head, handled by the rule rather than by round count.**
+One of the three was a defect this PR introduced, so it was fixed: the lock-edge announcement is
+consumed while the review step's live region is UNMOUNTED. After create-intent succeeds,
+`setStep("pay")` and the `finally` clearing `payRequest` land in one render, so the now-unsuppressed
+self freeze flips the edge with the region already gone — the sentence went into hidden state and the
+ref moved past it. A later "Edit order" whose release comes back `rate_limited`, `error` or `unknown`
+then remounts a still-frozen review with the edge already spent: no announcement, and a
+screen-reader user is never told why every control is read-only, which is precisely the gap J4's
+residual exists to close. The effect (and the focus move beside it) now return before touching the
+ref while the pay step is mounted, preserving the edge for the remount.
+
+The other two were further hardening of the guard and are filed as **T11**: any value-bearing return
+counts as a refusal (so `return { ok: true }` in a locked branch stays green while telling callers a
+skipped operation succeeded), and a write inside the locked branch beats the ordering rule because
+`guardAt` is the `if`'s own start. Neither describes a defect in shipped behaviour — all eleven real
+refusals return a failure shape and none writes in-branch.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

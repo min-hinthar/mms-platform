@@ -571,6 +571,18 @@ export function Checkout({
   const announced = freezeMessage !== null;
   const prevAnnouncedLock = useRef<boolean | null>(null);
   useEffect(() => {
+    // ⚠️ DO NOT CONSUME THE EDGE WHILE THE REGION IS UNMOUNTED (Codex round 7 on #246). This status
+    // feeds the REVIEW step's single live region; the pay step renders its own inside
+    // `PaymentSection` and never shows this one. After create-intent succeeds, `setStep("pay")` and
+    // the `finally` clearing `payRequest` land in ONE render — so the now-unsuppressed self freeze
+    // flips `announced` true with the review region already gone, and the old code wrote the sentence
+    // into hidden state and moved the ref past the edge. A later "Edit order" whose release comes
+    // back `rate_limited`/`error`/`unknown` then remounts a STILL-FROZEN review with `announced`
+    // already true: no edge, no announcement, and a screen-reader user is never told why every
+    // control is read-only — which is the exact gap J4's residual exists to close.
+    //
+    // Returning BEFORE the ref is written preserves the edge for the remount.
+    if (onPay) return;
     const prev = prevAnnouncedLock.current;
     prevAnnouncedLock.current = announced;
     if (prev === null || prev === announced) return; // seed on first run; only edges announce
@@ -579,7 +591,7 @@ export function Checkout({
     // never clear on its own. A lock transition supersedes it.
     setPayError(null);
     setStatus(freezeMessage ?? "The order’s unlocked — you can edit again.");
-  }, [announced, freezeMessage]);
+  }, [announced, freezeMessage, onPay]);
   // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
   // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
   // edit the cart out from under a live intent.
@@ -617,10 +629,13 @@ export function Checkout({
   // bar that explains why the controls died, and a self-held freeze kills exactly as many controls.
   const prevLockedByPeer = useRef(announced);
   useEffect(() => {
+    // Same deferral as the announcement above, for the same reason: the heading this parks focus on
+    // belongs to the review step, so an edge consumed while the pay step is mounted is an edge lost.
+    if (onPay) return;
     if (announced && !prevLockedByPeer.current && document.activeElement === document.body)
       headingRef.current?.focus();
     prevLockedByPeer.current = announced;
-  }, [announced]);
+  }, [announced, onPay]);
 
   // W9b — release the pay-window lock when the diner ABANDONS the pay step. The lock makes the whole
   // table read-only, so a diner who wanders off holds every tablemate hostage for the full TTL.
