@@ -5,6 +5,38 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-02 — a truth pass found 7 of 16 open `high` rows already fixed; J4's residual shipped; the registry is now measured, not remembered)
+>
+> `main` is at #245. **#246** closes J4 and trues up the registry.
+>
+> **⚠️ THE REGISTRY WAS 44% STALE AT `high`, AND THAT IS THE HEADLINE.** Sixteen open `high` rows were
+> verified against source and **seven were already fixed and never marked** — F3 · F4 · G2 · G3 · G4 ·
+> J7 · J8. Two of them (J7, J8) carried comments in the SOURCE describing their own defects in the
+> past tense. Before picking any row off this file, verify it: three rows this week (M153, M123, M124)
+> had premises that were wrong or already closed, and the pattern is not rare.
+>
+> **The method that made it trustworthy, and it is worth repeating:** every CLOSED verdict was
+> adversarially re-checked by a second agent told to prove it wrong, because a false "closed" deletes
+> a real defect and nobody looks again. That inversion earned its keep immediately — **J4 was verified
+> CLOSED and the skeptic overturned it.** The peer case was genuinely done; the identical harm
+> survived for a self-held lock, on a route that needs no error at all.
+>
+> **J4's residual, now shipped:** every UI guard keyed off `lockedByPeer` while every server refusal
+> in `cart.ts` is bare `locked` across eleven mutations. `apps/qr/lib/cart-freeze.ts` is the one
+> binding that mirrors the server. Read its docblock before touching the lock UI — especially the two
+> deliberate limits: the pay CTA stays on `lockedByPeer` (Pay is the self-locked diner's escape hatch,
+> since the same uid may re-acquire), and the self notice must never borrow `superseded`'s vocabulary.
+>
+> **Still open and unchanged:** the cart→intent link (**M151** · **M152 a/b/c** · **M123 a′ and b**) is
+> one prod migration, designed in `docs/CART_INTENT_LINK.md`, **not applied, owner authorization
+> required**. **C16** (branch protection) is owner-only. **M124**'s sub-millisecond era collision is
+> live and needs no migration. New from the pass: **G17** · **G18** · **T7** · **T8**.
+>
+> **Next open, in order of value:** C16 (owner) · the cart→intent link slice (owner-gated) · **M124**
+> (med, no migration — the era collision) · **T7** (med — pin the rewards error→null rule before it
+> regresses) · **F5** / **G5** / **S2**, all PARTIAL with the live half measured in the pass · then the
+> med/low sweep, which has never had a truth pass.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-01 — #244/#245 finished the attempt-token work that needs no schema change; EVERYTHING else on that arc is one prod migration, designed and un-applied)
 >
 > `main` is at #244; **#245** adds M153. The through-line: `locked_at` is the checkout ATTEMPT's
@@ -300,7 +332,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 239 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1132 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 243 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1143 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1022,7 +1054,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (239 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (243 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

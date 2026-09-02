@@ -25,6 +25,7 @@
     "check:migration-versions": "node scripts/check-migration-versions.mjs",
     "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",
     "check:pay-attempt": "node scripts/check-pay-attempt.mjs",
+    "check:freeze-parity": "node scripts/check-freeze-parity.mjs",
     "check:types-sorted": "node scripts/check-generated-types-sorted.mjs"
   },
   "devDependencies": {

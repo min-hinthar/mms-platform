@@ -4,6 +4,54 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The cart freezes when the SERVER says it is frozen — J4's residual, and a backlog truth pass (2026-09-02)
+
+Two things, from one investigation.
+
+**A truth pass over every open `high` row.** Sixteen rows verified against source at `0affa57`, each
+CLOSED verdict then adversarially re-checked — deliberately asymmetric, because a wrong "closed"
+deletes a real defect from the registry and nobody looks again. **Seven of the sixteen were already
+fixed and never marked** (F3 · F4 · G2 · G3 · G4 · J7 · J8): W2c shipped all four route skeletons,
+W4a/W4b shipped grocery browse and bilingual search, W7b shipped the offline shell, and W9c fixed
+both the `/track` clear-table copy and the swallowed rewards error — the last two carrying comments
+that describe their own defects in the past tense. Each is now closed with the change that closed it
+and what remains true of the mechanism. Four residuals the pass surfaced are filed rather than
+folded in: **G17** (grocery basket lines still English-only), **G18** (an online scan failure still
+does not queue — a deliberate money-honesty call, filed so it is visible), **T7** (the rewards
+error→null rule is mechanically unpinned, so J8 could return silently) and **T8** (the fontSize lint
+ban has real exclusions and does not cover `packages/ui`, where the tokens live).
+
+**J4's residual, which the skeptic saved.** The first verdict was CLOSED and it was wrong. W9b did
+close the peer case, and the row's filed mechanism ("the review step never reads `view.locked`") is
+genuinely dead. But every UI guard keyed off `lockedByPeer` — locked AND a known seat AND a
+different holder — while every server refusal in `cart.ts` is bare `locked`, across eleven
+mutations, with no comparison to the caller. A lock held by the viewer's OWN seat therefore rendered
+the cart fully editable and refused every write: the diner taps, the value flips optimistically, the
+server throws, the catch swallows it, `refresh()` snaps it back with no explanation. That is J4's
+clause (b) verbatim, and one of its four routes needs nothing wrong at all — two `/cart` tabs on one
+device share a uid, so the second sees itself as the holder.
+
+`apps/qr/lib/cart-freeze.ts` is now the one binding that answers "may this viewer edit this cart?",
+and it answers the way the server does: four outcomes, every non-editable one blocks, only `peer`
+carries a name. Three deliberate limits:
+
+- **The pay CTA still gates on `lockedByPeer`.** `acquireCartLock` lets the same uid re-acquire, so
+  Pay is the self-locked diner's working escape hatch — disabling it would trade a silent
+  under-block for a dead end, which is the worse failure on a money surface.
+- **The self notice may not borrow `superseded`'s vocabulary.** Those three fields prove the cart is
+  held by this seat and nothing more; "another tab took over" is a different fact, established only
+  by `classifyZeroRow`, and reachable from an ordinary declined card with nobody having taken
+  anything over. Claiming it is the M116/M119 class. A test asserts the forbidden phrasings.
+- **`settling` is deliberately absent** — a settling cart is routed to a different surface entirely,
+  so folding it in would widen the blast radius to restate a rule routing already enforces.
+
+`scripts/check-freeze-parity.mjs` holds the cross-file claim no unit test can reach: it PARSES
+`cart.ts` and fails if any lock refusal is deleted, moved below its write, or **narrowed by a holder
+comparison** — that last being the edit that would silently make the client the stricter side and
+over-block a cart the server would accept. It found two flaws in itself while being written (a
+selector that checked 6 of 11 mutations, and a false positive on a diagnostic read), and its
+dead-exemption rule caught its own stale entry on the first run.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's
