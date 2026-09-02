@@ -4,11 +4,14 @@
  *
  * ## The asymmetry this exists to close
  *
- * Every server-side refusal in `cart.ts` is bare `locked`, with no comparison to the caller:
+ * All ELEVEN server-side refusals in `cart.ts` test bare `locked`, none comparing the holder to the
+ * caller. The shapes (the count is measured by `scripts/check-freeze-parity.mjs`, which names the
+ * whole set in EXPECTED_SUBJECTS — do not transcribe it from here):
  *
- *     if (locked) throw new Error("Order is locked while someone checks out");   // :52 :119 :160
- *     if (locked) return { ok: false, reason: "locked" };                        // :229 :286
- *     if (locked || settling) return { ok: false, reason: "locked" };            // :368
+ *     if (locked) throw new Error("Order is locked while someone checks out");
+ *     if (locked) return { ok: false, reason: "locked" };
+ *     if (locked || settling) return { ok: false, reason: "locked" };
+ *     if (authz.locked || authz.settling) return { ok: false };
  *
  * The client gate was strictly narrower — `lockedByPeer = locked && lockedBy && mySeat && lockedBy
  * !== mySeat` — so the set {locked, and the holder is ME} rendered FULLY EDITABLE while the server
@@ -113,16 +116,36 @@ export function freezeBlocksEdits(freeze: CartFreeze): boolean {
  * is this seat. They cannot prove which tab, whether a payment is in flight, or that anything was
  * taken over. So the copy says only that, and points at the way out.
  *
+ * `canRelease` says whether THIS viewer holds an attempt token it could release with. It changes
+ * only the `self` sentence, and only between "here is the way out" and "it frees itself shortly" —
+ * never into a claim about who else is involved.
+ *
  * Returns null for an editable cart — there is nothing to announce.
  */
-export function freezeNotice(freeze: CartFreeze, peerName: string | null): string | null {
+export function freezeNotice(
+  freeze: CartFreeze,
+  peerName: string | null,
+  canRelease: boolean,
+): string | null {
   switch (freeze) {
     case "peer":
       return `${peerName ?? "Someone"} is checking out — the order’s locked for a moment.`;
     case "self":
-      // Not "another tab took over" (unproven), not "you are checking out" (they may have walked
-      // back from a failed release). What IS proven: their own seat holds it, and it is releasable.
-      return "Your checkout still has this order held — reopen it to make changes.";
+      // ⚠️ TWO SENTENCES, BECAUSE THE WAY OUT IS NOT ALWAYS AVAILABLE (Codex P2 on #246).
+      //
+      // Releasing a lock requires naming the ATTEMPT that took it (`releasePayAttempt` fails closed
+      // without an era, by design — M124). A diner reaches a self-held freeze in two situations
+      // that differ exactly there: the tab that MINTED the attempt still holds the token and can
+      // release, while a SECOND tab on the same device never had one — same uid from the cookie
+      // session, so it sees the lock as its own and cannot name it.
+      //
+      // The second tab must not release anyway: the first may be mid-checkout behind a live Payment
+      // Element, and unfreezing the cart under it is the peer-mutation hole the lock exists to
+      // close. So the copy has to differ, or the button promises something that cannot happen —
+      // which is worse than no button, and was the shipped state of the first draft.
+      return canRelease
+        ? "Your checkout still has this order held — reopen it to make changes."
+        : "Another checkout on this device is holding this order. It frees up on its own shortly.";
     case "held":
       return "This order’s locked while a checkout finishes.";
     default:

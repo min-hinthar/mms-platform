@@ -72,30 +72,110 @@ const references = (node, name) => {
   return hit;
 };
 
-/** A statement that WRITES: a PostgREST mutation or an RPC. */
+/** A statement that WRITES: a PostgREST mutation, an RPC, or a helper that performs one.
+ *
+ * ⚠️ THE HELPERS ARE NOT OPTIONAL (Codex P2 on #246). `addItem` writes through `insertOrIncLine`,
+ * so a direct-call-only matcher gave it `writeAt === Infinity` and made the ordering rule VACUOUS
+ * for the highest-traffic mutation in the file: moving its lock refusal below the helper left this
+ * check green while the cart was mutated before the refusal.
+ *
+ * A name list is the weak shape this repo warns about, so it is BOUND: every helper below must be
+ * imported into `cart.ts`, and the check fails if one is not. A rename or a removed import breaks
+ * the build of this guard rather than silently shrinking its coverage. */
 const WRITE_CALLS = new Set(["update", "insert", "upsert", "delete", "rpc"]);
-const isWrite = (node) => {
-  let hit = false;
-  walk(node, (n) => {
-    if (
-      ts.isCallExpression(n) &&
-      ts.isPropertyAccessExpression(n.expression) &&
-      WRITE_CALLS.has(n.expression.name.text)
-    )
-      hit = true;
-  });
-  return hit;
-};
+const WRITE_HELPERS = new Set(["insertOrIncLine", "touchCart"]);
 
-/** A statement that REFUSES: throws, or returns something that is not a bare `undefined`. */
-const isRefusal = (stmt) => {
+/**
+ * Does the THEN branch of this `if` refuse — throw, or return a value?
+ *
+ * ⚠️ THE THEN BRANCH ONLY (blind adversarial pass on #246). Walking the whole `IfStatement` accepted
+ * the refusal sitting in the ELSE clause: `if (locked) { console.warn(…) } else { return { ok:false } }`
+ * passed, while the function wrote on a frozen cart and refused on an editable one — the same
+ * inversion `positivelyGuards` catches for the condition, arriving through the branch instead.
+ */
+const thenBranchRefuses = (ifStmt) => {
   let hit = false;
-  walk(stmt, (n) => {
+  walk(ifStmt.thenStatement, (n) => {
     if (ts.isThrowStatement(n)) hit = true;
     if (ts.isReturnStatement(n) && n.expression) hit = true;
   });
   return hit;
 };
+
+// The helper names are BOUND to the file: each must actually be imported into cart.ts. A rename or a
+// dropped import fails here instead of quietly narrowing what counts as a write.
+const imported = new Set();
+walk(sf, (n) => {
+  if (ts.isImportSpecifier(n)) imported.add(n.name.text);
+});
+const unboundHelpers = [...WRITE_HELPERS].filter((h) => !imported.has(h));
+if (unboundHelpers.length)
+  fail(
+    `these WRITE_HELPERS are not imported into ${CART}: ${unboundHelpers.join(", ")}.\n  ` +
+      "A helper name that matches nothing silently shrinks what this guard counts as a write, which\n  " +
+      "is how the ordering rule goes vacuous. Update the names to match the imports.",
+  );
+
+// ── the DERIVATION, one file upstream ────────────────────────────────────────────────────────────
+// Every `locked` the eleven mutations read comes from `assertCartMember`, which computes it in
+// `authz.ts`. Narrowing it THERE narrows all eleven at once and this guard, reading only `cart.ts`,
+// would never see it (blind adversarial pass on #246). So the derivation is checked too: the
+// expression assigned to the returned `locked` field must not reference a holder identity.
+const AUTHZ = "apps/qr/lib/authz.ts";
+const authzSf = ts.createSourceFile(
+  AUTHZ,
+  readFileSync(path.join(ROOT, AUTHZ), "utf8"),
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS,
+);
+
+const authzWalk = (n, fn) => {
+  fn(n);
+  ts.forEachChild(n, (c) => {
+    authzWalk(c, fn);
+  });
+};
+
+let lockedInit = null;
+let lockedFieldSeen = false;
+authzWalk(authzSf, (n) => {
+  if (ts.isPropertyAssignment(n) && n.name.getText(authzSf) === "locked") {
+    lockedFieldSeen = true;
+    // Expand a plain identifier to its local initializer, same move as the condition above.
+    if (ts.isIdentifier(n.initializer)) {
+      authzWalk(authzSf, (d) => {
+        if (
+          ts.isVariableDeclaration(d) &&
+          ts.isIdentifier(d.name) &&
+          d.name.text === n.initializer.text &&
+          d.initializer
+        )
+          lockedInit = d.initializer;
+      });
+    } else {
+      lockedInit = n.initializer;
+    }
+  }
+});
+
+if (!lockedFieldSeen)
+  fail(
+    `${AUTHZ} no longer returns a \`locked\` field, or returns it in a shape this cannot read.\n  ` +
+      "That field is the single source every cart mutation refuses on. A guard that cannot find it\n  " +
+      "is blind, not clean — teach it the new shape.",
+  );
+
+for (const holder of ["locked_by", "lockedBy", "uid"]) {
+  if (lockedInit && references(lockedInit, holder))
+    fail(
+      `${AUTHZ} derives \`locked\` using \`${holder}\`.\n  ` +
+        "That narrows the lock at its SOURCE, so all 11 cart mutations start excusing the holder at\n  " +
+        "once while every per-function guard below still looks correct — and\n  " +
+        "`apps/qr/lib/cart-freeze.ts` keeps blocking, making the CLIENT the stricter side. If this is\n  " +
+        "deliberate, `cartFreeze` and its parity test change in the SAME commit.",
+    );
+}
 
 process.stdout.write("freeze parity — the client mirrors the server's lock guard … ");
 
@@ -104,14 +184,14 @@ process.stdout.write("freeze parity — the client mirrors the server's lock gua
 // answerable for refusing on it.
 //
 // ⚠️ WHY NOT "calls assertCartMember AND writes", which the first draft used: it silently checked 6
-// of the 11 lock-bearing mutations. `addItem`, `setQty` and `assignLine` all carry the guard and all
-// write through helpers (`insertOrIncLine`, `touchCart`), so a direct-write selector skipped exactly
-// the three highest-traffic ones. A guard that inspects half its subjects prints the same word as
-// one that inspects all of them.
+// of the 11 lock-bearing mutations. (`setQty` and `assignLine` write DIRECTLY — an earlier draft of
+// this comment claimed otherwise and was wrong; they dropped out for a different reason. `addItem`
+// is the one that writes only through `insertOrIncLine`, which is why WRITE_HELPERS exists.) A guard
+// that inspects half its subjects prints the same word as one that inspects all of them.
 //
 // The cost of this definition is that deleting the `locked` binding drops a function OUT of the set
-// rather than failing it. That is what SUBJECT_FLOOR is for, and the floor is measured, not
-// remembered: `node scripts/check-freeze-parity.mjs` prints the live count.
+// rather than failing it — so EXPECTED_SUBJECTS below names the set and fails on any disappearance,
+// which a count could not do.
 // (`releasePayLock` needs no entry: it destructures only `uid`, never `locked`, so it is not a
 // subject in the first place. An exemption for it was written, never fired, and the dead-exemption
 // rule below caught it on the first run — which is the rule earning its keep immediately.)
@@ -187,16 +267,47 @@ if (deadExemptions.length)
       "fix the selector.",
   );
 
-// A FLOOR, because a rule that inspects zero functions prints the same word as a clean one.
-// MEASURED, never transcribed: the clean run prints the live count in its summary line.
-const SUBJECT_FLOOR = 9;
-if (subjects.length < SUBJECT_FLOOR)
+// THE EXPECTED SET, not a floor (Codex P2 on #246). A floor of 9 against a measured 11 let one or
+// two functions vanish from `subjects` silently — deleting both the `locked` binding and the guard
+// from `addItem` left ten subjects and this check still printed clean, which is precisely the
+// regression the floor was supposed to catch.
+//
+// MEASURED, never transcribed: produced by instrumenting this file to print
+// `subjects.map(f => f.name.text).sort()` and pasting the output. Adding a lock-bearing mutation is
+// meant to fail here once — add the name deliberately, so nobody adds one without noticing that it
+// now owes a refusal.
+const EXPECTED_SUBJECTS = [
+  "addItem",
+  "applyPromo",
+  "applyReward",
+  "assignLine",
+  "clearReward",
+  "makeItNow",
+  "sendToKitchen",
+  "setKioskTip",
+  "setLineFulfillment",
+  "setQty",
+  "undoFire",
+];
+
+const found = subjects.map((f) => f.name.text).sort();
+const missing = EXPECTED_SUBJECTS.filter((n) => !found.includes(n));
+const extra = found.filter((n) => !EXPECTED_SUBJECTS.includes(n));
+
+if (missing.length)
   fail(
-    `found only ${subjects.length} lock-bearing cart mutations in ${CART} (floor ${SUBJECT_FLOOR}).\n  ` +
-      "That is a BLIND result, not a clean one. Either a mutation stopped destructuring `locked`\n  " +
-      "from its authz call — which IS the defect, since it can no longer refuse — or the selector\n  " +
-      "stopped matching a shape it used to. Fix the code or teach the selector; do not lower the\n  " +
-      "floor to make it pass.",
+    `these lock-bearing mutations disappeared from the subject set: ${missing.join(", ")}.\n  ` +
+      "A function drops out when it stops destructuring `locked` from its authz call — which IS the\n  " +
+      "defect, because it can no longer refuse a frozen cart — or when the selector stopped matching\n  " +
+      "a shape it used to. Fix the code, or teach the selector; do not delete the name to go green.",
+  );
+
+if (extra.length)
+  fail(
+    `new lock-bearing mutations appeared: ${extra.join(", ")}.\n  ` +
+      "Each of these now receives the lock fact and therefore owes a refusal on it. They ARE being\n  " +
+      "checked by the rules below — this failure is a deliberate speed bump so a new cart mutation\n  " +
+      "cannot join silently. Add the name to EXPECTED_SUBJECTS once you have read its guard.",
   );
 
 /**
@@ -230,14 +341,70 @@ const firstPos = (fn, pred) => {
   return best;
 };
 
-/** The lock refusal: `if (<condition referencing `locked`>) throw|return <value>`. */
-const isLockRefusal = (n) =>
-  ts.isIfStatement(n) && references(n.expression, "locked") && isRefusal(n);
+/**
+ * Is every `locked` reference in this expression in a POSITIVE position?
+ *
+ * ⚠️ POLARITY WAS UNCHECKED (Codex P2 on #246, and it is the sharpest of the five). The matcher used
+ * to accept any `if` whose condition merely MENTIONED `locked` and whose body refused — so
+ * `if (!locked) throw` passed clean while inverting the invariant outright: the function would then
+ * refuse only EDITABLE carts and write happily on frozen ones. A guard that green-lights the exact
+ * negation of the rule it enforces is worse than no guard.
+ *
+ * Refuses ambiguity rather than guessing: a `locked` under any `!`, or compared with `===`/`!==`,
+ * is not a shape this can call positive, so it fails and asks for a human. Odd/even `!` nesting is
+ * deliberately NOT unwound — `!!locked` is not idiomatic here and treating it as positive would be
+ * cleverness in the wrong direction.
+ */
+const positivelyGuards = (expr) => {
+  let ok = false;
+  let ambiguous = false;
+  const visit = (n, negated) => {
+    if (
+      (ts.isIdentifier(n) && n.text === "locked") ||
+      (ts.isPropertyAccessExpression(n) && n.name.text === "locked")
+    ) {
+      if (negated) ambiguous = true;
+      else ok = true;
+      if (ts.isPropertyAccessExpression(n)) return; // don't descend into `x.locked`'s own name node
+    }
+    if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
+      visit(n.operand, !negated);
+      return;
+    }
+    if (ts.isBinaryExpression(n)) {
+      const k = n.operatorToken.kind;
+      const isEquality =
+        k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        k === ts.SyntaxKind.EqualsEqualsToken ||
+        k === ts.SyntaxKind.ExclamationEqualsToken;
+      if (isEquality && (references(n.left, "locked") || references(n.right, "locked")))
+        ambiguous = true;
+    }
+    ts.forEachChild(n, (c) => {
+      visit(c, negated);
+    });
+  };
+  visit(expr, false);
+  return ok && !ambiguous;
+};
 
+/** The lock refusal: `if (<condition testing `locked` POSITIVELY>) throw|return <value>`. */
+const isLockRefusal = (n) =>
+  ts.isIfStatement(n) && positivelyGuards(n.expression) && thenBranchRefuses(n);
+
+/**
+ * A write, for the ORDERING rule.
+ *
+ * ⚠️ MUST STAY IN STEP WITH `isWrite` ABOVE — the helper arm was added to `isWrite` and not here,
+ * and the ordering rule silently kept its old, direct-call-only reach. Caught only by insisting on
+ * watching the fix fail: the relocation test stayed green after the "fix" landed. Two predicates
+ * for one concept is how that happens, so both consult the same two sets.
+ */
 const isWriteCall = (n) =>
   ts.isCallExpression(n) &&
-  ts.isPropertyAccessExpression(n.expression) &&
-  WRITE_CALLS.has(n.expression.name.text);
+  ((ts.isPropertyAccessExpression(n.expression) && WRITE_CALLS.has(n.expression.name.text)) ||
+    (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
 
 const problems = [];
 for (const fn of subjects) {
@@ -276,8 +443,31 @@ for (const fn of subjects) {
   };
   findGuard(fn);
 
-  for (const holder of ["lockedBy", "locked_by", "mySeat"]) {
-    if (guardNode && references(guardNode.expression, holder))
+  // ⚠️ RESOLVE INTERMEDIATE VARIABLES FIRST (blind adversarial pass on #246). A bare
+  // identifier-text walk over the condition was evaded by one local:
+  //
+  //     const heldByOther = lockedBy !== uid;
+  //     if (locked && heldByOther) throw …          // no `lockedBy` in the condition → passed clean
+  //
+  // So every identifier in the condition that resolves to a local initializer is expanded once and
+  // the holder search runs over that too. `uid` joins the list — it is the identifier the real
+  // narrowing would compare against, and it was missing.
+  const condExpansion = [guardNode.expression];
+  walk(guardNode.expression, (n) => {
+    if (!ts.isIdentifier(n)) return;
+    walk(fn, (d) => {
+      if (
+        ts.isVariableDeclaration(d) &&
+        ts.isIdentifier(d.name) &&
+        d.name.text === n.text &&
+        d.initializer
+      )
+        condExpansion.push(d.initializer);
+    });
+  });
+
+  for (const holder of ["lockedBy", "locked_by", "mySeat", "uid"]) {
+    if (guardNode && condExpansion.some((e) => references(e, holder)))
       problems.push(
         `${name} (${CART}:${line(guardNode)}) narrows its lock refusal by \`${holder}\`.\n    ` +
           "That excuses the lock HOLDER server-side — but `apps/qr/lib/cart-freeze.ts` blocks edits\n    " +

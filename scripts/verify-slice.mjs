@@ -323,13 +323,21 @@ const MUTANTS = [
     replace: '  return freeze === "peer";',
   },
   {
+    id: "freeze/promises-a-reopen-it-cannot-do",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: 'Codex P2 on #246 \u2014 the escape hatch that was not one. `releasePayAttempt` fails closed without an era (M124, deliberate: the other tab may be behind a live Payment Element), and a SECOND tab on the same device never minted one \u2014 it shares the uid from the cookie session, so it sees the lock as its own and cannot name it. Ignoring `canRelease` restores a sentence that tells that diner to "reopen it" beside a button that can only call refresh(). A control that looks like the way out and is not is worse than no control, and it was the shipped state of this PR\'s first draft',
+    find: "      return canRelease",
+    replace:
+      '      return true\n        ? "Your checkout still has this order held \u2014 reopen it to make changes."\n        : false',
+  },
+  {
     id: "freeze/self-claims-a-takeover",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
     why: "M116/M119 on a new surface. `superseded` is established ONLY by a release that succeeded and matched nothing (`classifyZeroRow`), and it is reachable from an ordinary declined card \u2014 the webhook calls `releaseCartLock(cartId, null)` cart-wide while the Element stays mounted. These three fields prove the cart is held by this seat and nothing more, so borrowing that vocabulary tells the diner something false AND implies a state they cannot exit",
-    find: '      return "Your checkout still has this order held \u2014 reopen it to make changes.";',
-    replace:
-      '      return "Another tab took over this checkout \u2014 reopen the order to edit it.";',
+    find: '        ? "Your checkout still has this order held \u2014 reopen it to make changes."',
+    replace: '        ? "Another tab took over this checkout \u2014 reopen the order to edit it."',
   },
   {
     id: "lock/refusal-release-not-era-scoped",

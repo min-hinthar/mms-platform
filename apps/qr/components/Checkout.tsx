@@ -470,10 +470,24 @@ export function Checkout({
   //
   // W9b was right that a lock is only worth NAMING when it is someone else's: the diner on their own
   // pay step holds it, and "someone's checking out" would be a lie about themselves. What it also did
-  // was let them EDIT — and `cart.ts` refuses on bare `locked` at seven sites with no comparison to
+  // was let them EDIT — and `cart.ts` refuses on bare `locked` at eleven sites with no comparison to
   // the caller, so the set {locked, held by me} rendered every control live while every write threw
   // and the catch swallowed it. Naming and blocking are two decisions; `cartFreeze` separates them.
-  const freeze = cartFreeze({ locked, lockedBy, mySeat });
+  const rawFreeze = cartFreeze({ locked, lockedBy, mySeat });
+  // ⚠️ OUR OWN LOCK, BEING TAKEN RIGHT NOW, IS NOT A FREEZE TO WARN ABOUT (blind adversarial pass on
+  // #246 — a regression this PR introduced, not a pre-existing one).
+  //
+  // `continueToPayment` sets `loadingPay`, calls create-intent — which ACQUIRES the lock — then
+  // `await refresh()`, and only then `setStep("pay")`. The refresh (and the realtime `qr_carts` row
+  // UPDATE, which the same tab is subscribed to) therefore lands `locked = true, lockedBy = me`
+  // while `step` is STILL "review". Under the old `lockedByPeer` gate that window painted nothing;
+  // under a bare freeze it paints a `--warn` bar reading "your checkout has this order held", kills
+  // every control, and hides the add-more link — underneath a CTA that says "Starting checkout…".
+  //
+  // Suppressed for the SELF case only. A peer's lock in this window is a real refusal (create-intent
+  // answers 409 held_by_other), and `held` is unattributable, so both keep their bar.
+  const startingOwnPayment = loadingPay && rawFreeze === "self";
+  const freeze = startingOwnPayment ? null : rawFreeze;
   // Blocks edits for peer / self / held alike — exactly the server's `if (locked)`.
   const editsFrozen = freezeBlocksEdits(freeze);
   // The PEER alias is kept so the ~20 sites W9b already gated, and the two effects below, are
@@ -483,7 +497,12 @@ export function Checkout({
   const lockedByName = lockedByPeer
     ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
     : null;
-  const freezeMessage = freezeNotice(freeze, lockedByName);
+  // Can THIS viewer release the lock it is looking at? Only if it holds the attempt token that took
+  // it — a second tab on the same device shares the uid but never minted an era, and
+  // `releasePayAttempt` fails closed without one (M124), deliberately: the first tab may be behind a
+  // live Payment Element. So this gates both the sentence and the button.
+  const canRelease = !!payAttempt?.attempt;
+  const freezeMessage = freezeNotice(freeze, lockedByName, canRelease);
 
   // W9b — announce the lock edge. The lockbar is plain visual, and this view's ONE status region is
   // `status` (rendered below) — the provider's announcer that handles this on /menu is mounted on the
@@ -882,6 +901,7 @@ export function Checkout({
   async function editOrder() {
     // Release the pay-window lock we took at create-intent (P3.2-lock) so the table can edit again,
     // then re-sync. Best-effort — the TTL is the backstop if the release call fails.
+    let releasedLock = false;
     try {
       // M124 — echo the attempt this tab minted. A tab that has been superseded (the diner
       // re-checked-out elsewhere) names a stale era, matches no row, and releases NOTHING — which is
@@ -889,6 +909,7 @@ export function Checkout({
       // is then the honest answer, and saying so beats returning the diner to a review step that
       // will refuse every edit ("Order is locked while someone checks out").
       const res = await releasePayLock(cartId, payAttempt?.attempt ?? undefined);
+      releasedLock = res.released;
       // Only a SUPERSEDED tab is a terminal state, and only it earns that sentence. A rate-limit or
       // a transport error is our problem, not a fact about this diner's tab — saying otherwise
       // fabricates a diagnosis (M116/M119). Those two fall through to the normal transition, where
@@ -914,7 +935,16 @@ export function Checkout({
     }
     setStepDir("back"); // W13 — leaving the pay step slides back
     setStep("review");
-    setPayAttempt(null);
+    // ⚠️ THE ATTEMPT TOKEN SURVIVES A FAILED RELEASE (Codex P2 on #246). Clearing it unconditionally
+    // is what made the new Reopen control INERT: `releasePayAttempt` fails closed without an era, so
+    // on the three fall-through exits (`error`, `rate_limited`, `unknown` — the ones where the lock
+    // is still held) the diner landed on a frozen review step with a button that could only ever
+    // call `refresh()`. A control that looks like the way out and is not is worse than none.
+    //
+    // Cleared only when the release actually LANDED, which is the one case where the attempt is
+    // genuinely over. `payTotals` is cleared either way — those are pay-step numbers and must never
+    // survive back into review.
+    if (releasedLock) setPayAttempt(null);
     setPayTotals(null);
     await refresh();
   }
@@ -1242,11 +1272,19 @@ export function Checkout({
               >
                 <Icon name="lock" size={14} />
                 <span>{freezeMessage}</span>
-                {freeze === "self" && (
+                {freeze === "self" && canRelease && (
                   <button
                     type="button"
-                    onClick={() => void reopenOrder()}
-                    disabled={reopening}
+                    onClick={() => {
+                      // aria-disabled, not native `disabled` — the same rule this file states 180
+                      // lines below for the stepper: natively disabling the control the user just
+                      // activated drops focus to <body> mid-interaction (WCAG 2.4.3), and the
+                      // focus-restore effect above only fires on the freeze EDGE, which this is
+                      // not. The refusal lives here instead, where a keyboard Enter also lands.
+                      if (reopening) return;
+                      void reopenOrder();
+                    }}
+                    aria-disabled={reopening || undefined}
                     aria-busy={reopening}
                     style={{
                       marginInlineStart: "auto",
@@ -1258,6 +1296,7 @@ export function Checkout({
                       color: "inherit",
                       font: "inherit",
                       cursor: reopening ? "progress" : "pointer",
+                      opacity: reopening ? 0.7 : 1,
                     }}
                   >
                     {reopening ? "Reopening…" : "Reopen the order"}
@@ -1638,9 +1677,15 @@ export function Checkout({
                   // A placeholder can't carry two lang attributes — the one-line bilingual string
                   // is the W16b convention for plain-text slots (aria-label stays fixed EN).
                   placeholder={`${T("promoCode")} · ${t("my", "promoCode")}`}
+                  // ⚠️ THE NAME COMES FROM `freezeMessage`, NOT `lockedByName` (Codex P2 on #246).
+                  // `lockedByName` is populated for a PEER only, by design — so widening this
+                  // condition to `editsFrozen` made a screen reader announce the read-only promo
+                  // field as "Promo code — null is checking out" on every self/held freeze. The
+                  // notice already owns what each case may claim; the label reuses it rather than
+                  // re-deriving a sentence from a field that is null for two of the three states.
                   aria-label={
-                    editsFrozen
-                      ? `${T("promoCode")} — ${lockedByName} ${T("isCheckingOut")}`
+                    editsFrozen && freezeMessage
+                      ? `${T("promoCode")} — ${freezeMessage}`
                       : T("promoCode")
                   }
                   readOnly={editsFrozen}
