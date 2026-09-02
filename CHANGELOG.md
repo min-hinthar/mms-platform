@@ -4,6 +4,203 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The cart freezes when the SERVER says it is frozen — J4's residual, and a backlog truth pass (2026-09-02)
+
+Two things, from one investigation.
+
+**A truth pass over every open `high` row.** Sixteen rows verified against source at `0affa57`, each
+CLOSED verdict then adversarially re-checked — deliberately asymmetric, because a wrong "closed"
+deletes a real defect from the registry and nobody looks again. **Seven of the sixteen were already
+fixed and never marked** (F3 · F4 · G2 · G3 · G4 · J7 · J8): W2c shipped all four route skeletons,
+W4a/W4b shipped grocery browse and bilingual search, W7b shipped the offline shell, and W9c fixed
+both the `/track` clear-table copy and the swallowed rewards error — the last two carrying comments
+that describe their own defects in the past tense. Each is now closed with the change that closed it
+and what remains true of the mechanism. Four residuals the pass surfaced are filed rather than
+folded in: **G17** (grocery basket lines still English-only), **G18** (an online scan failure still
+does not queue — a deliberate money-honesty call, filed so it is visible), **T7** (the rewards
+error→null rule is mechanically unpinned, so J8 could return silently) and **T8** (the fontSize lint
+ban has real exclusions and does not cover `packages/ui`, where the tokens live).
+
+**J4's residual, which the skeptic saved.** The first verdict was CLOSED and it was wrong. W9b did
+close the peer case, and the row's filed mechanism ("the review step never reads `view.locked`") is
+genuinely dead. But every UI guard keyed off `lockedByPeer` — locked AND a known seat AND a
+different holder — while every server refusal in `cart.ts` is bare `locked`, across eleven
+mutations, with no comparison to the caller. A lock held by the viewer's OWN seat therefore rendered
+the cart fully editable and refused every write: the diner taps, the value flips optimistically, the
+server throws, the catch swallows it, `refresh()` snaps it back with no explanation. That is J4's
+clause (b) verbatim, and one of its four routes needs nothing wrong at all — two `/cart` tabs on one
+device share a uid, so the second sees itself as the holder.
+
+`apps/qr/lib/cart-freeze.ts` is now the one binding that answers "may this viewer edit this cart?",
+and it answers the way the server does: four outcomes, every non-editable one blocks, only `peer`
+carries a name. Three deliberate limits:
+
+- **The pay CTA still gates on `lockedByPeer`.** `acquireCartLock` lets the same uid re-acquire, so
+  Pay is the self-locked diner's working escape hatch — disabling it would trade a silent
+  under-block for a dead end, which is the worse failure on a money surface.
+- **The self notice may not borrow `superseded`'s vocabulary.** Those three fields prove the cart is
+  held by this seat and nothing more; "another tab took over" is a different fact, established only
+  by `classifyZeroRow`, and reachable from an ordinary declined card with nobody having taken
+  anything over. Claiming it is the M116/M119 class. A test asserts the forbidden phrasings.
+- **`settling` is deliberately absent** — a settling cart is routed to a different surface entirely,
+  so folding it in would widen the blast radius to restate a rule routing already enforces.
+
+`scripts/check-freeze-parity.mjs` holds the cross-file claim no unit test can reach: it PARSES
+`cart.ts` and fails if any lock refusal is deleted, moved below its write, or **narrowed by a holder
+comparison** — that last being the edit that would silently make the client the stricter side and
+over-block a cart the server would accept. It found two flaws in itself while being written (a
+selector that checked 6 of 11 mutations, and a false positive on a diagnostic read), and its
+dead-exemption rule caught its own stale entry on the first run.
+
+**What the two review rounds moved.** Round 1 closed the inert-Reopen case (a second tab holds no
+attempt token, so `releasePayAttempt` fails closed and the button could only ever call `refresh()`
+— the copy now splits on whether a release is even possible) and the false warning during our own
+create-intent. Round 2 found that fix's residue and two more:
+
+- **The suppression matched a lock it had not taken.** The in-flight flag goes true BEFORE
+  create-intent acquires anything, so `in flight AND self` also matched the pre-existing self lock —
+  the two-tabs case this slice exists for. Tab B's Pay CTA is deliberately live, so one press hid
+  the bar, re-enabled every edit control and announced "the order's unlocked" while the other tab
+  still held it. `visibleFreeze` now decides from the freeze as it stood WHEN THE REQUEST STARTED,
+  carried in the same state as the in-flight flag so the two cannot disagree about which request is
+  running.
+- **The tip is not a cart write, and was gated as if it were.** `selectPresetTip` sets local state
+  and the rate rides into create-intent as `tipRate`; no server mutation refuses it on `locked`. So
+  it follows the PAY gate, now named once as `freezeBlocksPayment` and read by the Pay CTA and the
+  tip chips alike. Gating it on the edit gate let a self-frozen diner pay — but only with whatever
+  tip they happened to have, which is the over-blocking direction the parity guard's own docblock
+  names as equally expensive.
+- **A superseded release proves the token is dead, so the button goes with it.** `classifyZeroRow`
+  answers `superseded` only for a lock that is fresh and stamped with a different era, so our
+  attempt matches no row and never will. Leaving it set kept Reopen on screen repeating a guaranteed
+  zero-row release — round 1's inert control, reintroduced one branch over.
+
+Two of the round's five were defects in the guard itself, both the LEARNINGS #60 shape: a
+then-branch matcher that walked into nested callbacks (`if (locked) { const report = () => { throw }
+}` refuses nothing and passed clean), and a subject selector that only visited `function`
+declarations, so a new cart mutation written as an arrow would have joined the file owing a lock
+refusal with this guard blind to it. Both were watched failing before and after — the pre-fix
+matcher printed **clean** on a `cart.ts` where `undoFire` refused nothing.
+
+**Round 3 — four more, three fixed and one filed.** Two were the guard again, both proven by
+falsification before the fix: its subject definition depended on the very binding it audits (a new
+mutation that authorizes and writes but never destructures `locked` dropped out of the set before
+both the expected-set and `extra` checks, leaving a required check green for exactly the
+missing-lock regression it exists to catch — the set is now the union of "binds the lock" and
+"authorizes and writes"), and "mentions `locked` positively" was too weak a condition test:
+`if (locked && shouldRefuse)`, `if (false && locked)` and `if (locked && lockedBy !== uid)` all
+printed clean. The property that matters is implication, so `locked` must now be reachable from the
+condition root through `||` alone — which the three shapes the server actually uses all are.
+
+The third was the recovery control's own silent no-op: `releasePayLock` answers five distinct facts
+and `reopenOrder` rendered one, so a rate-limited or failed release flipped the button to
+"Reopening…" and back with the bar still up and nothing said. `reopenFailureNotice` gives every
+outcome a sentence, and only `superseded` may claim a takeover — the other four are our outage or a
+lock that has already aged out, and say so.
+
+The fourth is filed as **T9** rather than folded in: `RewardField`, `PickupWhenChoice` and
+`SendToKitchenButton` take no freeze prop at all, so they still present live mutation affordances
+under any freeze. Verified pre-existing — `main` passes them no lock state either, so they were
+never gated for the peer case W9b closed. Three components' prop threading plus an a11y sweep each
+is not one small commit.
+
+**Round 4 — three, all fixed, and two of them the same missing control.** The parity guard accepted
+any `<anything>.locked` as the refusal, so a refactor that keeps the authz call but guards on some
+request or state object's `locked` field passed clean while the real lock stopped preventing the
+write. That is the bind-then-match lesson for the THIRD time in this one file (the subject
+selector's `refusedPromoReason` false positive was the first, the nested-callback walk the second),
+so the receiver is now required to be a local that came out of `assertCartMember`. Watched both
+ways: `opts.locked || authz.settling` printed clean before and fails after, and the real
+`authz.locked || authz.settling` still passes.
+
+The other two are one missing control. The tokenless self sentence promises the lock "frees up on
+its own shortly" and the SERVER keeps that promise — `acquireCartLock` treats a lock past the TTL as
+takeable — but the SCREEN cannot: `getCartView` returns no `locked_at`, the TTL writes nothing and
+fires no realtime event, and nothing polls, so an abandoned first tab left the second frozen past
+the TTL until a reload. Separately, `editOrder` clears the attempt token once a release LANDS and
+then refreshes, and `refresh()` swallows a transient read failure — leaving a self-frozen screen
+whose Reopen button has just gone away on a cart the server already unlocked. A "Check again"
+control on the lockbar answers both, rendered for every freeze that has no Reopen. It promises
+exactly what it does: ask the server again. No timer, no poll, no new claim.
+
+**Round 5 — four, and the first one is this module's own rule turned against its author.** Deriving
+`editsFrozen` from the SUPPRESSED freeze meant that during our own create-intent every cart control
+stayed live while the server already refused on bare `locked` — so a stalled request, or realtime
+delivering the lock while the review step is still mounted, put the optimistic-flip-and-snap-back
+screen right back. `cart-freeze.ts` opens by saying naming and blocking are two decisions and that
+W9b made both; this made the same mistake in the other direction. The GATES now read the raw freeze
+— the server's answer, unmodified — and only the NOTICE is suppressed. The announcement and focus
+move key on the notice too, because keying them on the gate would have announced "the order's
+unlocked" at the exact moment the server locked it.
+
+"Check again" was itself a silent no-op: `refresh()` swallows a failed read by design, so a
+transient failure flipped the button to "Checking…" and back with nothing said. `refresh` now returns
+whether the read landed — every existing caller ignores it — and the escape reports when it did not.
+
+The guard's then-branch matcher accepted a CONDITIONAL exit: `if (locked) { if (shouldRefuse) return
+failure; }` found the nested `return` and called the guard satisfied while a false `shouldRefuse`
+walked on to the write. It no longer descends at all — the branch's own statement list must contain
+the throw or return. And the authz-derivation check expanded aliases one hop, so a two-hop rename
+(`const heldByOther = …; const lockedFresh = lockedRaw && heldByOther`) hid a holder narrowing
+completely. Both that check and the per-function condition analysis now share one transitive
+`expandAliases`, so they cannot drift apart again.
+
+**Round 6 — the reachability gap this file had documented rather than closed.** `firstPos`'s
+docblock said outright that a guard parked inside `if (false)` would still be found, and called that
+deliberate scope. It was honest and it was wrong to leave: wrapping any of the eleven real guards in
+`if (false)` left all eleven reporting clean while the frozen cart reached the write. A documented
+limitation in a REQUIRED check is still a hole. The refusal must now sit where it certainly runs —
+at the top of the body, or at the top of a `try` block that is, and there as a `return`, because a
+`throw` inside a `try` with a `catch` is caught by the function's own handler rather than leaving it.
+
+The authz derivation check said what the expression may not contain and nothing about what it must,
+so `locked: false` passed clean — an unfreeze of all eleven mutations at once, arriving through
+absence instead of narrowing, with the client left as the only thing still blocking. Both halves of
+the documented derivation are now required: the column and the freshness term.
+
+And a Reopen that LANDS now retires its attempt token. Keeping it looked harmless because the
+trailing refresh normally clears the bar, but that refresh swallows a failed read — so a transient
+failure left `locked = true` with `canRelease` still true, which is exactly the state where the new
+"Check again" escape is not rendered, and every further press issued a release whose era could no
+longer match.
+
+Filed rather than fixed: **T10** — `useCartRealtime` is enabled only for `canTab || isGroup`, so
+pickup and scan-and-go carts never receive the lock UPDATE live and the second-tab freeze arrives
+one refused edit late. Pre-existing, and widening the subscription changes channel scope and the RLS
+path for two modes that have never had it.
+
+**Round 7 — two, and both fixed despite the line drawn a round earlier.** Round 6's triage said it
+was the last fix round; round 7 found a hazard this PR itself introduces, and a self-imposed process
+line is not a reason to ship one. On a self-frozen review with a retained token, Reopen and Pay are
+BOTH live by design — Pay is the escape hatch, Reopen is the release — so a create-intent started
+after a release can store its fresh attempt while the older release is still in flight, and an
+unconditional clear then wipes the NEW client secret and collapses the pay step that just mounted
+(`clientSecret` derives from `payAttempt`). Both clears now name the attempt they are retiring and
+compare it against the current state, not the closure's copy.
+
+The other is the derivation check, one round after it was added: it required the terms by identifier
+TEXT, so an unrelated local named `locked` satisfied it while every mutation derived its refusal from
+the wrong boolean. The terms are now required as accesses on the local holding the `qr_carts` row,
+found by what it is read from. That is the FOURTH time in this one file a matcher has had to be
+bound rather than spelled — the recurrence itself is now the headline of LEARNINGS #65.
+
+**And a late round-7 batch on the previous head, handled by the rule rather than by round count.**
+One of the three was a defect this PR introduced, so it was fixed: the lock-edge announcement is
+consumed while the review step's live region is UNMOUNTED. After create-intent succeeds,
+`setStep("pay")` and the `finally` clearing `payRequest` land in one render, so the now-unsuppressed
+self freeze flips the edge with the region already gone — the sentence went into hidden state and the
+ref moved past it. A later "Edit order" whose release comes back `rate_limited`, `error` or `unknown`
+then remounts a still-frozen review with the edge already spent: no announcement, and a
+screen-reader user is never told why every control is read-only, which is precisely the gap J4's
+residual exists to close. The effect (and the focus move beside it) now return before touching the
+ref while the pay step is mounted, preserving the edge for the remount.
+
+The other two were further hardening of the guard and are filed as **T11**: any value-bearing return
+counts as a refusal (so `return { ok: true }` in a locked branch stays green while telling callers a
+skipped operation succeeded), and a write inside the locked branch beats the ordering rule because
+`guardAt` is the `if`'s own start. Neither describes a defect in shipped behaviour — all eleven real
+refusals return a failure shape and none writes in-branch.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's
