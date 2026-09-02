@@ -974,6 +974,15 @@ Caught only by reading `git diff --stat` and seeing `CHANGELOG.md | 8268 +-----`
 
 ## #65 — A lesson taught to one matcher is not taught to the concept (#246, 2026-09-02)
 
+> **Seven Codex rounds on #246 turned this into the file's dominant failure mode: FOUR separate
+> matchers in `check-freeze-parity.mjs` each had to be re-bound after being written to match text.**
+> The subject selector matched `*.locked` (caught a diagnostic read); `forcesRefusal` matched any
+> `<anything>.locked`; the authz derivation matched the identifier TEXT `locked`; and each fix was
+> applied to one matcher while the next one shipped with the same hole. When you write ANY predicate
+> over a name, the question is not "does this string appear" but "is this the thing I mean" — bind
+> it to the value it must come from, and then go grep the same file for every other predicate that
+> is still spelling instead of binding.
+
 `scripts/check-freeze-parity.mjs` had `firstPos` skip nested function bodies, with a comment saying
 why: a callback's position says nothing about when it runs. Two rounds later Codex found
 `thenBranchRefuses` walking straight into those same nested bodies, so

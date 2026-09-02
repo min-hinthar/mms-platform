@@ -975,6 +975,16 @@ export function Checkout({
    * way — the client never decides it is unlocked on its own.
    */
   async function reopenOrder() {
+    // ⚠️ NAME THE ATTEMPT WE ARE RELEASING (Codex round 7 on #246). On a self-frozen review with a
+    // retained token, Reopen and Pay are BOTH live by design — Pay is the escape hatch, Reopen is
+    // the release. So a create-intent started after this release can store its fresh attempt while
+    // this one is still in flight, and an unconditional `setPayAttempt(null)` below would then wipe
+    // the NEW client secret and collapse the pay step that just mounted (`clientSecret` is derived
+    // from `payAttempt`). Both clears are now conditional on the token still being the one we
+    // released, compared against the CURRENT state rather than this closure's copy.
+    const releasingAttempt = payAttempt?.attempt ?? null;
+    const retireIfStillOurs = () =>
+      setPayAttempt((cur) => (cur && cur.attempt === releasingAttempt ? null : cur));
     setReopening(true);
     // W12 discipline — this view has ONE message region; clear it before the round trip so a stale
     // promo result cannot read as this attempt's answer.
@@ -1002,7 +1012,7 @@ export function Checkout({
         //
         // Safe on THIS path in a way it is not in `editOrder`: we are on the review step with no
         // Payment Element mounted, and `continueToPayment` mints a fresh attempt on the next press.
-        setPayAttempt(null);
+        retireIfStillOurs();
       }
       // ⚠️ A LANDED RELEASE RETIRES THE TOKEN TOO (Codex round 6 on #246). Keeping it after
       // `released: true` looked harmless because the trailing `refresh()` normally clears the whole
@@ -1012,7 +1022,7 @@ export function Checkout({
       // a release whose era can no longer match: `not_held`, forever, with no way out but a reload.
       // The attempt is over the moment the release lands; saying so is what hands the diner the
       // re-read control.
-      if (res.released) setPayAttempt(null);
+      if (res.released) retireIfStillOurs();
     } catch {
       // Non-fatal for the LOCK — the bar stays, the button stays tappable, the TTL is the backstop —
       // but not silent: a thrown release is our outage and reports as one, same as `error`.

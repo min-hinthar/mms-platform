@@ -169,6 +169,21 @@ pickup and scan-and-go carts never receive the lock UPDATE live and the second-t
 one refused edit late. Pre-existing, and widening the subscription changes channel scope and the RLS
 path for two modes that have never had it.
 
+**Round 7 — two, and both fixed despite the line drawn a round earlier.** Round 6's triage said it
+was the last fix round; round 7 found a hazard this PR itself introduces, and a self-imposed process
+line is not a reason to ship one. On a self-frozen review with a retained token, Reopen and Pay are
+BOTH live by design — Pay is the escape hatch, Reopen is the release — so a create-intent started
+after a release can store its fresh attempt while the older release is still in flight, and an
+unconditional clear then wipes the NEW client secret and collapses the pay step that just mounted
+(`clientSecret` derives from `payAttempt`). Both clears now name the attempt they are retiring and
+compare it against the current state, not the closure's copy.
+
+The other is the derivation check, one round after it was added: it required the terms by identifier
+TEXT, so an unrelated local named `locked` satisfied it while every mutation derived its refusal from
+the wrong boolean. The terms are now required as accesses on the local holding the `qr_carts` row,
+found by what it is read from. That is the FOURTH time in this one file a matcher has had to be
+bound rather than spelled — the recurrence itself is now the headline of LEARNINGS #65.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

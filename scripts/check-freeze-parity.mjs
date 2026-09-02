@@ -222,6 +222,50 @@ if (!lockedFieldSeen)
       "is blind, not clean — teach it the new shape.",
   );
 
+// The locals holding the `qr_carts` row. Bound by what they are READ FROM, so the terms below can be
+// required as accesses ON that row rather than as identifier text (Codex round 7 on #246 — the
+// FOURTH time in this file that a matcher had to be bound rather than spelled; see LEARNINGS #65).
+const cartVars = new Set();
+authzWalk(authzSf, (n) => {
+  if (
+    !ts.isVariableDeclaration(n) ||
+    !ts.isObjectBindingPattern(n.name) ||
+    !n.initializer ||
+    !/qr_carts/.test(n.initializer.getText(authzSf))
+  )
+    return;
+  for (const el of n.name.elements)
+    if (
+      ts.isIdentifier(el.name) &&
+      el.propertyName &&
+      ts.isIdentifier(el.propertyName) &&
+      el.propertyName.text === "data"
+    )
+      cartVars.add(el.name.text);
+});
+if (!cartVars.size)
+  fail(
+    `${AUTHZ} — could not find the local holding the \`qr_carts\` row.\n  ` +
+      "The derivation checks below are stated as accesses ON that row; without it they would fall\n  " +
+      "back to matching identifier TEXT, which is the evasion they exist to close. Teach the shape.",
+  );
+
+/** Does any expression here read `<the cart row>.<field>`? */
+const readsCartField = (field) =>
+  lockedInits.some((e) => {
+    let hit = false;
+    authzWalk(e, (n) => {
+      if (
+        ts.isPropertyAccessExpression(n) &&
+        n.name.text === field &&
+        ts.isIdentifier(n.expression) &&
+        cartVars.has(n.expression.text)
+      )
+        hit = true;
+    });
+    return hit;
+  });
+
 // ⚠️ AND IT MUST STILL DERIVE FROM THE DATABASE FLAG (Codex round 6 on #246). Rejecting holder
 // identifiers says what the derivation may NOT contain and nothing about what it must. `locked:
 // false` contains none of the forbidden names, passes clean, and unfreezes every one of the eleven
@@ -236,9 +280,9 @@ for (const [term, why] of [
   ["locked", "the `qr_carts.locked` column — the lock itself"],
   ["locked_at", "the freshness term, without which an abandoned tab freezes the cart forever"],
 ]) {
-  if (!lockedInits.some((e) => references(e, term)))
+  if (!readsCartField(term))
     fail(
-      `${AUTHZ} derives \`locked\` WITHOUT ${why}.\n  ` +
+      `${AUTHZ} derives \`locked\` WITHOUT reading ${why} off the cart row.\n  ` +
         "Every cart mutation refuses on this one value, so a derivation that no longer reads the\n  " +
         "database is not a narrowing — it is an unfreeze of all eleven at once, while\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps the CLIENT read-only. If the mechanism really changed,\n  " +
