@@ -104,6 +104,25 @@ under any freeze. Verified pre-existing — `main` passes them no lock state eit
 never gated for the peer case W9b closed. Three components' prop threading plus an a11y sweep each
 is not one small commit.
 
+**Round 4 — three, all fixed, and two of them the same missing control.** The parity guard accepted
+any `<anything>.locked` as the refusal, so a refactor that keeps the authz call but guards on some
+request or state object's `locked` field passed clean while the real lock stopped preventing the
+write. That is the bind-then-match lesson for the THIRD time in this one file (the subject
+selector's `refusedPromoReason` false positive was the first, the nested-callback walk the second),
+so the receiver is now required to be a local that came out of `assertCartMember`. Watched both
+ways: `opts.locked || authz.settling` printed clean before and fails after, and the real
+`authz.locked || authz.settling` still passes.
+
+The other two are one missing control. The tokenless self sentence promises the lock "frees up on
+its own shortly" and the SERVER keeps that promise — `acquireCartLock` treats a lock past the TTL as
+takeable — but the SCREEN cannot: `getCartView` returns no `locked_at`, the TTL writes nothing and
+fires no realtime event, and nothing polls, so an abandoned first tab left the second frozen past
+the TTL until a reload. Separately, `editOrder` clears the attempt token once a release LANDS and
+then refreshes, and `refresh()` swallows a transient read failure — leaving a self-frozen screen
+whose Reopen button has just gone away on a cart the server already unlocked. A "Check again"
+control on the lockbar answers both, rendered for every freeze that has no Reopen. It promises
+exactly what it does: ask the server again. No timer, no poll, no new claim.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

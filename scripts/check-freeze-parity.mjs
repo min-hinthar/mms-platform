@@ -281,18 +281,21 @@ for (const { fn: n, name: fnName } of namedFunctions) {
   // A loose `*.locked` matched `refusedPromoReason`, which reads `cart.locked` off a SELECT to
   // explain why a write was refused. That is a diagnostic read of a column, not an enforcement of
   // the lock, and demanding a refusal there is nonsense. Bind first, then match — LEARNINGS #60.
+  // The locals holding an authorization result. Computed for EVERY candidate, not just the ones that
+  // read `authz.locked` — `forcesRefusal` needs them too (Codex round 4 on #246), because a bare
+  // `<anything>.locked` in a guard is not evidence about the AUTHORIZATION lock.
+  const authzVars = new Set();
+  walk(n, (d) => {
+    if (
+      ts.isVariableDeclaration(d) &&
+      ts.isIdentifier(d.name) &&
+      d.initializer &&
+      (references(d.initializer, "assertCartMember") ||
+        references(d.initializer, "assertCartItemMember"))
+    )
+      authzVars.add(d.name.text);
+  });
   if (!bindsLocked) {
-    const authzVars = new Set();
-    walk(n, (d) => {
-      if (
-        ts.isVariableDeclaration(d) &&
-        ts.isIdentifier(d.name) &&
-        d.initializer &&
-        (references(d.initializer, "assertCartMember") ||
-          references(d.initializer, "assertCartItemMember"))
-      )
-        authzVars.add(d.name.text);
-    });
     walk(n, (d) => {
       if (
         ts.isPropertyAccessExpression(d) &&
@@ -333,7 +336,7 @@ for (const { fn: n, name: fnName } of namedFunctions) {
     exempted.push(fnName);
     continue;
   }
-  subjects.push({ fn: n, name: fnName });
+  subjects.push({ fn: n, name: fnName, authzVars });
 }
 
 // ⚠️ EVERY EXEMPTION MUST FIRE. A stale exemption is worse than none: it reads as a considered
@@ -440,16 +443,27 @@ const firstPos = (fn, pred) => {
  *
  * Ambiguity is refused rather than guessed: `!!locked` and `locked === true` are not idiomatic here,
  * and admitting them would be cleverness in the direction of accepting more.
+ *
+ * ⚠️ AND A PROPERTY ACCESS IS BOUND TO THE AUTHORIZATION RESULT (Codex round 4 on #246). A bare
+ * `<anything>.locked` is not evidence about the lock this file is about: a refactor that keeps the
+ * authz call but guards on some request/state object's `locked` field satisfies the shape while the
+ * real lock stops preventing the write. This is the THIRD time the bind-then-match lesson has had to
+ * be carried to another predicate in this same file — the subject selector's `refusedPromoReason`
+ * false positive was the first (LEARNINGS #60), the nested-callback walk the second (#65) — so the
+ * receiver must be a local that came out of `assertCartMember`/`assertCartItemMember`.
  */
-const forcesRefusal = (expr) => {
+const forcesRefusal = (expr, authzVars) => {
   const e = ts.isParenthesizedExpression(expr) ? expr.expression : expr;
+  if (ts.isIdentifier(e) && e.text === "locked") return true;
   if (
-    (ts.isIdentifier(e) && e.text === "locked") ||
-    (ts.isPropertyAccessExpression(e) && e.name.text === "locked")
+    ts.isPropertyAccessExpression(e) &&
+    e.name.text === "locked" &&
+    ts.isIdentifier(e.expression) &&
+    authzVars.has(e.expression.text)
   )
     return true;
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-    return forcesRefusal(e.left) || forcesRefusal(e.right);
+    return forcesRefusal(e.left, authzVars) || forcesRefusal(e.right, authzVars);
   return false;
 };
 
@@ -467,23 +481,23 @@ const mentionsLocked = (expr) => {
 };
 
 /** The lock refusal: `if (<condition `locked` alone makes true>) throw|return <value>`. */
-const isLockRefusal = (n) =>
-  ts.isIfStatement(n) && forcesRefusal(n.expression) && thenBranchRefuses(n);
+const isLockRefusal = (authzVars) => (n) =>
+  ts.isIfStatement(n) && forcesRefusal(n.expression, authzVars) && thenBranchRefuses(n);
 
 /** A refusal that MENTIONS the lock but does not turn on it — reported separately, by name. */
-const isNarrowedRefusal = (n) =>
+const isNarrowedRefusal = (authzVars) => (n) =>
   ts.isIfStatement(n) &&
-  !forcesRefusal(n.expression) &&
+  !forcesRefusal(n.expression, authzVars) &&
   mentionsLocked(n.expression) &&
   thenBranchRefuses(n);
 
 const problems = [];
-for (const { fn, name } of subjects) {
-  const guardAt = firstPos(fn, isLockRefusal);
+for (const { fn, name, authzVars } of subjects) {
+  const guardAt = firstPos(fn, isLockRefusal(authzVars));
   const writeAt = firstPos(fn, isWriteCall);
 
   if (guardAt === Infinity) {
-    const narrowedAt = firstPos(fn, isNarrowedRefusal);
+    const narrowedAt = firstPos(fn, isNarrowedRefusal(authzVars));
     problems.push(
       narrowedAt === Infinity
         ? `${name} (${CART}:${line(fn)}) has no lock refusal at all — no \`if (… locked …) throw/return\` anywhere in its body.`
@@ -513,7 +527,7 @@ for (const { fn, name } of subjects) {
       (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
     )
       return;
-    if (!guardNode && isLockRefusal(n) && n.getStart(sf) === guardAt) guardNode = n;
+    if (!guardNode && isLockRefusal(authzVars)(n) && n.getStart(sf) === guardAt) guardNode = n;
     ts.forEachChild(n, (c) => {
       findGuard(c);
     });

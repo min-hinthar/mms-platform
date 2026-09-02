@@ -895,6 +895,37 @@ export function Checkout({
   }
 
   const [reopening, setReopening] = useState(false);
+  const [recheckingLock, setRecheckingLock] = useState(false);
+
+  /**
+   * J4 (residual) — RE-READ the lock, for every freeze that has no Reopen.
+   *
+   * Two Codex round-4 findings land on the same missing control, and neither is about the release:
+   *
+   *   1. The tokenless self sentence promises the lock "frees up on its own shortly", and the SERVER
+   *      keeps that promise — `acquireCartLock` treats a lock past `CART_LOCK_TTL_MS` as takeable.
+   *      The SCREEN does not: `getCartView` returns `locked`/`lockedBy` but no `locked_at`, so the
+   *      client cannot compute the expiry, the TTL writes nothing and fires no realtime event, and
+   *      nothing here polls. An abandoned first tab therefore leaves the second frozen past the TTL
+   *      until the diner reloads. Copy may only promise what the code keeps.
+   *   2. `editOrder` clears the attempt token once a release LANDS and then refreshes — and
+   *      `refresh()` swallows a transient read failure, so the component can keep `locked = true`
+   *      with `canRelease` now false: a self-frozen screen whose Reopen button has just gone away
+   *      on a cart the server already unlocked.
+   *
+   * A re-read answers both without inventing a timer or a poll: the server's answer is the only one
+   * that counts, and asking for it again is the whole of what this promises.
+   */
+  async function recheckLock() {
+    setRecheckingLock(true);
+    setStatus(null);
+    setPayError(null);
+    try {
+      await refresh();
+    } finally {
+      setRecheckingLock(false);
+    }
+  }
 
   /**
    * J4 (residual) — release a lock this seat holds, from the review step.
@@ -1354,6 +1385,36 @@ export function Checkout({
                     }}
                   >
                     {reopening ? "Reopening…" : "Reopen the order"}
+                  </button>
+                )}
+                {/* The re-read escape, for every freeze WITHOUT a Reopen — a peer's lock, an
+                    unattributable one, and the tokenless self case (a second tab, or a landed
+                    release whose refresh failed). It promises exactly what it does: ask the server
+                    again. Never both buttons — Reopen already ends in `refresh()`. */}
+                {!(freeze === "self" && canRelease) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      // aria-disabled, not native — same WCAG 2.4.3 reason as the Reopen control.
+                      if (recheckingLock) return;
+                      void recheckLock();
+                    }}
+                    aria-disabled={recheckingLock || undefined}
+                    aria-busy={recheckingLock}
+                    style={{
+                      marginInlineStart: "auto",
+                      minHeight: 44,
+                      padding: "0 12px",
+                      borderRadius: 9,
+                      border: "1px solid currentColor",
+                      background: "transparent",
+                      color: "inherit",
+                      font: "inherit",
+                      cursor: recheckingLock ? "progress" : "pointer",
+                      opacity: recheckingLock ? 0.7 : 1,
+                    }}
+                  >
+                    {recheckingLock ? "Checking…" : "Check again"}
                   </button>
                 )}
               </div>
