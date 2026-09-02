@@ -145,6 +145,30 @@ the throw or return. And the authz-derivation check expanded aliases one hop, so
 completely. Both that check and the per-function condition analysis now share one transitive
 `expandAliases`, so they cannot drift apart again.
 
+**Round 6 — the reachability gap this file had documented rather than closed.** `firstPos`'s
+docblock said outright that a guard parked inside `if (false)` would still be found, and called that
+deliberate scope. It was honest and it was wrong to leave: wrapping any of the eleven real guards in
+`if (false)` left all eleven reporting clean while the frozen cart reached the write. A documented
+limitation in a REQUIRED check is still a hole. The refusal must now sit where it certainly runs —
+at the top of the body, or at the top of a `try` block that is, and there as a `return`, because a
+`throw` inside a `try` with a `catch` is caught by the function's own handler rather than leaving it.
+
+The authz derivation check said what the expression may not contain and nothing about what it must,
+so `locked: false` passed clean — an unfreeze of all eleven mutations at once, arriving through
+absence instead of narrowing, with the client left as the only thing still blocking. Both halves of
+the documented derivation are now required: the column and the freshness term.
+
+And a Reopen that LANDS now retires its attempt token. Keeping it looked harmless because the
+trailing refresh normally clears the bar, but that refresh swallows a failed read — so a transient
+failure left `locked = true` with `canRelease` still true, which is exactly the state where the new
+"Check again" escape is not rendered, and every further press issued a release whose era could no
+longer match.
+
+Filed rather than fixed: **T10** — `useCartRealtime` is enabled only for `canTab || isGroup`, so
+pickup and scan-and-go carts never receive the lock UPDATE live and the second-tab freeze arrives
+one refused edit late. Pre-existing, and widening the subscription changes channel scope and the RLS
+path for two modes that have never had it.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

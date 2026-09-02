@@ -1004,6 +1004,15 @@ export function Checkout({
         // Payment Element mounted, and `continueToPayment` mints a fresh attempt on the next press.
         setPayAttempt(null);
       }
+      // ⚠️ A LANDED RELEASE RETIRES THE TOKEN TOO (Codex round 6 on #246). Keeping it after
+      // `released: true` looked harmless because the trailing `refresh()` normally clears the whole
+      // bar — but `refresh()` swallows a failed read, so a transient failure leaves the stale
+      // `locked = true` view with `canRelease` still true. That satisfies `self && canRelease`
+      // exactly, so the "Check again" escape is NOT rendered, and every further Reopen press issues
+      // a release whose era can no longer match: `not_held`, forever, with no way out but a reload.
+      // The attempt is over the moment the release lands; saying so is what hands the diner the
+      // re-read control.
+      if (res.released) setPayAttempt(null);
     } catch {
       // Non-fatal for the LOCK — the bar stays, the button stays tappable, the TTL is the backstop —
       // but not silent: a thrown release is our outage and reports as one, same as `error`.
@@ -1012,8 +1021,10 @@ export function Checkout({
       setReopening(false);
     }
     // Always re-read. A release that reported success can still have been re-taken by a concurrent
-    // create-intent, and the server's answer is the only one that counts.
-    await refresh();
+    // create-intent, and the server's answer is the only one that counts — and if we never heard
+    // back, say so rather than leaving the unchanged screen to imply the lock is still real.
+    if (!(await refresh()))
+      setPayError((prev) => prev ?? "Couldn’t re-check the order — try again in a moment.");
   }
 
   async function editOrder() {

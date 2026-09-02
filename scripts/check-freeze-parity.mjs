@@ -222,6 +222,30 @@ if (!lockedFieldSeen)
       "is blind, not clean — teach it the new shape.",
   );
 
+// ⚠️ AND IT MUST STILL DERIVE FROM THE DATABASE FLAG (Codex round 6 on #246). Rejecting holder
+// identifiers says what the derivation may NOT contain and nothing about what it must. `locked:
+// false` contains none of the forbidden names, passes clean, and unfreezes every one of the eleven
+// mutations at once while `cart-freeze.ts` keeps the client read-only — the exact inversion this
+// file exists to catch, arriving through absence instead of narrowing. Falsified: replacing
+// `lockedFresh` with `false` printed clean.
+//
+// Both halves of the documented derivation are required — held AND fresh — so dropping the TTL term
+// (which would freeze a cart forever on an abandoned tab) fails here too. If the mechanism genuinely
+// changes, this fails once and the name is updated deliberately, like EXPECTED_SUBJECTS.
+for (const [term, why] of [
+  ["locked", "the `qr_carts.locked` column — the lock itself"],
+  ["locked_at", "the freshness term, without which an abandoned tab freezes the cart forever"],
+]) {
+  if (!lockedInits.some((e) => references(e, term)))
+    fail(
+      `${AUTHZ} derives \`locked\` WITHOUT ${why}.\n  ` +
+        "Every cart mutation refuses on this one value, so a derivation that no longer reads the\n  " +
+        "database is not a narrowing — it is an unfreeze of all eleven at once, while\n  " +
+        "`apps/qr/lib/cart-freeze.ts` keeps the CLIENT read-only. If the mechanism really changed,\n  " +
+        "update this check in the same commit, deliberately.",
+    );
+}
+
 for (const holder of ["locked_by", "lockedBy", "uid"]) {
   if (lockedInits.some((e) => references(e, holder)))
     fail(
@@ -515,16 +539,73 @@ const isNarrowedRefusal = (authzVars) => (n) =>
   mentionsLocked(n.expression) &&
   thenBranchRefuses(n);
 
+/**
+ * The statements that CERTAINLY execute on the way through this function's body.
+ *
+ * ⚠️ LEXICAL POSITION IS NOT REACHABILITY (Codex round 6 on #246). Until now this file said so in
+ * `firstPos`'s docblock and left it — "it asserts SHAPE and ORDER, it is not a reachability prover"
+ * — which was honest but wrong to leave, because the gap is one line wide:
+ *
+ *     if (false) { if (locked) return { ok: false, reason: "locked" }; }
+ *
+ * Wrapping any of the eleven real guards like that left all eleven reporting clean while the frozen
+ * cart reached the write. A documented limitation in a REQUIRED check is still a hole.
+ *
+ * Dominance is approximated, deliberately, by the two shapes the file actually uses: a statement at
+ * the top of the body, or a statement at the top of a `try` block that is itself at the top of the
+ * body (`setKioskTip` guards inside one). Nothing nested under another `if`, a loop or a callback
+ * counts, because none of those certainly runs.
+ *
+ * ⚠️ AND INSIDE A `try` WITH A `catch`, ONLY A `return` COUNTS. A `throw` there is caught by the
+ * function's own handler and turned into whatever the catch returns — which for `setKioskTip` is
+ * `{ ok: false }`, so it happens to be a refusal, and for the next function might not be. A return
+ * leaves the function whatever the catch does.
+ */
+const dominatingStatements = (fn) => {
+  if (!fn.body || !ts.isBlock(fn.body)) return [];
+  const out = [];
+  for (const st of fn.body.statements) {
+    out.push({ node: st, guarded: false });
+    if (ts.isTryStatement(st) && st.tryBlock)
+      for (const inner of st.tryBlock.statements)
+        out.push({ node: inner, guarded: !!st.catchClause });
+  }
+  return out;
+};
+
+/** The earliest DOMINATING statement matching `pred`, or Infinity. */
+const firstDominating = (fn, pred, throwCountsWhenCaught = true) => {
+  let best = Infinity;
+  for (const { node, guarded } of dominatingStatements(fn)) {
+    if (!pred(node)) continue;
+    // A refusal that only throws, sitting under a live catch, does not certainly leave the function.
+    if (guarded && !throwCountsWhenCaught && !branchReturns(node)) continue;
+    best = Math.min(best, node.getStart(sf));
+  }
+  return best;
+};
+
+/** Does this `if`'s then-branch leave the function by RETURNING (not merely throwing)? */
+const branchReturns = (ifStmt) => {
+  const t = ifStmt.thenStatement;
+  const stmts = ts.isBlock(t) ? t.statements : [t];
+  return stmts.some((st) => ts.isReturnStatement(st) && st.expression);
+};
+
 const problems = [];
 for (const { fn, name, authzVars } of subjects) {
-  const guardAt = firstPos(fn, isLockRefusal(authzVars));
+  const guardAt = firstDominating(fn, isLockRefusal(authzVars), false);
   const writeAt = firstPos(fn, isWriteCall);
 
   if (guardAt === Infinity) {
-    const narrowedAt = firstPos(fn, isNarrowedRefusal(authzVars));
+    const narrowedAt = firstDominating(fn, isNarrowedRefusal(authzVars));
     problems.push(
       narrowedAt === Infinity
-        ? `${name} (${CART}:${line(fn)}) has no lock refusal at all — no \`if (… locked …) throw/return\` anywhere in its body.`
+        ? `${name} (${CART}:${line(fn)}) has no lock refusal that certainly RUNS.\n    ` +
+            "Either there is no `if (… locked …) throw/return` at all, or the one there is sits\n    " +
+            "nested under another condition, a loop or a callback — none of which necessarily\n    " +
+            "executes, so a frozen cart reaches the write anyway. It belongs at the top of the body,\n    " +
+            "or at the top of a `try` block that is (and there, as a `return`: a `throw` is caught)."
         : `${name} (${CART}:${narrowedAt === Infinity ? line(fn) : sf.getLineAndCharacterOfPosition(narrowedAt).line + 1}) refuses on a condition \`locked\` alone does NOT make true.\n    ` +
             "A conjunct (`locked && x`), a negation, a comparison or a dead literal all leave a frozen\n    " +
             "cart writing while the line still reads like a guard. The server's shapes are `locked`,\n    " +
