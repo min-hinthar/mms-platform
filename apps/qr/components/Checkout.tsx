@@ -28,6 +28,7 @@ import {
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  reopenFailureNotice,
   visibleFreeze,
 } from "@/lib/cart-freeze";
 import type { SplitContext } from "@/lib/split";
@@ -911,14 +912,21 @@ export function Checkout({
    */
   async function reopenOrder() {
     setReopening(true);
+    // W12 discipline — this view has ONE message region; clear it before the round trip so a stale
+    // promo result cannot read as this attempt's answer.
+    setStatus(null);
+    setPayError(null);
     try {
       const res = await releasePayLock(cartId, payAttempt?.attempt ?? undefined);
+      // ⚠️ EVERY OUTCOME IS REPORTED (Codex round 3 on #246). Rendering only `superseded` left
+      // `rate_limited`, `not_held`, `error` and `unknown` saying nothing at all: the button flipped
+      // to "Reopening…" and back with the bar still up — a silent no-op on the recovery control, which
+      // is the exact defect this slice exists to retire, reappearing on its own fix. The sentences
+      // live in `cart-freeze.ts` so each arm's claim can be tested and mutated.
+      setPayError(reopenFailureNotice(res));
       // Only `superseded` is an established fact, and it is the one case where retrying is
       // pointless — another attempt owns this cart and will release it or let it expire.
       if (!res.released && res.reason === "superseded") {
-        setPayError(
-          "Another tab took over this checkout — that one is paying. This order unlocks when it finishes.",
-        );
         // ⚠️ AND THE TOKEN GOES WITH IT (Codex round 2 on #246). `classifyZeroRow` answers
         // `superseded` only for a lock that is still FRESH and stamped with a DIFFERENT era, so our
         // attempt provably matches no row and never will: the successor either releases (the cart
@@ -933,7 +941,9 @@ export function Checkout({
         setPayAttempt(null);
       }
     } catch {
-      // Non-fatal: the bar stays, the button stays tappable, the TTL is the backstop.
+      // Non-fatal for the LOCK — the bar stays, the button stays tappable, the TTL is the backstop —
+      // but not silent: a thrown release is our outage and reports as one, same as `error`.
+      setPayError(reopenFailureNotice({ released: false, reason: "error" }));
     } finally {
       setReopening(false);
     }

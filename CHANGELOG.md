@@ -82,6 +82,28 @@ declarations, so a new cart mutation written as an arrow would have joined the f
 refusal with this guard blind to it. Both were watched failing before and after — the pre-fix
 matcher printed **clean** on a `cart.ts` where `undoFire` refused nothing.
 
+**Round 3 — four more, three fixed and one filed.** Two were the guard again, both proven by
+falsification before the fix: its subject definition depended on the very binding it audits (a new
+mutation that authorizes and writes but never destructures `locked` dropped out of the set before
+both the expected-set and `extra` checks, leaving a required check green for exactly the
+missing-lock regression it exists to catch — the set is now the union of "binds the lock" and
+"authorizes and writes"), and "mentions `locked` positively" was too weak a condition test:
+`if (locked && shouldRefuse)`, `if (false && locked)` and `if (locked && lockedBy !== uid)` all
+printed clean. The property that matters is implication, so `locked` must now be reachable from the
+condition root through `||` alone — which the three shapes the server actually uses all are.
+
+The third was the recovery control's own silent no-op: `releasePayLock` answers five distinct facts
+and `reopenOrder` rendered one, so a rate-limited or failed release flipped the button to
+"Reopening…" and back with the bar still up and nothing said. `reopenFailureNotice` gives every
+outcome a sentence, and only `superseded` may claim a takeover — the other four are our outage or a
+lock that has already aged out, and say so.
+
+The fourth is filed as **T9** rather than folded in: `RewardField`, `PickupWhenChoice` and
+`SendToKitchenButton` take no freeze prop at all, so they still present live mutation affordances
+under any freeze. Verified pre-existing — `main` passes them no lock state either, so they were
+never gated for the peer case W9b closed. Three components' prop threading plus an a11y sweep each
+is not one small commit.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

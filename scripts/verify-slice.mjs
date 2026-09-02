@@ -356,6 +356,24 @@ const MUTANTS = [
     replace: '    payRequestInFlight && freeze === "self";',
   },
   {
+    id: "freeze/reopen-failure-goes-silent",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Codex round 3 on #246 \u2014 the recovery control's own silent no-op. `releasePayLock` answers five distinct facts and `reopenOrder` rendered only `superseded`, so a rate-limited or failed release flipped the button to \"Reopening\u2026\" and back with the lockbar still up and nothing said. That is J4's clause (b) \u2014 a control that accepts a tap and discards it \u2014 reappearing on the very control built to fix J4's clause (b). Returning null for a non-success outcome restores exactly that",
+    find: "  if (outcome.released) return null;\n  switch (outcome.reason) {",
+    replace:
+      '  if (outcome.released) return null;\n  if (outcome.reason !== "superseded") return null;\n  switch (outcome.reason) {',
+  },
+  {
+    id: "freeze/reopen-failure-claims-a-takeover",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "M116/M119 on the recovery sentence. `superseded` is the ONLY reason `classifyZeroRow` establishes a live successor for \u2014 it requires a lock that is still fresh AND stamped with a different era. A rate-limit or a transport failure is OUR outage and establishes nothing about anyone's tab, so borrowing the takeover sentence there tells the diner a live successor is paying when the truth is that our request did not go through",
+    find: '    case "rate_limited":\n      return "That was a lot of changes at once',
+    replace:
+      '    case "rate_limited":\n      return "Another tab took over this checkout. That was a lot of changes at once',
+  },
+  {
     id: "lock/refusal-release-not-era-scoped",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",

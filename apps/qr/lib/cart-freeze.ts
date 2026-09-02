@@ -208,3 +208,42 @@ export function freezeNotice(
       return null;
   }
 }
+
+/**
+ * The sentence for a Reopen attempt that did not unlock the order.
+ *
+ * ⚠️ A RECOVERY CONTROL THAT REPORTS NOTHING IS THE DEFECT THIS PR IS ABOUT (Codex round 3 on #246).
+ * `releasePayLock` answers five distinct facts and `reopenOrder` rendered only one of them, so a
+ * rate-limited or failed release changed the button to "Reopening…" and back with the bar still up
+ * and nothing said — a silent no-op on the one control offered as the way out, which is J4's clause
+ * (b) reappearing on the fix for J4's clause (b).
+ *
+ * Each arm says only what its reason establishes, and none of them borrows another's:
+ *
+ * - `superseded` — the one TERMINAL fact. `classifyZeroRow` reaches it only for a lock that is still
+ *   fresh and stamped with a DIFFERENT era, so another attempt genuinely holds this cart. The caller
+ *   also drops the attempt token here, because it provably matches no row and never will.
+ * - `not_held` — our attempt released nothing AND no fresh lock of ours exists (the row is unlocked,
+ *   or its lock has aged past the TTL, which `acquireCartLock` treats as takeable). Both halves of
+ *   the sentence are established; neither claims who else is involved.
+ * - `rate_limited` — the server said so, in those words.
+ * - `error` / `unknown` — OUR outage, not a fact about the diner's tab. It says so, and points at
+ *   the TTL, which is the backstop that actually exists.
+ *
+ * Returns null for a release that landed: the refreshed cart is the message.
+ */
+export function reopenFailureNotice(
+  outcome: { released: true } | { released: false; reason: string },
+): string | null {
+  if (outcome.released) return null;
+  switch (outcome.reason) {
+    case "superseded":
+      return "Another tab took over this checkout — that one is paying. This order unlocks when it finishes.";
+    case "not_held":
+      return "That checkout is already over. If the order still shows as locked, it clears on its own in a moment.";
+    case "rate_limited":
+      return "That was a lot of changes at once — give it a moment, then try again.";
+    default:
+      return "Couldn\u2019t reopen the order just now — try again in a moment. It also unlocks on its own shortly.";
+  }
+}

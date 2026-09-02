@@ -86,6 +86,19 @@ const WRITE_CALLS = new Set(["update", "insert", "upsert", "delete", "rpc"]);
 const WRITE_HELPERS = new Set(["insertOrIncLine", "touchCart"]);
 
 /**
+ * A write — the ONE predicate, used by subject discovery AND the ordering rule.
+ *
+ * ⚠️ IT IS ONE PREDICATE ON PURPOSE. An earlier round added the helper arm to a second, parallel
+ * matcher and not to this one, and the ordering rule silently kept its old direct-call-only reach —
+ * caught only by insisting on watching the fix fail (LEARNINGS #65). Two predicates for one concept
+ * is how that happens, so there is now exactly one.
+ */
+const isWriteCall = (n) =>
+  ts.isCallExpression(n) &&
+  ((ts.isPropertyAccessExpression(n.expression) && WRITE_CALLS.has(n.expression.name.text)) ||
+    (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
+
+/**
  * Does the THEN branch of this `if` refuse — throw, or return a value?
  *
  * ⚠️ THE THEN BRANCH ONLY (blind adversarial pass on #246). Walking the whole `IfStatement` accepted
@@ -290,7 +303,32 @@ for (const { fn: n, name: fnName } of namedFunctions) {
         bindsLocked = true;
     });
   }
-  if (!bindsLocked) continue;
+  // ⚠️ AND THE DEFINITION MUST NOT DEPEND ON THE BINDING IT AUDITS (Codex round 3 on #246). A new
+  // mutation that calls an authz helper and WRITES but never destructures `locked` had
+  // `bindsLocked === false`, dropped out of `subjects` before both the expected-set and `extra`
+  // checks, and — its name not yet being in EXPECTED_SUBJECTS — left this required check GREEN for
+  // exactly the missing-lock regression it exists to catch. Falsified: appending an authz+write
+  // `nudgeLine` with no `locked` anywhere printed clean.
+  //
+  // So the set is the UNION: binds the lock fact, OR authorizes and writes. The second arm alone
+  // was the first draft's definition and reached only 6 of 11, which is why the first is kept —
+  // together they are strictly wider than either, and a function in the second arm without a
+  // refusal fails rule 1 by name instead of vanishing.
+  const authorizesAndWrites = (() => {
+    let authorizes = false;
+    let writes = false;
+    walk(n, (d) => {
+      if (
+        ts.isCallExpression(d) &&
+        ts.isIdentifier(d.expression) &&
+        (d.expression.text === "assertCartMember" || d.expression.text === "assertCartItemMember")
+      )
+        authorizes = true;
+      if (isWriteCall(d)) writes = true;
+    });
+    return authorizes && writes;
+  })();
+  if (!bindsLocked && !authorizesAndWrites) continue;
   if (EXEMPT.has(fnName)) {
     exempted.push(fnName);
     continue;
@@ -385,69 +423,59 @@ const firstPos = (fn, pred) => {
 };
 
 /**
- * Is every `locked` reference in this expression in a POSITIVE position?
+ * Does `locked` being true make this whole condition true?
  *
- * ⚠️ POLARITY WAS UNCHECKED (Codex P2 on #246, and it is the sharpest of the five). The matcher used
- * to accept any `if` whose condition merely MENTIONED `locked` and whose body refused — so
- * `if (!locked) throw` passed clean while inverting the invariant outright: the function would then
- * refuse only EDITABLE carts and write happily on frozen ones. A guard that green-lights the exact
- * negation of the rule it enforces is worse than no guard.
+ * ⚠️ "MENTIONED POSITIVELY" WAS NOT ENOUGH (Codex round 3 on #246, and it is the sharpest finding of
+ * the round). The previous matcher accepted any condition containing one un-negated, un-compared
+ * `locked`, so all three of these passed clean while the function wrote on a frozen cart:
  *
- * Refuses ambiguity rather than guessing: a `locked` under any `!`, or compared with `===`/`!==`,
- * is not a shape this can call positive, so it fails and asks for a human. Odd/even `!` nesting is
- * deliberately NOT unwound — `!!locked` is not idiomatic here and treating it as positive would be
- * cleverness in the wrong direction.
+ *     if (locked && shouldRefuse) return failure;   // one false conjunct switches the guard off
+ *     if (false && locked) return failure;          // dead outright
+ *     if (locked && lockedBy !== uid) throw …;      // the narrowing this file exists to catch
+ *
+ * The property that actually matters is IMPLICATION: `locked === true` must entail the refusal. So
+ * `locked` has to be reachable from the condition root through `||` alone — the three shapes the
+ * server really uses (`locked`, `locked || settling`, `authz.locked || authz.settling`) all are, and
+ * every conjunction, negation, comparison and dead literal is not.
+ *
+ * Ambiguity is refused rather than guessed: `!!locked` and `locked === true` are not idiomatic here,
+ * and admitting them would be cleverness in the direction of accepting more.
  */
-const positivelyGuards = (expr) => {
-  let ok = false;
-  let ambiguous = false;
-  const visit = (n, negated) => {
+const forcesRefusal = (expr) => {
+  const e = ts.isParenthesizedExpression(expr) ? expr.expression : expr;
+  if (
+    (ts.isIdentifier(e) && e.text === "locked") ||
+    (ts.isPropertyAccessExpression(e) && e.name.text === "locked")
+  )
+    return true;
+  if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+    return forcesRefusal(e.left) || forcesRefusal(e.right);
+  return false;
+};
+
+/** Does this condition mention `locked` at all? Used only to tell "narrowed" from "absent". */
+const mentionsLocked = (expr) => {
+  let hit = false;
+  walk(expr, (n) => {
     if (
       (ts.isIdentifier(n) && n.text === "locked") ||
       (ts.isPropertyAccessExpression(n) && n.name.text === "locked")
-    ) {
-      if (negated) ambiguous = true;
-      else ok = true;
-      if (ts.isPropertyAccessExpression(n)) return; // don't descend into `x.locked`'s own name node
-    }
-    if (ts.isPrefixUnaryExpression(n) && n.operator === ts.SyntaxKind.ExclamationToken) {
-      visit(n.operand, !negated);
-      return;
-    }
-    if (ts.isBinaryExpression(n)) {
-      const k = n.operatorToken.kind;
-      const isEquality =
-        k === ts.SyntaxKind.EqualsEqualsEqualsToken ||
-        k === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
-        k === ts.SyntaxKind.EqualsEqualsToken ||
-        k === ts.SyntaxKind.ExclamationEqualsToken;
-      if (isEquality && (references(n.left, "locked") || references(n.right, "locked")))
-        ambiguous = true;
-    }
-    ts.forEachChild(n, (c) => {
-      visit(c, negated);
-    });
-  };
-  visit(expr, false);
-  return ok && !ambiguous;
+    )
+      hit = true;
+  });
+  return hit;
 };
 
-/** The lock refusal: `if (<condition testing `locked` POSITIVELY>) throw|return <value>`. */
+/** The lock refusal: `if (<condition `locked` alone makes true>) throw|return <value>`. */
 const isLockRefusal = (n) =>
-  ts.isIfStatement(n) && positivelyGuards(n.expression) && thenBranchRefuses(n);
+  ts.isIfStatement(n) && forcesRefusal(n.expression) && thenBranchRefuses(n);
 
-/**
- * A write, for the ORDERING rule.
- *
- * ⚠️ MUST STAY IN STEP WITH `isWrite` ABOVE — the helper arm was added to `isWrite` and not here,
- * and the ordering rule silently kept its old, direct-call-only reach. Caught only by insisting on
- * watching the fix fail: the relocation test stayed green after the "fix" landed. Two predicates
- * for one concept is how that happens, so both consult the same two sets.
- */
-const isWriteCall = (n) =>
-  ts.isCallExpression(n) &&
-  ((ts.isPropertyAccessExpression(n.expression) && WRITE_CALLS.has(n.expression.name.text)) ||
-    (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
+/** A refusal that MENTIONS the lock but does not turn on it — reported separately, by name. */
+const isNarrowedRefusal = (n) =>
+  ts.isIfStatement(n) &&
+  !forcesRefusal(n.expression) &&
+  mentionsLocked(n.expression) &&
+  thenBranchRefuses(n);
 
 const problems = [];
 for (const { fn, name } of subjects) {
@@ -455,8 +483,16 @@ for (const { fn, name } of subjects) {
   const writeAt = firstPos(fn, isWriteCall);
 
   if (guardAt === Infinity) {
+    const narrowedAt = firstPos(fn, isNarrowedRefusal);
     problems.push(
-      `${name} (${CART}:${line(fn)}) has no lock refusal at all — no \`if (… locked …) throw/return\` anywhere in its body.`,
+      narrowedAt === Infinity
+        ? `${name} (${CART}:${line(fn)}) has no lock refusal at all — no \`if (… locked …) throw/return\` anywhere in its body.`
+        : `${name} (${CART}:${narrowedAt === Infinity ? line(fn) : sf.getLineAndCharacterOfPosition(narrowedAt).line + 1}) refuses on a condition \`locked\` alone does NOT make true.\n    ` +
+            "A conjunct (`locked && x`), a negation, a comparison or a dead literal all leave a frozen\n    " +
+            "cart writing while the line still reads like a guard. The server's shapes are `locked`,\n    " +
+            "`locked || settling` and `authz.locked || authz.settling` — `locked` reachable through\n    " +
+            "`||` alone. If the narrowing is deliberate, `apps/qr/lib/cart-freeze.ts` and its parity\n    " +
+            "test change in the SAME commit, because the client would now be the stricter side.",
     );
     continue;
   }

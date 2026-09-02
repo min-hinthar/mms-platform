@@ -5,6 +5,7 @@ import {
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  reopenFailureNotice,
   visibleFreeze,
 } from "./cart-freeze";
 
@@ -223,5 +224,40 @@ describe("visibleFreeze — suppress only a lock THIS request took", () => {
         visibleFreeze({ freeze: f, payRequestInFlight: false, freezeAtRequestStart: null }),
       ).toBe(f);
     }
+  });
+});
+
+describe("reopenFailureNotice — every outcome of the recovery control is reported", () => {
+  it("a release that LANDED says nothing — the refreshed cart is the message", () => {
+    expect(reopenFailureNotice({ released: true })).toBeNull();
+  });
+
+  it("THE SILENT NO-OP: every non-success outcome gets a sentence", () => {
+    // Codex round 3 on #246. `reopenOrder` rendered only `superseded`, so a rate-limited or failed
+    // release flipped the button to "Reopening…" and back with the bar still up and nothing said —
+    // J4's clause (b) reappearing on the control built to fix J4's clause (b).
+    // MUTATION: return null for any of these → this fails.
+    for (const reason of ["superseded", "not_held", "rate_limited", "error", "unknown"]) {
+      expect(reopenFailureNotice({ released: false, reason })).toBeTruthy();
+    }
+  });
+
+  it("only `superseded` may claim a takeover — the other four must not", () => {
+    // The fabricated-diagnosis rule (M116/M119) applied to this surface: `superseded` is the only
+    // reason `classifyZeroRow` establishes a live successor for. A rate-limit or a transport error
+    // is OUR outage and says nothing about anyone's tab.
+    expect(reopenFailureNotice({ released: false, reason: "superseded" })!).toContain("took over");
+    for (const reason of ["not_held", "rate_limited", "error", "unknown"]) {
+      const notice = reopenFailureNotice({ released: false, reason })!.toLowerCase();
+      for (const forbidden of ["took over", "another tab", "someone else", "superseded"]) {
+        expect(notice).not.toContain(forbidden);
+      }
+    }
+  });
+
+  it("an unrecognised reason still says something rather than falling through to silence", () => {
+    // A new reason added to `PayLockRelease` must not silently re-open the no-op. The default arm
+    // is our-outage phrasing, which is the safe direction: it claims nothing about the diner's tab.
+    expect(reopenFailureNotice({ released: false, reason: "brand_new_reason" })).toBeTruthy();
   });
 });
