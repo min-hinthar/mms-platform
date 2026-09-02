@@ -22,7 +22,14 @@ import {
   type PromoReason,
 } from "@/lib/cart";
 import { attemptReleaseBody, readPayAttempt, type PayAttempt } from "@/lib/pay-attempt";
-import { cartFreeze, freezeBlocksEdits, freezeNotice } from "@/lib/cart-freeze";
+import {
+  type CartFreeze,
+  cartFreeze,
+  freezeBlocksEdits,
+  freezeBlocksPayment,
+  freezeNotice,
+  visibleFreeze,
+} from "@/lib/cart-freeze";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
 import {
@@ -391,7 +398,13 @@ export function Checkout({
   const [payAttempt, setPayAttempt] = useState<PayAttempt | null>(null);
   const clientSecret = payAttempt?.clientSecret ?? null;
   const [payTotals, setPayTotals] = useState<CartTotals | null>(null);
-  const [loadingPay, setLoadingPay] = useState(false);
+  // The in-flight create-intent request, and the ONE fact `visibleFreeze` needs about it: the freeze
+  // as it stood when the request started. Kept in a SINGLE state rather than a boolean plus a
+  // companion ref/state, so the two can never disagree about which request is running — the "name it
+  // once" rule applied to a pair that is only ever written together. `loadingPay` stays a derived
+  // boolean, so every CTA site below is untouched.
+  const [payRequest, setPayRequest] = useState<{ freezeAtStart: CartFreeze } | null>(null);
+  const loadingPay = payRequest !== null;
 
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
@@ -486,17 +499,33 @@ export function Checkout({
   //
   // Suppressed for the SELF case only. A peer's lock in this window is a real refusal (create-intent
   // answers 409 held_by_other), and `held` is unattributable, so both keep their bar.
-  const startingOwnPayment = loadingPay && rawFreeze === "self";
-  const freeze = startingOwnPayment ? null : rawFreeze;
+  //
+  // ⚠️ AND ONLY FOR A LOCK THIS REQUEST TOOK (Codex round 2 on #246 — the residue of the fix above).
+  // `loadingPay && self` also matched a self lock that was ALREADY there, which is the two-tabs case
+  // this whole slice exists for: tab B's Pay CTA is deliberately live, so one press hid the bar,
+  // re-enabled every control and announced "the order's unlocked" while the other tab still held it.
+  // `payRequest.freezeAtStart` is the freeze as it stood when the request began — only a cart that
+  // was editable then can have been frozen by US since. The rule itself lives in `cart-freeze.ts`
+  // where it can be tested and mutated; this file only supplies the two facts.
+  const freeze = visibleFreeze({
+    freeze: rawFreeze,
+    payRequestInFlight: loadingPay,
+    freezeAtRequestStart: payRequest?.freezeAtStart ?? null,
+  });
   // Blocks edits for peer / self / held alike — exactly the server's `if (locked)`.
   const editsFrozen = freezeBlocksEdits(freeze);
-  // The PEER alias is kept so the ~20 sites W9b already gated, and the two effects below, are
-  // untouched by this change: peer is a strict subset of frozen, so nothing that was blocked becomes
-  // editable. Only the self/held gap closes.
-  const lockedByPeer = freeze === "peer";
-  const lockedByName = lockedByPeer
-    ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
-    : null;
+  // Stops the PAYMENT — a strictly narrower thing than stopping the edits, and the one binding both
+  // the Pay CTA and the tip chips read. `acquireCartLock` lets the SAME uid re-acquire, so only a
+  // peer's fresh lock is a real refusal (409 held_by_other); a self or unattributable lock leaves
+  // Pay as the diner's way out, and the tip that rides into create-intent with it must stay live
+  // (Codex round 2 on #246 — gating the chips on `editsFrozen` let them pay, but only with the tip
+  // they happened to have). Peer is a strict subset of frozen, so every site W9b already gated
+  // keeps its exact behaviour; only the self/held EDIT gap closes.
+  const payFrozen = freezeBlocksPayment(freeze);
+  const lockedByName =
+    freeze === "peer"
+      ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
+      : null;
   // Can THIS viewer release the lock it is looking at? Only if it holds the attempt token that took
   // it — a second tab on the same device shares the uid but never minted an era, and
   // `releasePayAttempt` fails closed without one (M124), deliberately: the first tab may be behind a
@@ -774,7 +803,10 @@ export function Checkout({
         return;
       }
     }
-    setLoadingPay(true);
+    // Opening the request records the freeze as it stands RIGHT NOW. `visibleFreeze` hides only a
+    // self lock that appeared DURING this request; a self lock already standing here is another
+    // tab's, and hiding it would unfreeze a screen the server still refuses.
+    setPayRequest({ freezeAtStart: rawFreeze });
     try {
       // W21 (Codex P1 on #191) — drain any in-flight pickup timing write BEFORE minting the
       // intent: create-intent locks the cart and reads fire_at, so a write still in the chain
@@ -847,7 +879,7 @@ export function Checkout({
     } catch {
       setPayError("Couldn’t start checkout — please try again.");
     } finally {
-      setLoadingPay(false);
+      setPayRequest(null);
     }
   }
 
@@ -887,6 +919,18 @@ export function Checkout({
         setPayError(
           "Another tab took over this checkout — that one is paying. This order unlocks when it finishes.",
         );
+        // ⚠️ AND THE TOKEN GOES WITH IT (Codex round 2 on #246). `classifyZeroRow` answers
+        // `superseded` only for a lock that is still FRESH and stamped with a DIFFERENT era, so our
+        // attempt provably matches no row and never will: the successor either releases (the cart
+        // unlocks, nothing of ours to release) or expires. Leaving it set kept `canRelease` true, so
+        // the Reopen button stayed on a screen where every press was a guaranteed zero-row release
+        // repeating the same sentence — the inert control this PR's round-1 fix existed to retire,
+        // reintroduced one branch over. Clearing it swaps the copy to the honest tokenless line
+        // ("it frees up on its own shortly") and drops the button.
+        //
+        // Safe on THIS path in a way it is not in `editOrder`: we are on the review step with no
+        // Payment Element mounted, and `continueToPayment` mints a fresh attempt on the next press.
+        setPayAttempt(null);
       }
     } catch {
       // Non-fatal: the bar stays, the button stays tappable, the TTL is the backstop.
@@ -1918,9 +1962,9 @@ export function Checkout({
                         key={rate}
                         type="button"
                         aria-pressed={on}
-                        aria-disabled={editsFrozen || undefined}
+                        aria-disabled={payFrozen || undefined}
                         onClick={() => {
-                          if (editsFrozen) return;
+                          if (payFrozen) return;
                           selectPresetTip(rate);
                         }}
                         // W19 — the ladder WARMS as it climbs (checkout-tip-heat reads --tip-heat):
@@ -1939,7 +1983,7 @@ export function Checkout({
                           ...(isNone
                             ? { color: on ? "var(--t2)" : "var(--t3)", fontWeight: on ? 700 : 600 }
                             : null),
-                          ...(editsFrozen ? { opacity: 0.55 } : null),
+                          ...(payFrozen ? { opacity: 0.55 } : null),
                           ...({ "--tip-heat": chipIdx } as CSSProperties),
                         }}
                       >
@@ -1958,15 +2002,15 @@ export function Checkout({
                     aria-expanded={customTipOpen}
                     // Only reference the field while it's mounted (below) — no dangling IDREF when closed.
                     aria-controls={customTipOpen ? "custom-tip-field" : undefined}
-                    aria-disabled={editsFrozen || undefined}
+                    aria-disabled={payFrozen || undefined}
                     onClick={() => {
-                      if (editsFrozen) return;
+                      if (payFrozen) return;
                       openCustomTip();
                     }}
                     className={`checkout-tip${customTipOpen ? " checkout-tip-on" : ""}`}
                     style={{
                       ...tipChipStyle(),
-                      ...(editsFrozen ? { opacity: 0.55 } : null),
+                      ...(payFrozen ? { opacity: 0.55 } : null),
                     }}
                   >
                     {T("customTip")}
@@ -2206,9 +2250,9 @@ export function Checkout({
             {showPayFurniture && (
               <button
                 type="button"
-                aria-disabled={lockedByPeer || undefined}
+                aria-disabled={payFrozen || undefined}
                 onClick={() => {
-                  if (lockedByPeer) return;
+                  if (payFrozen) return;
                   void continueToPayment();
                 }}
                 disabled={loadingPay}
@@ -2222,8 +2266,8 @@ export function Checkout({
                   border: "none",
                   fontWeight: 800,
                   fontSize: "var(--fs-body)",
-                  cursor: loadingPay || lockedByPeer ? "default" : "pointer",
-                  opacity: loadingPay ? 0.7 : lockedByPeer ? 0.55 : 1,
+                  cursor: loadingPay || payFrozen ? "default" : "pointer",
+                  opacity: loadingPay ? 0.7 : payFrozen ? 0.55 : 1,
                 }}
               >
                 {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
@@ -2233,7 +2277,7 @@ export function Checkout({
                 <span style={{ position: "relative", zIndex: 1 }}>
                   {loadingPay ? (
                     "Starting checkout…"
-                  ) : lockedByPeer ? (
+                  ) : payFrozen ? (
                     `Waiting for ${lockedByName} to finish`
                   ) : (
                     <>

@@ -971,3 +971,37 @@ Caught only by reading `git diff --stat` and seeing `CHANGELOG.md | 8268 +-----`
   possible check and the only one that would have caught this.
 - After a scripted doc edit, assert an invariant that survives it: entry count is exactly +1, section
   headings are preserved. I checked the other three files for the same shape and they were clean.
+
+## #65 — A lesson taught to one matcher is not taught to the concept (#246, 2026-09-02)
+
+`scripts/check-freeze-parity.mjs` had `firstPos` skip nested function bodies, with a comment saying
+why: a callback's position says nothing about when it runs. Two rounds later Codex found
+`thenBranchRefuses` walking straight into those same nested bodies, so
+
+```ts
+if (locked) {
+  const report = () => {
+    throw new Error("Order is locked while someone checks out");
+  };
+}
+```
+
+satisfied "this branch refuses" while the function refused nothing and wrote on a frozen cart. The
+pre-fix matcher printed **clean** against a `cart.ts` where `undoFire` had no live refusal at all.
+
+This is the SECOND time in two PRs, and the first one is in this file: #245's `isWrite` gained a
+helper arm that `isWriteCall` did not, and the ordering rule silently kept its old direct-call-only
+reach. Same shape, different file. The failing move is to treat a review finding as an edit to one
+function rather than a rule about a concept.
+
+So when a finding lands on a matcher, grep the file for **every other predicate over the same
+subject** — every AST walk that asks a question about "this function's body", "this branch", "this
+statement" — and ask whether the same evasion works there. Then falsify it there too. And when two
+predicates express one concept, make them consult one helper (`WRITE_CALLS`/`WRITE_HELPERS`) rather
+than trusting a comment that says "must stay in step with".
+
+The companion finding on the same round is the same disease one level up: the subject selector only
+visited `ts.isFunctionDeclaration`, so `export const nudgeLine = async (…) => {…}` — a new cart
+mutation binding `locked` with no refusal at all — was invisible to a guard whose entire purpose is
+to notice exactly that. A selector that names ONE spelling of a construct is a name-based matcher
+wearing an AST costume.

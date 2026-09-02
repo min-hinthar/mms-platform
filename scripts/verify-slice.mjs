@@ -340,6 +340,22 @@ const MUTANTS = [
     replace: '        ? "Another tab took over this checkout \u2014 reopen the order to edit it."',
   },
   {
+    id: "freeze/tip-follows-the-edit-gate",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Codex round 2 on #246 \u2014 the OVER-blocking direction, which this repo has paid for before (the delivery app's `computeDeliveryGate`, where a bare `!gate.isOpen` folded into a submit gate disabled Place Order for an entire valid window). The tip is not a cart write: `selectPresetTip` sets local state and the rate rides into create-intent as `tipRate`, so no server mutation refuses it on `locked`. Widening this to the edit gate leaves a self-frozen diner able to pay \u2014 `acquireCartLock` lets the same uid re-acquire, so Pay is their escape hatch \u2014 but only with whatever tip happened to be selected",
+    find: '  return freeze === "peer";\n}\n\n/**\n * The freeze a viewer should SEE',
+    replace: "  return freeze !== null;\n}\n\n/**\n * The freeze a viewer should SEE",
+  },
+  {
+    id: "freeze/suppresses-a-preexisting-self-lock",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Codex round 2 on #246 \u2014 the residue of round 1's own fix. The in-flight flag goes true BEFORE create-intent acquires anything, so `in flight AND self` also matches the self lock that was already there: the two-tabs-on-one-device case this slice exists for. Tab B's Pay CTA is deliberately live, so one press hid the lockbar, re-enabled every edit control and announced \"the order's unlocked\" while the other tab still held the lock and every write would still be refused \u2014 a claim about the server made from a client flag",
+    find: '    payRequestInFlight && freeze === "self" && !freezeBlocksEdits(freezeAtRequestStart);',
+    replace: '    payRequestInFlight && freeze === "self";',
+  },
+  {
     id: "lock/refusal-release-not-era-scoped",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",

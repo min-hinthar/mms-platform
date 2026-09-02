@@ -52,6 +52,36 @@ over-block a cart the server would accept. It found two flaws in itself while be
 selector that checked 6 of 11 mutations, and a false positive on a diagnostic read), and its
 dead-exemption rule caught its own stale entry on the first run.
 
+**What the two review rounds moved.** Round 1 closed the inert-Reopen case (a second tab holds no
+attempt token, so `releasePayAttempt` fails closed and the button could only ever call `refresh()`
+— the copy now splits on whether a release is even possible) and the false warning during our own
+create-intent. Round 2 found that fix's residue and two more:
+
+- **The suppression matched a lock it had not taken.** The in-flight flag goes true BEFORE
+  create-intent acquires anything, so `in flight AND self` also matched the pre-existing self lock —
+  the two-tabs case this slice exists for. Tab B's Pay CTA is deliberately live, so one press hid
+  the bar, re-enabled every edit control and announced "the order's unlocked" while the other tab
+  still held it. `visibleFreeze` now decides from the freeze as it stood WHEN THE REQUEST STARTED,
+  carried in the same state as the in-flight flag so the two cannot disagree about which request is
+  running.
+- **The tip is not a cart write, and was gated as if it were.** `selectPresetTip` sets local state
+  and the rate rides into create-intent as `tipRate`; no server mutation refuses it on `locked`. So
+  it follows the PAY gate, now named once as `freezeBlocksPayment` and read by the Pay CTA and the
+  tip chips alike. Gating it on the edit gate let a self-frozen diner pay — but only with whatever
+  tip they happened to have, which is the over-blocking direction the parity guard's own docblock
+  names as equally expensive.
+- **A superseded release proves the token is dead, so the button goes with it.** `classifyZeroRow`
+  answers `superseded` only for a lock that is fresh and stamped with a different era, so our
+  attempt matches no row and never will. Leaving it set kept Reopen on screen repeating a guaranteed
+  zero-row release — round 1's inert control, reintroduced one branch over.
+
+Two of the round's five were defects in the guard itself, both the LEARNINGS #60 shape: a
+then-branch matcher that walked into nested callbacks (`if (locked) { const report = () => { throw }
+}` refuses nothing and passed clean), and a subject selector that only visited `function`
+declarations, so a new cart mutation written as an arrow would have joined the file owing a lock
+refusal with this guard blind to it. Both were watched failing before and after — the pre-fix
+matcher printed **clean** on a `cart.ts` where `undoFire` refused nothing.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

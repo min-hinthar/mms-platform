@@ -92,13 +92,32 @@ const WRITE_HELPERS = new Set(["insertOrIncLine", "touchCart"]);
  * the refusal sitting in the ELSE clause: `if (locked) { console.warn(…) } else { return { ok:false } }`
  * passed, while the function wrote on a frozen cart and refused on an editable one — the same
  * inversion `positivelyGuards` catches for the condition, arriving through the branch instead.
+ *
+ * ⚠️ AND NOT INTO NESTED FUNCTIONS (Codex round 2 on #246). A `throw`/`return` inside a callback
+ * belongs to the CALLBACK, not to this branch — it leaves the guarded function still running and
+ * still able to write:
+ *
+ *     if (locked) { const report = () => { throw new Error("locked"); }; }   // refuses nothing
+ *
+ * `firstPos` had already been taught to skip nested bodies for exactly this reason; the lesson was
+ * not carried over here, which is the same "two predicates for one concept" shape that made the
+ * ordering rule go vacuous a round earlier.
  */
 const thenBranchRefuses = (ifStmt) => {
   let hit = false;
-  walk(ifStmt.thenStatement, (n) => {
+  const visit = (n) => {
+    if (
+      n !== ifStmt.thenStatement &&
+      (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
+    )
+      return;
     if (ts.isThrowStatement(n)) hit = true;
     if (ts.isReturnStatement(n) && n.expression) hit = true;
-  });
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  };
+  visit(ifStmt.thenStatement);
   return hit;
 };
 
@@ -203,10 +222,34 @@ const EXEMPT = new Map([
   ],
 ]);
 
+/**
+ * Every named function-like in the file, however it is spelled.
+ *
+ * ⚠️ `ts.isFunctionDeclaration` ALONE WAS A HOLE (Codex round 2 on #246). `export const setQty =
+ * async (…) => {…}` is a VariableDeclaration with an ArrowFunction initializer, so the selector
+ * never visited it — and because it never entered `subjects`, `EXPECTED_SUBJECTS` did not flag it
+ * either: converting any of the eleven mutations to an arrow (a refactor with no behavioural intent)
+ * would have removed it from the guard's reach while printing `missing:` … which at least fails.
+ * The genuinely silent case is a NEW cart mutation written as an arrow: it joins the file owing a
+ * lock refusal and this guard never sees it, which is precisely what the `extra:` speed bump exists
+ * to prevent. Both spellings now enter the same set.
+ */
+const namedFunctions = [];
+walk(sf, (n) => {
+  if (ts.isFunctionDeclaration(n) && n.body && n.name)
+    namedFunctions.push({ fn: n, name: n.name.text });
+  else if (
+    ts.isVariableDeclaration(n) &&
+    ts.isIdentifier(n.name) &&
+    n.initializer &&
+    (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+  )
+    namedFunctions.push({ fn: n.initializer, name: n.name.text });
+});
+
 const subjects = [];
 const exempted = [];
-walk(sf, (n) => {
-  if (!ts.isFunctionDeclaration(n) || !n.body || !n.name) return;
+for (const { fn: n, name: fnName } of namedFunctions) {
   let bindsLocked = false;
   walk(n, (d) => {
     if (
@@ -247,13 +290,13 @@ walk(sf, (n) => {
         bindsLocked = true;
     });
   }
-  if (!bindsLocked) return;
-  if (EXEMPT.has(n.name.text)) {
-    exempted.push(n.name.text);
-    return;
+  if (!bindsLocked) continue;
+  if (EXEMPT.has(fnName)) {
+    exempted.push(fnName);
+    continue;
   }
-  subjects.push(n);
-});
+  subjects.push({ fn: n, name: fnName });
+}
 
 // ⚠️ EVERY EXEMPTION MUST FIRE. A stale exemption is worse than none: it reads as a considered
 // decision while silently excusing a function that no longer exists (or was renamed), and the next
@@ -290,7 +333,7 @@ const EXPECTED_SUBJECTS = [
   "undoFire",
 ];
 
-const found = subjects.map((f) => f.name.text).sort();
+const found = subjects.map((s) => s.name).sort();
 const missing = EXPECTED_SUBJECTS.filter((n) => !found.includes(n));
 const extra = found.filter((n) => !EXPECTED_SUBJECTS.includes(n));
 
@@ -407,9 +450,7 @@ const isWriteCall = (n) =>
     (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
 
 const problems = [];
-for (const fn of subjects) {
-  const name = fn.name?.text ?? "(anonymous)";
-
+for (const { fn, name } of subjects) {
   const guardAt = firstPos(fn, isLockRefusal);
   const writeAt = firstPos(fn, isWriteCall);
 

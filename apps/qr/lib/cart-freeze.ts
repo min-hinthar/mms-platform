@@ -103,6 +103,62 @@ export function freezeBlocksEdits(freeze: CartFreeze): boolean {
 }
 
 /**
+ * Does this freeze stop the PAYMENT? Only a peer's — and that is a different predicate on purpose.
+ *
+ * ⚠️ THE TIP IS NOT A CART WRITE (Codex round 2 on #246). `selectPresetTip` sets local state and the
+ * rate rides into create-intent as `tipRate`; NO server mutation refuses it on `locked`. Gating the
+ * tip chips on `freezeBlocksEdits` therefore blocked a control the server never blocks, and left a
+ * self-frozen diner able to pay — Pay is their escape hatch — but only with whatever tip happened to
+ * be selected. That is the over-blocking direction `check-freeze-parity.mjs`'s docblock names as
+ * equally expensive, arriving through a control that was never a cart write in the first place.
+ *
+ * The server's own line is `acquireCartLock`'s `.or("locked.eq.false,locked_by.eq.<uid>,…")`: the
+ * SAME uid re-acquires by design, so a self-held lock is not a refusal of the payment. Only a fresh
+ * lock held by someone else produces `held_by_other` → 409.
+ *
+ * `held` does NOT block either, and that is deliberate rather than an oversight: an unattributable
+ * lock MIGHT be a peer's, and if it is, create-intent answers 409 with a server-authored sentence.
+ * Under-blocking here costs one honest refusal; over-blocking tells a diner who can pay that they
+ * cannot. This is exactly the gate the Pay CTA has always used — extracted and named, not widened.
+ */
+export function freezeBlocksPayment(freeze: CartFreeze): boolean {
+  return freeze === "peer";
+}
+
+/**
+ * The freeze a viewer should SEE while their own payment request is in flight.
+ *
+ * ⚠️ SUPPRESS ONLY A LOCK THIS REQUEST TOOK (Codex round 2 on #246 — a regression the round-1 fix
+ * introduced, not a pre-existing one). `continueToPayment` sets its in-flight flag, calls
+ * create-intent — which ACQUIRES the lock — then refreshes, so `locked = true, lockedBy = me` lands
+ * while the step is still "review". Painting a `--warn` bar there, under a CTA reading "Starting
+ * checkout…", warns the diner about themselves. That much the round-1 fix got right.
+ *
+ * What it got wrong is that `in flight AND self` also matches a self lock that was ALREADY there —
+ * the two-tabs-on-one-device case this whole slice exists for. Tab B's Pay CTA is deliberately live
+ * (see `freezeBlocksPayment`), so pressing it flipped the freeze to null instantly: the bar vanished,
+ * every edit control came back, and the live region announced "the order's unlocked" while the other
+ * tab's lock was still held and every write would still be refused. A suppression that fires before
+ * the request has acquired anything is a claim about the server made from a client flag.
+ *
+ * So the freeze as it stood WHEN THE REQUEST STARTED decides: only a cart that was editable then can
+ * have been frozen by us since. Anything else keeps its bar for the whole round trip.
+ */
+export function visibleFreeze({
+  freeze,
+  payRequestInFlight,
+  freezeAtRequestStart,
+}: {
+  freeze: CartFreeze;
+  payRequestInFlight: boolean;
+  freezeAtRequestStart: CartFreeze;
+}): CartFreeze {
+  const ourNewLock =
+    payRequestInFlight && freeze === "self" && !freezeBlocksEdits(freezeAtRequestStart);
+  return ourNewLock ? null : freeze;
+}
+
+/**
  * The sentence for a freeze — and the vocabulary it may NOT borrow.
  *
  * ⚠️ `self` MUST NOT SAY "another tab took over". That is `superseded`, a DIFFERENT fact, and

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { cartFreeze, freezeBlocksEdits, freezeNotice } from "./cart-freeze";
+import {
+  type CartFreeze,
+  cartFreeze,
+  freezeBlocksEdits,
+  freezeBlocksPayment,
+  freezeNotice,
+  visibleFreeze,
+} from "./cart-freeze";
 
 /**
  * J4 (residual) — the defect is an ASYMMETRY, so the tests are written as a comparison against the
@@ -150,5 +157,71 @@ describe("freezeNotice — the self sentence tracks whether a release is even po
     // about either, and letting it leak in would be a claim built from an unrelated fact.
     expect(freezeNotice("peer", "Ko Ko", true)).toBe(freezeNotice("peer", "Ko Ko", false));
     expect(freezeNotice("held", null, true)).toBe(freezeNotice("held", null, false));
+  });
+});
+
+describe("freezeBlocksPayment — the tip follows the PAY gate, not the EDIT gate", () => {
+  it("only a peer's lock stops the payment", () => {
+    // `acquireCartLock`'s `.or(locked_by.eq.<uid>)` lets the SAME uid re-acquire, so a self lock is
+    // not a refusal — Pay is the diner's escape hatch out of it. MUTATION: return `freeze !== null`
+    // (i.e. reuse freezeBlocksEdits) → this fails, and the self-frozen diner can pay only with
+    // whatever tip was already selected, which is the Codex round-2 defect.
+    expect(freezeBlocksPayment("peer")).toBe(true);
+    expect(freezeBlocksPayment("self")).toBe(false);
+    expect(freezeBlocksPayment("held")).toBe(false);
+    expect(freezeBlocksPayment(null)).toBe(false);
+  });
+
+  it("IT IS STRICTLY NARROWER THAN THE EDIT GATE — never wider", () => {
+    // The direction is the invariant. A freeze that stops the payment must also stop the edits: the
+    // pay screen may never refuse where the cart is fully editable, because then it is refusing
+    // something the server would accept. The converse is allowed and is the whole point — a control
+    // that only feeds create-intent stays live where a cart WRITE is refused.
+    for (const f of ["peer", "self", "held", null] as const) {
+      if (freezeBlocksPayment(f)) expect(freezeBlocksEdits(f)).toBe(true);
+    }
+    // The implication above is satisfied by a gate that blocks everything, so name the two rows that
+    // actually distinguish the predicates. MUTATION: widen either to `freeze !== null` → these fail.
+    expect(freezeBlocksEdits("self")).toBe(true);
+    expect(freezeBlocksPayment("self")).toBe(false);
+    expect(freezeBlocksEdits("held")).toBe(true);
+    expect(freezeBlocksPayment("held")).toBe(false);
+  });
+});
+
+describe("visibleFreeze — suppress only a lock THIS request took", () => {
+  const inFlight = (freeze: CartFreeze, freezeAtRequestStart: CartFreeze) =>
+    visibleFreeze({ freeze, payRequestInFlight: true, freezeAtRequestStart });
+
+  it("hides the bar for the lock create-intent just acquired for us", () => {
+    // The cart was editable when Pay was pressed, so a self lock appearing mid-request is ours.
+    // MUTATION: return `freeze` unconditionally → a `--warn` bar paints under "Starting checkout…".
+    expect(inFlight("self", null)).toBeNull();
+  });
+
+  it("THE REGRESSION: a self lock that was ALREADY there keeps its bar", () => {
+    // Codex round 2 on #246. Second tab on one device: the freeze is self BEFORE Pay is pressed, and
+    // Pay is deliberately live (freezeBlocksPayment). Suppressing here re-enabled every edit control
+    // and announced "the order's unlocked" while the other tab still held the lock.
+    // MUTATION: drop the `freezeAtRequestStart` term → this fails.
+    expect(inFlight("self", "self")).toBe("self");
+    // Same for a lock that was unattributable and has since resolved to us — still not ours to hide.
+    expect(inFlight("self", "held")).toBe("self");
+    expect(inFlight("self", "peer")).toBe("self");
+  });
+
+  it("never suppresses a peer's lock or an unattributable one", () => {
+    // create-intent answers 409 held_by_other behind a peer's lock, and `held` is by definition a
+    // lock we cannot claim. MUTATION: suppress on any freeze while in flight → these fail.
+    expect(inFlight("peer", null)).toBe("peer");
+    expect(inFlight("held", null)).toBe("held");
+  });
+
+  it("with no request in flight it is the identity", () => {
+    for (const f of ["peer", "self", "held", null] as const) {
+      expect(
+        visibleFreeze({ freeze: f, payRequestInFlight: false, freezeAtRequestStart: null }),
+      ).toBe(f);
+    }
   });
 });
