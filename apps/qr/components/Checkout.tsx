@@ -430,12 +430,19 @@ export function Checkout({
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
       setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+      return true;
     } catch {
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
       // diner is being redirected to /track). We can't discriminate it from a transient error
       // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
       // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
       // self-heals on the next interaction (every mutation re-fetches).
+      //
+      // ⚠️ The swallow stays; what changes is that it now RETURNS the outcome (Codex round 5 on
+      // #246). Every existing caller ignores the value and is unaffected — but a caller whose whole
+      // job is to re-read on demand ("Check again") must be able to tell "the server says still
+      // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
+      return false;
     }
   }, [cartId]);
 
@@ -508,13 +515,25 @@ export function Checkout({
   // `payRequest.freezeAtStart` is the freeze as it stood when the request began — only a cart that
   // was editable then can have been frozen by US since. The rule itself lives in `cart-freeze.ts`
   // where it can be tested and mutated; this file only supplies the two facts.
-  const freeze = visibleFreeze({
+  // ⚠️ THE SUPPRESSION IS ABOUT THE NOTICE, NEVER THE GATE (Codex round 5 on #246 — and it is this
+  // module's own rule, applied against me). `cart-freeze.ts` opens by saying naming and blocking are
+  // two decisions and W9b made both; deriving `editsFrozen` from the SUPPRESSED value made exactly
+  // that mistake in the other direction. During our own create-intent the server has already taken
+  // the lock and refuses every write on bare `locked`, so every control stayed live and refusing: if
+  // the request or the refresh stalls and realtime delivers the lock while the review step is still
+  // mounted, edits flip optimistically and snap back — the silent no-op this whole slice exists to
+  // retire, reintroduced by its own fix.
+  //
+  // So the GATES read `rawFreeze` — the server's answer, unmodified — and only the NOTICE is
+  // suppressed. The controls going quiet under a CTA that says "Starting checkout…" is honest; a
+  // `--warn` bar saying someone has the order held is not, because that someone is us.
+  const noticeFreeze = visibleFreeze({
     freeze: rawFreeze,
     payRequestInFlight: loadingPay,
     freezeAtRequestStart: payRequest?.freezeAtStart ?? null,
   });
   // Blocks edits for peer / self / held alike — exactly the server's `if (locked)`.
-  const editsFrozen = freezeBlocksEdits(freeze);
+  const editsFrozen = freezeBlocksEdits(rawFreeze);
   // Stops the PAYMENT — a strictly narrower thing than stopping the edits, and the one binding both
   // the Pay CTA and the tip chips read. `acquireCartLock` lets the SAME uid re-acquire, so only a
   // peer's fresh lock is a real refusal (409 held_by_other); a self or unattributable lock leaves
@@ -522,9 +541,9 @@ export function Checkout({
   // (Codex round 2 on #246 — gating the chips on `editsFrozen` let them pay, but only with the tip
   // they happened to have). Peer is a strict subset of frozen, so every site W9b already gated
   // keeps its exact behaviour; only the self/held EDIT gap closes.
-  const payFrozen = freezeBlocksPayment(freeze);
+  const payFrozen = freezeBlocksPayment(rawFreeze);
   const lockedByName =
-    freeze === "peer"
+    noticeFreeze === "peer"
       ? (splitContext?.members.find((m) => m.seat === lockedBy)?.name ?? "Someone")
       : null;
   // Can THIS viewer release the lock it is looking at? Only if it holds the attempt token that took
@@ -532,28 +551,35 @@ export function Checkout({
   // `releasePayAttempt` fails closed without one (M124), deliberately: the first tab may be behind a
   // live Payment Element. So this gates both the sentence and the button.
   const canRelease = !!payAttempt?.attempt;
-  const freezeMessage = freezeNotice(freeze, lockedByName, canRelease);
+  const freezeMessage = freezeNotice(noticeFreeze, lockedByName, canRelease);
 
   // W9b — announce the lock edge. The lockbar is plain visual, and this view's ONE status region is
   // `status` (rendered below) — the provider's announcer that handles this on /menu is mounted on the
   // menu subtree only, so without this a screen-reader user on /cart hears NOTHING as every control
   // around them goes dead. Edge-triggered via a ref so it fires on the transition, not every render.
   //
-  // J4 (residual) — keyed on `editsFrozen`, not `lockedByPeer`. A screen-reader user whose OWN lock
-  // freezes the cart heard nothing while every control around them went dead: the peer edge never
-  // fired, because there is no peer. The sentence comes from `freezeNotice`, so the announcement and
-  // the visible bar can never drift apart, and the self case never claims a takeover it cannot prove.
+  // J4 (residual) — widened past `lockedByPeer`. A screen-reader user whose OWN lock freezes the
+  // cart heard nothing while every control around them went dead: the peer edge never fired, because
+  // there is no peer. The sentence comes from `freezeNotice`, so the announcement and the visible bar
+  // can never drift apart, and the self case never claims a takeover it cannot prove.
+  //
+  // ⚠️ KEYED ON THE NOTICE, NOT THE GATE (Codex round 5 on #246). Now that `editsFrozen` reads the
+  // RAW freeze, keying here would fire during our own create-intent — where `freezeMessage` is
+  // deliberately null, so the `??` fallback would announce "the order's unlocked" at the exact moment
+  // the server locked it. Announcing on the notice edge means the region says what the bar says, and
+  // stays silent for the one window we have chosen not to narrate (the CTA's `aria-busy` carries it).
+  const announced = freezeMessage !== null;
   const prevAnnouncedLock = useRef<boolean | null>(null);
   useEffect(() => {
     const prev = prevAnnouncedLock.current;
-    prevAnnouncedLock.current = editsFrozen;
-    if (prev === null || prev === editsFrozen) return; // seed on first run; only edges announce
+    prevAnnouncedLock.current = announced;
+    if (prev === null || prev === announced) return; // seed on first run; only edges announce
     // The region renders `payError ?? status`, so a stale error would swallow this announcement
     // entirely — and while locked the diner cannot retry the action that produced it, so it would
     // never clear on its own. A lock transition supersedes it.
     setPayError(null);
     setStatus(freezeMessage ?? "The order’s unlocked — you can edit again.");
-  }, [editsFrozen, freezeMessage]);
+  }, [announced, freezeMessage]);
   // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
   // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
   // edit the cart out from under a live intent.
@@ -589,12 +615,12 @@ export function Checkout({
   // on the heading (WCAG 2.4.3). Only when it dropped — never yank focus off a control they moved to.
   // J4 (residual) — widened with the announcement above, for the same reason: the focus lands on the
   // bar that explains why the controls died, and a self-held freeze kills exactly as many controls.
-  const prevLockedByPeer = useRef(editsFrozen);
+  const prevLockedByPeer = useRef(announced);
   useEffect(() => {
-    if (editsFrozen && !prevLockedByPeer.current && document.activeElement === document.body)
+    if (announced && !prevLockedByPeer.current && document.activeElement === document.body)
       headingRef.current?.focus();
-    prevLockedByPeer.current = editsFrozen;
-  }, [editsFrozen]);
+    prevLockedByPeer.current = announced;
+  }, [announced]);
 
   // W9b — release the pay-window lock when the diner ABANDONS the pay step. The lock makes the whole
   // table read-only, so a diner who wanders off holds every tablemate hostage for the full TTL.
@@ -921,7 +947,14 @@ export function Checkout({
     setStatus(null);
     setPayError(null);
     try {
-      await refresh();
+      // ⚠️ REPORT THE READ (Codex round 5 on #246). `refresh()` swallows a failed read by design (it
+      // cannot tell the expected post-payment 403 from a transient error), so awaiting it and saying
+      // nothing made this escape the very thing it was added to remove: a control that accepts a tap,
+      // changes to "Checking…" and back, and leaves the frozen screen exactly as it was.
+      if (!(await refresh()))
+        setPayError(
+          "Couldn’t check just now — try again in a moment. The lock also clears on its own.",
+        );
     } finally {
       setRecheckingLock(false);
     }
@@ -1357,7 +1390,7 @@ export function Checkout({
               >
                 <Icon name="lock" size={14} />
                 <span>{freezeMessage}</span>
-                {freeze === "self" && canRelease && (
+                {noticeFreeze === "self" && canRelease && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1391,7 +1424,7 @@ export function Checkout({
                     unattributable one, and the tokenless self case (a second tab, or a landed
                     release whose refresh failed). It promises exactly what it does: ask the server
                     again. Never both buttons — Reopen already ends in `refresh()`. */}
-                {!(freeze === "self" && canRelease) && (
+                {!(noticeFreeze === "self" && canRelease) && (
                   <button
                     type="button"
                     onClick={() => {
@@ -1845,7 +1878,9 @@ export function Checkout({
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
                 rewardShortfallCents={rewardShortfallCents(totals)}
-                onChanged={refresh}
+                // `refresh` now answers whether the read landed (Codex round 5); this prop wants a
+                // void callback, and the answer is not this child's business.
+                onChanged={() => void refresh()}
               />
             )}
 

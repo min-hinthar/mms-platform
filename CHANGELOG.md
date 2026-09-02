@@ -123,6 +123,28 @@ whose Reopen button has just gone away on a cart the server already unlocked. A 
 control on the lockbar answers both, rendered for every freeze that has no Reopen. It promises
 exactly what it does: ask the server again. No timer, no poll, no new claim.
 
+**Round 5 — four, and the first one is this module's own rule turned against its author.** Deriving
+`editsFrozen` from the SUPPRESSED freeze meant that during our own create-intent every cart control
+stayed live while the server already refused on bare `locked` — so a stalled request, or realtime
+delivering the lock while the review step is still mounted, put the optimistic-flip-and-snap-back
+screen right back. `cart-freeze.ts` opens by saying naming and blocking are two decisions and that
+W9b made both; this made the same mistake in the other direction. The GATES now read the raw freeze
+— the server's answer, unmodified — and only the NOTICE is suppressed. The announcement and focus
+move key on the notice too, because keying them on the gate would have announced "the order's
+unlocked" at the exact moment the server locked it.
+
+"Check again" was itself a silent no-op: `refresh()` swallows a failed read by design, so a
+transient failure flipped the button to "Checking…" and back with nothing said. `refresh` now returns
+whether the read landed — every existing caller ignores it — and the escape reports when it did not.
+
+The guard's then-branch matcher accepted a CONDITIONAL exit: `if (locked) { if (shouldRefuse) return
+failure; }` found the nested `return` and called the guard satisfied while a false `shouldRefuse`
+walked on to the write. It no longer descends at all — the branch's own statement list must contain
+the throw or return. And the authz-derivation check expanded aliases one hop, so a two-hop rename
+(`const heldByOther = …; const lockedFresh = lockedRaw && heldByOther`) hid a holder narrowing
+completely. Both that check and the per-function condition analysis now share one transitive
+`expandAliases`, so they cannot drift apart again.
+
 ### Every lock release in `create-intent` names its attempt — M153 (2026-09-01)
 
 `acquireCartLock` deliberately lets the SAME diner re-acquire, refreshing `locked_at`, so one diner's

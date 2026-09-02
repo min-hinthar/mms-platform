@@ -117,21 +117,14 @@ const isWriteCall = (n) =>
  * ordering rule go vacuous a round earlier.
  */
 const thenBranchRefuses = (ifStmt) => {
-  let hit = false;
-  const visit = (n) => {
-    if (
-      n !== ifStmt.thenStatement &&
-      (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
-    )
-      return;
-    if (ts.isThrowStatement(n)) hit = true;
-    if (ts.isReturnStatement(n) && n.expression) hit = true;
-    ts.forEachChild(n, (c) => {
-      visit(c);
-    });
-  };
-  visit(ifStmt.thenStatement);
-  return hit;
+  // NO DESCENT AT ALL. The branch's OWN statement list must contain the exit — that is what makes
+  // this an unconditional refusal rather than a possible one. Descending found the `return` inside
+  // `if (shouldRefuse)` / a loop / a callback, none of which stop the function when their own
+  // condition is false. `cart.ts`'s eleven refusals are all a single `throw` or `return`, so the
+  // strictness costs nothing; if a legitimate shape ever needs a block, put the exit at its top level.
+  const t = ifStmt.thenStatement;
+  const stmts = ts.isBlock(t) ? t.statements : [t];
+  return stmts.some((st) => ts.isThrowStatement(st) || (ts.isReturnStatement(st) && st.expression));
 };
 
 // The helper names are BOUND to the file: each must actually be imported into cart.ts. A rename or a
@@ -169,25 +162,56 @@ const authzWalk = (n, fn) => {
   });
 };
 
-let lockedInit = null;
+/**
+ * Every expression `root` transitively depends on: itself, plus the initializer of every local it
+ * mentions, recursively.
+ *
+ * ⚠️ ONE LEVEL WAS NOT ENOUGH (Codex round 5 on #246). A two-hop rename hides the narrowing from a
+ * single expansion completely:
+ *
+ *     const heldByOther = cart.locked_by !== uid;
+ *     const lockedFresh = cart.locked && heldByOther;
+ *     return { locked: lockedFresh };            // one hop reaches `lockedFresh` and stops
+ *
+ * `locked_by` and `uid` appear nowhere in that hop, so the holder search saw a clean derivation and
+ * the required check reported green on exactly the edit it exists to reject. Both the authz
+ * derivation and the per-function guard condition use this now, so neither can drift from the other.
+ */
+const expandAliases = (root, scope, walkIn) => {
+  const out = [root];
+  const seen = new Set();
+  const queue = [root];
+  while (queue.length) {
+    const cur = queue.shift();
+    const names = [];
+    walkIn(cur, (n) => {
+      if (ts.isIdentifier(n) && !seen.has(n.text)) names.push(n.text);
+    });
+    for (const name of names) {
+      if (seen.has(name)) continue;
+      seen.add(name);
+      walkIn(scope, (d) => {
+        if (
+          ts.isVariableDeclaration(d) &&
+          ts.isIdentifier(d.name) &&
+          d.name.text === name &&
+          d.initializer
+        ) {
+          out.push(d.initializer);
+          queue.push(d.initializer);
+        }
+      });
+    }
+  }
+  return out;
+};
+
+let lockedInits = [];
 let lockedFieldSeen = false;
 authzWalk(authzSf, (n) => {
   if (ts.isPropertyAssignment(n) && n.name.getText(authzSf) === "locked") {
     lockedFieldSeen = true;
-    // Expand a plain identifier to its local initializer, same move as the condition above.
-    if (ts.isIdentifier(n.initializer)) {
-      authzWalk(authzSf, (d) => {
-        if (
-          ts.isVariableDeclaration(d) &&
-          ts.isIdentifier(d.name) &&
-          d.name.text === n.initializer.text &&
-          d.initializer
-        )
-          lockedInit = d.initializer;
-      });
-    } else {
-      lockedInit = n.initializer;
-    }
+    lockedInits = expandAliases(n.initializer, authzSf, authzWalk);
   }
 });
 
@@ -199,7 +223,7 @@ if (!lockedFieldSeen)
   );
 
 for (const holder of ["locked_by", "lockedBy", "uid"]) {
-  if (lockedInit && references(lockedInit, holder))
+  if (lockedInits.some((e) => references(e, holder)))
     fail(
       `${AUTHZ} derives \`locked\` using \`${holder}\`.\n  ` +
         "That narrows the lock at its SOURCE, so all 11 cart mutations start excusing the holder at\n  " +
@@ -543,19 +567,7 @@ for (const { fn, name, authzVars } of subjects) {
   // So every identifier in the condition that resolves to a local initializer is expanded once and
   // the holder search runs over that too. `uid` joins the list — it is the identifier the real
   // narrowing would compare against, and it was missing.
-  const condExpansion = [guardNode.expression];
-  walk(guardNode.expression, (n) => {
-    if (!ts.isIdentifier(n)) return;
-    walk(fn, (d) => {
-      if (
-        ts.isVariableDeclaration(d) &&
-        ts.isIdentifier(d.name) &&
-        d.name.text === n.text &&
-        d.initializer
-      )
-        condExpansion.push(d.initializer);
-    });
-  });
+  const condExpansion = expandAliases(guardNode.expression, fn, walk);
 
   for (const holder of ["lockedBy", "locked_by", "mySeat", "uid"]) {
     if (guardNode && condExpansion.some((e) => references(e, holder)))
