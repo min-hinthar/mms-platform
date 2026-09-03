@@ -1123,3 +1123,113 @@ The general rule: pass a child the FACT and let it speak for its own surface. A 
 the parent about the parent's situation is not reusable by a child asking a different question — and
 two values that are derived differently must never be paired under a `??`, because the pairing is
 only exercised in the state where they disagree.
+
+## #70 — "It speaks" is not "it tells the truth", and a backlog row that checked the first has not checked the second (#248, 2026-09-03)
+
+`docs/OPEN-ITEMS.md` **T14** recorded a considered judgement about /menu: _"Neither is a silent
+no-op today: both catches re-sync and speak."_ That sentence is true and it hid a live defect for as
+long as it stood, because it answered the wrong question. `TableCartProvider`'s `add` and
+`setItemQty` did speak — they flashed **"Reconnecting to your table…"** and re-minted the table
+session — for **every** throw out of `addItem`/`setQty`, including the lock the catch's own comment
+listed among the causes. A diner whose tablemate was checking out was therefore told their connection
+had dropped, watched a session re-mint they did not need, and could then be told the session was
+restarted: two false statements about a session that was fine.
+
+That is exactly the M116/M119 class four PRs were spent removing, sitting one screen over, and the
+row that was supposed to be tracking it had already written it off. **J4's clause (b) is "silent
+no-op"; the class is bigger than the clause.** A control that accepts a tap and says something FALSE
+is worse than one that says nothing — silence leaves the diner's model of the system intact, a wrong
+diagnosis replaces it. So when triaging a refusal path, the question is never "does it announce?" but
+**"does the sentence name something this code established?"**
+
+Two mechanics made it durable, both worth carrying:
+
+- **The message could not be read, so the cause had to be re-derived.** Next redacts thrown Server
+  Action messages in production, so the server's own `"Order is locked while someone checks out"`
+  never reaches the browser. Every client catch over a Server Action is therefore structurally blind,
+  and any cause it names is invented unless it re-establishes it. One re-read of `getCartView` — the
+  same `assertCartMember` gate the write went through — separates all four states.
+- **The re-mint was the tell.** A recovery action is a stronger claim than a sentence: it says "I know
+  what is wrong and this fixes it." Grep for the RECOVERY, not the copy — an unconditional
+  `revalidate()` in a catch is a diagnosis whether or not anything is printed.
+
+## #71 — A row's stated blocker can be about a different code path than the one it names (#248, 2026-09-03)
+
+**T10** sized itself as a slice rather than a fix on one sentence: widening the cart subscription
+_"changes channel scope and the RLS path on `realtime.messages` (private channels, `is_member`) for
+two modes that have never had it."_ Every clause there is true of `useGroupCart`. None of it is true
+of `useCartRealtime`, which is the hook the row is about. They live in the same file, `lib/realtime.ts`,
+and the reasoning slid from one to the other.
+
+Measured instead of inferred, `useCartRealtime` opens a deliberately **non-private** channel carrying
+no broadcast — its own docblock says so — so `realtime.messages` is not in its path at all; delivery
+rides the ordinary SELECT RLS on `qr_carts` (`is_member(session_id) or is_staff()`, no mode term),
+and both tables have been on the `supabase_realtime` publication for **every row** since
+`20260620000600_cart_realtime.sql`. No migration, no policy, no new RLS. The "slice" was the deletion
+of a parameter.
+
+The general rule: **a blocker is a claim about a specific code path, so verify it against that path's
+source before you accept the sizing it implies.** Two hooks in one file, two routes with one prefix,
+two functions with one name — the reasoning travels between them silently, and it always travels
+toward the more expensive answer, because that is the one nobody re-checks. Deriving the fix from the
+source turned an owner-gated slice into a one-parameter deletion; deriving it from the row would have
+deferred it again.
+
+And when the fix IS a deletion, prefer it: the reason T10 could recur was a `boolean` knob two callers
+each passed a mode predicate into. A parameter that does not exist cannot be re-narrowed, and
+TypeScript makes re-adding it a deliberate act across every call site — the same argument T9 made for
+required props, one layer down.
+
+## #72 — A freeze the server expires by COMPUTATION cannot be cached by a client that also gates on it (#248, 2026-09-03)
+
+Codex and a blind adversarial pass, running independently on the same diff, returned the same P1 —
+which is the strongest signal this repo has produced for a single finding.
+
+The diff added a pre-write gate: refuse a cart write against the freeze the client already holds,
+"so a refusal costs no round trip". The docblock claimed it "can never block a cart the server would
+have accepted". It could, and it could not recover:
+
+```ts
+// authz.ts — the lock is a COMPUTED predicate, not a column
+const lockedFresh =
+  cart.locked &&
+  cart.locked_at !== null &&
+  new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
+```
+
+A lock therefore expires **by the passage of time**. No row write, so no Postgres-Changes event, so
+the cached copy is never corrected. And the gate removed the one thing that WOULD have corrected it:
+the mutation whose returned view the provider folds in. A diner who left `/menu` open would go on
+being refused, naming a lock that expired minutes ago, forever.
+
+**The rule: never cache a state whose owner expires it by computation and then gate on the cache.**
+Ask of any client-side gate, "what event tells me this stopped being true?" — if the answer is
+"none, it just stops", the cache can only ever be an optimisation over a decision the server still
+has to make, never the decision itself. The fix was deleting the gate: the write goes out, the
+server decides, and a refusal is explained afterwards from a read. The round trip the gate saved is
+the round trip the write was going to make anyway.
+
+## #73 — A classification built from a LATER read may report observations, never causation (#248, 2026-09-03)
+
+The same diff replaced a fabricated diagnosis ("Reconnecting to your table…" for every refused
+write) with a re-read that established the cause. Round 1 found the replacement overclaiming in
+three separate ways, all one shape:
+
+- **A failed re-read was called `session`.** But `assertCartMember` throws `UNAVAILABLE()` for cart,
+  session AND membership _query_ errors, and the Server Action can fail in transport. A failed read
+  establishes that we cannot see the cart — nothing about a session. Renamed `unreachable`, and the
+  re-mint is now offered as a recovery attempt rather than announced as a verdict.
+- **A successful re-read was treated as the state at REFUSAL time.** It is the state at READ time: an
+  add can fail on a stale modifier while a tablemate takes the lock before `getCartView` returns, and
+  the classifier would then tell the diner checkout caused it. Every sentence now opens with an
+  observation ("That didn't go through") and continues with current state — no causal claim, because
+  one later read cannot support one.
+- **A missing capability was read as evidence about the world.** `freezeNotice`'s `self` branch keys
+  on `canRelease` = "this viewer holds an attempt token"; /menu never holds one, so passing `false`
+  selected _"Another checkout on this device is holding this order"_ — asserting a second checkout
+  from the mere absence of a token. A diner who walked back from `/cart` after a failed release is
+  one tab. **"This surface can't do X" is not "someone else did X."**
+
+The through-line with #70: it is not enough for a refusal to speak, and it is not enough for it to
+be _derived_ — the derivation has to support the specific claim the sentence makes. Two independent
+reviewers found this on code written specifically to remove the same class one layer up.

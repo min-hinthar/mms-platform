@@ -2,12 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   type CartFreeze,
   cartFreeze,
+  classifyRefusedWrite,
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  refusalNeedsRemint,
+  refusedWriteNotice,
   reopenFailureNotice,
   visibleFreeze,
 } from "./cart-freeze";
+import { inertReason } from "./inert-reason";
 
 /**
  * J4 (residual) — the defect is an ASYMMETRY, so the tests are written as a comparison against the
@@ -259,5 +263,176 @@ describe("reopenFailureNotice — every outcome of the recovery control is repor
     // A new reason added to `PayLockRelease` must not silently re-open the no-op. The default arm
     // is our-outage phrasing, which is the safe direction: it claims nothing about the diner's tab.
     expect(reopenFailureNotice({ released: false, reason: "brand_new_reason" })).toBeTruthy();
+  });
+});
+
+/**
+ * T14 — the refused-write classifier. These are the M116 rules, so every case asks "what did the
+ * code ESTABLISH?" rather than "what does this arm return".
+ *
+ * The shipped defect was one answer for four states: `TableCartProvider` flashed "Reconnecting to
+ * your table…" and re-minted the session for every throw out of `addItem`/`setQty`, including the
+ * lock its own comment listed as a cause. So the load-bearing assertions are the SEPARATIONS — a
+ * state must not borrow another's vocabulary or its recovery.
+ *
+ * ⚠️ ROUND 1 ON #248 FOUND THE FIRST DRAFT OVERCLAIMING IN THREE PLACES, so three rules are pinned
+ * here that were not in that draft: a failed re-read is `unreachable`, NOT a session verdict; the
+ * lock clause comes from `inertReason` (the /menu vocabulary) rather than `freezeNotice` (the
+ * review step's, whose `self` branch asserts a SECOND checkout from a missing token); and no arm
+ * may claim the freeze CAUSED the refusal, which one later read cannot establish.
+ */
+const OK = (over: Partial<{ locked: boolean; lockedBy: string | null; settling: boolean }> = {}) =>
+  ({
+    ok: true as const,
+    freeze: {
+      locked: over.locked ?? false,
+      lockedBy: over.lockedBy ?? null,
+      mySeat: SEAT,
+    },
+    settling: over.settling ?? false,
+  }) satisfies Parameters<typeof classifyRefusedWrite>[0];
+
+describe("classifyRefusedWrite — the cause is re-established, never guessed", () => {
+  it("a failed re-read is `unreachable`, and it is the ONLY arm that re-mints", () => {
+    expect(classifyRefusedWrite({ ok: false })).toEqual({ cause: "unreachable" });
+    expect(refusalNeedsRemint({ cause: "unreachable" })).toBe(true);
+    // MUTATION: make any successful-re-read arm answer `unreachable` → this fails. That mutation IS
+    // the shipped defect: it is what an unconditional `revalidate()` in the catch amounts to.
+    for (const reread of [OK(), OK({ locked: true, lockedBy: PEER }), OK({ settling: true })]) {
+      const refusal = classifyRefusedWrite(reread);
+      expect(refusal.cause).not.toBe("unreachable");
+      // Every one of these read the cart successfully, so the session demonstrably works: a re-mint
+      // there repairs a problem that does not exist.
+      expect(refusalNeedsRemint(refusal)).toBe(false);
+    }
+  });
+
+  it("a locked cart is named as locked, with the freeze the viewer actually has", () => {
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: PEER }))).toEqual({
+      cause: "frozen",
+      freeze: "peer",
+    });
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: SEAT }))).toEqual({
+      cause: "frozen",
+      freeze: "self",
+    });
+    // An unattributable lock is still a lock — the `held` case, which blocks like the others.
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: null }))).toEqual({
+      cause: "frozen",
+      freeze: "held",
+    });
+  });
+
+  it("a settling table is its own answer, not a shade of the lock", () => {
+    expect(classifyRefusedWrite(OK({ settling: true }))).toEqual({ cause: "settling" });
+  });
+
+  it("a cart that is BOTH resolves the way `inertReason` does — settling first", () => {
+    // The separating input: locked AND settling. The two must agree, because `AddButton`,
+    // `ItemSheet` and `YourUsual` render `inertReason` for the same cart this classifier explains —
+    // and `inertReason` is documented "settling → locked → minting, deliberately widest-first".
+    // Disagreeing gives one cart two freezes depending on which surface spoke last.
+    const both = classifyRefusedWrite(OK({ locked: true, lockedBy: PEER, settling: true }));
+    expect(both).toEqual({ cause: "settling" });
+    // Asserted as an AGREEMENT, not as a remembered constant: the clause the refusal shows is the
+    // clause the controls show.
+    expect(refusedWriteNotice(both)).toContain(
+      inertReason({ minting: false, locked: true, lockedByYou: false, settling: true })!,
+    );
+  });
+
+  it("an editable cart answers `unknown` — it must not manufacture a freeze OR a session failure", () => {
+    // The refusal was real (the caller is in a catch) but this client cannot see why: a sold-out
+    // line, a stale modifier, a line owned by someone else. Every neighbour would be a fabrication.
+    expect(classifyRefusedWrite(OK())).toEqual({ cause: "unknown" });
+    expect(refusalNeedsRemint({ cause: "unknown" })).toBe(false);
+  });
+});
+
+describe("refusedWriteNotice — observation plus current state, never a cause", () => {
+  it("NO arm claims the freeze caused the refusal", () => {
+    // ⚠️ One re-read describes the cart at READ time, not at refusal time: an add can fail on a
+    // stale modifier while a tablemate takes the lock before `getCartView` returns. So every
+    // sentence opens with what we observed and then states what is true now.
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "settling" },
+      { cause: "unknown" },
+    ] as const) {
+      const notice = refusedWriteNotice(refusal).toLowerCase();
+      for (const causal of ["because", "since", " caused", "that is why", "so we couldn"]) {
+        expect(notice).not.toContain(causal);
+      }
+    }
+  });
+
+  it("the freeze clause comes from `inertReason` — the vocabulary /menu already speaks", () => {
+    // MUTATION: hand-write any lock clause here → this fails. `AddButton`, `ItemSheet` and
+    // `YourUsual` all render `inertReason` for the same frozen cart; a second vocabulary in the
+    // refusal gives one lock two stories on one screen.
+    expect(refusedWriteNotice({ cause: "frozen", freeze: "peer" }, false)).toContain(
+      inertReason({ minting: false, locked: true, lockedByYou: false, settling: false })!,
+    );
+    expect(refusedWriteNotice({ cause: "frozen", freeze: "self" }, true)).toContain(
+      inertReason({ minting: false, locked: true, lockedByYou: true, settling: false })!,
+    );
+    expect(refusedWriteNotice({ cause: "settling" })).toContain(
+      inertReason({ minting: false, locked: false, settling: true })!,
+    );
+  });
+
+  it("a SELF lock never claims a second checkout — /menu holds no attempt token, which proves nothing", () => {
+    // The first draft delegated to `freezeNotice(freeze, peerName, canRelease: false)`, whose self
+    // branch reads "Another checkout on this device is holding this order". `canRelease` means
+    // "this viewer holds an attempt token", not "this surface has a Reopen button" — so passing
+    // false from /menu asserted a SECOND checkout from the mere absence of a token. A diner who
+    // walked back from /cart after a failed release is ONE tab.
+    const notice = refusedWriteNotice({ cause: "frozen", freeze: "self" }, true).toLowerCase();
+    for (const forbidden of ["another checkout", "another tab", "on this device", "someone"]) {
+      expect(notice).not.toContain(forbidden);
+    }
+    expect(notice).toContain("you check out");
+  });
+
+  it("only `unreachable` may mention reconnecting — it is the only arm that re-mints", () => {
+    expect(refusedWriteNotice({ cause: "unreachable" }).toLowerCase()).toContain("reconnect");
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "settling" },
+      { cause: "unknown" },
+    ] as const) {
+      expect(refusedWriteNotice(refusal).toLowerCase()).not.toContain("reconnect");
+    }
+  });
+
+  it("`unreachable` states what we saw and what we are doing — never that the session expired", () => {
+    // `assertCartMember` throws UNAVAILABLE() for cart/session/membership QUERY errors, and the
+    // Server Action can fail in transport, so a failed read does not establish an expired session.
+    const notice = refusedWriteNotice({ cause: "unreachable" }).toLowerCase();
+    for (const forbidden of ["expired", "timed out", "session ended", "signed out"]) {
+      expect(notice).not.toContain(forbidden);
+    }
+  });
+
+  it("`unknown` claims no cause at all — and does not assert the write failed to land", () => {
+    // `addItemAction` commits and THEN returns `getCartView`, so its promise can reject after the
+    // write landed. "That didn't go through" would be false in exactly that case.
+    const notice = refusedWriteNotice({ cause: "unknown" }).toLowerCase();
+    for (const forbidden of ["lock", "checking out", "reconnect", "splitting", "session"]) {
+      expect(notice).not.toContain(forbidden);
+    }
+    expect(notice).toContain("couldn’t confirm");
+    expect(notice.length).toBeGreaterThan(0);
+  });
+
+  it("every arm returns a non-empty sentence", () => {
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "settling" },
+      { cause: "unreachable" },
+      { cause: "unknown" },
+    ] as const) {
+      expect(refusedWriteNotice(refusal)).toBeTruthy();
+    }
   });
 });

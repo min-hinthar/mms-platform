@@ -356,6 +356,66 @@ const MUTANTS = [
     replace: '    payRequestInFlight && freeze === "self";',
   },
   {
+    id: "refusal/every-refusal-reads-as-unreachable",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: 'T14 \u2014 THIS IS THE SHIPPED DEFECT, restored. `TableCartProvider`\'s `add`/`setItemQty` catches flashed "Reconnecting to your table\u2026" and re-minted the table session for EVERY throw, while `add`\'s own comment listed "a refused write (cart locked, a stale/invalid modifier selection)" among the causes. Collapsing every arm into the one that re-mints is precisely that: a diner whose tablemate is checking out is told their connection dropped and watches a recovery for a session that was never broken',
+    find: '  if (!reread.ok) return { cause: "unreachable" };',
+    replace:
+      '  if (!reread.ok) return { cause: "unreachable" };\n  return { cause: "unreachable" };',
+  },
+  {
+    id: "refusal/remint-runs-on-a-cart-it-just-read",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T14 \u2014 the RECOVERY is a stronger claim than the sentence: it says we know what is wrong and this fixes it. Every arm but `unreachable` has just proved the session works by reading the cart through it, so re-minting there repairs a problem that does not exist \u2014 and the `cartId`-diff effect then announces the session was renewed or restarted, a second false statement",
+    find: '  return refusal.cause === "unreachable";',
+    replace: '  return refusal.cause !== "frozen";',
+  },
+  {
+    id: "refusal/precedence-disagrees-with-inertReason",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: 'T14 (adversarial round 1 on #248) \u2014 the two modules that describe one frozen cart must rank its freezes the SAME way. `inertReason` is documented "settling \u2192 locked \u2192 minting, deliberately widest-first", and `AddButton`/`ItemSheet`/`YourUsual` all render it; a classifier that tested `locked` first handed the same locked-and-settling cart a different freeze from the controls beside it, so which story the diner got depended on which surface spoke last. The first draft of this PR shipped exactly that disagreement',
+    find: '  if (reread.settling) return { cause: "settling" };\n  const freeze = cartFreeze(reread.freeze);',
+    replace:
+      '  const freeze = cartFreeze(reread.freeze);\n  if (freezeBlocksEdits(freeze) && freeze !== null) return { cause: "frozen", freeze };\n  if (reread.settling) return { cause: "settling" };\n  const _unused = 0;\n  void _unused;',
+  },
+  {
+    id: "refusal/unknown-manufactures-a-freeze",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T14 \u2014 the fabrication in the other direction. The refusal was real but this client cannot see why (a sold-out line, a stale modifier, a line owned by someone else); answering `frozen` puts a lock sentence over a cart nobody locked, and tells the diner to wait for something that will never lift",
+    find: '  return { cause: "unknown" };',
+    replace: '  return { cause: "frozen", freeze: "held" };',
+  },
+  {
+    id: "refusal/lock-clause-forks-from-inertReason",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: 'T14 \u2014 the "name it ONCE" rule applied to copy, and the round-1 finding that moved it here. /menu already speaks `inertReason` from `AddButton`, `ItemSheet` and `YourUsual`; a hand-written clause gives one frozen cart two vocabularies on one screen. The replacement is the string the FIRST draft actually shipped, via `freezeNotice`\'s tokenless `self` branch \u2014 which asserts a SECOND checkout from the mere absence of an attempt token, when a diner who walked back from /cart after a failed release is one tab',
+    find: '    case "frozen":\n      return `That didn\u2019t go through \u2014 ${inertReason({\n        minting: false,\n        locked: true,\n        lockedByYou: viewerHoldsLock,\n        settling: false,\n      })}.`;',
+    replace:
+      '    case "frozen":\n      return viewerHoldsLock\n        ? "Another checkout on this device is holding this order. It frees up on its own shortly."\n        : "Someone is checking out \u2014 the order\u2019s locked for a moment.";',
+  },
+  {
+    id: "refusal/unknown-borrows-the-reconnect-sentence",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: 'T14 \u2014 the fabrication isolated to the copy. "Reconnecting" is established ONLY by a re-read that failed, and it is the sentence that accompanies a session re-mint. Saying it for a write refused on a cart we just read tells the diner their connection is at fault and invites them to wait for a recovery that is not running',
+    find: '      return "We couldn\u2019t confirm that \u2014 the order below is up to date.";',
+    replace:
+      '      return "We couldn\u2019t reach your order just now \u2014 reconnecting to your table\u2026";',
+  },
+  {
+    id: "refusal/unreachable-claims-an-expired-session",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T14 (Codex round 1 on #248) \u2014 a failed re-read does NOT establish an expired session: `assertCartMember` throws `UNAVAILABLE()` for cart, session and membership QUERY errors, and the Server Action can fail in transport. The honest arm reports what was observed and what is being attempted; naming the session as the cause is the same fabricated diagnosis one layer up, on the one arm that also takes a recovery action",
+    find: '      return "We couldn\u2019t reach your order just now \u2014 reconnecting to your table\u2026";',
+    replace: '      return "Your table session expired \u2014 reconnecting to your table\u2026";',
+  },
+  {
     id: "freeze/reopen-failure-goes-silent",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
@@ -1483,6 +1543,42 @@ const MUTANTS = [
     why: "W11 review HIGH — the re-open's release loop cancelling a stamped share's PI re-introduces the release-A-then-meet-captured-B race in the sibling exit",
     find: "    if (row.capture_started_at != null) {\n      // W11 (M45): a stamped share",
     replace: "    if (false) {\n      // W11 (M45): a stamped share",
+  },
+  {
+    id: "rewards/summary-error-reads-as-empty-state",
+    file: "apps/qr/lib/rewards.ts",
+    suite: "lib/rewards-summary.test.ts",
+    why: 'T12 \u2014 W9c/J8 restored on the /account hub. `getRewardsState` is the full hub read \u2014 stars, lifetime spend and tier all on one screen. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed", summaryErr);\n    return null;\n  }',
+    replace:
+      '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed", summaryErr);\n    return null;\n  }',
+  },
+  {
+    id: "rewards/summary-error-reads-as-empty-badge",
+    file: "apps/qr/lib/rewards.ts",
+    suite: "lib/rewards-summary.test.ts",
+    why: 'T12 \u2014 W9c/J8 restored on the persistent header. `getRewardsBadge` rides EVERY route, so this one shows the fabrication on every screen the diner opens. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }',
+    replace:
+      '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }',
+  },
+  {
+    id: "rewards/summary-error-reads-as-empty-progress",
+    file: "apps/qr/lib/rewards.ts",
+    suite: "lib/rewards-summary.test.ts",
+    why: 'T12 \u2014 W9c/J8 restored on the /track success moment. `getRewardsProgress` is read the instant a payment lands, which is exactly when a diner looks at their Star count. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);\n    return null;\n  }',
+    replace:
+      '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);\n    return null;\n  }',
+  },
+  {
+    id: "rewards/summary-guard-narrowed-to-missing-row",
+    file: "apps/qr/lib/rewards.ts",
+    suite: "lib/rewards-summary.test.ts",
+    why: "T12 \u2014 the OVER-blocking direction of the same rule. The guard is on the ERROR deliberately: a brand-new diner legitimately has NO summary row, and the `?? 0` fallbacks are exactly what renders their first visit. Narrowing it to the missing row blanks the rewards affordance for every diner who has not ordered yet \u2014 the state the feature exists to open, reported as an outage",
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }\n  const s = (summary ?? {}) as { stars?: number; tier_id?: string };',
+    replace:
+      '  if (summaryErr || !summary) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }\n  const s = (summary ?? {}) as { stars?: number; tier_id?: string };',
   },
   {
     id: "rewards/history-payer-read-unscoped",

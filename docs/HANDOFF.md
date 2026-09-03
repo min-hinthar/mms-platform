@@ -5,6 +5,78 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #248 — T10 · T12 · T14 · T15 closed; /menu stops telling diners their connection dropped)
+>
+> **`main` is at `70521e6`** — #247 merged on the owner's explicit instruction with `codex-review`
+> RED, because Codex had exhausted its account review credits and never reviewed the final head.
+> **Top up Codex credits before opening the next PR, or the same block recurs**; the gate itself
+> worked exactly as designed by staying red rather than pretending.
+>
+> **⚠️ TWO OF THE FOUR ROWS IN THIS SLICE HAD PREMISES THAT WERE WRONG, AND BOTH WRONG IN THE SAME
+> DIRECTION — toward deferral.** That is the headline, not the code.
+>
+> **T14 said /menu was fine.** Verbatim: _"Neither is a silent no-op today: both catches re-sync and
+> speak."_ True, and it hid a live defect. `TableCartProvider`'s `add`/`setItemQty` DID speak — they
+> flashed "Reconnecting to your table…" and re-minted the table session — for EVERY throw, including
+> the lock the catch's own comment listed as a cause. A diner whose tablemate was checking out was
+> told their connection had dropped and watched a re-mint they did not need. That is the M116/M119
+> fabricated-diagnosis class one screen from where four PRs removed it. **J4's clause (b) is "silent
+> no-op"; the class is bigger than the clause** — a control that says something FALSE is worse than
+> one that says nothing (LEARNINGS #70). The fix is `classifyRefusedWrite` in `lib/cart-freeze.ts`:
+> the client cannot read the thrown message (Next redacts Server Action errors in prod), so the cause
+> is re-established with ONE `getCartView` re-read and split into four states — `unreachable` is the
+> only arm that re-mints and the only one that may say "reconnecting"; `settling` is tested FIRST, to
+> match `inertReason`'s documented precedence; `frozen` takes its clause from `inertReason` too, the
+> vocabulary /menu already speaks; `unknown` claims nothing. **Grep for the RECOVERY, not the copy** —
+> an unconditional `revalidate()` in a catch is a diagnosis whether or not anything is printed.
+>
+> ⚠️ **THERE IS NO PRE-WRITE GATE, AND RE-ADDING ONE IS THE DEFECT.** Two review rounds killed two
+> separate attempts (the provider's, then `YourUsual`'s). `authz.ts` computes the lock as
+> `locked_at > now - CART_LOCK_TTL_MS`, so it expires by the passage of TIME with no row write — no
+> realtime event, and a tab that stays visible never hits the visibility refresh either. Any gate on
+> that cached value intercepts the very write that would have corrected it. The server decides;
+> refusals are explained afterwards, from a read (LEARNINGS #72).
+>
+> **T10 named a blocker belonging to a different hook.** It said widening the subscription "changes
+> channel scope and the RLS path on `realtime.messages` (private channels, `is_member`)" — all true of
+> `useGroupCart`, none of it true of `useCartRealtime`, which is the hook the row is about. They share
+> a file and the reasoning slid between them, toward the more expensive answer (LEARNINGS #71).
+> Measured: non-private channel, no broadcast, ordinary SELECT RLS on `qr_carts` with no mode term,
+> both tables on the publication since `20260620000600_cart_realtime.sql`. No migration, no policy.
+> The "slice" was the deletion of the `enabled` parameter — and deletion is the point: a parameter
+> that does not exist cannot be re-narrowed, which is T9's required-props argument one layer down.
+>
+> **`YourUsual` was a fourth ungated add surface**, found while measuring T14 rather than named by it.
+> `AddButton` and `ItemSheet` have gated on `locked || settling` since W9b; it never did.
+>
+> **T12** is mechanical now: `lib/rewards-summary.test.ts` plus four mutants, one per
+> `mms_rewards_summary` reader plus the over-tight direction. Every reader asserted in BOTH
+> directions — a suite that only checked "an error yields null" passes against a reader that returns
+> null unconditionally, which is its own defect.
+>
+> **T15** was re-read rather than restated: none of the kiosk's four catches fabricates a cause, so it
+> stays outside the freeze model by decision.
+>
+> ⚠️ **T20 IS THE HIGHEST-VALUE ROW THIS SLICE LEAVES, AND #248 RAISED ITS REACH.** `AddButton` and
+> `ItemSheet` are natively disabled off a CACHED `locked`, and the lock expires by computation with
+> no row event — so both primary add surfaces can go permanently inert, and being disabled they
+> cannot generate the request that would correct the cache. T10's realtime widening made that state
+> reachable on pickup and scan-and-go, which never received a pushed lock before. The fix needs
+> `CART_LOCK_TTL_MS` out of `server-only` `lib/lock.ts` into a shared pure module, then ONE re-read
+> scheduled while the freeze is held — not a poll (see `recheckLock`'s reasoning on the checkout
+> side). Do it before the next surface adopts the same gate.
+>
+> **T21 is the other thing #248 leaves**, and (a) is the one worth doing first: `getCartView`
+> destructures `qr_carts` and `qr_cart_items` WITHOUT binding `error`, so a failed line read resolves
+> as an EMPTY cart for every caller in the app — not just the new recovery path. Bind and throw.
+>
+> **Still open, in order:** the **cart→intent link** (M123 · M124 · M151 · M152 a/b/c — one owner
+> decision, designed in `docs/CART_INTENT_LINK.md`, **not written, not applied, authorization
+> required**; the QR prod migration history is divergent — read the `db push` warning in `CLAUDE.md`
+> first) · **C16** (owner-only) · **T16** (nine deferred guard evasions) · **T17** (the new one: the
+> no-mode-gate rule is enforced by TypeScript, not by a guard) · the med/low sweep, which has still
+> never had a truth pass — and after this slice, **assume it is stale in the deferral direction.**
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #247 — T9 · T11 · T13 closed; the freeze now reaches the child controls, and two guards that could not fail can)
 >
 > **Branch `claude/qr-app-backlog-cj2t0m`, PR #247, on top of `ce1c4a8`.** Three registry rows closed
@@ -445,7 +517,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 248 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1157 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 259 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1179 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1167,7 +1239,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (248 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (259 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

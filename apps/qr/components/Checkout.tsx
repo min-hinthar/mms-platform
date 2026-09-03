@@ -448,9 +448,18 @@ export function Checkout({
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
   // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
-  // shares + tab state stay in step. Enabled for ANY dine-in cart (not just groups) — a solo
-  // diner must still see a staff/webhook tab flip land live (W12: it swaps the Bill moment's
-  // save-card line for the "Card on file" note; the qr_carts UPDATE drives refresh → tabType).
+  // shares + tab state stay in step. A solo dine-in diner needs it for a staff/webhook tab flip
+  // (W12: it swaps the Bill moment's save-card line for the "Card on file" note).
+  //
+  // T10 — it used to be gated `canTab || isGroup`, and BOTH terms resolve to dine-in, so pickup and
+  // scan-and-go review steps never heard the `qr_carts` lock UPDATE at all: a second tab kept live
+  // controls over a cart the server was refusing until the diner's next edit snapped it back. The
+  // gate is gone (see `useCartRealtime`'s docblock for what it did and did not cost).
+  //
+  // The lock arriving live here is what `visibleFreeze` was written for and, until now, only dine-in
+  // exercised: our OWN create-intent acquires the lock mid-request, the UPDATE lands as `self`, and
+  // the suppression hides only a lock that appeared DURING the request. `refresh()` never touches
+  // clientSecret/payTotals/step, so a lock flip cannot disturb a mounted Payment Element.
   const anon = useAnonSession();
   // W10a — diagnosed failure attribution for the promo/pay copy (never blame the connection blind).
   // `truth` is deliberately NOT read here — the one consumer awaits `diagnose()` for the verdict
@@ -460,7 +469,7 @@ export function Checkout({
   // WalletChip renders nothing for an anonymous diner). Balance is server-derived; a fetch failure
   // just hides the chip.
   const rewardsBadge = useRewardsBadge();
-  useCartRealtime(cartId, anon?.accessToken ?? "", canTab || isGroup, () => {
+  useCartRealtime(cartId, anon?.accessToken ?? "", () => {
     void refresh();
   });
   const [payError, setPayError] = useState<string | null>(null);

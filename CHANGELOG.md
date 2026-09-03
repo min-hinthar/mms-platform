@@ -4,6 +4,99 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
+
+**Round 1 rewrote most of this.** Codex and a blind adversarial pass independently returned the same
+P1: the pre-write gate refused writes against a CACHED freeze, and `authz.ts` expires a lock by
+computation (`locked_at > now - CART_LOCK_TTL_MS`) with no row write — so no realtime event ever
+corrects it, and the gate removed the mutation whose returned view would have. **The gate is gone;
+the server decides.** Four more, each verified against source: a failed re-read is `unreachable`, not
+a session verdict (`assertCartMember` throws `UNAVAILABLE()` for query and transport errors too); no
+arm claims the freeze CAUSED the refusal, which one later read cannot establish; the freeze clause
+comes from `inertReason` — the vocabulary /menu already speaks — instead of `freezeNotice`, whose
+tokenless `self` branch asserted a second checkout from a missing attempt token; and the precedence
+now matches `inertReason`'s settling-first order, so one cart cannot get two freezes depending on
+which surface spoke last. `addItem` commits and THEN returns `getCartView`, so a post-commit read
+failure no longer reports a write that landed as refused, and `YourUsual` carries the established
+cause instead of overwriting it with "try it from the menu below" — the exact string this slice
+removed one layer down.
+
+Two guard repairs came out of the same round. `check-docs.mjs` now checks BODY-row cell counts, not
+just header-vs-delimiter parity: five freshly-written registry rows had silently lost their Status
+and Source cells and the gate could not see it — GFM pads a short row rather than refusing it. That
+found **38 more rows** in the same state, all repaired. And `check-child-freeze`'s exemption for
+`TableCartProvider` was excusing the very defect it described ("both catches already re-sync and
+speak"), so it now says what the catches actually do. `.usual-add:disabled` was dead CSS — the
+control is `aria-disabled` by design — so the inert state rendered as a live-looking primary CTA.
+
+Filed: **T18** (the /menu freeze wiring is guarded only at the lib layer) · **T19** (the realtime
+widening doubles cart reads on solo-mode writes).
+
+**T14 — `TableCartProvider` answered every refused cart write the same way: "Reconnecting to your
+table…" plus a session re-mint.** Its own comment listed the causes — "a silently-EXPIRED table
+session … or a refused write (cart locked, a stale/invalid modifier selection)" — and then treated
+all of them as the first. So a diner whose tablemate was checking out was told their CONNECTION had
+dropped, watched a session re-mint they did not need, and could then be told the session was
+restarted: two false statements about a session that was fine. That is the M116/M119
+fabricated-diagnosis class, and it survived on /menu because the client cannot read the thrown
+message — Next redacts Server Action errors in production, so the server's own "Order is locked
+while someone checks out" never reaches the browser and the cause has to be RE-ESTABLISHED rather
+than parsed.
+
+`classifyRefusedWrite` (`lib/cart-freeze.ts`) does that with ONE re-read of `getCartView`, the same
+`assertCartMember` gate the write went through, and separates four states: a failed re-read is
+`unreachable` — the only arm that re-mints, and the only one that may say "reconnecting", because
+`assertCartMember` throws `UNAVAILABLE()` for query and transport errors too and a failed read
+establishes nothing about a session; a settling table is `settling`, tested FIRST so the precedence
+matches `inertReason`'s documented settling → locked order; a locked cart is `frozen`; and an
+editable cart is `unknown`, which claims no cause at all. Every sentence is an OBSERVATION plus
+current state, never a causal claim — one later read cannot establish what refused an earlier write.
+The freeze clause comes from `inertReason`, the vocabulary `AddButton`, `ItemSheet` and the rest of
+/menu already speak.
+
+**There is no pre-write gate**, and its absence is load-bearing: see the round-1 note below.
+
+**Round 2 removed the last cached gate.** `YourUsual`'s own freeze gate had exactly the defect the
+provider's did — Codex caught the rationalisation ("consistent with its siblings") for what it was —
+so the card no longer refuses a tap on a cached freeze, and the refusal notice is no longer published
+before the caller has checked whether the write landed. `AddButton` publishes nothing after a
+successful add, so a post-commit read failure there had been announcing "We couldn't confirm that"
+over a change that was in the cart. `setItemQty` gained the same landing check (its target is exact,
+so the re-read settles it). The two pre-existing sibling gates, and their `lockedByName === "You"`
+identity inference from peer-supplied presence copy, are filed as **T20** rather than widened into.
+
+**`YourUsual` was a fourth ungated add surface.** `AddButton` and `ItemSheet` have gated on `locked
+|| settling` since W9b; this one did not, so under a peer's checkout every tap fired a refused write
+and the diner was told "we couldn't add X — try from the menu below", pointing at a menu that is
+frozen too. It reads the same `inertReason` vocabulary as its siblings now, refuses before the
+optimistic announce, and carries the reason in its accessible name. `MenuBrowser`'s reorder needed
+no change, and that is recorded rather than assumed: `reorderOrder` returns the freeze reason as
+server-authored DATA, so redaction never touches it and the component already announces it verbatim.
+
+**T10 — pickup and scan-and-go carts got no live lock delivery**, so a second tab kept showing live
+controls until the diner's next edit was refused and snapped back. The row's filed blocker was about
+a different code path: it named "the RLS path on `realtime.messages` (private channels, `is_member`)",
+which is `useGroupCart`'s, while `useCartRealtime` opens a deliberately NON-private channel carrying
+no broadcast. Measured — delivery rides the ordinary SELECT RLS on `qr_carts` (`is_member(session_id)
+or is_staff()`, no mode term), and both tables have been on the `supabase_realtime` publication for
+every row since `20260620000600_cart_realtime.sql` — so this needed no migration and no policy. The
+fix is the REMOVAL of the `enabled` parameter rather than a wider argument: both call sites passed a
+dine-in predicate, and a parameter that does not exist cannot be re-narrowed.
+
+**T12 — the rewards error→null rule is mechanical now.** New `lib/rewards-summary.test.ts` plus four
+mutants: one per `mms_rewards_summary` reader, each disabling that reader's `if (summaryErr) return
+null` and restoring J8's zeroed hub, plus the over-tight direction that would blank the affordance
+for every first-time diner. Every reader is asserted in BOTH directions, because a suite that only
+checked "an error yields null" would pass against a reader that returns null unconditionally.
+
+**T15 — the kiosk's four lock-refusing mutations were re-read, not restated.** None of the catches
+carries a fabricated diagnosis: two answer a generic `somethingWrong`, `KioskScan` maps its result
+path through `scanFailKey(r.reason)`, and `KioskReview`'s two swallows are deliberate and commented.
+The kiosk stays outside the freeze model by decision.
+
+Filed: **T17** — the no-mode-gate rule on `useCartRealtime` is enforced by TypeScript and by the
+absent parameter, not by a guard, and `realtime.ts` carries a `verify:slice-exempt`.
+
 ### The freeze reaches the child controls, and two guards stop being blind (2026-09-03)
 
 **T9 — four nested controls presented live cart-mutation affordances under every freeze**, because
