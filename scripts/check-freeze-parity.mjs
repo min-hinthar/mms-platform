@@ -28,7 +28,12 @@
  * more were added when T11 and T13 closed: flip a refusal to `return { ok: true }` → fails rule 1
  * (it is no longer a refusal); put a write INSIDE the locked branch → fails rule 2 (the exit, not
  * the `if`, is what orders it); drop `setPickupSlot`'s refusal, which used to print CLEAN → now
- * fails rule 1, because the FILE SET is derived rather than named.
+ * fails rule 1, because the FILE SET is derived rather than named. Three more when Codex audited
+ * those fixes: a dead conjunct in the upstream derivation (`locked: false && cart.locked && …`,
+ * which satisfied both presence checks) → fails the constant-operand rule; a NEW local write helper
+ * called before the refusal → fails rule 2, because the helper set is derived rather than named;
+ * a new authorize-and-write module with no lock binding at all → appears in `extra:` instead of
+ * being invisible.
  */
 import { readFileSync, readdirSync } from "node:fs";
 import ts from "typescript";
@@ -92,7 +97,14 @@ const references = (node, name) => {
  * imported into `cart.ts`, and the check fails if one is not. A rename or a removed import breaks
  * the build of this guard rather than silently shrinking its coverage. */
 const WRITE_CALLS = new Set(["update", "insert", "upsert", "delete", "rpc"]);
-const WRITE_HELPERS = new Set(["insertOrIncLine", "touchCart"]);
+/**
+ * A FLOOR, not the definition (Codex on #247). The helper set is DERIVED below — every function in
+ * `apps/qr/lib` whose own body performs a direct write — because two hard-coded names made the
+ * ordering rule vacuous for any NEW helper: extract `saveLine()` out of a mutation, call it before
+ * the lock refusal, and `writeAt` becomes Infinity while the guard prints clean. These two are kept
+ * only so that a derivation which silently stops finding anything fails loudly instead.
+ */
+const WRITE_HELPER_FLOOR = new Set(["insertOrIncLine", "touchCart"]);
 
 /**
  * A write — the ONE predicate, used by subject discovery AND the ordering rule.
@@ -102,10 +114,37 @@ const WRITE_HELPERS = new Set(["insertOrIncLine", "touchCart"]);
  * caught only by insisting on watching the fix fail (LEARNINGS #65). Two predicates for one concept
  * is how that happens, so there is now exactly one.
  */
-const isWriteCall = (n) =>
+const namedFunctionsIn = (srcFile) => {
+  const out = [];
+  walk(srcFile, (n) => {
+    if (ts.isFunctionDeclaration(n) && n.body && n.name) out.push({ fn: n, name: n.name.text });
+    else if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+    )
+      out.push({ fn: n.initializer, name: n.name.text });
+  });
+  return out;
+};
+
+/** A DIRECT write: `db.from(…).update(…)`, `.insert(`, `.rpc(` and friends. */
+const isDirectWrite = (n) =>
   ts.isCallExpression(n) &&
-  ((ts.isPropertyAccessExpression(n.expression) && WRITE_CALLS.has(n.expression.name.text)) ||
-    (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
+  ts.isPropertyAccessExpression(n.expression) &&
+  WRITE_CALLS.has(n.expression.name.text);
+
+/**
+ * A write — the ONE predicate, built per file over the DERIVED helper set.
+ *
+ * ⚠️ IT IS ONE PREDICATE ON PURPOSE. An earlier round added the helper arm to a second, parallel
+ * matcher and not to this one, and the ordering rule silently kept its old direct-call-only reach —
+ * caught only by insisting on watching the fix fail (LEARNINGS #65).
+ */
+const makeIsWriteCall = (writerNames) => (n) =>
+  isDirectWrite(n) ||
+  (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && writerNames.has(n.expression.text));
 
 /**
  * Does this `return` hand back a FAILURE?
@@ -126,16 +165,31 @@ const isWriteCall = (n) =>
  * enough because `{ ok: true, reason: "…" }` would sail through. A throw needs no shape: it cannot
  * be mistaken for success.
  */
+const unwrap = (e) => {
+  // ⚠️ `false as const` is an AsExpression WRAPPING the keyword, and `grocery.ts` writes every
+  // refusal that way: `return { ok: false as const, reason: "locked" as const }`. The first draft of
+  // this predicate compared `initializer.kind` to `FalseKeyword` directly and therefore called a
+  // real refusal a non-refusal — a false NEGATIVE, invisible until the file set widened enough to
+  // reach `scanAdd`. Type-only wrappers are not behaviour; peel them before asking about the value.
+  let x = e;
+  for (;;) {
+    if (ts.isParenthesizedExpression(x) || ts.isAsExpression(x) || ts.isSatisfiesExpression(x))
+      x = x.expression;
+    else if (ts.isNonNullExpression(x)) x = x.expression;
+    else return x;
+  }
+};
+
 const returnsFailure = (st) => {
   if (!ts.isReturnStatement(st) || !st.expression) return false;
-  const e = ts.isParenthesizedExpression(st.expression) ? st.expression.expression : st.expression;
+  const e = unwrap(st.expression);
   if (!ts.isObjectLiteralExpression(e)) return false;
   return e.properties.some(
     (p) =>
       ts.isPropertyAssignment(p) &&
       ((ts.isIdentifier(p.name) && p.name.text === "ok") ||
         (ts.isStringLiteral(p.name) && p.name.text === "ok")) &&
-      p.initializer.kind === ts.SyntaxKind.FalseKeyword,
+      unwrap(p.initializer).kind === ts.SyntaxKind.FalseKeyword,
   );
 };
 
@@ -163,7 +217,7 @@ const thenBranchRefuses = (ifStmt) => {
   // NO DESCENT AT ALL. The branch's OWN statement list must contain the exit — that is what makes
   // this an unconditional refusal rather than a possible one. Descending found the `return` inside
   // `if (shouldRefuse)` / a loop / a callback, none of which stop the function when their own
-  // condition is false. All fourteen real refusals are a single `throw` or `return`, so the
+  // condition is false. All fifteen real refusals are a single `throw` or `return`, so the
   // strictness costs nothing; if a legitimate shape ever needs a block, put the exit at its top level.
   const t = ifStmt.thenStatement;
   const stmts = ts.isBlock(t) ? t.statements : [t];
@@ -236,12 +290,65 @@ const bindsLockedFromAuthz = (srcFile) => {
   return hit;
 };
 
-const MUTATION_FILES = readdirSync(path.join(ROOT, LIB))
+/**
+ * ⚠️ AND DISCOVERY MUST NOT DEPEND ON THE BINDING IT AUDITS (Codex on #247). Filtering files on
+ * `bindsLockedFromAuthz` alone reproduced, at FILE level, the hole round 3 of #246 closed at
+ * FUNCTION level: a new `apps/qr/lib/*.ts` that calls `assertCartMember` and WRITES but never reads
+ * `locked` fell outside `MUTATION_FILES`, outside `subjects`, and outside the `extra:` speed bump —
+ * so CI stayed green for exactly the missing-refusal regression this derivation exists to catch.
+ * The file set is therefore the same UNION the subject selector uses: binds the lock fact, OR
+ * authorizes and writes.
+ */
+const authorizesAndWrites = (sf) => {
+  let authorizes = false;
+  let writes = false;
+  walk(sf, (n) => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      (n.expression.text === "assertCartMember" || n.expression.text === "assertCartItemMember")
+    )
+      authorizes = true;
+    if (isDirectWrite(n)) writes = true;
+  });
+  return authorizes && writes;
+};
+
+const ALL_LIB = readdirSync(path.join(ROOT, LIB))
   .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
   .map((f) => `${LIB}/${f}`)
   .sort()
-  .map((rel) => ({ rel, sf: parse(rel) }))
-  .filter(({ sf }) => bindsLockedFromAuthz(sf));
+  .map((rel) => ({ rel, sf: parse(rel) }));
+
+const MUTATION_FILES = ALL_LIB.filter(
+  ({ sf }) => bindsLockedFromAuthz(sf) || authorizesAndWrites(sf),
+);
+
+/**
+ * The DERIVED write helpers: every named function anywhere in `apps/qr/lib` whose own body performs
+ * a direct write. A mutation that calls one of these has written, whatever the helper is called —
+ * which is the point, because the previous two-name list made the ordering rule vacuous for any new
+ * extraction (`saveLine()` called before the lock refusal → `writeAt` Infinity → clean).
+ */
+const WRITERS = new Set();
+for (const { sf } of ALL_LIB)
+  for (const { fn, name } of namedFunctionsIn(sf)) {
+    let writes = false;
+    walk(fn, (n) => {
+      if (isDirectWrite(n)) writes = true;
+    });
+    if (writes) WRITERS.add(name);
+  }
+const isWriteCall = makeIsWriteCall(WRITERS);
+
+const missingFloor = [...WRITE_HELPER_FLOOR].filter((h) => !WRITERS.has(h));
+if (missingFloor.length)
+  fail(
+    `the derived write-helper set no longer contains: ${missingFloor.join(", ")}.\n  ` +
+      "These are known writers, so their absence means the DERIVATION broke — not that they stopped\n  " +
+      "writing. A helper set that silently shrinks is how the ordering rule goes vacuous; fix the\n  " +
+      "derivation rather than the floor.",
+  );
 
 if (!MUTATION_FILES.some(({ rel }) => rel === CART))
   fail(
@@ -250,24 +357,9 @@ if (!MUTATION_FILES.some(({ rel }) => rel === CART))
       "that cart.ts stopped holding cart mutations. Fix the selector; never widen the rule to pass.",
   );
 
-// The helper names are BOUND: each must actually be imported into one of the derived files. A rename
-// or a dropped import fails here instead of quietly narrowing what counts as a write.
-const imported = new Set();
-for (const { sf } of MUTATION_FILES)
-  walk(sf, (n) => {
-    if (ts.isImportSpecifier(n)) imported.add(n.name.text);
-  });
-const unboundHelpers = [...WRITE_HELPERS].filter((h) => !imported.has(h));
-if (unboundHelpers.length)
-  fail(
-    `these WRITE_HELPERS are imported by none of the derived mutation files: ${unboundHelpers.join(", ")}.\n  ` +
-      "A helper name that matches nothing silently shrinks what this guard counts as a write, which\n  " +
-      "is how the ordering rule goes vacuous. Update the names to match the imports.",
-  );
-
 // ── the DERIVATION, one file upstream ────────────────────────────────────────────────────────────
-// Every `locked` the fourteen mutations read comes from `assertCartMember`, which computes it in
-// `authz.ts`. Narrowing it THERE narrows all fourteen at once and this guard, then reading only
+// Every `locked` the fifteen mutations read comes from `assertCartMember`, which computes it in
+// `authz.ts`. Narrowing it THERE narrows all fifteen at once and this guard, then reading only
 // `cart.ts`, would never see it (blind adversarial pass on #246). So the derivation is checked too: the
 // expression assigned to the returned `locked` field must not reference a holder identity.
 const AUTHZ = "apps/qr/lib/authz.ts";
@@ -392,7 +484,7 @@ const readsCartField = (field) =>
 
 // ⚠️ AND IT MUST STILL DERIVE FROM THE DATABASE FLAG (Codex round 6 on #246). Rejecting holder
 // identifiers says what the derivation may NOT contain and nothing about what it must. `locked:
-// false` contains none of the forbidden names, passes clean, and unfreezes every one of the fourteen
+// false` contains none of the forbidden names, passes clean, and unfreezes every one of the fifteen
 // mutations at once while `cart-freeze.ts` keeps the client read-only — the exact inversion this
 // file exists to catch, arriving through absence instead of narrowing. Falsified: replacing
 // `lockedFresh` with `false` printed clean.
@@ -408,9 +500,59 @@ for (const [term, why] of [
     fail(
       `${AUTHZ} derives \`locked\` WITHOUT reading ${why} off the cart row.\n  ` +
         "Every cart mutation refuses on this one value, so a derivation that no longer reads the\n  " +
-        "database is not a narrowing — it is an unfreeze of all fourteen at once, while\n  " +
+        "database is not a narrowing — it is an unfreeze of all fifteen at once, while\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps the CLIENT read-only. If the mechanism really changed,\n  " +
         "update this check in the same commit, deliberately.",
+    );
+}
+
+/**
+ * ⚠️ AND THE READS MUST MATTER (Codex on #247). The two checks above ask whether `cart.locked` and
+ * `cart.locked_at` APPEAR somewhere in the derivation's AST. Appearing is not affecting:
+ *
+ *     locked: false && cart.locked && cart.locked_at !== null    // both terms present, always false
+ *
+ * satisfies them both, and unfreezes every one of the fifteen mutations at once while
+ * `cart-freeze.ts` keeps the client read-only — the same inversion the `locked: false` check was
+ * added for, arriving through a dead conjunct instead of an absence.
+ *
+ * Proving "a fresh held lock ENTAILS the returned value" in general is a solver's job. What is
+ * checkable, and what the real derivation actually is, is the shape: an `&&` chain in which no
+ * operand is a constant. Every operand of a conjunction can force the result false, so a literal
+ * one is a switch that turns the whole lock off — and there is no legitimate reason to write one.
+ * Ambiguity is REFUSED rather than guessed: if the derivation stops being a conjunction, this fails
+ * and the next reader decides deliberately, exactly like EXPECTED_SUBJECTS.
+ */
+const flattenAnd = (e) => {
+  const x = unwrap(e);
+  if (ts.isBinaryExpression(x) && x.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken)
+    return [...flattenAnd(x.left), ...flattenAnd(x.right)];
+  return [x];
+};
+const CONSTANT_KINDS = new Set([
+  ts.SyntaxKind.TrueKeyword,
+  ts.SyntaxKind.FalseKeyword,
+  ts.SyntaxKind.NullKeyword,
+  ts.SyntaxKind.NumericLiteral,
+  ts.SyntaxKind.StringLiteral,
+]);
+const conjunction = lockedInits.map(flattenAnd).find((ops) => ops.length > 1);
+if (!conjunction)
+  fail(
+    `${AUTHZ} no longer derives \`locked\` as a conjunction.\n  ` +
+      "Every cart mutation refuses on this one value, and the only shape this guard can prove is an\n  " +
+      "`&&` chain whose operands all read something. If the mechanism genuinely changed, update this\n  " +
+      "check in the same commit — do not let an unreadable derivation pass as a readable one.",
+  );
+else {
+  const dead = conjunction.find((o) => CONSTANT_KINDS.has(unwrap(o).kind));
+  if (dead)
+    fail(
+      `${AUTHZ} derives \`locked\` through a CONSTANT operand: \`${dead.getText(authzSf)}\`.\n  ` +
+        "A literal in an `&&` chain is a switch, and a falsy one turns the lock off for every\n  " +
+        "mutation at once while the reads around it still satisfy the presence checks above. That is\n  " +
+        "an unfreeze wearing a derivation's clothes, and `cart-freeze.ts` would keep the CLIENT\n  " +
+        "read-only while the server accepted every write.",
     );
 }
 
@@ -418,7 +560,7 @@ for (const holder of ["locked_by", "lockedBy", "uid"]) {
   if (lockedInits.some((e) => references(e, holder)))
     fail(
       `${AUTHZ} derives \`locked\` using \`${holder}\`.\n  ` +
-        "That narrows the lock at its SOURCE, so all 14 cart mutations start excusing the holder at\n  " +
+        "That narrows the lock at its SOURCE, so all 15 cart mutations start excusing the holder at\n  " +
         "once while every per-function guard below still looks correct — and\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps blocking, making the CLIENT the stricter side. If this is\n  " +
         "deliberate, `cartFreeze` and its parity test change in the SAME commit.",
@@ -449,6 +591,39 @@ const EXEMPT = new Map([
     "a READ. It destructures `locked` precisely to return it to the client — that value is what " +
       "feeds `cartFreeze`. Refusing here would break the screen this slice exists to fix.",
   ],
+  // ── The four below joined when discovery widened to authorize-and-write modules (Codex on #247).
+  // Each was READ before it was excused; none is a missing refusal, and each refuses in a shape this
+  // guard's three rules cannot express. The dead-exemption rule keeps every one of them honest.
+  [
+    "releasePayLock",
+    "it RELEASES the lock. Demanding `if (locked) throw` here would refuse the one operation whose " +
+      "job is to clear the freeze, and would strand every diner whose attempt was superseded. This " +
+      "exemption was written once before, never fired because the function was outside the file " +
+      "set, and was deleted by the dead-exemption rule — it is back now that discovery reaches it.",
+  ],
+  [
+    "openSettlement",
+    "refuses on the lock through `acquireSettlement`, which answers a discriminated string: " +
+      '`if (acq === "locked") throw new Error("Someone\u2019s checking out — try again in a ' +
+      'moment")`. The freeze IS the mutex it acquires, so the check cannot be an `if (locked)` on ' +
+      "the authz result — it has to be the acquisition's own outcome, or two opens race the " +
+      "derive/insert between the read and the write.",
+  ],
+  [
+    "abortSettlement",
+    "the release side of `openSettlement`, and same shape: it exists to clear the settle freeze, " +
+      "and its refusals are about live PaymentIntents (`Payment already completed`, `A payment is " +
+      "completing`) rather than the cart lock. Refusing it on `locked` would make a stuck settling " +
+      "table unrecoverable.",
+  ],
+  [
+    "openTab",
+    "refuses on a FRESHLY READ cart row rather than the authz snapshot — `paymentInFlightReason` " +
+      "over `locked`/`locked_at`/`settle_at`, before `mms_open_tab`. That is STRICTER than this " +
+      "guard's rule (it also catches a split-settle freeze and an authorized share, and it fails " +
+      "CLOSED on the read error — M119a), so demanding the narrower `if (locked)` shape here would " +
+      "be a downgrade dressed as a rule.",
+  ],
 ]);
 
 /**
@@ -463,20 +638,6 @@ const EXEMPT = new Map([
  * lock refusal and this guard never sees it, which is precisely what the `extra:` speed bump exists
  * to prevent. Both spellings now enter the same set.
  */
-const namedFunctionsIn = (srcFile) => {
-  const out = [];
-  walk(srcFile, (n) => {
-    if (ts.isFunctionDeclaration(n) && n.body && n.name) out.push({ fn: n, name: n.name.text });
-    else if (
-      ts.isVariableDeclaration(n) &&
-      ts.isIdentifier(n.name) &&
-      n.initializer &&
-      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
-    )
-      out.push({ fn: n.initializer, name: n.name.text });
-  });
-  return out;
-};
 
 const subjects = [];
 const exempted = [];
@@ -576,8 +737,10 @@ if (deadExemptions.length)
 // regression the floor was supposed to catch.
 //
 // MEASURED, never transcribed: produced by instrumenting this file to print
-// `subjects.map((s) => s.name).sort()` and pasting the output — FOURTEEN since the file set became
-// derived (T13): the eleven in `cart.ts`, `pickup.ts`'s two, and `reorder.ts`'s one. Adding a
+// `subjects.map((s) => s.name).sort()` and pasting the output — FIFTEEN since discovery widened
+// twice (T13, then Codex on #247): the eleven in `cart.ts`, `pickup.ts`'s two, `reorder.ts`'s one,
+// and `grocery.ts`'s `scanAdd`, which was reachable only once the file set stopped depending on the
+// very binding it audits AND `returnsFailure` learned to unwrap `false as const`. Adding a
 // lock-bearing mutation is meant to fail here once — add the name deliberately, so nobody adds one
 // without noticing that it now owes a refusal. It fired on exactly that twice while T13 was being
 // closed, and both new subjects were READ before their names went in: all three already satisfy the
@@ -590,6 +753,7 @@ const EXPECTED_SUBJECTS = [
   "clearReward",
   "makeItNow",
   "reorderOrder",
+  "scanAdd",
   "sendToKitchen",
   "setKioskTip",
   "setLineFulfillment",

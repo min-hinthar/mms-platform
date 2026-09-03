@@ -17,6 +17,21 @@ import { PickupSlotSheet } from "./PickupSlotSheet";
  * Errors route UP to the checkout's single review-step live region (onStatus) — not a second region —
  * so a screen reader hears one announcement per view (the slot sheet owns its own in-dialog alert).
  */
+/**
+ * What this control says when a frozen tap arrives, and what a `locked` refusal from the server says
+ * — ONE string for both, because they are the same fact reaching the diner by two routes (a tap
+ * refused here, and a queued write refused there).
+ *
+ * ⚠️ IT NAMES THE CONTROL, NEVER THE HOLDER. An earlier draft echoed Checkout's `freezeNotice`
+ * through a `frozenNote` prop with a "Someone’s checking out" fallback. That fallback was reachable
+ * in exactly one state — `frozen === true` with `frozenNote === null`, which is the viewer's OWN
+ * in-flight `create-intent` — so it blamed a peer in the one window where the code has established
+ * the holder is the reader. That is the M116 fabricated-diagnosis class. Echoing the bar's exact
+ * string is also inert: setting the live region to the value it already holds changes no DOM and
+ * announces nothing.
+ */
+const FROZEN_NOTE = "Pickup timing is locked while a checkout finishes.";
+
 export function PickupWhenChoice({
   cartId,
   prepMinutes,
@@ -27,7 +42,6 @@ export function PickupWhenChoice({
   onRevert,
   writesRef,
   frozen,
-  frozenNote,
 }: {
   cartId: string;
   prepMinutes: number;
@@ -61,8 +75,6 @@ export function PickupWhenChoice({
    *  below already snaps the pill back to `confirmedSlot` and says so. That path is the in-flight
    *  answer; this prop is only about not OFFERING a tap whose outcome is already decided. */
   frozen: boolean;
-  /** The lockbar's own sentence, reused verbatim rather than re-derived here. */
-  frozenNote: string | null;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const asap = slot === null;
@@ -98,11 +110,10 @@ export function PickupWhenChoice({
     });
   }
 
-  /** The one sentence this component gives a frozen tap — the lockbar's if Checkout supplied one,
-   *  otherwise a local fallback in the same voice. Both pills are dimmed together while frozen, so
-   *  every tap in the row explains itself, including one on the already-selected pill. */
+  /** The one sentence this component gives a frozen tap. Both pills are dimmed together while
+   *  frozen, so every tap in the row explains itself, including one on the already-selected pill. */
   function refuseFrozen() {
-    onStatus(frozenNote ?? "Someone’s checking out — you can’t change the timing right now.");
+    onStatus(FROZEN_NOTE);
   }
 
   /** Don't open a sheet whose every pick would be refused — say why instead. */
@@ -145,7 +156,7 @@ export function PickupWhenChoice({
           r.reason === "cart_closed"
             ? "This order is already being paid."
             : r.reason === "locked"
-              ? "Someone’s checking out — try again in a moment."
+              ? FROZEN_NOTE
               : "Couldn’t switch to ASAP — please try again.",
         );
       } catch {
@@ -181,10 +192,20 @@ export function PickupWhenChoice({
         if (token !== writeToken.current) return;
         onSlotChange(confirmedSlot.current);
         onRevert();
+        // ⚠️ THE `locked` ARM IS LOAD-BEARING, and its absence was a shipped defect this PR's own
+        // docblock pointed AT as the reason in-flight writes need no client gate. Without it a
+        // slot pick refused by the lock read "Couldn’t set that time — please try again", which
+        // both invents a cause the server did not give and invites a retry the lock will refuse
+        // for up to CART_LOCK_TTL_MS (5 minutes, `lib/lock.ts`). `chooseAsap` had the arm; this
+        // handler did not, so the two halves of one control disagreed about the same refusal.
         onStatus(
           r.reason === "unavailable"
             ? "That time just filled — pick another."
-            : "Couldn’t set that time — please try again.",
+            : r.reason === "cart_closed"
+              ? "This order is already being paid."
+              : r.reason === "locked"
+                ? FROZEN_NOTE
+                : "Couldn’t set that time — please try again.",
         );
       } catch {
         if (token !== writeToken.current) return;
@@ -213,7 +234,7 @@ export function PickupWhenChoice({
           // established (M116's rule — a refusal names the reason it actually has).
           aria-label={
             frozen
-              ? "As soon as possible — timing is locked while someone checks out"
+              ? "As soon as possible — pickup timing is locked while a checkout finishes"
               : asapAvailable
                 ? `As soon as possible — ready in about ${prepMinutes} minutes`
                 : "As soon as possible — unavailable right now, the kitchen is closed or fully booked"
@@ -240,8 +261,8 @@ export function PickupWhenChoice({
           aria-label={
             frozen
               ? slot
-                ? `Scheduled for ${formatSlotLong(slot)} — locked while someone checks out`
-                : "Schedule a pickup time — locked while someone checks out"
+                ? `Scheduled for ${formatSlotLong(slot)} — locked while a checkout finishes`
+                : "Schedule a pickup time — locked while a checkout finishes"
               : slot
                 ? `Scheduled for ${formatSlotLong(slot)} — change`
                 : "Schedule a pickup time"

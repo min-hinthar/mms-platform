@@ -24,13 +24,25 @@ const T = (k: DictKey) => t("en", k);
  * down to the deadline the server returned, and Undo itself re-checks the grace, so a drifted client
  * clock can't extend the window (the server answers `expired` → "ask a server").
  */
+/**
+ * What this control says when a frozen tap arrives — naming THIS control, never the lock's holder.
+ *
+ * ⚠️ An earlier draft echoed Checkout's `freezeNotice` through a `frozenNote` prop. Two defects,
+ * both caught pre-merge: (1) `frozenNote` carries the SUPPRESSED freeze while `frozen` carries the
+ * RAW one, so `frozen && frozenNote === null` is reachable in exactly one state — the viewer's own
+ * in-flight `create-intent` — and the `??` fallback would have blamed a peer in the one window
+ * where the code knows the holder is the reader (the M116 fabricated-diagnosis class); and (2)
+ * setting the region to the string it already holds is a no-op React bails on, so nothing is
+ * announced. A sentence about this control is true under every freeze and differs from the bar's.
+ */
+const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
+
 export function SendToKitchenButton({
   cartId,
   hasDraft,
   draftCount = 0,
   primary = false,
   frozen,
-  frozenNote,
   onUndoWindowChange,
   onChanged,
 }: {
@@ -50,9 +62,6 @@ export function SendToKitchenButton({
    * cannot land. What the gate must NOT do is shorten the window — see `undoUntil` below.
    */
   frozen: boolean;
-  /** The lockbar's own sentence, so a refusal here explains itself with the same words rather than
-   *  inventing a second story. Null when nothing is frozen. */
-  frozenNote: string | null;
   /** W12 — the Order moment's hero action: render as the filled `.checkout-cta` (shine sweep and
    *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
    *  never the hero). */
@@ -114,6 +123,18 @@ export function SendToKitchenButton({
   }, [undoUntil, onUndoWindowChange]);
   useEffect(() => () => onUndoWindowChange?.(false), [onUndoWindowChange]);
 
+  // ⚠️ CLEAR THE FREEZE REFUSAL WHEN THE FREEZE LIFTS. `msg` outlives the condition that produced
+  // it: a peer takes the lock, the diner taps Send and gets FROZEN_NOTE, the peer reopens, the bar
+  // disappears and the CTA lights up again — and this component's `--warn` line was still sitting
+  // under it saying the order is locked. Two contradictory statements about the same fact, one of
+  // them false. Only this one message is cleared: a send/undo outcome is a report about something
+  // that happened and stays until the next action replaces it.
+  const wasFrozen = useRef(frozen);
+  useEffect(() => {
+    if (wasFrozen.current && !frozen) setMsg((m) => (m?.text === FROZEN_NOTE ? null : m));
+    wasFrozen.current = frozen;
+  }, [frozen]);
+
   // Focus back to the Send trigger when the confirm closes WITHOUT sending (B4 / the staff idiom).
   // After a confirmed send the trigger unmounts and the existing undo-focus effect takes over.
   const wasConfirming = useRef(false);
@@ -124,8 +145,13 @@ export function SendToKitchenButton({
 
   const send = () => {
     if (frozen) {
+      // ⚠️ CLOSE THE CONFIRM ON THIS PATH TOO. Returning without it stranded the diner on an open
+      // confirm whose Proceed can only refuse and whose only escape is Cancel — exactly what the
+      // `setConfirming(false)` below is commented as preventing. The freeze can arrive between
+      // opening the confirm and pressing Proceed, so this is reachable.
+      setConfirming(false);
       // Say why rather than dying quietly — this is the one control the diner came here to press.
-      setMsg({ kind: "err", text: frozenNote ?? "The order’s locked while a checkout finishes." });
+      setMsg({ kind: "err", text: FROZEN_NOTE });
       return;
     }
     setMsg(null);
@@ -179,7 +205,7 @@ export function SendToKitchenButton({
       // `onUndoWindowChange` and gates Checkout's View-bill door, so ending it early would both
       // forfeit an undo the SQL would still honour once the lock clears AND un-refuse that door.
       // The countdown keeps running; only the tap is refused, and it says why.
-      setMsg({ kind: "err", text: frozenNote ?? "The order’s locked while a checkout finishes." });
+      setMsg({ kind: "err", text: FROZEN_NOTE });
       return;
     }
     setMsg(null);
@@ -270,7 +296,7 @@ export function SendToKitchenButton({
             if (frozen) {
               setMsg({
                 kind: "err",
-                text: frozenNote ?? "The order’s locked while a checkout finishes.",
+                text: FROZEN_NOTE,
               });
               return;
             }

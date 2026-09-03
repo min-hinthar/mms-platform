@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * T9 — a child component that renders a cart MUTATION must receive the freeze fact and honour it.
+ * T9 — a component that renders a cart MUTATION must receive the freeze fact and honour it.
  *
  * ## Why this is a separate guard from `check-freeze-parity.mjs`
  *
  * That one asks a SERVER question: does every mutation refuse on bare `locked`, before it writes?
  * This one asks the CLIENT question one layer out: does every component that can FIRE such a
- * mutation know the cart is frozen, and refuse the tap?
+ * mutation know the cart is frozen, refuse the tap, and TELL THE DINER?
  *
  * J4's residual closed that gap for the controls Checkout renders itself. It did not close it for
  * the children Checkout renders — `RewardField`, `PickupWhenChoice`, `SendToKitchenButton` took no
@@ -16,48 +16,53 @@
  * back with nothing said. That is J4 clause (b) — "renders fully editable and every edit silently
  * no-ops" — reproduced one component down from the screen J4 was filed against.
  *
- * ## The subject set is DERIVED, not listed
+ * ## Both subject sets are DERIVED, and the derivations were WRONG in the first draft
  *
- * ⚠️ `check-freeze-parity.mjs` USED TO hard-code two file constants, and that is exactly how it came
- * to be blind to `apps/qr/lib/pickup.ts` — two more lock-bearing mutations it had never opened
- * (OPEN-ITEMS T13; deleting `setPickupSlot`'s refusal left it GREEN). So this guard does not name
- * files or functions. It walks every `apps/qr/lib/*.ts`, finds every function that binds `locked`
- * from an authz call AND refuses on it, and treats THAT as the mutation set. A new lock-bearing
- * module joins automatically; it cannot be forgotten into invisibility.
+ * ⚠️ Everything below is written the way it is because the first draft was green while missing HALF
+ * the components it claimed to cover — the exact T13 blindness this guard was written to end,
+ * reproduced on two other axes. Both were caught pre-merge, independently, by Codex and by a blind
+ * adversarial pass; neither was caught by the guard, which cannot see its own reach:
  *
- * That parity earned its keep the day it was written: the two guards derived their sets
- * independently and came back one apart, which is how `apps/qr/lib/reorder.ts` was found — a
- * FOURTEENTH lock-bearing mutation neither guard had ever opened, missed by T13's own first fix
- * because that fix looked only for a destructured `locked` and `reorderOrder` keeps the whole authz
- * object. Two independent derivations disagreeing is a finding; one derivation agreeing with itself
- * is not.
+ *   • `readdirSync` is NOT recursive. `components/kiosk/KioskReview.tsx` (fires `addItem` and
+ *     `setKioskTip`), `components/kiosk/KioskMenu.tsx` (`addItem`) and
+ *     `components/menu/MenuBrowser.tsx` (`reorderOrder`) were never opened at all.
+ *   • `ImportSpecifier.name` is the LOCAL binding, not the imported one. `TableCartProvider.tsx`
+ *     writes `import { addItem as addItemAction, setQty as setQtyAction }`, so nothing matched and
+ *     the whole component fell out before any rule ran.
  *
- * ## The three rules
+ * So: the component set is the recursive tree, imports resolve `propertyName ?? name`, and every
+ * exclusion is an entry in EXEMPT with a written reason that must FIRE or this fails. A guard whose
+ * coverage is an accident of `readdirSync` is worse than no guard, because CI prints the same word.
  *
- * For every component under `apps/qr/components/` that IMPORTS one of those mutations:
- *   1. it destructures a `frozen` prop — the freeze fact is threaded, never re-derived from `locked`;
- *   2. the function enclosing each mutation call early-returns on `frozen` — `aria-disabled` is an
- *      announcement, not a gate, and a keyboard Enter or a programmatic click reaches the handler;
- *   3. the refusal REACHES THE DINER — and how that is checked is DERIVED from how the mutation
- *      refuses, not assumed.
+ * ## The four rules
+ *
+ * For every component that IMPORTS one of the derived mutations:
+ *   1. the COMPONENT's own parameter destructures `frozen` — bound to that function's parameter
+ *      list, not to any `frozen` anywhere in the file (a `const { frozen } = metadata` in some
+ *      helper used to satisfy it);
+ *   2. the handler that fires it early-returns on `frozen`, POSITIONED BEFORE the call, and SAYS
+ *      SOMETHING — `aria-disabled` is an announcement, not a gate, and a silent `return` is J4
+ *      clause (b) with extra steps;
+ *   3. the refusal REACHES THE DINER, asked the way THIS mutation actually refuses;
+ *   4. and `Checkout.tsx` — the source of the prop, and the only file exempt from rules 1–3 —
+ *      passes each of them the RAW edit-freeze binding, not `false` and not a narrower boolean.
  *
  * ## Rule 3 is derived, because "bind the result" is a shape, not the behaviour
  *
- * The first draft demanded one thing: the awaited call's result is BOUND. That is a MATCHER, and
- * LEARNINGS #60 is about exactly this — `const _ = await assignLine(…)` satisfies it and ships
- * nothing. Worse, it is wrong here: `assignLine` returns `Promise<void>` and refuses by THROWING, so
- * there is no result to bind and the rule was unsatisfiable-by-construction on the one component
- * that most needed it.
+ * An early draft demanded one thing: the awaited call's result is BOUND. That is a MATCHER, and
+ * LEARNINGS #60 is about exactly this — `const ignored = await clearReward(…)` satisfies it and
+ * ships nothing. Worse, it is wrong for a thrower: `assignLine` returns `Promise<void>`, so there
+ * was no result to bind and the rule was unsatisfiable-by-construction on the one component that
+ * most needed it.
  *
- * So the derivation records WHICH WAY each mutation refuses (a `throw` in the `if (locked …)` branch,
- * or a `return` of a value), and rule 3 asks the matching question:
- *   • RETURN-style (`{ ok: false, reason }` — pickup.ts, most of cart.ts) → the caller must BIND the
- *     answer. Discarding it is the shipped `RewardField.remove()` bug verbatim.
+ * So the derivation records WHICH WAY each mutation refuses, and rule 3 asks the matching question:
+ *   • RETURN-style (`{ ok: false, reason }`) → the answer must be bound AND READ in a condition.
+ *     Binding it and ignoring it is the shipped `RewardField.remove()` bug with a variable name on.
  *   • THROW-style (`assignLine`, `addItem`, `setQty`) → the call must sit in a `try` whose `catch`
- *     CALLS ONE OF THIS COMPONENT'S OWN CHANNELS — a destructured prop callback or a `useState` /
- *     `useTransition` setter. A comment-only `catch {}` has zero statements (comments are not AST
- *     nodes, which is why this parses), and `console.error(e)` is not a channel: neither tells the
- *     diner the tap did nothing. That is the same silent no-op, one control shape over.
+ *     SPEAKS through one of this component's own channels. A comment-only `catch {}` has zero
+ *     statements (comments are not AST nodes, which is why this parses), `console.error(e)` is not
+ *     a channel, and `setBusy(false)` / `onChanged()` are channels that say NOTHING — so a call
+ *     must carry an argument that is not merely `true`/`false`/`null`/`undefined`.
  */
 
 import { readFileSync, readdirSync } from "node:fs";
@@ -68,6 +73,8 @@ import ts from "typescript";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIB = "apps/qr/lib";
 const COMPONENTS = "apps/qr/components";
+/** The file that OWNS the freeze derivation and hands it down. Audited by rule 4, not by 1–3. */
+const SOURCE = `${COMPONENTS}/Checkout.tsx`;
 
 const problems = [];
 const fail = (m) => problems.push(m);
@@ -88,6 +95,16 @@ const walk = (n, fn) => {
   });
 };
 
+/** Every `.tsx` under `dir`, RECURSIVELY. Non-recursion hid four firing components (see header). */
+const tsxTree = (rel) => {
+  const out = [];
+  for (const e of readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...tsxTree(`${rel}/${e.name}`));
+    else if (e.name.endsWith(".tsx") && !e.name.endsWith(".test.tsx")) out.push(`${rel}/${e.name}`);
+  }
+  return out.sort();
+};
+
 /** Every named function-like, however spelled (declaration or arrow/expression bound to a const). */
 const namedFunctions = (sf) => {
   const out = [];
@@ -104,9 +121,12 @@ const namedFunctions = (sf) => {
   return out;
 };
 
+const isFn = (n) =>
+  ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n);
+
 // ── 1. DERIVE the mutation set from every lib module, not from a list ───────────────────────────
 const AUTHZ_CALLS = new Set(["assertCartMember", "assertCartItemMember"]);
-const mutations = new Map(); // name -> { rel, kinds: Set<"throw"|"return"> }
+const mutations = new Map(); // exported name -> { rel, kinds: Set<"throw"|"return"> }
 
 for (const file of readdirSync(path.join(ROOT, LIB)).filter(
   (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
@@ -117,8 +137,8 @@ for (const file of readdirSync(path.join(ROOT, LIB)).filter(
     let bindsLocked = false;
     /** HOW it refuses, not merely THAT it refuses — rule 3 asks a different question of each. */
     const kinds = new Set();
-    // The locals holding an authorization result, so `authz.locked` can be BOUND to one rather than
-    // matched as any `<anything>.locked` — the same bind-then-match rule `check-freeze-parity.mjs`
+    // The locals holding an authorization result, so `authz.locked` is BOUND to one rather than
+    // matched as any `<anything>.locked` — the bind-then-match rule `check-freeze-parity.mjs`
     // learned the hard way when a loose match caught `refusedPromoReason`'s diagnostic column read.
     const authzVars = new Set();
     walk(fn, (n) => {
@@ -129,7 +149,34 @@ for (const file of readdirSync(path.join(ROOT, LIB)).filter(
         [...AUTHZ_CALLS].some((c) => n.initializer.getText(sf).includes(c))
       )
         authzVars.add(n.name.text);
+      // ⚠️ AND THE ASSIGNMENT FORM. `grocery.ts` writes `let authz; try { authz = await
+      // assertCartMember(…) } catch {…}` so it can answer a discriminated reason on the catch —
+      // a DECLARATION-only selector never saw it, `scanAdd` stayed outside this guard's subject
+      // set, and `components/kiosk/KioskScan.tsx` (which fires it) was audited by nothing. Found
+      // by the same cross-check that found `reorder.ts`: this guard said 14 where
+      // `check-freeze-parity.mjs` said 15.
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(n.left) &&
+        [...AUTHZ_CALLS].some((c) => n.right.getText(sf).includes(c))
+      )
+        authzVars.add(n.left.text);
     });
+    const mentionsLocked = (expr) => {
+      let hit = false;
+      walk(expr, (x) => {
+        if (ts.isIdentifier(x) && x.text === "locked") hit = true;
+        if (
+          ts.isPropertyAccessExpression(x) &&
+          x.name.text === "locked" &&
+          ts.isIdentifier(x.expression) &&
+          authzVars.has(x.expression.text)
+        )
+          hit = true;
+      });
+      return hit;
+    };
     walk(fn, (n) => {
       // `const { …, locked, … } = await assertCartMember(…)`
       if (
@@ -141,8 +188,6 @@ for (const file of readdirSync(path.join(ROOT, LIB)).filter(
       )
         bindsLocked = true;
       // …or `const authz = await assertCartMember(…)` then `authz.locked` — `setKioskTip`'s shape.
-      // Missing it left one lock-refusing mutation outside this guard's subject set while
-      // `check-freeze-parity.mjs` counted it, i.e. the two views of one rule disagreed by one.
       if (
         ts.isPropertyAccessExpression(n) &&
         n.name.text === "locked" &&
@@ -150,20 +195,18 @@ for (const file of readdirSync(path.join(ROOT, LIB)).filter(
         authzVars.has(n.expression.text)
       )
         bindsLocked = true;
-      // `if (locked …) return|throw`
-      if (ts.isIfStatement(n)) {
-        let mentions = false;
-        walk(n.expression, (x) => {
-          if (ts.isIdentifier(x) && x.text === "locked") mentions = true;
-          if (
-            ts.isPropertyAccessExpression(x) &&
-            x.name.text === "locked" &&
-            ts.isIdentifier(x.expression) &&
-            authzVars.has(x.expression.text)
-          )
-            mentions = true;
-        });
-        if (!mentions) return;
+      // …or destructured OFF that local a statement later — `scanAdd`'s shape:
+      // `const { uid, locked, settling } = authz;`
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isObjectBindingPattern(n.name) &&
+        n.initializer &&
+        ts.isIdentifier(n.initializer) &&
+        authzVars.has(n.initializer.text) &&
+        n.name.elements.some((el) => ts.isIdentifier(el.name) && el.name.text === "locked")
+      )
+        bindsLocked = true;
+      if (ts.isIfStatement(n) && mentionsLocked(n.expression)) {
         const t = n.thenStatement;
         for (const st of ts.isBlock(t) ? t.statements : [t]) {
           if (ts.isThrowStatement(st)) kinds.add("throw");
@@ -181,76 +224,82 @@ if (mutations.size === 0)
       "  This guard is worthless if its subject set is empty, so an empty set is a failure, never a pass.",
   );
 
-// ── 2. Every component that imports one of them owes the three rules ────────────────────────────
-for (const file of readdirSync(path.join(ROOT, COMPONENTS)).filter((f) => f.endsWith(".tsx"))) {
-  const rel = `${COMPONENTS}/${file}`;
+/**
+ * ⚠️ EVERY EXCLUSION IS A WRITTEN DECISION, and it must FIRE (the dead-exemption rule below).
+ *
+ * These components DO fire a derived mutation and do NOT take the freeze prop. That is a real gap in
+ * each case — filed, not fixed here, because each needs freeze UI on a screen that has none, which
+ * is a slice rather than a prop. What this map buys is that the gap is VISIBLE: before it, they were
+ * excluded by a non-recursive `readdirSync` and an unresolved import alias, i.e. by accident.
+ */
+const EXEMPT = new Map([
+  [
+    `${COMPONENTS}/TableCartProvider.tsx`,
+    "the MENU-side cart, which has no freeze surface at all — there is no lockbar on /menu to " +
+      "thread a fact down from, and inventing one here would be a second answer to J4's question. " +
+      "Both its mutations THROW and both catches already re-sync and speak (they re-mint the table " +
+      "session and flash), so a frozen tap is not silent today. OPEN-ITEMS T14.",
+  ],
+  [
+    `${COMPONENTS}/kiosk/KioskMenu.tsx`,
+    "the STAFF kiosk, a single-purpose terminal that mints its own session and is the only client " +
+      "on its cart — there is no peer to hold the lock and no review step to freeze. OPEN-ITEMS T15.",
+  ],
+  [
+    `${COMPONENTS}/kiosk/KioskReview.tsx`,
+    "same kiosk flow as KioskMenu. Its `chooseTip` catch is a DELIBERATE silent swallow with a " +
+      "written reason (a failed tip write must never strand a guest who has committed to paying, " +
+      "since the cashier's entry is the authority) — that is a decision, not an oversight. " +
+      "OPEN-ITEMS T15.",
+  ],
+  [
+    `${COMPONENTS}/kiosk/KioskScan.tsx`,
+    "same kiosk flow as KioskMenu — and it only became visible here once the derivation learned " +
+      "`grocery.ts`'s assignment form (`let authz; try { authz = await assertCartMember(…) }`), " +
+      "which is the third coverage hole this guard has had. It DOES bind `scanAdd`'s result and " +
+      "switch exhaustively on the reason, including `locked`, so its refusal already reaches the " +
+      "guest. OPEN-ITEMS T15.",
+  ],
+  [
+    `${COMPONENTS}/menu/MenuBrowser.tsx`,
+    "fires `reorderOrder` ONCE on mount from a `?reorder=` param, not from a control a diner can " +
+      "tap — there is nothing to gate. It already reads `res.ok` and announces `res.error`, which " +
+      "is what rule 3 exists to force. OPEN-ITEMS T14.",
+  ],
+]);
+
+// ── 2. Every component that imports one of them owes the rules ──────────────────────────────────
+const audited = [];
+const exempted = [];
+
+for (const rel of tsxTree(COMPONENTS)) {
   const sf = parse(rel);
 
-  const imported = new Set();
+  // ⚠️ RESOLVE THE ALIAS. `el.name` is the LOCAL binding; `el.propertyName` is the imported name
+  // when they differ. Reading only `el.name` made `import { addItem as addItemAction }` match
+  // nothing, and `TableCartProvider` fell out of the guard entirely.
+  const localToExported = new Map();
   walk(sf, (n) => {
     if (!ts.isImportDeclaration(n) || !n.importClause?.namedBindings) return;
     const nb = n.importClause.namedBindings;
     if (!ts.isNamedImports(nb)) return;
-    for (const el of nb.elements) if (mutations.has(el.name.text)) imported.add(el.name.text);
-  });
-  if (imported.size === 0) continue;
-
-  // Checkout renders its OWN controls and owns the derivation; it is the source of the prop, not a
-  // consumer of it. It is covered by check-freeze-parity + cart-freeze.test.ts instead.
-  if (file === "Checkout.tsx") continue;
-
-  // Rule 1 — the freeze fact is threaded in.
-  let takesFrozen = false;
-  walk(sf, (n) => {
-    if (ts.isBindingElement(n) && ts.isIdentifier(n.name) && n.name.text === "frozen")
-      takesFrozen = true;
-  });
-  if (!takesFrozen)
-    fail(
-      `${rel} fires ${[...imported].sort().join(", ")} but takes no \`frozen\` prop.\n` +
-        `  Those refuse on bare \`locked\` server-side, so every control here is live while the write\n` +
-        "  is already decided against. Thread Checkout's `editsFrozen` in; never re-derive it here.",
-    );
-
-  // ⚠️ ATTRIBUTE EACH CALL TO ITS INNERMOST ENCLOSING FUNCTION, not to every function that contains
-  // it. The first draft walked each named function's whole subtree, so the COMPONENT function was
-  // reported as owing `if (frozen) return` for calls made by its inner handlers — which would be
-  // absurd advice (a component that returns early renders nothing). Climb to the nearest
-  // function-like instead, so the rule lands on the handler that actually makes the call.
-  //
-  // …and climb to the nearest NAMED one. These calls are routinely made inside an anonymous inner
-  // callback (a `startTransition(async () => …)`, a promise-chain step), and demanding the refusal
-  // at the top of an anonymous closure would be both unreportable ("(anonymous handler)") and the
-  // wrong advice: the handler a human guards is the named one the control's onClick points at.
-  const nameOf0 = new Map(namedFunctions(sf).map(({ fn, name }) => [fn, name]));
-  const enclosing = (node) => {
-    let firstFn = null;
-    for (let n = node.parent; n; n = n.parent) {
-      if (!(ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n)))
-        continue;
-      if (!firstFn) firstFn = n;
-      if (nameOf0.has(n)) return n; // the named handler — where the guard belongs
+    for (const el of nb.elements) {
+      const exported = (el.propertyName ?? el.name).text;
+      if (mutations.has(exported)) localToExported.set(el.name.text, exported);
     }
-    return firstFn; // nothing named above it; report the innermost so it is never silently skipped
-  };
-  const byOwner = new Map(); // function node -> calls[]
-  walk(sf, (n) => {
-    if (
-      !ts.isCallExpression(n) ||
-      !ts.isIdentifier(n.expression) ||
-      !imported.has(n.expression.text)
-    )
-      return;
-    const owner = enclosing(n);
-    if (!owner) return;
-    if (!byOwner.has(owner)) byOwner.set(owner, []);
-    byOwner.get(owner).push(n);
   });
+  if (localToExported.size === 0) continue;
+
+  if (rel === SOURCE) continue; // rule 4 audits it instead
+  if (EXEMPT.has(rel)) {
+    exempted.push(rel);
+    continue;
+  }
+  audited.push(rel);
 
   // The component's OWN ways of telling the diner something, derived from the file rather than
-  // spelled: every destructured prop (`onStatus`, `onChanged`, `frozenNote`) and every
-  // `useState`/`useReducer`/`useTransition` binding (`setError`, `startSplit`). Rule 3(b) demands a
-  // catch call one of THESE — a list of blessed names would be the T13 mistake again.
+  // spelled: every destructured prop (`onStatus`, `onChanged`) and every `useState`/`useReducer`/
+  // `useTransition` binding (`setError`, `startSplit`).
   const HOOKS = new Set(["useState", "useReducer", "useTransition"]);
   const channels = new Set();
   walk(sf, (n) => {
@@ -268,12 +317,110 @@ for (const file of readdirSync(path.join(ROOT, COMPONENTS)).filter((f) => f.ends
         if (ts.isBindingElement(el) && ts.isIdentifier(el.name)) channels.add(el.name.text);
   });
 
-  const nameOf = new Map(namedFunctions(sf).map(({ fn, name }) => [fn, name]));
-  for (const [fn, calls] of byOwner) {
-    const name = nameOf.get(fn) ?? "(anonymous handler)";
+  /**
+   * Does this call SAY something to the diner?
+   *
+   * ⚠️ "CALLS A CHANNEL" WAS NOT ENOUGH. The channel set is every prop callback and every state
+   * setter, so `catch { setBusy(false); }` and `catch { onChanged(); }` satisfied it while telling
+   * the diner nothing — the same silent no-op one syntax over. A call that speaks carries an
+   * argument, and that argument is not merely a flag: `setBusy(false)`, `setError(null)` and a
+   * zero-argument `onChanged()` are all rejected, `onStatus(FROZEN_NOTE)` and
+   * `setMsg({ kind: "err", text })` are not. One hop through a local helper counts, because
+   * `refuseFrozen()` is exactly how a component with two refusal sites avoids writing it twice.
+   */
+  const localFns = new Map(namedFunctions(sf).map(({ fn, name }) => [name, fn]));
+  const FLAGS = new Set([
+    ts.SyntaxKind.TrueKeyword,
+    ts.SyntaxKind.FalseKeyword,
+    ts.SyntaxKind.NullKeyword,
+  ]);
+  const isFlagArg = (a) =>
+    FLAGS.has(a.kind) || (ts.isIdentifier(a) && a.text === "undefined") || ts.isFunctionLike(a);
+  const speaksIn = (node, depth = 0) => {
+    let found = false;
+    walk(node, (x) => {
+      if (found || !ts.isCallExpression(x)) return;
+      let root = x.expression;
+      while (ts.isPropertyAccessExpression(root)) root = root.expression;
+      if (!ts.isIdentifier(root)) return;
+      if (channels.has(root.text) && x.arguments.some((a) => !isFlagArg(a))) found = true;
+      // One hop: a local helper whose own body speaks.
+      else if (depth === 0 && localFns.has(root.text) && speaksIn(localFns.get(root.text), 1))
+        found = true;
+    });
+    return found;
+  };
 
-    // Rule 2 — the handler itself refuses. An attribute announces; only this stops the call.
-    let guards = false;
+  // ⚠️ ATTRIBUTE EACH CALL TO ITS INNERMOST *NAMED* ENCLOSING FUNCTION — the handler a human
+  // guards is the named one the control's onClick points at, not the anonymous
+  // `startTransition(async () => …)` inside it, and certainly not the component function (whose
+  // "early return" would render nothing). And attribute the PROP to the OUTERMOST named function:
+  // that is the component, and rule 1 is a question about its parameter list.
+  const nameOf = new Map(namedFunctions(sf).map(({ fn, name }) => [fn, name]));
+  const enclosing = (node) => {
+    let inner = null;
+    let handler = null;
+    let component = null;
+    for (let n = node.parent; n; n = n.parent) {
+      if (!isFn(n)) continue;
+      if (!inner) inner = n;
+      if (nameOf.has(n)) {
+        if (!handler) handler = n;
+        component = n;
+      }
+    }
+    return { handler: handler ?? inner, component };
+  };
+
+  const byHandler = new Map();
+  const components = new Set();
+  walk(sf, (n) => {
+    if (
+      !ts.isCallExpression(n) ||
+      !ts.isIdentifier(n.expression) ||
+      !localToExported.has(n.expression.text)
+    )
+      return;
+    const { handler, component } = enclosing(n);
+    if (!handler) return;
+    if (component) components.add(component);
+    if (!byHandler.has(handler)) byHandler.set(handler, []);
+    byHandler.get(handler).push(n);
+  });
+
+  // Rule 1 — the freeze fact is threaded into THIS component's parameter list.
+  //
+  // ⚠️ BOUND TO THE PARAMETER, NOT TO THE FILE. An earlier draft walked every BindingElement named
+  // `frozen` anywhere in the source, so an unrelated `const { frozen } = metadata` in a helper
+  // proved the exported component received the prop when it did not.
+  for (const comp of components) {
+    const takes = comp.parameters.some(
+      (p) =>
+        ts.isObjectBindingPattern(p.name) &&
+        p.name.elements.some((el) => ts.isIdentifier(el.name) && el.name.text === "frozen"),
+    );
+    if (!takes)
+      fail(
+        `${rel} — \`${nameOf.get(comp)}\` fires ${[...new Set([...localToExported.values()])]
+          .sort()
+          .join(", ")} but its own parameter list has no \`frozen\` prop.\n` +
+          "  Those refuse on bare `locked` server-side, so every control here is live while the write\n" +
+          "  is already decided against. Thread Checkout's `editsFrozen` in; never re-derive it here,\n" +
+          "  and never satisfy this with a `frozen` bound somewhere else in the file.",
+      );
+  }
+
+  for (const [fn, calls] of byHandler) {
+    const name = nameOf.get(fn) ?? "(anonymous handler)";
+    const firstCallAt = Math.min(...calls.map((c) => c.getStart()));
+
+    // Rule 2 — the handler refuses, BEFORE the call, and says so.
+    //
+    // ⚠️ POSITION IS PART OF IT (Codex on #247). Accepting the guard anywhere among the top-level
+    // statements let `await clearReward(…)` run first with the freeze check after it — a frozen tap
+    // reaching the server while this printed clean. That is T11 (b) in the sibling guard, arriving
+    // here one file over: the same lesson, not yet taught to this concept (LEARNINGS #65).
+    let guard = null;
     if (fn.body && ts.isBlock(fn.body))
       for (const st of fn.body.statements) {
         if (!ts.isIfStatement(st)) continue;
@@ -281,38 +428,74 @@ for (const file of readdirSync(path.join(ROOT, COMPONENTS)).filter((f) => f.ends
         if (!(ts.isIdentifier(cond) && cond.text === "frozen")) continue;
         const t = st.thenStatement;
         const inner = ts.isBlock(t) ? t.statements : [t];
-        if (inner.some((x) => ts.isReturnStatement(x))) guards = true;
+        if (inner.some((x) => ts.isReturnStatement(x)) && st.getStart() < firstCallAt) {
+          guard = st;
+          break;
+        }
       }
-    if (!guards)
+    if (!guard) {
       fail(
         `${rel} — \`${name}()\` calls ${calls
           .map((c) => c.expression.getText(sf))
-          .join(", ")} with no \`if (frozen) return\` at the top of its body.\n` +
+          .join(", ")} with no \`if (frozen) return\` above it in its body.\n` +
           "  `aria-disabled` does not stop a keyboard Enter or a programmatic click, and native\n" +
-          "  `disabled` is not the fix (it drops focus to <body> mid-interaction, WCAG 2.4.3).",
+          "  `disabled` is not the fix (it drops focus to <body> mid-interaction, WCAG 2.4.3).\n" +
+          "  The guard must also PRECEDE the call: one placed after it refuses nothing.",
+      );
+      continue;
+    }
+    if (!speaksIn(guard))
+      fail(
+        `${rel} — \`${name}()\` refuses on \`frozen\` SILENTLY.\n` +
+          "  The tap is taken, nothing changes, and nothing is said — which is J4 clause (b), the\n" +
+          "  defect this guard exists to prevent, arriving through the fix for it. Call one of this\n" +
+          `  component's channels (${[...channels].sort().join(", ") || "— none found"}) with a\n` +
+          "  message; a bare `return`, `setBusy(false)` or `onChanged()` says nothing.",
       );
 
     // Rule 3 — the refusal REACHES THE DINER, asked the way THIS mutation actually refuses.
     for (const c of calls) {
       const callee = c.expression.getText(sf);
-      const kinds = mutations.get(callee).kinds;
+      const kinds = mutations.get(localToExported.get(callee)).kinds;
 
-      // (a) RETURN-style: the answer must be bound. Discarding it IS the shipped bug.
+      // (a) RETURN-style: the answer must be bound AND READ. Binding it is not reading it.
       if (kinds.has("return")) {
         const awaited = ts.isAwaitExpression(c.parent) ? c.parent : c;
-        const p = awaited.parent;
-        if (!(ts.isVariableDeclaration(p) || ts.isReturnStatement(p) || ts.isBinaryExpression(p)))
+        const decl = awaited.parent;
+        const bound =
+          ts.isVariableDeclaration(decl) && ts.isIdentifier(decl.name) ? decl.name.text : null;
+        let read = false;
+        if (bound)
+          walk(fn, (x) => {
+            // The binding tested in a condition: `if (!res.ok)`, `res.ok ? … : …`, `r.ok && …`.
+            const cond = ts.isIfStatement(x)
+              ? x.expression
+              : ts.isConditionalExpression(x)
+                ? x.condition
+                : ts.isBinaryExpression(x) &&
+                    (x.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+                      x.operatorToken.kind === ts.SyntaxKind.BarBarToken)
+                  ? x
+                  : null;
+            if (!cond) return;
+            walk(cond, (y) => {
+              if (ts.isIdentifier(y) && y.text === bound) read = true;
+            });
+          });
+        if (!read)
           fail(
-            `${rel} — \`${name}()\` discards the result of \`${callee}(…)\`.\n` +
+            `${rel} — \`${name}()\` never READS \`${callee}(…)\`'s answer.\n` +
+              (bound
+                ? `  It is bound to \`${bound}\` and then ignored, which is the shipped bug with a\n` +
+                  `  variable name on. Test it (\`if (!${bound}.ok) …\`) and say what happened.\n`
+                : "  The result is discarded outright.\n") +
               "  It answers `{ ok: false }` under a freeze, so throwing that away is precisely the\n" +
               "  silent no-op J4 clause (b) names: the tap is taken, the screen refreshes, and the\n" +
-              "  unchanged value comes back with nothing said. Bind it and read `ok`.",
+              "  unchanged value comes back with nothing said.",
           );
       }
 
-      // (b) THROW-style: the throw must be caught AND the catch must speak through one of this
-      // component's own channels. An empty `catch {}` (comments are not statements) or a bare
-      // `console.error` leaves the diner staring at an unchanged screen.
+      // (b) THROW-style: caught, and the catch SPEAKS.
       if (kinds.has("throw")) {
         let handler = null;
         for (let n = c.parent; n && n !== fn; n = n.parent)
@@ -320,29 +503,89 @@ for (const file of readdirSync(path.join(ROOT, COMPONENTS)).filter((f) => f.ends
             handler = n.catchClause.block;
             break;
           }
-        const speaks =
-          handler !== null &&
-          (() => {
-            let found = false;
-            walk(handler, (x) => {
-              if (!ts.isCallExpression(x)) return;
-              let root = x.expression;
-              while (ts.isPropertyAccessExpression(root)) root = root.expression;
-              if (ts.isIdentifier(root) && channels.has(root.text)) found = true;
-            });
-            return found;
-          })();
-        if (!speaks)
+        if (!handler || !speaksIn(handler))
           fail(
             `${rel} — \`${name}()\` swallows \`${callee}(…)\`'s refusal.\n` +
               `  \`${callee}\` REFUSES BY THROWING, so there is no result to read: the answer arrives\n` +
               "  as an exception. It must land in a `catch` that calls one of this component's own\n" +
-              `  channels (${[...channels].sort().join(", ") || "— none found"}). A comment-only\n` +
-              "  `catch {}` or a `console.error` is the same silent no-op, one control shape over.",
+              `  channels (${[...channels].sort().join(", ") || "— none found"}) WITH A MESSAGE.\n` +
+              "  A comment-only `catch {}`, a `console.error`, and a `setBusy(false)` that merely\n" +
+              "  tidies up are all the same silent no-op, one control shape over.",
           );
       }
     }
   }
+}
+
+// ⚠️ EVERY EXEMPTION MUST FIRE. A stale one reads as a considered decision while excusing a file
+// that no longer exists or no longer fires anything, and the next reader trusts the reason.
+const deadExemptions = [...EXEMPT.keys()].filter((k) => !exempted.includes(k));
+if (deadExemptions.length)
+  fail(
+    `these exemptions never fired: ${deadExemptions.join(", ")}.\n` +
+      "  Either the file was renamed/removed, or it stopped importing a derived mutation. A\n" +
+      "  documented exemption that matches nothing excuses nothing — delete it or fix the path.",
+  );
+
+// ── 3. Rule 4 — Checkout must hand each child the RAW edit-freeze binding ───────────────────────
+//
+// ⚠️ NOTHING CHECKED THE WIRING (Codex on #247). Rules 1–3 audit how a child uses its own `frozen`
+// parameter and skip `Checkout.tsx` by name, so every one of them stayed green if a call site
+// changed to `frozen={false}` or `frozen={payFrozen}` — the child would faithfully honour a freeze
+// fact that never arrives. Required props make tsc demand *a* boolean; only this demands the RIGHT
+// one. The binding's NAME is derived from Checkout (`const X = freezeBlocksEdits(…)`), never spelled
+// here, so renaming it is a rename and not a silent hole.
+{
+  const sf = parse(SOURCE);
+  let editsFrozenName = null;
+  walk(sf, (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      ts.isCallExpression(n.initializer) &&
+      ts.isIdentifier(n.initializer.expression) &&
+      n.initializer.expression.text === "freezeBlocksEdits"
+    )
+      editsFrozenName = n.name.text;
+  });
+  if (!editsFrozenName)
+    fail(
+      `${SOURCE} has no \`const … = freezeBlocksEdits(…)\` binding.\n` +
+        "  That is the raw edit-freeze fact every gated child must receive. Without it this rule\n" +
+        "  cannot say what correct wiring looks like, so its absence is a failure, not a skip.",
+    );
+
+  const owed = new Set(audited.map((r) => path.basename(r, ".tsx")));
+  const seen = new Set();
+  walk(sf, (n) => {
+    if (!ts.isJsxOpeningElement(n) && !ts.isJsxSelfClosingElement(n)) return;
+    const tag = n.tagName.getText(sf);
+    if (!owed.has(tag)) return;
+    seen.add(tag);
+    const attr = n.attributes.properties.find(
+      (p) => ts.isJsxAttribute(p) && p.name.getText(sf) === "frozen",
+    );
+    const expr =
+      attr && attr.initializer && ts.isJsxExpression(attr.initializer)
+        ? attr.initializer.expression
+        : null;
+    const ok = expr && ts.isIdentifier(expr) && expr.text === editsFrozenName;
+    if (!ok)
+      fail(
+        `${SOURCE} renders <${tag}> with frozen={${expr ? expr.getText(sf) : "—"}}, not \`${editsFrozenName}\`.\n` +
+          "  That child gates every one of its mutations on this value, and those mutations refuse\n" +
+          "  on the RAW `locked`. A narrower boolean (the suppressed notice freeze, the pay gate) or\n" +
+          "  a literal re-opens exactly the hole this guard exists to close, with rules 1-3 green.",
+      );
+  });
+  const unrendered = [...owed].filter((t) => !seen.has(t));
+  if (unrendered.length)
+    fail(
+      `these audited components are never rendered by ${SOURCE}: ${unrendered.join(", ")}.\n` +
+        "  Rule 4 cannot check wiring it cannot find. Either the component moved to another parent\n" +
+        "  (which then owes the same wiring check) or the tag name changed — do not drop the rule.",
+    );
 }
 
 if (problems.length) {
@@ -352,7 +595,7 @@ if (problems.length) {
 }
 console.log(
   "child freeze gate … \x1b[32mclean\x1b[0m\x1b[2m" +
-    ` — ${mutations.size} lock-refusing mutations derived from ${
+    ` — ${mutations.size} lock-refusing mutations from ${
       new Set([...mutations.values()].map((m) => m.rel)).size
-    } lib modules; every component firing one takes \`frozen\`, refuses in the handler, and surfaces the answer\x1b[0m`,
+    } lib modules; ${audited.length} components audited (${exempted.length} exempt, each with a reason that fired)\x1b[0m`,
 );

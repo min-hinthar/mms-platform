@@ -34,6 +34,49 @@ channels (a prop callback or a `useState`/`useTransition` setter). Demanding "bi
 `Promise<void>` would have been unsatisfiable-by-construction on `SplitSection`, the one component
 that needed it most — a matcher, not the behaviour.
 
+**Round 1 of review rewrote most of the above, and the headline is that both guards were auditing
+less than they printed.** Codex left ten P2s and a blind adversarial pass returned REJECT with three
+criticals; the two agreed, independently, on the sharpest one — `check-child-freeze.mjs` was opening
+**4 of the 8 components that fire the mutations it derives**. `readdirSync` is not recursive
+(`kiosk/KioskMenu`, `kiosk/KioskReview`, `kiosk/KioskScan`, `menu/MenuBrowser` were never read) and
+`ImportSpecifier.name` is the LOCAL binding, so `TableCartProvider`'s
+`import { addItem as addItemAction }` matched nothing and the file fell out before any rule ran. The
+guard's own docblock, `ci.yml` and the T9 closure all claimed those components "join automatically".
+Discovery is recursive and alias-resolving now; every exclusion is an `EXEMPT` entry that must FIRE,
+and the residual gaps are filed as **T14** and **T15** rather than left as an accident of a directory
+read.
+
+Five more holes in the same guard, each falsified red-first after fixing: rule 1 accepted any
+`frozen` binding anywhere in the file (a `const { frozen } = metadata` in a helper proved the
+component took the prop); rule 2 accepted the guard positioned AFTER the call it was meant to
+prevent — T11 (b) in the sibling guard, arriving one file over; rule 2 also accepted a SILENT
+`return`, which `RewardField`'s two handlers shipped, making the fix for J4 clause (b) an instance of
+it; rule 3(a) accepted a bound-but-never-read result; and rule 3(b) counted `setBusy(false)` or
+`onChanged()` as "telling the diner", so a channel call must now carry an argument that is not merely
+a flag. A new **rule 4** audits Checkout's JSX wiring — without it every call site could have been
+changed to `frozen={false}` with rules 1–3 green, because required props only make tsc demand _a_
+boolean, never the right one.
+
+**The copy design was wrong in a way that mattered.** Children echoed Checkout's `freezeNotice`
+through a `frozenNote` prop "so a refusal cannot drift from the explanation". Backwards: `frozenNote`
+rides the SUPPRESSED freeze while `frozen` rides the RAW one, so `frozen && note === null` is
+reachable in exactly one state — the viewer's OWN in-flight `create-intent` — and the `??` fallback
+therefore read _"Someone's checking out"_ in the one window where the code has established the holder
+is the reader. That is the M116 fabricated-diagnosis class, in the fix for it. Echoing the bar's exact
+string was inert besides: setting a live region to the value it already holds changes no DOM and
+announces nothing. The prop is gone; each child names its own control in neutral voice, which is true
+under every freeze and is a different string from the bar, so it actually announces.
+
+Four more product defects from the same pass: `PickupWhenChoice.chooseSlot` had **no `locked` arm**,
+so a slot pick refused by the lock said "please try again" — inventing a cause the server did not
+give and inviting a retry the lock refuses for up to five minutes — while this PR's own docblock
+pointed AT that missing branch as the reason in-flight writes need no client gate;
+`SendToKitchenButton` left its "locked" line on screen after the lock lifted, contradicting the bar
+that had just disappeared; its frozen `send()` stranded the diner on an open confirm whose Proceed
+could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"use server"` module,
+which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
+it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
+
 **T11 + T13 — `check-freeze-parity.mjs` could not fail three ways.** (a) any value-bearing return
 counted as a refusal, so `if (locked) return { ok: true }` type-checked and kept the required check
 green while telling callers an operation the server skipped had succeeded; a refusal is now a
@@ -52,11 +95,33 @@ re-creates the exact blindness T13 is about, one level up. It was caught only be
 independent derivations disagreeing is a finding; one agreeing with itself is not. `reorderOrder`'s
 guard was read before its name went into `EXPECTED_SUBJECTS` — it already satisfied all three rules.
 
-Every rule falsified red-first, matchers included: an `aria-disabled`-only control, a
-`console.error` standing in for a channel, a `return { ok: true }` refusal, and a write placed
-inside a locked branch. One falsification run reported green and was VACUOUS — the mutation regex
-missed a guard line carrying a trailing comment, so nothing was actually deleted; it was redone by
-line number and the guard then failed as it should.
+And closing T13's file-set hole was still not enough: filtering files on the `locked` binding
+reproduced at FILE level the hole #246's round 3 closed at FUNCTION level, so a module that
+authorizes and writes without reading `locked` stayed invisible. The union pulled in five more
+functions — one real subject (`grocery.ts`'s `scanAdd`, reachable only once `returnsFailure` learned
+to unwrap `false as const`, since the T11 (a) fix had been calling a genuine refusal a non-refusal)
+and four legitimately different shapes, each READ before it was excused. The two hard-coded write
+helpers were vacuous the same way: any new extraction called before a refusal left `writeAt` at
+Infinity, so the helper set is derived from every lib function whose own body writes. And the
+upstream `authz.ts` derivation was checked for the PRESENCE of `cart.locked`/`cart.locked_at`, never
+for whether they matter: `locked: false && cart.locked && cart.locked_at !== null` satisfied both
+checks while unfreezing all fifteen mutations at once.
+
+**The cross-check is the method worth keeping.** Both guards derive the mutation set for their own
+reasons, and every time they disagreed the difference was a defect: 13 vs 14 found `reorder.ts`, and
+15 vs 14 found that `grocery.ts` binds its authz result by ASSIGNMENT (`let authz; try { authz = … }`)
+— a shape neither derivation read, which had left `kiosk/KioskScan.tsx` audited by nothing. They
+agree at 15 now. Two independent derivations disagreeing is a finding; one agreeing with itself is
+not.
+
+Every rule falsified red-first, matchers included: an `aria-disabled`-only control, a `console.error`
+standing in for a channel, a `return { ok: true }` refusal, a write placed inside a locked branch, a
+freeze guard moved below the call it guards, a silent `return`, a bound-but-unread result, a
+`frozen={false}` call site, a renamed exemption, a new local write helper, a new authorize-and-write
+module, and Codex's exact dead-conjunct evasion. Two falsification runs reported green and were
+VACUOUS — one regex missed a guard line carrying a trailing comment, and one `git checkout --`
+restored the committed guard over the rewrite under test. Both were caught by diffing the file
+before reading the guard's answer, which is now the rule (LEARNINGS #67).
 
 ### The cart freezes when the SERVER says it is frozen — J4's residual, and a backlog truth pass (2026-09-02)
 

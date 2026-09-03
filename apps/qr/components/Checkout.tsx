@@ -1854,7 +1854,6 @@ export function Checkout({
                 // every other edit on this screen. The shares themselves keep rendering: they are
                 // derived from server-authoritative totals and stay true while the cart is frozen.
                 frozen={editsFrozen}
-                frozenNote={freezeMessage}
               />
             )}
 
@@ -1919,12 +1918,19 @@ export function Checkout({
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
                 rewardShortfallCents={rewardShortfallCents(totals)}
-                // T9 — the child gets the freeze FACT and the freeze SENTENCE, never the raw lock.
-                // `editsFrozen` is the gate (it mirrors `cart.ts`'s bare `locked`, which is what
-                // `applyReward`/`clearReward` refuse on); `freezeMessage` is what the lockbar says,
-                // so a refusal in there cannot drift from the explanation out here.
+                // T9 — the child gets the freeze FACT and nothing else. `editsFrozen` mirrors
+                // `cart.ts`'s bare `locked`, which is exactly what `applyReward`/`clearReward`
+                // refuse on, so the gate cannot be wider than the server's.
+                //
+                // ⚠️ IT DOES NOT GET THE SENTENCE. An earlier draft also passed `freezeMessage`
+                // "so a refusal in there cannot drift from the explanation out here", and that was
+                // backwards: `freezeMessage` rides the SUPPRESSED freeze while `editsFrozen` rides
+                // the RAW one, so the pair `frozen && note === null` is reachable — precisely
+                // during THIS viewer's own create-intent — and the child's `??` fallback then said
+                // "Someone's checking out" about the reader. Each child names its own control
+                // instead: true under every freeze, and a different string from the bar, so the
+                // live region actually changes and announces.
                 frozen={editsFrozen}
-                frozenNote={freezeMessage}
                 // `refresh` now answers whether the read landed (Codex round 5); this prop wants a
                 // void callback, and the answer is not this child's business.
                 onChanged={() => void refresh()}
@@ -1950,7 +1956,6 @@ export function Checkout({
                 // mutation, so the pills take the same gate. Timing is fulfillment metadata, never
                 // a price, so this changes no amount — it stops offering a tap already decided.
                 frozen={editsFrozen}
-                frozenNote={freezeMessage}
               />
             )}
 
@@ -2341,7 +2346,6 @@ export function Checkout({
                 // the undo WINDOW open rather than closing it, so it returns the moment the lock
                 // lifts (see its docblock).
                 frozen={editsFrozen}
-                frozenNote={freezeMessage}
               />
             )}
 

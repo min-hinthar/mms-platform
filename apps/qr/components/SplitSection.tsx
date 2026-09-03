@@ -16,6 +16,18 @@ import { Avatar, NumberFlow } from "@mms/ui";
  * (re)assigned (canMutate-gated: host any line, a guest only their own). Honest scope: a REFERENCE
  * breakdown — the order is paid in full at checkout; per-card tender is P3.3b. No promise the code can't keep.
  */
+/**
+ * What this section says when a frozen tap arrives — naming the control, never the lock's holder.
+ *
+ * ⚠️ An earlier draft echoed Checkout's `freezeNotice` through a `frozenNote` prop whose fallback
+ * read "Someone’s checking out". That fallback is reachable in exactly one state — `frozen` true
+ * with `frozenNote` null, i.e. the viewer's OWN in-flight `create-intent` — so it blamed a peer in
+ * the one window where the code has established the holder is the reader (the M116
+ * fabricated-diagnosis class). Echoing the bar's exact string is inert besides: setting the live
+ * region to the value it already holds changes nothing and announces nothing.
+ */
+const FROZEN_NOTE = "Item assignments are locked while a checkout finishes.";
+
 export function SplitSection({
   cartId,
   items,
@@ -24,7 +36,6 @@ export function SplitSection({
   onChanged,
   onStatus,
   frozen,
-  frozenNote,
 }: {
   cartId: string;
   items: CartItem[];
@@ -39,9 +50,6 @@ export function SplitSection({
    *  usable, and "Split & pay separately" carries its own refusal (`openSettlement` throws
    *  "Payments are already in progress", surfaced by `beginSettle`'s catch). */
   frozen: boolean;
-  /** The lockbar's own sentence, reused verbatim so a refusal in here cannot drift from the
-   *  explanation out there. Null only when Checkout has nothing to say. */
-  frozenNote: string | null;
 }) {
   const [mode, setMode] = useState<"even" | "by_person">("even");
   const [busyLine, setBusyLine] = useState<string | null>(null);
@@ -64,7 +72,7 @@ export function SplitSection({
     // The gate, not the announcement: `aria-disabled` leaves the control focusable (deliberately —
     // WCAG 2.4.3), so a keyboard Enter still lands here.
     if (frozen) {
-      onStatus(frozenNote ?? "Someone’s checking out — you can’t reassign items right now.");
+      onStatus(FROZEN_NOTE);
       return;
     }
     setBusyLine(lineId);
@@ -72,13 +80,20 @@ export function SplitSection({
       await assignLine(lineId, seat);
       onStatus(`Assigned ${lineName} to ${who}`);
       onChanged();
-    } catch (e) {
+    } catch {
       // T9 — this catch used to be EMPTY. `assignLine` refuses by THROWING (locked, settling, or
       // "only the host can reassign someone else’s item"), so swallowing it took the tap, left the
-      // avatar looking unchanged, and said nothing — J4 clause (b) exactly. Its messages are already
-      // diner-facing, so surface them the way `beginSettle` below does. Still no `onChanged()`: the
-      // write did not land, so there is nothing new to re-read.
-      onStatus(e instanceof Error ? e.message : "Couldn’t reassign that item.");
+      // avatar looking unchanged, and said nothing — J4 clause (b) exactly.
+      //
+      // ⚠️ BUT DO NOT SURFACE `e.message`. `lib/cart.ts` is `"use server"`, and its own docblock
+      // says why it returns discriminated results rather than throwing: **Next redacts thrown
+      // Server Action messages in production.** So echoing the error would announce Next's
+      // redaction string into the checkout's one live region — loud and wrong, which is a
+      // different failure from the silent one it replaced, not a fix for it. `assignLine` gives
+      // this caller no reason code, so say only what is certainly true: it did not happen.
+      // (`beginSettle` below still echoes `e.message` from `split.ts`, which is `"use server"` too
+      // — same defect, pre-existing, filed rather than widened into this PR.)
+      onStatus("Couldn’t reassign that item — nothing changed.");
     } finally {
       setBusyLine(null);
     }
@@ -211,7 +226,7 @@ export function SplitSection({
             {frozen
               ? // Honest while frozen: the shares below are still true and still worth reading —
                 // only the reassignment is unavailable. Don't invite a tap the server will refuse.
-                "Item assignments are paused while someone checks out — the shares below still apply."
+                `${FROZEN_NOTE} The shares below still apply.`
               : "Tap a guest to assign your items; the host can assign any."}
           </li>
         </ul>
@@ -288,8 +303,11 @@ const aav = (on: boolean, seat: string, frozen = false): CSSProperties => ({
   fontSize: "var(--fs-sm)",
   display: "grid",
   placeItems: "center",
-  // Frozen dims the whole row while KEEPING the selected ring: which seat owns the line is
-  // information the diner still needs, so the dim says "not now", never "unknown".
-  opacity: frozen ? 0.4 : on ? 1 : 0.5,
+  // ⚠️ A FLAT FROZEN OPACITY ERASED THE SELECTION IT CLAIMED TO KEEP. `opacity` composites the
+  // WHOLE element — the `2px solid var(--tx)` ring included — and an earlier draft set both the
+  // selected and unselected avatars to 0.4, so the one cue that separated them (1 vs 0.5) was gone
+  // and the ring rendered at 40% besides. Which seat owns a line is information the diner still
+  // needs while frozen, so the freeze scales the pair DOWN while preserving the gap between them.
+  opacity: frozen ? (on ? 0.75 : 0.35) : on ? 1 : 0.5,
   cursor: frozen ? "default" : "pointer",
 });

@@ -10,6 +10,24 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Branch `claude/qr-app-backlog-cj2t0m`, PR #247, on top of `ce1c4a8`.** Three registry rows closed
 > and a fourth defect found by the guard written for the first.
 >
+> **⚠️ ROUND 1 OF REVIEW REWROTE MOST OF THIS SLICE, AND THE HEADLINE IS THAT BOTH GUARDS AUDITED
+> LESS THAN THEY PRINTED.** Codex left ten P2s and a blind adversarial pass returned REJECT with
+> three criticals; the two independently agreed on the sharpest — `check-child-freeze.mjs` was
+> opening **4 of the 8 components that fire the mutations it derives**, because `readdirSync` is not
+> recursive and `ImportSpecifier.name` is the LOCAL binding (so `import { addItem as addItemAction }`
+> matched nothing). Its docblock, `ci.yml` and the T9 closure all claimed those components "join
+> automatically". **The transferable lesson is LEARNINGS #68: a guard reports on the code it opened
+> and never on the code it did not — so print what you opened, and make every exclusion an entry
+> that must FIRE.** Both guards now name their counts and their exemptions; the residual gaps are
+> filed as T14 · T15 rather than left to a directory read.
+>
+> **The copy design was also wrong, and in the M116 way.** Children were given the parent's own
+> `freezeNotice` sentence "so a refusal cannot drift from the explanation" — backwards, because that
+> string rides the SUPPRESSED freeze while the gate rides the RAW one. The pair is only exercised
+> where they disagree: the viewer's OWN in-flight create-intent, where the `??` fallback read
+> "Someone's checking out" about the reader. Pass a child the FACT; let it name its own control
+> (LEARNINGS #69).
+>
 > **T9 — the four child controls.** `RewardField`, `SendToKitchenButton`, `PickupWhenChoice` and
 > `SplitSection` now take `frozen` + `frozenNote` as **required** props. Required, not defaulted: an
 > unwired call site is a type error, which is a stronger guard than any script. Handlers early-return

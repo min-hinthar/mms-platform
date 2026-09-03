@@ -32,12 +32,32 @@ const REASON: Record<ApplyRewardReason, string> = {
  * Renders nothing when the diner has no coupons. The amount shown is the server's (appliedRewardCents from
  * totals.rewardCents) — never a client guess.
  */
+/**
+ * What this component says when a frozen tap arrives — and what it deliberately does NOT say.
+ *
+ * ⚠️ IT NAMES THIS CONTROL, NEVER THE HOLDER. An earlier draft echoed Checkout's `freezeNotice`
+ * sentence through a `frozenNote` prop, "so a refusal here says what the lockbar says". Two defects,
+ * both found pre-merge:
+ *
+ *   1. `frozenNote` is the SUPPRESSED freeze (`visibleFreeze`), while `frozen` is the RAW one — so
+ *      `frozen === true && frozenNote === null` is reachable in exactly one state: the viewer's own
+ *      in-flight `create-intent`. The `??` fallback therefore rendered "Someone's checking out" in
+ *      the one window where the code had established the holder is the READER. That is the M116
+ *      fabricated-diagnosis class, and `cart-freeze.ts` opens by refusing to commit it.
+ *   2. Echoing the bar's exact string means the live region is set to the value it already holds —
+ *      React bails on the equal state, the DOM does not change, and nothing is announced. The tap
+ *      had no observable effect at all.
+ *
+ * Naming the control instead fixes both: it is true under every freeze (peer, self and held alike),
+ * it claims nothing about who, and it is a different string from the bar, so it announces.
+ */
+const FROZEN_NOTE = "Rewards are locked while a checkout finishes.";
+
 export function RewardField({
   cartId,
   appliedRewardCents,
   rewardShortfallCents = 0,
   frozen,
-  frozenNote,
   onChanged,
 }: {
   cartId: string;
@@ -55,9 +75,6 @@ export function RewardField({
    * control here is a control whose write the server has already decided to reject.
    */
   frozen: boolean;
-  /** The freeze's own sentence (`freezeNotice`), so a refusal here says what the lockbar says
-   *  rather than inventing a second explanation. Null when nothing is frozen. */
-  frozenNote: string | null;
   onChanged: () => void | Promise<void>;
 }) {
   const [coupons, setCoupons] = useState<RewardCoupon[]>([]);
@@ -138,7 +155,14 @@ export function RewardField({
   // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
   // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
   async function apply(code: string, tapped: HTMLButtonElement | null) {
-    if (frozen) return; // see `remove()` — the attribute announces, the handler refuses
+    if (frozen) {
+      // SAY SOMETHING. A silent `return` here was the shipped state and it is J4 clause (b) in the
+      // fix for J4 clause (b): the tap is taken, nothing changes, nothing is said. See FROZEN_NOTE
+      // for why this component names only its OWN control and never who holds the lock.
+      setError(FROZEN_NOTE);
+      refocusOnIdle.current = tapped;
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -176,7 +200,13 @@ export function RewardField({
   }
 
   async function remove() {
-    if (frozen) return; // the refusal lives HERE; `aria-disabled` is an announcement, not a gate
+    // The refusal lives HERE; `aria-disabled` is an announcement, not a gate — a keyboard Enter or
+    // a programmatic click still arrives.
+    if (frozen) {
+      setError(FROZEN_NOTE);
+      refocusOnIdle.current = removeBtnRef.current;
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -187,14 +217,13 @@ export function RewardField({
       // edit silently no-ops" — one component down from the screen J4 was filed against.
       //
       // The return is UNDISCRIMINATED (`{ ok: boolean }`, unlike `applyReward`'s reason), so the
-      // sentence cannot be derived from it. When we know why — the cart is frozen and Checkout has
-      // handed us the lockbar's own words — say that; otherwise say only that it did not happen and
-      // point at the server-authoritative total, which is the same thing the catch below does.
+      // sentence cannot be derived from it — say only that it did not happen and point at the
+      // server-authoritative total, which is the same thing the catch below does. (An earlier draft
+      // wrote `frozenNote ?? …` here and it was DEAD: the `if (frozen)` above returns, so this line
+      // is only ever reached with no freeze. Pre-merge review caught it.)
       const res = await clearReward(cartId);
       if (!res.ok) {
-        setError(
-          frozenNote ?? "Couldn’t remove that reward. The total below is the one that counts.",
-        );
+        setError("Couldn’t remove that reward. The total below is the one that counts.");
         refocusOnIdle.current = removeBtnRef.current;
         onChanged(); // re-read: the server's answer is the only one that counts
         return;
