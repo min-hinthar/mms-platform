@@ -272,6 +272,13 @@ export function TableCartProvider({
     // exists for exactly this reason).
     freezeRef.current = { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat };
     settlingRef.current = v.settling;
+    // ⚠️ AND THE LINES, SYNCHRONOUSLY (Codex round 3 on #248). `itemsRef` is also written by an
+    // effect below, which runs after the commit — so two rapid queued adds could both read the
+    // PRE-first-add array as their baseline. `add`'s post-commit landing check compares this
+    // baseline against a re-read, so the FIRST add's units then looked like evidence that the
+    // SECOND one landed: a genuinely refused second tap reported as success with its refusal
+    // suppressed. Writing here, from the view being applied, closes the window the effect leaves.
+    itemsRef.current = v.items;
     if (prevSettling.current === null) prevSettling.current = v.settling;
   }, []);
 

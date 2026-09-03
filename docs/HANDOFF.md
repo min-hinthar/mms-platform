@@ -57,6 +57,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **T15** was re-read rather than restated: none of the kiosk's four catches fabricates a cause, so it
 > stays outside the freeze model by decision.
 >
+> ⚠️ **T20 IS THE HIGHEST-VALUE ROW THIS SLICE LEAVES, AND #248 RAISED ITS REACH.** `AddButton` and
+> `ItemSheet` are natively disabled off a CACHED `locked`, and the lock expires by computation with
+> no row event — so both primary add surfaces can go permanently inert, and being disabled they
+> cannot generate the request that would correct the cache. T10's realtime widening made that state
+> reachable on pickup and scan-and-go, which never received a pushed lock before. The fix needs
+> `CART_LOCK_TTL_MS` out of `server-only` `lib/lock.ts` into a shared pure module, then ONE re-read
+> scheduled while the freeze is held — not a poll (see `recheckLock`'s reasoning on the checkout
+> side). Do it before the next surface adopts the same gate.
+>
 > **Still open, in order:** the **cart→intent link** (M123 · M124 · M151 · M152 a/b/c — one owner
 > decision, designed in `docs/CART_INTENT_LINK.md`, **not written, not applied, authorization
 > required**; the QR prod migration history is divergent — read the `db push` warning in `CLAUDE.md`
