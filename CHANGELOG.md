@@ -4,6 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The freeze reaches the child controls, and two guards stop being blind (2026-09-03)
+
+**T9 — four nested controls presented live cart-mutation affordances under every freeze**, because
+`Checkout.tsx` passed them no lock state at all. The sharpest instance was `RewardField.remove()`:
+it awaited `clearReward`, discarded the `{ ok: false }` it got back, armed a focus handoff,
+refreshed, and put the still-applied reward back with nothing said — J4 clause (b) verbatim, one
+component below the screen J4 was filed against. `RewardField`, `SendToKitchenButton`,
+`PickupWhenChoice` and `SplitSection` now take `frozen` + `frozenNote` as **required** props, so an
+unwired call site is a type error rather than a silent `false`. Each handler early-returns on
+`frozen` — an `aria-disabled` attribute announces, it does not stop a keyboard Enter or a
+programmatic click — and every control is `aria-disabled` rather than natively `disabled`, which
+would drop focus to `<body>` mid-interaction (WCAG 2.4.3). Two calls the gating deliberately does
+NOT make: `SendToKitchenButton` keeps its undo WINDOW open under a freeze (`undoFire` refuses on the
+same predicate, so the server has already taken the undo away; closing the window locally would
+forfeit it for good), and `PickupWhenChoice` does not pretend to stop a write already in flight on
+the `writesRef` chain — that one is refused server-side and the existing `reason: "locked"` branch
+snaps the pill back and says so.
+
+`SplitSection` is the component T9 never named. `reassign()` fired `assignLine` and caught its throw
+into an EMPTY block, so a refused reassignment took the tap, left the avatar unchanged, and said
+nothing. It now surfaces the message the way `beginSettle` beside it always did.
+
+**A new guard, `pnpm check:child-freeze`** (`scripts/check-child-freeze.mjs`, wired into the CI fast
+lane), derives its subject set from every `apps/qr/lib/*.ts` that binds `locked` from an authz call
+and refuses on it — never a file list. Its rule 3 is derived too: a RETURN-style mutation's answer
+must be BOUND, a THROW-style one's must land in a `catch` that calls one of the component's own
+channels (a prop callback or a `useState`/`useTransition` setter). Demanding "bind the result" of a
+`Promise<void>` would have been unsatisfiable-by-construction on `SplitSection`, the one component
+that needed it most — a matcher, not the behaviour.
+
+**T11 + T13 — `check-freeze-parity.mjs` could not fail three ways.** (a) any value-bearing return
+counted as a refusal, so `if (locked) return { ok: true }` type-checked and kept the required check
+green while telling callers an operation the server skipped had succeeded; a refusal is now a
+`throw` or a return of `{ ok: false, … }`, measured against all ten real value-returning refusals.
+(b) the ordering rule compared the `if`'s own start, so a write INSIDE the locked branch beat it —
+the frozen cart was mutated and only then told no; it compares the EXIT statement now. (c) the FILE
+set was two constants, so `pickup.ts`'s two lock-bearing mutations had never been opened — deleting
+one of their refusals printed CLEAN. The set is derived now.
+
+**And closing (c) uncovered a fourteenth mutation that the fix itself still missed.** The first
+draft of the derived file predicate looked only for a destructured `locked`, while
+`apps/qr/lib/reorder.ts` keeps the whole authz object — a shape the per-function selector had
+understood since `setKioskTip`. A file-level selector narrower than the function-level one
+re-creates the exact blindness T13 is about, one level up. It was caught only because
+`check-child-freeze.mjs` derives the same set independently and came back one larger: two
+independent derivations disagreeing is a finding; one agreeing with itself is not. `reorderOrder`'s
+guard was read before its name went into `EXPECTED_SUBJECTS` — it already satisfied all three rules.
+
+Every rule falsified red-first, matchers included: an `aria-disabled`-only control, a
+`console.error` standing in for a channel, a `return { ok: true }` refusal, and a write placed
+inside a locked branch. One falsification run reported green and was VACUOUS — the mutation regex
+missed a guard line carrying a trailing comment, so nothing was actually deleted; it was redone by
+line number and the guard then failed as it should.
+
 ### The cart freezes when the SERVER says it is frozen — J4's residual, and a backlog truth pass (2026-09-02)
 
 Two things, from one investigation.

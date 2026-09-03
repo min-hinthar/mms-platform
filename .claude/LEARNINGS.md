@@ -1014,3 +1014,52 @@ visited `ts.isFunctionDeclaration`, so `export const nudgeLine = async (…) => 
 mutation binding `locked` with no refusal at all — was invisible to a guard whose entire purpose is
 to notice exactly that. A selector that names ONE spelling of a construct is a name-based matcher
 wearing an AST costume.
+
+## #66 — Two derivations of one set are an experiment; one derivation is an assertion (#247, 2026-09-03)
+
+`check-freeze-parity.mjs` had been blind to `apps/qr/lib/pickup.ts` because its file set was two
+constants (OPEN-ITEMS T13). The fix was obvious — derive the files instead of naming them — and I
+wrote it, and it was still wrong: the file-level predicate looked only for a **destructured**
+`locked`, while `apps/qr/lib/reorder.ts` keeps the whole authorization object
+(`const authz = await assertCartMember(…); if (authz.locked) …`). The per-FUNCTION selector in the
+same file had understood that shape for rounds, since `setKioskTip`. So the fix for
+"defined by where you looked" was itself defined by where I looked, one level up, and it printed
+clean.
+
+Nothing in that guard could have caught it. It agreed with itself.
+
+What caught it was that the new `check-child-freeze.mjs` derives the SAME set for its own reasons,
+independently — and came back one larger: 14 against 13. A single number out of place, in a `--dim`
+suffix nobody is obliged to read.
+
+The rules that follow:
+
+- **When you write a second view of an existing rule, cross-check the two sets and treat any
+  mismatch as a defect in one of them.** Not as a definitional difference to be explained away —
+  that was my first instinct here, and the "explanation" would have been a fourteenth unguarded
+  money-path mutation.
+- **A guard's own green is evidence about the guard, not about the code**, whenever the guard is the
+  only thing that looked. Independent derivations are how you get evidence about the code.
+- **Make every guard PRINT the size and shape of what it derived.** Both of these print their
+  subject count; that is the entire reason the discrepancy was visible at all. A guard that prints
+  only `clean` cannot be cross-checked by anything.
+- And the corollary to #65: when you fix a matcher that was spelling instead of binding, **check
+  whether the fix you just wrote spells too.** It usually does, in the same file, one scope out.
+
+## #67 — A falsification you did not diff is not a falsification (#247, 2026-09-03)
+
+Deleting `if (frozen) return;` from `RewardField.remove()` to prove the new rule 2 could fail
+reported **green**, which would have meant a decorative guard. It did not. The `perl -0pi -e
+'s/    if \(frozen\) return;\n//'` never matched, because the shipped line carries a trailing
+comment: `if (frozen) return; // the refusal lives HERE; …`. Nothing was deleted. The run proved
+nothing and read exactly like a real defect.
+
+This is the second time in two sessions (`#61`: a regex that missed a multi-line `const lockedFresh =`,
+so the mutation never applied and the measurement was meaningless). The failure mode is identical and
+it is silent in BOTH directions — a vacuous falsification can report green (guard looks broken, isn't)
+or red (guard looks fine, hasn't been tested).
+
+**So: diff the file after applying a mutation, before reading the guard's answer.** `diff bak file`
+costs nothing; a no-op `perl -0pi` costs an hour chasing a hole that is not there, or ships one that
+is. Prefer line-addressed edits (`sed -i '179d'`) over pattern edits when you know the line, and when
+you must pattern-match, assert the substitution count.

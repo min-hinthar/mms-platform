@@ -5,6 +5,56 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #247 — T9 · T11 · T13 closed; the freeze now reaches the child controls, and two guards that could not fail can)
+>
+> **Branch `claude/qr-app-backlog-cj2t0m`, PR #247, on top of `ce1c4a8`.** Three registry rows closed
+> and a fourth defect found by the guard written for the first.
+>
+> **T9 — the four child controls.** `RewardField`, `SendToKitchenButton`, `PickupWhenChoice` and
+> `SplitSection` now take `frozen` + `frozenNote` as **required** props. Required, not defaulted: an
+> unwired call site is a type error, which is a stronger guard than any script. Handlers early-return
+> on `frozen`; controls are `aria-disabled`, never natively `disabled` (WCAG 2.4.3 — native `disabled`
+> drops focus to `<body>` mid-interaction). **`SplitSection` was not in T9's list** — its `reassign()`
+> caught `assignLine`'s throw into an EMPTY block, the same silent no-op as `RewardField.remove()`.
+> Two deliberate non-gates, both documented at their call sites: `SendToKitchenButton` keeps
+> `undoUntil` OPEN under a freeze (the server has already taken the undo away; closing the window
+> locally would forfeit it for good), and `PickupWhenChoice` does not pretend to stop a write already
+> in flight on `writesRef` — that one is refused server-side and the existing `reason: "locked"`
+> branch already snaps the pill back.
+>
+> **THE METHOD THAT FOUND THE FOURTH COMPONENT, AND THEN THE FOURTEENTH MUTATION, IS THE THING TO
+> CARRY FORWARD.** `scripts/check-child-freeze.mjs` derives its subject set from the lib modules
+> rather than reading T9's list — so `SplitSection` announced itself on the first run. Then, because
+> it derives the SAME set `check-freeze-parity.mjs` derives, the two came back one apart: that is how
+> `apps/qr/lib/reorder.ts`'s `reorderOrder` was found, a fourteenth lock-bearing mutation neither
+> guard had ever opened, **missed by T13's own first fix** because that fix looked only for a
+> destructured `locked` while `reorderOrder` keeps the whole authz object. Two independent derivations
+> disagreeing is a finding; one agreeing with itself is not. If you write a second view of an existing
+> rule, cross-check the sets and treat a mismatch as a defect in one of them.
+>
+> **T11 + T13 — three ways `check-freeze-parity.mjs` could not fail, now closed and each falsified in
+> one edit.** `if (locked) return { ok: true }` used to pass rule 1 (a refusal is a `throw` or an
+> `ok: false` literal now); a write INSIDE the locked branch used to beat rule 2 (the EXIT statement's
+> position orders it now, not the `if`'s); and the FILE set was two constants, so deleting
+> `setPickupSlot`'s refusal printed CLEAN. Subject count is 14 and the set is derived.
+>
+> **⚠️ One falsification run reported GREEN and was VACUOUS.** The mutation regex `if \(frozen\) return;`
+> missed a guard line carrying a trailing comment, so nothing was deleted and "the guard did not fire"
+> meant nothing. Redone by line number, it failed as it should. **Always diff the file after applying a
+> mutation** — a falsification you did not confirm landed is not evidence, and this is the second time
+> in two sessions (`LEARNINGS` #61's multi-line `const lockedFresh`).
+>
+> **Still open, in order:** **T10** (pickup/scan-and-go get no live lock delivery, so the second-tab
+> freeze arrives one refused edit late) · **T12** (the rewards error→null rule is mechanically
+> unpinned) · the **cart→intent link** (M123 · M124 · M151 · M152 a/b/c — one owner decision, designed
+> in `docs/CART_INTENT_LINK.md`, **not written, not applied, authorization required**; the QR prod
+> migration history is divergent — read the `db push` warning in `CLAUDE.md` first) · **C16**
+> (owner-only) · the med/low sweep, which has still never had a truth pass.
+>
+> **⚠️ Codex credits were exhausted when #246 merged.** If they still are, #247 hits the same
+> `codex-review` block. That is the gate working, not failing — "the reviewer ran out of credits" is
+> not "the reviewer approved", and merging past it is the owner's call, never the session's.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-03 — #246 is MERGED as `ce1c4a8`; the money-path `high` cluster is now ONE owner decision, and everything else at `high` is a child-component gap)
 >
 > **`main` is at `ce1c4a8`.** #246 shipped J4's residual (`apps/qr/lib/cart-freeze.ts` — the one

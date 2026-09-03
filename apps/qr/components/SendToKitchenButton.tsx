@@ -237,7 +237,14 @@ export function SendToKitchenButton({
           aria-disabled={frozen || undefined}
           aria-busy={pending}
           className="checkout-outline-btn mms-settle"
-          style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
+          // 0.55 is Checkout's own frozen dim (it is what every gated control on that screen uses).
+          // Unlike `.checkout-pill`, these two classes carry NO `[aria-disabled]` rule, so without
+          // this the freeze would be announced to a screen reader and invisible to everyone else.
+          style={{
+            ...btn,
+            opacity: pending ? 0.7 : frozen ? 0.55 : 1,
+            cursor: pending || frozen ? "default" : "pointer",
+          }}
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
         </button>
@@ -256,7 +263,19 @@ export function SendToKitchenButton({
         <button
           ref={sendBtnRef}
           type="button"
-          onClick={() => setConfirming(true)}
+          // Refuse at the DOOR, not two taps in. Opening the confirm under a freeze would walk the
+          // diner through a decision step whose Proceed can only refuse — `send()` still guards
+          // (that is the gate; this is the courtesy), but the dead end is avoidable so avoid it.
+          onClick={() => {
+            if (frozen) {
+              setMsg({
+                kind: "err",
+                text: frozenNote ?? "The order’s locked while a checkout finishes.",
+              });
+              return;
+            }
+            setConfirming(true);
+          }}
           disabled={pending}
           aria-disabled={frozen || undefined}
           aria-busy={pending}
@@ -274,8 +293,8 @@ export function SendToKitchenButton({
                   fontSize: "var(--fs-body)",
                 }
               : btn),
-            opacity: pending ? 0.7 : 1,
-            cursor: pending ? "default" : "pointer",
+            opacity: pending ? 0.7 : frozen ? 0.55 : 1,
+            cursor: pending || frozen ? "default" : "pointer",
           }}
         >
           {/* The label rides above the .checkout-cta ::after shine sweep on its own layer.
