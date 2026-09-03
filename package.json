@@ -26,6 +26,7 @@
     "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",
     "check:pay-attempt": "node scripts/check-pay-attempt.mjs",
     "check:freeze-parity": "node scripts/check-freeze-parity.mjs",
+    "check:child-freeze": "node scripts/check-child-freeze.mjs",
     "check:types-sorted": "node scripts/check-generated-types-sorted.mjs"
   },
   "devDependencies": {

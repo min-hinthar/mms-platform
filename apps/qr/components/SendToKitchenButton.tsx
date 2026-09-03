@@ -29,6 +29,8 @@ export function SendToKitchenButton({
   hasDraft,
   draftCount = 0,
   primary = false,
+  frozen,
+  frozenNote,
   onUndoWindowChange,
   onChanged,
 }: {
@@ -38,6 +40,19 @@ export function SendToKitchenButton({
   hasDraft: boolean;
   /** W12 — the CTA carries what it sends ("Send to kitchen · 3 items"). 0 hides the count. */
   draftCount?: number;
+  /**
+   * T9 — Checkout's `editsFrozen`, threaded. Both mutations here (`sendToKitchen`, `undoFire`)
+   * refuse on bare `locked`, so a live control is one whose write is already decided against.
+   *
+   * ⚠️ THIS GATES THE UNDO TOO, and that is the honest reading rather than a harsh one. `undoFire`
+   * refuses under the same predicate, so a freeze landing mid-grace has ALREADY taken the undo away
+   * server-side; leaving the button live would only spend the diner's last seconds on a tap that
+   * cannot land. What the gate must NOT do is shorten the window — see `undoUntil` below.
+   */
+  frozen: boolean;
+  /** The lockbar's own sentence, so a refusal here explains itself with the same words rather than
+   *  inventing a second story. Null when nothing is frozen. */
+  frozenNote: string | null;
   /** W12 — the Order moment's hero action: render as the filled `.checkout-cta` (shine sweep and
    *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
    *  never the hero). */
@@ -108,6 +123,11 @@ export function SendToKitchenButton({
   }, [confirming]);
 
   const send = () => {
+    if (frozen) {
+      // Say why rather than dying quietly — this is the one control the diner came here to press.
+      setMsg({ kind: "err", text: frozenNote ?? "The order’s locked while a checkout finishes." });
+      return;
+    }
     setMsg(null);
     startTransition(async () => {
       try {
@@ -154,6 +174,14 @@ export function SendToKitchenButton({
   const undo = () => {
     // The window only opens with a batch id (see send()); guard so undo always targets a concrete batch.
     if (undoBatch === null) return;
+    if (frozen) {
+      // ⚠️ The window is NOT closed here. `undoUntil` is mirrored to the parent via
+      // `onUndoWindowChange` and gates Checkout's View-bill door, so ending it early would both
+      // forfeit an undo the SQL would still honour once the lock clears AND un-refuse that door.
+      // The countdown keeps running; only the tap is refused, and it says why.
+      setMsg({ kind: "err", text: frozenNote ?? "The order’s locked while a checkout finishes." });
+      return;
+    }
     setMsg(null);
     startTransition(async () => {
       try {
@@ -203,6 +231,10 @@ export function SendToKitchenButton({
           type="button"
           onClick={undo}
           disabled={pending}
+          /* T9 — `aria-disabled`, never native, for the FREEZE: the grace effect parks focus on this
+             very button when the window opens, so a native disable would drop it to <body>
+             mid-window (WCAG 2.4.3). `disabled` stays `{pending}` — the user's own in-flight tap. */
+          aria-disabled={frozen || undefined}
           aria-busy={pending}
           className="checkout-outline-btn mms-settle"
           style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
@@ -226,6 +258,7 @@ export function SendToKitchenButton({
           type="button"
           onClick={() => setConfirming(true)}
           disabled={pending}
+          aria-disabled={frozen || undefined}
           aria-busy={pending}
           className={primary ? "checkout-cta" : "checkout-outline-btn"}
           // ⚠️ Inline styles outrank the class: when primary, the outline look's background/color/

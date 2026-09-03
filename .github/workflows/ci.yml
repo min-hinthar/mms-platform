@@ -63,6 +63,12 @@ jobs:
       # J4 (residual) — cross-FILE parity: the client freeze mirrors the server's bare `locked`.
       # File-read-only and parsed, so it rides the fast lane beside the other correctness guards.
       - run: pnpm check:freeze-parity
+      # T9 — the same question one layer out: every CHILD component that can fire one of those
+      # mutations takes the freeze fact, refuses in its handler, and surfaces the refusal. Its
+      # subject set is DERIVED from the lib modules (never a file list — that is what made
+      # check:freeze-parity blind to pickup.ts, OPEN-ITEMS T13), so a new lock-bearing module and a
+      # new component that fires one both join it automatically.
+      - run: pnpm check:child-freeze
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports

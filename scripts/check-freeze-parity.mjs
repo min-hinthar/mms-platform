@@ -3,7 +3,7 @@
  * J4 (residual) — the one fact `cart-freeze.ts` rests on that no unit test can reach.
  *
  * `cartFreeze` blocks edits for peer / self / held alike because it MIRRORS the server: every
- * refusal in `apps/qr/lib/cart.ts` is bare `locked`, with no comparison to the caller. That mirror
+ * lock refusal under `apps/qr/lib/` is bare `locked`, with no comparison to the caller. That mirror
  * is a claim about a DIFFERENT file, and `cart-freeze.test.ts` cannot see it — it asserts the mirror
  * against a hand-written `serverRefuses` predicate, which is exactly the "transcribed from prose"
  * shape this repo bans. If someone narrows a server guard to `if (locked && lockedBy !== uid)`, the
@@ -22,17 +22,22 @@
  * looks for. Sequencing is asserted as STATEMENT ORDER INSIDE THE FUNCTION BODY — not lexical
  * position in the file — so moving a write above the guard fails even if the text still reads fine.
  *
- * Red-first, all four watched: delete `if (locked) throw` from a mutation → fails rule 1; move it
+ * Red-first, every rule watched: delete `if (locked) throw` from a mutation → fails rule 1; move it
  * below the `.update(` → fails rule 2; comment it out → fails rule 1 (comments are not AST nodes);
- * narrow it to `if (locked && lockedBy !== uid)` → fails rule 3, which is the whole point.
+ * narrow it to `if (locked && lockedBy !== uid)` → fails rule 3, which is the whole point. Three
+ * more were added when T11 and T13 closed: flip a refusal to `return { ok: true }` → fails rule 1
+ * (it is no longer a refusal); put a write INSIDE the locked branch → fails rule 2 (the exit, not
+ * the `if`, is what orders it); drop `setPickupSlot`'s refusal, which used to print CLEAN → now
+ * fails rule 1, because the FILE SET is derived rather than named.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import ts from "typescript";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CART = "apps/qr/lib/cart.ts";
+const LIB = "apps/qr/lib";
+const CART = `${LIB}/cart.ts`;
 
 const c = {
   red: (s) => `\x1b[31m${s}\x1b[0m`,
@@ -40,13 +45,14 @@ const c = {
   dim: (s) => `\x1b[2m${s}\x1b[0m`,
 };
 
-const sf = ts.createSourceFile(
-  CART,
-  readFileSync(path.join(ROOT, CART), "utf8"),
-  ts.ScriptTarget.Latest,
-  true,
-  ts.ScriptKind.TS,
-);
+const parse = (rel) =>
+  ts.createSourceFile(
+    rel,
+    readFileSync(path.join(ROOT, rel), "utf8"),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
 
 const fail = (msg) => {
   process.stdout.write(`${c.red("✗")}\n\n  ${msg}\n\n`);
@@ -61,7 +67,10 @@ const walk = (n, fn) => {
   });
 };
 
-const line = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
+/** Line number of a node, resolved through its OWN source file — the guard now walks several. */
+const line = (n) => n.getSourceFile().getLineAndCharacterOfPosition(n.getStart()).line + 1;
+/** Line number of a raw position within `srcFile`. */
+const lineAt = (srcFile, pos) => srcFile.getLineAndCharacterOfPosition(pos).line + 1;
 
 /** Does this expression reference the identifier `name` anywhere inside it? */
 const references = (node, name) => {
@@ -99,6 +108,38 @@ const isWriteCall = (n) =>
     (ts.isIdentifier(n.expression) && WRITE_HELPERS.has(n.expression.text)));
 
 /**
+ * Does this `return` hand back a FAILURE?
+ *
+ * ⚠️ "ANY VALUE-BEARING RETURN" WAS A HOLE (Codex round 7 on #246, filed as OPEN-ITEMS T11 (a) and
+ * fixed here). The old test was `ts.isReturnStatement(st) && st.expression`, which accepts:
+ *
+ *     if (locked) return { ok: true };            // type-checks, required check GREEN
+ *
+ * — a locked cart told the caller the operation SUCCEEDED while the server skipped it. Every
+ * consumer branches on `ok`, so that is worse than no guard: `sendToKitchen` would report the food
+ * away, `applyReward` a discount applied, and the client would never re-read.
+ *
+ * The accepted shape is MEASURED, not imagined: all ten value-returning lock refusals across
+ * `cart.ts` and `pickup.ts` are an object literal with `ok: false` (six also carry a `reason`).
+ * So that is the rule, and ambiguity is REFUSED rather than guessed — a non-literal `ok` (a
+ * variable, a call, a ternary) is not a refusal this guard can prove, and a `reason` alone is not
+ * enough because `{ ok: true, reason: "…" }` would sail through. A throw needs no shape: it cannot
+ * be mistaken for success.
+ */
+const returnsFailure = (st) => {
+  if (!ts.isReturnStatement(st) || !st.expression) return false;
+  const e = ts.isParenthesizedExpression(st.expression) ? st.expression.expression : st.expression;
+  if (!ts.isObjectLiteralExpression(e)) return false;
+  return e.properties.some(
+    (p) =>
+      ts.isPropertyAssignment(p) &&
+      ((ts.isIdentifier(p.name) && p.name.text === "ok") ||
+        (ts.isStringLiteral(p.name) && p.name.text === "ok")) &&
+      p.initializer.kind === ts.SyntaxKind.FalseKeyword,
+  );
+};
+
+/**
  * Does the THEN branch of this `if` refuse — throw, or return a value?
  *
  * ⚠️ THE THEN BRANCH ONLY (blind adversarial pass on #246). Walking the whole `IfStatement` accepted
@@ -116,35 +157,118 @@ const isWriteCall = (n) =>
  * not carried over here, which is the same "two predicates for one concept" shape that made the
  * ordering rule go vacuous a round earlier.
  */
+const isRefusalExit = (st) => ts.isThrowStatement(st) || returnsFailure(st);
+
 const thenBranchRefuses = (ifStmt) => {
   // NO DESCENT AT ALL. The branch's OWN statement list must contain the exit — that is what makes
   // this an unconditional refusal rather than a possible one. Descending found the `return` inside
   // `if (shouldRefuse)` / a loop / a callback, none of which stop the function when their own
-  // condition is false. `cart.ts`'s eleven refusals are all a single `throw` or `return`, so the
+  // condition is false. All fourteen real refusals are a single `throw` or `return`, so the
   // strictness costs nothing; if a legitimate shape ever needs a block, put the exit at its top level.
   const t = ifStmt.thenStatement;
   const stmts = ts.isBlock(t) ? t.statements : [t];
-  return stmts.some((st) => ts.isThrowStatement(st) || (ts.isReturnStatement(st) && st.expression));
+  return stmts.some(isRefusalExit);
 };
 
-// The helper names are BOUND to the file: each must actually be imported into cart.ts. A rename or a
-// dropped import fails here instead of quietly narrowing what counts as a write.
+/** The position of the statement that actually LEAVES the function, or Infinity. */
+const refusalExitPos = (ifStmt) => {
+  const t = ifStmt.thenStatement;
+  const stmts = ts.isBlock(t) ? t.statements : [t];
+  let best = Infinity;
+  for (const st of stmts) if (isRefusalExit(st)) best = Math.min(best, st.getStart());
+  return best;
+};
+
+/**
+ * ── THE FILE SET IS DERIVED (OPEN-ITEMS T13) ───────────────────────────────────────────────────
+ *
+ * ⚠️ THIS GUARD USED TO OPEN EXACTLY TWO FILES — `CART` and `AUTHZ` — and that is how it came to be
+ * blind to `apps/qr/lib/pickup.ts`, which holds two more lock-bearing mutations (`setPickupSlot`,
+ * `setPickupAsap`) carrying the identical `if (locked) return { ok: false, reason: "locked" }`.
+ * Falsified red-first before the fix: deleting `setPickupSlot`'s refusal outright left this check
+ * GREEN (exit 0), and it went on printing "eleven lock-bearing mutations" as though that were the
+ * whole picture when there were thirteen. A set defined by WHERE YOU LOOKED rather than by WHAT THE
+ * RULE COVERS is the same uniqueness-is-not-completeness shape as the matchers in LEARNINGS #65.
+ *
+ * So the subject FILES are derived the same way the subject FUNCTIONS are: every `apps/qr/lib/*.ts`
+ * that binds `locked` out of an authorization call. A third such module joins automatically and
+ * announces itself through `extra:` below; it cannot be forgotten into invisibility.
+ */
+// ⚠️ AND IT ACCEPTS BOTH SPELLINGS, because the first draft of this very fix did not — and missed a
+// fourteenth mutation the same way it had missed the twelfth and thirteenth. `apps/qr/lib/reorder.ts`
+// keeps the whole authz object (`const authz = await assertCartMember(…); if (authz.locked) …`), so a
+// file predicate that only looked for a destructured `locked` never opened it, even though the
+// per-FUNCTION selector below has understood that shape since `setKioskTip`. Found by cross-checking
+// against `check-child-freeze.mjs`, whose independently-derived set came back one larger. The two
+// selectors must ask the same question; a file-level one that is narrower than the function-level one
+// re-creates the exact blindness T13 is about, one level up.
+const bindsLockedFromAuthz = (srcFile) => {
+  const authzVars = new Set();
+  walk(srcFile, (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      (references(n.initializer, "assertCartMember") ||
+        references(n.initializer, "assertCartItemMember"))
+    )
+      authzVars.add(n.name.text);
+  });
+  let hit = false;
+  walk(srcFile, (n) => {
+    if (
+      ts.isVariableDeclaration(n) &&
+      ts.isObjectBindingPattern(n.name) &&
+      n.initializer &&
+      (references(n.initializer, "assertCartMember") ||
+        references(n.initializer, "assertCartItemMember")) &&
+      n.name.elements.some((e) => ts.isIdentifier(e.name) && e.name.text === "locked")
+    )
+      hit = true;
+    if (
+      ts.isPropertyAccessExpression(n) &&
+      n.name.text === "locked" &&
+      ts.isIdentifier(n.expression) &&
+      authzVars.has(n.expression.text)
+    )
+      hit = true;
+  });
+  return hit;
+};
+
+const MUTATION_FILES = readdirSync(path.join(ROOT, LIB))
+  .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
+  .map((f) => `${LIB}/${f}`)
+  .sort()
+  .map((rel) => ({ rel, sf: parse(rel) }))
+  .filter(({ sf }) => bindsLockedFromAuthz(sf));
+
+if (!MUTATION_FILES.some(({ rel }) => rel === CART))
+  fail(
+    `the derived mutation-file set does not contain ${CART}.\n  ` +
+      "That file is the reason this guard exists, so its absence means the derivation broke — not\n  " +
+      "that cart.ts stopped holding cart mutations. Fix the selector; never widen the rule to pass.",
+  );
+
+// The helper names are BOUND: each must actually be imported into one of the derived files. A rename
+// or a dropped import fails here instead of quietly narrowing what counts as a write.
 const imported = new Set();
-walk(sf, (n) => {
-  if (ts.isImportSpecifier(n)) imported.add(n.name.text);
-});
+for (const { sf } of MUTATION_FILES)
+  walk(sf, (n) => {
+    if (ts.isImportSpecifier(n)) imported.add(n.name.text);
+  });
 const unboundHelpers = [...WRITE_HELPERS].filter((h) => !imported.has(h));
 if (unboundHelpers.length)
   fail(
-    `these WRITE_HELPERS are not imported into ${CART}: ${unboundHelpers.join(", ")}.\n  ` +
+    `these WRITE_HELPERS are imported by none of the derived mutation files: ${unboundHelpers.join(", ")}.\n  ` +
       "A helper name that matches nothing silently shrinks what this guard counts as a write, which\n  " +
       "is how the ordering rule goes vacuous. Update the names to match the imports.",
   );
 
 // ── the DERIVATION, one file upstream ────────────────────────────────────────────────────────────
-// Every `locked` the eleven mutations read comes from `assertCartMember`, which computes it in
-// `authz.ts`. Narrowing it THERE narrows all eleven at once and this guard, reading only `cart.ts`,
-// would never see it (blind adversarial pass on #246). So the derivation is checked too: the
+// Every `locked` the fourteen mutations read comes from `assertCartMember`, which computes it in
+// `authz.ts`. Narrowing it THERE narrows all fourteen at once and this guard, then reading only
+// `cart.ts`, would never see it (blind adversarial pass on #246). So the derivation is checked too: the
 // expression assigned to the returned `locked` field must not reference a holder identity.
 const AUTHZ = "apps/qr/lib/authz.ts";
 const authzSf = ts.createSourceFile(
@@ -268,7 +392,7 @@ const readsCartField = (field) =>
 
 // ⚠️ AND IT MUST STILL DERIVE FROM THE DATABASE FLAG (Codex round 6 on #246). Rejecting holder
 // identifiers says what the derivation may NOT contain and nothing about what it must. `locked:
-// false` contains none of the forbidden names, passes clean, and unfreezes every one of the eleven
+// false` contains none of the forbidden names, passes clean, and unfreezes every one of the fourteen
 // mutations at once while `cart-freeze.ts` keeps the client read-only — the exact inversion this
 // file exists to catch, arriving through absence instead of narrowing. Falsified: replacing
 // `lockedFresh` with `false` printed clean.
@@ -284,7 +408,7 @@ for (const [term, why] of [
     fail(
       `${AUTHZ} derives \`locked\` WITHOUT reading ${why} off the cart row.\n  ` +
         "Every cart mutation refuses on this one value, so a derivation that no longer reads the\n  " +
-        "database is not a narrowing — it is an unfreeze of all eleven at once, while\n  " +
+        "database is not a narrowing — it is an unfreeze of all fourteen at once, while\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps the CLIENT read-only. If the mechanism really changed,\n  " +
         "update this check in the same commit, deliberately.",
     );
@@ -294,7 +418,7 @@ for (const holder of ["locked_by", "lockedBy", "uid"]) {
   if (lockedInits.some((e) => references(e, holder)))
     fail(
       `${AUTHZ} derives \`locked\` using \`${holder}\`.\n  ` +
-        "That narrows the lock at its SOURCE, so all 11 cart mutations start excusing the holder at\n  " +
+        "That narrows the lock at its SOURCE, so all 14 cart mutations start excusing the holder at\n  " +
         "once while every per-function guard below still looks correct — and\n  " +
         "`apps/qr/lib/cart-freeze.ts` keeps blocking, making the CLIENT the stricter side. If this is\n  " +
         "deliberate, `cartFreeze` and its parity test change in the SAME commit.",
@@ -333,103 +457,106 @@ const EXEMPT = new Map([
  * ⚠️ `ts.isFunctionDeclaration` ALONE WAS A HOLE (Codex round 2 on #246). `export const setQty =
  * async (…) => {…}` is a VariableDeclaration with an ArrowFunction initializer, so the selector
  * never visited it — and because it never entered `subjects`, `EXPECTED_SUBJECTS` did not flag it
- * either: converting any of the eleven mutations to an arrow (a refactor with no behavioural intent)
+ * either: converting any of the mutations to an arrow (a refactor with no behavioural intent)
  * would have removed it from the guard's reach while printing `missing:` … which at least fails.
  * The genuinely silent case is a NEW cart mutation written as an arrow: it joins the file owing a
  * lock refusal and this guard never sees it, which is precisely what the `extra:` speed bump exists
  * to prevent. Both spellings now enter the same set.
  */
-const namedFunctions = [];
-walk(sf, (n) => {
-  if (ts.isFunctionDeclaration(n) && n.body && n.name)
-    namedFunctions.push({ fn: n, name: n.name.text });
-  else if (
-    ts.isVariableDeclaration(n) &&
-    ts.isIdentifier(n.name) &&
-    n.initializer &&
-    (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
-  )
-    namedFunctions.push({ fn: n.initializer, name: n.name.text });
-});
+const namedFunctionsIn = (srcFile) => {
+  const out = [];
+  walk(srcFile, (n) => {
+    if (ts.isFunctionDeclaration(n) && n.body && n.name) out.push({ fn: n, name: n.name.text });
+    else if (
+      ts.isVariableDeclaration(n) &&
+      ts.isIdentifier(n.name) &&
+      n.initializer &&
+      (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+    )
+      out.push({ fn: n.initializer, name: n.name.text });
+  });
+  return out;
+};
 
 const subjects = [];
 const exempted = [];
-for (const { fn: n, name: fnName } of namedFunctions) {
-  let bindsLocked = false;
-  walk(n, (d) => {
-    if (
-      ts.isVariableDeclaration(d) &&
-      ts.isObjectBindingPattern(d.name) &&
-      d.initializer &&
-      (references(d.initializer, "assertCartMember") ||
-        references(d.initializer, "assertCartItemMember")) &&
-      d.name.elements.some((e) => ts.isIdentifier(e.name) && e.name.text === "locked")
-    )
-      bindsLocked = true;
-  });
-  // `setKioskTip` keeps the whole authz object and reads `authz.locked`. Count that too — but BIND
-  // the property access to the authz result, never match `<anything>.locked`.
-  //
-  // A loose `*.locked` matched `refusedPromoReason`, which reads `cart.locked` off a SELECT to
-  // explain why a write was refused. That is a diagnostic read of a column, not an enforcement of
-  // the lock, and demanding a refusal there is nonsense. Bind first, then match — LEARNINGS #60.
-  // The locals holding an authorization result. Computed for EVERY candidate, not just the ones that
-  // read `authz.locked` — `forcesRefusal` needs them too (Codex round 4 on #246), because a bare
-  // `<anything>.locked` in a guard is not evidence about the AUTHORIZATION lock.
-  const authzVars = new Set();
-  walk(n, (d) => {
-    if (
-      ts.isVariableDeclaration(d) &&
-      ts.isIdentifier(d.name) &&
-      d.initializer &&
-      (references(d.initializer, "assertCartMember") ||
-        references(d.initializer, "assertCartItemMember"))
-    )
-      authzVars.add(d.name.text);
-  });
-  if (!bindsLocked) {
+for (const { rel, sf } of MUTATION_FILES)
+  for (const { fn: n, name: fnName } of namedFunctionsIn(sf)) {
+    let bindsLocked = false;
     walk(n, (d) => {
       if (
-        ts.isPropertyAccessExpression(d) &&
-        d.name.text === "locked" &&
-        ts.isIdentifier(d.expression) &&
-        authzVars.has(d.expression.text)
+        ts.isVariableDeclaration(d) &&
+        ts.isObjectBindingPattern(d.name) &&
+        d.initializer &&
+        (references(d.initializer, "assertCartMember") ||
+          references(d.initializer, "assertCartItemMember")) &&
+        d.name.elements.some((e) => ts.isIdentifier(e.name) && e.name.text === "locked")
       )
         bindsLocked = true;
     });
-  }
-  // ⚠️ AND THE DEFINITION MUST NOT DEPEND ON THE BINDING IT AUDITS (Codex round 3 on #246). A new
-  // mutation that calls an authz helper and WRITES but never destructures `locked` had
-  // `bindsLocked === false`, dropped out of `subjects` before both the expected-set and `extra`
-  // checks, and — its name not yet being in EXPECTED_SUBJECTS — left this required check GREEN for
-  // exactly the missing-lock regression it exists to catch. Falsified: appending an authz+write
-  // `nudgeLine` with no `locked` anywhere printed clean.
-  //
-  // So the set is the UNION: binds the lock fact, OR authorizes and writes. The second arm alone
-  // was the first draft's definition and reached only 6 of 11, which is why the first is kept —
-  // together they are strictly wider than either, and a function in the second arm without a
-  // refusal fails rule 1 by name instead of vanishing.
-  const authorizesAndWrites = (() => {
-    let authorizes = false;
-    let writes = false;
+    // `setKioskTip` keeps the whole authz object and reads `authz.locked`. Count that too — but BIND
+    // the property access to the authz result, never match `<anything>.locked`.
+    //
+    // A loose `*.locked` matched `refusedPromoReason`, which reads `cart.locked` off a SELECT to
+    // explain why a write was refused. That is a diagnostic read of a column, not an enforcement of
+    // the lock, and demanding a refusal there is nonsense. Bind first, then match — LEARNINGS #60.
+    // The locals holding an authorization result. Computed for EVERY candidate, not just the ones that
+    // read `authz.locked` — `forcesRefusal` needs them too (Codex round 4 on #246), because a bare
+    // `<anything>.locked` in a guard is not evidence about the AUTHORIZATION lock.
+    const authzVars = new Set();
     walk(n, (d) => {
       if (
-        ts.isCallExpression(d) &&
-        ts.isIdentifier(d.expression) &&
-        (d.expression.text === "assertCartMember" || d.expression.text === "assertCartItemMember")
+        ts.isVariableDeclaration(d) &&
+        ts.isIdentifier(d.name) &&
+        d.initializer &&
+        (references(d.initializer, "assertCartMember") ||
+          references(d.initializer, "assertCartItemMember"))
       )
-        authorizes = true;
-      if (isWriteCall(d)) writes = true;
+        authzVars.add(d.name.text);
     });
-    return authorizes && writes;
-  })();
-  if (!bindsLocked && !authorizesAndWrites) continue;
-  if (EXEMPT.has(fnName)) {
-    exempted.push(fnName);
-    continue;
+    if (!bindsLocked) {
+      walk(n, (d) => {
+        if (
+          ts.isPropertyAccessExpression(d) &&
+          d.name.text === "locked" &&
+          ts.isIdentifier(d.expression) &&
+          authzVars.has(d.expression.text)
+        )
+          bindsLocked = true;
+      });
+    }
+    // ⚠️ AND THE DEFINITION MUST NOT DEPEND ON THE BINDING IT AUDITS (Codex round 3 on #246). A new
+    // mutation that calls an authz helper and WRITES but never destructures `locked` had
+    // `bindsLocked === false`, dropped out of `subjects` before both the expected-set and `extra`
+    // checks, and — its name not yet being in EXPECTED_SUBJECTS — left this required check GREEN for
+    // exactly the missing-lock regression it exists to catch. Falsified: appending an authz+write
+    // `nudgeLine` with no `locked` anywhere printed clean.
+    //
+    // So the set is the UNION: binds the lock fact, OR authorizes and writes. The second arm alone
+    // was the first draft's definition and reached only 6 of 11, which is why the first is kept —
+    // together they are strictly wider than either, and a function in the second arm without a
+    // refusal fails rule 1 by name instead of vanishing.
+    const authorizesAndWrites = (() => {
+      let authorizes = false;
+      let writes = false;
+      walk(n, (d) => {
+        if (
+          ts.isCallExpression(d) &&
+          ts.isIdentifier(d.expression) &&
+          (d.expression.text === "assertCartMember" || d.expression.text === "assertCartItemMember")
+        )
+          authorizes = true;
+        if (isWriteCall(d)) writes = true;
+      });
+      return authorizes && writes;
+    })();
+    if (!bindsLocked && !authorizesAndWrites) continue;
+    if (EXEMPT.has(fnName)) {
+      exempted.push(fnName);
+      continue;
+    }
+    subjects.push({ fn: n, name: fnName, authzVars, rel });
   }
-  subjects.push({ fn: n, name: fnName, authzVars });
-}
 
 // ⚠️ EVERY EXEMPTION MUST FIRE. A stale exemption is worse than none: it reads as a considered
 // decision while silently excusing a function that no longer exists (or was renamed), and the next
@@ -449,9 +576,12 @@ if (deadExemptions.length)
 // regression the floor was supposed to catch.
 //
 // MEASURED, never transcribed: produced by instrumenting this file to print
-// `subjects.map(f => f.name.text).sort()` and pasting the output. Adding a lock-bearing mutation is
-// meant to fail here once — add the name deliberately, so nobody adds one without noticing that it
-// now owes a refusal.
+// `subjects.map((s) => s.name).sort()` and pasting the output — FOURTEEN since the file set became
+// derived (T13): the eleven in `cart.ts`, `pickup.ts`'s two, and `reorder.ts`'s one. Adding a
+// lock-bearing mutation is meant to fail here once — add the name deliberately, so nobody adds one
+// without noticing that it now owes a refusal. It fired on exactly that twice while T13 was being
+// closed, and both new subjects were READ before their names went in: all three already satisfy the
+// rules, they had simply never been in reach.
 const EXPECTED_SUBJECTS = [
   "addItem",
   "applyPromo",
@@ -459,9 +589,12 @@ const EXPECTED_SUBJECTS = [
   "assignLine",
   "clearReward",
   "makeItNow",
+  "reorderOrder",
   "sendToKitchen",
   "setKioskTip",
   "setLineFulfillment",
+  "setPickupAsap",
+  "setPickupSlot",
   "setQty",
   "undoFire",
 ];
@@ -508,7 +641,7 @@ const firstPos = (fn, pred) => {
       (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
     )
       return;
-    if (pred(n)) best = Math.min(best, n.getStart(sf));
+    if (pred(n)) best = Math.min(best, n.getStart());
     ts.forEachChild(n, (c) => {
       visit(c);
     });
@@ -624,20 +757,24 @@ const firstDominating = (fn, pred, throwCountsWhenCaught = true) => {
     if (!pred(node)) continue;
     // A refusal that only throws, sitting under a live catch, does not certainly leave the function.
     if (guarded && !throwCountsWhenCaught && !branchReturns(node)) continue;
-    best = Math.min(best, node.getStart(sf));
+    best = Math.min(best, node.getStart());
   }
   return best;
 };
 
-/** Does this `if`'s then-branch leave the function by RETURNING (not merely throwing)? */
+/** Does this `if`'s then-branch leave the function by RETURNING A FAILURE (not merely throwing)?
+ *  Shares `returnsFailure` with `thenBranchRefuses` — one predicate for one concept, because the
+ *  last time this file grew a second matcher for "a write" the ordering rule silently kept the old
+ *  reach (LEARNINGS #65). */
 const branchReturns = (ifStmt) => {
   const t = ifStmt.thenStatement;
   const stmts = ts.isBlock(t) ? t.statements : [t];
-  return stmts.some((st) => ts.isReturnStatement(st) && st.expression);
+  return stmts.some(returnsFailure);
 };
 
 const problems = [];
-for (const { fn, name, authzVars } of subjects) {
+for (const { fn, name, authzVars, rel } of subjects) {
+  const sf = fn.getSourceFile();
   const guardAt = firstDominating(fn, isLockRefusal(authzVars), false);
   const writeAt = firstPos(fn, isWriteCall);
 
@@ -645,12 +782,12 @@ for (const { fn, name, authzVars } of subjects) {
     const narrowedAt = firstDominating(fn, isNarrowedRefusal(authzVars));
     problems.push(
       narrowedAt === Infinity
-        ? `${name} (${CART}:${line(fn)}) has no lock refusal that certainly RUNS.\n    ` +
+        ? `${name} (${rel}:${line(fn)}) has no lock refusal that certainly RUNS.\n    ` +
             "Either there is no `if (… locked …) throw/return` at all, or the one there is sits\n    " +
             "nested under another condition, a loop or a callback — none of which necessarily\n    " +
             "executes, so a frozen cart reaches the write anyway. It belongs at the top of the body,\n    " +
             "or at the top of a `try` block that is (and there, as a `return`: a `throw` is caught)."
-        : `${name} (${CART}:${narrowedAt === Infinity ? line(fn) : sf.getLineAndCharacterOfPosition(narrowedAt).line + 1}) refuses on a condition \`locked\` alone does NOT make true.\n    ` +
+        : `${name} (${rel}:${narrowedAt === Infinity ? line(fn) : lineAt(sf, narrowedAt)}) refuses on a condition \`locked\` alone does NOT make true.\n    ` +
             "A conjunct (`locked && x`), a negation, a comparison or a dead literal all leave a frozen\n    " +
             "cart writing while the line still reads like a guard. The server's shapes are `locked`,\n    " +
             "`locked || settling` and `authz.locked || authz.settling` — `locked` reachable through\n    " +
@@ -659,16 +796,6 @@ for (const { fn, name, authzVars } of subjects) {
     );
     continue;
   }
-  if (writeAt !== Infinity && guardAt > writeAt) {
-    problems.push(
-      `${name} (${CART}:${line(fn)}) writes before it refuses the lock — the guard runs AFTER the write.`,
-    );
-    continue;
-  }
-
-  // Rule 3 — THE ONE THIS FILE EXISTS FOR. The condition must not be narrowed by a holder
-  // comparison. `cartFreeze` blocks whenever `locked` is true; if the server starts excusing the
-  // holder, the client becomes the STRICTER one and over-blocks a cart the server would accept.
   let guardNode = null;
   const findGuard = (n) => {
     if (
@@ -676,12 +803,38 @@ for (const { fn, name, authzVars } of subjects) {
       (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
     )
       return;
-    if (!guardNode && isLockRefusal(authzVars)(n) && n.getStart(sf) === guardAt) guardNode = n;
+    if (!guardNode && isLockRefusal(authzVars)(n) && n.getStart() === guardAt) guardNode = n;
     ts.forEachChild(n, (c) => {
       findGuard(c);
     });
   };
   findGuard(fn);
+
+  // Rule 2 — it refuses BEFORE it writes.
+  //
+  // ⚠️ COMPARED AGAINST THE EXIT, NOT THE `if` (Codex round 7 on #246, OPEN-ITEMS T11 (b)). The old
+  // comparison used `guardAt`, the IF STATEMENT's own start — which precedes anything nested inside
+  // its branch, so a write placed in the refusal itself beat the rule:
+  //
+  //     if (locked) { await touchCart(cartId); return { ok: false, reason: "locked" }; }
+  //
+  // The frozen request mutated and then refused, and this check reported clean. The statement that
+  // actually leaves the function is the only position that can order "refused" against "wrote", so
+  // that is what is compared now; `guardAt` stays as the guard's IDENTITY for rule 3 below.
+  const guardExitAt = refusalExitPos(guardNode);
+  if (writeAt !== Infinity && guardExitAt > writeAt) {
+    problems.push(
+      `${name} (${rel}:${line(fn)}) writes before it refuses the lock — the write at ` +
+        `${rel}:${lineAt(sf, writeAt)} runs before the refusal ` +
+        `leaves the function at ${rel}:${lineAt(sf, guardExitAt)}.\n    ` +
+        "A write INSIDE the locked branch counts: the frozen cart is mutated and only then told no.",
+    );
+    continue;
+  }
+
+  // Rule 3 — THE ONE THIS FILE EXISTS FOR. The condition must not be narrowed by a holder
+  // comparison. `cartFreeze` blocks whenever `locked` is true; if the server starts excusing the
+  // holder, the client becomes the STRICTER one and over-blocks a cart the server would accept.
 
   // ⚠️ RESOLVE INTERMEDIATE VARIABLES FIRST (blind adversarial pass on #246). A bare
   // identifier-text walk over the condition was evaded by one local:
@@ -697,7 +850,7 @@ for (const { fn, name, authzVars } of subjects) {
   for (const holder of ["lockedBy", "locked_by", "mySeat", "uid"]) {
     if (guardNode && condExpansion.some((e) => references(e, holder)))
       problems.push(
-        `${name} (${CART}:${line(guardNode)}) narrows its lock refusal by \`${holder}\`.\n    ` +
+        `${name} (${rel}:${line(guardNode)}) narrows its lock refusal by \`${holder}\`.\n    ` +
           "That excuses the lock HOLDER server-side — but `apps/qr/lib/cart-freeze.ts` blocks edits\n    " +
           "for every freeze, mirroring a bare `locked`. The two now disagree, and the CLIENT is the\n    " +
           "stricter one: a diner refused edits on a cart the server would accept, on the pay screen.\n    " +

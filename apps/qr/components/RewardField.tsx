@@ -36,6 +36,8 @@ export function RewardField({
   cartId,
   appliedRewardCents,
   rewardShortfallCents = 0,
+  frozen,
+  frozenNote,
   onChanged,
 }: {
   cartId: string;
@@ -43,6 +45,19 @@ export function RewardField({
   /** M22 — face minus applied, from `rewardShortfallCents(totals)`. 0 when there is nothing to say.
    *  Never computed here: the residual belongs beside the clamp that produced it. */
   rewardShortfallCents?: number;
+  /**
+   * T9 — may this viewer still change the reward? The ONE binding, threaded from Checkout's
+   * `editsFrozen` (`lib/cart-freeze.ts`), never re-derived here: this component must not import
+   * `cartFreeze` or read `locked`, or there are two answers to one question.
+   *
+   * Both mutations behind this component (`applyReward`, `clearReward`) refuse on bare `locked` —
+   * they are two of the eleven names in `check-freeze-parity.mjs`'s EXPECTED_SUBJECTS — so a live
+   * control here is a control whose write the server has already decided to reject.
+   */
+  frozen: boolean;
+  /** The freeze's own sentence (`freezeNotice`), so a refusal here says what the lockbar says
+   *  rather than inventing a second explanation. Null when nothing is frozen. */
+  frozenNote: string | null;
   onChanged: () => void | Promise<void>;
 }) {
   const [coupons, setCoupons] = useState<RewardCoupon[]>([]);
@@ -123,6 +138,7 @@ export function RewardField({
   // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
   // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
   async function apply(code: string, tapped: HTMLButtonElement | null) {
+    if (frozen) return; // see `remove()` — the attribute announces, the handler refuses
     setBusy(true);
     setError(null);
     try {
@@ -160,10 +176,29 @@ export function RewardField({
   }
 
   async function remove() {
+    if (frozen) return; // the refusal lives HERE; `aria-disabled` is an announcement, not a gate
     setBusy(true);
     setError(null);
     try {
-      await clearReward(cartId);
+      // ⚠️ READ THE ANSWER (T9). This was `await clearReward(cartId)` with the result DISCARDED —
+      // and `clearReward` returns `{ ok: false }` under `locked || settling` (`lib/cart.ts`), so a
+      // frozen cart took the tap, armed the focus handoff, refreshed, and put the still-applied
+      // reward back with nothing said. That is J4 clause (b) — "renders fully editable and every
+      // edit silently no-ops" — one component down from the screen J4 was filed against.
+      //
+      // The return is UNDISCRIMINATED (`{ ok: boolean }`, unlike `applyReward`'s reason), so the
+      // sentence cannot be derived from it. When we know why — the cart is frozen and Checkout has
+      // handed us the lockbar's own words — say that; otherwise say only that it did not happen and
+      // point at the server-authoritative total, which is the same thing the catch below does.
+      const res = await clearReward(cartId);
+      if (!res.ok) {
+        setError(
+          frozenNote ?? "Couldn’t remove that reward. The total below is the one that counts.",
+        );
+        refocusOnIdle.current = removeBtnRef.current;
+        onChanged(); // re-read: the server's answer is the only one that counts
+        return;
+      }
       acted.current = true; // hand focus back to "Use a reward" once it remounts
       onChanged();
     } catch {
@@ -246,6 +281,11 @@ export function RewardField({
             type="button"
             onClick={remove}
             disabled={busy}
+            /* T9 — `aria-disabled`, never native, for the FREEZE: `apply()` parks focus on this
+               button, and unlike Checkout's Stepper this component has no freeze-edge focus-restore
+               effect, so a native disable would drop focus to <body> mid-interaction (WCAG 2.4.3).
+               `disabled` stays exactly `{busy}` — its own in-flight state, which the user initiated. */
+            aria-disabled={frozen || undefined}
             /* M22 (Codex round 1, P2) — apply moves focus straight here, and "Remove" alone never
                says what there is to remove FROM. The warning is inserted asynchronously and sits in
                no live region, so a screen-reader diner could complete the apply and reach Pay
@@ -253,7 +293,12 @@ export function RewardField({
                the same breath as the button, and adds no second live region to compete with the
                error one below (QA-CHECKLIST §A: one live region per view). */
             aria-describedby={rewardShortfallCents > 0 ? SHORTFALL_ID : undefined}
-            style={{ ...linkBtn, position: "relative", zIndex: 1 }}
+            style={{
+              ...linkBtn,
+              position: "relative",
+              zIndex: 1,
+              ...(frozen ? { opacity: 0.55 } : null),
+            }}
           >
             {busy ? "…" : "Remove"}
           </button>
@@ -320,8 +365,9 @@ export function RewardField({
                   // synthetic event is released, and `apply` awaits before it needs the ref.
                   onClick={(e) => apply(c.code, e.currentTarget)}
                   disabled={busy}
+                  aria-disabled={frozen || undefined}
                   className="checkout-reward-add"
-                  style={couponBtn}
+                  style={{ ...couponBtn, ...(frozen ? { opacity: 0.55 } : null) }}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
                   {/* "good through", not "expires" — the hospitable way round. But `expires_at` is

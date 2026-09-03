@@ -23,6 +23,8 @@ export function SplitSection({
   ctx,
   onChanged,
   onStatus,
+  frozen,
+  frozenNote,
 }: {
   cartId: string;
   items: CartItem[];
@@ -30,6 +32,16 @@ export function SplitSection({
   ctx: SplitContext;
   onChanged: () => void; // re-sync the lines after an assignment (parent re-fetches the view)
   onStatus: (msg: string) => void; // announce through the parent's single live region (a11y)
+  /** T9 — Checkout's `editsFrozen` (the RAW `locked`, the same predicate `assignLine` refuses on).
+   *  Reassignment is provenance, not money, but it is still a cart mutation the server will refuse
+   *  while a checkout holds the lock — so the avatars must not present themselves as live. Only
+   *  REASSIGNMENT is gated: the Evenly/By-person toggle is pure client-side presentation and stays
+   *  usable, and "Split & pay separately" carries its own refusal (`openSettlement` throws
+   *  "Payments are already in progress", surfaced by `beginSettle`'s catch). */
+  frozen: boolean;
+  /** The lockbar's own sentence, reused verbatim so a refusal in here cannot drift from the
+   *  explanation out there. Null only when Checkout has nothing to say. */
+  frozenNote: string | null;
 }) {
   const [mode, setMode] = useState<"even" | "by_person">("even");
   const [busyLine, setBusyLine] = useState<string | null>(null);
@@ -49,13 +61,24 @@ export function SplitSection({
   }
 
   async function reassign(lineId: string, seat: string, lineName: string, who: string) {
+    // The gate, not the announcement: `aria-disabled` leaves the control focusable (deliberately —
+    // WCAG 2.4.3), so a keyboard Enter still lands here.
+    if (frozen) {
+      onStatus(frozenNote ?? "Someone’s checking out — you can’t reassign items right now.");
+      return;
+    }
     setBusyLine(lineId);
     try {
       await assignLine(lineId, seat);
       onStatus(`Assigned ${lineName} to ${who}`);
       onChanged();
-    } catch {
-      // locked / not permitted — a no-op the server rejected; the parent stays truthful (no onChanged).
+    } catch (e) {
+      // T9 — this catch used to be EMPTY. `assignLine` refuses by THROWING (locked, settling, or
+      // "only the host can reassign someone else’s item"), so swallowing it took the tap, left the
+      // avatar looking unchanged, and said nothing — J4 clause (b) exactly. Its messages are already
+      // diner-facing, so surface them the way `beginSettle` below does. Still no `onChanged()`: the
+      // write did not land, so there is nothing new to re-read.
+      onStatus(e instanceof Error ? e.message : "Couldn’t reassign that item.");
     } finally {
       setBusyLine(null);
     }
@@ -152,9 +175,14 @@ export function SplitSection({
                           className="mms-aav"
                           aria-pressed={on}
                           aria-label={`Assign ${line.name} to ${who}`}
+                          // `aria-disabled`, never native `disabled`: a diner mid-assignment when a
+                          // peer starts checking out must keep focus and hear why, not lose the
+                          // control out of the tab order (WCAG 2.4.3). `busyLine` stays native —
+                          // that is our own in-flight write, measured in milliseconds.
+                          aria-disabled={frozen || undefined}
                           disabled={busyLine === line.id}
                           onClick={() => reassign(line.id, m.seat, line.name, who)}
-                          style={aav(on, m.seat)}
+                          style={aav(on, m.seat, frozen)}
                         >
                           <span aria-hidden>{seatInitial(m.name)}</span>
                         </button>
@@ -180,7 +208,11 @@ export function SplitSection({
             );
           })}
           <li style={{ fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
-            Tap a guest to assign your items; the host can assign any.
+            {frozen
+              ? // Honest while frozen: the shares below are still true and still worth reading —
+                // only the reassignment is unavailable. Don't invite a tap the server will refuse.
+                "Item assignments are paused while someone checks out — the shares below still apply."
+              : "Tap a guest to assign your items; the host can assign any."}
           </li>
         </ul>
       )}
@@ -242,7 +274,7 @@ export function SplitSection({
   );
 }
 
-const aav = (on: boolean, seat: string): CSSProperties => ({
+const aav = (on: boolean, seat: string, frozen = false): CSSProperties => ({
   width: 44,
   height: 44,
   borderRadius: "50%",
@@ -256,6 +288,8 @@ const aav = (on: boolean, seat: string): CSSProperties => ({
   fontSize: "var(--fs-sm)",
   display: "grid",
   placeItems: "center",
-  opacity: on ? 1 : 0.5,
-  cursor: "pointer",
+  // Frozen dims the whole row while KEEPING the selected ring: which seat owns the line is
+  // information the diner still needs, so the dim says "not now", never "unknown".
+  opacity: frozen ? 0.4 : on ? 1 : 0.5,
+  cursor: frozen ? "default" : "pointer",
 });

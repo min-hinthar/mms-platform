@@ -1850,6 +1850,11 @@ export function Checkout({
                 ctx={splitContext}
                 onChanged={refresh}
                 onStatus={setStatus}
+                // T9 — reassignment is a cart mutation (`assignLine`), so it takes the same gate as
+                // every other edit on this screen. The shares themselves keep rendering: they are
+                // derived from server-authoritative totals and stay true while the cart is frozen.
+                frozen={editsFrozen}
+                frozenNote={freezeMessage}
               />
             )}
 
@@ -1914,6 +1919,12 @@ export function Checkout({
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
                 rewardShortfallCents={rewardShortfallCents(totals)}
+                // T9 — the child gets the freeze FACT and the freeze SENTENCE, never the raw lock.
+                // `editsFrozen` is the gate (it mirrors `cart.ts`'s bare `locked`, which is what
+                // `applyReward`/`clearReward` refuse on); `freezeMessage` is what the lockbar says,
+                // so a refusal in there cannot drift from the explanation out here.
+                frozen={editsFrozen}
+                frozenNote={freezeMessage}
                 // `refresh` now answers whether the read landed (Codex round 5); this prop wants a
                 // void callback, and the answer is not this child's business.
                 onChanged={() => void refresh()}
@@ -1935,6 +1946,11 @@ export function Checkout({
                 // re-seeds pickupSlot via normalizePickupSlot), never by restoring a captured prev.
                 onRevert={() => void refresh()}
                 writesRef={pickupWrites}
+                // T9 — `setPickupAsap`/`setPickupSlot` refuse on bare `locked` like every other
+                // mutation, so the pills take the same gate. Timing is fulfillment metadata, never
+                // a price, so this changes no amount — it stops offering a tap already decided.
+                frozen={editsFrozen}
+                frozenNote={freezeMessage}
               />
             )}
 
@@ -2319,6 +2335,13 @@ export function Checkout({
                 primary
                 onUndoWindowChange={setUndoOpen}
                 onChanged={refresh}
+                // T9 — `sendToKitchen` and `undoFire` both refuse on bare `locked`. Gating UNDO
+                // looks like taking something away, and isn't: `undoFire` refuses under the same
+                // predicate, so a freeze has already removed it server-side. The component keeps
+                // the undo WINDOW open rather than closing it, so it returns the moment the lock
+                // lifts (see its docblock).
+                frozen={editsFrozen}
+                frozenNote={freezeMessage}
               />
             )}
 
