@@ -4,6 +4,63 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
+
+**T14 — `TableCartProvider` answered every refused cart write the same way: "Reconnecting to your
+table…" plus a session re-mint.** Its own comment listed the causes — "a silently-EXPIRED table
+session … or a refused write (cart locked, a stale/invalid modifier selection)" — and then treated
+all of them as the first. So a diner whose tablemate was checking out was told their CONNECTION had
+dropped, watched a session re-mint they did not need, and could then be told the session was
+restarted: two false statements about a session that was fine. That is the M116/M119
+fabricated-diagnosis class, and it survived on /menu because the client cannot read the thrown
+message — Next redacts Server Action errors in production, so the server's own "Order is locked
+while someone checks out" never reaches the browser and the cause has to be RE-ESTABLISHED rather
+than parsed.
+
+`classifyRefusedWrite` (`lib/cart-freeze.ts`) does that with ONE re-read of `getCartView`, the same
+`assertCartMember` gate the write went through, and separates four states: a failed re-read is
+`session` (the only arm that re-mints, and the only one that may say "reconnecting"); a locked cart
+is `frozen`, whose sentence comes from `freezeNotice` so /menu and the review step cannot describe
+one lock two ways; a settling table is `settling`, because `addItem`/`setQty` refuse on it in a
+statement of their own; and an editable cart is `unknown`, which claims no cause at all. The arms
+mirror the server's own order — `locked` before `settling` — so a cart that is both is named the way
+it was actually refused. `refusalIsFreeze` runs the same classification as a PRE-write gate against
+the freeze the client already holds, so a frozen tap costs no round trip; it is deliberately false
+for `unknown` and `session`, because a gate that blocked those would refuse writes the server
+accepts.
+
+**`YourUsual` was a fourth ungated add surface.** `AddButton` and `ItemSheet` have gated on `locked
+|| settling` since W9b; this one did not, so under a peer's checkout every tap fired a refused write
+and the diner was told "we couldn't add X — try from the menu below", pointing at a menu that is
+frozen too. It reads the same `inertReason` vocabulary as its siblings now, refuses before the
+optimistic announce, and carries the reason in its accessible name. `MenuBrowser`'s reorder needed
+no change, and that is recorded rather than assumed: `reorderOrder` returns the freeze reason as
+server-authored DATA, so redaction never touches it and the component already announces it verbatim.
+
+**T10 — pickup and scan-and-go carts got no live lock delivery**, so a second tab kept showing live
+controls until the diner's next edit was refused and snapped back. The row's filed blocker was about
+a different code path: it named "the RLS path on `realtime.messages` (private channels, `is_member`)",
+which is `useGroupCart`'s, while `useCartRealtime` opens a deliberately NON-private channel carrying
+no broadcast. Measured — delivery rides the ordinary SELECT RLS on `qr_carts` (`is_member(session_id)
+or is_staff()`, no mode term), and both tables have been on the `supabase_realtime` publication for
+every row since `20260620000600_cart_realtime.sql` — so this needed no migration and no policy. The
+fix is the REMOVAL of the `enabled` parameter rather than a wider argument: both call sites passed a
+dine-in predicate, and a parameter that does not exist cannot be re-narrowed.
+
+**T12 — the rewards error→null rule is mechanical now.** New `lib/rewards-summary.test.ts` plus four
+mutants: one per `mms_rewards_summary` reader, each disabling that reader's `if (summaryErr) return
+null` and restoring J8's zeroed hub, plus the over-tight direction that would blank the affordance
+for every first-time diner. Every reader is asserted in BOTH directions, because a suite that only
+checked "an error yields null" would pass against a reader that returns null unconditionally.
+
+**T15 — the kiosk's four lock-refusing mutations were re-read, not restated.** None of the catches
+carries a fabricated diagnosis: two answer a generic `somethingWrong`, `KioskScan` maps its result
+path through `scanFailKey(r.reason)`, and `KioskReview`'s two swallows are deliberate and commented.
+The kiosk stays outside the freeze model by decision.
+
+Filed: **T17** — the no-mode-gate rule on `useCartRealtime` is enforced by TypeScript and by the
+absent parameter, not by a guard, and `realtime.ts` carries a `verify:slice-exempt`.
+
 ### The freeze reaches the child controls, and two guards stop being blind (2026-09-03)
 
 **T9 — four nested controls presented live cart-mutation affordances under every freeze**, because
