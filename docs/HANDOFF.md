@@ -5,6 +5,47 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 — #246 is MERGED as `ce1c4a8`; the money-path `high` cluster is now ONE owner decision, and everything else at `high` is a child-component gap)
+>
+> **`main` is at `ce1c4a8`.** #246 shipped J4's residual (`apps/qr/lib/cart-freeze.ts` — the one
+> binding that mirrors `cart.ts`'s bare `locked` across eleven mutations) plus the backlog truth pass.
+>
+> **⚠️ IT MERGED WITH `codex-review` RED, on the owner's explicit instruction, and the reason
+> matters for the next PR: Codex reached its account usage limits mid-review and could not review the
+> final head.** Every other check was green and `verify:slice` passed 248/248. The gate itself worked
+> exactly as designed — it stayed red rather than pretending — so **top up Codex credits before
+> opening the next PR, or the same block recurs.** If it does and the work is finished, the choice is
+> the owner's, not the session's: "the reviewer ran out of credits" is not "the reviewer approved".
+>
+> **What seven Codex rounds actually taught (5 → 4 → 3 → 4 → 4 → 2 → 3, every finding real).** Rounds
+> 1–3 were the product change; **4 onward were almost entirely the guard auditing itself**, which is
+> the #241/#242 pattern repeating. Two late findings touched shipped behaviour and justified the whole
+> tail: the edit gate derived from the SUPPRESSED freeze (every control live while the server refused),
+> and Reopen wiping a NEWER client secret out from under a mounted Payment Element. **The recurrence
+> worth internalising is LEARNINGS #65: FOUR separate matchers in one guard file each had to be
+> re-bound after being written to match TEXT.** When you write a predicate over a name, the question is
+> never "does this string appear" but "is this the thing I mean" — and after fixing one, grep the same
+> file for every other predicate still spelling instead of binding.
+>
+> **The whole money-path `high` cluster is one decision.** M123 · M124 · M151 · **M152 (a/b/c)** all
+> reduce to the same missing fact — a cart→intent link so every pin-clearer can say
+> `and live_payment_intent_id is null`. Designed in `docs/CART_INTENT_LINK.md`, **not written, not
+> applied, owner authorization required** (the QR prod migration history is divergent — read the
+> `db push` warning in `CLAUDE.md` before touching it). Nothing else at `high` is blocked on it.
+>
+> **Next open, in order of value:** **T9** (high — the only unblocked `high`: `RewardField`,
+> `PickupWhenChoice` and `SendToKitchenButton` take no freeze prop, so they still present live
+> mutation controls under any freeze; RewardField's Remove ignores `clearReward`'s `ok:false` and
+> refreshes back to the applied reward) · **T11** (the two remaining shape holes in
+> `check-freeze-parity.mjs`) · **T10** (pickup/scan-and-go get no live lock delivery) · then the
+> cart→intent link the moment it is authorized · **C16** (owner-only) · the med/low sweep, which has
+> still never had a truth pass.
+>
+> **⚠️ THE REGISTRY HAS THREE DUPLICATE IDs — `G17`, `G18`, `T7` each appear TWICE**, because #246's
+> truth pass filed new rows under IDs that already existed. `docs/OPEN-ITEMS.md` is the single
+> registry, so a duplicate ID is a real defect in it: two different rows answer to one name. Fix it
+> before filing anything else, and derive the next free ID by READING the file, never from memory.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-02 — a truth pass found 7 of 16 open `high` rows already fixed; J4's residual shipped; the registry is now measured, not remembered)
 >
 > `main` is at #245. **#246** closes J4 and trues up the registry.
