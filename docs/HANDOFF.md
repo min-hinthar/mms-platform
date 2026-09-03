@@ -41,10 +41,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > cart→intent link the moment it is authorized · **C16** (owner-only) · the med/low sweep, which has
 > still never had a truth pass.
 >
-> **⚠️ THE REGISTRY HAS THREE DUPLICATE IDs — `G17`, `G18`, `T7` each appear TWICE**, because #246's
-> truth pass filed new rows under IDs that already existed. `docs/OPEN-ITEMS.md` is the single
-> registry, so a duplicate ID is a real defect in it: two different rows answer to one name. Fix it
-> before filing anything else, and derive the next free ID by READING the file, never from memory.
+> **The registry had three duplicate IDs and they are FIXED** — #246's truth pass filed new rows under
+> `G17`, `G18` and `T7`, all three of which were already taken, so two different rows answered to one
+> name in the file that is supposed to be the single registry. The 2026-09-02 rows are now **G20** ·
+> **G21** · **T12**; the pre-existing rows keep their IDs, and the three closure notes that pointed at
+> them (G3's, G4's, J8's) plus the CHANGELOG entry were updated in the same commit. **The lesson is
+> the method, not the numbers:** the next free ID was DERIVED by reading every row in the file, and
+> the result was checked as a set (`uniq -d` empty, old rows still present) rather than eyeballed.
+> Never pick an ID from memory — that is exactly how these three were minted.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-02 — a truth pass found 7 of 16 open `high` rows already fixed; J4's residual shipped; the registry is now measured, not remembered)
 >
@@ -71,10 +75,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Still open and unchanged:** the cart→intent link (**M151** · **M152 a/b/c** · **M123 a′ and b**) is
 > one prod migration, designed in `docs/CART_INTENT_LINK.md`, **not applied, owner authorization
 > required**. **C16** (branch protection) is owner-only. **M124**'s sub-millisecond era collision is
-> live and needs no migration. New from the pass: **G17** · **G18** · **T7** · **T8**.
+> live and needs no migration. New from the pass: **G20** · **G21** · **T12** · **T8** (renamed 2026-09-03 — the pass first filed them under IDs that were already taken).
 >
 > **Next open, in order of value:** C16 (owner) · the cart→intent link slice (owner-gated) · **M124**
-> (med, no migration — the era collision) · **T7** (med — pin the rewards error→null rule before it
+> (med, no migration — the era collision) · **T12** (med — pin the rewards error→null rule before it
 > regresses) · **F5** / **G5** / **S2**, all PARTIAL with the live half measured in the pass · then the
 > med/low sweep, which has never had a truth pass.
 

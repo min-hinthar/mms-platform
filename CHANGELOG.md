@@ -16,8 +16,8 @@ W4a/W4b shipped grocery browse and bilingual search, W7b shipped the offline she
 both the `/track` clear-table copy and the swallowed rewards error — the last two carrying comments
 that describe their own defects in the past tense. Each is now closed with the change that closed it
 and what remains true of the mechanism. Four residuals the pass surfaced are filed rather than
-folded in: **G17** (grocery basket lines still English-only), **G18** (an online scan failure still
-does not queue — a deliberate money-honesty call, filed so it is visible), **T7** (the rewards
+folded in: **G20** (grocery basket lines still English-only), **G21** (an online scan failure still
+does not queue — a deliberate money-honesty call, filed so it is visible), **T12** (the rewards
 error→null rule is mechanically unpinned, so J8 could return silently) and **T8** (the fontSize lint
 ban has real exclusions and does not cover `packages/ui`, where the tokens live).
 
