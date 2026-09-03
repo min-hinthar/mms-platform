@@ -17,6 +17,27 @@ import { PickupSlotSheet } from "./PickupSlotSheet";
  * Errors route UP to the checkout's single review-step live region (onStatus) — not a second region —
  * so a screen reader hears one announcement per view (the slot sheet owns its own in-dialog alert).
  */
+/**
+ * What this control says when a frozen tap arrives, and what a `locked` refusal from the server says
+ * — ONE string for both, because they are the same fact reaching the diner by two routes (a tap
+ * refused here, and a queued write refused there).
+ *
+ * ⚠️ IT NAMES THE CONTROL, NEVER THE HOLDER. An earlier draft echoed Checkout's `freezeNotice`
+ * through a `frozenNote` prop with a "Someone’s checking out" fallback. That fallback was reachable
+ * in exactly one state — `frozen === true` with `frozenNote === null`, which is the viewer's OWN
+ * in-flight `create-intent` — so it blamed a peer in the one window where the code has established
+ * the holder is the reader. That is the M116 fabricated-diagnosis class. Echoing the bar's exact
+ * string is also inert: setting the live region to the value it already holds changes no DOM and
+ * announces nothing.
+ */
+const FROZEN_NOTE = "Pickup timing is locked while a checkout finishes.";
+
+/** The RACED refusal — a queued write the server met a lock on. It makes NO claim about the lock:
+ *  `frozen` was false when the tap started, and by the time this renders the lock may already have
+ *  lifted, with Checkout's unfreeze edge long past (Codex round 5 on #247). A sentence that is true
+ *  either way needs no edge to correct it. */
+const RACED_NOTE = "That didn’t go through — please try again.";
+
 export function PickupWhenChoice({
   cartId,
   prepMinutes,
@@ -26,6 +47,7 @@ export function PickupWhenChoice({
   onStatus,
   onRevert,
   writesRef,
+  frozen,
 }: {
   cartId: string;
   prepMinutes: number;
@@ -51,6 +73,14 @@ export function PickupWhenChoice({
    *  proceed on the PREVIOUS server timing — an ASAP order snapping after the UI confirmed a
    *  scheduled slot, or the reverse. */
   writesRef: MutableRefObject<Promise<void>>;
+  /** T9 — Checkout's `editsFrozen` (the RAW `locked`, the same predicate `setPickupAsap` /
+   *  `setPickupSlot` refuse on). This gate stops a NEW write being ENQUEUED; it deliberately does
+   *  NOT try to stop one already in flight, and it must not pretend to. `writesRef` is the chain
+   *  `continueToPayment` awaits before minting an intent, so a write issued a moment before the
+   *  lock still runs — and is refused server-side, and the existing `r.reason === "locked"` branch
+   *  below already snaps the pill back to `confirmedSlot` and says so. That path is the in-flight
+   *  answer; this prop is only about not OFFERING a tap whose outcome is already decided. */
+  frozen: boolean;
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const asap = slot === null;
@@ -86,7 +116,27 @@ export function PickupWhenChoice({
     });
   }
 
+  /** The one sentence this component gives a frozen tap. Both pills are dimmed together while
+   *  frozen, so every tap in the row explains itself, including one on the already-selected pill. */
+  function refuseFrozen() {
+    onStatus(FROZEN_NOTE);
+  }
+
+  /** Don't open a sheet whose every pick would be refused — say why instead. */
+  function openSheet() {
+    if (frozen) {
+      refuseFrozen();
+      return;
+    }
+    onStatus(null);
+    setSheetOpen(true);
+  }
+
   function chooseAsap() {
+    if (frozen) {
+      refuseFrozen();
+      return;
+    }
     if (asap) return; // already ASAP — nothing to do
     if (!asapAvailable) {
       // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
@@ -112,7 +162,7 @@ export function PickupWhenChoice({
           r.reason === "cart_closed"
             ? "This order is already being paid."
             : r.reason === "locked"
-              ? "Someone’s checking out — try again in a moment."
+              ? RACED_NOTE
               : "Couldn’t switch to ASAP — please try again.",
         );
       } catch {
@@ -128,6 +178,13 @@ export function PickupWhenChoice({
    *  background, and reverts + explains if the slot just filled (the sheet's old in-place round
    *  trip made every pick feel laggy). */
   function chooseSlot(next: string) {
+    // Reachable even with the sheet gated shut below: the sheet can be OPEN when a peer takes the
+    // lock, and its pick then arrives here. Refuse at the write, not only at the door.
+    if (frozen) {
+      setSheetOpen(false);
+      refuseFrozen();
+      return;
+    }
     const token = ++writeToken.current;
     enqueue(next, async () => {
       try {
@@ -141,10 +198,20 @@ export function PickupWhenChoice({
         if (token !== writeToken.current) return;
         onSlotChange(confirmedSlot.current);
         onRevert();
+        // ⚠️ THE `locked` ARM IS LOAD-BEARING, and its absence was a shipped defect this PR's own
+        // docblock pointed AT as the reason in-flight writes need no client gate. Without it a
+        // slot pick refused by the lock read "Couldn’t set that time — please try again", which
+        // both invents a cause the server did not give and invites a retry the lock will refuse
+        // for up to CART_LOCK_TTL_MS (5 minutes, `lib/lock.ts`). `chooseAsap` had the arm; this
+        // handler did not, so the two halves of one control disagreed about the same refusal.
         onStatus(
           r.reason === "unavailable"
             ? "That time just filled — pick another."
-            : "Couldn’t set that time — please try again.",
+            : r.reason === "cart_closed"
+              ? "This order is already being paid."
+              : r.reason === "locked"
+                ? RACED_NOTE
+                : "Couldn’t set that time — please try again.",
         );
       } catch {
         if (token !== writeToken.current) return;
@@ -166,12 +233,17 @@ export function PickupWhenChoice({
           aria-pressed={asap}
           // aria-disabled (not native disabled) keeps the control focusable so a keyboard/SR user can
           // reach it and hear WHY (the onStatus nudge) instead of the pill vanishing from the tab order.
-          aria-disabled={!asapAvailable || undefined}
+          aria-disabled={frozen || !asapAvailable || undefined}
           // Explicit accessible name (the visible "ASAP" initialism + emoji are decorative here).
+          // Frozen is checked FIRST: while a checkout holds the lock the timing can't change for
+          // ANY reason, so claiming "the kitchen is closed" would be a diagnosis this code never
+          // established (M116's rule — a refusal names the reason it actually has).
           aria-label={
-            asapAvailable
-              ? `As soon as possible — ready in about ${prepMinutes} minutes`
-              : "As soon as possible — unavailable right now, the kitchen is closed or fully booked"
+            frozen
+              ? "As soon as possible — pickup timing is locked while a checkout finishes"
+              : asapAvailable
+                ? `As soon as possible — ready in about ${prepMinutes} minutes`
+                : "As soon as possible — unavailable right now, the kitchen is closed or fully booked"
           }
           // Only render the lit-gold selected cap when ASAP is both chosen AND fulfillable — a disabled
           // ASAP must never read as the active selection (the .checkout-pill[aria-disabled] rule dims it).
@@ -191,15 +263,19 @@ export function PickupWhenChoice({
           aria-expanded={sheetOpen}
           // When scheduled, the accessible name carries the FULL day+time (the visible <small> shows
           // time only) and signals the tap changes it; when ASAP it invites picking a time.
+          aria-disabled={frozen || undefined}
           aria-label={
-            slot ? `Scheduled for ${formatSlotLong(slot)} — change` : "Schedule a pickup time"
+            frozen
+              ? slot
+                ? `Scheduled for ${formatSlotLong(slot)} — locked while a checkout finishes`
+                : "Schedule a pickup time — locked while a checkout finishes"
+              : slot
+                ? `Scheduled for ${formatSlotLong(slot)} — change`
+                : "Schedule a pickup time"
           }
           className={`checkout-pill${!asap ? " checkout-pill-on" : ""}`}
           style={segStyle}
-          onClick={() => {
-            onStatus(null);
-            setSheetOpen(true);
-          }}
+          onClick={openSheet}
         >
           <span>
             <span aria-hidden>🗓 </span>

@@ -16,6 +16,18 @@ import { Avatar, NumberFlow } from "@mms/ui";
  * (re)assigned (canMutate-gated: host any line, a guest only their own). Honest scope: a REFERENCE
  * breakdown — the order is paid in full at checkout; per-card tender is P3.3b. No promise the code can't keep.
  */
+/**
+ * What this section says when a frozen tap arrives — naming the control, never the lock's holder.
+ *
+ * ⚠️ An earlier draft echoed Checkout's `freezeNotice` through a `frozenNote` prop whose fallback
+ * read "Someone’s checking out". That fallback is reachable in exactly one state — `frozen` true
+ * with `frozenNote` null, i.e. the viewer's OWN in-flight `create-intent` — so it blamed a peer in
+ * the one window where the code has established the holder is the reader (the M116
+ * fabricated-diagnosis class). Echoing the bar's exact string is inert besides: setting the live
+ * region to the value it already holds changes nothing and announces nothing.
+ */
+const FROZEN_NOTE = "Item assignments are locked while a checkout finishes.";
+
 export function SplitSection({
   cartId,
   items,
@@ -23,6 +35,7 @@ export function SplitSection({
   ctx,
   onChanged,
   onStatus,
+  frozen,
 }: {
   cartId: string;
   items: CartItem[];
@@ -30,6 +43,13 @@ export function SplitSection({
   ctx: SplitContext;
   onChanged: () => void; // re-sync the lines after an assignment (parent re-fetches the view)
   onStatus: (msg: string) => void; // announce through the parent's single live region (a11y)
+  /** T9 — Checkout's `editsFrozen` (the RAW `locked`, the same predicate `assignLine` refuses on).
+   *  Reassignment is provenance, not money, but it is still a cart mutation the server will refuse
+   *  while a checkout holds the lock — so the avatars must not present themselves as live. Only
+   *  REASSIGNMENT is gated: the Evenly/By-person toggle is pure client-side presentation and stays
+   *  usable, and "Split & pay separately" carries its own refusal (`openSettlement` throws
+   *  "Payments are already in progress", surfaced by `beginSettle`'s catch). */
+  frozen: boolean;
 }) {
   const [mode, setMode] = useState<"even" | "by_person">("even");
   const [busyLine, setBusyLine] = useState<string | null>(null);
@@ -49,13 +69,44 @@ export function SplitSection({
   }
 
   async function reassign(lineId: string, seat: string, lineName: string, who: string) {
+    // The gate, not the announcement: `aria-disabled` leaves the control focusable (deliberately —
+    // WCAG 2.4.3), so a keyboard Enter still lands here.
+    if (frozen) {
+      onStatus(FROZEN_NOTE);
+      return;
+    }
     setBusyLine(lineId);
     try {
       await assignLine(lineId, seat);
       onStatus(`Assigned ${lineName} to ${who}`);
       onChanged();
     } catch {
-      // locked / not permitted — a no-op the server rejected; the parent stays truthful (no onChanged).
+      // T9 — this catch used to be EMPTY. `assignLine` refuses by THROWING (locked, settling, or
+      // "only the host can reassign someone else’s item"), so swallowing it took the tap, left the
+      // avatar looking unchanged, and said nothing — J4 clause (b) exactly.
+      //
+      // ⚠️ BUT DO NOT SURFACE `e.message`. `lib/cart.ts` is `"use server"`, and its own docblock
+      // says why it returns discriminated results rather than throwing: **Next redacts thrown
+      // Server Action messages in production.** So echoing the error would announce Next's
+      // redaction string into the checkout's one live region — loud and wrong, which is a
+      // different failure from the silent one it replaced, not a fix for it. `assignLine` gives
+      // this caller no reason code to branch on either.
+      // (`beginSettle` below still echoes `e.message` from `split.ts`, which is `"use server"` too
+      // — same defect, pre-existing, filed rather than widened into this PR.)
+      //
+      // ⚠️ AND DO NOT CLAIM "NOTHING CHANGED" (Codex round 4 on #247). A thrown Server Action is an
+      // UNCERTAIN outcome, not a failed one: the `by_seat` update can commit and the response be
+      // lost, and on that same dead connection the realtime update is missed too — so the avatar
+      // and the shares beside it would keep showing the old owner while this sentence asserted they
+      // were right. `RewardField`'s apply catch already had this rule ("a throw is not proof the
+      // write didn't land"); it was not carried here. Say what is certain and RE-READ.
+      // ⚠️ NON-PROGRESSIVE COPY (Codex round 5 on #247, correcting round 4). "Checking with the
+      // server" describes work in progress, but this component cannot report how that check ended:
+      // `onChanged` is typed `() => void` here, so the re-read's outcome is erased, and the
+      // sentence would sit there claiming a check is still underway long after it finished — or
+      // failed. Say what is known and let the re-read speak through the screen it refreshes.
+      onStatus("Couldn’t confirm that reassignment — the seats below are re-read from the server.");
+      onChanged();
     } finally {
       setBusyLine(null);
     }
@@ -152,9 +203,14 @@ export function SplitSection({
                           className="mms-aav"
                           aria-pressed={on}
                           aria-label={`Assign ${line.name} to ${who}`}
+                          // `aria-disabled`, never native `disabled`: a diner mid-assignment when a
+                          // peer starts checking out must keep focus and hear why, not lose the
+                          // control out of the tab order (WCAG 2.4.3). `busyLine` stays native —
+                          // that is our own in-flight write, measured in milliseconds.
+                          aria-disabled={frozen || undefined}
                           disabled={busyLine === line.id}
                           onClick={() => reassign(line.id, m.seat, line.name, who)}
-                          style={aav(on, m.seat)}
+                          style={aav(on, m.seat, frozen)}
                         >
                           <span aria-hidden>{seatInitial(m.name)}</span>
                         </button>
@@ -180,7 +236,11 @@ export function SplitSection({
             );
           })}
           <li style={{ fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
-            Tap a guest to assign your items; the host can assign any.
+            {frozen
+              ? // Honest while frozen: the shares below are still true and still worth reading —
+                // only the reassignment is unavailable. Don't invite a tap the server will refuse.
+                `${FROZEN_NOTE} The shares below still apply.`
+              : "Tap a guest to assign your items; the host can assign any."}
           </li>
         </ul>
       )}
@@ -242,7 +302,7 @@ export function SplitSection({
   );
 }
 
-const aav = (on: boolean, seat: string): CSSProperties => ({
+const aav = (on: boolean, seat: string, frozen = false): CSSProperties => ({
   width: 44,
   height: 44,
   borderRadius: "50%",
@@ -256,6 +316,11 @@ const aav = (on: boolean, seat: string): CSSProperties => ({
   fontSize: "var(--fs-sm)",
   display: "grid",
   placeItems: "center",
-  opacity: on ? 1 : 0.5,
-  cursor: "pointer",
+  // ⚠️ A FLAT FROZEN OPACITY ERASED THE SELECTION IT CLAIMED TO KEEP. `opacity` composites the
+  // WHOLE element — the `2px solid var(--tx)` ring included — and an earlier draft set both the
+  // selected and unselected avatars to 0.4, so the one cue that separated them (1 vs 0.5) was gone
+  // and the ring rendered at 40% besides. Which seat owns a line is information the diner still
+  // needs while frozen, so the freeze scales the pair DOWN while preserving the gap between them.
+  opacity: frozen ? (on ? 0.75 : 0.35) : on ? 1 : 0.5,
+  cursor: frozen ? "default" : "pointer",
 });

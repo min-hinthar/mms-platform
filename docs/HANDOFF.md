@@ -5,6 +5,119 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #247 — T9 · T11 · T13 closed; the freeze now reaches the child controls, and two guards that could not fail can)
+>
+> **Branch `claude/qr-app-backlog-cj2t0m`, PR #247, on top of `ce1c4a8`.** Three registry rows closed
+> and a fourth defect found by the guard written for the first.
+>
+> **⚠️ ROUND 1 OF REVIEW REWROTE MOST OF THIS SLICE, AND THE HEADLINE IS THAT BOTH GUARDS AUDITED
+> LESS THAN THEY PRINTED.** Codex left ten P2s and a blind adversarial pass returned REJECT with
+> three criticals; the two independently agreed on the sharpest — `check-child-freeze.mjs` was
+> opening **4 of the 8 components that fire the mutations it derives**, because `readdirSync` is not
+> recursive and `ImportSpecifier.name` is the LOCAL binding (so `import { addItem as addItemAction }`
+> matched nothing). Its docblock, `ci.yml` and the T9 closure all claimed those components "join
+> automatically". **The transferable lesson is LEARNINGS #68: a guard reports on the code it opened
+> and never on the code it did not — so print what you opened, and make every exclusion an entry
+> that must FIRE.** Both guards now name their counts and their exemptions; the residual gaps are
+> filed as T14 · T15 rather than left to a directory read.
+>
+> **The copy design was also wrong, and in the M116 way.** Children were given the parent's own
+> `freezeNotice` sentence "so a refusal cannot drift from the explanation" — backwards, because that
+> string rides the SUPPRESSED freeze while the gate rides the RAW one. The pair is only exercised
+> where they disagree: the viewer's OWN in-flight create-intent, where the `??` fallback read
+> "Someone's checking out" about the reader. Pass a child the FACT; let it name its own control
+> (LEARNINGS #69).
+>
+> **T9 — the four child controls.** `RewardField`, `SendToKitchenButton`, `PickupWhenChoice` and
+> `SplitSection` now take `frozen` + `frozenNote` as **required** props. Required, not defaulted: an
+> unwired call site is a type error, which is a stronger guard than any script. Handlers early-return
+> on `frozen`; controls are `aria-disabled`, never natively `disabled` (WCAG 2.4.3 — native `disabled`
+> drops focus to `<body>` mid-interaction). **`SplitSection` was not in T9's list** — its `reassign()`
+> caught `assignLine`'s throw into an EMPTY block, the same silent no-op as `RewardField.remove()`.
+> Two deliberate non-gates, both documented at their call sites: `SendToKitchenButton` keeps
+> `undoUntil` OPEN under a freeze (the server has already taken the undo away; closing the window
+> locally would forfeit it for good), and `PickupWhenChoice` does not pretend to stop a write already
+> in flight on `writesRef` — that one is refused server-side and the existing `reason: "locked"`
+> branch already snaps the pill back.
+>
+> **THE METHOD THAT FOUND THE FOURTH COMPONENT, AND THEN THE FOURTEENTH MUTATION, IS THE THING TO
+> CARRY FORWARD.** `scripts/check-child-freeze.mjs` derives its subject set from the lib modules
+> rather than reading T9's list — so `SplitSection` announced itself on the first run. Then, because
+> it derives the SAME set `check-freeze-parity.mjs` derives, the two came back one apart: that is how
+> `apps/qr/lib/reorder.ts`'s `reorderOrder` was found, a fourteenth lock-bearing mutation neither
+> guard had ever opened, **missed by T13's own first fix** because that fix looked only for a
+> destructured `locked` while `reorderOrder` keeps the whole authz object. Two independent derivations
+> disagreeing is a finding; one agreeing with itself is not. If you write a second view of an existing
+> rule, cross-check the sets and treat a mismatch as a defect in one of them.
+>
+> **T11 + T13 — three ways `check-freeze-parity.mjs` could not fail, now closed and each falsified in
+> one edit.** `if (locked) return { ok: true }` used to pass rule 1 (a refusal is a `throw` or an
+> `ok: false` literal now); a write INSIDE the locked branch used to beat rule 2 (the EXIT statement's
+> position orders it now, not the `if`'s); and the FILE set was two constants, so deleting
+> `setPickupSlot`'s refusal printed CLEAN. Subject count is 14 and the set is derived.
+>
+> **⚠️ One falsification run reported GREEN and was VACUOUS.** The mutation regex `if \(frozen\) return;`
+> missed a guard line carrying a trailing comment, so nothing was deleted and "the guard did not fire"
+> meant nothing. Redone by line number, it failed as it should. **Always diff the file after applying a
+> mutation** — a falsification you did not confirm landed is not evidence, and this is the second time
+> in two sessions (`LEARNINGS` #61's multi-line `const lockedFresh`).
+>
+> **Still open, in order:** **T10** (pickup/scan-and-go get no live lock delivery, so the second-tab
+> freeze arrives one refused edit late) · **T12** (the rewards error→null rule is mechanically
+> unpinned) · the **cart→intent link** (M123 · M124 · M151 · M152 a/b/c — one owner decision, designed
+> in `docs/CART_INTENT_LINK.md`, **not written, not applied, authorization required**; the QR prod
+> migration history is divergent — read the `db push` warning in `CLAUDE.md` first) · **C16**
+> (owner-only) · the med/low sweep, which has still never had a truth pass.
+>
+> **⚠️ Codex credits were exhausted when #246 merged.** If they still are, #247 hits the same
+> `codex-review` block. That is the gate working, not failing — "the reviewer ran out of credits" is
+> not "the reviewer approved", and merging past it is the owner's call, never the session's.
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 — #246 is MERGED as `ce1c4a8`; the money-path `high` cluster is now ONE owner decision, and everything else at `high` is a child-component gap)
+>
+> **`main` is at `ce1c4a8`.** #246 shipped J4's residual (`apps/qr/lib/cart-freeze.ts` — the one
+> binding that mirrors `cart.ts`'s bare `locked` across eleven mutations) plus the backlog truth pass.
+>
+> **⚠️ IT MERGED WITH `codex-review` RED, on the owner's explicit instruction, and the reason
+> matters for the next PR: Codex reached its account usage limits mid-review and could not review the
+> final head.** Every other check was green and `verify:slice` passed 248/248. The gate itself worked
+> exactly as designed — it stayed red rather than pretending — so **top up Codex credits before
+> opening the next PR, or the same block recurs.** If it does and the work is finished, the choice is
+> the owner's, not the session's: "the reviewer ran out of credits" is not "the reviewer approved".
+>
+> **What seven Codex rounds actually taught (5 → 4 → 3 → 4 → 4 → 2 → 3, every finding real).** Rounds
+> 1–3 were the product change; **4 onward were almost entirely the guard auditing itself**, which is
+> the #241/#242 pattern repeating. Two late findings touched shipped behaviour and justified the whole
+> tail: the edit gate derived from the SUPPRESSED freeze (every control live while the server refused),
+> and Reopen wiping a NEWER client secret out from under a mounted Payment Element. **The recurrence
+> worth internalising is LEARNINGS #65: FOUR separate matchers in one guard file each had to be
+> re-bound after being written to match TEXT.** When you write a predicate over a name, the question is
+> never "does this string appear" but "is this the thing I mean" — and after fixing one, grep the same
+> file for every other predicate still spelling instead of binding.
+>
+> **The whole money-path `high` cluster is one decision.** M123 · M124 · M151 · **M152 (a/b/c)** all
+> reduce to the same missing fact — a cart→intent link so every pin-clearer can say
+> `and live_payment_intent_id is null`. Designed in `docs/CART_INTENT_LINK.md`, **not written, not
+> applied, owner authorization required** (the QR prod migration history is divergent — read the
+> `db push` warning in `CLAUDE.md` before touching it). Nothing else at `high` is blocked on it.
+>
+> **Next open, in order of value:** **T9** (high — the only unblocked `high`: `RewardField`,
+> `PickupWhenChoice` and `SendToKitchenButton` take no freeze prop, so they still present live
+> mutation controls under any freeze; RewardField's Remove ignores `clearReward`'s `ok:false` and
+> refreshes back to the applied reward) · **T11** (the two remaining shape holes in
+> `check-freeze-parity.mjs`) · **T10** (pickup/scan-and-go get no live lock delivery) · then the
+> cart→intent link the moment it is authorized · **C16** (owner-only) · the med/low sweep, which has
+> still never had a truth pass.
+>
+> **The registry had three duplicate IDs and they are FIXED** — #246's truth pass filed new rows under
+> `G17`, `G18` and `T7`, all three of which were already taken, so two different rows answered to one
+> name in the file that is supposed to be the single registry. The 2026-09-02 rows are now **G20** ·
+> **G21** · **T12**; the pre-existing rows keep their IDs, and the three closure notes that pointed at
+> them (G3's, G4's, J8's) plus the CHANGELOG entry were updated in the same commit. **The lesson is
+> the method, not the numbers:** the next free ID was DERIVED by reading every row in the file, and
+> the result was checked as a set (`uniq -d` empty, old rows still present) rather than eyeballed.
+> Never pick an ID from memory — that is exactly how these three were minted.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-02 — a truth pass found 7 of 16 open `high` rows already fixed; J4's residual shipped; the registry is now measured, not remembered)
 >
 > `main` is at #245. **#246** closes J4 and trues up the registry.
@@ -30,10 +143,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Still open and unchanged:** the cart→intent link (**M151** · **M152 a/b/c** · **M123 a′ and b**) is
 > one prod migration, designed in `docs/CART_INTENT_LINK.md`, **not applied, owner authorization
 > required**. **C16** (branch protection) is owner-only. **M124**'s sub-millisecond era collision is
-> live and needs no migration. New from the pass: **G17** · **G18** · **T7** · **T8**.
+> live and needs no migration. New from the pass: **G20** · **G21** · **T12** · **T8** (renamed 2026-09-03 — the pass first filed them under IDs that were already taken).
 >
 > **Next open, in order of value:** C16 (owner) · the cart→intent link slice (owner-gated) · **M124**
-> (med, no migration — the era collision) · **T7** (med — pin the rewards error→null rule before it
+> (med, no migration — the era collision) · **T12** (med — pin the rewards error→null rule before it
 > regresses) · **F5** / **G5** / **S2**, all PARTIAL with the live half measured in the pass · then the
 > med/low sweep, which has never had a truth pass.
 

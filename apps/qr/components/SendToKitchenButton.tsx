@@ -24,11 +24,25 @@ const T = (k: DictKey) => t("en", k);
  * down to the deadline the server returned, and Undo itself re-checks the grace, so a drifted client
  * clock can't extend the window (the server answers `expired` → "ask a server").
  */
+/**
+ * What this control says when a frozen tap arrives — naming THIS control, never the lock's holder.
+ *
+ * ⚠️ An earlier draft echoed Checkout's `freezeNotice` through a `frozenNote` prop. Two defects,
+ * both caught pre-merge: (1) `frozenNote` carries the SUPPRESSED freeze while `frozen` carries the
+ * RAW one, so `frozen && frozenNote === null` is reachable in exactly one state — the viewer's own
+ * in-flight `create-intent` — and the `??` fallback would have blamed a peer in the one window
+ * where the code knows the holder is the reader (the M116 fabricated-diagnosis class); and (2)
+ * setting the region to the string it already holds is a no-op React bails on, so nothing is
+ * announced. A sentence about this control is true under every freeze and differs from the bar's.
+ */
+const FROZEN_NOTE = "The order’s locked while a checkout finishes.";
+
 export function SendToKitchenButton({
   cartId,
   hasDraft,
   draftCount = 0,
   primary = false,
+  frozen,
   onUndoWindowChange,
   onChanged,
 }: {
@@ -38,6 +52,16 @@ export function SendToKitchenButton({
   hasDraft: boolean;
   /** W12 — the CTA carries what it sends ("Send to kitchen · 3 items"). 0 hides the count. */
   draftCount?: number;
+  /**
+   * T9 — Checkout's `editsFrozen`, threaded. Both mutations here (`sendToKitchen`, `undoFire`)
+   * refuse on bare `locked`, so a live control is one whose write is already decided against.
+   *
+   * ⚠️ THIS GATES THE UNDO TOO, and that is the honest reading rather than a harsh one. `undoFire`
+   * refuses under the same predicate, so a freeze landing mid-grace has ALREADY taken the undo away
+   * server-side; leaving the button live would only spend the diner's last seconds on a tap that
+   * cannot land. What the gate must NOT do is shorten the window — see `undoUntil` below.
+   */
+  frozen: boolean;
   /** W12 — the Order moment's hero action: render as the filled `.checkout-cta` (shine sweep and
    *  all) instead of the old secondary outline. The undo window keeps the outline (reversing is
    *  never the hero). */
@@ -99,6 +123,27 @@ export function SendToKitchenButton({
   }, [undoUntil, onUndoWindowChange]);
   useEffect(() => () => onUndoWindowChange?.(false), [onUndoWindowChange]);
 
+  // ⚠️ CLEAR THE FREEZE REFUSAL WHEN THE FREEZE LIFTS. `msg` outlives the condition that produced
+  // it: a peer takes the lock, the diner taps Send and gets FROZEN_NOTE, the peer reopens, the bar
+  // disappears and the CTA lights up again — and this component's `--warn` line was still sitting
+  // under it saying the order is locked. Two contradictory statements about the same fact, one of
+  // them false. Only this one message is cleared: a send/undo outcome is a report about something
+  // that happened and stays until the next action replaces it.
+  const wasFrozen = useRef(frozen);
+  useEffect(() => {
+    if (wasFrozen.current && !frozen) setMsg((m) => (m?.text === FROZEN_NOTE ? null : m));
+    // ⚠️ AND CLOSE AN OPEN CONFIRM WHEN THE FREEZE ARRIVES (Codex round 6 on #247). `ConfirmSwap`
+    // takes only `busy`, so a confirm opened while editable keeps a Proceed button that looks and
+    // reads as live after a peer takes the lock — the handler refuses, but one interaction too
+    // late, which is precisely the "refuse at the door" rule the trigger below already follows.
+    // Closing it returns the diner to the (now dimmed, `aria-disabled`) Send trigger and says why.
+    if (!wasFrozen.current && frozen && confirming) {
+      setConfirming(false);
+      setMsg({ kind: "err", text: FROZEN_NOTE });
+    }
+    wasFrozen.current = frozen;
+  }, [frozen, confirming]);
+
   // Focus back to the Send trigger when the confirm closes WITHOUT sending (B4 / the staff idiom).
   // After a confirmed send the trigger unmounts and the existing undo-focus effect takes over.
   const wasConfirming = useRef(false);
@@ -108,6 +153,16 @@ export function SendToKitchenButton({
   }, [confirming]);
 
   const send = () => {
+    if (frozen) {
+      // ⚠️ CLOSE THE CONFIRM ON THIS PATH TOO. Returning without it stranded the diner on an open
+      // confirm whose Proceed can only refuse and whose only escape is Cancel — exactly what the
+      // `setConfirming(false)` below is commented as preventing. The freeze can arrive between
+      // opening the confirm and pressing Proceed, so this is reachable.
+      setConfirming(false);
+      // Say why rather than dying quietly — this is the one control the diner came here to press.
+      setMsg({ kind: "err", text: FROZEN_NOTE });
+      return;
+    }
     setMsg(null);
     startTransition(async () => {
       try {
@@ -154,6 +209,14 @@ export function SendToKitchenButton({
   const undo = () => {
     // The window only opens with a batch id (see send()); guard so undo always targets a concrete batch.
     if (undoBatch === null) return;
+    if (frozen) {
+      // ⚠️ The window is NOT closed here. `undoUntil` is mirrored to the parent via
+      // `onUndoWindowChange` and gates Checkout's View-bill door, so ending it early would both
+      // forfeit an undo the SQL would still honour once the lock clears AND un-refuse that door.
+      // The countdown keeps running; only the tap is refused, and it says why.
+      setMsg({ kind: "err", text: FROZEN_NOTE });
+      return;
+    }
     setMsg(null);
     startTransition(async () => {
       try {
@@ -203,9 +266,20 @@ export function SendToKitchenButton({
           type="button"
           onClick={undo}
           disabled={pending}
+          /* T9 — `aria-disabled`, never native, for the FREEZE: the grace effect parks focus on this
+             very button when the window opens, so a native disable would drop it to <body>
+             mid-window (WCAG 2.4.3). `disabled` stays `{pending}` — the user's own in-flight tap. */
+          aria-disabled={frozen || undefined}
           aria-busy={pending}
           className="checkout-outline-btn mms-settle"
-          style={{ ...btn, opacity: pending ? 0.7 : 1, cursor: pending ? "default" : "pointer" }}
+          // 0.55 is Checkout's own frozen dim (it is what every gated control on that screen uses).
+          // Unlike `.checkout-pill`, these two classes carry NO `[aria-disabled]` rule, so without
+          // this the freeze would be announced to a screen reader and invisible to everyone else.
+          style={{
+            ...btn,
+            opacity: pending ? 0.7 : frozen ? 0.55 : 1,
+            cursor: pending || frozen ? "default" : "pointer",
+          }}
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
         </button>
@@ -224,8 +298,21 @@ export function SendToKitchenButton({
         <button
           ref={sendBtnRef}
           type="button"
-          onClick={() => setConfirming(true)}
+          // Refuse at the DOOR, not two taps in. Opening the confirm under a freeze would walk the
+          // diner through a decision step whose Proceed can only refuse — `send()` still guards
+          // (that is the gate; this is the courtesy), but the dead end is avoidable so avoid it.
+          onClick={() => {
+            if (frozen) {
+              setMsg({
+                kind: "err",
+                text: FROZEN_NOTE,
+              });
+              return;
+            }
+            setConfirming(true);
+          }}
           disabled={pending}
+          aria-disabled={frozen || undefined}
           aria-busy={pending}
           className={primary ? "checkout-cta" : "checkout-outline-btn"}
           // ⚠️ Inline styles outrank the class: when primary, the outline look's background/color/
@@ -241,8 +328,8 @@ export function SendToKitchenButton({
                   fontSize: "var(--fs-body)",
                 }
               : btn),
-            opacity: pending ? 0.7 : 1,
-            cursor: pending ? "default" : "pointer",
+            opacity: pending ? 0.7 : frozen ? 0.55 : 1,
+            cursor: pending || frozen ? "default" : "pointer",
           }}
         >
           {/* The label rides above the .checkout-cta ::after shine sweep on its own layer.
@@ -311,7 +398,20 @@ const reasonCopy: Record<
   string
 > = {
   not_host: "Ask the host to send the order to the kitchen.",
-  locked: "Someone’s checking out — try again once they’ve finished.",
+  // ⚠️ THE SAME STRING AS THE CLIENT-SIDE REFUSAL, DELIBERATELY (Codex round 2 on #247). This is
+  // the RACED path: the tap started while the cart was editable and the server took the lock before
+  // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
+  // checking out", which is the peer claim the whole copy change removed — and the lock can be
+  // self-held (two tabs on one device) or unattributable, so that sentence is a diagnosis the code
+  // never established. Naming it ONCE also means the unfreeze effect above, which clears messages
+  // equal to FROZEN_NOTE, clears this one too instead of leaving it stale after the lock lifts.
+  // ⚠️ NOT `FROZEN_NOTE` (Codex round 5 on #247, correcting round 2). This is the RACED path — the
+  // tap started editable and the server met the lock — so `frozen` is false here by construction
+  // and the lock may already have lifted by the time this renders. Round 2 unified the two strings
+  // so the unfreeze effect would clear this one too; that only works while an unfreeze EDGE is
+  // still coming, and on a lock that took and released mid-request it already went by. A sentence
+  // that makes no claim about the lock needs no edge and cannot go stale.
+  locked: "That didn’t go through — please try again.",
   settling: "The table is settling up — you can’t send while everyone pays.",
   nothing: "Everything’s already with the kitchen.",
   rate_limited: "One moment — too many taps. Try again in a few seconds.",

@@ -32,10 +32,42 @@ const REASON: Record<ApplyRewardReason, string> = {
  * Renders nothing when the diner has no coupons. The amount shown is the server's (appliedRewardCents from
  * totals.rewardCents) — never a client guess.
  */
+/**
+ * What this component says when a frozen tap arrives — and what it deliberately does NOT say.
+ *
+ * ⚠️ IT NAMES THIS CONTROL, NEVER THE HOLDER. An earlier draft echoed Checkout's `freezeNotice`
+ * sentence through a `frozenNote` prop, "so a refusal here says what the lockbar says". Two defects,
+ * both found pre-merge:
+ *
+ *   1. `frozenNote` is the SUPPRESSED freeze (`visibleFreeze`), while `frozen` is the RAW one — so
+ *      `frozen === true && frozenNote === null` is reachable in exactly one state: the viewer's own
+ *      in-flight `create-intent`. The `??` fallback therefore rendered "Someone's checking out" in
+ *      the one window where the code had established the holder is the READER. That is the M116
+ *      fabricated-diagnosis class, and `cart-freeze.ts` opens by refusing to commit it.
+ *   2. Echoing the bar's exact string means the live region is set to the value it already holds —
+ *      React bails on the equal state, the DOM does not change, and nothing is announced. The tap
+ *      had no observable effect at all.
+ *
+ * Naming the control instead fixes both: it is true under every freeze (peer, self and held alike),
+ * it claims nothing about who, and it is a different string from the bar, so it announces.
+ */
+const FROZEN_NOTE = "Rewards are locked while a checkout finishes.";
+
+/** Every message this component can render BECAUSE of a lock — the set the unfreeze effect clears.
+ *  `busy` and `cart_closed` are the server's reason codes for the same fact arriving on the raced
+ *  path, where `frozen` was still false when the tap started. */
+const LOCK_MESSAGES = new Set<string>([FROZEN_NOTE]);
+
+/** The RACED refusal: the tap started editable and the server met the lock. It deliberately makes
+ *  NO claim about the lock — by the time it renders the lock may already have lifted, and there is
+ *  no later edge to correct a claim that has. A sentence that is true either way needs no edge. */
+const RACED_NOTE = "That didn’t go through — please try again.";
+
 export function RewardField({
   cartId,
   appliedRewardCents,
   rewardShortfallCents = 0,
+  frozen,
   onChanged,
 }: {
   cartId: string;
@@ -43,6 +75,16 @@ export function RewardField({
   /** M22 — face minus applied, from `rewardShortfallCents(totals)`. 0 when there is nothing to say.
    *  Never computed here: the residual belongs beside the clamp that produced it. */
   rewardShortfallCents?: number;
+  /**
+   * T9 — may this viewer still change the reward? The ONE binding, threaded from Checkout's
+   * `editsFrozen` (`lib/cart-freeze.ts`), never re-derived here: this component must not import
+   * `cartFreeze` or read `locked`, or there are two answers to one question.
+   *
+   * Both mutations behind this component (`applyReward`, `clearReward`) refuse on bare `locked` —
+   * they are two of the eleven names in `check-freeze-parity.mjs`'s EXPECTED_SUBJECTS — so a live
+   * control here is a control whose write the server has already decided to reject.
+   */
+  frozen: boolean;
   onChanged: () => void | Promise<void>;
 }) {
   const [coupons, setCoupons] = useState<RewardCoupon[]>([]);
@@ -122,7 +164,39 @@ export function RewardField({
   // every coupon button (or the Remove button, stuck on "…") disabled forever, with no error text
   // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
   // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
+  // ⚠️ CLEAR THE FREEZE REFUSAL WHEN THE FREEZE LIFTS (Codex round 2 on #247). `error` outlives the
+  // condition that produced it: a peer takes the lock, the diner taps a reward and gets FROZEN_NOTE,
+  // the peer reopens, the bar disappears and the controls light up again — and this component's
+  // error line was still saying they were locked. `SendToKitchenButton` got this effect in round 1
+  // and this file did not, which is the "a lesson taught to one matcher is not taught to the
+  // concept" shape (LEARNINGS #65) applied to components. Only this one message is cleared: an
+  // apply/remove outcome is a report about something that happened and stays.
+  //
+  // ⚠️ AND IT CLEARS EVERY LOCK-DERIVED MESSAGE, NOT JUST THIS ONE (Codex round 3 on #247). An apply
+  // that STARTS while editable and meets the lock inside `assertCartMember` comes back
+  // `reason: "busy"` and renders `REASON.busy` — a lock claim the client-side path never wrote. An
+  // equality test against FROZEN_NOTE alone left that one standing after the lock lifted, which is
+  // the same stale-claim defect one reason-code over.
+  const wasFrozen = useRef(frozen);
+  useEffect(() => {
+    if (wasFrozen.current && !frozen) setError((e) => (LOCK_MESSAGES.has(e ?? "") ? null : e));
+    wasFrozen.current = frozen;
+  }, [frozen]);
+
   async function apply(code: string, tapped: HTMLButtonElement | null) {
+    if (frozen) {
+      // SAY SOMETHING. A silent `return` here was the shipped state and it is J4 clause (b) in the
+      // fix for J4 clause (b): the tap is taken, nothing changes, nothing is said. See FROZEN_NOTE
+      // for why this component names only its OWN control and never who holds the lock.
+      // ⚠️ NO `refocusOnIdle` HERE (Codex round 4 on #247). That claim is consumed by the
+      // `[busy, applied]` recovery effect, and a frozen tap sets NEITHER — it never runs, so the
+      // element stays armed. When a peer later applies or removes a reward the effect fires with a
+      // stale target and moves focus to a control the diner never touched, which is exactly the
+      // peer-driven focus theft the `acted` guard exists to prevent. Nothing needs recovering
+      // anyway: `aria-disabled` does not blur the button, so focus never left it.
+      setError(FROZEN_NOTE);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -131,7 +205,23 @@ export function RewardField({
         // A discriminated refusal changes nothing on the server, so no branch swap is coming and the
         // claim is consumed by the very next idle commit.
         refocusOnIdle.current = tapped;
+        // ⚠️ A RACED LOCK REFUSAL MUST NOT ASSERT A CONDITION THAT CAN LAPSE (Codex rounds 4 and 5
+        // on #247, and round 4's fix was BOTH incomplete and wrong). `busy` is only reachable when
+        // the tap started editable and the server met the lock — so `frozen` is false here by
+        // construction, and the lock may already have lifted by the time this renders. Round 4
+        // checked a `frozenRef` and downgraded to a generic error; that ALSO swallowed
+        // `cart_closed`, which is not a lock at all (the RPC said not_open/not_found — definitive,
+        // and no retry will help). The rule that needs no ref: say something that stays true either
+        // way, and never make a claim about the lock's current state.
+        if (res.reason === "busy") {
+          setError(RACED_NOTE);
+          onChanged(); // re-read: the freeze bar and the totals are the authority now
+          return;
+        }
         setError(REASON[res.reason]);
+        // `cart_closed` is DEFINITIVE and changes what this whole screen should show — re-read so
+        // the diner is not left retrying against a cart that is already paid.
+        if (res.reason === "cart_closed") onChanged();
         return;
       }
       setOpen(false);
@@ -160,10 +250,38 @@ export function RewardField({
   }
 
   async function remove() {
+    // The refusal lives HERE; `aria-disabled` is an announcement, not a gate — a keyboard Enter or
+    // a programmatic click still arrives.
+    if (frozen) {
+      // No `refocusOnIdle` — same reason as the frozen apply path above, and it was left armed here
+      // when that one was fixed (Codex round 5 on #247): the claim is consumed by the
+      // `[busy, applied]` effect, a frozen tap sets neither, and a peer later clearing the reward
+      // would then move focus to the freshly-mounted "Use a reward" control for an action performed
+      // on another device. `aria-disabled` never blurred this button, so nothing needs recovering.
+      setError(FROZEN_NOTE);
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await clearReward(cartId);
+      // ⚠️ READ THE ANSWER (T9). This was `await clearReward(cartId)` with the result DISCARDED —
+      // and `clearReward` returns `{ ok: false }` under `locked || settling` (`lib/cart.ts`), so a
+      // frozen cart took the tap, armed the focus handoff, refreshed, and put the still-applied
+      // reward back with nothing said. That is J4 clause (b) — "renders fully editable and every
+      // edit silently no-ops" — one component down from the screen J4 was filed against.
+      //
+      // The return is UNDISCRIMINATED (`{ ok: boolean }`, unlike `applyReward`'s reason), so the
+      // sentence cannot be derived from it — say only that it did not happen and point at the
+      // server-authoritative total, which is the same thing the catch below does. (An earlier draft
+      // wrote `frozenNote ?? …` here and it was DEAD: the `if (frozen)` above returns, so this line
+      // is only ever reached with no freeze. Pre-merge review caught it.)
+      const res = await clearReward(cartId);
+      if (!res.ok) {
+        setError("Couldn’t remove that reward. The total below is the one that counts.");
+        refocusOnIdle.current = removeBtnRef.current;
+        onChanged(); // re-read: the server's answer is the only one that counts
+        return;
+      }
       acted.current = true; // hand focus back to "Use a reward" once it remounts
       onChanged();
     } catch {
@@ -246,6 +364,11 @@ export function RewardField({
             type="button"
             onClick={remove}
             disabled={busy}
+            /* T9 — `aria-disabled`, never native, for the FREEZE: `apply()` parks focus on this
+               button, and unlike Checkout's Stepper this component has no freeze-edge focus-restore
+               effect, so a native disable would drop focus to <body> mid-interaction (WCAG 2.4.3).
+               `disabled` stays exactly `{busy}` — its own in-flight state, which the user initiated. */
+            aria-disabled={frozen || undefined}
             /* M22 (Codex round 1, P2) — apply moves focus straight here, and "Remove" alone never
                says what there is to remove FROM. The warning is inserted asynchronously and sits in
                no live region, so a screen-reader diner could complete the apply and reach Pay
@@ -253,7 +376,12 @@ export function RewardField({
                the same breath as the button, and adds no second live region to compete with the
                error one below (QA-CHECKLIST §A: one live region per view). */
             aria-describedby={rewardShortfallCents > 0 ? SHORTFALL_ID : undefined}
-            style={{ ...linkBtn, position: "relative", zIndex: 1 }}
+            style={{
+              ...linkBtn,
+              position: "relative",
+              zIndex: 1,
+              ...(frozen ? { opacity: 0.55 } : null),
+            }}
           >
             {busy ? "…" : "Remove"}
           </button>
@@ -320,8 +448,9 @@ export function RewardField({
                   // synthetic event is released, and `apply` awaits before it needs the ref.
                   onClick={(e) => apply(c.code, e.currentTarget)}
                   disabled={busy}
+                  aria-disabled={frozen || undefined}
                   className="checkout-reward-add"
-                  style={couponBtn}
+                  style={{ ...couponBtn, ...(frozen ? { opacity: 0.55 } : null) }}
                 >
                   <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
                   {/* "good through", not "expires" — the hospitable way round. But `expires_at` is
