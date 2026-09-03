@@ -6,6 +6,32 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
 
+**Round 1 rewrote most of this.** Codex and a blind adversarial pass independently returned the same
+P1: the pre-write gate refused writes against a CACHED freeze, and `authz.ts` expires a lock by
+computation (`locked_at > now - CART_LOCK_TTL_MS`) with no row write — so no realtime event ever
+corrects it, and the gate removed the mutation whose returned view would have. **The gate is gone;
+the server decides.** Four more, each verified against source: a failed re-read is `unreachable`, not
+a session verdict (`assertCartMember` throws `UNAVAILABLE()` for query and transport errors too); no
+arm claims the freeze CAUSED the refusal, which one later read cannot establish; the freeze clause
+comes from `inertReason` — the vocabulary /menu already speaks — instead of `freezeNotice`, whose
+tokenless `self` branch asserted a second checkout from a missing attempt token; and the precedence
+now matches `inertReason`'s settling-first order, so one cart cannot get two freezes depending on
+which surface spoke last. `addItem` commits and THEN returns `getCartView`, so a post-commit read
+failure no longer reports a write that landed as refused, and `YourUsual` carries the established
+cause instead of overwriting it with "try it from the menu below" — the exact string this slice
+removed one layer down.
+
+Two guard repairs came out of the same round. `check-docs.mjs` now checks BODY-row cell counts, not
+just header-vs-delimiter parity: five freshly-written registry rows had silently lost their Status
+and Source cells and the gate could not see it — GFM pads a short row rather than refusing it. That
+found **38 more rows** in the same state, all repaired. And `check-child-freeze`'s exemption for
+`TableCartProvider` was excusing the very defect it described ("both catches already re-sync and
+speak"), so it now says what the catches actually do. `.usual-add:disabled` was dead CSS — the
+control is `aria-disabled` by design — so the inert state rendered as a live-looking primary CTA.
+
+Filed: **T18** (the /menu freeze wiring is guarded only at the lib layer) · **T19** (the realtime
+widening doubles cart reads on solo-mode writes).
+
 **T14 — `TableCartProvider` answered every refused cart write the same way: "Reconnecting to your
 table…" plus a session re-mint.** Its own comment listed the causes — "a silently-EXPIRED table
 session … or a refused write (cart locked, a stale/invalid modifier selection)" — and then treated

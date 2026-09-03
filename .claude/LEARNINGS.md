@@ -1179,3 +1179,57 @@ And when the fix IS a deletion, prefer it: the reason T10 could recur was a `boo
 each passed a mode predicate into. A parameter that does not exist cannot be re-narrowed, and
 TypeScript makes re-adding it a deliberate act across every call site — the same argument T9 made for
 required props, one layer down.
+
+## #72 — A freeze the server expires by COMPUTATION cannot be cached by a client that also gates on it (#248, 2026-09-03)
+
+Codex and a blind adversarial pass, running independently on the same diff, returned the same P1 —
+which is the strongest signal this repo has produced for a single finding.
+
+The diff added a pre-write gate: refuse a cart write against the freeze the client already holds,
+"so a refusal costs no round trip". The docblock claimed it "can never block a cart the server would
+have accepted". It could, and it could not recover:
+
+```ts
+// authz.ts — the lock is a COMPUTED predicate, not a column
+const lockedFresh =
+  cart.locked &&
+  cart.locked_at !== null &&
+  new Date(cart.locked_at).getTime() > Date.now() - CART_LOCK_TTL_MS;
+```
+
+A lock therefore expires **by the passage of time**. No row write, so no Postgres-Changes event, so
+the cached copy is never corrected. And the gate removed the one thing that WOULD have corrected it:
+the mutation whose returned view the provider folds in. A diner who left `/menu` open would go on
+being refused, naming a lock that expired minutes ago, forever.
+
+**The rule: never cache a state whose owner expires it by computation and then gate on the cache.**
+Ask of any client-side gate, "what event tells me this stopped being true?" — if the answer is
+"none, it just stops", the cache can only ever be an optimisation over a decision the server still
+has to make, never the decision itself. The fix was deleting the gate: the write goes out, the
+server decides, and a refusal is explained afterwards from a read. The round trip the gate saved is
+the round trip the write was going to make anyway.
+
+## #73 — A classification built from a LATER read may report observations, never causation (#248, 2026-09-03)
+
+The same diff replaced a fabricated diagnosis ("Reconnecting to your table…" for every refused
+write) with a re-read that established the cause. Round 1 found the replacement overclaiming in
+three separate ways, all one shape:
+
+- **A failed re-read was called `session`.** But `assertCartMember` throws `UNAVAILABLE()` for cart,
+  session AND membership _query_ errors, and the Server Action can fail in transport. A failed read
+  establishes that we cannot see the cart — nothing about a session. Renamed `unreachable`, and the
+  re-mint is now offered as a recovery attempt rather than announced as a verdict.
+- **A successful re-read was treated as the state at REFUSAL time.** It is the state at READ time: an
+  add can fail on a stale modifier while a tablemate takes the lock before `getCartView` returns, and
+  the classifier would then tell the diner checkout caused it. Every sentence now opens with an
+  observation ("That didn't go through") and continues with current state — no causal claim, because
+  one later read cannot support one.
+- **A missing capability was read as evidence about the world.** `freezeNotice`'s `self` branch keys
+  on `canRelease` = "this viewer holds an attempt token"; /menu never holds one, so passing `false`
+  selected _"Another checkout on this device is holding this order"_ — asserting a second checkout
+  from the mere absence of a token. A diner who walked back from `/cart` after a failed release is
+  one tab. **"This surface can't do X" is not "someone else did X."**
+
+The through-line with #70: it is not enough for a refusal to speak, and it is not enough for it to
+be _derived_ — the derivation has to support the specific claim the sentence makes. Two independent
+reviewers found this on code written specifically to remove the same class one layer up.

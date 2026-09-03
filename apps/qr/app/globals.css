@@ -8334,13 +8334,20 @@ html[data-seen-surface] .mms-stagger {
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
-.usual-add:hover:not(:disabled) {
+.usual-add:hover:not(:disabled):not([aria-disabled="true"]) {
   background: color-mix(in oklab, var(--ac) 10%, transparent);
 }
-.usual-add:disabled {
+
+/* T14 — `[aria-disabled]` as well as `:disabled`, because this control is NEVER natively disabled:
+   note 3 in YourUsual.tsx keeps it focusable so a keyboard diner pressing Enter does not lose their
+   place (WCAG 2.4.3). So `:disabled` alone had matched NOTHING since W22e, and the inert state — now
+   including a frozen cart — rendered as a live-looking primary CTA. */
+.usual-add:disabled,
+.usual-add[aria-disabled="true"] {
   cursor: default;
   border-color: var(--bd);
   color: var(--t2);
+  opacity: 0.6;
 }
 
 /* ── W22f · the sound switch (the ONE place a diner can turn the chime on) ──────────────────────

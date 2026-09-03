@@ -15,7 +15,6 @@ import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@
 import {
   cartFreeze,
   classifyRefusedWrite,
-  freezeBlocksEdits,
   refusalNeedsRemint,
   refusedWriteNotice,
   type FreezeInput,
