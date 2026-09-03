@@ -66,6 +66,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > scheduled while the freeze is held — not a poll (see `recheckLock`'s reasoning on the checkout
 > side). Do it before the next surface adopts the same gate.
 >
+> **T21 is the other thing #248 leaves**, and (a) is the one worth doing first: `getCartView`
+> destructures `qr_carts` and `qr_cart_items` WITHOUT binding `error`, so a failed line read resolves
+> as an EMPTY cart for every caller in the app — not just the new recovery path. Bind and throw.
+>
 > **Still open, in order:** the **cart→intent link** (M123 · M124 · M151 · M152 a/b/c — one owner
 > decision, designed in `docs/CART_INTENT_LINK.md`, **not written, not applied, authorization
 > required**; the QR prod migration history is divergent — read the `db push` warning in `CLAUDE.md`
