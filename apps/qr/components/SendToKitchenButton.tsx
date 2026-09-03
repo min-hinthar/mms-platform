@@ -396,7 +396,13 @@ const reasonCopy: Record<
   // self-held (two tabs on one device) or unattributable, so that sentence is a diagnosis the code
   // never established. Naming it ONCE also means the unfreeze effect above, which clears messages
   // equal to FROZEN_NOTE, clears this one too instead of leaving it stale after the lock lifts.
-  locked: FROZEN_NOTE,
+  // ⚠️ NOT `FROZEN_NOTE` (Codex round 5 on #247, correcting round 2). This is the RACED path — the
+  // tap started editable and the server met the lock — so `frozen` is false here by construction
+  // and the lock may already have lifted by the time this renders. Round 2 unified the two strings
+  // so the unfreeze effect would clear this one too; that only works while an unfreeze EDGE is
+  // still coming, and on a lock that took and released mid-request it already went by. A sentence
+  // that makes no claim about the lock needs no edge and cannot go stale.
+  locked: "That didn’t go through — please try again.",
   settling: "The table is settling up — you can’t send while everyone pays.",
   nothing: "Everything’s already with the kitchen.",
   rate_limited: "One moment — too many taps. Try again in a few seconds.",

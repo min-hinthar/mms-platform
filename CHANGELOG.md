@@ -77,6 +77,20 @@ could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"
 which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
 it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
 
+**Round 5 found five, and FOUR were defects in or omissions from round 4's own fixes — including one
+regression it introduced.** That ratio is the finding. Round 4 patched the late-response staleness
+per site with a `frozenRef` check; round 5 showed the same hole in `SendToKitchenButton` and
+`PickupWhenChoice` (not carried across), the frozen `remove()` path still arming focus recovery
+after the frozen `apply()` path was fixed (not carried across), progressive copy in `SplitSection`
+that outlives the request it describes, and — the regression — `cart_closed` swallowed into a
+retryable generic error, when it is the RPC's DEFINITIVE not_open/not_found and no retry will help.
+
+So the per-site patch was replaced by the rule the class actually needs: **a refusal message must not
+assert a condition that can lapse without the component hearing about it.** The raced `locked`/`busy`
+answers now say only "That didn't go through — please try again" — true whether or not the lock is
+still held, needing no ref, no edge, and no correction. `cart_closed` keeps its definitive copy and
+re-reads. The `frozenRef` added in round 4 is gone.
+
 **Round 4 came back with three, all in PRODUCT code — the guards were clean.** All three were
 stale-or-overclaiming state, and all three fixed: a lock refusal that ARRIVES AFTER the unlock edge
 had no edge left to clear it (the unfreeze effect fires on the `frozen` transition, so a lock that

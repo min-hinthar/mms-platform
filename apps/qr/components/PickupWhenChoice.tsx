@@ -32,6 +32,12 @@ import { PickupSlotSheet } from "./PickupSlotSheet";
  */
 const FROZEN_NOTE = "Pickup timing is locked while a checkout finishes.";
 
+/** The RACED refusal — a queued write the server met a lock on. It makes NO claim about the lock:
+ *  `frozen` was false when the tap started, and by the time this renders the lock may already have
+ *  lifted, with Checkout's unfreeze edge long past (Codex round 5 on #247). A sentence that is true
+ *  either way needs no edge to correct it. */
+const RACED_NOTE = "That didn’t go through — please try again.";
+
 export function PickupWhenChoice({
   cartId,
   prepMinutes,
@@ -156,7 +162,7 @@ export function PickupWhenChoice({
           r.reason === "cart_closed"
             ? "This order is already being paid."
             : r.reason === "locked"
-              ? FROZEN_NOTE
+              ? RACED_NOTE
               : "Couldn’t switch to ASAP — please try again.",
         );
       } catch {
@@ -204,7 +210,7 @@ export function PickupWhenChoice({
             : r.reason === "cart_closed"
               ? "This order is already being paid."
               : r.reason === "locked"
-                ? FROZEN_NOTE
+                ? RACED_NOTE
                 : "Couldn’t set that time — please try again.",
         );
       } catch {

@@ -56,7 +56,12 @@ const FROZEN_NOTE = "Rewards are locked while a checkout finishes.";
 /** Every message this component can render BECAUSE of a lock — the set the unfreeze effect clears.
  *  `busy` and `cart_closed` are the server's reason codes for the same fact arriving on the raced
  *  path, where `frozen` was still false when the tap started. */
-const LOCK_MESSAGES = new Set<string>([FROZEN_NOTE, REASON.busy, REASON.cart_closed]);
+const LOCK_MESSAGES = new Set<string>([FROZEN_NOTE]);
+
+/** The RACED refusal: the tap started editable and the server met the lock. It deliberately makes
+ *  NO claim about the lock — by the time it renders the lock may already have lifted, and there is
+ *  no later edge to correct a claim that has. A sentence that is true either way needs no edge. */
+const RACED_NOTE = "That didn’t go through — please try again.";
 
 export function RewardField({
   cartId,
@@ -173,11 +178,6 @@ export function RewardField({
   // equality test against FROZEN_NOTE alone left that one standing after the lock lifted, which is
   // the same stale-claim defect one reason-code over.
   const wasFrozen = useRef(frozen);
-  /** The CURRENT freeze, readable from inside an async closure that began before it changed. */
-  const frozenRef = useRef(frozen);
-  useEffect(() => {
-    frozenRef.current = frozen;
-  }, [frozen]);
   useEffect(() => {
     if (wasFrozen.current && !frozen) setError((e) => (LOCK_MESSAGES.has(e ?? "") ? null : e));
     wasFrozen.current = frozen;
@@ -205,15 +205,23 @@ export function RewardField({
         // A discriminated refusal changes nothing on the server, so no branch swap is coming and the
         // claim is consumed by the very next idle commit.
         refocusOnIdle.current = tapped;
-        // ⚠️ A LOCK REFUSAL THAT ARRIVES AFTER THE UNLOCK EDGE HAS NO EDGE LEFT TO CLEAR IT (Codex
-        // round 4 on #247). The unfreeze effect above fires on the `frozen` TRANSITION; if the lock
-        // takes and releases while this request is still in flight, that effect runs with `error`
-        // still null and the answer lands afterwards — leaving "The order's being paid" on screen
-        // beside controls that work. `frozenRef` is the CURRENT fact at response time, so a
-        // lock-derived reason whose lock has already lifted is reported as what it now is: it did
-        // not land, and they can try again.
-        const lockDerived = res.reason === "busy" || res.reason === "cart_closed";
-        setError(lockDerived && !frozenRef.current ? REASON.error : REASON[res.reason]);
+        // ⚠️ A RACED LOCK REFUSAL MUST NOT ASSERT A CONDITION THAT CAN LAPSE (Codex rounds 4 and 5
+        // on #247, and round 4's fix was BOTH incomplete and wrong). `busy` is only reachable when
+        // the tap started editable and the server met the lock — so `frozen` is false here by
+        // construction, and the lock may already have lifted by the time this renders. Round 4
+        // checked a `frozenRef` and downgraded to a generic error; that ALSO swallowed
+        // `cart_closed`, which is not a lock at all (the RPC said not_open/not_found — definitive,
+        // and no retry will help). The rule that needs no ref: say something that stays true either
+        // way, and never make a claim about the lock's current state.
+        if (res.reason === "busy") {
+          setError(RACED_NOTE);
+          onChanged(); // re-read: the freeze bar and the totals are the authority now
+          return;
+        }
+        setError(REASON[res.reason]);
+        // `cart_closed` is DEFINITIVE and changes what this whole screen should show — re-read so
+        // the diner is not left retrying against a cart that is already paid.
+        if (res.reason === "cart_closed") onChanged();
         return;
       }
       setOpen(false);
@@ -245,8 +253,12 @@ export function RewardField({
     // The refusal lives HERE; `aria-disabled` is an announcement, not a gate — a keyboard Enter or
     // a programmatic click still arrives.
     if (frozen) {
+      // No `refocusOnIdle` — same reason as the frozen apply path above, and it was left armed here
+      // when that one was fixed (Codex round 5 on #247): the claim is consumed by the
+      // `[busy, applied]` effect, a frozen tap sets neither, and a peer later clearing the reward
+      // would then move focus to the freshly-mounted "Use a reward" control for an action performed
+      // on another device. `aria-disabled` never blurred this button, so nothing needs recovering.
       setError(FROZEN_NOTE);
-      refocusOnIdle.current = removeBtnRef.current;
       return;
     }
     setBusy(true);

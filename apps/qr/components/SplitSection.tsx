@@ -100,7 +100,12 @@ export function SplitSection({
       // and the shares beside it would keep showing the old owner while this sentence asserted they
       // were right. `RewardField`'s apply catch already had this rule ("a throw is not proof the
       // write didn't land"); it was not carried here. Say what is certain and RE-READ.
-      onStatus("Couldn’t confirm that reassignment — checking with the server.");
+      // ⚠️ NON-PROGRESSIVE COPY (Codex round 5 on #247, correcting round 4). "Checking with the
+      // server" describes work in progress, but this component cannot report how that check ended:
+      // `onChanged` is typed `() => void` here, so the re-read's outcome is erased, and the
+      // sentence would sit there claiming a check is still underway long after it finished — or
+      // failed. Say what is known and let the re-read speak through the screen it refreshes.
+      onStatus("Couldn’t confirm that reassignment — the seats below are re-read from the server.");
       onChanged();
     } finally {
       setBusyLine(null);
