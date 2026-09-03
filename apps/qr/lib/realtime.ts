@@ -1,4 +1,15 @@
 "use client";
+
+// verify:slice-exempt — subscription wiring with no money derivation of its own: every field these
+// channels carry is re-fetched server-authoritatively by the consumer (`getCartView` /
+// `getSettlement`), which is where the mutants live. Same shape and same reason as
+// `lib/useOrderStatus.ts`.
+//
+// ⚠️ WHAT THAT LEAVES UNGUARDED, said plainly: T10's rule — that `useCartRealtime` subscribes for
+// EVERY mode — is enforced by the absence of an `enabled` parameter and by TypeScript, not by a
+// mutant. Re-introducing a mode gate means re-adding a parameter and changing both call sites,
+// which is a deliberate act rather than a one-word edit; but no test would go red for it. Filed as
+// OPEN-ITEMS T17.
 import { useEffect, useRef, useState } from "react";
 import { browserClient } from "@mms/db";
 
