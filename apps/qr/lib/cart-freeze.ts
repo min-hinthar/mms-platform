@@ -1,3 +1,5 @@
+import { inertReason } from "./inert-reason";
+
 /**
  * J4 (residual) — the ONE binding that answers "may this viewer edit this cart?", and it answers it
  * the way the SERVER does.
@@ -273,58 +275,51 @@ export function reopenFailureNotice(
  *
  * ## The defect this replaces
  *
- * `TableCartProvider`'s `add` and `setItemQty` catch every throw from `addItem`/`setQty` and answer
- * the same way: flash "Reconnecting to your table…" and re-mint the table session. `add`'s own
- * comment enumerates the causes — "a silently-EXPIRED table session … or a refused write (cart
- * locked, a stale/invalid modifier selection)" — and then treats all of them as the first one. So a
- * diner whose tablemate is checking out is told their CONNECTION dropped, watches a session re-mint
- * they did not need, and can then be told the session was restarted: two false statements about a
- * session that was fine, for a cart the server refused on `locked`.
+ * `TableCartProvider`'s `add` and `setItemQty` caught every throw from `addItem`/`setQty` and
+ * answered the same way: flash "Reconnecting to your table…" and re-mint the table session. `add`'s
+ * own comment enumerated the causes — "a silently-EXPIRED table session … or a refused write (cart
+ * locked, a stale/invalid modifier selection)" — and then treated all of them as the first. So a
+ * diner whose tablemate was checking out was told their CONNECTION dropped, watched a session
+ * re-mint they did not need, and could then be told the session was restarted.
  *
- * That is exactly the class M116 and M119 spent four PRs removing — a refusal naming a cause the
- * code never established — and it survived on /menu because the client CANNOT read the thrown
- * message: Next redacts Server Action errors in production, so `"Order is locked while someone
- * checks out"` never reaches the browser. The cause has to be RE-ESTABLISHED, not parsed.
+ * That is the class M116 and M119 spent four PRs removing, and it survived on /menu because the
+ * client CANNOT read the thrown message: Next redacts Server Action errors in production, so
+ * `"Order is locked while someone checks out"` never reaches the browser.
  *
- * ## The discriminator
+ * ## What ONE re-read can and cannot establish
  *
- * One re-read of `getCartView` separates all four, because `assertCartMember` is the same gate the
- * write went through:
+ * ⚠️ THE SECOND DRAFT OF THIS MODULE OVERCLAIMED, AND BOTH REVIEWERS CAUGHT IT INDEPENDENTLY. A
+ * re-read describes the cart AT READ TIME, not at the moment the write was refused: an add can fail
+ * on a stale modifier while a tablemate takes the lock before `getCartView` returns, and a classifier
+ * that reported "the lock is why" would be inventing a cause exactly the way the code it replaced
+ * did. So these arms answer **what is true now**, and the copy states an OBSERVATION plus the
+ * CURRENT state — never a causal claim:
  *
- *   - the re-read FAILS → the session or the cart is genuinely unreachable. That, and only that, is
- *     the state the re-mint recovers, and it becomes the only state that triggers one.
- *   - the re-read SUCCEEDS and the cart is frozen → a pay-window lock. Established, so it can be
- *     named, and the sentence comes from `freezeNotice` rather than a second copy of the same copy.
- *   - the re-read SUCCEEDS and the table is settling → the split freeze. `addItem` and `setQty`
- *     refuse on `settling` with their OWN message, distinct from the lock's, so this is a distinct
- *     answer rather than a shade of the lock.
- *   - the re-read SUCCEEDS and the cart is editable → the write was refused for a reason this client
- *     cannot see (a sold-out line, a stale modifier, a line someone else owns). `unknown` is the
- *     honest answer; the one thing we CAN say is that the view beside the sentence is now server
- *     truth, because the caller applies that same re-read.
+ *   - the re-read FAILS → `unreachable`. Note the name: `assertCartMember` throws `UNAVAILABLE()`
+ *     for cart, session and membership QUERY errors, and the Server Action can fail in transport, so
+ *     a failed read does NOT establish an expired session. It establishes that we cannot see the
+ *     cart. The re-mint still runs, because a dead session is the one cause it can repair and it is
+ *     not ruled out — but it is offered as a recovery attempt, never announced as a diagnosis.
+ *   - the re-read SUCCEEDS and the cart is frozen → `frozen`, carrying the viewer's freeze.
+ *   - the re-read SUCCEEDS and the table is settling → `settling`.
+ *   - otherwise → `unknown`, which claims nothing.
  *
- * ⚠️ `unknown` MUST NOT collapse into any neighbour. Folding it into `session` is the shipped defect
- * above; folding it into `frozen` or `settling` puts a freeze sentence over a cart nobody froze.
+ * ⚠️ `unknown` MUST NOT collapse into any neighbour. Folding it into `unreachable` is the shipped
+ * defect above; folding it into `frozen` or `settling` puts a freeze sentence over a cart nobody
+ * froze.
  *
  * ## Why `settling` appears here and not in `cartFreeze`
  *
- * The header above records that the split freeze is deliberately absent from the review-step
- * resolution: a settling cart is ROUTED to the split board, so it never reaches the editable-looking
- * review step `cartFreeze` guards. /menu has no such routing — a diner browsing while their table
- * settles stays on /menu with every Add inert — and both `addItem` and `setQty` refuse on `settling`
- * in a statement of their own. So the refusal classifier has to answer for it, and answering "lock"
- * there would be the fabricated diagnosis one step over.
+ * The header records that the split freeze is deliberately absent from the review-step resolution: a
+ * settling cart is ROUTED to the split board. /menu has no such routing — a diner browsing while
+ * their table settles stays on /menu with every Add inert — and both `addItem` and `setQty` refuse on
+ * `settling` in a statement of their own.
  */
 export type RefusedWrite =
   | { cause: "frozen"; freeze: BlockingFreeze }
   | { cause: "settling" }
-  | { cause: "session" }
+  | { cause: "unreachable" }
   | { cause: "unknown" };
-
-/** The split-tender freeze, in one sentence. Exported because the provider's settle-TRANSITION
- *  announcement says the same thing, and two copies of one sentence is how they drift apart. */
-export const SETTLING_NOTICE =
-  "Your table is splitting the bill — the order’s locked while everyone pays";
 
 /**
  * Classify a refused cart write from the outcome of ONE re-read.
@@ -332,59 +327,74 @@ export const SETTLING_NOTICE =
  * `reread` is the caller's `getCartView` attempt: `{ ok: false }` when it threw, otherwise the lock
  * facts and the settle flag from the same call — one read, so they cannot disagree with each other
  * or with the view the caller just applied.
- *
- * ⚠️ THE ORDER OF THE ARMS MIRRORS THE SERVER'S. `addItem`/`setQty` test `locked` first and
- * `settling` second, so a cart that is both is refused as LOCKED and must be named as locked.
  */
 export function classifyRefusedWrite(
   reread: { ok: false } | { ok: true; freeze: FreezeInput; settling: boolean },
 ): RefusedWrite {
-  if (!reread.ok) return { cause: "session" };
+  if (!reread.ok) return { cause: "unreachable" };
   const freeze = cartFreeze(reread.freeze);
-  // `freezeBlocksEdits` mirrors the server's bare `locked`, so this arm covers exactly the carts the
-  // server refuses for that reason; the explicit null test is what carries the fact into the type.
+  // The explicit null test is what carries the fact into the type; `freezeBlocksEdits` is the mirror
+  // of the server's bare `locked`.
   if (freezeBlocksEdits(freeze) && freeze !== null) return { cause: "frozen", freeze };
   if (reread.settling) return { cause: "settling" };
   return { cause: "unknown" };
 }
 
 /**
- * Does this classification name a freeze the SERVER refuses on?
+ * Does this classification warrant re-minting the table session?
  *
- * Used in two positions, which is the point of naming it once: as the PRE-WRITE gate (run against
- * the freeze this client already holds, so a refusal costs no round trip and no re-mint) and in the
- * CATCH (to decide whether a caught throw may be attributed to a freeze at all).
- *
- * `session` and `unknown` are deliberately false. Neither establishes a freeze — one establishes an
- * unreachable cart, the other establishes nothing — and a pre-write gate that treated either as a
- * freeze would block a cart the server would have accepted, which is the over-blocking direction
- * this repo has paid for before.
+ * ONE arm, and it is the arm that could not read the cart at all. Every other arm has just proved
+ * the session works by reading through it, so a re-mint there is a recovery for a problem that does
+ * not exist — which is what the shipped code did on every throw.
  */
-export function refusalIsFreeze(refusal: RefusedWrite): boolean {
-  return refusal.cause === "frozen" || refusal.cause === "settling";
+export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
+  return refusal.cause === "unreachable";
 }
 
 /**
- * The sentence for a refused cart write.
+ * The sentence for a refused cart write: what we OBSERVED, then the state of the cart NOW.
  *
- * The frozen arm delegates to `freezeNotice` — ONE source for every pay-lock sentence in the app, so
- * a copy change on the review step cannot leave /menu saying something else about the same lock.
- * `canRelease` is false because /menu has no Reopen control: the tokenless copy ("it frees up on its
- * own shortly") is the only one this surface can keep, and copy may only promise what code keeps.
+ * ⚠️ THE FREEZE CLAUSE COMES FROM `inertReason`, NOT `freezeNotice`. Two reasons, both found in
+ * review:
+ *
+ *  1. `freezeNotice` is the REVIEW-STEP vocabulary, and its `self` branch keys on `canRelease` —
+ *     "this viewer holds an attempt token". /menu never holds one, so passing `false` selected
+ *     "Another checkout on this device is holding this order", which asserts a SECOND checkout from
+ *     the mere absence of a token. A diner who walked back from /cart after a failed release is one
+ *     tab, not two. `inertReason`'s self clause says only "the order's locked while you check out".
+ *  2. /menu already speaks `inertReason` from `AddButton`, `ItemSheet` and `YourUsual`. Routing the
+ *     refusal through `freezeNotice` gave one frozen cart two vocabularies on one screen — the exact
+ *     thing `inertReason`'s own docblock exists to prevent.
+ *
+ * The prefix is an observation ("That didn't go through") and the clause is current state, so
+ * nothing here claims the freeze CAUSED the refusal — which one re-read cannot establish.
  */
-export function refusedWriteNotice(refusal: RefusedWrite, peerName: string | null): string {
+export function refusedWriteNotice(
+  refusal: RefusedWrite,
+  viewerHoldsLock: boolean = false,
+): string {
   switch (refusal.cause) {
     case "frozen":
-      return freezeNotice(refusal.freeze, peerName, false);
+      return `That didn’t go through — ${inertReason({
+        minting: false,
+        locked: true,
+        lockedByYou: viewerHoldsLock,
+        settling: false,
+      })}.`;
     case "settling":
-      return SETTLING_NOTICE;
-    case "session":
-      // The re-read failed, so this is the one arm where a re-mint is the right recovery — and the
-      // only one that may say so.
-      return "Reconnecting to your table…";
+      return `That didn’t go through — ${inertReason({
+        minting: false,
+        locked: false,
+        settling: true,
+      })}.`;
+    case "unreachable":
+      // An OBSERVATION plus the action being taken. Not "your session expired" — a failed read does
+      // not establish that (`assertCartMember` throws UNAVAILABLE for query and transport errors
+      // too), and the re-mint is an attempt at repair, not a verdict.
+      return "We couldn’t reach your order just now — reconnecting to your table…";
     default:
-      // Established: the write did not land, and the view beside this sentence is server truth (the
-      // caller applied the same re-read). Nothing about a session, a lock, or a connection.
-      return "That didn’t go through — the order below is up to date.";
+      // The write did not land as far as we can tell, and the view beside this sentence is server
+      // truth (the caller applied the same re-read). Nothing about a lock, a table, or a session.
+      return "We couldn’t confirm that — the order below is up to date.";
   }
 }

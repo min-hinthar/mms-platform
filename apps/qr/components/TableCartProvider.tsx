@@ -13,10 +13,11 @@ import type { CartItem, CartTotals } from "@mms/db";
 import { Icon } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import {
+  cartFreeze,
   classifyRefusedWrite,
-  refusalIsFreeze,
+  freezeBlocksEdits,
+  refusalNeedsRemint,
   refusedWriteNotice,
-  SETTLING_NOTICE,
   type FreezeInput,
 } from "@/lib/cart-freeze";
 import { setDisplayName } from "@/lib/members";
@@ -74,6 +75,16 @@ type CartCtx = {
    *  count, and a notice that leaves before it can be read is the same defect as no notice. Derive
    *  it (`freshnessDurationMs`) rather than picking a number per call site. */
   announce: (msg: string, ms?: number) => void;
+  /** T14 — the sentence the provider last published for a REFUSED write, or null if none.
+   *
+   *  `announce` is a single slot: the last caller wins. So a consumer that announces its own outcome
+   *  after `add` resolves null (`YourUsual`'s partial-add message) would otherwise overwrite the
+   *  established cause with generic advice — and "try from the menu below" is dead advice under a
+   *  freeze, which is the exact string this slice removed one layer down. Read it and carry it.
+   *
+   *  A FUNCTION, not a value: the caller reads it in the same tick the refusal was published, before
+   *  React has re-rendered, so state would still hold the previous value. */
+  lastRefusalNotice: () => string | null;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
   openSlotSheet: () => void;
@@ -238,6 +249,11 @@ export function TableCartProvider({
 
   // T14 — the freeze the WRITE paths read. See the note in `applyView`, which is the only writer.
   const freezeRef = useRef<FreezeInput>({ locked: false, lockedBy: null, mySeat: null });
+  /** The last sentence `explainCaught` published. A caller that announces its OWN outcome after a
+   *  refused write (`YourUsual`'s partial-add message) must be able to keep the established cause
+   *  instead of overwriting it — `flash` is a single slot, so the later call wins. Read through a
+   *  ref because the caller reads it in the same tick the refusal was published. */
+  const lastRefusalRef = useRef<string | null>(null);
   const settlingRef = useRef(false);
 
   // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
@@ -452,61 +468,57 @@ export function TableCartProvider({
   useCartRealtime(cartId ?? "", session?.accessToken ?? "", handleCartChange);
 
   /**
-   * T14 — the ONE place a refused cart write is explained, shared by `add` and `setItemQty`.
+   * T14 — the ONE place a refused cart write is explained.
    *
-   * `knownRefusal` runs BEFORE the write, against the freeze this client already holds: no round
-   * trip, no session re-mint, and a sentence that names the reason. It returns null when nothing
-   * established says the server will refuse — `refusalIsFreeze` is deliberately false for
-   * `unknown`, so this gate can never block a cart the server would have accepted.
+   * ⚠️ THERE IS NO PRE-WRITE GATE, AND ITS REMOVAL IS THE FIX FOR THE ROUND-1 P1 THAT BOTH
+   * REVIEWERS FOUND INDEPENDENTLY. The first draft refused a tap against the freeze this client
+   * already held, "so a refusal costs no round trip". That freeze can be stale in the BLOCKING
+   * direction and cannot heal itself: `assertCartMember` computes the lock as
+   * `locked_at > now - CART_LOCK_TTL_MS` (`authz.ts`), so a lock expires by the PASSAGE OF TIME with
+   * no row write — which means no Postgres-Changes event, which means `freezeRef` is never
+   * corrected. A gate that then refuses the write removes the one thing that WOULD have corrected
+   * it: the mutation whose returned view `applyView` folds in. A tab left open on /menu would go on
+   * refusing edits the server accepts, naming a lock that expired minutes ago.
    *
-   * `explainCaught` runs in the CATCH, where the cause is genuinely unknown, and re-establishes it
-   * with one re-read rather than guessing. It applies that view too, so the sentence and the list
-   * beside it are the same server truth, and it re-mints ONLY on the `session` arm.
+   * So the server decides. Every write goes out; a refusal is explained afterwards, from a read.
+   * The round trip the gate saved is the round trip the write was going to make anyway.
+   *
+   * `explainCaught` re-reads once, applies that view (so the sentence and the list beside it are the
+   * same server truth), and re-mints ONLY on the arm where the re-read itself failed.
    */
-  const lockHolderName = useCallback(
-    () => membersRef.current.find((m) => m.seat === freezeRef.current.lockedBy)?.name ?? null,
-    [],
-  );
-
-  const knownRefusal = useCallback(() => {
-    const refusal = classifyRefusedWrite({
-      ok: true,
-      freeze: freezeRef.current,
-      settling: settlingRef.current,
-    });
-    if (!refusalIsFreeze(refusal)) return null;
-    flash(refusedWriteNotice(refusal, lockHolderName()), 2600);
-    return refusal;
-  }, [flash, lockHolderName]);
-
   const explainCaught = useCallback(
     async (id: string): Promise<CartItem[] | null> => {
       let fresh: CartItem[] | null = null;
       let refusal;
+      let holderIsViewer = false;
       try {
         const v = await getCartView(id);
         applyView(v);
         fresh = v.items;
+        holderIsViewer = cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
         refusal = classifyRefusedWrite({
           ok: true,
           freeze: { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat },
           settling: v.settling,
         });
       } catch {
-        // The re-read failed the SAME `assertCartMember` gate the write did, so the session or the
-        // cart really is unreachable — the one outcome that earns the re-mint, and the only one
-        // that may say "Reconnecting". (A paid/closed cart lands here too; P1.3 redirects it to a
-        // receipt, which is why this arm keeps the recovery it always had.)
+        // ⚠️ NOT "the session expired". `assertCartMember` throws `UNAVAILABLE()` for cart, session
+        // and membership QUERY errors, and the Server Action can fail in transport — so a failed
+        // re-read establishes only that we cannot see the cart. The re-mint still runs, because a
+        // dead session is the one cause it can repair and this read did not rule it out; the COPY
+        // says what we observed and what we are doing, never why.
         refusal = classifyRefusedWrite({ ok: false });
       }
-      flash(refusedWriteNotice(refusal, lockHolderName()), 2600);
-      if (refusal.cause === "session") {
+      const notice = refusedWriteNotice(refusal, holderIsViewer);
+      lastRefusalRef.current = notice;
+      flash(notice, 2600);
+      if (refusalNeedsRemint(refusal)) {
         recoveringRef.current = true;
         revalidate();
       }
       return fresh;
     },
-    [applyView, flash, lockHolderName, revalidate],
+    [applyView, flash, revalidate],
   );
 
   const add = useCallback(
@@ -517,11 +529,6 @@ export function TableCartProvider({
       qty: number = 1,
     ): Promise<CartItem[] | null> => {
       if (!cartId) return null;
-      // T14 — refuse BEFORE the optimistic flash. Announcing "Added to your order" and then taking
-      // it back is the silent-no-op shape one beat slower; `AddButton` and `ItemSheet` already gate
-      // their controls on the same freeze, and this covers the surfaces that do not (`YourUsual`)
-      // plus the window where the lock landed between the render and the tap.
-      if (knownRefusal()) return null;
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
@@ -533,6 +540,8 @@ export function TableCartProvider({
       // tell how many units ACTUALLY landed — a merge into a line near the 99 cap can fill fewer than
       // requested, and the optimistic "Added N" above would then overstate it (W5c pre-merge honesty).
       const beforeUnits = itemsRef.current.reduce((a, i) => a + i.qty, 0);
+      // The pre-add lines, for the post-commit-read-failure check in the catch below.
+      const itemsBefore = itemsRef.current;
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
@@ -562,19 +571,29 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
+        const fresh = await explainCaught(cartId);
+        // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
+        // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
+        // on that trailing read with the add already in the cart. Reporting failure there is a lie
+        // the diner acts on: `YourUsual` announces "we couldn't add X" and a retry adds it twice.
         //
-        // `explainCaught` re-reads instead, and the re-mint now runs only on the arm where the
-        // re-read ALSO fails — which is the one outcome that establishes a session problem.
-        //
-        // Still returns null so the item sheet stays OPEN (keeping the diner's modifier choices)
-        // instead of reading as a false success.
-        await explainCaught(cartId);
+        // The re-read `explainCaught` just applied is the evidence. Count THIS item's units rather
+        // than the basket's, so an unrelated peer add cannot fake a landing. A peer adding the SAME
+        // dish in the same window is the one false positive left, and it errs toward reporting a
+        // success we are unsure of instead of a duplicate charge — the safer direction.
+        if (fresh) {
+          const unitsFor = (rows: CartItem[]) =>
+            rows.reduce((a, i) => a + (i.menuItemId === menuItemId ? i.qty : 0), 0);
+          if (unitsFor(fresh) > unitsFor(itemsBefore)) return fresh;
+        }
+        // Returns null so the item sheet stays OPEN (keeping the diner's modifier choices) instead
+        // of reading as a false success.
         return null;
       } finally {
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, explainCaught, flash, knownRefusal],
+    [cartId, applyView, explainCaught, flash],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -585,8 +604,6 @@ export function TableCartProvider({
   const setItemQty = useCallback(
     async (cartItemId: string, qty: number, announce?: string): Promise<CartItem[]> => {
       if (!cartId) return itemsRef.current;
-      // T14 — refuse before the optimistic announce, for the same reason `add` does.
-      if (knownRefusal()) return itemsRef.current;
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
       if (announce) flash(announce, 2000);
@@ -615,7 +632,7 @@ export function TableCartProvider({
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, explainCaught, flash, knownRefusal],
+    [cartId, applyView, explainCaught, flash],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every
@@ -669,10 +686,8 @@ export function TableCartProvider({
     const prev = prevSettling.current;
     if (prev === null || prev === settling) return;
     prevSettling.current = settling;
-    // T14 — the settle sentence is `SETTLING_NOTICE`, the same string a refused write reports, so
-    // the transition and the refusal can never describe one freeze two ways.
     const msg = settling
-      ? SETTLING_NOTICE
+      ? "Your table is splitting the bill — the order’s locked while everyone pays"
       : "The split was called off — you can edit the order again";
     void Promise.resolve().then(() => flash(msg, 2600));
   }, [settling, flash]);
@@ -692,6 +707,7 @@ export function TableCartProvider({
         refresh,
         revalidate,
         announce: flash,
+        lastRefusalNotice: () => lastRefusalRef.current,
         pickupSlot,
         openSlotSheet,
         isGroup,

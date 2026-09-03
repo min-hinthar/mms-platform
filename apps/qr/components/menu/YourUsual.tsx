@@ -31,7 +31,8 @@ import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/li
  *    control focusable and announced, which is what `AddButton` already does.
  */
 export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
-  const { add, announce, cartId, loading, locked, lockedByName, settling } = useCart();
+  const { add, announce, cartId, lastRefusalNotice, loading, locked, lockedByName, settling } =
+    useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
   const [doneCount, setDoneCount] = useState(0);
@@ -73,14 +74,21 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
         const item = items[i];
         if (!item) break;
         const res = await add(item.id);
-        // `add` resolves null on a refused write (locked, settling, closed, or a lost session).
+        // `add` resolves null on a refused write (locked, settling, or a cart it could not read).
         if (res === null) {
-          // Name what DID land. "We couldn't add that" after one of two dishes is already in the
-          // cart is worse than silence — the diner cannot tell which half to fix.
+          // ⚠️ THIS ARM USED TO OVERWRITE THE ESTABLISHED CAUSE WITH DEAD ADVICE (adversarial round
+          // 1 on #248). The provider has just re-read the cart and published what it found through
+          // the SAME single-slot live region; announcing here replaces it, and "try it from the menu
+          // below" points at a menu that is frozen too — the exact string this slice removed one
+          // layer down. So carry the provider's sentence when there is one, and only name what
+          // landed. A freeze can arrive DURING this loop, so the tap-time gate above cannot cover
+          // it: the first dish succeeds, the second is refused, and this is the arm that runs.
+          const cause = lastRefusalNotice();
+          const landed = i > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
           announce(
-            i > 0
-              ? `Added ${items[0]?.name ?? ""} — but we couldn’t add ${item.name}. Try it from the menu below.`
-              : `We couldn’t add ${item.name} just now — try from the menu below.`,
+            cause
+              ? `${landed}${item.name} didn’t go through. ${cause}`
+              : `${landed}we couldn’t add ${item.name} just now.`,
           );
           setDoneCount(i); // resume here, so a retry never re-adds what already landed
           return;
@@ -94,7 +102,19 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
       // common case and a repair if a re-render moved things.
       btnRef.current?.focus({ preventScroll: true });
     }
-  }, [add, announce, allIn, busy, dishes, doneCount, frozen, items, notReady, reason]);
+  }, [
+    add,
+    announce,
+    allIn,
+    busy,
+    dishes,
+    doneCount,
+    frozen,
+    items,
+    lastRefusalNotice,
+    notReady,
+    reason,
+  ]);
 
   if (outcome.state === "none") return null;
 

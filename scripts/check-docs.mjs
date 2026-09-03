@@ -51,13 +51,39 @@ export function tableFailures(text, name = "<doc>") {
     const delim = lines[i + 1];
     if (!/^\s*\|[-: |]+\|\s*$/.test(delim)) continue;
     if (!header.trim().startsWith("|")) continue;
-    const h = (header.match(/\|/g) || []).length;
-    const d = (delim.match(/\|/g) || []).length;
+    // ⚠️ COUNT CELL SEPARATORS, NOT PIPE CHARACTERS. An ESCAPED pipe (`\\|`) is content — it renders
+    // as a literal "|" inside a cell and does not split it. Counting it as a separator reports a
+    // correctly-escaped row as malformed, which is how a gate earns its way into being ignored.
+    const bars = (line) => (line.replace(/\\\|/g, "").match(/\|/g) || []).length;
+    const h = bars(header);
+    const d = bars(delim);
     if (h !== d)
       out.push(
         `${name}:${i + 1} — header has ${h - 1} cells, delimiter has ${d - 1}. ` +
           `GFM refuses the WHOLE table on a mismatch; escape any literal pipe as \\|`,
       );
+
+    // ⚠️ AND EVERY BODY ROW, which this check could not see until #248 — where an adversarial round
+    // found FIVE freshly-written `docs/OPEN-ITEMS.md` rows that had silently lost their Status and
+    // Source cells. GFM pads a short row instead of refusing it, so the registry rendered three
+    // newly-closed rows and one newly-filed row with a BLANK status and this gate stayed green: the
+    // single source of truth for "is T17 open?" answered nothing, and nothing said so.
+    //
+    // A row with FEWER cells than the header is the failure; a row with MORE is already caught by
+    // the unescaped-pipe reading below, and is reported the same way because the cause is the same.
+    for (let j = i + 2; j < lines.length; j++) {
+      const row = lines[j];
+      if (!row.trim().startsWith("|")) break; // the table ended
+      const c = bars(row);
+      if (c === h) continue;
+      out.push(
+        c < h
+          ? `${name}:${j + 1} — row has ${c - 1} cells, header has ${h - 1}. GFM pads a short row ` +
+              `SILENTLY, so a dropped trailing cell renders as blank rather than failing.`
+          : `${name}:${j + 1} — row has ${c - 1} cells, header has ${h - 1}. An unescaped pipe ` +
+              `splits the cell it sits in; write it as \\| to keep it as content.`,
+      );
+    }
   }
   return out;
 }

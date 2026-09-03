@@ -275,10 +275,14 @@ if (mutations.size === 0)
 const EXEMPT = new Map([
   [
     `${COMPONENTS}/TableCartProvider.tsx`,
-    "the MENU-side cart, which has no freeze surface at all — there is no lockbar on /menu to " +
-      "thread a fact down from, and inventing one here would be a second answer to J4's question. " +
-      "Both its mutations THROW and both catches already re-sync and speak (they re-mint the table " +
-      "session and flash), so a frozen tap is not silent today. OPEN-ITEMS T14.",
+    "the MENU-side cart. ⚠️ THE REASON THAT STOOD HERE WAS FALSE, and an adversarial round on " +
+      "#248 caught it: it said the catches 'already re-sync and speak', which they did — by " +
+      "flashing 'Reconnecting to your table…' and re-minting the table session for EVERY throw, a " +
+      "lock included. That is the M116 fabricated diagnosis, excused by this very entry. T14 is " +
+      "CLOSED (#248): both catches route through `explainCaught` → `classifyRefusedWrite`, which " +
+      "re-reads and names only what that read established, and only the unreachable arm re-mints. " +
+      "The RULE is pinned in lib (cart-freeze.test.ts + the refusal/* mutants); the WIRING in this " +
+      ".tsx is not, because the app has no component suite. OPEN-ITEMS T18.",
   ],
   [
     `${COMPONENTS}/kiosk/KioskMenu.tsx`,
@@ -304,7 +308,9 @@ const EXEMPT = new Map([
     `${COMPONENTS}/menu/MenuBrowser.tsx`,
     "fires `reorderOrder` ONCE on mount from a `?reorder=` param, not from a control a diner can " +
       "tap — there is nothing to gate. It already reads `res.ok` and announces `res.error`, which " +
-      "is what rule 3 exists to force. OPEN-ITEMS T14.",
+      "is what rule 3 exists to force, and that string is SERVER-authored data rather than a " +
+      "thrown message, so Next's production redaction never touches it. Re-verified when T14 " +
+      "closed (#248); this entry needs no freeze wiring of its own.",
   ],
 ]);
 
