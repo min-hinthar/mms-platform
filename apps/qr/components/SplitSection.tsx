@@ -90,10 +90,18 @@ export function SplitSection({
       // Server Action messages in production.** So echoing the error would announce Next's
       // redaction string into the checkout's one live region — loud and wrong, which is a
       // different failure from the silent one it replaced, not a fix for it. `assignLine` gives
-      // this caller no reason code, so say only what is certainly true: it did not happen.
+      // this caller no reason code to branch on either.
       // (`beginSettle` below still echoes `e.message` from `split.ts`, which is `"use server"` too
       // — same defect, pre-existing, filed rather than widened into this PR.)
-      onStatus("Couldn’t reassign that item — nothing changed.");
+      //
+      // ⚠️ AND DO NOT CLAIM "NOTHING CHANGED" (Codex round 4 on #247). A thrown Server Action is an
+      // UNCERTAIN outcome, not a failed one: the `by_seat` update can commit and the response be
+      // lost, and on that same dead connection the realtime update is missed too — so the avatar
+      // and the shares beside it would keep showing the old owner while this sentence asserted they
+      // were right. `RewardField`'s apply catch already had this rule ("a throw is not proof the
+      // write didn't land"); it was not carried here. Say what is certain and RE-READ.
+      onStatus("Couldn’t confirm that reassignment — checking with the server.");
+      onChanged();
     } finally {
       setBusyLine(null);
     }

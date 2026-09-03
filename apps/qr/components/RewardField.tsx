@@ -173,6 +173,11 @@ export function RewardField({
   // equality test against FROZEN_NOTE alone left that one standing after the lock lifted, which is
   // the same stale-claim defect one reason-code over.
   const wasFrozen = useRef(frozen);
+  /** The CURRENT freeze, readable from inside an async closure that began before it changed. */
+  const frozenRef = useRef(frozen);
+  useEffect(() => {
+    frozenRef.current = frozen;
+  }, [frozen]);
   useEffect(() => {
     if (wasFrozen.current && !frozen) setError((e) => (LOCK_MESSAGES.has(e ?? "") ? null : e));
     wasFrozen.current = frozen;
@@ -183,8 +188,13 @@ export function RewardField({
       // SAY SOMETHING. A silent `return` here was the shipped state and it is J4 clause (b) in the
       // fix for J4 clause (b): the tap is taken, nothing changes, nothing is said. See FROZEN_NOTE
       // for why this component names only its OWN control and never who holds the lock.
+      // ⚠️ NO `refocusOnIdle` HERE (Codex round 4 on #247). That claim is consumed by the
+      // `[busy, applied]` recovery effect, and a frozen tap sets NEITHER — it never runs, so the
+      // element stays armed. When a peer later applies or removes a reward the effect fires with a
+      // stale target and moves focus to a control the diner never touched, which is exactly the
+      // peer-driven focus theft the `acted` guard exists to prevent. Nothing needs recovering
+      // anyway: `aria-disabled` does not blur the button, so focus never left it.
       setError(FROZEN_NOTE);
-      refocusOnIdle.current = tapped;
       return;
     }
     setBusy(true);
@@ -195,7 +205,15 @@ export function RewardField({
         // A discriminated refusal changes nothing on the server, so no branch swap is coming and the
         // claim is consumed by the very next idle commit.
         refocusOnIdle.current = tapped;
-        setError(REASON[res.reason]);
+        // ⚠️ A LOCK REFUSAL THAT ARRIVES AFTER THE UNLOCK EDGE HAS NO EDGE LEFT TO CLEAR IT (Codex
+        // round 4 on #247). The unfreeze effect above fires on the `frozen` TRANSITION; if the lock
+        // takes and releases while this request is still in flight, that effect runs with `error`
+        // still null and the answer lands afterwards — leaving "The order's being paid" on screen
+        // beside controls that work. `frozenRef` is the CURRENT fact at response time, so a
+        // lock-derived reason whose lock has already lifted is reported as what it now is: it did
+        // not land, and they can try again.
+        const lockDerived = res.reason === "busy" || res.reason === "cart_closed";
+        setError(lockDerived && !frozenRef.current ? REASON.error : REASON[res.reason]);
         return;
       }
       setOpen(false);

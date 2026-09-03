@@ -77,6 +77,21 @@ could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"
 which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
 it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
 
+**Round 4 came back with three, all in PRODUCT code — the guards were clean.** All three were
+stale-or-overclaiming state, and all three fixed: a lock refusal that ARRIVES AFTER the unlock edge
+had no edge left to clear it (the unfreeze effect fires on the `frozen` transition, so a lock that
+takes and releases mid-request leaves "The order's being paid" beside working controls — the
+response path reads the current freeze through a ref now); `refocusOnIdle` armed on a frozen tap was
+never consumed, because the recovery effect keys on `[busy, applied]` and a frozen tap sets neither,
+so a later peer-driven change would move focus to a control the diner never touched — the exact
+theft the `acted` guard exists to prevent, and nothing needed recovering since `aria-disabled` does
+not blur; and `SplitSection`'s catch claimed "nothing changed" after a thrown Server Action, which
+is an UNCERTAIN outcome — the `by_seat` write can commit with the response lost, and on that same
+dead connection the realtime update is missed too, so the avatar and shares would keep showing the
+old owner while the sentence asserted they were right. `RewardField`'s apply catch already carried
+that rule ("a throw is not proof the write didn't land") and it had not been carried across; it says
+what is certain and re-reads now.
+
 **Round 3 found eleven more, and the two-round budget applied: three fixed, eight filed as T16.**
 Fixed on sight because each was one edit: `RewardField` cleared only `FROZEN_NOTE` on unfreeze, so
 the RACED apply — one that starts editable and meets the lock inside `assertCartMember`, coming back
