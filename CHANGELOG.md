@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The /menu freeze can heal, and it knows whose lock it is (2026-09-03)
+
+**T20 — both primary add surfaces on /menu could go permanently inert, and being inert is what kept
+them inert.** `assertCartMember` computes both freeze axes by arithmetic — `locked_at > now -
+CART_LOCK_TTL_MS`, `settle_at > now - SETTLE_TTL_MS` — so when either lapses **no row changes**: no
+Postgres-Changes event, nothing for `useCartRealtime` to deliver, and a cached `true` that no
+subscription can ever clear. `AddButton` and `ItemSheet` put that cached value on NATIVE `disabled`,
+which removes their controls from the tab order, so neither can emit the request whose returned view
+would correct it. A tablemate abandoning a checkout left the menu dead for five minutes; an abandoned
+split, ten.
+
+Two things the filed row understated, both measured by a scout pass before any code changed.
+**`settling` decays exactly like `locked`** — the row named only the lock, so `frozen = locked ||
+settling` has two stale-true axes and the longer one is twice the window. And **the lock removes the
+escape routes too**: `TableTimeline`'s `quiet` drops both /cart links, `AppHeader` hides its cart link
+on /menu, and `CartBar` renders nothing at count 0 — so the diner loses the route to the one surface
+whose freeze bar carries a live re-read control. That half is filed as **T22**; this change makes the
+state bounded rather than permanent, which is what takes it out of the critical path.
+
+`CART_LOCK_TTL_MS` and `SETTLE_TTL_MS` now live in `apps/qr/lib/lock-ttl.ts`, a module without
+`server-only`. All seven production importers and three test stubs were repointed and **no re-export
+was left in `lock.ts`** — two import paths for one value is the shape the name-it-ONCE rule exists to
+prevent. `freezeRecheckDelayMs` is the rule: the **longest** held axis (a cart that is both stays
+frozen until both lapse, so the shorter horizon buys only a round trip), and `null` for an editable
+cart, which is what keeps this a scheduled re-read instead of a poll. Both arms carry a mutant.
+
+⚠️ **The client cannot compute the expiry and does not try.** `getCartView` returns `locked` and
+`settling` but never `locked_at` or `settle_at`. The schedule bounds our _ignorance_: a freeze
+observed now was acquired at or before now, so it cannot outlive now + its TTL — the shortest delay
+that guarantees the next read sees an answer that can have changed.
+
+⚠️ **The first draft of the effect fired exactly once**, caught in the author's own adversarial read
+before the gate. Its deps were the freeze axes, so a re-read that found the cart still frozen changed
+nothing React could see and scheduled no new timer — a second checkout would have held the surface
+dead for its whole window. A tick the effect depends on re-arms it from each fresh observation, and
+the `null` arm still ends the chain the moment the cart is editable.
+
+**And the ownership half.** Four sites derived "the lock is mine" by comparing against
+`lockedByName` — **peer-supplied presence text**, where `setName` clamps only length and
+`cleanPresence` strips only control characters. A tablemate who renames themselves "You" made their
+lock read as the viewer's own: the banner told an uninvolved diner they were checking out _and_
+suppressed the real holder's name. The correct seat-id derivation already existed in the provider two
+lines above three of the call sites and had simply never been exported. `lockedByYou` now is, and
+`AddButton`, `ItemSheet`, `GuestList` and the provider's own announcer all read the fact instead of
+the label. Zero `lockedByName === "You"` comparisons remain in the app.
+
+Also carried across: `split-settle-capture.test.ts` shortens `CART_LOCK_TTL_MS` to 90s in a mock that
+is **currently inert** (its only cart row sets `locked: false, locked_at: null`, short-circuiting the
+consumer before the TTL is read). Left on `./lock` it would have silently stopped applying; it is
+repointed with that measurement written beside it.
+
 ### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
 
 **Round 1 rewrote most of this.** Codex and a blind adversarial pass independently returned the same

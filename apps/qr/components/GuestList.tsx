@@ -23,6 +23,7 @@ export function GuestList() {
     loading,
     locked,
     lockedByName,
+    lockedByYou,
     tableNumber,
     revalidate,
     settling,
@@ -55,8 +56,11 @@ export function GuestList() {
           size={14}
           style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
         />
-        {lockedByName === "You" ? "You’re" : `${lockedByName} is`} checking out — the order’s locked
-        for a moment.
+        {/* T20 — the FACT, not the label: `lockedByName` is peer-supplied presence text, so a
+            tablemate named "You" used to make this banner tell an uninvolved diner they were
+            checking out AND suppress the real holder's name. */}
+        {lockedByYou ? "You’re" : `${lockedByName} is`} checking out — the order’s locked for a
+        moment.
       </p>
     );
 

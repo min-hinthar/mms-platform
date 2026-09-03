@@ -19,6 +19,7 @@ import {
   refusedWriteNotice,
   type FreezeInput,
 } from "@/lib/cart-freeze";
+import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -103,6 +104,16 @@ type CartCtx = {
    *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
   locked: boolean;
   lockedByName: string | null;
+  /** T20 — does the VIEWER hold the lock? Derived from seat ids (`lockedBy === viewerSeat`), never
+   *  from `lockedByName`.
+   *
+   *  ⚠️ `lockedByName` IS PEER-SUPPLIED TEXT. It resolves through presence, and `setName` clamps only
+   *  length while `cleanPresence` strips only control/format characters — so "You" is a name a
+   *  tablemate can legitimately choose. Four call sites used to infer ownership by comparing against
+   *  that string, which let a diner named "You" make a peer's lock read as the viewer's own: the
+   *  banner said "You're checking out" to someone who was not, and simultaneously suppressed the
+   *  real holder's name. The correct derivation already existed here; it was simply never exported. */
+  lockedByYou: boolean;
   /** Split-tender settlement freeze (M3·P3.3b): true while the table settles its shares → the whole cart
    *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
    *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
@@ -448,6 +459,48 @@ export function TableCartProvider({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
 
+  /**
+   * T20 — the one thing that lets a stale freeze heal on /menu.
+   *
+   * ⚠️ BOTH FREEZE AXES EXPIRE BY ARITHMETIC, NOT BY A WRITE. `assertCartMember` computes `locked`
+   * as `locked_at > now - CART_LOCK_TTL_MS` and `settling` the same way against `SETTLE_TTL_MS`, so
+   * when either lapses NO ROW CHANGES — no Postgres-Changes event, nothing for `useCartRealtime` to
+   * deliver, and a cached `true` that no subscription can ever clear.
+   *
+   * That would merely be untidy if the frozen surface could ask again. It cannot: `AddButton` and
+   * `ItemSheet` put the freeze on NATIVE `disabled`, so their controls leave the tab order and can
+   * emit no request at all — the inertness is what preserves the inertness. And the lock also hides
+   * both routes off the page (`TableTimeline`'s `quiet` drops the two /cart links; `AppHeader` hides
+   * its cart link on /menu; `CartBar` renders nothing at count 0), so a diner whose tablemate
+   * abandoned a checkout could sit on a permanently dead menu until they reloaded.
+   *
+   * The visibility listener above covers a BACKGROUNDED tab; this covers the one that stays open.
+   * It is a single scheduled re-read, not a poll: `freezeRecheckDelayMs` returns null unless a
+   * freeze is actually held, and the delay is the longest held axis — the first moment the answer
+   * CAN have changed, since a freeze observed now was acquired at or before now. It re-arms from
+   * each fresh observation (see the tick below), so a cart that is still frozen because a SECOND
+   * checkout started is asked again rather than abandoned; a cart that has become editable schedules
+   * nothing. (`recheckLock` on the checkout answers the same problem with a manual "Check again"
+   * button; /menu has no such control on any surface, which is why this one is scheduled.)
+   */
+  const [recheckTick, setRecheckTick] = useState(0);
+  useEffect(() => {
+    const delay = freezeRecheckDelayMs({ locked, settling });
+    if (delay === null) return;
+    const t = setTimeout(() => {
+      void refresh();
+      // ⚠️ THE TICK IS WHAT MAKES THIS RE-ARM, AND WITHOUT IT THE EFFECT FIRES EXACTLY ONCE. The
+      // deps are the freeze axes, so a re-read that finds the cart STILL frozen changes nothing
+      // React can see — same `locked`, same `settling`, same `refresh` — and no new timer is
+      // scheduled. A second checkout started after our observation would then hold the surface
+      // dead for its whole window with no further attempt. Bumping a counter the effect depends on
+      // re-arms it from the fresh observation, and the `null` arm still ends the chain the moment
+      // the cart is editable, so an unfrozen cart schedules nothing at all.
+      setRecheckTick((n) => n + 1);
+    }, delay);
+    return () => clearTimeout(t);
+  }, [locked, settling, refresh, recheckTick]);
+
   // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
   // view (keyed React state, never client math) + announce a peer's ADD honestly (by_seat is the adder
   // → a reliable "who" for INSERTs; qty/remove just refresh, since the event doesn't carry the actor).
@@ -690,9 +743,10 @@ export function TableCartProvider({
   // `lockedBy`) and falls back to the session's own copy only before the first view lands. W9b put
   // `mySeat` on that view precisely so this comparison cannot be defeated by a second read.
   const viewerSeat = mySeat ?? session?.seat ?? null;
+  const lockedByYou = !!locked && !!lockedBy && lockedBy === viewerSeat;
   const lockedByName = !locked
     ? null
-    : lockedBy && lockedBy === viewerSeat
+    : lockedByYou
       ? "You"
       : (members.find((m) => m.seat === lockedBy)?.name ?? "Someone");
 
@@ -704,11 +758,11 @@ export function TableCartProvider({
     prevLocked.current = locked;
     const msg = !locked
       ? "The order’s unlocked — you can edit again"
-      : lockedByName === "You"
+      : lockedByYou
         ? "You’re checking out — the order’s locked"
         : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;
     void Promise.resolve().then(() => flash(msg, 2600));
-  }, [locked, lockedByName, flash]);
+  }, [locked, lockedByName, lockedByYou, flash]);
 
   // W9b — the settlement freeze is the OTHER way this cart goes read-only, and it announced nothing:
   // a guest browsing the menu simply found every Add inert. Same single live region and the same edge
@@ -754,6 +808,7 @@ export function TableCartProvider({
         setName,
         locked,
         lockedByName,
+        lockedByYou,
         settling,
       }}
     >

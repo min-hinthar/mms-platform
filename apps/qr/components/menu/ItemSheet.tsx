@@ -130,7 +130,7 @@ function ItemSheetBody({
   hearted?: boolean;
   onToggleHeart?: (id: string) => void;
 }) {
-  const { add, cartId, loading, locked, lockedByName, settling } = useCart();
+  const { add, cartId, loading, locked, lockedByYou, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
   // On mount (each keyed remount = open OR upsell swap): reset the SHARED sheet scroll to the top so a
   // swapped-in item starts at its hero, not wherever the previous item's "Goes well with" row sat. Reading
@@ -166,7 +166,8 @@ function ItemSheetBody({
   // mint window and behind a peer's checkout: `loading` had been on the cart context with zero
   // consumers. It does NOT relax `blocked` — an add with no cartId still can't fire.
   const minting = loading && !cartId;
-  const reason = inertReason({ minting, locked, lockedByYou: lockedByName === "You", settling });
+  // T20 — the FACT, not the label (see AddButton). `lockedByName` is peer-supplied presence text.
+  const reason = inertReason({ minting, locked, lockedByYou, settling });
   // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
   // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
   const upsell = useMemo(

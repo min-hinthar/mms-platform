@@ -60,7 +60,7 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, loading, locked, lockedByName, settling, isGroup, me } =
+  const { add, setItemQty, items, cartId, loading, locked, lockedByYou, settling, isGroup, me } =
     useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
@@ -109,7 +109,9 @@ export function AddButton({
   // Why this control is inert — from the SHARED ladder (lib/inert-reason), so the Add pill, the
   // stepper and the item sheet can't drift into telling a screen-reader user different stories about
   // the same frozen cart. Precedence + copy are pinned by `inert-reason.test.ts`.
-  const reason = inertReason({ minting, locked, lockedByYou: lockedByName === "You", settling });
+  // T20 — the FACT, not the label. `lockedByName` is peer-supplied presence text, so a tablemate
+  // named "You" used to make their lock read as this viewer's own.
+  const reason = inertReason({ minting, locked, lockedByYou, settling });
 
   // Serialize THIS button's stepper writes so rapid taps can't race on a stale server read: a "+" merges via
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
