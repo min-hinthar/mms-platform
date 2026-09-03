@@ -154,6 +154,19 @@ export function RewardField({
   // every coupon button (or the Remove button, stuck on "…") disabled forever, with no error text
   // and an unhandled rejection in the console. Dead controls on the money path, recoverable only by
   // a full reload. `finally` is what makes that impossible; the copy says whose fault it is.
+  // ⚠️ CLEAR THE FREEZE REFUSAL WHEN THE FREEZE LIFTS (Codex round 2 on #247). `error` outlives the
+  // condition that produced it: a peer takes the lock, the diner taps a reward and gets FROZEN_NOTE,
+  // the peer reopens, the bar disappears and the controls light up again — and this component's
+  // error line was still saying they were locked. `SendToKitchenButton` got this effect in round 1
+  // and this file did not, which is the "a lesson taught to one matcher is not taught to the
+  // concept" shape (LEARNINGS #65) applied to components. Only this one message is cleared: an
+  // apply/remove outcome is a report about something that happened and stays.
+  const wasFrozen = useRef(frozen);
+  useEffect(() => {
+    if (wasFrozen.current && !frozen) setError((e) => (e === FROZEN_NOTE ? null : e));
+    wasFrozen.current = frozen;
+  }, [frozen]);
+
   async function apply(code: string, tapped: HTMLButtonElement | null) {
     if (frozen) {
       // SAY SOMETHING. A silent `return` here was the shipped state and it is J4 clause (b) in the

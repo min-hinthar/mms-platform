@@ -184,13 +184,23 @@ const returnsFailure = (st) => {
   if (!ts.isReturnStatement(st) || !st.expression) return false;
   const e = unwrap(st.expression);
   if (!ts.isObjectLiteralExpression(e)) return false;
-  return e.properties.some(
+  // ⚠️ THE LAST WRITE WINS, so `some()` is the wrong quantifier (Codex round 2 on #247):
+  // `{ ok: false, ...shadow }` type-checks against `{ ok: boolean }` and returns SUCCESS at runtime
+  // when `shadow` carries `ok: true`. Take the EFFECTIVE `ok` — the last one a reader would see —
+  // and refuse the whole literal if any spread or computed key could overwrite it, since neither is
+  // resolvable here and ambiguity is refused rather than guessed.
+  const idx = e.properties.findIndex(
     (p) =>
       ts.isPropertyAssignment(p) &&
       ((ts.isIdentifier(p.name) && p.name.text === "ok") ||
-        (ts.isStringLiteral(p.name) && p.name.text === "ok")) &&
-      unwrap(p.initializer).kind === ts.SyntaxKind.FalseKeyword,
+        (ts.isStringLiteral(p.name) && p.name.text === "ok")),
   );
+  if (idx === -1) return false;
+  const shadowed = e.properties
+    .slice(idx + 1)
+    .some((p) => ts.isSpreadAssignment(p) || (p.name && ts.isComputedPropertyName(p.name)));
+  if (shadowed) return false;
+  return unwrap(e.properties[idx].initializer).kind === ts.SyntaxKind.FalseKeyword;
 };
 
 /**
@@ -299,36 +309,23 @@ const bindsLockedFromAuthz = (srcFile) => {
  * The file set is therefore the same UNION the subject selector uses: binds the lock fact, OR
  * authorizes and writes.
  */
-const authorizesAndWrites = (sf) => {
-  let authorizes = false;
-  let writes = false;
-  walk(sf, (n) => {
-    if (
-      ts.isCallExpression(n) &&
-      ts.isIdentifier(n.expression) &&
-      (n.expression.text === "assertCartMember" || n.expression.text === "assertCartItemMember")
-    )
-      authorizes = true;
-    if (isDirectWrite(n)) writes = true;
-  });
-  return authorizes && writes;
-};
-
 const ALL_LIB = readdirSync(path.join(ROOT, LIB))
   .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
   .map((f) => `${LIB}/${f}`)
   .sort()
   .map((rel) => ({ rel, sf: parse(rel) }));
 
-const MUTATION_FILES = ALL_LIB.filter(
-  ({ sf }) => bindsLockedFromAuthz(sf) || authorizesAndWrites(sf),
-);
-
 /**
  * The DERIVED write helpers: every named function anywhere in `apps/qr/lib` whose own body performs
  * a direct write. A mutation that calls one of these has written, whatever the helper is called —
  * which is the point, because the previous two-name list made the ordering rule vacuous for any new
  * extraction (`saveLine()` called before the lock refusal → `writeAt` Infinity → clean).
+ *
+ * ⚠️ DERIVED FIRST, THEN USED BY DISCOVERY (Codex round 2 on #247). The first draft computed this
+ * AFTER `MUTATION_FILES` and so discovered files with `isDirectWrite` only — meaning a module of
+ * `await assertCartMember(id); await touchCart(id, "…")` with no `locked` binding was excluded from
+ * the file set, from `subjects`, and from the `extra:` bump. Helper-routed writes are writes at both
+ * stages or at neither; one predicate, used everywhere, is the whole point of `isWriteCall`.
  */
 const WRITERS = new Set();
 for (const { sf } of ALL_LIB)
@@ -340,6 +337,25 @@ for (const { sf } of ALL_LIB)
     if (writes) WRITERS.add(name);
   }
 const isWriteCall = makeIsWriteCall(WRITERS);
+
+const authorizesAndWrites = (sf) => {
+  let authorizes = false;
+  let writes = false;
+  walk(sf, (n) => {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      (n.expression.text === "assertCartMember" || n.expression.text === "assertCartItemMember")
+    )
+      authorizes = true;
+    if (isWriteCall(n)) writes = true;
+  });
+  return authorizes && writes;
+};
+
+const MUTATION_FILES = ALL_LIB.filter(
+  ({ sf }) => bindsLockedFromAuthz(sf) || authorizesAndWrites(sf),
+);
 
 const missingFloor = [...WRITE_HELPER_FLOOR].filter((h) => !WRITERS.has(h));
 if (missingFloor.length)
@@ -536,6 +552,21 @@ const CONSTANT_KINDS = new Set([
   ts.SyntaxKind.NumericLiteral,
   ts.SyntaxKind.StringLiteral,
 ]);
+/**
+ * ⚠️ AND THE COMPUTED FORMS (Codex round 2 on #247). Checking syntax kinds alone let
+ * `cart.locked && Boolean(false) && cart.locked_at !== null` through — `Boolean(false)` is a
+ * CallExpression, so it was not a "constant", and every effective lock went false while both
+ * required database reads stayed put. An operand is trivially constant when it reads NO identifier
+ * that could vary: a literal, a negation of one, or a wrapper call over one.
+ */
+const isTriviallyConstant = (e) => {
+  const x = unwrap(e);
+  if (CONSTANT_KINDS.has(x.kind)) return true;
+  if (ts.isPrefixUnaryExpression(x)) return isTriviallyConstant(x.operand);
+  if (ts.isCallExpression(x)) return x.arguments.every((a) => isTriviallyConstant(a));
+  if (ts.isVoidExpression(x)) return true;
+  return false;
+};
 const conjunction = lockedInits.map(flattenAnd).find((ops) => ops.length > 1);
 if (!conjunction)
   fail(
@@ -545,7 +576,7 @@ if (!conjunction)
       "check in the same commit — do not let an unreadable derivation pass as a readable one.",
   );
 else {
-  const dead = conjunction.find((o) => CONSTANT_KINDS.has(unwrap(o).kind));
+  const dead = conjunction.find((o) => isTriviallyConstant(o));
   if (dead)
     fail(
       `${AUTHZ} derives \`locked\` through a CONSTANT operand: \`${dead.getText(authzSf)}\`.\n  ` +

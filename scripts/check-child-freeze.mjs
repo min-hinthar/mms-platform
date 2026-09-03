@@ -124,6 +124,21 @@ const namedFunctions = (sf) => {
 const isFn = (n) =>
   ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n);
 
+/** Peel type-only wrappers — `"" as const` is an AsExpression around the literal, not the literal. */
+const unwrapTypeOnly = (e) => {
+  let x = e;
+  for (;;) {
+    if (
+      ts.isParenthesizedExpression(x) ||
+      ts.isAsExpression(x) ||
+      ts.isSatisfiesExpression(x) ||
+      ts.isNonNullExpression(x)
+    )
+      x = x.expression;
+    else return x;
+  }
+};
+
 // ── 1. DERIVE the mutation set from every lib module, not from a list ───────────────────────────
 const AUTHZ_CALLS = new Set(["assertCartMember", "assertCartItemMember"]);
 const mutations = new Map(); // exported name -> { rel, kinds: Set<"throw"|"return"> }
@@ -279,15 +294,43 @@ for (const rel of tsxTree(COMPONENTS)) {
   // when they differ. Reading only `el.name` made `import { addItem as addItemAction }` match
   // nothing, and `TableCartProvider` fell out of the guard entirely.
   const localToExported = new Map();
+  /** Modules that hold at least one derived mutation — used to fail closed on shapes we cannot read. */
+  // ⚠️ STRIP THE EXTENSION ON THE SET SIDE. The first draft stripped `.ts` from the import
+  // SPECIFIER (which never has one) and compared it against entries that still did, so the check
+  // matched nothing and its red-first probe came back green — a fix that could not fail, caught
+  // only by watching it fail.
+  const MUTATION_MODULES = new Set(
+    [...mutations.values()].map((m) => m.rel.replace(/^apps\/qr\//, "@/").replace(/\.ts$/, "")),
+  );
+  const namespaceImports = [];
   walk(sf, (n) => {
     if (!ts.isImportDeclaration(n) || !n.importClause?.namedBindings) return;
+    const spec = ts.isStringLiteral(n.moduleSpecifier) ? n.moduleSpecifier.text : "";
     const nb = n.importClause.namedBindings;
+    // ⚠️ FAIL CLOSED ON A NAMESPACE IMPORT (Codex round 2 on #247). `import * as cart from
+    // "@/lib/cart"` followed by `cart.applyReward(…)` is a perfectly ordinary refactor, and it used
+    // to drop the component out of `audited` entirely — lowering the printed count while the
+    // required check stayed green. Resolving `cart.X` properly means tracking the alias through
+    // every call site; refusing the shape instead is the honest smaller move, and it is LOUD.
+    if (ts.isNamespaceImport(nb)) {
+      if (MUTATION_MODULES.has(spec)) namespaceImports.push({ spec, name: nb.name.text });
+      return;
+    }
     if (!ts.isNamedImports(nb)) return;
     for (const el of nb.elements) {
       const exported = (el.propertyName ?? el.name).text;
       if (mutations.has(exported)) localToExported.set(el.name.text, exported);
     }
   });
+  if (namespaceImports.length && rel !== SOURCE && !EXEMPT.has(rel))
+    fail(
+      `${rel} imports a mutation module as a NAMESPACE (${namespaceImports
+        .map((n) => `* as ${n.name} from "${n.spec}"`)
+        .join(", ")}), which this guard cannot resolve.\n` +
+        "  A `cart.applyReward(…)` call would be invisible to every rule below, so the component\n" +
+        "  would silently leave the audited set with the check still green. Use named imports here,\n" +
+        "  or teach this guard to resolve the namespace — do not leave the shape unreadable.",
+    );
   if (localToExported.size === 0) continue;
 
   if (rel === SOURCE) continue; // rule 4 audits it instead
@@ -334,8 +377,18 @@ for (const rel of tsxTree(COMPONENTS)) {
     ts.SyntaxKind.FalseKeyword,
     ts.SyntaxKind.NullKeyword,
   ]);
+  /** An empty or whitespace-only literal says nothing — `setError("")` renders no announcement at
+   *  all, which preserved the silent-catch hole under a different literal (Codex round 2 on #247). */
+  const isBlankLiteral = (a) => {
+    const x = unwrapTypeOnly(a);
+    if (ts.isStringLiteral(x) || ts.isNoSubstitutionTemplateLiteral(x)) return x.text.trim() === "";
+    return false;
+  };
   const isFlagArg = (a) =>
-    FLAGS.has(a.kind) || (ts.isIdentifier(a) && a.text === "undefined") || ts.isFunctionLike(a);
+    FLAGS.has(unwrapTypeOnly(a).kind) ||
+    (ts.isIdentifier(a) && a.text === "undefined") ||
+    ts.isFunctionLike(a) ||
+    isBlankLiteral(a);
   const speaksIn = (node, depth = 0) => {
     let found = false;
     walk(node, (x) => {
@@ -394,10 +447,22 @@ for (const rel of tsxTree(COMPONENTS)) {
   // `frozen` anywhere in the source, so an unrelated `const { frozen } = metadata` in a helper
   // proved the exported component received the prop when it did not.
   for (const comp of components) {
+    // ⚠️ THE PROPERTY KEY, NOT THE LOCAL NAME (Codex round 2 on #247). `{ ignored: frozen, frozen:
+    // ignoredFrozen }` declares BOTH props, type-checks, satisfies rule 4's JSX attribute check, and
+    // gates every handler on `ignored` while Checkout's authoritative `frozen` goes unused — the
+    // local binding merely happens to be spelled `frozen`. `propertyName ?? name` is the key.
     const takes = comp.parameters.some(
       (p) =>
         ts.isObjectBindingPattern(p.name) &&
-        p.name.elements.some((el) => ts.isIdentifier(el.name) && el.name.text === "frozen"),
+        p.name.elements.some((el) => {
+          const key = el.propertyName ?? el.name;
+          return (
+            ts.isIdentifier(key) &&
+            key.text === "frozen" &&
+            ts.isIdentifier(el.name) &&
+            el.name.text === "frozen"
+          );
+        }),
     );
     if (!takes)
       fail(
@@ -428,7 +493,14 @@ for (const rel of tsxTree(COMPONENTS)) {
         if (!(ts.isIdentifier(cond) && cond.text === "frozen")) continue;
         const t = st.thenStatement;
         const inner = ts.isBlock(t) ? t.statements : [t];
-        if (inner.some((x) => ts.isReturnStatement(x)) && st.getStart() < firstCallAt) {
+        // ⚠️ THE EXIT, NOT THE `if` (Codex round 2 on #247) — and this is T11 (b) for the THIRD
+        // time: the same lesson, taught to the parity guard, then re-broken here. Comparing the
+        // `if`'s own start lets the audited mutation run INSIDE the frozen branch before the
+        // return: `if (frozen) { const r = await applyReward(…); …; return; }` satisfied ordering,
+        // speaking and result-consumption while sending the exact frozen write rule 2 exists to
+        // stop. The statement that leaves the function is the only position that orders anything.
+        const exit = inner.find((x) => ts.isReturnStatement(x));
+        if (exit && exit.getStart() < firstCallAt) {
           guard = st;
           break;
         }
@@ -478,8 +550,18 @@ for (const rel of tsxTree(COMPONENTS)) {
                   ? x
                   : null;
             if (!cond) return;
+            // ⚠️ IT MUST INSPECT THE OUTCOME (Codex round 2 on #247). Any mention of the name in any
+            // condition used to count, so `if (res) void 0;` passed — and a result OBJECT is always
+            // truthy, so that discriminates nothing and the `{ ok: false }` stayed discarded. What
+            // reads the answer is a PROPERTY of the binding (`res.ok`, `r.reason`), so that is what
+            // is required; a bare truthiness test on the object is refused.
             walk(cond, (y) => {
-              if (ts.isIdentifier(y) && y.text === bound) read = true;
+              if (
+                ts.isPropertyAccessExpression(y) &&
+                ts.isIdentifier(y.expression) &&
+                y.expression.text === bound
+              )
+                read = true;
             });
           });
         if (!read)
@@ -497,12 +579,18 @@ for (const rel of tsxTree(COMPONENTS)) {
 
       // (b) THROW-style: caught, and the catch SPEAKS.
       if (kinds.has("throw")) {
+        // ⚠️ A DESCENDANT OF THE TRY BLOCK, not merely of the TryStatement (Codex round 2 on #247).
+        // A call sitting in the `catch` or `finally` of a try/catch is NOT protected by that
+        // catch — its exception propagates uncaught — yet the ancestor walk happily claimed the
+        // handler, and a mutation moved into an existing catch printed clean.
         let handler = null;
-        for (let n = c.parent; n && n !== fn; n = n.parent)
-          if (ts.isTryStatement(n) && n.catchClause) {
-            handler = n.catchClause.block;
+        for (let n = c.parent; n && n !== fn; n = n.parent) {
+          const parent = n.parent;
+          if (parent && ts.isTryStatement(parent) && parent.tryBlock === n && parent.catchClause) {
+            handler = parent.catchClause.block;
             break;
           }
+        }
         if (!handler || !speaksIn(handler))
           fail(
             `${rel} — \`${name}()\` swallows \`${callee}(…)\`'s refusal.\n` +
@@ -556,12 +644,49 @@ if (deadExemptions.length)
         "  cannot say what correct wiring looks like, so its absence is a failure, not a skip.",
     );
 
+  // ⚠️ RESOLVE THE TAG THROUGH THE IMPORT (Codex round 2 on #247). Comparing JSX text to the audited
+  // file's BASENAME meant an alias defeated the rule: import `RewardField as Rewards`, render the
+  // real `<Rewards frozen={false}>`, and leave any dead or unrelated `<RewardField frozen={editsFrozen}>`
+  // behind — `seen` fills, the wiring check passes, and the live component gets the wrong value. So
+  // the local JSX name is derived from what Checkout actually imported from each audited module.
+  const owedModules = new Map(
+    audited.map((r) => [
+      r.replace(/^apps\/qr\//, "@/").replace(/\.tsx$/, ""),
+      path.basename(r, ".tsx"),
+    ]),
+  );
+  const localToComponent = new Map(); // local JSX tag -> audited component name
+  walk(sf, (n) => {
+    if (!ts.isImportDeclaration(n) || !ts.isStringLiteral(n.moduleSpecifier)) return;
+    // Checkout imports its children by relative path ("./RewardField"); normalise both sides.
+    const specBase = n.moduleSpecifier.text.replace(/^.*\//, "");
+    const match = [...owedModules.values()].find((c) => c === specBase);
+    const clause = n.importClause;
+    if (!clause) return;
+    if (clause.name && match) localToComponent.set(clause.name.text, match);
+    const nb = clause.namedBindings;
+    if (nb && ts.isNamedImports(nb))
+      for (const el of nb.elements) {
+        const exported = (el.propertyName ?? el.name).text;
+        if ([...owedModules.values()].includes(exported))
+          localToComponent.set(el.name.text, exported);
+      }
+  });
+
   const owed = new Set(audited.map((r) => path.basename(r, ".tsx")));
+  const unresolved = [...owed].filter((c) => ![...localToComponent.values()].includes(c));
+  if (unresolved.length)
+    fail(
+      `${SOURCE} does not import these audited components under a resolvable name: ${unresolved.join(", ")}.\n` +
+        "  Rule 4 binds the JSX tag to the import so an alias cannot defeat it; a component it cannot\n" +
+        "  resolve is one it cannot check the wiring of.",
+    );
   const seen = new Set();
   walk(sf, (n) => {
     if (!ts.isJsxOpeningElement(n) && !ts.isJsxSelfClosingElement(n)) return;
-    const tag = n.tagName.getText(sf);
-    if (!owed.has(tag)) return;
+    const local = n.tagName.getText(sf);
+    const tag = localToComponent.get(local);
+    if (!tag) return;
     seen.add(tag);
     const attr = n.attributes.properties.find(
       (p) => ts.isJsxAttribute(p) && p.name.getText(sf) === "frozen",
@@ -573,7 +698,7 @@ if (deadExemptions.length)
     const ok = expr && ts.isIdentifier(expr) && expr.text === editsFrozenName;
     if (!ok)
       fail(
-        `${SOURCE} renders <${tag}> with frozen={${expr ? expr.getText(sf) : "—"}}, not \`${editsFrozenName}\`.\n` +
+        `${SOURCE} renders <${local}> (${tag}) with frozen={${expr ? expr.getText(sf) : "—"}}, not \`${editsFrozenName}\`.\n` +
           "  That child gates every one of its mutations on this value, and those mutations refuse\n" +
           "  on the RAW `locked`. A narrower boolean (the suppressed notice freeze, the pay gate) or\n" +
           "  a literal re-opens exactly the hole this guard exists to close, with rules 1-3 green.",

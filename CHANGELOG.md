@@ -77,6 +77,33 @@ could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"
 which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
 it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
 
+**Round 2 found twelve more, ten of them in the guards, and Codex had RUN the evasions** ("I verified
+this guard remains clean"). Two were product: `RewardField` never got the freeze-edge effect that
+cleared the stale "locked" line — `SendToKitchenButton` did, in round 1, and the lesson was not
+carried to the sibling — and `SendToKitchenButton`'s `reasonCopy.locked` still read "Someone's
+checking out" on the RACED path, where the tap starts editable and the server takes the lock before
+authorization. That is the peer claim the whole copy change removed, on the one path `frozen` cannot
+see; it is `FROZEN_NOTE` now, named once, which also lets the unfreeze effect clear it.
+
+The ten guard holes, each falsified after fixing: rule 2 compared the `if`'s start rather than its
+`return`, so `if (frozen) { const r = await applyReward(…); …; return; }` sent the exact frozen write
+the rule exists to stop — **T11 (b) for the third time, re-broken in a guard written after fixing it
+elsewhere**; rule 3(a) accepted any mention of the binding in any condition, so `if (res) void 0;`
+passed on an always-truthy object; rule 3(b) counted an empty string as speech and treated any
+ancestor `TryStatement` as catching, including one whose `catch` held the call; rule 1 read the
+binding's local name rather than the destructured key, so `{ ignored: frozen, frozen: ignoredFrozen }`
+gated on the wrong value; rule 4 matched JSX text against a filename, so an import alias plus a dead
+element passed the wiring check; namespace imports dropped a component out of the audited set
+silently, and now fail closed. On the parity side: file discovery still used the direct-write
+predicate while the derived helper set was computed after it, so a helper-routed
+authorize-and-write module stayed invisible; `Boolean(false)` slipped past the constant-operand rule
+because it is a `CallExpression`; and `{ ok: false, ...shadow }` passed `returnsFailure` because
+`some()` is the wrong quantifier when a later spread wins.
+
+**One round-2 fix could not fail, and only the red-first pass caught it.** The new namespace-import
+check stripped `.ts` from the import specifier (which never has one) instead of from the module set
+(which did), so it matched nothing and its probe came back green. Fixed and re-falsified.
+
 **T11 + T13 — `check-freeze-parity.mjs` could not fail three ways.** (a) any value-bearing return
 counted as a refusal, so `if (locked) return { ok: true }` type-checked and kept the required check
 green while telling callers an operation the server skipped had succeeded; a refusal is now a

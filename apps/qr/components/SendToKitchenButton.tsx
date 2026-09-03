@@ -389,7 +389,14 @@ const reasonCopy: Record<
   string
 > = {
   not_host: "Ask the host to send the order to the kitchen.",
-  locked: "Someone’s checking out — try again once they’ve finished.",
+  // ⚠️ THE SAME STRING AS THE CLIENT-SIDE REFUSAL, DELIBERATELY (Codex round 2 on #247). This is
+  // the RACED path: the tap started while the cart was editable and the server took the lock before
+  // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
+  // checking out", which is the peer claim the whole copy change removed — and the lock can be
+  // self-held (two tabs on one device) or unattributable, so that sentence is a diagnosis the code
+  // never established. Naming it ONCE also means the unfreeze effect above, which clears messages
+  // equal to FROZEN_NOTE, clears this one too instead of leaving it stale after the lock lifts.
+  locked: FROZEN_NOTE,
   settling: "The table is settling up — you can’t send while everyone pays.",
   nothing: "Everything’s already with the kitchen.",
   rate_limited: "One moment — too many taps. Try again in a few seconds.",
