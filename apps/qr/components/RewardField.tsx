@@ -53,6 +53,11 @@ const REASON: Record<ApplyRewardReason, string> = {
  */
 const FROZEN_NOTE = "Rewards are locked while a checkout finishes.";
 
+/** Every message this component can render BECAUSE of a lock — the set the unfreeze effect clears.
+ *  `busy` and `cart_closed` are the server's reason codes for the same fact arriving on the raced
+ *  path, where `frozen` was still false when the tap started. */
+const LOCK_MESSAGES = new Set<string>([FROZEN_NOTE, REASON.busy, REASON.cart_closed]);
+
 export function RewardField({
   cartId,
   appliedRewardCents,
@@ -161,9 +166,15 @@ export function RewardField({
   // and this file did not, which is the "a lesson taught to one matcher is not taught to the
   // concept" shape (LEARNINGS #65) applied to components. Only this one message is cleared: an
   // apply/remove outcome is a report about something that happened and stays.
+  //
+  // ⚠️ AND IT CLEARS EVERY LOCK-DERIVED MESSAGE, NOT JUST THIS ONE (Codex round 3 on #247). An apply
+  // that STARTS while editable and meets the lock inside `assertCartMember` comes back
+  // `reason: "busy"` and renders `REASON.busy` — a lock claim the client-side path never wrote. An
+  // equality test against FROZEN_NOTE alone left that one standing after the lock lifted, which is
+  // the same stale-claim defect one reason-code over.
   const wasFrozen = useRef(frozen);
   useEffect(() => {
-    if (wasFrozen.current && !frozen) setError((e) => (e === FROZEN_NOTE ? null : e));
+    if (wasFrozen.current && !frozen) setError((e) => (LOCK_MESSAGES.has(e ?? "") ? null : e));
     wasFrozen.current = frozen;
   }, [frozen]);
 

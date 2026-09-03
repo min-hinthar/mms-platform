@@ -77,6 +77,22 @@ could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"
 which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
 it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
 
+**Round 3 found eleven more, and the two-round budget applied: three fixed, eight filed as T16.**
+Fixed on sight because each was one edit: `RewardField` cleared only `FROZEN_NOTE` on unfreeze, so
+the RACED apply — one that starts editable and meets the lock inside `assertCartMember`, coming back
+`reason: "busy"` — left its lock claim on screen after the lock lifted; both freeze guards enumerated
+only the immediate children of `apps/qr/lib`, the same non-recursive defect that hid four components
+in round 1 (no nested mutation exists today, measured, so this closed a future hole); and
+`forcesRefusal` accepted any bare identifier spelled `locked`, so
+`const { locked: ignoredLock, settling: locked } = await assertCartMember(id)` moved the NAME onto a
+different fact and `if (locked) …` went on reading like a lock guard while a pay-window lock stopped
+preventing the write. **That third one took two attempts**: fixing the subject selector to read the
+destructured key was not enough, because the refusal predicate still had no provenance — the
+selector-only fix was falsified, came back green, and had to be completed. The eight remaining
+evasions need real design (scope-resolved alias expansion, a fixed point over write helpers,
+constant folding, `finally` control flow, failure-arm liveness, payload-shape binding, per-mutation
+exemption scoping) and are `docs/OPEN-ITEMS.md` **T16**.
+
 **Round 2 found twelve more, ten of them in the guards, and Codex had RUN the evasions** ("I verified
 this guard remains clean"). Two were product: `RewardField` never got the freeze-edge effect that
 cleared the stale "locked" line — `SendToKitchenButton` did, in round 1, and the lesson was not

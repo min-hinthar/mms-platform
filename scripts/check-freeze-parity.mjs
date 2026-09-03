@@ -286,7 +286,20 @@ const bindsLockedFromAuthz = (srcFile) => {
       n.initializer &&
       (references(n.initializer, "assertCartMember") ||
         references(n.initializer, "assertCartItemMember")) &&
-      n.name.elements.some((e) => ts.isIdentifier(e.name) && e.name.text === "locked")
+      n.name.elements.some((e) => {
+        // ⚠️ THE PROPERTY KEY, NOT THE LOCAL NAME (Codex round 3 on #247). Destructuring
+        // `{ locked: ignoredLock, settling: locked }` and guarding on the local `locked` reported
+        // CLEAN while a pay-window lock no longer prevented the write — the guard was reading a
+        // name, and the name had been moved onto a different fact. The CHILD guard's rule 1 had
+        // this exact defect, fixed there in round 2 and not carried here (LEARNINGS #65).
+        const key = e.propertyName ?? e.name;
+        return (
+          ts.isIdentifier(key) &&
+          key.text === "locked" &&
+          ts.isIdentifier(e.name) &&
+          e.name.text === "locked"
+        );
+      })
     )
       hit = true;
     if (
@@ -309,9 +322,21 @@ const bindsLockedFromAuthz = (srcFile) => {
  * The file set is therefore the same UNION the subject selector uses: binds the lock fact, OR
  * authorizes and writes.
  */
-const ALL_LIB = readdirSync(path.join(ROOT, LIB))
-  .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-  .map((f) => `${LIB}/${f}`)
+/** Every `.ts` under `apps/qr/lib`, RECURSIVELY (Codex round 3 on #247). The tree already holds
+ *  `lib/menu`, `lib/kiosk`, `lib/hooks`, `lib/i18n` and `lib/qbo`; NONE of them calls an authz
+ *  helper today (measured), so this closes a future hole rather than a live one — but it is the
+ *  same non-recursive-enumeration defect that hid four components in round 1. A guard whose reach
+ *  stops at one directory level is one directory away from lying. */
+const tsTree = (rel) => {
+  const out = [];
+  for (const e of readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...tsTree(`${rel}/${e.name}`));
+    else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) out.push(`${rel}/${e.name}`);
+  }
+  return out;
+};
+
+const ALL_LIB = tsTree(LIB)
   .sort()
   .map((rel) => ({ rel, sf: parse(rel) }));
 
@@ -682,7 +707,20 @@ for (const { rel, sf } of MUTATION_FILES)
         d.initializer &&
         (references(d.initializer, "assertCartMember") ||
           references(d.initializer, "assertCartItemMember")) &&
-        d.name.elements.some((e) => ts.isIdentifier(e.name) && e.name.text === "locked")
+        d.name.elements.some((e) => {
+          // ⚠️ THE PROPERTY KEY, NOT THE LOCAL NAME (Codex round 3 on #247). Destructuring
+          // `{ locked: ignoredLock, settling: locked }` and guarding on the local `locked` reported
+          // CLEAN while a pay-window lock no longer prevented the write — the guard was reading a
+          // name, and the name had been moved onto a different fact. The CHILD guard's rule 1 had
+          // this exact defect, fixed there in round 2 and not carried here (LEARNINGS #65).
+          const key = e.propertyName ?? e.name;
+          return (
+            ts.isIdentifier(key) &&
+            key.text === "locked" &&
+            ts.isIdentifier(e.name) &&
+            e.name.text === "locked"
+          );
+        })
       )
         bindsLocked = true;
     });
@@ -705,6 +743,43 @@ for (const { rel, sf } of MUTATION_FILES)
           references(d.initializer, "assertCartItemMember"))
       )
         authzVars.add(d.name.text);
+      // …and the ASSIGNMENT form. `grocery.ts` writes `let authz; try { authz = await
+      // assertCartMember(…) } catch {…}` so it can answer a discriminated reason on the catch; a
+      // declaration-only selector never saw it, and `scanAdd`'s `locked` then had no provenance.
+      if (
+        ts.isBinaryExpression(d) &&
+        d.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(d.left) &&
+        (references(d.right, "assertCartMember") || references(d.right, "assertCartItemMember"))
+      )
+        authzVars.add(d.left.text);
+    });
+    /**
+     * ⚠️ THE IDENTIFIERS THAT ACTUALLY CARRY THE LOCK — provenance, not spelling (Codex round 3 on
+     * #247, and the reason the selector fix alone was NOT enough). `forcesRefusal` accepted any
+     * bare identifier named `locked`, so destructuring
+     *
+     *     const { locked: ignoredLock, settling: locked } = await assertCartMember(id);
+     *
+     * moved the NAME onto a different fact and `if (locked) …` went on reading like a lock guard
+     * while a pay-window lock no longer prevented the write — reported CLEAN. Only a local bound
+     * from the authz result's `locked` PROPERTY counts now.
+     */
+    const lockedIdents = new Set();
+    walk(n, (d) => {
+      if (
+        ts.isVariableDeclaration(d) &&
+        ts.isObjectBindingPattern(d.name) &&
+        d.initializer &&
+        (references(d.initializer, "assertCartMember") ||
+          references(d.initializer, "assertCartItemMember") ||
+          (ts.isIdentifier(d.initializer) && authzVars.has(d.initializer.text)))
+      )
+        for (const e of d.name.elements) {
+          const key = e.propertyName ?? e.name;
+          if (ts.isIdentifier(key) && key.text === "locked" && ts.isIdentifier(e.name))
+            lockedIdents.add(e.name.text);
+        }
     });
     if (!bindsLocked) {
       walk(n, (d) => {
@@ -747,7 +822,7 @@ for (const { rel, sf } of MUTATION_FILES)
       exempted.push(fnName);
       continue;
     }
-    subjects.push({ fn: n, name: fnName, authzVars, rel });
+    subjects.push({ fn: n, name: fnName, authzVars, lockedIdents, rel });
   }
 
 // ⚠️ EVERY EXEMPTION MUST FIRE. A stale exemption is worse than none: it reads as a considered
@@ -872,9 +947,11 @@ const firstPos = (fn, pred) => {
  * false positive was the first (LEARNINGS #60), the nested-callback walk the second (#65) — so the
  * receiver must be a local that came out of `assertCartMember`/`assertCartItemMember`.
  */
-const forcesRefusal = (expr, authzVars) => {
+const forcesRefusal = (expr, authzVars, lockedIdents) => {
   const e = ts.isParenthesizedExpression(expr) ? expr.expression : expr;
-  if (ts.isIdentifier(e) && e.text === "locked") return true;
+  // A bare identifier counts ONLY if it was bound from the authz result's `locked` property. The
+  // name alone proves nothing: it can be moved onto `settling` in one edit (see `lockedIdents`).
+  if (ts.isIdentifier(e) && lockedIdents.has(e.text)) return true;
   if (
     ts.isPropertyAccessExpression(e) &&
     e.name.text === "locked" &&
@@ -883,7 +960,10 @@ const forcesRefusal = (expr, authzVars) => {
   )
     return true;
   if (ts.isBinaryExpression(e) && e.operatorToken.kind === ts.SyntaxKind.BarBarToken)
-    return forcesRefusal(e.left, authzVars) || forcesRefusal(e.right, authzVars);
+    return (
+      forcesRefusal(e.left, authzVars, lockedIdents) ||
+      forcesRefusal(e.right, authzVars, lockedIdents)
+    );
   return false;
 };
 
@@ -901,13 +981,15 @@ const mentionsLocked = (expr) => {
 };
 
 /** The lock refusal: `if (<condition `locked` alone makes true>) throw|return <value>`. */
-const isLockRefusal = (authzVars) => (n) =>
-  ts.isIfStatement(n) && forcesRefusal(n.expression, authzVars) && thenBranchRefuses(n);
+const isLockRefusal = (authzVars, lockedIdents) => (n) =>
+  ts.isIfStatement(n) &&
+  forcesRefusal(n.expression, authzVars, lockedIdents) &&
+  thenBranchRefuses(n);
 
 /** A refusal that MENTIONS the lock but does not turn on it — reported separately, by name. */
-const isNarrowedRefusal = (authzVars) => (n) =>
+const isNarrowedRefusal = (authzVars, lockedIdents) => (n) =>
   ts.isIfStatement(n) &&
-  !forcesRefusal(n.expression, authzVars) &&
+  !forcesRefusal(n.expression, authzVars, lockedIdents) &&
   mentionsLocked(n.expression) &&
   thenBranchRefuses(n);
 
@@ -968,13 +1050,13 @@ const branchReturns = (ifStmt) => {
 };
 
 const problems = [];
-for (const { fn, name, authzVars, rel } of subjects) {
+for (const { fn, name, authzVars, lockedIdents, rel } of subjects) {
   const sf = fn.getSourceFile();
-  const guardAt = firstDominating(fn, isLockRefusal(authzVars), false);
+  const guardAt = firstDominating(fn, isLockRefusal(authzVars, lockedIdents), false);
   const writeAt = firstPos(fn, isWriteCall);
 
   if (guardAt === Infinity) {
-    const narrowedAt = firstDominating(fn, isNarrowedRefusal(authzVars));
+    const narrowedAt = firstDominating(fn, isNarrowedRefusal(authzVars, lockedIdents));
     problems.push(
       narrowedAt === Infinity
         ? `${name} (${rel}:${line(fn)}) has no lock refusal that certainly RUNS.\n    ` +
@@ -998,7 +1080,8 @@ for (const { fn, name, authzVars, rel } of subjects) {
       (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n))
     )
       return;
-    if (!guardNode && isLockRefusal(authzVars)(n) && n.getStart() === guardAt) guardNode = n;
+    if (!guardNode && isLockRefusal(authzVars, lockedIdents)(n) && n.getStart() === guardAt)
+      guardNode = n;
     ts.forEachChild(n, (c) => {
       findGuard(c);
     });

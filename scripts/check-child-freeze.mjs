@@ -143,10 +143,17 @@ const unwrapTypeOnly = (e) => {
 const AUTHZ_CALLS = new Set(["assertCartMember", "assertCartItemMember"]);
 const mutations = new Map(); // exported name -> { rel, kinds: Set<"throw"|"return"> }
 
-for (const file of readdirSync(path.join(ROOT, LIB)).filter(
-  (f) => f.endsWith(".ts") && !f.endsWith(".test.ts"),
-)) {
-  const rel = `${LIB}/${file}`;
+/** Every `.ts` under `apps/qr/lib`, RECURSIVELY — same reason the component walk is recursive. */
+const tsTree = (rel) => {
+  const out = [];
+  for (const e of readdirSync(path.join(ROOT, rel), { withFileTypes: true })) {
+    if (e.isDirectory()) out.push(...tsTree(`${rel}/${e.name}`));
+    else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) out.push(`${rel}/${e.name}`);
+  }
+  return out.sort();
+};
+
+for (const rel of tsTree(LIB)) {
   const sf = parse(rel);
   for (const { fn, name } of namedFunctions(sf)) {
     let bindsLocked = false;
