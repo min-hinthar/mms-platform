@@ -495,7 +495,8 @@ export function TableCartProvider({
         const v = await getCartView(id);
         applyView(v);
         fresh = v.items;
-        holderIsViewer = cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
+        holderIsViewer =
+          cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
         refusal = classifyRefusedWrite({
           ok: true,
           freeze: { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat },

@@ -300,8 +300,9 @@ export function reopenFailureNotice(
  *     a failed read does NOT establish an expired session. It establishes that we cannot see the
  *     cart. The re-mint still runs, because a dead session is the one cause it can repair and it is
  *     not ruled out — but it is offered as a recovery attempt, never announced as a diagnosis.
+ *   - the re-read SUCCEEDS and the table is settling → `settling` (tested FIRST — see the note in
+ *     the function: the precedence has to match `inertReason`'s, or one cart gets two freezes).
  *   - the re-read SUCCEEDS and the cart is frozen → `frozen`, carrying the viewer's freeze.
- *   - the re-read SUCCEEDS and the table is settling → `settling`.
  *   - otherwise → `unknown`, which claims nothing.
  *
  * ⚠️ `unknown` MUST NOT collapse into any neighbour. Folding it into `unreachable` is the shipped
@@ -332,11 +333,18 @@ export function classifyRefusedWrite(
   reread: { ok: false } | { ok: true; freeze: FreezeInput; settling: boolean },
 ): RefusedWrite {
   if (!reread.ok) return { cause: "unreachable" };
+  // ⚠️ SETTLING FIRST, TO MATCH `inertReason` — the precedence, not just the words, has to agree.
+  // `AddButton`, `ItemSheet` and `YourUsual` all render `inertReason` for the same frozen cart, and
+  // its docblock fixes the order as "settling → locked → minting, deliberately widest-first … in
+  // that window the honest answer is the table-wide one — it's the state that outlives the other and
+  // the one with somewhere for the diner to go." A classifier that ranked them the other way would
+  // hand the same cart two different freezes depending on which surface spoke last, which is the
+  // one-lock-two-stories failure routing the clause through `inertReason` exists to prevent.
+  if (reread.settling) return { cause: "settling" };
   const freeze = cartFreeze(reread.freeze);
   // The explicit null test is what carries the fact into the type; `freezeBlocksEdits` is the mirror
   // of the server's bare `locked`.
   if (freezeBlocksEdits(freeze) && freeze !== null) return { cause: "frozen", freeze };
-  if (reread.settling) return { cause: "settling" };
   return { cause: "unknown" };
 }
 

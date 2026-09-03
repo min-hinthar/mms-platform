@@ -327,6 +327,20 @@ describe("classifyRefusedWrite — the cause is re-established, never guessed", 
     expect(classifyRefusedWrite(OK({ settling: true }))).toEqual({ cause: "settling" });
   });
 
+  it("a cart that is BOTH resolves the way `inertReason` does — settling first", () => {
+    // The separating input: locked AND settling. The two must agree, because `AddButton`,
+    // `ItemSheet` and `YourUsual` render `inertReason` for the same cart this classifier explains —
+    // and `inertReason` is documented "settling → locked → minting, deliberately widest-first".
+    // Disagreeing gives one cart two freezes depending on which surface spoke last.
+    const both = classifyRefusedWrite(OK({ locked: true, lockedBy: PEER, settling: true }));
+    expect(both).toEqual({ cause: "settling" });
+    // Asserted as an AGREEMENT, not as a remembered constant: the clause the refusal shows is the
+    // clause the controls show.
+    expect(refusedWriteNotice(both)).toContain(
+      inertReason({ minting: false, locked: true, lockedByYou: false, settling: true })!,
+    );
+  });
+
   it("an editable cart answers `unknown` — it must not manufacture a freeze OR a session failure", () => {
     // The refusal was real (the caller is in a catch) but this client cannot see why: a sold-out
     // line, a stale modifier, a line owned by someone else. Every neighbour would be a fabrication.
