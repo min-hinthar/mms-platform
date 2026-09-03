@@ -1546,9 +1546,8 @@ const MUTANTS = [
     id: "rewards/summary-error-reads-as-empty-state",
     file: "apps/qr/lib/rewards.ts",
     suite: "lib/rewards-summary.test.ts",
-    why: "T12 \u2014 W9c/J8 restored on the /account hub. `getRewardsState` is the full hub read \u2014 stars, lifetime spend and tier all on one screen. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen \"Tier unlocked\" for a climb that never happened",
-    find:
-      '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed", summaryErr);\n    return null;\n  }',
+    why: 'T12 \u2014 W9c/J8 restored on the /account hub. `getRewardsState` is the full hub read \u2014 stars, lifetime spend and tier all on one screen. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed", summaryErr);\n    return null;\n  }',
     replace:
       '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed", summaryErr);\n    return null;\n  }',
   },
@@ -1556,9 +1555,8 @@ const MUTANTS = [
     id: "rewards/summary-error-reads-as-empty-badge",
     file: "apps/qr/lib/rewards.ts",
     suite: "lib/rewards-summary.test.ts",
-    why: "T12 \u2014 W9c/J8 restored on the persistent header. `getRewardsBadge` rides EVERY route, so this one shows the fabrication on every screen the diner opens. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen \"Tier unlocked\" for a climb that never happened",
-    find:
-      '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }',
+    why: 'T12 \u2014 W9c/J8 restored on the persistent header. `getRewardsBadge` rides EVERY route, so this one shows the fabrication on every screen the diner opens. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }',
     replace:
       '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }',
   },
@@ -1566,9 +1564,8 @@ const MUTANTS = [
     id: "rewards/summary-error-reads-as-empty-progress",
     file: "apps/qr/lib/rewards.ts",
     suite: "lib/rewards-summary.test.ts",
-    why: "T12 \u2014 W9c/J8 restored on the /track success moment. `getRewardsProgress` is read the instant a payment lands, which is exactly when a diner looks at their Star count. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen \"Tier unlocked\" for a climb that never happened",
-    find:
-      '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);\n    return null;\n  }',
+    why: 'T12 \u2014 W9c/J8 restored on the /track success moment. `getRewardsProgress` is read the instant a payment lands, which is exactly when a diner looks at their Star count. A swallowed RPC error leaves `summary` null, the `?? 0` fallbacks below render, and a diner sitting on Gold is shown an authoritative-looking ZEROED hub: 0 Stars, $0 lifetime, tier `new`. `TierUpCelebration` then banks that fabricated rank in localStorage as its baseline, so the NEXT healthy visit fires a full-screen "Tier unlocked" for a climb that never happened',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);\n    return null;\n  }',
     replace:
       '  if (false && summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (progress)", summaryErr);\n    return null;\n  }',
   },
@@ -1577,8 +1574,7 @@ const MUTANTS = [
     file: "apps/qr/lib/rewards.ts",
     suite: "lib/rewards-summary.test.ts",
     why: "T12 \u2014 the OVER-blocking direction of the same rule. The guard is on the ERROR deliberately: a brand-new diner legitimately has NO summary row, and the `?? 0` fallbacks are exactly what renders their first visit. Narrowing it to the missing row blanks the rewards affordance for every diner who has not ordered yet \u2014 the state the feature exists to open, reported as an outage",
-    find:
-      '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }\n  const s = (summary ?? {}) as { stars?: number; tier_id?: string };',
+    find: '  if (summaryErr) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }\n  const s = (summary ?? {}) as { stars?: number; tier_id?: string };',
     replace:
       '  if (summaryErr || !summary) {\n    console.error("[rewards] mms_rewards_summary failed (badge)", summaryErr);\n    return null;\n  }\n  const s = (summary ?? {}) as { stars?: number; tier_id?: string };',
   },
