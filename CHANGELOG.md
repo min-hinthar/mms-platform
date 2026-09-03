@@ -77,6 +77,16 @@ could only refuse; and `SplitSection`'s new catch surfaced `e.message` from a `"
 which Next redacts in production — loud and wrong is a different failure from silent, not a fix for
 it. `SplitSection`'s frozen avatar dim also flattened the selection ring it was commented as keeping.
 
+**Round 6: four, three fixed and one filed.** Two were the cross-guard divergence AGAIN — the child
+guard did not track an aliased lock binding (`const { locked: isLocked } = …`), which the parity
+guard had learned in round 3, so a semantics-preserving server refactor would have dropped the
+mutation from the child guard's subject set entirely; and `speaksIn(guard)` walked the whole
+`IfStatement`, so `if (frozen) { return; } else { setError("…") }` passed rule 2 while the frozen tap
+said nothing. The product one: `ConfirmSwap` takes only `busy`, so a confirm opened while editable
+kept a live-looking Proceed after a peer took the lock — the confirm closes and explains on the
+freeze edge now. Filed as T16's ninth: `firstPos` skips nested function bodies, so a write SCHEDULED
+with `after(async () => …)` before the refusal leaves `writeAt` at Infinity.
+
 **Round 5 found five, and FOUR were defects in or omissions from round 4's own fixes — including one
 regression it introduced.** That ratio is the finding. Round 4 patched the late-response staleness
 per site with a `frozenRef` check; round 5 showed the same hole in `SendToKitchenButton` and

@@ -132,8 +132,17 @@ export function SendToKitchenButton({
   const wasFrozen = useRef(frozen);
   useEffect(() => {
     if (wasFrozen.current && !frozen) setMsg((m) => (m?.text === FROZEN_NOTE ? null : m));
+    // ⚠️ AND CLOSE AN OPEN CONFIRM WHEN THE FREEZE ARRIVES (Codex round 6 on #247). `ConfirmSwap`
+    // takes only `busy`, so a confirm opened while editable keeps a Proceed button that looks and
+    // reads as live after a peer takes the lock — the handler refuses, but one interaction too
+    // late, which is precisely the "refuse at the door" rule the trigger below already follows.
+    // Closing it returns the diner to the (now dimmed, `aria-disabled`) Send trigger and says why.
+    if (!wasFrozen.current && frozen && confirming) {
+      setConfirming(false);
+      setMsg({ kind: "err", text: FROZEN_NOTE });
+    }
     wasFrozen.current = frozen;
-  }, [frozen]);
+  }, [frozen, confirming]);
 
   // Focus back to the Send trigger when the confirm closes WITHOUT sending (B4 / the staff idiom).
   // After a confirmed send the trigger unmounts and the existing undo-focus effect takes over.

@@ -163,6 +163,8 @@ for (const rel of tsTree(LIB)) {
     // matched as any `<anything>.locked` — the bind-then-match rule `check-freeze-parity.mjs`
     // learned the hard way when a loose match caught `refusedPromoReason`'s diagnostic column read.
     const authzVars = new Set();
+    /** Locals bound from the authz result's `locked` PROPERTY — under any local name. */
+    const lockedIdents = new Set(["locked"]);
     walk(fn, (n) => {
       if (
         ts.isVariableDeclaration(n) &&
@@ -188,7 +190,13 @@ for (const rel of tsTree(LIB)) {
     const mentionsLocked = (expr) => {
       let hit = false;
       walk(expr, (x) => {
-        if (ts.isIdentifier(x) && x.text === "locked") hit = true;
+        // ⚠️ THE LOCAL BINDING, NOT THE LITERAL NAME (Codex round 6 on #247). A semantics-preserving
+        // refactor to `const { locked: isLocked } = await assertCartMember(…)` left `bindsLocked`
+        // false AND this blind, so the mutation vanished from the subject set entirely and its
+        // component could drop the gate with this guard green. The PARITY guard already tracked the
+        // alias via `lockedIdents` — round 3 taught it there and not here, which is the fourth time
+        // this PR that a lesson stopped at one of two siblings.
+        if (ts.isIdentifier(x) && lockedIdents.has(x.text)) hit = true;
         if (
           ts.isPropertyAccessExpression(x) &&
           x.name.text === "locked" &&
@@ -206,7 +214,12 @@ for (const rel of tsTree(LIB)) {
         ts.isObjectBindingPattern(n.name) &&
         n.initializer &&
         [...AUTHZ_CALLS].some((c) => n.initializer.getText(sf).includes(c)) &&
-        n.name.elements.some((el) => ts.isIdentifier(el.name) && el.name.text === "locked")
+        n.name.elements.some((el) => {
+          const key = el.propertyName ?? el.name;
+          if (!(ts.isIdentifier(key) && key.text === "locked")) return false;
+          if (ts.isIdentifier(el.name)) lockedIdents.add(el.name.text);
+          return true;
+        })
       )
         bindsLocked = true;
       // …or `const authz = await assertCartMember(…)` then `authz.locked` — `setKioskTip`'s shape.
@@ -225,7 +238,12 @@ for (const rel of tsTree(LIB)) {
         n.initializer &&
         ts.isIdentifier(n.initializer) &&
         authzVars.has(n.initializer.text) &&
-        n.name.elements.some((el) => ts.isIdentifier(el.name) && el.name.text === "locked")
+        n.name.elements.some((el) => {
+          const key = el.propertyName ?? el.name;
+          if (!(ts.isIdentifier(key) && key.text === "locked")) return false;
+          if (ts.isIdentifier(el.name)) lockedIdents.add(el.name.text);
+          return true;
+        })
       )
         bindsLocked = true;
       if (ts.isIfStatement(n) && mentionsLocked(n.expression)) {
@@ -523,7 +541,11 @@ for (const rel of tsxTree(COMPONENTS)) {
       );
       continue;
     }
-    if (!speaksIn(guard))
+    // ⚠️ THE THEN BRANCH ONLY (Codex round 6 on #247). `speaksIn(guard)` walked the whole
+    // IfStatement, so `if (frozen) { return; } else { setError("…"); }` satisfied the rule while the
+    // FROZEN tap said nothing — the exact silent refusal rule 2 exists to prevent, passing because
+    // the speech lived on the branch that never runs when frozen.
+    if (!speaksIn(guard.thenStatement))
       fail(
         `${rel} — \`${name}()\` refuses on \`frozen\` SILENTLY.\n` +
           "  The tap is taken, nothing changes, and nothing is said — which is J4 clause (b), the\n" +
