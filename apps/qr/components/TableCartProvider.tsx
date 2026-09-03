@@ -486,7 +486,7 @@ export function TableCartProvider({
    * same server truth), and re-mints ONLY on the arm where the re-read itself failed.
    */
   const explainCaught = useCallback(
-    async (id: string): Promise<CartItem[] | null> => {
+    async (id: string): Promise<{ fresh: CartItem[] | null; notice: string }> => {
       let fresh: CartItem[] | null = null;
       let refusal;
       let holderIsViewer = false;
@@ -509,16 +509,31 @@ export function TableCartProvider({
         // says what we observed and what we are doing, never why.
         refusal = classifyRefusedWrite({ ok: false });
       }
-      const notice = refusedWriteNotice(refusal, holderIsViewer);
-      lastRefusalRef.current = notice;
-      flash(notice, 2600);
+      // ⚠️ THE NOTICE IS RETURNED, NOT PUBLISHED (Codex round 2 on #248). `addItem`/`setQty` commit
+      // and only THEN return `getCartView`, so a trailing-read failure lands here with the write
+      // already in the cart. Flashing from inside this helper announced "We couldn't confirm that"
+      // over a change that had landed — and while `YourUsual` replaces the message with its own
+      // success line, `AddButton` publishes nothing afterwards, so the false refusal was the last
+      // thing the diner heard. The caller checks for a landing FIRST and speaks only if there was
+      // none. The re-mint is not deferred: it is a recovery, not a statement, and only the arm that
+      // could not read the cart at all takes it.
       if (refusalNeedsRemint(refusal)) {
         recoveringRef.current = true;
         revalidate();
       }
-      return fresh;
+      return { fresh, notice: refusedWriteNotice(refusal, holderIsViewer) };
     },
-    [applyView, flash, revalidate],
+    [applyView, revalidate],
+  );
+
+  /** Publish a refusal the caller has decided is real (no landing was detected), and remember it so
+   *  a consumer announcing its own outcome afterwards can carry the cause instead of erasing it. */
+  const publishRefusal = useCallback(
+    (notice: string) => {
+      lastRefusalRef.current = notice;
+      flash(notice, 2600);
+    },
+    [flash],
   );
 
   const add = useCallback(
@@ -571,7 +586,7 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
-        const fresh = await explainCaught(cartId);
+        const { fresh, notice } = await explainCaught(cartId);
         // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
         // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
         // on that trailing read with the add already in the cart. Reporting failure there is a lie
@@ -584,8 +599,10 @@ export function TableCartProvider({
         if (fresh) {
           const unitsFor = (rows: CartItem[]) =>
             rows.reduce((a, i) => a + (i.menuItemId === menuItemId ? i.qty : 0), 0);
+          // Landed after all: say nothing. Announcing a refusal here is the false statement.
           if (unitsFor(fresh) > unitsFor(itemsBefore)) return fresh;
         }
+        publishRefusal(notice);
         // Returns null so the item sheet stays OPEN (keeping the diner's modifier choices) instead
         // of reading as a false success.
         return null;
@@ -593,7 +610,7 @@ export function TableCartProvider({
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, explainCaught, flash],
+    [cartId, applyView, explainCaught, flash, publishRefusal],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -627,12 +644,23 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        return (await explainCaught(cartId)) ?? itemsRef.current;
+        const { fresh, notice } = await explainCaught(cartId);
+        // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
+        // a trailing-read failure lands here with the qty already applied. The target is exact
+        // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
+        // when the tap was a remove. Only a genuine non-landing is announced.
+        if (fresh) {
+          const line = fresh.find((i) => i.id === cartItemId);
+          const landed = qty <= 0 ? line === undefined : line?.qty === qty;
+          if (landed) return fresh;
+        }
+        publishRefusal(notice);
+        return fresh ?? itemsRef.current;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, explainCaught, flash],
+    [cartId, applyView, explainCaught, flash, publishRefusal],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

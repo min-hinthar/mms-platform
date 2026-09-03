@@ -45,15 +45,25 @@ than parsed.
 
 `classifyRefusedWrite` (`lib/cart-freeze.ts`) does that with ONE re-read of `getCartView`, the same
 `assertCartMember` gate the write went through, and separates four states: a failed re-read is
-`session` (the only arm that re-mints, and the only one that may say "reconnecting"); a locked cart
-is `frozen`, whose sentence comes from `freezeNotice` so /menu and the review step cannot describe
-one lock two ways; a settling table is `settling`, because `addItem`/`setQty` refuse on it in a
-statement of their own; and an editable cart is `unknown`, which claims no cause at all. The arms
-mirror the server's own order — `locked` before `settling` — so a cart that is both is named the way
-it was actually refused. `refusalIsFreeze` runs the same classification as a PRE-write gate against
-the freeze the client already holds, so a frozen tap costs no round trip; it is deliberately false
-for `unknown` and `session`, because a gate that blocked those would refuse writes the server
-accepts.
+`unreachable` — the only arm that re-mints, and the only one that may say "reconnecting", because
+`assertCartMember` throws `UNAVAILABLE()` for query and transport errors too and a failed read
+establishes nothing about a session; a settling table is `settling`, tested FIRST so the precedence
+matches `inertReason`'s documented settling → locked order; a locked cart is `frozen`; and an
+editable cart is `unknown`, which claims no cause at all. Every sentence is an OBSERVATION plus
+current state, never a causal claim — one later read cannot establish what refused an earlier write.
+The freeze clause comes from `inertReason`, the vocabulary `AddButton`, `ItemSheet` and the rest of
+/menu already speak.
+
+**There is no pre-write gate**, and its absence is load-bearing: see the round-1 note below.
+
+**Round 2 removed the last cached gate.** `YourUsual`'s own freeze gate had exactly the defect the
+provider's did — Codex caught the rationalisation ("consistent with its siblings") for what it was —
+so the card no longer refuses a tap on a cached freeze, and the refusal notice is no longer published
+before the caller has checked whether the write landed. `AddButton` publishes nothing after a
+successful add, so a post-commit read failure there had been announcing "We couldn't confirm that"
+over a change that was in the cart. `setItemQty` gained the same landing check (its target is exact,
+so the re-read settles it). The two pre-existing sibling gates, and their `lockedByName === "You"`
+identity inference from peer-supplied presence copy, are filed as **T20** rather than widened into.
 
 **`YourUsual` was a fourth ungated add surface.** `AddButton` and `ItemSheet` have gated on `locked
 || settling` since W9b; this one did not, so under a peer's checkout every tap fired a refused write

@@ -24,11 +24,18 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > no-op"; the class is bigger than the clause** — a control that says something FALSE is worse than
 > one that says nothing (LEARNINGS #70). The fix is `classifyRefusedWrite` in `lib/cart-freeze.ts`:
 > the client cannot read the thrown message (Next redacts Server Action errors in prod), so the cause
-> is re-established with ONE `getCartView` re-read and split into four states — `session` is the only
-> arm that re-mints and the only one that may say "reconnecting"; `frozen` takes its sentence from
-> `freezeNotice`; `settling` is its own answer because the server refuses on it separately; `unknown`
-> claims nothing. **Grep for the RECOVERY, not the copy** — an unconditional `revalidate()` in a catch
-> is a diagnosis whether or not anything is printed.
+> is re-established with ONE `getCartView` re-read and split into four states — `unreachable` is the
+> only arm that re-mints and the only one that may say "reconnecting"; `settling` is tested FIRST, to
+> match `inertReason`'s documented precedence; `frozen` takes its clause from `inertReason` too, the
+> vocabulary /menu already speaks; `unknown` claims nothing. **Grep for the RECOVERY, not the copy** —
+> an unconditional `revalidate()` in a catch is a diagnosis whether or not anything is printed.
+>
+> ⚠️ **THERE IS NO PRE-WRITE GATE, AND RE-ADDING ONE IS THE DEFECT.** Two review rounds killed two
+> separate attempts (the provider's, then `YourUsual`'s). `authz.ts` computes the lock as
+> `locked_at > now - CART_LOCK_TTL_MS`, so it expires by the passage of TIME with no row write — no
+> realtime event, and a tab that stays visible never hits the visibility refresh either. Any gate on
+> that cached value intercepts the very write that would have corrected it. The server decides;
+> refusals are explained afterwards, from a read (LEARNINGS #72).
 >
 > **T10 named a blocker belonging to a different hook.** It said widening the subscription "changes
 > channel scope and the RLS path on `realtime.messages` (private channels, `is_member`)" — all true of

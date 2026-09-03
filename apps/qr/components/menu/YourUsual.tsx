@@ -2,7 +2,6 @@
 import { useCallback, useRef, useState } from "react";
 import { useCart } from "@/components/TableCartProvider";
 import { haptic } from "@/lib/haptics";
-import { inertReason } from "@/lib/inert-reason";
 import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/lib/menu/your-usual";
 
 /**
@@ -31,8 +30,7 @@ import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/li
  *    control focusable and announced, which is what `AddButton` already does.
  */
 export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
-  const { add, announce, cartId, lastRefusalNotice, loading, locked, lockedByName, settling } =
-    useCart();
+  const { add, announce, cartId, lastRefusalNotice, loading } = useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
   const [doneCount, setDoneCount] = useState(0);
@@ -44,29 +42,23 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
   // The session is still minting, so `add` would answer null for a reason that is not a failure.
   // Every other add surface (AddButton, ItemSheet) reports this state rather than firing into it.
   const notReady = loading || !cartId;
-  // T14 — the freeze this card was missing. `AddButton` and `ItemSheet` have gated on `locked ||
-  // settling` since W9b; this one did not, so under a peer's checkout every tap fired a write the
-  // server refuses and the diner was told "we couldn't add X — try from the menu below", pointing at
-  // a menu that is frozen too. Same `inertReason` vocabulary as its siblings, so one frozen cart
-  // does not tell a screen-reader user three different stories.
-  const frozen = locked || settling;
-  const reason = inertReason({
-    minting: notReady,
-    locked,
-    lockedByYou: lockedByName === "You",
-    settling,
-  });
+  // ⚠️ T14 — THIS CARD DELIBERATELY DOES NOT GATE ON A CACHED FREEZE (Codex round 2 on #248).
+  //
+  // The first draft refused a frozen tap here, "like its siblings". That is the same defect the
+  // provider's pre-write gate had, and it is worse on this control: `assertCartMember` computes the
+  // lock as `locked_at > now - CART_LOCK_TTL_MS`, so it expires by the PASSAGE OF TIME with no row
+  // write — no realtime event, and a tab that stays visible never hits the visibility refresh
+  // either. A gate here therefore intercepts the tap that would have corrected the stale copy, and
+  // the CTA can sit unusable indefinitely on a cart the server would accept.
+  //
+  // So the tap goes to the server, and `TableCartProvider`'s `explainCaught` re-reads and names what
+  // that read established. The failure arm below carries that sentence rather than inventing one.
+  // (`AddButton` and `ItemSheet` still hold pre-existing gates of this shape — filed as T20, not
+  // widened into here.)
 
   const addAll = useCallback(async () => {
     // Early return rather than `disabled` — see note 3. The control stays focusable throughout.
     if (busy || allIn || notReady || items.length === 0) return;
-    // T14 — refuse the frozen tap here and SAY so. The provider refuses it too (one gate, both
-    // sides), but a refusal announced from the control the diner actually pressed names the dishes;
-    // the provider's flash cannot.
-    if (frozen && reason) {
-      announce(`${dishes} — ${reason}`);
-      return;
-    }
     setBusy(true);
     haptic("add");
     try {
@@ -102,19 +94,7 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
       // common case and a repair if a re-render moved things.
       btnRef.current?.focus({ preventScroll: true });
     }
-  }, [
-    add,
-    announce,
-    allIn,
-    busy,
-    dishes,
-    doneCount,
-    frozen,
-    items,
-    lastRefusalNotice,
-    notReady,
-    reason,
-  ]);
+  }, [add, announce, allIn, busy, dishes, doneCount, items, lastRefusalNotice, notReady]);
 
   if (outcome.state === "none") return null;
 
@@ -134,17 +114,11 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
         type="button"
         className="usual-add"
         onClick={addAll}
-        aria-disabled={busy || allIn || notReady || frozen}
+        aria-disabled={busy || allIn || notReady}
         /* The visible label is short; the accessible name names the dishes, so a screen-reader diner
            hears WHAT is being added without hunting for the line above. It tracks the visible text
            rather than contradicting it (WCAG 2.5.3 — label in name). */
-        aria-label={
-          allIn
-            ? `${dishes} added to your order`
-            : frozen && reason
-              ? `${text} — ${dishes} — ${reason}`
-              : `${text} — ${dishes}`
-        }
+        aria-label={allIn ? `${dishes} added to your order` : `${text} — ${dishes}`}
       >
         {text}
       </button>
