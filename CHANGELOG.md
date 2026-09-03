@@ -21,7 +21,9 @@ settling` has two stale-true axes and the longer one is twice the window. And **
 escape routes too**: `TableTimeline`'s `quiet` drops both /cart links, `AppHeader` hides its cart link
 on /menu, and `CartBar` renders nothing at count 0 — so the diner loses the route to the one surface
 whose freeze bar carries a live re-read control. That half is filed as **T22**; this change makes the
-state bounded rather than permanent, which is what takes it out of the critical path.
+state bounded rather than permanent **for as long as the cart can still be read** — a cart that has
+been paid answers `cart_closed` forever, and there the freeze stays exactly as stale as it was
+before, on a menu whose order is already settled.
 
 `CART_LOCK_TTL_MS` and `SETTLE_TTL_MS` now live in `apps/qr/lib/lock-ttl.ts`, a module without
 `server-only`. All seven production importers and three test stubs were repointed and **no re-export
@@ -31,15 +33,30 @@ frozen until both lapse, so the shorter horizon buys only a round trip), and `nu
 cart, which is what keeps this a scheduled re-read instead of a poll. Both arms carry a mutant.
 
 ⚠️ **The client cannot compute the expiry and does not try.** `getCartView` returns `locked` and
-`settling` but never `locked_at` or `settle_at`. The schedule bounds our _ignorance_: a freeze
-observed now was acquired at or before now, so it cannot outlive now + its TTL — the shortest delay
-that guarantees the next read sees an answer that can have changed.
+`settling` but never `locked_at` or `settle_at`. The schedule bounds our _ignorance_ and nothing
+more: a freeze observed now was acquired at or before now, so **absent re-acquisition** it cannot
+outlive now + its TTL. That is an upper bound, not a prediction — it is not the first moment the
+answer can have changed, and it does not guarantee the next read finds a different one. A freeze
+acquired seconds before we saw it lapses long before the delay elapses, and a diner landing 9m59s
+into a settlement waits the full window for a freeze that ends in one second. The fix for that is a
+shape change (`locked_at`/`settle_at` on the view, so the client can compute the real deadline),
+filed as **T23** rather than approximated with a smaller constant.
 
-⚠️ **The first draft of the effect fired exactly once**, caught in the author's own adversarial read
-before the gate. Its deps were the freeze axes, so a re-read that found the cart still frozen changed
-nothing React could see and scheduled no new timer — a second checkout would have held the surface
-dead for its whole window. A tick the effect depends on re-arms it from each fresh observation, and
-the `null` arm still ends the chain the moment the cart is editable.
+⚠️ **The effect was wrong in both directions before it was right, and a different pass caught each.**
+The first draft fired exactly **once** — its deps were the freeze axes, so a re-read that found the
+cart still frozen changed nothing React could see and scheduled no new timer; a second checkout would
+have held the surface dead for its whole window. The tick that fixed that then **never stopped**,
+which the blind adversarial pass returned as a CRITICAL: once the table pays, `mms_fulfill_order`
+sets `qr_carts.status='paid'` and `assertCartMember` throws `cart_closed` **before** it computes
+either freeze axis, so `locked` can never fall and an abandoned tab fired a Server Action every five
+minutes for as long as it stayed open — the same shape for a persistent 503, a dead session, or an
+offline tab.
+
+The shipped form re-arms on a different question: **did this read teach us anything?** `readView`
+reports whether it came back; a still-frozen _successful_ read is a lock that was re-acquired and
+earns a new window, while a failed read ends the chain and leaves the surface exactly where it sat
+before this change — stale until the next realtime event or foreground. That is the honest floor, and
+it terminates. The `null` arm still ends the chain the moment the cart is editable.
 
 **And the ownership half.** Four sites derived "the lock is mine" by comparing against
 `lockedByName` — **peer-supplied presence text**, where `setName` clamps only length and
@@ -50,10 +67,33 @@ lines above three of the call sites and had simply never been exported. `lockedB
 `AddButton`, `ItemSheet`, `GuestList` and the provider's own announcer all read the fact instead of
 the label. Zero `lockedByName === "You"` comparisons remain in the app.
 
-Also carried across: `split-settle-capture.test.ts` shortens `CART_LOCK_TTL_MS` to 90s in a mock that
-is **currently inert** (its only cart row sets `locked: false, locked_at: null`, short-circuiting the
-consumer before the TTL is read). Left on `./lock` it would have silently stopped applying; it is
-repointed with that measurement written beside it.
+⚠️ **That fixed the fact and left the sentence** — also the blind pass. The peer branch still rendered
+the raw presence name, so the same impostor produced **"You is checking out — the order's locked for a
+moment"**: ungrammatical, and still opening with the word the attack is built on. `apps/qr/lib/peer-name.ts`
+narrows a name that would read as the reader (letters-only-normalized `you` / `youre` / `u` / `me` /
+`i`) to the "Someone" the banner already shows for an unresolved seat — applied **once** at the
+derivation, so the banner, the live region and the guest-list avatar label cannot disagree. The list
+is exact rather than prefix-matched on purpose: Yu, Youn and Mei are names people have.
+
+**A monotonic view ticket, landed early.** `apps/qr/lib/view-seq.ts` makes the cart view ordered by
+_issue_ rather than by arrival: a read takes a ticket before it awaits and is applied only while
+nothing newer has been issued, while a mutation's returned view — rendered server-side inside the
+statement that committed the write — is applied unconditionally and invalidates every read in flight.
+This is the first part of **T21(b)**, brought forward because the scheduled re-read adds an
+unsequenced caller whose whole job is to observe a freeze: a slow one resolving late could have put
+`locked: true` back over a cart the server had already released, and the surface would then have
+stayed dead for another full TTL.
+
+Also: `split-settle-capture.test.ts`'s 90s `CART_LOCK_TTL_MS` mock is **gone** rather than repointed.
+It was inert (its only cart row sets `locked: false, locked_at: null`, short-circuiting the consumer
+before the TTL is read), and a whole-module `vi.mock` of `./lock-ttl` would answer `undefined` for
+`freezeRecheckDelayMs` to any future importer landing in that graph — a trap that fails at call time,
+not at resolution.
+
+**The guard that let this rot:** `check:docs` measured the mutant count beside two module counts it
+could not see, so the same edit that refreshed "263 mutations" left "59 money/authority modules (56
+under `apps/qr/lib`)" stale one line below, in the two files CLAUDE.md itself names as live-state
+docs. Both phrasings are now measured from `verify-slice.mjs`'s distinct `file:` targets.
 
 ### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
 

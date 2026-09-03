@@ -46,19 +46,32 @@ export type FreezeAxes = { locked: boolean; settling: boolean };
  *
  * ⚠️ THE ANSWER IS THE LONGEST HELD AXIS, NOT THE SHORTEST. A cart that is both locked and settling
  * stays frozen until BOTH have lapsed, so re-reading at the 5-minute mark would find it still
- * frozen, re-arm, and simply cost a round trip. Taking the max asks once, at the first moment the
- * answer can have changed.
+ * frozen and buy nothing but a round trip.
  *
- * ⚠️ AND IT IS A CEILING ON OUR IGNORANCE, NOT A PREDICTION. The freeze may already have lapsed when
- * we observe it — we cannot tell, having no `locked_at`. What we can say is that a freeze seen now
- * was acquired at or before now, so it cannot survive past now + its TTL. Waiting that long is the
- * shortest delay that GUARANTEES the next read sees an answer that has changed, which is what makes
- * one scheduled re-read sufficient instead of a poll. (`recheckLock` on the checkout deliberately
- * offers a manual re-read rather than a timer; /menu has no such control on any of its surfaces,
- * which is why this one is scheduled.)
+ * ⚠️ IT IS AN UPPER BOUND ON OUR IGNORANCE — READ WHAT IT DOES AND DOES NOT PROMISE. A freeze seen
+ * now was acquired at or before now, so absent re-acquisition it CANNOT survive past now + its TTL.
+ * That is the whole claim. It is not the first moment the answer can have changed, and it does not
+ * guarantee the next read finds a different answer:
  *
- * Re-arming is the caller's job: every fresh observation restarts the clock, so a freeze that is
- * renewed by a real second checkout keeps being re-scheduled rather than being declared expired.
+ *   • the freeze may have been acquired seconds before we observed it, in which case it lapses long
+ *     before this delay elapses and the surface stays frozen in the meantime;
+ *   • a second checkout starting inside the window re-acquires the lock, so the next read can
+ *     legitimately still say `true`.
+ *
+ * It is the tightest bound derivable from what the client HAS, which is the honest reason to use it,
+ * not a guarantee. A shorter delay would be a poll — it can find the same answer and learn nothing —
+ * and a longer one would leave a dead surface dead past the point it healed. The cost is real and
+ * worth naming: a diner who lands on /menu 9m59s into a settlement waits the full `SETTLE_TTL_MS`
+ * for a freeze that lapses one second later. The fix for THAT is a shape change, not a smaller
+ * number — `locked_at`/`settle_at` on the cart view would let the client compute the true deadline —
+ * and it is filed as OPEN-ITEMS T23 rather than approximated here. (`recheckLock` on the checkout offers a
+ * manual re-read instead; /menu has no such control on any of its surfaces, which is why this one is
+ * scheduled.)
+ *
+ * Re-arming is the caller's job and it is NOT unconditional: a freeze still held on a fresh,
+ * SUCCESSFUL read was re-acquired and earns a new window, but a read that failed teaches nothing and
+ * must end the chain — a paid cart answers `cart_closed` forever, so re-arming on "still frozen"
+ * alone never terminates. See the effect in `TableCartProvider`.
  */
 export function freezeRecheckDelayMs({ locked, settling }: FreezeAxes): number | null {
   if (!locked && !settling) return null;

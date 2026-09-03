@@ -216,8 +216,10 @@ function ItemSheetBody({
     // rides along — free text, trimmed here, length-bounded again server-side.
     // W20 (owner: "adding feels lagged … why not make optimistic and instant feedback") — close NOW,
     // not after the round trip. The provider's add() is already optimistic (count bump + "Added"
-    // flash the instant it is called) and owns BOTH outcomes: a refusal flashes "Reconnecting to
-    // your table…" + re-mints, and the reconciled view simply won't carry the line. Deliberate
+    // flash the instant it is called) and owns BOTH outcomes: a refusal is NAMED from a fresh read
+    // ("someone's checking out", "the table is splitting the bill") and only the arm that could not
+    // read the cart at all re-mints — T14 replaced the blanket "Reconnecting to your table…" this
+    // comment used to describe — and the reconciled view simply won't carry the line. Deliberate
     // trade: on that rare refusal the diner re-opens the sheet and re-picks — every-tap latency was
     // the wrong price for keeping their choices warm.
     void add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);

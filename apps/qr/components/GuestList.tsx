@@ -6,6 +6,7 @@ import { InviteSheet } from "./InviteSheet";
 import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
+import { peerDisplayName } from "@/lib/peer-name";
 import { Avatar, Icon } from "@mms/ui";
 
 /**
@@ -176,7 +177,10 @@ export function GuestList() {
       <ul role="list" aria-label="Guests at your table" style={listReset}>
         {list.map((m, i) => {
           const isMe = m.seat === me.seat;
-          const label = isMe ? `${m.name} (you)` : m.name;
+          // T20 — the same narrowing the lock banner uses. A peer named "You" would otherwise give a
+          // screen-reader user an avatar announced as "You" sitting beside the viewer's own
+          // "<name> (you)", which is the impostor one surface over.
+          const label = isMe ? `${m.name} (you)` : peerDisplayName(m.name);
           return (
             // Rise-in per avatar (keys are stable seats — presence re-syncs never re-animate; only a
             // genuinely NEW guest animates once on mount). `.mms-rise` (the dynamic-mount variant —
