@@ -299,6 +299,23 @@ const MUTANTS = [
     replace: '  if (data !== "ok") return { ok: true };\n  // No touchCart: mms_fire_line\'s write',
   },
   {
+    id: "ttl/recheck-waits-the-shortest-axis",
+    file: "apps/qr/lib/lock-ttl.ts",
+    suite: "lib/lock-ttl.test.ts",
+    why: "T20 \u2014 a cart that is BOTH locked and settling stays frozen until both have lapsed, so a re-read scheduled at the SHORTER horizon finds it still frozen and buys nothing but a round trip. Taking the min turns the one scheduled re-read \u2014 the whole point of the fix \u2014 back into a poll that has to fire twice before it can ever see a changed answer",
+    find: "  return Math.max(locked ? CART_LOCK_TTL_MS : 0, settling ? SETTLE_TTL_MS : 0);",
+    replace:
+      "  return Math.min(\n    locked ? CART_LOCK_TTL_MS : Infinity,\n    settling ? SETTLE_TTL_MS : Infinity,\n  );",
+  },
+  {
+    id: "ttl/recheck-arms-on-an-editable-cart",
+    file: "apps/qr/lib/lock-ttl.ts",
+    suite: "lib/lock-ttl.test.ts",
+    why: 'T20 \u2014 the null arm is what keeps this a SCHEDULED re-read rather than a poll. Answering a delay for an unfrozen cart arms a timer on every cart in the app, which is the design `recheckLock` explicitly declined on the checkout side ("without inventing a timer or a poll") and would re-read every diner\'s cart on a fixed cadence for no reason',
+    find: "  if (!locked && !settling) return null;",
+    replace: "  if (!locked && !settling) return CART_LOCK_TTL_MS;",
+  },
+  {
     id: "freeze/self-drops-to-editable",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",

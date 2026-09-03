@@ -125,6 +125,16 @@ vi.mock("./stripe", () => ({
 }));
 vi.mock("./lock", () => ({
   releaseSettlement: () => Promise.resolve(null),
+}));
+// ⚠️ T20 — THIS OVERRIDE WAS INERT AND WOULD HAVE COME ALIVE SILENTLY. The TTLs moved to
+// `./lock-ttl`, so a stub left on `./lock` would simply stop applying and `split-settle.ts` would
+// read the real 300000 with nothing going red. It is carried across deliberately rather than
+// dropped, but note what it actually does: `split-settle.ts`'s only consumer is the freshness test
+// `cart.locked === true && cart.locked_at != null && …`, and this suite's `cartRow` sets
+// `locked: false, locked_at: null` and never mutates them — so the 90s value is short-circuited
+// before it is ever read. It is kept so the mock stays a faithful stand-in, not because a test
+// depends on the shortened window; if one ever does, it will now be reading the value it declares.
+vi.mock("./lock-ttl", () => ({
   SETTLE_TTL_MS: 10 * 60 * 1000,
   CART_LOCK_TTL_MS: 90 * 1000,
 }));

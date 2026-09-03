@@ -1,6 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 /**
  * The shared "is money moving on this cart?" guard (S1.3) — the single source for the two staff actions
