@@ -101,16 +101,34 @@ export type CartChange = {
 };
 
 /**
- * Live group-cart sync (M3·P3.2). Subscribes to Postgres Changes on the cart + its lines (filtered to
+ * Live cart sync (M3·P3.2). Subscribes to Postgres Changes on the cart + its lines (filtered to
  * THIS cart) and calls `onChange` for each — the consumer re-fetches `getCartView` (server-authoritative
  * merge into keyed React state; never client math). Authorization is the existing member-gated SELECT
  * RLS on qr_carts/qr_cart_items, enforced per-subscriber by Realtime. Mirrors the /track pattern
  * (lib/useOrderStatus). `onChange` is held in a ref so a new closure each render never resubscribes.
+ *
+ * ⚠️ THERE IS NO `enabled` FLAG, AND THAT IS THE FIX FOR T10 RATHER THAN A SIMPLIFICATION. Both call
+ * sites used to pass a MODE predicate — `isGroup` here, `canTab || isGroup` on the review step, and
+ * both resolve to dine-in — so a `qr_carts` lock UPDATE never reached a pickup or scan-and-go tab.
+ * The second tab on those modes kept showing live controls until something called `refresh()`, which
+ * in practice was the diner's next mutation: refused server-side, snapped back, one wasted edit
+ * before the freeze painted.
+ *
+ * T10's filed premise said widening this "changes channel scope and the RLS path on
+ * `realtime.messages` (private channels, `is_member`)". MEASURED, and it is wrong for THIS hook: the
+ * channel below is deliberately NON-private and carries no broadcast, so `realtime.messages` is not
+ * in the path at all (that is `useGroupCart`'s). Delivery is gated by the ordinary SELECT RLS on
+ * `qr_carts` (`is_member(session_id) or is_staff()`, no mode term) and both tables have been on the
+ * `supabase_realtime` publication for every row since 20260620000600_cart_realtime.sql. So this
+ * needed no migration and no policy — only the removal of a knob that could be narrowed again.
+ *
+ * The cost is a channel per cart on modes that did not open one. The SOCKET is unchanged: this hook
+ * shares the one memoized `browserClient()` socket with `useGroupCart` and `useSettlementRealtime`,
+ * so a solo pickup diner adds one channel to a connection /track already opens for every order.
  */
 export function useCartRealtime(
   cartId: string,
   accessToken: string,
-  enabled: boolean,
   onChange: (c: CartChange) => void,
 ) {
   const cbRef = useRef(onChange);
@@ -119,7 +137,7 @@ export function useCartRealtime(
   }, [onChange]);
 
   useEffect(() => {
-    if (!enabled || !cartId || !accessToken) return;
+    if (!cartId || !accessToken) return;
     // `browserClient()` is the memoized @supabase/ssr client — this hook + useGroupCart share ONE
     // socket; setAuth(token) is idempotent with the same anon token (don't pass a different one).
     const supa = browserClient();
@@ -167,7 +185,7 @@ export function useCartRealtime(
     return () => {
       supa.removeChannel(channel);
     };
-  }, [cartId, accessToken, enabled]);
+  }, [cartId, accessToken]);
 }
 
 /**

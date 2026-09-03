@@ -54,6 +54,11 @@
  * splitContext`, and `cart/page.tsx` refuses a settling cart with no split context), so it never
  * reaches the editable-looking review step this binding guards. Folding it in would widen the blast
  * radius across the split flow to restate a rule that is already enforced by routing.
+ *
+ * ⚠️ That exclusion is about the REVIEW STEP, not the app. /menu has no such routing — a diner
+ * browsing while their table settles stays on /menu — and `addItem`/`setQty` refuse on `settling`
+ * with a message of their own, so `classifyRefusedWrite` at the foot of this file DOES answer for
+ * it. Read that function's docblock before assuming settling is absent from this module.
  */
 
 /**
@@ -65,6 +70,11 @@
  * server, which does not care who is asking — but attributes the lock to nobody.
  */
 export type CartFreeze = "peer" | "self" | "held" | null;
+
+/** A freeze that blocks edits — every non-null `CartFreeze`. Named so a caller that has ALREADY
+ *  established the cart is frozen can carry that fact in the type instead of re-testing for null
+ *  and needing a fallback sentence, which is how a second copy of a lock string gets minted. */
+export type BlockingFreeze = Exclude<CartFreeze, null>;
 
 /** The lock facts a viewer has. All three come from ONE `getCartView` call, so they cannot disagree. */
 export type FreezeInput = {
@@ -179,6 +189,16 @@ export function visibleFreeze({
  * Returns null for an editable cart — there is nothing to announce.
  */
 export function freezeNotice(
+  freeze: BlockingFreeze,
+  peerName: string | null,
+  canRelease: boolean,
+): string;
+export function freezeNotice(
+  freeze: CartFreeze,
+  peerName: string | null,
+  canRelease: boolean,
+): string | null;
+export function freezeNotice(
   freeze: CartFreeze,
   peerName: string | null,
   canRelease: boolean,
@@ -245,5 +265,126 @@ export function reopenFailureNotice(
       return "That was a lot of changes at once — give it a moment, then try again.";
     default:
       return "Couldn\u2019t reopen the order just now — try again in a moment. It also unlocks on its own shortly.";
+  }
+}
+
+/**
+ * What a REFUSED cart write actually established — the M116 rule applied to /menu.
+ *
+ * ## The defect this replaces
+ *
+ * `TableCartProvider`'s `add` and `setItemQty` catch every throw from `addItem`/`setQty` and answer
+ * the same way: flash "Reconnecting to your table…" and re-mint the table session. `add`'s own
+ * comment enumerates the causes — "a silently-EXPIRED table session … or a refused write (cart
+ * locked, a stale/invalid modifier selection)" — and then treats all of them as the first one. So a
+ * diner whose tablemate is checking out is told their CONNECTION dropped, watches a session re-mint
+ * they did not need, and can then be told the session was restarted: two false statements about a
+ * session that was fine, for a cart the server refused on `locked`.
+ *
+ * That is exactly the class M116 and M119 spent four PRs removing — a refusal naming a cause the
+ * code never established — and it survived on /menu because the client CANNOT read the thrown
+ * message: Next redacts Server Action errors in production, so `"Order is locked while someone
+ * checks out"` never reaches the browser. The cause has to be RE-ESTABLISHED, not parsed.
+ *
+ * ## The discriminator
+ *
+ * One re-read of `getCartView` separates all four, because `assertCartMember` is the same gate the
+ * write went through:
+ *
+ *   - the re-read FAILS → the session or the cart is genuinely unreachable. That, and only that, is
+ *     the state the re-mint recovers, and it becomes the only state that triggers one.
+ *   - the re-read SUCCEEDS and the cart is frozen → a pay-window lock. Established, so it can be
+ *     named, and the sentence comes from `freezeNotice` rather than a second copy of the same copy.
+ *   - the re-read SUCCEEDS and the table is settling → the split freeze. `addItem` and `setQty`
+ *     refuse on `settling` with their OWN message, distinct from the lock's, so this is a distinct
+ *     answer rather than a shade of the lock.
+ *   - the re-read SUCCEEDS and the cart is editable → the write was refused for a reason this client
+ *     cannot see (a sold-out line, a stale modifier, a line someone else owns). `unknown` is the
+ *     honest answer; the one thing we CAN say is that the view beside the sentence is now server
+ *     truth, because the caller applies that same re-read.
+ *
+ * ⚠️ `unknown` MUST NOT collapse into any neighbour. Folding it into `session` is the shipped defect
+ * above; folding it into `frozen` or `settling` puts a freeze sentence over a cart nobody froze.
+ *
+ * ## Why `settling` appears here and not in `cartFreeze`
+ *
+ * The header above records that the split freeze is deliberately absent from the review-step
+ * resolution: a settling cart is ROUTED to the split board, so it never reaches the editable-looking
+ * review step `cartFreeze` guards. /menu has no such routing — a diner browsing while their table
+ * settles stays on /menu with every Add inert — and both `addItem` and `setQty` refuse on `settling`
+ * in a statement of their own. So the refusal classifier has to answer for it, and answering "lock"
+ * there would be the fabricated diagnosis one step over.
+ */
+export type RefusedWrite =
+  | { cause: "frozen"; freeze: BlockingFreeze }
+  | { cause: "settling" }
+  | { cause: "session" }
+  | { cause: "unknown" };
+
+/** The split-tender freeze, in one sentence. Exported because the provider's settle-TRANSITION
+ *  announcement says the same thing, and two copies of one sentence is how they drift apart. */
+export const SETTLING_NOTICE =
+  "Your table is splitting the bill — the order’s locked while everyone pays";
+
+/**
+ * Classify a refused cart write from the outcome of ONE re-read.
+ *
+ * `reread` is the caller's `getCartView` attempt: `{ ok: false }` when it threw, otherwise the lock
+ * facts and the settle flag from the same call — one read, so they cannot disagree with each other
+ * or with the view the caller just applied.
+ *
+ * ⚠️ THE ORDER OF THE ARMS MIRRORS THE SERVER'S. `addItem`/`setQty` test `locked` first and
+ * `settling` second, so a cart that is both is refused as LOCKED and must be named as locked.
+ */
+export function classifyRefusedWrite(
+  reread: { ok: false } | { ok: true; freeze: FreezeInput; settling: boolean },
+): RefusedWrite {
+  if (!reread.ok) return { cause: "session" };
+  const freeze = cartFreeze(reread.freeze);
+  // `freezeBlocksEdits` mirrors the server's bare `locked`, so this arm covers exactly the carts the
+  // server refuses for that reason; the explicit null test is what carries the fact into the type.
+  if (freezeBlocksEdits(freeze) && freeze !== null) return { cause: "frozen", freeze };
+  if (reread.settling) return { cause: "settling" };
+  return { cause: "unknown" };
+}
+
+/**
+ * Does this classification name a freeze the SERVER refuses on?
+ *
+ * Used in two positions, which is the point of naming it once: as the PRE-WRITE gate (run against
+ * the freeze this client already holds, so a refusal costs no round trip and no re-mint) and in the
+ * CATCH (to decide whether a caught throw may be attributed to a freeze at all).
+ *
+ * `session` and `unknown` are deliberately false. Neither establishes a freeze — one establishes an
+ * unreachable cart, the other establishes nothing — and a pre-write gate that treated either as a
+ * freeze would block a cart the server would have accepted, which is the over-blocking direction
+ * this repo has paid for before.
+ */
+export function refusalIsFreeze(refusal: RefusedWrite): boolean {
+  return refusal.cause === "frozen" || refusal.cause === "settling";
+}
+
+/**
+ * The sentence for a refused cart write.
+ *
+ * The frozen arm delegates to `freezeNotice` — ONE source for every pay-lock sentence in the app, so
+ * a copy change on the review step cannot leave /menu saying something else about the same lock.
+ * `canRelease` is false because /menu has no Reopen control: the tokenless copy ("it frees up on its
+ * own shortly") is the only one this surface can keep, and copy may only promise what code keeps.
+ */
+export function refusedWriteNotice(refusal: RefusedWrite, peerName: string | null): string {
+  switch (refusal.cause) {
+    case "frozen":
+      return freezeNotice(refusal.freeze, peerName, false);
+    case "settling":
+      return SETTLING_NOTICE;
+    case "session":
+      // The re-read failed, so this is the one arm where a re-mint is the right recovery — and the
+      // only one that may say so.
+      return "Reconnecting to your table…";
+    default:
+      // Established: the write did not land, and the view beside this sentence is server truth (the
+      // caller applied the same re-read). Nothing about a session, a lock, or a connection.
+      return "That didn’t go through — the order below is up to date.";
   }
 }

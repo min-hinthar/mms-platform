@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   type CartFreeze,
   cartFreeze,
+  classifyRefusedWrite,
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  refusalIsFreeze,
+  refusedWriteNotice,
   reopenFailureNotice,
+  SETTLING_NOTICE,
   visibleFreeze,
 } from "./cart-freeze";
 
@@ -259,5 +263,140 @@ describe("reopenFailureNotice — every outcome of the recovery control is repor
     // A new reason added to `PayLockRelease` must not silently re-open the no-op. The default arm
     // is our-outage phrasing, which is the safe direction: it claims nothing about the diner's tab.
     expect(reopenFailureNotice({ released: false, reason: "brand_new_reason" })).toBeTruthy();
+  });
+});
+
+/**
+ * T14 — the refused-write classifier. These are the M116 rules, so every case asks "what did the
+ * code ESTABLISH?" rather than "what does this arm return".
+ *
+ * The shipped defect was one answer for four states: `TableCartProvider` flashed "Reconnecting to
+ * your table…" and re-minted the session for every throw out of `addItem`/`setQty`, including the
+ * lock its own comment listed as a cause. So the load-bearing assertions below are the SEPARATIONS
+ * — a state must not borrow another's vocabulary or its recovery.
+ */
+const OK = (over: Partial<{ locked: boolean; lockedBy: string | null; settling: boolean }> = {}) =>
+  ({
+    ok: true as const,
+    freeze: {
+      locked: over.locked ?? false,
+      lockedBy: over.lockedBy ?? null,
+      mySeat: SEAT,
+    },
+    settling: over.settling ?? false,
+  }) satisfies Parameters<typeof classifyRefusedWrite>[0];
+
+describe("classifyRefusedWrite — the cause is re-established, never guessed", () => {
+  it("a failed re-read is the ONLY state that means a session problem", () => {
+    expect(classifyRefusedWrite({ ok: false })).toEqual({ cause: "session" });
+    // MUTATION: make any successful-re-read arm answer `session` → this fails. That mutation IS the
+    // shipped defect: it is what a single unconditional `revalidate()` in the catch amounts to.
+    for (const reread of [OK(), OK({ locked: true, lockedBy: PEER }), OK({ settling: true })]) {
+      expect(classifyRefusedWrite(reread).cause).not.toBe("session");
+    }
+  });
+
+  it("a locked cart is named as locked, with the freeze the viewer actually has", () => {
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: PEER }))).toEqual({
+      cause: "frozen",
+      freeze: "peer",
+    });
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: SEAT }))).toEqual({
+      cause: "frozen",
+      freeze: "self",
+    });
+    // An unattributable lock is still a lock — the `held` case, which blocks like the others.
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: null }))).toEqual({
+      cause: "frozen",
+      freeze: "held",
+    });
+  });
+
+  it("locked BEATS settling, because the server tests them in that order", () => {
+    // `addItem`/`setQty` both do `if (locked) throw …` then `if (settling) throw …`, so a cart that
+    // is both was refused as LOCKED and must be named that way. Naming the settle here would report
+    // a reason the server did not act on.
+    expect(classifyRefusedWrite(OK({ locked: true, lockedBy: PEER, settling: true })).cause).toBe(
+      "frozen",
+    );
+  });
+
+  it("a settling table is its own answer, not a shade of the lock", () => {
+    expect(classifyRefusedWrite(OK({ settling: true }))).toEqual({ cause: "settling" });
+  });
+
+  it("an editable cart answers `unknown` — it must not manufacture a freeze OR a session failure", () => {
+    // The refusal was real (the caller is in a catch) but this client cannot see why: a sold-out
+    // line, a stale modifier, a line owned by someone else. Both neighbours would be fabrications.
+    expect(classifyRefusedWrite(OK())).toEqual({ cause: "unknown" });
+  });
+});
+
+describe("refusalIsFreeze — the gate, and the over-blocking direction", () => {
+  it("is true for exactly the two states the server refuses on", () => {
+    expect(refusalIsFreeze(classifyRefusedWrite(OK({ locked: true, lockedBy: PEER })))).toBe(true);
+    expect(refusalIsFreeze(classifyRefusedWrite(OK({ settling: true })))).toBe(true);
+  });
+
+  it("is FALSE for `unknown` and `session` — this predicate also runs as a PRE-write gate", () => {
+    // ⚠️ THE EXPENSIVE DIRECTION. `TableCartProvider` calls this against the freeze it already holds
+    // to refuse a tap without a round trip; answering true for `unknown` would block every write on
+    // a cart the server would have accepted — the `computeDeliveryGate` failure this repo has paid
+    // for before, where a bare `!isOpen` folded into a submit gate disabled a whole valid window.
+    expect(refusalIsFreeze(classifyRefusedWrite(OK()))).toBe(false);
+    expect(refusalIsFreeze(classifyRefusedWrite({ ok: false }))).toBe(false);
+  });
+});
+
+describe("refusedWriteNotice — each sentence says only what its arm established", () => {
+  it("the lock sentence comes from `freezeNotice`, not a second copy", () => {
+    for (const [lockedBy, peerName] of [
+      [PEER, "Ko Ko"],
+      [SEAT, null],
+      [null, null],
+    ] as const) {
+      const refusal = classifyRefusedWrite(OK({ locked: true, lockedBy }));
+      const freeze = (refusal as { cause: "frozen"; freeze: Exclude<CartFreeze, null> }).freeze;
+      // MUTATION: hand-write any lock sentence here → this fails. /menu and the review step must
+      // never describe one lock two ways.
+      expect(refusedWriteNotice(refusal, peerName)).toBe(freezeNotice(freeze, peerName, false));
+    }
+  });
+
+  it("only the `session` arm may mention reconnecting — that is the only arm that re-mints", () => {
+    expect(refusedWriteNotice({ cause: "session" }, null).toLowerCase()).toContain("reconnect");
+    for (const refusal of [
+      classifyRefusedWrite(OK({ locked: true, lockedBy: PEER })),
+      classifyRefusedWrite(OK({ settling: true })),
+      classifyRefusedWrite(OK()),
+    ]) {
+      expect(refusedWriteNotice(refusal, "Ko Ko").toLowerCase()).not.toContain("reconnect");
+    }
+  });
+
+  it("`unknown` claims no cause at all — no lock, no table, no connection", () => {
+    const notice = refusedWriteNotice({ cause: "unknown" }, "Ko Ko").toLowerCase();
+    for (const forbidden of ["lock", "checking out", "reconnect", "splitting", "session"]) {
+      expect(notice).not.toContain(forbidden);
+    }
+    // …but it still says something. Silence here is the no-op this whole row is about.
+    expect(notice.length).toBeGreaterThan(0);
+  });
+
+  it("the settle sentence is the SHARED constant the transition announcement uses", () => {
+    // `TableCartProvider`'s settle-edge effect renders `SETTLING_NOTICE` too, so a refusal and a
+    // transition cannot describe one freeze two ways.
+    expect(refusedWriteNotice({ cause: "settling" }, null)).toBe(SETTLING_NOTICE);
+  });
+
+  it("every arm returns a non-empty sentence", () => {
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "settling" },
+      { cause: "session" },
+      { cause: "unknown" },
+    ] as const) {
+      expect(refusedWriteNotice(refusal, null)).toBeTruthy();
+    }
   });
 });
