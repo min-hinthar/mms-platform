@@ -88,8 +88,15 @@ your order below is up to date" where it is not, because a zero can equally be t
 T25. Round 3's silence on `none` was itself a regression — a genuine cap left "Added 5" standing —
 and this restores a correction without restoring a cause.
 
-Across four rounds this one function shed one inference per round: basket → dish → line →
-line-at-the-cap → the count itself.
+Across five rounds this one function shed one inference per round: basket → dish → line →
+line-at-the-cap → the count itself. What that converged on is the finding, and it is filed as **T27**:
+**the correction cannot be computed from client snapshots at all.** Two under-corrections remain — a
+host edit can inflate a delta past the request so no correction fires, and the `null`-view path
+returns before the check — and both leave the optimistic announce standing, which is exactly what
+shipped before this slice. They are strictly narrower than the state they replace and none of them
+touches an amount, so they are filed rather than chased into a sixth round. The real fix is one
+change and it is not on the client: have `mms_cart_item_inc_qty` return the units it applied, and
+every ambiguity above dissolves — same RPC, same migration as T25.
 
 ⚠️ **And the cap is only named when the line is AT the cap** — Codex round 3. Line identity separates
 a peer's row from ours; it cannot separate two writes to the SAME row. An authorized host editing
