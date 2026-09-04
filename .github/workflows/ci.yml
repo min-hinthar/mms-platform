@@ -134,10 +134,13 @@ $f  (a .test.ts must not declare an environment — name it .test.tsx if it need
             fi
           done
           for f in $all_tsx; do
-            first=$(grep -ohE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f" | head -1 | tr -s '[:space:]' ' ')
-            if [ "$first" != "@vitest-environment jsdom" ]; then
+            # The ENV WORD only, never the whole phrase: the match carries whatever whitespace the
+            # file used, so comparing the phrase makes a legitimate file fail on a trailing newline.
+            # This is what the JS mirror's capture group returns, so the two agree by construction.
+            first=$(grep -ohE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f" | head -1 | sed -E 's/.*[[:space:]]+//')
+            if [ "$first" != "jsdom" ]; then
               bad_pragma="$bad_pragma
-$f  (first pragma is '$first', expected '@vitest-environment jsdom' as the opening docblock)"
+$f  (declares environment '${first:-none}', expected an opening /** @vitest-environment jsdom */)"
             fi
           done
           if [ -n "$ts_orphans" ] || [ -n "$tsx_orphans" ] || [ -n "$nonrunners" ] || [ -n "$bad_pragma" ]; then
