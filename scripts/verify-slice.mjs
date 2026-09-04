@@ -34,6 +34,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { envFailures } from "./check-test-env.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const QR = path.join(ROOT, "apps/qr");
@@ -678,6 +679,16 @@ const MUTANTS = [
     why: "T18/T26 (Codex round 2 on #251, P1) — a refusal is ESTABLISHED BY this read, so it holds the freshest cart anyone has. Discarding it sends `AddButton` back to `itemsRef`, a LOCAL ref synced in a passive effect that inside a promise chain still holds the pre-write list — and `setQty` is ABSOLUTE, so a stale baseline writes a WRONG NUMBER over a concurrent host edit rather than losing a tap",
     find: "        fresh = v.items;",
     replace: "        fresh = [];",
+  },
+  {
+    id: "refusal/qty-refusal-goes-unpublished",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 (blind adversarial pass on #252, CRITICAL — this mutant exists because the FIRST draft of the suite could not catch it). Deleting the stepper's refusal publication leaves the diner's refused decrement unexplained AND leaves `lastRefusalRef` unwritten, so `YourUsual`'s `lastRefusalNotice()` reads null or, worse, a STALE cause from an earlier refusal. The original assertion read the live region for /checking out/ — a phrase no producible refusal contains (the clause is \"while someone CHECKS out\") — so what satisfied it was the unrelated lock-transition announcement landing in the same single slot. The suite now asserts the value `publishRefusal` alone writes",
+    find:
+      '        if (result.state === "refused") publishRefusal(notice);\n' +
+      '        else if (result.state === "unconfirmed") publishUnconfirmed();',
+    replace: '        if (result.state === "unconfirmed") publishUnconfirmed();',
   },
   {
     id: "refusal/qty-landing-becomes-a-presence-test",
@@ -2796,33 +2807,14 @@ const tsxOrphans = allTsx.filter((p) => !/^\.\/apps\/qr\//.test(p));
 // filename. Keep in step with the mirror in ci.yml.
 const nonRunners = find("*.spec.ts", "*.spec.tsx");
 
-/**
- * ⚠️ THE ENVIRONMENT IS DECLARED IN THE FILE, AND VITEST'S MATCHER IS UNANCHORED (M46).
- *
- * Vitest reads a `@vitest-environment` control comment out of the RAW FILE TEXT and prefers it over
- * the project config, taking the FIRST match with no docblock-position constraint. So a `.test.ts`
- * that merely MENTIONS the phrase in a comment silently switches environment — no count change, no
- * timing change, no other symptom — and this repo writes long explanatory comments in test files.
- *
- * This matcher is a VERBATIM copy of vitest's own, and that is deliberate against the parse-don't-
- * scan rule (LEARNINGS #60): the guarded fact IS text, because the runtime matches text. A parser
- * would be LESS faithful — it would ignore a pragma inside a string literal that vitest honours.
- * Update this regex if vitest's changes.
- */
-const PRAGMA = /@(?:vitest|jest)-environment\s+([\w-]+)\b/;
-/** The environment a file will ACTUALLY run in: the first match, else the config default. */
-const declaredEnv = (rel) => readFileSync(path.join(ROOT, rel), "utf8").match(PRAGMA)?.[1] ?? null;
-const badPragma = [
-  // A `.test.ts` inherits `environment: "node"`; declaring anything at all is either a silent
-  // environment switch or prose that will become one.
-  ...allTs
-    .filter((p) => declaredEnv(p) !== null)
-    .map((p) => `${p} — a .test.ts must not declare an environment (name it .test.tsx for a DOM)`),
-  // A `.test.tsx` MUST declare jsdom: the config default is node, where the first `render` throws.
-  ...allTsx
-    .filter((p) => declaredEnv(p) !== "jsdom")
-    .map((p) => `${p} — first pragma is ${declaredEnv(p) ?? "absent"}, expected jsdom`),
-];
+// ⚠️ ONE IMPLEMENTATION, TWO CALLERS (blind adversarial pass on #252). The environment check used
+// to live here in JS and again in `ci.yml` in POSIX ERE, and the two DISAGREED on a shape that
+// matters — see `scripts/check-test-env.mjs` for the measurement. CI now runs that module directly.
+// `find()` yields `./`-prefixed repo-relative paths; the shared checker reads absolute ones.
+const toAbs = (p) => path.join(ROOT, p);
+const badPragma = envFailures({ tsFiles: allTs.map(toAbs), tsxFiles: allTsx.map(toAbs) }).map((m) =>
+  m.replace(`${ROOT}/`, "./"),
+);
 
 const orphans = [...tsOrphans, ...tsxOrphans, ...nonRunners];
 console.log(orphans.length || badPragma.length ? c.red("FAIL") : c.green("clean"));

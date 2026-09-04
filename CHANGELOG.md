@@ -32,16 +32,23 @@ Three things were measured and rejected on the way, each of which the obvious pl
 it scans the whole file, with no docblock-position constraint — so a `.test.ts` that merely MENTIONS
 the phrase in a comment switches environment with no count change, no timing change and no other
 symptom. This repo writes long explanatory comments in test files, so that is a live hazard, not a
-hypothetical. Both orphan mirrors (`scripts/verify-slice.mjs` and its twin in `ci.yml`) now compute
-the environment a file will ACTUALLY run in, with a verbatim copy of vitest's own regex. Copying the
-regex is deliberate against parse-don't-scan: the guarded fact IS text, because the runtime matches
-text — a parser would ignore a pragma inside a string literal that vitest honours.
+hypothetical. The check lives in ONE module, `scripts/check-test-env.mjs`, which both
+`verify:slice` and `ci.yml` call. It carries a verbatim copy of vitest's own regex — deliberate
+against parse-don't-scan, because the guarded fact IS text: the runtime matches text, and a parser
+would ignore a pragma inside a string literal that vitest honours.
 
-**Six red-first probes, run against BOTH mirrors, and the first one found a real defect.** The CI
-matcher compared the whole matched phrase, and `tr -s '[:space:]' ' '` turns the match's trailing
-newline into a trailing space — so every legitimate component test would have been rejected. It now
-compares the env WORD, which is what the JS mirror's capture group returns, so the two agree by
-construction. The other five: a `.test.tsx` under `packages/ui` is still an orphan (its config is
+⚠️ **It is one module because the first draft made it two, and they disagreed where it mattered.**
+The blind adversarial pass measured it: JS `\s` spans newlines while `grep` is line-oriented, so a
+pragma whose environment word sits on the NEXT line is honoured by vitest, caught by `verify:slice`
+and MISSED by CI — the looser mirror being the one that gates the merge. (`\b` diverged too: on
+`jsdom-`, JS backtracks and captures `jsdom` while the shell captures `jsdom-`.) "The two agree by
+construction" was a claim about the word EXTRACTION, not about the match. Now there is one match.
+
+**Seven red-first probes, run against both callers, and two of them found real defects.** Probe 1:
+the CI matcher compared the whole matched phrase, and `tr -s '[:space:]' ' '` turns the match's
+trailing newline into a trailing space — so every legitimate component test would have been
+rejected. Probe 7 is the newline-spanning pragma above, which the shell matcher missed entirely and
+which the shared module catches. The other five: a `.test.tsx` under `packages/ui` is still an orphan (its config is
 unchanged, deliberately — widening the shared filter would re-open the whitelisted-by-directory hole
 W8 closed); `scripts/zz.test.ts` still fails; `packages/db/zz.spec.ts` still fails; a `.test.tsx`
 with no pragma fails; and a mid-file prose mention inside `lib/totals.test.ts` fails, restored
@@ -49,10 +56,14 @@ byte-identical.
 
 **T18 — and now the wiring nothing could see.** `classifyRefusedWrite` / `refusalNeedsRemint` /
 `refusedWriteNotice` / `recoveredWrite` were each pinned in `lib/`. The code that CALLS them was
-invisible three ways at once: no config matched `.test.tsx`, `check-money-coverage` skipped the
-suffix outright, and `check-child-freeze` never opens a component that imports the cart actions from
-the React CONTEXT rather than from `lib/` — it `continue`s at `localToExported.size === 0`, a line
-that sits BEFORE the exemption check. Deleting `explainCaught` and restoring the unconditional
+invisible two ways at once: no config matched `.test.tsx`, and `check-child-freeze` never opens a
+component that imports the cart actions from the React CONTEXT rather than from `lib/` — it
+`continue`s at `localToExported.size === 0`, a line that sits BEFORE the exemption check.
+(`check-money-coverage`'s `.tsx` skip is deleted here too, but be precise about what that buys:
+`MONEY_PATHS` is `apps/qr/lib/` and `apps/qr/app/api/`, so `components/**` was never in its subject
+set and these two files still are not. The skip's stated reason had simply gone false while the
+guard kept passing — the dangerous class — and removing it puts `apps/qr/lib/email.tsx` back in
+scope, proved red-first by giving that file a money marker and watching the guard demand a mutant.) Deleting `explainCaught` and restoring the unconditional
 `revalidate()` — the M116/T14 fabricated diagnosis, verbatim — would have left the whole gate green.
 
 Two suites now pin it, and **ten `verify:slice` mutants**, the first non-`lib/` targets this repo has
@@ -69,7 +80,7 @@ had:
   its cart.
 
 **Eighteen hand mutations were watched failing before any mutant was recorded** — eight against
-`YourUsual`, ten against the provider — because a green test file shipped as proof is this repo's
+`YourUsual`, ten against the provider — re-run in full after the review fixes rewrote the fixtures, because a green test file shipped as proof is this repo's
 most-repeated defect. One of the eighteen exposed a defect in the FIXTURE rather than the code: the
 `CartItem` builder was written `{ menu_item_id: … } as unknown as CartItem`, which type-checks and is
 wrong (the field is `menuItemId`), so the landing assertion failed for a reason unrelated to the code
@@ -95,7 +106,7 @@ peer-hash, so `packages/ui/node_modules/vitest` was left pointing at a pruned st
 package's suite could not start. A root `pnpm install` relinks it; the lockfile carries the fix.
 
 `M46` and `T18` closed; `M59` and `M141` unblocked (both named the missing runner as their blocker).
-1300 qr tests + 138 ui tests, 294 mutants, 66 mutated modules at merge.
+1300 qr tests + 138 ui tests, 295 mutants, 66 mutated modules at merge.
 
 ### A committed cart write can say so, and a refusal is now the only thing a caller may retry (2026-09-04)
 

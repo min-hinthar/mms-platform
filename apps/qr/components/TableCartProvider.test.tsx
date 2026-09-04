@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
+import { classifyRefusedWrite, refusedWriteNotice } from "@/lib/cart-freeze";
 import { mayClaimLanding, mayRetry, threadableView } from "@/lib/write-outcome";
 import type { WriteResult } from "@/lib/write-outcome";
 
@@ -89,6 +90,19 @@ const ITEM = "item-mohinga";
  * landing test failed for a reason that had nothing to do with the code under test. A cast over a
  * fixture silences the one check that would have caught it.
  */
+/** A line for a DIFFERENT dish — proof the mount read landed, without touching the delta under test. */
+const OTHER_DISH: CartItem = {
+  id: "line-other",
+  menuItemId: "item-salad",
+  name: "Tea Leaf Salad",
+  qty: 1,
+  modifiers: [],
+  unitPriceCents: 900,
+  taxCents: 0,
+  lineState: "draft",
+  fulfillment: "togo",
+};
+
 const line = (qty: number, id = "line-1"): CartItem => ({
   id,
   menuItemId: ITEM,
@@ -133,6 +147,37 @@ const view = (over: Partial<CartView> = {}): CartView => ({
 /** The cart as a peer sees it while THEY are checking out — the T14 case that used to say
  *  "Reconnecting to your table…" and re-mint a session that was perfectly alive. */
 const LOCKED_BY_PEER = view({ locked: true, lockedBy: PEER_SEAT });
+
+/**
+ * The sentences the provider can ACTUALLY publish, DERIVED from the module that produces them.
+ *
+ * ⚠️ NEVER TRANSCRIBED (blind adversarial pass on #252, CRITICAL). The first draft asserted
+ * `/checking out/i` against the live region — and no producible refusal contains that phrase; the
+ * lock clause reads "…while someone CHECKS out". What satisfied the regex was an unrelated effect:
+ * the recovery view flips `locked` false→true, and the lock-transition announcement writes
+ * "Someone is checking out — the order's locked" into the SAME single slot. So the assertion was
+ * green with `publishRefusal` deleted. Deriving the expectation from `refusedWriteNotice` makes that
+ * class of mistake impossible, and is the repo's "never transcribe a value into an assertion" rule
+ * applied to copy.
+ */
+const NOTICE = {
+  peerLock: refusedWriteNotice(
+    classifyRefusedWrite({
+      ok: true,
+      freeze: { locked: true, lockedBy: PEER_SEAT, mySeat: MY_SEAT },
+      settling: false,
+    }),
+    false,
+  ),
+  settling: refusedWriteNotice(
+    classifyRefusedWrite({
+      ok: true,
+      freeze: { locked: false, lockedBy: null, mySeat: MY_SEAT },
+      settling: true,
+    }),
+    false,
+  ),
+};
 
 /**
  * Exposes the context to the test without pulling in AddButton or ItemSheet.
@@ -203,9 +248,10 @@ describe("a refused write is explained from a READ, never guessed", () => {
     // `locked` true, and the freeze announcement then lands in the SAME single slot — so a test
     // reading only the region would pass with `publishRefusal` deleted entirely. This is the value
     // `publishRefusal` alone writes, and the value `YourUsual` carries into its own copy.
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toMatch(/didn’t go through/));
-    expect(ctl.lastRefusalNotice()).toMatch(/someone checks out/);
+    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
+    // The two arms this must NOT be: the re-mint sentence, and the settle freeze's clause.
     expect(ctl.lastRefusalNotice()).not.toMatch(/[Rr]econnect/);
+    expect(ctl.lastRefusalNotice()).not.toBe(NOTICE.settling);
     // The one arm that may re-mint is the arm that could not read the cart at all.
     expect(h.revalidate).not.toHaveBeenCalled();
   });
@@ -232,8 +278,8 @@ describe("a refused write is explained from a READ, never guessed", () => {
     expect(result.state).toBe("refused");
     // The settle freeze has its OWN clause, and `classifyRefusedWrite` tests it FIRST to match
     // `inertReason`'s precedence — one cart must never get two freezes with different words.
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toMatch(/your table pays/));
-    expect(ctl.lastRefusalNotice()).not.toMatch(/someone checks out/);
+    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.settling));
+    expect(ctl.lastRefusalNotice()).not.toBe(NOTICE.peerLock);
   });
 });
 
@@ -272,7 +318,7 @@ describe("the optimistic claim is retracted when it cannot be confirmed", () => 
     mount();
 
     await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toMatch(/someone checks out/));
+    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
   });
 });
 
@@ -310,13 +356,16 @@ describe("a committed write says so, even when its view is unreadable", () => {
     // `addItem` commits the line, calls `touchCart`, and only THEN reads the view — so its promise
     // can reject with the add already in the cart. Reporting failure there is a lie the diner acts
     // on: `YourUsual` announces "we couldn't add X" and the retry adds it twice.
-    h.getCartView.mockResolvedValue(view({ items: [] }));
+    // ⚠️ SEEDED WITH A DIFFERENT DISH, not with nothing. The first draft mounted on an empty cart
+    // and then awaited `ctl.items` having length 0 — which `items` satisfies before any read lands,
+    // so the assertion could not fail and established nothing about the pre-add snapshot (blind
+    // adversarial pass on #252). A non-empty seed proves the mount read actually applied, while
+    // still leaving OUR dish absent, which is what makes "grew" separable from "did not grow".
+    h.getCartView.mockResolvedValue(view({ items: [OTHER_DISH] }));
     mount();
-    // The pre-add snapshot must genuinely be the EMPTY cart, or "grew" and "did not grow" produce
-    // the same fixture and the rule is degenerate.
-    await waitFor(() => expect(ctl.items).toHaveLength(0));
+    await waitFor(() => expect(ctl.items).toEqual([OTHER_DISH]));
     h.addItem.mockRejectedValue(new Error("trailing read failed"));
-    h.getCartView.mockResolvedValue(view({ items: [line(1)] }));
+    h.getCartView.mockResolvedValue(view({ items: [OTHER_DISH, line(1)] }));
 
     const result = await ctl.add(ITEM);
     expect(result.state).toBe("applied");
@@ -326,11 +375,14 @@ describe("a committed write says so, even when its view is unreadable", () => {
   it("a rejected add whose dish did NOT move in the re-read IS a refusal", async () => {
     // The separating fixture for the assertion above — identical but for the delta. Without it an
     // implementation that answers `applied` for every successful re-read passes.
-    h.getCartView.mockResolvedValue(view({ items: [] }));
+    h.getCartView.mockResolvedValue(view({ items: [OTHER_DISH] }));
     mount();
-    await waitFor(() => expect(ctl.items).toHaveLength(0));
+    await waitFor(() => expect(ctl.items).toEqual([OTHER_DISH]));
     h.addItem.mockRejectedValue(new Error("redacted"));
-    h.getCartView.mockResolvedValue(view({ items: [], locked: true, lockedBy: PEER_SEAT }));
+    // ⚠️ ONE AXIS. The first draft also set `locked`/`lockedBy` here, so the pair differed in BOTH
+    // the delta and the freeze — and an implementation deriving `landed` from `fresh.locked` instead
+    // of `classifyAddLanding` passed both halves (blind adversarial pass on #252).
+    h.getCartView.mockResolvedValue(view({ items: [OTHER_DISH] }));
 
     const result = await ctl.add(ITEM);
     expect(result.state).toBe("refused");
@@ -346,7 +398,7 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
   it("publishes a refusal when the re-read shows the line did not move", async () => {
     mount();
-    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
     h.setQty.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(view({ items: [line(3)], locked: true, lockedBy: PEER_SEAT }));
 
@@ -357,12 +409,15 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     // caller back to a stale local snapshot, and `setQty` is ABSOLUTE, so a stale baseline writes a
     // WRONG NUMBER over a concurrent host edit rather than losing a tap (Codex round 2 on #251).
     expect(threadableView(result)).toEqual([line(3)]);
-    await waitFor(() => expect(spoken()).toMatch(/checking out/i));
+    // ⚠️ ON `lastRefusalNotice`, NOT ON THE REGION. `publishRefusal` is this value's ONLY writer, so
+    // this reddens if the stepper's refusal publication is deleted — which a region assertion does
+    // not, because the lock-transition announcement lands in the same slot from another effect.
+    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
   });
 
   it("reports UNCONFIRMED, not refused, when the re-read could not see the cart", async () => {
     mount();
-    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
     h.setQty.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockRejectedValue(new Error("unreachable"));
 
@@ -375,7 +430,7 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
 
   it("reports APPLIED when the re-read shows the line AT the absolute target", async () => {
     mount();
-    await waitFor(() => expect(ctl.items).toHaveLength(1));
+    await waitFor(() => expect(ctl.items).toEqual([line(3)]));
     h.setQty.mockRejectedValue(new Error("trailing read failed"));
     h.getCartView.mockResolvedValue(view({ items: [line(2)] }));
 
@@ -403,5 +458,9 @@ describe("no cart at all is a refusal with nothing to thread", () => {
     const result: WriteResult<CartItem[]> = await ctl.add(ITEM);
     expect(result).toEqual({ state: "refused", view: null });
     expect(h.addItem).not.toHaveBeenCalled();
+    // ⚠️ AND IT PUBLISHES NOTHING — which is the boundary of the defect filed as T31. Nothing ever
+    // clears `lastRefusalRef`, so in a SEQUENCE this exit hands `YourUsual` a stale freeze sentence
+    // for a fresh no-cart refusal. Pinned here as it stands so the fix has a failing start.
+    expect(ctl.lastRefusalNotice()).toBeNull();
   });
 });

@@ -123,35 +123,21 @@ jobs:
           # filename. Rejecting the suffix outright is the honest fix: this repo has one test-file
           # convention, and a file that cannot run should never land quietly.
           nonrunners=$(git ls-files --cached --others --exclude-standard -- '*.spec.ts' '*.spec.tsx' || true)
-          # The environment a file will ACTUALLY run in, computed the way vitest computes it: the
-          # FIRST match of its own regex wins, and no match means the config default (node).
-          # `[A-Za-z0-9_-]` is POSIX ERE for JS `[\w-]`. Keep in step with scripts/verify-slice.mjs.
-          bad_pragma=""
-          for f in $all_ts; do
-            if grep -qE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f"; then
-              bad_pragma="$bad_pragma
-$f  (a .test.ts must not declare an environment — name it .test.tsx if it needs a DOM)"
-            fi
-          done
-          for f in $all_tsx; do
-            # The ENV WORD only, never the whole phrase: the match carries whatever whitespace the
-            # file used, so comparing the phrase makes a legitimate file fail on a trailing newline.
-            # This is what the JS mirror's capture group returns, so the two agree by construction.
-            first=$(grep -ohE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f" | head -1 | sed -E 's/.*[[:space:]]+//')
-            if [ "$first" != "jsdom" ]; then
-              bad_pragma="$bad_pragma
-$f  (declares environment '${first:-none}', expected an opening /** @vitest-environment jsdom */)"
-            fi
-          done
-          if [ -n "$ts_orphans" ] || [ -n "$tsx_orphans" ] || [ -n "$nonrunners" ] || [ -n "$bad_pragma" ]; then
+          if [ -n "$ts_orphans" ] || [ -n "$tsx_orphans" ] || [ -n "$nonrunners" ]; then
             echo "::error::Test file(s) that NO vitest config runs, or that run in the wrong environment:"
             [ -n "$ts_orphans" ] && echo "$ts_orphans"
             [ -n "$tsx_orphans" ] && echo "$tsx_orphans  (.test.tsx runs under apps/qr only — see the note in ci.yml)"
             [ -n "$nonrunners" ] && echo "$nonrunners  (no config includes *.spec.* — see the note in ci.yml)"
-            [ -n "$bad_pragma" ] && echo "$bad_pragma"
             exit 1
           fi
           echo "No orphaned test files."
+      # ⚠️ THE SAME CODE verify:slice RUNS, not a POSIX-ERE paraphrase of it. The first draft
+      # duplicated vitest's matcher in shell, and the two disagreed where it mattered: JS `\s`
+      # spans newlines while grep is line-oriented, so a pragma whose environment word sits on the
+      # NEXT line is honoured by vitest, caught by verify:slice, and MISSED here — the looser
+      # mirror being the one that gates the merge. Measured on both matchers.
+      - name: Test files run in the environment their suffix promises
+        run: node scripts/check-test-env.mjs
       - run: pnpm turbo run lint typecheck build test
 
   # Proves the DB layer can't drift: the migrations apply cleanly and the committed types match.

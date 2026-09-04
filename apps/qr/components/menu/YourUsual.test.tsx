@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { WriteResult } from "@/lib/write-outcome";
 import type { CartItem } from "@mms/db";
+import { classifyRefusedWrite, refusedWriteNotice } from "@/lib/cart-freeze";
 import type { UsualCandidate, UsualOutcome } from "@/lib/menu/your-usual";
 
 /**
@@ -56,8 +57,31 @@ const APPLIED: WriteResult<CartItem[]> = { state: "applied", view: [] };
 const UNCONFIRMED: WriteResult<CartItem[]> = { state: "unconfirmed" };
 const REFUSED: WriteResult<CartItem[]> = { state: "refused", view: [] };
 
-/** The sentence the provider publishes for a lock — peer text this component must CARRY, not invent. */
-const LOCK_NOTICE = "Nour is checking out — your order is locked for a moment.";
+/**
+ * The sentence the provider publishes for a peer lock — DERIVED from the module that produces it.
+ *
+ * ⚠️ THE FIRST DRAFT INVENTED THIS STRING, and the blind adversarial pass on #252 called it CRITICAL
+ * for the right reason: `refusedWriteNotice` can produce exactly four sentences, and
+ * "Nour is checking out — your order is locked for a moment." is not among them. Asserting a
+ * composition around a string no producer emits proves nothing about the composition — and it hid
+ * what the real one reads like.
+ *
+ * ⚠️ IT STUTTERS, AND THAT IS A REAL SHIPPED DEFECT — filed as T32, NOT fixed here. `YourUsual`
+ * composes `${dish} didn’t go through. ${cause}`, and every freeze cause already opens with
+ * "That didn’t go through — ", so the live region says it twice in one breath. The `unknown` cause
+ * is worse: a refusal followed by "We couldn’t confirm that". The fix is a clause export from
+ * `cart-freeze.ts` (the "name it ONCE" rule applied to a sentence fragment) plus a mutant, which is
+ * a copy change and does not belong in a test-infrastructure PR. It is pinned AS IT STANDS so the
+ * fix starts from a failing assertion rather than from a blank page.
+ */
+const LOCK_NOTICE = refusedWriteNotice(
+  classifyRefusedWrite({
+    ok: true,
+    freeze: { locked: true, lockedBy: "seat-peer", mySeat: "seat-me" },
+    settling: false,
+  }),
+  false,
+);
 
 // Typed mocks, not `ReturnType<typeof vi.fn>` — an untyped mock assigned into the fixture is an
 // `any` in disguise, and this file's whole job is to notice when the component's contract drifts.
@@ -229,6 +253,12 @@ describe("YourUsual — the control stays reachable, and says nothing it cannot 
     render(<YourUsual outcome={SINGLE} />);
     expect(cta().textContent).toBe("One moment…");
     fireEvent.click(cta());
-    await waitFor(() => expect(add).not.toHaveBeenCalled());
+    // ⚠️ SYNCHRONOUS. A `waitFor` over a NEGATIVE assertion resolves on its first check, so it could
+    // only ever fail by the accident that `addAll` reaches `add` inside the click dispatch — one
+    // `await` added before the loop would make it permanently vacuous (blind pass on #252). The gate
+    // is an early return, so the correct assertion is that nothing happened at all, right now.
+    expect(add).not.toHaveBeenCalled();
+    await Promise.resolve();
+    expect(add).not.toHaveBeenCalled();
   });
 });
