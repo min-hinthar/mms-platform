@@ -694,6 +694,15 @@ export function TableCartProvider({
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
         const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
+        // ⚠️ `null` MEANS THE WRITE LANDED AND THE VIEW COULD NOT BE READ — never that the tap
+        // failed (see `viewAfterWrite` in cart.ts). Applying nothing and re-reading is the whole
+        // handling: the add succeeded, so no refusal is published and the optimistic announce
+        // stands. The re-read is ticketed like every other, so a slow one cannot overwrite a newer
+        // view when it lands.
+        if (!view) {
+          void readView();
+          return itemsRef.current;
+        }
         applyView(view);
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
         // region and the count agree with what actually landed.
@@ -704,15 +713,19 @@ export function TableCartProvider({
         // sitting at 6 of 99. That needs no near-cap line to reach, so it was likelier than the cap
         // it claimed. `none` is spoken HERE and only here: the mutation returned a view, so a zero
         // is proof of the cap rather than a write we could not confirm.
-        if (qty > 1) {
-          const { landed, outcome } = classifyAddLanding({
-            before: itemsBefore,
-            after: view.items,
-            menuItemId,
-            requested: qty,
-          });
-          if (outcome === "partial" || outcome === "none") flash(partialAddNotice(landed), 3000);
-        }
+        //
+        // ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass). It used to be, which left the most
+        // ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced
+        // "Added to your order" and nothing ever took it back. `partial` cannot occur for a request
+        // of one — a single unit either lands or does not — so the only sentence this adds for a
+        // quick-add is the true one.
+        const { landed, outcome } = classifyAddLanding({
+          before: itemsBefore,
+          after: view.items,
+          menuItemId,
+          requested: qty,
+        });
+        if (outcome === "partial" || outcome === "none") flash(partialAddNotice(landed), 3000);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return view.items;
@@ -741,20 +754,20 @@ export function TableCartProvider({
             menuItemId,
             requested: qty,
           });
-          // Landed in full: say nothing. Announcing a refusal here is the false statement.
-          if (outcome === "full") return fresh;
-          // ⚠️ A PARTIAL FILL STILL HAS TO BE CORRECTED (T21(c)). This branch used to accept ANY
-          // positive increase as success and return silently, so the optimistic "Added 5" stayed the
-          // last thing said while the applied view showed one unit. Same sentence as the success
-          // path, from the same rule.
-          if (outcome === "partial") {
-            flash(partialAddNotice(landed), 3000);
-            return fresh;
-          }
-          // `none` and `unknown` fall through to the refusal DELIBERATELY, and the asymmetry with the
-          // success path is the point: there a zero is proof of the cap, because the mutation
-          // returned a view. Here it is indistinguishable from a write that never committed, so
-          // "already at our 99 max" would be a fabricated diagnosis — the M116 class.
+          // Growth of this dish is the evidence the write landed: say nothing and keep it.
+          //
+          // ⚠️ AND SAY NOTHING ABOUT A SHORTFALL EITHER, WHICH IS WHERE AN EARLIER DRAFT WENT WRONG
+          // (blind adversarial pass). `classifyAddLanding` attributes growth to the single line that
+          // moved, and on the SUCCESS path that line must be ours — the write returned a view, so our
+          // line grew, and a peer growing too would make two. Here we do NOT know our write landed,
+          // so the one line that grew may be a tablemate's: announcing "Added 2 — that line is now at
+          // our 99 max" off it would credit the diner with a landing that never happened AND assert a
+          // cap on a dish nowhere near one. Both halves fabricated, in the one live region. The
+          // correction belongs where attribution holds; here silence is the honest answer, as it was
+          // before this slice.
+          if (outcome === "full" || outcome === "partial") return fresh;
+          // `none` and `unknown` fall through to the refusal: nothing of this dish grew, so there is
+          // no evidence of a landing to keep.
         }
         publishRefusal(notice);
         // ⚠️ The null is read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close
@@ -791,6 +804,12 @@ export function TableCartProvider({
         // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
         // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
         const view = await setQtyAction(cartItemId, qty);
+        // Same contract as `add`: null is "written, unreadable". The stepper keeps its optimistic
+        // position rather than snapping back over a change the server accepted.
+        if (!view) {
+          void readView();
+          return itemsRef.current;
+        }
         applyView(view);
         return view.items;
       } catch {

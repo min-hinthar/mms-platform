@@ -27,8 +27,20 @@ return the designed empty-cart state early, and `CartBar` renders nothing at cou
 diner their order "isn't available on this device. Start from the menu." — blaming their device,
 implying the order is gone, offering no retry. That is the audit's worst-rated copy and the exact
 sentence W10a exists to have deleted, so `UNAVAILABLE()` is now exported and thrown from one place.
-Four mutants, including one for the bare-`Error` shape and one proving a genuinely **empty** cart
-still answers `[]` — over-blocking here would break the state every diner starts in.
+Three mutants — the unbound line read, the bare-`Error` shape, and the one below — plus a control case
+proving a genuinely **empty** cart still answers `[]`, because over-blocking here would break the
+state every diner starts in. (That control is a test, not a mutant; an earlier draft of this entry
+counted it as one.)
+
+⚠️ **And the throw must NOT escape a mutation — the half a blind adversarial pass had to find.**
+`addItem`/`setQty` commit the row and only then render a view, so a failure there says nothing about
+whether the tap landed — but every consumer reads a rejection as "the write failed". `/grocery`
+rolled its optimistic list back to the pre-tap snapshot, leaving the basket at 2 while the server held
+3 and checkout charged 3 — the exact divergence that file's own comment forbids, arriving from the
+opposite direction — and `KioskMenu` left the sheet open with "something went wrong", so the operator
+re-taps an add that already committed and the guest is charged twice. The mutations answer `null`
+now: _written, unreadable_. Callers that ignore the return value are unaffected; the provider applies
+nothing and re-reads instead of painting either a blank cart or a false refusal.
 
 **T21(c) — "Added 5 to your order" could be the last thing said when one unit landed.** `add`
 announces optimistically before the server answers, and the correction for a capped merge existed on
@@ -38,12 +50,23 @@ same correction" would have imported a second defect, because the success path c
 line fired "Added 4 — that line is now at our 99 max" about a dish sitting at 6 of 99, which needs no
 near-cap line at all and is therefore likelier than the cap it claims.
 
-`apps/qr/lib/add-landing.ts` is now the one rule, counted **per dish**, read by both paths. The
-asymmetry on "nothing landed" is deliberate and commented: in the success path a zero is _proof_ of
-the cap, because the mutation returned a view; in the recovery path it is indistinguishable from a
-write that never committed, so it stays a refusal rather than becoming a fabricated diagnosis. Three
-mutants, on fixtures that carry a second dish moving in the same window — a one-line fixture would
-let the basket-wide sum and the per-dish count produce identical numbers.
+`apps/qr/lib/add-landing.ts` is now the one rule — and it took two more rounds to get the unit of
+counting right. Per **dish** was still wrong: `insertOrIncLine` merges only into a row matching on
+seat AND `added_by` AND fulfillment AND notes AND price, so one dish is several lines and a peer's
+line is not the diner's. Summing the dish reproduced the same defect one level down (Codex round 1).
+The count is now **attributed**: an add grows exactly one line or creates one, so if exactly one line
+of the dish grew, that growth is ours and the number is exact; if two grew, one is a peer's and
+nothing here can say which; if none grew but one shrank, our add is invisible in the difference. The
+last two answer `unknown`, and `unknown` is spoken as silence.
+
+⚠️ **The correction is spoken only where attribution holds** — the success path, where the mutation
+returned a view, so our line must have grown. In the recovery path we do not know our write landed,
+so the one line that grew may be a tablemate's; announcing a cap off it would credit the diner with a
+landing that never happened _and_ assert a cap on a dish nowhere near one. Both halves fabricated, in
+the one live region. That path keeps its silence, as it had before this slice.
+
+Three mutants, on fixtures that carry a second line of the same dish moving in the same window — a
+one-line fixture would let the summed and attributed counts produce identical numbers.
 
 **T22(d) — the banner with no control was shadowing the one with somewhere to go.** A cart can read
 locked **and** settling at once, and `GuestList` answered which banner to show with branch _order_ —

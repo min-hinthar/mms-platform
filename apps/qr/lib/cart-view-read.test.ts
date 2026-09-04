@@ -57,7 +57,18 @@ vi.mock("./authz", () => ({
       settleBy: null,
       mode: "dinein",
     }),
-  assertCartItemMember: () => Promise.resolve({ uid: "u-1", sessionId: "s-1", role: "guest" }),
+  assertCartItemMember: () =>
+    Promise.resolve({
+      uid: "u-1",
+      sessionId: "s-1",
+      role: "host",
+      cartId: "c-1",
+      locked: false,
+      settling: false,
+      lineSeat: "u-1",
+      lineState: "draft",
+      comped: false,
+    }),
   AuthzError: FakeAuthzError,
   UNAVAILABLE: () => new FakeAuthzError("We’re having trouble on our end", 503, "unavailable"),
 }));
@@ -92,6 +103,9 @@ function table(name: string) {
     );
   const api = {
     select: () => api,
+    // `touchCart`'s updated_at write. It answers success and is not what these cases are about —
+    // the subject is the view read that follows it.
+    update: () => api,
     eq: () => api,
     in: () => api,
     order: () => answer(),
@@ -105,11 +119,13 @@ function table(name: string) {
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (t: string) => table(t),
-    rpc: () => Promise.resolve({ data: null, error: null }),
+    // `mms_cart_item_set_qty_if_open` answers truthy = the row moved, so `setQty` clears its own
+    // status guard and reaches the trailing view read, which is what these cases are about.
+    rpc: () => Promise.resolve({ data: true, error: null }),
   }),
 }));
 
-const { getCartView } = await import("./cart");
+const { getCartView, setQty } = await import("./cart");
 
 beforeEach(() => {
   cartRes = { data: { pickup_slot: null, fire_at: null, tab_type: "none" }, error: null };
@@ -141,7 +157,17 @@ describe("getCartView — an unreadable cart is reported, never answered with an
     ["the cart read", () => (cartRes = { data: null, error: { message: "boom" } })],
   ])("answers 503 unavailable — not a verdict — when %s fails", async (_label, fail) => {
     fail();
-    await expect(getCartView("c-1")).rejects.toMatchObject({ status: 503, code: "unavailable" });
+    const err = await getCartView("c-1").then(
+      () => null,
+      (e: unknown) => e,
+    );
+    // ⚠️ INSTANCE, not shape (blind adversarial pass). `/cart` routes on
+    // `e instanceof AuthzError && e.code === "unavailable"`, so a plain object carrying the right
+    // three fields would satisfy a `toMatchObject` assertion and still miss the outage screen — the
+    // failure mode this whole case exists to pin. `FakeAuthzError` IS what the mocked `./authz`
+    // hands the module under test, so the identity check is the real one here.
+    expect(err).toBeInstanceOf(FakeAuthzError);
+    expect(err).toMatchObject({ status: 503, code: "unavailable" });
   });
 
   it("never pairs an empty list with a live total", async () => {
@@ -155,5 +181,40 @@ describe("getCartView — an unreadable cart is reported, never answered with an
     expect(settled.ok && settled.v.items.length === 0 && settled.v.totals.totalCents > 0).toBe(
       false,
     );
+  });
+});
+
+/**
+ * ⚠️ THE OTHER HALF OF T21(a), AND THE ONE A BLIND ADVERSARIAL PASS HAD TO FIND. Making the READ
+ * throw was right; letting that throw escape a MUTATION was not. `setQty` and `addItem` commit the
+ * row and only THEN render a view, so a failure in that read says nothing about whether the tap
+ * landed — and every consumer reads a rejection as "the write failed":
+ *
+ *   • `/grocery` rolls its optimistic list back to the pre-tap snapshot, so the basket shows 2 while
+ *     the server holds 3 and checkout charges 3 — the exact divergence that file's own comment
+ *     forbids, arriving from the opposite direction;
+ *   • `KioskMenu` leaves the sheet open with "something went wrong", and the operator re-taps an add
+ *     that already committed.
+ *
+ * So the mutation answers `null` — written, unreadable — and the fixtures below pin both directions:
+ * a failed trailing read must NOT reject, and a healthy one must still return the view.
+ */
+describe("a mutation's trailing view read never fails the write", () => {
+  it("returns null instead of throwing when the trailing read fails", async () => {
+    itemsRes = { data: null, error: { message: "connection reset by peer" } };
+    await expect(setQty("line-1", 3)).resolves.toBeNull();
+  });
+
+  it("returns null when the CART half of the trailing read fails", async () => {
+    cartRes = { data: null, error: { message: "statement timeout" } };
+    await expect(setQty("line-1", 3)).resolves.toBeNull();
+  });
+
+  it("still returns the view when the trailing read succeeds", async () => {
+    // The control: `null` must mean something. A mutation that always answered null would make the
+    // caller re-read on every tap and lose the one-round-trip fix this return value exists for.
+    const v = await setQty("line-1", 3);
+    expect(v).not.toBeNull();
+    expect(v?.items).toEqual([]);
   });
 });

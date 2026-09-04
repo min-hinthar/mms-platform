@@ -29,6 +29,37 @@ import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
 
 /**
+ * The view a MUTATION returns — and it must never fail the mutation.
+ *
+ * ⚠️ THE WRITE HAS ALREADY COMMITTED BY THE TIME THIS RUNS. `addItem` and `setQty` insert or bump
+ * the row, touch the cart, and only THEN render a view, so a failure here says nothing about whether
+ * the diner's tap landed. Both of the plausible answers are wrong:
+ *
+ *   • RESOLVING with a blank view (what shipped before T21(a)) hands the caller an empty cart as
+ *     server truth — `TableCartProvider` applied it and the basket vanished under an optimistic
+ *     "Added to your order";
+ *   • THROWING (T21(a)'s first draft, and the blind pass caught it) tells every caller the WRITE
+ *     failed. `/grocery` then rolls its optimistic list back to the pre-tap snapshot — UI 2, server
+ *     3, and checkout charges 3, which is the exact invariant that file's own comment forbids — and
+ *     `KioskMenu` leaves the sheet open with "something went wrong", inviting the operator to re-tap
+ *     an add that already committed and charging the guest twice.
+ *
+ * So it answers `null`: *the write landed, the view could not be read*. Callers that ignore the
+ * return value are unaffected; callers that render it re-read instead of painting a lie.
+ */
+async function viewAfterWrite(
+  cartId: string,
+): Promise<Awaited<ReturnType<typeof getCartView>> | null> {
+  try {
+    return await getCartView(cartId);
+  } catch {
+    // Deliberate, and narrow: the ONLY thing swallowed here is our inability to RENDER the result of
+    // a write that already succeeded. `getCartView` still throws for every plain reader.
+    return null; // written, unreadable — NEVER a refused write
+  }
+}
+
+/**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
  * chosen modifier OPTION ids. The server re-derives every amount (lib/order-lines.ts priceItem,
  * shared with the staff order-for-a-guest path) and writes the snapshot. Fixes red-team C1/C2.
@@ -108,8 +139,9 @@ export async function addItem(
 
   // Return the fresh server-authoritative view so the caller renders in ONE round-trip (not a separate
   // getCartView refresh afterward). Re-running assertCartMember here is a couple of indexed reads on the
-  // same warm function — cheap next to a second network round-trip.
-  return getCartView(input.cartId);
+  // same warm function — cheap next to a second network round-trip. `null` = written but unreadable;
+  // see `viewAfterWrite`, and never conflate it with a refused write.
+  return viewAfterWrite(input.cartId);
 }
 
 export async function setQty(cartItemId: string, qty: number) {
@@ -144,8 +176,8 @@ export async function setQty(cartItemId: string, qty: number) {
   // Return the fresh server-authoritative view so the caller re-syncs in ONE round-trip (mirrors
   // addItem) instead of a separate getCartView afterward — the "cart actions feel delayed" fix. The
   // amounts stay server-derived here; the client never re-prices. Callers that don't need the view
-  // (Checkout keeps its own optimistic layer) simply ignore it.
-  return getCartView(cartId);
+  // (Checkout keeps its own optimistic layer) simply ignore it. `null` = written but unreadable.
+  return viewAfterWrite(cartId);
 }
 
 /**

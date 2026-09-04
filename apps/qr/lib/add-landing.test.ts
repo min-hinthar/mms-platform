@@ -12,7 +12,13 @@ import { classifyAddLanding, partialAddNotice, type LineUnits } from "./add-land
  * the shape that yields a partial fill of 1.
  */
 
-const line = (menuItemId: string, qty: number): LineUnits => ({ menuItemId, qty });
+/** A line, identified. The id defaults from the dish so single-line fixtures read cleanly; the
+ *  peer cases pass an explicit id, because a peer's line of the same dish is a DIFFERENT row. */
+const line = (menuItemId: string, qty: number, id = menuItemId): LineUnits => ({
+  id,
+  menuItemId,
+  qty,
+});
 
 describe("classifyAddLanding — counts THIS dish, not the basket", () => {
   it("reports a full landing", () => {
@@ -23,6 +29,20 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
       requested: 5,
     });
     expect(r).toEqual({ landed: 5, outcome: "full" });
+  });
+
+  // ⚠️ THE CASE THE BLIND PASS FOUND MISSING, and the one where the shipped rule speaks. A single
+  // line grows by 2 against a request of 5 — nothing else moved, so the shortfall IS this tap's, and
+  // the cap sentence is owed. Without a fixture at exactly this shape, a rule that never spoke would
+  // look as green as one that spoke correctly.
+  it("reports the shortfall when this dish's only line grew short of the request", () => {
+    const r = classifyAddLanding({
+      before: [line("mohinga", 4)],
+      after: [line("mohinga", 6)],
+      menuItemId: "mohinga",
+      requested: 5,
+    });
+    expect(r).toEqual({ landed: 2, outcome: "partial" });
   });
 
   it("reports a partial fill at the 99 cap", () => {
@@ -75,12 +95,69 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
     // A peer removed OUR dish mid-add. The difference describes the table, not this tap, so there is
     // nothing honest to announce about it.
     const r = classifyAddLanding({
-      before: [line("mohinga", 4), line("tea", 1)],
-      after: [line("mohinga", 2), line("tea", 1)],
+      before: [line("mohinga", 4, "mine"), line("tea", 1)],
+      after: [line("mohinga", 2, "mine"), line("tea", 1)],
       menuItemId: "mohinga",
       requested: 5,
     });
-    expect(r).toEqual({ landed: -2, outcome: "unknown" });
+    // `landed` is 0, not -2: nothing was attributed, and a negative "units added" is not a number
+    // any caller should be handed.
+    expect(r).toEqual({ landed: 0, outcome: "unknown" });
+  });
+
+  // ⚠️ THE ROUND-1 FINDING (Codex, #250), and it is this module's own defect one level down. A dish
+  // has SEVERAL lines — `insertOrIncLine` merges only into a row matching on seat AND added_by AND
+  // fulfillment AND notes AND price — so a tablemate's line of the same dish is not ours. Our five
+  // land in full while the peer decrements theirs by one: the aggregate says 4, and "Added 4 — that
+  // line is now at our 99 max" would be a cap that never happened. Nothing here can attribute the
+  // difference, so nothing here should describe it.
+  // ⚠️ THE ROUND-1 CASE (Codex, #250), and attribution answers it EXACTLY rather than merely safely.
+  // Summed over the dish this reads 4 (5 ours − 1 theirs) and would say "Added 4 — that line is now
+  // at our 99 max" about a dish at 6 of 99. Attributed to the one line that grew, it is a full
+  // landing and nothing is said at all — which is the truth.
+  it("reports a FULL landing when a peer decrements their own same-dish line", () => {
+    const r = classifyAddLanding({
+      before: [line("mohinga", 1, "mine"), line("mohinga", 3, "theirs")],
+      after: [line("mohinga", 6, "mine"), line("mohinga", 2, "theirs")],
+      menuItemId: "mohinga",
+      requested: 5,
+    });
+    expect(r).toEqual({ landed: 5, outcome: "full" });
+  });
+
+  it("still sees a real shortfall when a peer's same-dish line vanishes in the window", () => {
+    // Our line grew 1 → 5 against a request of 5, so four landed and the correction is owed. The
+    // peer's disappearing line neither adds to that count nor hides it.
+    const r = classifyAddLanding({
+      before: [line("mohinga", 1, "mine"), line("mohinga", 3, "theirs")],
+      after: [line("mohinga", 5, "mine")],
+      menuItemId: "mohinga",
+      requested: 5,
+    });
+    expect(r).toEqual({ landed: 4, outcome: "partial" });
+  });
+
+  // The bound on that rule: a peer moving the dish must not SUPPRESS a cap we can still see. Here
+  // the shortfall is real and no line shrank, so the correction still fires.
+  // TWO lines of one dish growing in the same window is the case nothing here can resolve: an add
+  // grows exactly ONE line, so the other is a peer's — and which is which needs the seat the server
+  // matched on, not the totals. Summing them speaks an inflated number ("Added 3" when one landed);
+  // guessing speaks a confident one. Silence is the only honest answer, and it costs a correction
+  // rather than inventing one. Both shapes: a brand-new peer line, and an existing one growing.
+  it.each([
+    [
+      "a brand-new peer line",
+      [line("mohinga", 98, "mine")],
+      [line("mohinga", 99, "mine"), line("mohinga", 2, "theirs")],
+    ],
+    [
+      "an existing peer line growing",
+      [line("mohinga", 1, "mine"), line("mohinga", 1, "theirs")],
+      [line("mohinga", 4, "mine"), line("mohinga", 3, "theirs")],
+    ],
+  ])("answers unknown when two lines of the dish grew (%s)", (_label, before, after) => {
+    const r = classifyAddLanding({ before, after, menuItemId: "mohinga", requested: 5 });
+    expect(r).toEqual({ landed: 0, outcome: "unknown" });
   });
 
   it("treats an over-landing as full", () => {
@@ -105,12 +182,12 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
     expect(r).toEqual({ landed: 3, outcome: "full" });
   });
 
-  it("sums MULTIPLE lines of the same dish", () => {
-    // One dish can hold several lines (different modifiers, seats, notes). A per-LINE count instead
-    // of a per-DISH sum would read 2 here and invent a cap.
+  it("attributes growth to the ONE line that moved, ignoring the dish's other lines", () => {
+    // One dish holds several lines (different modifiers, seats, notes). Only ours grows; the
+    // untouched sibling must neither add to the count nor make it unknowable.
     const r = classifyAddLanding({
-      before: [line("mohinga", 1), line("mohinga", 1)],
-      after: [line("mohinga", 3), line("mohinga", 2)],
+      before: [line("mohinga", 1, "mine"), line("mohinga", 7, "theirs")],
+      after: [line("mohinga", 4, "mine"), line("mohinga", 7, "theirs")],
       menuItemId: "mohinga",
       requested: 3,
     });
