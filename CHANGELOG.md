@@ -4,6 +4,70 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The refusal-recovery path stops answering a failure with a fact (2026-09-04)
+
+**T21(a) — an unreadable cart came back as an EMPTY one, and that is not a missing field.** The two
+reads in `getCartView` were the only unbound destructures in `cart.ts`, and postgrest **resolves**
+rather than rejects — the service client never calls `.throwOnError()` — so a dropped socket, a
+statement timeout, a pool error and a 42703 all arrived as `{ data: null, error }`. `rows ?? []` then
+returned an empty item list as server truth. The totals come from a **second** read that always bound
+and threw, so the two could disagree: `KioskReview` renders the list and then the total
+unconditionally with `loadFailed` false, so a staff terminal showed an empty basket above a live
+"Total $53.40" with its own honest failure screen suppressed.
+
+A scout pass corrected the filed row twice before any code changed. It scoped the exposure to "the
+recovery path", which is the **narrowest** of six callers; the widest is the mutation happy path,
+where `addItem`/`setQty` return `getCartView`, so a partial read resolves, `applyView` runs in the
+try block, and the cart blanks with **no notice at all** while the optimistic "Added to your order"
+still stands. And "beside a non-zero total" is true for exactly one caller — /cart and Checkout
+return the designed empty-cart state early, and `CartBar` renders nothing at count 0.
+
+⚠️ **The throw SHAPE is the routing.** `/cart` reaches its outage screen only through
+`e instanceof AuthzError && e.code === "unavailable"`; anything else falls to the arm that tells the
+diner their order "isn't available on this device. Start from the menu." — blaming their device,
+implying the order is gone, offering no retry. That is the audit's worst-rated copy and the exact
+sentence W10a exists to have deleted, so `UNAVAILABLE()` is now exported and thrown from one place.
+Four mutants, including one for the bare-`Error` shape and one proving a genuinely **empty** cart
+still answers `[]` — over-blocking here would break the state every diner starts in.
+
+**T21(c) — "Added 5 to your order" could be the last thing said when one unit landed.** `add`
+announces optimistically before the server answers, and the correction for a capped merge existed on
+only one of the two paths. The scout found the filed row pointed at the smaller half: reusing "the
+same correction" would have imported a second defect, because the success path counted
+**basket-wide**, so any concurrent peer write skewed it — a tablemate removing one unit of _their_
+line fired "Added 4 — that line is now at our 99 max" about a dish sitting at 6 of 99, which needs no
+near-cap line at all and is therefore likelier than the cap it claims.
+
+`apps/qr/lib/add-landing.ts` is now the one rule, counted **per dish**, read by both paths. The
+asymmetry on "nothing landed" is deliberate and commented: in the success path a zero is _proof_ of
+the cap, because the mutation returned a view; in the recovery path it is indistinguishable from a
+write that never committed, so it stays a refusal rather than becoming a fabricated diagnosis. Three
+mutants, on fixtures that carry a second dish moving in the same window — a one-line fixture would
+let the basket-wide sum and the per-dish count produce identical numbers.
+
+**T22(d) — the banner with no control was shadowing the one with somewhere to go.** A cart can read
+locked **and** settling at once, and `GuestList` answered which banner to show with branch _order_ —
+an `if (locked)` early return 74 lines above the settling branch. So the lock bar won and suppressed
+"Pay your share →", telling the diner to wait on the surface that had somewhere to send them, while
+the Add pills two elements away already said "the order's locked while your table pays".
+`freezeBanner` decides it now, settling-first for `inertReason`'s reason, and `GuestList` renders off
+the rule instead of off position.
+
+⚠️ **The rest of T22 does not survive `CartBar`, and is closed rather than built.** The row's headline
+— a frozen /menu hides its own escape routes — is wrong for every freeze a diner can reach: `CartBar`
+has no freeze term, `count` sums every line in every state, and both freeze axes require a cart that
+_has_ lines. The only "no route to /cart" state is the empty cart, whose /cart destination links back
+to /menu — a loop presented as an escape. The row's co-occurrence mechanism was wrong too: a lock past
+its TTL reads `lockedFresh` **false**, i.e. settling-only. The real path is `abortSettlement`'s
+`refreeze`, whose UPDATE carries no `locked` predicate.
+
+Also filed with their mechanisms corrected: **T24** (the view ticket orders by client issuance, not
+by server observation — Codex round 5 on #249), **T19** (triple, not double; the 40-SKU example names
+a surface that mounts no subscription at all; and it had to land _behind_ T21(a), or coalescing would
+have reduced the frequency of a money-path symptom while leaving the bug live), and **T18** (the three
+/menu tap components are _invisible_ to `check-child-freeze`, not exempt — so an EXEMPT entry would be
+a dead exemption that the guard's own rule then fails).
+
 ### The /menu freeze can heal, and it knows whose lock it is (2026-09-03)
 
 **T20 — both primary add surfaces on /menu could go permanently inert, and being inert is what kept

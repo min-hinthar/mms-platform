@@ -406,3 +406,38 @@ export function refusedWriteNotice(
       return "We couldn’t confirm that — the order below is up to date.";
   }
 }
+
+/**
+ * T22(d) — WHICH freeze banner the guest list shows, when a cart can be under both at once.
+ *
+ * `GuestList` used to answer this with branch ORDER: an `if (locked)` early-return sat 74 lines
+ * above the settling branch, so a cart reading both showed the lock bar — a banner carrying no
+ * control — and shadowed the settle banner, the one element on /menu whose whole job is to carry
+ * "Pay your share →". The diner was told to wait, on the surface that had somewhere to send them.
+ *
+ * The precedence is `inertReason`'s, for `inertReason`'s reason: settling is the wider truth, it
+ * outlives the lock, and it is the one with somewhere for the diner to go. The Add pills two
+ * elements away already say "the order's locked while your table pays" in that window, so the old
+ * order also had the guest list contradicting its own screen.
+ *
+ * ⚠️ BOTH-TRUE IS REACHABLE, AND NOT BY THE ROUTE THE BACKLOG ROW GUESSED. It is not "a lock decays
+ * past its TTL beside a live settle" — a decayed lock makes `lockedFresh` FALSE (`authz.ts`), which
+ * is settling-only. The real path is `abortSettlement`: it calls `releaseSettlement` (clearing
+ * `settle_at` unconditionally), then reads the shares, and on finding a captured share calls
+ * `refreeze` — whose UPDATE carries no `locked` predicate. A tablemate who takes the pay lock inside
+ * that window leaves the cart genuinely locked AND settling, and `assertCartMember` reports both on
+ * one view. The client cannot manufacture it; only the server can say it.
+ *
+ * `cartId` is required for the settle arm because the banner's link needs it. It is not reachable as
+ * `settling && !cartId` — both derive from the same session — but the guard costs nothing and makes
+ * the "no banner at all" case impossible by construction rather than by argument.
+ */
+export function freezeBanner(s: {
+  locked: boolean;
+  settling: boolean;
+  cartId: string | null;
+}): "settle" | "lock" | null {
+  if (s.settling && s.cartId) return "settle";
+  if (s.locked) return "lock";
+  return null;
+}

@@ -42,6 +42,23 @@
  * nothing on the wire tells us which. Given the asymmetry, the tie goes to the write. Reads issued
  * AFTER the mutation's view landed are not affected — they carry a higher ticket and apply normally.
  *
+ * ## What this does NOT do — read before trusting it (OPEN-ITEMS T24)
+ *
+ * It orders views by CLIENT ISSUANCE. That is not the order the SERVER read them in, and around an
+ * expiry boundary the difference is observable: `assertCartMember` evaluates `locked_at > Date.now()
+ * - CART_LOCK_TTL_MS` on the server clock, once per request, so two concurrent reads evaluate it at
+ * two independent instants that need not follow the order this client issued them in. The
+ * later-ticketed request can reach that read FIRST and capture `locked: true` while the
+ * earlier-ticketed one reaches it after expiry and captures `locked: false` — and the watermark then
+ * applies the stale higher ticket, or refuses the fresh lower one.
+ *
+ * That is a limitation this ticket does not remove, not a regression it introduces: before it,
+ * ordering was by ARRIVAL, which is equally unrelated to server read order. What bounds the cost is
+ * T20's scheduled re-read, which arms on exactly this state and re-arms on every successful read —
+ * so the residual is one TTL of staleness, not a permanent freeze. Ordering on server truth needs
+ * the view to CARRY it (an observation stamp, or the `locked_at`/`settle_at` of T23); that is a
+ * shape change, and it is filed rather than approximated here.
+ *
  * Lives here rather than inline in the provider for the reason `lock-ttl.ts` does: a rule that sits
  * in a component sits outside every guard this repo has, so it can be reverted with the gate green.
  */

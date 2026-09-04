@@ -20,6 +20,7 @@ import {
   type FreezeInput,
 } from "@/lib/cart-freeze";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
+import { classifyAddLanding, partialAddNotice } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
 import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
 import { setDisplayName } from "@/lib/members";
@@ -684,11 +685,9 @@ export function TableCartProvider({
       setPendingDelta((n) => n + qty);
       // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
       flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000, "ထည့်ပြီးပါပြီ");
-      // Authoritative unit count BEFORE this add (from the ref, never a stale render closure) so we can
-      // tell how many units ACTUALLY landed — a merge into a line near the 99 cap can fill fewer than
-      // requested, and the optimistic "Added N" above would then overstate it (W5c pre-merge honesty).
-      const beforeUnits = itemsRef.current.reduce((a, i) => a + i.qty, 0);
-      // The pre-add lines, for the post-commit-read-failure check in the catch below.
+      // The pre-add lines (from the ref, never a stale render closure). BOTH the success path and the
+      // recovery path below compare against this one snapshot through `classifyAddLanding`, so they
+      // cannot disagree about how many units landed — the "name it ONCE" rule applied to a count.
       const itemsBefore = itemsRef.current;
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
@@ -696,17 +695,23 @@ export function TableCartProvider({
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
         const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
         applyView(view);
-        // If the server capped the merge (landed < requested), correct the earlier optimistic announce so
-        // the SR live region and the count agree with what actually landed. Only fires at the 99-cap edge.
+        // If the server capped the merge, correct the earlier optimistic announce so the SR live
+        // region and the count agree with what actually landed.
+        //
+        // ⚠️ PER DISH, NOT PER BASKET (T21(c)). This used to subtract basket-wide totals, which any
+        // concurrent peer write skews: a tablemate removing one unit of THEIR line made `landed`
+        // come out one short and fired "Added 4 — that line is now at our 99 max" about a dish
+        // sitting at 6 of 99. That needs no near-cap line to reach, so it was likelier than the cap
+        // it claimed. `none` is spoken HERE and only here: the mutation returned a view, so a zero
+        // is proof of the cap rather than a write we could not confirm.
         if (qty > 1) {
-          const landed = view.items.reduce((a, i) => a + i.qty, 0) - beforeUnits;
-          if (landed >= 0 && landed < qty)
-            flash(
-              landed === 0
-                ? "That line is already at our 99 max"
-                : `Added ${landed} — that line is now at our 99 max`,
-              3000,
-            );
+          const { landed, outcome } = classifyAddLanding({
+            before: itemsBefore,
+            after: view.items,
+            menuItemId,
+            requested: qty,
+          });
+          if (outcome === "partial" || outcome === "none") flash(partialAddNotice(landed), 3000);
         }
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
@@ -730,14 +735,34 @@ export function TableCartProvider({
         // dish in the same window is the one false positive left, and it errs toward reporting a
         // success we are unsure of instead of a duplicate charge — the safer direction.
         if (fresh) {
-          const unitsFor = (rows: CartItem[]) =>
-            rows.reduce((a, i) => a + (i.menuItemId === menuItemId ? i.qty : 0), 0);
-          // Landed after all: say nothing. Announcing a refusal here is the false statement.
-          if (unitsFor(fresh) > unitsFor(itemsBefore)) return fresh;
+          const { landed, outcome } = classifyAddLanding({
+            before: itemsBefore,
+            after: fresh,
+            menuItemId,
+            requested: qty,
+          });
+          // Landed in full: say nothing. Announcing a refusal here is the false statement.
+          if (outcome === "full") return fresh;
+          // ⚠️ A PARTIAL FILL STILL HAS TO BE CORRECTED (T21(c)). This branch used to accept ANY
+          // positive increase as success and return silently, so the optimistic "Added 5" stayed the
+          // last thing said while the applied view showed one unit. Same sentence as the success
+          // path, from the same rule.
+          if (outcome === "partial") {
+            flash(partialAddNotice(landed), 3000);
+            return fresh;
+          }
+          // `none` and `unknown` fall through to the refusal DELIBERATELY, and the asymmetry with the
+          // success path is the point: there a zero is proof of the cap, because the mutation
+          // returned a view. Here it is indistinguishable from a write that never committed, so
+          // "already at our 99 max" would be a fabricated diagnosis — the M116 class.
         }
         publishRefusal(notice);
-        // Returns null so the item sheet stays OPEN (keeping the diner's modifier choices) instead
-        // of reading as a false success.
+        // ⚠️ The null is read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close
+        // on tap (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant,
+        // and it never awaits this. The older comment here claimed the sheet stays open "keeping the
+        // diner's modifier choices", which stopped being true then — and it is the only caller that
+        // can pass qty > 1, so a reader reasoning from it would mis-model the whole partial-fill
+        // path above. What the null still does is stop a refusal reading as a success.
         return null;
       } finally {
         setPendingDelta((n) => n - qty);

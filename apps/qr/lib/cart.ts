@@ -18,7 +18,7 @@ import {
 import type { LineState } from "@mms/db";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
-import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
+import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releasePayAttempt } from "./lock";
@@ -615,18 +615,36 @@ export async function getCartView(cartId: string): Promise<{
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
   const db = serviceClient();
-  const { data: cart } = await db
+  // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
+  // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
+  // service client never calls `.throwOnError()`), so a dropped socket, a statement timeout, a pool
+  // error and a 42703 all land as `{ data: null, error }` — and `rows ?? []` below turned that into
+  // an EMPTY ITEM LIST, returned as authoritative. The totals come from a SECOND read
+  // (`getCartTotals`) which does bind and throw, so the two can disagree: the kiosk review rendered
+  // an empty list above a live "Total $53.40" with its failure screen suppressed, and the provider
+  // applied the blank cart with the optimistic "Added to your order" still on screen.
+  //
+  // The throw is `UNAVAILABLE()`, not a bare Error, because the SHAPE is what routes it: `/cart`
+  // tests `code === "unavailable"` to reach the outage screen and otherwise tells the diner their
+  // order "isn't available on this device". A verdict we cannot support is the thing W10a deleted.
+  //
+  // 503 for BOTH arms is deliberate even though `.single()` also errors on zero rows: this function
+  // cannot tell "gone" from "unreadable", and `assertCartMember` — which can, and answers 404
+  // `no_cart` — proved this cart open one statement earlier. Unknowable is not a verdict.
+  const { data: cart, error: cartErr } = await db
     .from("qr_carts")
     .select("pickup_slot,fire_at,tab_type")
     .eq("id", id)
     .single();
-  const { data: rows } = await db
+  if (cartErr) throw UNAVAILABLE();
+  const { data: rows, error: rowsErr } = await db
     .from("qr_cart_items")
     .select(
       "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
+  if (rowsErr) throw UNAVAILABLE();
   // Resolve which lines are now 86'd so the cart can disable their "+" (QA §D sold-out trap — a peer
   // can 86 an item that's already in a cart). menu_item_id is a soft text ref: a menu_items uuid for
   // restaurant lines, a barcode for grocery. Filter to UUID-shaped ids before the lookup — `id` is a
