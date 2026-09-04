@@ -6,7 +6,12 @@ import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 import { MicroBurst } from "./MicroBurst";
-import { mayClaimLanding, threadableView, type WriteResult } from "@/lib/write-outcome";
+import {
+  mayClaimLanding,
+  threadableView,
+  unsentWriteNotice,
+  type WriteResult,
+} from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 
@@ -65,6 +70,7 @@ export function AddButton({
     add,
     setItemQty,
     refresh,
+    announce: announceCart,
     items,
     cartId,
     loading,
@@ -298,7 +304,22 @@ export function AddButton({
           // Freshest lines, in order of how well we can trust them: the prior op's own view, then a
           // refresh we just applied, and only then the last render's snapshot — which is the correct
           // source for a FIRST op and the stale one for a following op, hence the ordering.
-          const source = threaded ?? refreshed ?? itemsRef.current;
+          //
+          // ⚠️ AND THE LAST-RENDER SNAPSHOT IS ONLY VALID FOR A FIRST OP (Codex round 6 on #251, P1).
+          // It is correct there — nothing has changed since the render. After a prior write whose
+          // view we never got AND a refresh that came back empty, it is a genuinely stale baseline,
+          // and `setQty` is ABSOLUTE: deriving `target.qty - 1` from it does not lose a tap, it
+          // writes a WRONG NUMBER over whatever a concurrent host actually set. The honest move is
+          // to send nothing. Losing a tap is recoverable by the diner; silently reverting someone
+          // else's quantity is not.
+          const source = threaded ?? refreshed ?? (prior === null ? itemsRef.current : null);
+          if (source === null) {
+            setOptimistic((n) => n + 1); // revert the optimistic step — nothing was sent
+            announceCart(unsentWriteNotice());
+            // Still no view, so the NEXT op must refresh too: hand the prior result back rather
+            // than `null`, which would claim there was no preceding write.
+            return prior;
+          }
           const lines = matchOwnLines(source, menuItemId, defaultFulfillment, mySeat);
           const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
           if (!target) {

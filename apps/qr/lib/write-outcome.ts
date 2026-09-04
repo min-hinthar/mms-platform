@@ -125,6 +125,22 @@ export function unconfirmedWriteNotice(): string {
 }
 
 /**
+ * What to say when a write was NOT sent because we had no trustworthy baseline to compute it from.
+ *
+ * ⚠️ Distinct from `unconfirmedWriteNotice`, and the difference is the whole point (Codex round 6 on
+ * #251, P1). There, the request LEFT and we cannot see what became of it. Here, nothing was sent at
+ * all — a queued absolute `setQty` had only a stale snapshot to derive its target quantity from, and
+ * inventing a baseline for an ABSOLUTE write does not lose a tap, it writes a WRONG NUMBER over
+ * whatever a concurrent host actually set.
+ *
+ * So this sentence may do what the other must not: invite a retry. Nothing landed, so nothing can
+ * double.
+ */
+export function unsentWriteNotice(): string {
+  return "We couldn’t reach your order — nothing changed. Try that again in a moment.";
+}
+
+/**
  * Classify a write whose response was LOST or REJECTED, from the one recovery re-read that follows.
  *
  * The caller supplies what it observed, never a conclusion:

@@ -429,6 +429,14 @@ const MUTANTS = [
     replace: '  return r.state === "applied" ? r.view : null;',
   },
   {
+    id: "written/an-unsent-write-borrows-the-unconfirmed-sentence",
+    file: "apps/qr/lib/write-outcome.ts",
+    suite: "lib/write-outcome.test.ts",
+    why: "T26 (Codex round 6 on #251, P1) \u2014 the two sentences are NOT interchangeable and only one may invite a retry. `unconfirmed` means the request LEFT and may have landed, so 'try that again' there can charge the dish twice; `unsent` means a queued absolute setQty had no trustworthy baseline and was never sent, where the retry is the correct offer and nothing can double. Collapsing them either strands the diner on a tap that vanished with no explanation, or invites the exact retry the rest of this slice exists to prevent",
+    find: '  return "We couldn\u2019t reach your order \u2014 nothing changed. Try that again in a moment.";',
+    replace: '  return "We couldn\u2019t confirm that \u2014 check your order below.";',
+  },
+  {
     id: "written/the-unconfirmed-notice-asserts-a-currency-it-lacks",
     file: "apps/qr/lib/write-outcome.ts",
     suite: "lib/write-outcome.test.ts",

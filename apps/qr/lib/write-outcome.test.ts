@@ -5,6 +5,7 @@ import {
   recoveredWrite,
   threadableView,
   unconfirmedWriteNotice,
+  unsentWriteNotice,
   type WriteResult,
 } from "./write-outcome";
 
@@ -173,5 +174,23 @@ describe("unconfirmedWriteNotice — what to say about a write we could not see"
   it("never claims the write landed", () => {
     // It replaces an optimistic "Added to your order"; repeating the claim would defeat it.
     expect(unconfirmedWriteNotice()).not.toMatch(/\badded\b/i);
+  });
+});
+
+describe("unsentWriteNotice — nothing was sent, so a retry is safe", () => {
+  it("is distinct from the unconfirmed notice, and only IT invites a retry", () => {
+    // Codex round 6 on #251 (P1). `unconfirmed` means the request left and may have landed, so
+    // inviting a retry there can double a charge. This one means nothing was sent at all — a queued
+    // absolute setQty had no trustworthy baseline — so the retry is the correct offer, and the two
+    // sentences must never be interchangeable.
+    expect(unsentWriteNotice()).not.toBe(unconfirmedWriteNotice());
+    expect(unsentWriteNotice()).toMatch(/try that again/i);
+    expect(unconfirmedWriteNotice()).not.toMatch(/try that again/i);
+  });
+
+  it("says plainly that nothing changed", () => {
+    // The optimistic digit has just snapped back; without this the diner sees a tap vanish with no
+    // explanation. It must not claim we know the cart's state — only that we did not write to it.
+    expect(unsentWriteNotice()).toMatch(/nothing changed/i);
   });
 });
