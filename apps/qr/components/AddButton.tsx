@@ -314,6 +314,12 @@ export function AddButton({
           // else's quantity is not.
           const source = threaded ?? refreshed ?? (prior === null ? itemsRef.current : null);
           if (source === null) {
+            // ⚠️ ARM THE REFOCUS BEFORE THE REVERT (Codex round 7 on #251, P2 — WCAG 2.4.3). On an
+            // emptying decrement focus has already moved to the temporary Add pill; restoring the
+            // optimistic quantity remounts the stepper and unmounts that pill, so without this the
+            // keyboard and screen-reader caret drops to <body>. Every other exit from this chain
+            // arms it — the skip branch was new in round 6 and did not.
+            if (emptying) refocusStepper.current = true;
             setOptimistic((n) => n + 1); // revert the optimistic step — nothing was sent
             announceCart(unsentWriteNotice());
             // Still no view, so the NEXT op must refresh too: hand the prior result back rather
