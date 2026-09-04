@@ -281,11 +281,16 @@ export function AddButton({
           // fails the fallback degrades honestly rather than corrupting — `setQty` is ABSOLUTE, so
           // re-sending `qty - 1` against a quantity the server already has is an idempotent no-op:
           // the tap is lost, the cart is not wrong.
-          if (prior?.state === "unconfirmed") await refresh();
-          // Freshest lines: the prior op's returned view, else the latest committed snapshot. Recomputed here
-          // (not from a tap-time closure) so serialized "−" taps each peel a real, still-present line. Peel a
-          // qty-1 line first (a duplicate fully removed → set converges to one), else trim the last line.
-          const source = (prior ? threadableView(prior) : null) ?? itemsRef.current;
+          // ⚠️ USE WHAT THE REFRESH RETURNS (Codex round 3 on #251, P2). `await refresh()` updates the
+          // PROVIDER; this ref catches up a render later, so reading it here discards a perfectly
+          // good recovery read: two rapid decrements from 3 lost the second tap even when the
+          // refresh had cleanly observed 2. Provider state is not a channel this continuation can
+          // read — the value has to come back out of the call, and now it does.
+          const refreshed = prior?.state === "unconfirmed" ? await refresh() : null;
+          // Freshest lines, in order of how well we can trust them: the prior op's own view, then a
+          // refresh we just applied, and only then the last render's snapshot — which is the correct
+          // source for a FIRST op and the stale one for a following op, hence the ordering.
+          const source = (prior ? threadableView(prior) : null) ?? refreshed ?? itemsRef.current;
           const lines = matchOwnLines(source, menuItemId, defaultFulfillment, mySeat);
           const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
           if (!target) {

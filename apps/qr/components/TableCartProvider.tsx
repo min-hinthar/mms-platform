@@ -78,7 +78,9 @@ type CartCtx = {
     qty: number,
     announce?: string,
   ) => Promise<WriteResult<CartItem[]>>;
-  refresh: () => Promise<void>;
+  /** Re-read the cart. Resolves with the items it APPLIED, or `null` if the read failed or was
+   *  overtaken — a caller in a promise chain must use this value, not its own `itemsRef`. */
+  refresh: () => Promise<CartItem[] | null>;
   /** W21 (Codex P1 on #191) — resolves once every in-flight cart write (add / setItemQty) has
    *  settled. The checkout NAVIGATION awaits this: an optimistic add exposes the CartBar instantly,
    *  and racing it to /cart could mint a PaymentIntent that locks the cart BEFORE the add lands —
@@ -378,9 +380,20 @@ export function TableCartProvider({
     }
   }, [cartId, applyView]);
 
-  /** The public shape: consumers re-read, they don't inspect the outcome. */
-  const refresh = useCallback(async () => {
-    await readView();
+  /**
+   * The public re-read. Returns the items it APPLIED, or `null` when the read failed or was
+   * overtaken (Codex round 3 on #251, P2).
+   *
+   * ⚠️ Returning void made this unusable by the one caller that needed it. `AddButton` awaits a
+   * refresh and then reads its own `itemsRef` — a LOCAL ref synced in a passive effect, so inside a
+   * promise chain it still holds the pre-write rows however well the refresh went. Two rapid
+   * decrements from 3 therefore lost the second tap even when the recovery read had cleanly
+   * observed 2. Provider state is not a channel a continuation can read; the value has to come back
+   * out of the call.
+   */
+  const refresh = useCallback(async (): Promise<CartItem[] | null> => {
+    const outcome = await readView();
+    return readIsOurs(outcome) ? itemsRef.current : null;
   }, [readView]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
@@ -675,14 +688,23 @@ export function TableCartProvider({
    * than the sentence, never older.
    */
   const explainCaught = useCallback(
-    async (id: string): Promise<{ fresh: CartItem[] | null; notice: string }> => {
+    async (
+      id: string,
+    ): Promise<{ fresh: CartItem[] | null; viewIsCurrent: boolean; notice: string }> => {
       let fresh: CartItem[] | null = null;
+      // ⚠️ Did the re-read WIN the screen? (Codex round 3 on #251, P1.) `applyView` answers, and
+      // discarding that answer let an OVERTAKEN snapshot be threaded into the next queued write —
+      // rows that may predate the view that beat it. `readView` already makes exactly this
+      // distinction (`readIsOurs`); this helper is the second ticketed read and had not adopted it.
+      let viewIsCurrent = false;
       let refusal;
       let holderIsViewer = false;
       const seq = issueRead(viewSeqRef.current);
       try {
         const v = await getCartView(id);
-        applyView(v, seq);
+        viewIsCurrent = applyView(v, seq);
+        // `fresh` is kept even when overtaken: it is what we OBSERVED, and the refusal it classifies
+        // is a fact about that moment. Only its use as a threadable list is gated, one layer out.
         fresh = v.items;
         holderIsViewer =
           cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
@@ -711,7 +733,7 @@ export function TableCartProvider({
         recoveringRef.current = true;
         revalidate();
       }
-      return { fresh, notice: refusedWriteNotice(refusal, holderIsViewer) };
+      return { fresh, viewIsCurrent, notice: refusedWriteNotice(refusal, holderIsViewer) };
     },
     [applyView, revalidate],
   );
@@ -871,7 +893,7 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
-        const { fresh, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
         // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
         // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
         // on that trailing read with the add already in the cart. Reporting failure there is a lie
@@ -908,6 +930,7 @@ export function TableCartProvider({
           // `full`/`partial` = this dish grew, so the write landed. `none` = the cart was read and
           // this dish did not move, which IS evidence of a refusal. `unknown` = unattributable.
           landed: outcome === null ? null : outcome === "unknown" ? null : outcome !== "none",
+          viewIsCurrent,
         });
         // Only a state that establishes a refusal may publish one — an `unconfirmed` write has not
         // been refused, and saying so is the fabricated-diagnosis class this slice's ancestors
@@ -996,7 +1019,7 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        const { fresh, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
@@ -1010,6 +1033,7 @@ export function TableCartProvider({
         const result = recoveredWrite({
           reread: fresh,
           landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
+          viewIsCurrent,
         });
         if (result.state === "refused") publishRefusal(notice);
         else if (result.state === "unconfirmed") publishUnconfirmed();

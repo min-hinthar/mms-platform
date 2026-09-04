@@ -59,6 +59,41 @@ describe("recoveredWrite — what one recovery re-read establishes", () => {
   });
 });
 
+describe("recoveredWrite — an OVERTAKEN read classifies but must not be threaded", () => {
+  it("keeps the verdict and drops the snapshot", () => {
+    // Codex round 3 on #251 (P1): a ticketed read can come back — establishing perfectly well
+    // whether the write landed — and still lose the screen to a view applied after it was issued.
+    // The classification is a fact about the moment we looked; the rows may predate the winner.
+    expect(recoveredWrite({ reread: VIEW, landed: false, viewIsCurrent: false })).toEqual({
+      state: "refused",
+      view: null,
+    });
+    expect(recoveredWrite({ reread: VIEW, landed: true, viewIsCurrent: false })).toEqual({
+      state: "applied",
+      view: null,
+    });
+  });
+
+  it("an overtaken landing may still be CLAIMED — we saw it land", () => {
+    const r = recoveredWrite({ reread: VIEW, landed: true, viewIsCurrent: false });
+    expect(mayClaimLanding(r)).toBe(true);
+    // ...but there is nothing safe to hand the next queued write.
+    expect(threadableView(r)).toBeNull();
+  });
+
+  it("an overtaken refusal is still a refusal, so it may be retried", () => {
+    const r = recoveredWrite({ reread: VIEW, landed: false, viewIsCurrent: false });
+    expect(mayRetry(r)).toBe(true);
+  });
+
+  it("defaults to current, so an unflagged caller is unaffected", () => {
+    expect(recoveredWrite({ reread: VIEW, landed: false })).toEqual({
+      state: "refused",
+      view: VIEW,
+    });
+  });
+});
+
 describe("mayRetry — only a refusal may be re-sent", () => {
   it("is true for refused alone", () => {
     expect(mayRetry(REFUSED)).toBe(true);

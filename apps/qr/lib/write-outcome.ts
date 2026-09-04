@@ -44,8 +44,11 @@
  * module stays generic so the rule is testable without a cart fixture.
  */
 export type WriteResult<V> =
-  /** It landed, and this is the server's view of the cart with it in. */
-  | { state: "applied"; view: V }
+  /**
+   * It landed. `view` is the server's cart with it in — or `null` when we saw the landing in a read
+   * that was OVERTAKEN, so the observation stands but the snapshot must not be threaded.
+   */
+  | { state: "applied"; view: V | null }
   /** The request left; we cannot see whether it landed. NEVER retry, NEVER claim it, and there is
    *  no view — this is the ONLY state without one. */
   | { state: "unconfirmed" }
@@ -133,19 +136,28 @@ export function unconfirmedWriteNotice(): string {
  * @param landed  did THIS write's effect appear in that re-read? `null` = the re-read succeeded but
  *                could not attribute the change — a concurrent edit to the same dish or row makes
  *                the delta ambiguous, and an ambiguous delta is not evidence either way.
+ * @param viewIsCurrent  did that read WIN the screen (`applyView` accepted it)? Defaults true.
+ *                Pass false for an OVERTAKEN read: what it says about the write is still true, but
+ *                its rows may predate the view that beat it, so they must not be threaded onward.
  */
 export function recoveredWrite<V>(input: {
   reread: V | null;
   landed: boolean | null;
+  viewIsCurrent?: boolean;
 }): WriteResult<V> {
-  const { reread, landed } = input;
+  const { reread, landed, viewIsCurrent = true } = input;
   // No usable read: a response lost after a commit is indistinguishable from a refusal, and the
   // asymmetry above settles which way to be wrong.
   if (reread === null) return { state: "unconfirmed" };
   // Read fine, attribution ambiguous. Before T26 this fell to the refusal arm, so a successful read
   // produced the retry-a-committed-add bug with nothing broken at all.
   if (landed === null) return { state: "unconfirmed" };
-  // Both arms carry the read: it is the current cart either way, and the refusal arm is the one the
-  // caller most needs it on — see the type's note.
-  return landed ? { state: "applied", view: reread } : { state: "refused", view: reread };
+  // ⚠️ WHAT HAPPENED and WHETHER THE SNAPSHOT IS CURRENT ARE TWO QUESTIONS (Codex round 3 on #251,
+  // P1). A ticketed read can come back — establishing perfectly well whether the write landed — and
+  // still be OVERTAKEN, meaning a view applied after it was issued is what the screen holds. The
+  // classification is a fact about the moment we looked and stands either way; the LIST is only safe
+  // to hand onward when it is the one that won. Threading an overtaken snapshot is the same
+  // wrong-absolute-quantity defect as discarding the refusal's view, reached from the other side.
+  const view = viewIsCurrent ? reread : null;
+  return landed ? { state: "applied", view } : { state: "refused", view };
 }

@@ -421,6 +421,14 @@ const MUTANTS = [
     replace: '  return o === "applied";',
   },
   {
+    id: "written/an-overtaken-read-is-threaded-anyway",
+    file: "apps/qr/lib/write-outcome.ts",
+    suite: "lib/write-outcome.test.ts",
+    why: "T26 (Codex round 3 on #251, P1) \u2014 a ticketed read can come back, establish perfectly well whether the write landed, AND still lose the screen to a view applied after it was issued. The verdict is a fact about the moment we looked; the ROWS may predate the winner. Dropping the gate threads that stale snapshot into the next queued write, and `setQty` is ABSOLUTE \u2014 the recovery saw 3, a host set 5, and the next decrement sends 2 instead of 4, silently reverting them. It is the same wrong-number defect as discarding a refusal's view, reached from the opposite side, which is why both directions are pinned",
+    find: "  const view = viewIsCurrent ? reread : null;",
+    replace: "  const view = reread;",
+  },
+  {
     id: "written/a-refused-writes-view-is-discarded",
     file: "apps/qr/lib/write-outcome.ts",
     suite: "lib/write-outcome.test.ts",
