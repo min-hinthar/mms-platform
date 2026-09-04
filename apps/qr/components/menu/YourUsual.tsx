@@ -137,6 +137,15 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // again, and the notice credits dish 1. The dishes before index `i` span both passes, so
           // the unseen among them do too.
           const confirmed = i - unseenCount - unseen;
+          // ⚠️ THIS SENTENCE ASSERTS THE NON-LANDING ON EVERY CAUSE, WHERE `refusedWriteNotice`
+          // HEDGES ON `unknown` — and the asymmetry is load-bearing, not an oversight (blind
+          // adversarial pass on this PR). That hedge exists for `setItemQty`, whose evidence is one
+          // absolute-value comparison a concurrent host write can forge into a false negative. THIS
+          // loop only ever calls `add`, and `add` reaches `refused` only through
+          // `classifyAddLanding`'s `none` — nothing of the dish grew AND nothing shrank — while a
+          // contested dish answers `unknown` there and routes to `unconfirmed`, which `mayRetry`
+          // filters out above. So on this path the verdict is established and stating it is honest.
+          //
           // ⚠️ BOTH JOINERS ARE FORCED BY THE CLAUSE, not cosmetic (T32). The appended fragment is
           // lowercase and period-free, so the sentence must supply its own em-dash and full stop —
           // and the landed prefix must end in a PERIOD, because keeping its em-dash would put two in

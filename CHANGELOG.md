@@ -26,13 +26,25 @@ Both joiner changes in `YourUsual` are forced, not cosmetic: the clause is lower
 so the sentence supplies its own em-dash and stop, and the landed prefix ends in a PERIOD because
 keeping its em-dash would put two in one sentence.
 
-**Two things that rode along, and neither is a tidy-up.** `unknown` stops opening with the
-_unconfirmed_ vocabulary — the two were byte-identical openers for opposite epistemic states, so a
-diner could not tell "we know it failed" from "we don't know". `git log -S` dates the hedge to when
-`refused` still meant both "refused" and "committed but unseen"; #251 split those apart and left the
-copy behind. And attribution moved from a caller-supplied `viewerHoldsLock` parameter to
-`refusal.freeze === "self"` — one fact, computed once, with the duplicated `cartFreeze` call in
-`explainCaught` deleted.
+**A draft flipped `unknown` to the assertive opener, and the blind pass reversed it — the reversal is
+the more useful record.** The argument for flipping was that #251 made `refused` mean "the re-read
+SUCCEEDED and the write was not in it", so a non-landing is positively established. That is true of
+the STATE and false of one PATH. `add` establishes it by attributed growth, and a contested dish
+answers `classifyAddLanding`'s own `unknown` → `unconfirmed`, so it never reaches the sentence.
+`setItemQty` establishes it by comparing ONE absolute value: `setQty` is absolute, so no peer write
+can forge a LANDING, but an authorized host setting the same line inside the round trip forges a
+NON-landing — our 3 commits, the re-read reads the host's 5, and `line?.qty === qty` says it failed.
+That case carries no lock and is not settling, so it lands exactly on `unknown`. The hedge therefore
+stays on that arm and only that arm; `frozen` and `settling` keep the assertive opener, because the
+server states those and the cart is demonstrably inert in the re-read. Sharing an opener with
+`unconfirmedWriteNotice()` is no longer a collision but two degrees of one uncertainty, and the
+CLAUSES separate them. `YourUsual` still asserts the verdict on every cause, justified in-file: it
+only ever calls `add`. The state itself is still wrong (`mayRetry` calls a landed write re-sendable)
+and is filed as **T41** with the trade-off that makes it a slice of its own — `unconfirmed` carries
+no view by construction, so the source-level fix hands `AddButton`'s queue back to its own snapshot.
+
+Attribution also moved from a caller-supplied `viewerHoldsLock` parameter to `refusal.freeze ===
+"self"` — one fact, computed once, with the duplicated `cartFreeze` call in `explainCaught` deleted.
 
 **T30 — a sentence computed on every unreachable write and discarded on every one.** Verified
 unreachable by AST, and unreachable _everywhere_: the only producer is `explainCaught`'s catch, that
@@ -64,17 +76,19 @@ One of the new mutants exists for an evasion no matcher can see:
 nothing importable and shipping the exact defect. Only comparing the announced string against the
 producer's real output catches it.
 
-**Eight rows filed** (T33–T40), one of them **high**: the composed sentence is erased by the
+**Nine rows filed** (T33–T41), one **high** and one **medium**: the composed sentence is erased by the
 lock/settle banner in the same tick, on exactly the taps that produce it — the diagnosing re-read is
 the read that flips `locked`, and both transition effects defer into the same single slot. This PR
 made the sentence correct; it did not make it readable.
 
-Also corrected: a count I wrote in #252 (`check-child-freeze`'s "seven `refusal/*` mutants" — eight
-then, eleven now) is replaced by a claim that does not rot, and `YourUsual.test.tsx`'s docblock said
-the producer emits "exactly four sentences" when it emits five — a number transcribed into prose in
-the file written to stop a string being transcribed.
+Also corrected: two counts written into prose in #252 — `check-child-freeze`'s "seven `refusal/*`
+mutants" (eight then, eleven now) and `YourUsual.test.tsx`'s claim about how many distinct sentences
+the producer emits. The second is the sharper lesson, because **the first attempt to correct it was
+also wrong**: the measurement was taken against the pre-T30 producer, and this PR retires an arm, so
+the number changed under the correction inside the same diff. Both are now replaced by claims that do
+not rot. A count of another module's outputs does not belong in prose at all.
 
-`T30` · `T31` · `T32` closed. 1304 qr tests + 138 ui tests, 301 mutants at merge.
+`T30` · `T31` · `T32` closed. 1305 qr tests + 138 ui tests, 303 mutants at merge.
 
 ### A `.tsx` can be tested at all, and the /menu freeze wiring is the first thing pinned by it (2026-09-04)
 

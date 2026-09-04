@@ -179,10 +179,7 @@ const CLAUSE = {
   settling: refusedWriteClause(REFUSAL.settling),
 };
 /** What the TOAST says — the same classification, rendered as a whole sentence. */
-const NOTICE = {
-  peerLock: refusedWriteNotice(REFUSAL.peerLock),
-  settling: refusedWriteNotice(REFUSAL.settling),
-};
+const NOTICE = { peerLock: refusedWriteNotice(REFUSAL.peerLock) };
 
 /**
  * Exposes the context to the test without pulling in AddButton or ItemSheet.
@@ -249,17 +246,21 @@ describe("a refused write is explained from a READ, never guessed", () => {
     const result = await ctl.add(ITEM);
 
     expect(result.state).toBe("refused");
-    // ⚠️ ASSERTED ON THE PUBLISHED REFUSAL, NOT ON THE REGION'S FINAL TEXT. The applied view turns
+    // ⚠️ ASSERTED ON `lastRefusalClause()`, NOT ON THE REGION'S FINAL TEXT. The applied view turns
     // `locked` true, and the freeze announcement then lands in the SAME single slot — so a test
     // reading only the region would pass with `publishRefusal` deleted entirely. This is the value
     // `publishRefusal` alone writes, and the value `YourUsual` carries into its own copy.
     await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
     // ⚠️ T32's BOUNDARY GUARD. The latch must carry the FRAGMENT, never the finished sentence —
     // `YourUsual` composes it into a sentence of its own that already opens with the same verdict,
-    // so handing over the whole notice is what made the diner hear it twice. This assertion is what
-    // fails if the two renderings are ever swapped back.
-    expect(ctl.lastRefusalClause()).not.toBe(NOTICE.peerLock);
-    expect(NOTICE.peerLock).toContain(CLAUSE.peerLock);
+    // so handing over the whole notice is what made the diner hear it twice.
+    //
+    // Asserted as "does not carry the sentence's OPENER", not as `not.toBe(NOTICE)`: the latter is
+    // already implied by the `toBe(CLAUSE)` above, since a notice is by construction the clause plus
+    // a prefix and can never equal it — an assertion that cannot fail for any implementation (blind
+    // pass on #254). The opener test DOES fail the moment the sentence is latched instead.
+    expect(ctl.lastRefusalClause()?.startsWith("That didn’t go through")).toBe(false);
+    expect(NOTICE.peerLock.startsWith("That didn’t go through")).toBe(true);
     // The two arms this must NOT be: the re-mint vocabulary, and the settle freeze's clause.
     expect(ctl.lastRefusalClause()).not.toMatch(/[Rr]econnect/);
     expect(ctl.lastRefusalClause()).not.toBe(CLAUSE.settling);
@@ -420,7 +421,7 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     // caller back to a stale local snapshot, and `setQty` is ABSOLUTE, so a stale baseline writes a
     // WRONG NUMBER over a concurrent host edit rather than losing a tap (Codex round 2 on #251).
     expect(threadableView(result)).toEqual([line(3)]);
-    // ⚠️ ON `lastRefusalNotice`, NOT ON THE REGION. `publishRefusal` is this value's ONLY writer, so
+    // ⚠️ ON `lastRefusalClause`, NOT ON THE REGION. `publishRefusal` is this value's ONLY writer, so
     // this reddens if the stepper's refusal publication is deleted — which a region assertion does
     // not, because the lock-transition announcement lands in the same slot from another effect.
     await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));

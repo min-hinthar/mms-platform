@@ -65,9 +65,11 @@ const REFUSED: WriteResult<CartItem[]> = { state: "refused", view: [] };
  * `refusedWriteNotice` can emit. Asserting a composition around a string no producer emits proves
  * nothing about the composition — and it hid what the real one reads like.
  *
- * (That note also said the producer emits "exactly four sentences". It emits FIVE — the frozen arm
- * yields two, one per attribution. A count transcribed into prose, in the file written to stop a
- * string being transcribed. Measured, not counted by eye.)
+ * (That note also stated a COUNT of the producer's distinct sentences. It was wrong; so was the
+ * correction the first draft of THIS comment made, because the count changed under it — T30 retired
+ * an arm in the same PR. The lesson is not "measure harder", it is that a count of another module's
+ * outputs does not belong in prose at all: it is a fact with a half-life, in the file written to
+ * stop facts being transcribed. What matters is the RULE, and the rule is asserted below.)
  *
  * ⚠️ THE STUTTER IT EXPOSED IS FIXED (T32, this PR). `YourUsual` used to append the whole notice to
  * a sentence of its own that already opened the same way, so the diner heard the verdict twice; the
@@ -80,8 +82,7 @@ const REFUSAL_PEER = classifyRefusedWrite({
   freeze: { locked: true, lockedBy: "seat-peer", mySeat: "seat-me" },
   settling: false,
 });
-const LOCK_NOTICE = refusedWriteNotice(REFUSAL_PEER);
-/** What the provider now latches, and what the card appends: a fragment. */
+/** What the card appends since T32: a fragment, never the finished sentence. */
 const LOCK_CLAUSE = refusedWriteClause(REFUSAL_PEER);
 
 // Typed mocks, not `ReturnType<typeof vi.fn>` — an untyped mock assigned into the fixture is an
@@ -156,10 +157,17 @@ describe("YourUsual — a partial add names only what it saw land", () => {
     // The PAIR is what makes the prohibition below meaningful: without a positive, "never embed the
     // whole sentence" is satisfied by announcing nothing at all.
     expect(announce.mock.lastCall?.[0]).toContain(LOCK_CLAUSE);
-    // ⚠️ T32's FAILING START — RED at HEAD, deliberately. The card must never embed the provider's
-    // whole SENTENCE inside its own, because every freeze arm of `refusedWriteNotice` already opens
-    // with "That didn't go through — ". Today it does exactly that, so the diner hears the verdict
-    // twice. Paired with a positive below so the rule is not satisfied by announcing nothing.
+    // ⚠️ T32's RULE: the card must never embed the provider's whole SENTENCE inside its own, because
+    // every freeze arm of `refusedWriteNotice` opens with "That didn't go through — " and the card's
+    // sentence opens the same way — so embedding it made the diner hear the verdict twice.
+    //
+    // This assertion was written BEFORE the fix and watched failing at `edfe402` with
+    // "expected 'Tea Leaf Salad didn’t go through. Tha…' not to contain 'That didn’t go through — …'"
+    // — the prohibition itself, not a rename or a missing symbol. It is written in the past tense
+    // because at merge it passes; a present-tense "today it does exactly that" would be a false
+    // claim about the shipped code, which is LEARNINGS #78 applied to this very comment.
+    //
+    // Paired with the positive above so the rule is not satisfied by announcing nothing at all.
     expect(announce.mock.lastCall?.[0]).not.toContain(refusedWriteNotice(REFUSAL_PEER));
     // The established cause is carried verbatim; this component must never author its own.
     expect(announce.mock.lastCall?.[0]).not.toMatch(/Added Mohinga/);

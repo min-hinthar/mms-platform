@@ -14,6 +14,7 @@ import {
   visibleFreeze,
 } from "./cart-freeze";
 import { inertReason } from "./inert-reason";
+import { unconfirmedWriteNotice } from "./write-outcome";
 
 /**
  * J4 (residual) — the defect is an ASYMMETRY, so the tests are written as a comparison against the
@@ -422,24 +423,47 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     }
   });
 
-  it("`unknown` claims no CAUSE — but it does not hedge the VERDICT, and must not borrow the unconfirmed opener", () => {
-    // ⚠️ THIS ASSERTION FLIPPED, deliberately, and the dating is the argument. The old copy opened
-    // "We couldn’t confirm that", with a comment reasoning that a commit-then-read action can reject
-    // AFTER the write landed. True when it was written (#248) — `refused` then meant both "refused"
-    // and "committed but unseen". #251 split those apart: `refused` is now returned only when the
-    // re-read SUCCEEDED and the write was not in it, so a non-landing is positively established, and
-    // the ambiguous case routes to `unconfirmed` instead. The hedge outlived its reason.
+  it("`unknown` claims no CAUSE and does not assert the VERDICT either — it is the one forgeable arm", () => {
+    // ⚠️ A DRAFT OF THIS PR FLIPPED THIS TO "That didn’t go through" AND IT WAS WRONG (blind
+    // adversarial pass). The reasoning was that #251 made `refused` mean "the re-read SUCCEEDED and
+    // the write was not in it", so a non-landing is positively established. That holds for the STATE
+    // and not for one PATH: `setItemQty` establishes it by comparing ONE absolute value
+    // (`line?.qty === qty`), and an authorized host setting the same line inside the round trip
+    // forges a false NEGATIVE — our write commits, the re-read reads the host's number, and the
+    // comparison says it did not land. The cart carries no lock and is not settling, so it arrives
+    // exactly here. `add` has no such hole: `classifyAddLanding` answers its own `unknown` for a
+    // contested dish and that routes to `unconfirmed`, never to this sentence.
     //
-    // It also COLLIDED: `unconfirmedWriteNotice()` opens with the same six words for the OPPOSITE
-    // epistemic state, so a diner could not tell "we know it failed" from "we don't know". That is
-    // what this forbids — the two vocabularies must stay distinguishable.
+    // So the hedge stays on THIS arm and only this arm. Sharing the opener with
+    // `unconfirmedWriteNotice()` is now correct rather than a collision — the two are degrees of one
+    // uncertainty, and the CLAUSES separate them (asserted below).
     const notice = refusedWriteNotice({ cause: "unknown" }).toLowerCase();
     for (const forbidden of ["lock", "checking out", "reconnect", "splitting", "session"]) {
       expect(notice).not.toContain(forbidden);
     }
-    expect(notice).not.toContain("couldn’t confirm");
-    expect(notice).toContain("didn’t go through");
-    expect(notice.length).toBeGreaterThan(0);
+    expect(notice).toContain("couldn’t confirm");
+    expect(notice).not.toContain("didn’t go through");
+    // The two hedged sentences must still be TELLABLE APART, or the split buys nothing: this one is
+    // reached through a re-read that succeeded and is already on screen, the other may hold no
+    // current view at all. Compared as whole strings, so a future edit that collapses either into
+    // the other reddens here rather than shipping one sentence for two states.
+    expect(refusedWriteNotice({ cause: "unknown" })).not.toBe(unconfirmedWriteNotice());
+  });
+
+  it("the ASSERTIVE opener is kept for the arms a server statement stands behind", () => {
+    // `frozen` and `settling` are not inferred from a value comparison — the cart is demonstrably
+    // inert in a re-read the caller applied, and `cart.ts` refuses on both in a statement of its own.
+    // Hedging those would under-report a refusal the server actually made. This is the other half of
+    // the rule above; without it, "hedge everything" passes.
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "frozen", freeze: "self" },
+      { cause: "frozen", freeze: "held" },
+      { cause: "settling" },
+    ] as const) {
+      expect(refusedWriteNotice(refusal)).toContain("That didn’t go through");
+      expect(refusedWriteNotice(refusal)).not.toContain("couldn’t confirm");
+    }
   });
 
   it("the CLAUSE is a fragment, never a sentence — this is T32's rule at its source", () => {
@@ -456,6 +480,12 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
       { cause: "unknown" },
     ] as const) {
       const clause = refusedWriteClause(refusal);
+      // ⚠️ NON-EMPTY FIRST, and the blind pass on #254 is why: every predicate below is VACUOUS on
+      // "". `""[0]` is undefined so the case test is `undefined === undefined`; `"".endsWith(".")` is
+      // false; `""` contains nothing. Deleting an arm's clause outright would have passed all three,
+      // and the diner would hear "That didn’t go through — ." The split into two producers is what
+      // newly created that hole — the old single function's non-empty test covered the whole string.
+      expect(clause.length).toBeGreaterThan(0);
       expect(clause[0]).toBe(clause[0]?.toLowerCase());
       expect(clause.endsWith(".")).toBe(false);
       expect(clause).not.toContain("didn’t go through");
@@ -474,9 +504,12 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
       { cause: "settling" },
       { cause: "unknown" },
     ] as const) {
-      expect(refusedWriteNotice(refusal)).toBe(
-        `That didn’t go through — ${refusedWriteClause(refusal)}.`,
-      );
+      // The OPENER is per cause and the CLAUSE is the shared template — so the expectation names the
+      // opener explicitly (it is a rule of its own, pinned by the two tests above) and requires the
+      // rest to be this function's clause verbatim. A fork that re-derives any arm's text reddens.
+      const opener =
+        refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+      expect(refusedWriteNotice(refusal)).toBe(`${opener} — ${refusedWriteClause(refusal)}.`);
     }
   });
 
@@ -486,12 +519,12 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     // named. `refusal.freeze` carries it, and only "self" means the viewer.
     expect(refusedWriteClause({ cause: "frozen", freeze: "self" })).toContain("you check out");
     expect(refusedWriteClause({ cause: "frozen", freeze: "peer" })).toContain("someone checks out");
-    // ⚠️ `held` COLLAPSES ONTO `peer`, and that is pre-existing, not introduced here: `inertReason`
-    // has one non-self lock clause. It is asserted rather than left implicit so the collapse is a
-    // decision on the record — filed as a nice-to-do, since "someone" is true of a held lock too.
-    expect(refusedWriteClause({ cause: "frozen", freeze: "held" })).toBe(
-      refusedWriteClause({ cause: "frozen", freeze: "peer" }),
-    );
+    // ⚠️ `held` COLLAPSES ONTO `peer` — pre-existing, since `inertReason` has one non-self lock
+    // clause. Asserted against the VALUE, not against `refusedWriteClause({freeze:"peer"})`: both
+    // calls reduce to `"..." !== "self"`, so comparing them cannot fail for ANY implementation and
+    // would be decorative today and an obstacle when T37 gives `held` its own clause (blind pass on
+    // #254). Pinning the value states the collapse AND fails if the non-self clause changes.
+    expect(refusedWriteClause({ cause: "frozen", freeze: "held" })).toContain("someone checks out");
   });
 
   it("every arm returns a non-empty sentence", () => {

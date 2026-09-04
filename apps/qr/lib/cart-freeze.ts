@@ -459,19 +459,39 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
  * ONE template over ONE clause. The prefix is an observation and the clause is current state, so
  * nothing here claims the freeze CAUSED the refusal — which one re-read cannot establish.
  *
- * ⚠️ THE `unknown` ARM NOW SAYS "That didn't go through" LIKE THE REST, and that is a behavioural
- * change, not a tidy-up. It used to open "We couldn’t confirm that", which is the OPPOSITE claim and
- * the one `unconfirmedWriteNotice()` still makes — the two were byte-identical openers for two
- * opposite epistemic states, so a diner could not tell "we know it failed" from "we don't know".
+ * ⚠️ THE OPENER IS PER CAUSE, BECAUSE THE EVIDENCE FOR A NON-LANDING IS NOT THE SAME ON EVERY ARM
+ * (blind adversarial pass on this PR). A draft of T32 flipped `unknown` to "That didn’t go through"
+ * alongside the rest, reasoning that `refused` is now returned only when the re-read SUCCEEDED and
+ * the write was not in it. That is true of the STATE and false of one PATH:
  *
- * The hedge is a leftover: it entered when `refused` still meant both "refused" and "committed but
- * unseen", and #251 split those apart without updating the copy. Today `refused` is returned only
- * when the re-read SUCCEEDED and the write was not in it (`write-outcome.ts`), so a non-landing is
- * positively established — and on the add path a concurrent same-dish edit routes to `unknown` →
- * `unconfirmed` rather than here, so the ambiguous case never reaches this sentence.
+ *   • `add` establishes a non-landing by ATTRIBUTED GROWTH — `classifyAddLanding` answers `unknown`
+ *     whenever two lines of the dish grew or one shrank, and `TableCartProvider` maps that to
+ *     `landed: null` → `unconfirmed`. So a concurrent same-dish edit never reaches this sentence, and
+ *     `none` really does mean the dish did not move.
+ *   • `setItemQty` establishes it by comparing ONE ABSOLUTE VALUE — `line?.qty === qty`. A peer write
+ *     cannot forge a landing that way, but it can forge a NON-landing: our set to 3 commits, an
+ *     authorized host sets the same line to 5 inside the round trip, the re-read reads 5, and the
+ *     comparison answers false for a write that landed. Nothing on that path can tell the two apart,
+ *     and the cart carries no lock or settle to explain it — so it arrives here as `unknown`.
+ *
+ * `frozen` and `settling` keep the assertive opener: they are causes the server states, reached
+ * through a cart that is demonstrably inert. `unknown` is the arm with no such witness, so it keeps
+ * the hedge — which is also the only sentence that is true on BOTH readings of it.
+ *
+ * That leaves the opener shared with `unconfirmedWriteNotice()`, and deliberately: the two are no
+ * longer opposite claims, they are two degrees of the same uncertainty, and the CLAUSES separate
+ * them — "check your order below" where we may hold no current view, "the order below is up to date"
+ * where the re-read succeeded and is on screen. Giving `setItemQty` a real `unknown` arm is the
+ * source-level fix and is filed as OPEN-ITEMS **T41**; it is not free (an `unconfirmed` result
+ * carries no view, so it would hand `AddButton`’s queue back to its own snapshot) and belongs in a
+ * slice that can mutate the trade-off, not in the sentence.
  */
 export function refusedWriteNotice(refusal: PublishableRefusal): string {
-  return `That didn’t go through — ${refusedWriteClause(refusal)}.`;
+  // The hedge is CAUSE-BOUND, not path-bound, because the sentence has no path to read. `unknown` is
+  // the only cause `setItemQty`’s forgeable comparison can produce with no lock or settle behind it.
+  const opener =
+    refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+  return `${opener} — ${refusedWriteClause(refusal)}.`;
 }
 
 /**

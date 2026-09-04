@@ -34,6 +34,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { envFailures } from "./check-test-env.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -627,9 +628,17 @@ const MUTANTS = [
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
     why: "T32 \u2014 the whole slice in one line. The notice must be ONE template over the clause, because a second caller (`YourUsual`) appends the clause into a sentence of its own; the moment the notice re-derives its own text, the two renderings can drift and the diner hears one verdict twice. The replacement is the per-arm switch that shipped before this PR",
-    find: "  return `That didn\u2019t go through \u2014 ${refusedWriteClause(refusal)}.`;",
+    find: "  return `${opener} \u2014 ${refusedWriteClause(refusal)}.`;",
     replace:
-      '  return refusal.cause === "frozen" ? "That didn\u2019t go through \u2014 the order\u2019s locked while someone checks out." : `That didn\u2019t go through \u2014 ${refusedWriteClause(refusal)}.`;',
+      '  return refusal.cause === "frozen" ? "That didn\u2019t go through \u2014 the order\u2019s locked while someone checks out." : `${opener} \u2014 ${refusedWriteClause(refusal)}.`;',
+  },
+  {
+    id: "refusal/unknown-borrows-the-assertive-opener",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "The blind adversarial pass on this PR reversed a draft that made this exact edit. `refused` means the re-read succeeded and the write was not in it \u2014 true of the STATE, false of `setItemQty`'s PATH, which establishes it by comparing ONE absolute value (`line?.qty === qty`) that an authorized host writing the same line inside the round trip forges into a false negative. That case carries no lock and no settle, so it lands on `unknown` \u2014 the one arm with no server statement behind it, and the only one that may not assert the verdict",
+    find: '  const opener = refusal.cause === "unknown" ? "We couldn\u2019t confirm that" : "That didn\u2019t go through";',
+    replace: '  const opener = "That didn\u2019t go through";',
   },
   {
     id: "refusal/clause-ships-a-whole-sentence",
@@ -735,10 +744,18 @@ const MUTANTS = [
     id: "refusal/qty-refusal-goes-unpublished",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING. Its test asserted the live region matched a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot, so deleting this publish reddened nothing. \u26a0\ufe0f THE ANCHOR IS WIDENED INTO `setItemQty`'s OWN `landed:` LINE on purpose: the publish pair is textually identical in both writers, and its uniqueness rested only on `add` having an interleaved comment \u2014 a mutant whose targeting depends on a COMMENT is one edit from silently aiming at the wrong function",
-    find: '          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,\n          viewIsCurrent,\n        });\n        if (result.state === "refused" && refusal) publishRefusal(refusal);',
+    why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING: its test asserted a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot. \u26a0\ufe0f THE FIND SPANS THE WHOLE if/else PAIR, and the #254 blind pass is why: the first draft cut only the `if`, leaving `});` followed by a bare `else` \u2014 a SyntaxError. `suitePasses` is an exit-code check, so a file that will not PARSE reddens the suite and scores `caught` while proving nothing. A mutation must remain valid code or it measures the parser",
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
     replace:
-      "          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,\n          viewIsCurrent,\n        });",
+      '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+  },
+  {
+    id: "refusal/add-refusal-goes-unpublished",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "The SIBLING the #252 retarget left uncovered, found by the #254 blind pass. `add`'s publish fork is textually identical to `setItemQty`'s, so one anchor could never cover both \u2014 and after the retarget NEITHER was covered, on the exact line whose own note says the stepper's refusal had been pinned by nothing. This one is anchored through `add`'s interleaved comment, which is what makes it unique; the sibling spans its own if/else pair instead",
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        // The optimistic "Added to your order" is still on screen; retract it rather than let an\n        // outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed();',
+    replace: '        if (result.state === "unconfirmed") publishUnconfirmed();',
   },
   {
     id: "refusal/qty-landing-becomes-a-presence-test",
@@ -2763,6 +2780,29 @@ console.log(c.green(`green (${suites.length} suite${suites.length === 1 ? "" : "
 console.log(c.bold(`\nmutating (${targets.length}) — each must turn its suite RED\n`));
 const survived = [];
 const stale = [];
+const unparseable = [];
+
+/**
+ * Does the mutated source still PARSE?
+ *
+ * ⚠️ ADDED BY THE BLIND ADVERSARIAL PASS ON #254 (CRITICAL), and the defect it caught is the reason
+ * this exists rather than a style note. A retargeted mutant cut the `if` out of an `if/else` pair,
+ * leaving a bare `else` — a SyntaxError. `suitePasses` is an exit-code check, so a file that will not
+ * parse reddens EVERY test in its suite, the mutant scores `caught`, and the operator reads green.
+ *
+ * A mutation that does not parse measures the PARSER, not the guard. It is scored `caught` for a
+ * reason that has nothing to do with the proposition it exists to prove, and the assertion it was
+ * written to protect is left unproven while looking proven — the exact class this whole script is
+ * built to refuse, arriving through the script itself.
+ *
+ * `typescript` is already a dependency and its parser reports syntactic diagnostics without a
+ * program or a typecheck, so this costs milliseconds per mutant.
+ */
+const parses = (rel, code) => {
+  const kind = rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(rel, code, ts.ScriptTarget.Latest, true, kind);
+  return sf.parseDiagnostics.length === 0;
+};
 try {
   for (const m of targets) {
     const abs = path.join(ROOT, m.file);
@@ -2777,7 +2817,16 @@ try {
       );
       continue;
     }
-    writeFileSync(abs, src.replace(m.find, m.replace));
+    const mutated = src.replace(m.find, m.replace);
+    if (!parses(m.file, mutated)) {
+      // Not a pass and not a failure of the CODE — a failure of the MUTATION. See `parses` above.
+      unparseable.push(m);
+      console.log(
+        `  ${c.red("UNPARSEABLE")}  ${m.id} ${c.dim("— the mutated file does not parse; it would score `caught` off a SyntaxError")}`,
+      );
+      continue;
+    }
+    writeFileSync(abs, mutated);
     const caught = !suitePasses(m.suite);
     writeFileSync(abs, src);
     if (caught) {
@@ -2873,7 +2922,8 @@ for (const o of orphans)
 for (const b of badPragma) console.log(`  ${c.red("environment")} ${b}`);
 
 // ── verdict ───────────────────────────────────────────────────────────────────────────────────────
-const failed = survived.length + stale.length + orphans.length + badPragma.length;
+const failed =
+  survived.length + stale.length + unparseable.length + orphans.length + badPragma.length;
 if (failed === 0) {
   console.log(
     c.green(c.bold(`\n✓ verify:slice passed — ${targets.length} mutants caught, no orphans\n`)),
@@ -2891,6 +2941,17 @@ if (survived.length) {
         "  Usually the fixture is DEGENERATE — two code paths produce the same numbers on it.\n",
       ) +
       c.dim("  Find inputs that separate them (search numerically), don't just add assertions.\n"),
+  );
+}
+if (unparseable.length) {
+  console.log(
+    c.red(`  ${unparseable.length} mutant(s) UNPARSEABLE — the mutation, not the code, is broken:`),
+  );
+  for (const m of unparseable) console.log(`    · ${m.id} (${m.file})`);
+  console.log(
+    c.dim(
+      "\n  A mutation must remain valid code. One that does not parse reddens its whole suite for a\n",
+    ) + c.dim("  reason unrelated to the rule, so it scores `caught` while proving nothing.\n"),
   );
 }
 if (stale.length) {

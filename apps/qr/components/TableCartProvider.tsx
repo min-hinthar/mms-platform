@@ -309,10 +309,19 @@ export function TableCartProvider({
   const viewSeqRef = useRef<ViewSeq>(newViewSeq());
 
   const freezeRef = useRef<FreezeInput>({ locked: false, lockedBy: null, mySeat: null });
-  /** The last sentence `explainCaught` published. A caller that announces its OWN outcome after a
-   *  refused write (`YourUsual`'s partial-add message) must be able to keep the established cause
-   *  instead of overwriting it — `flash` is a single slot, so the later call wins. Read through a
-   *  ref because the caller reads it in the same tick the refusal was published. */
+  /** The CLAUSE from the last refusal `publishRefusal` published, or null.
+   *
+   *  A caller that announces its OWN outcome after a refused write (`YourUsual`'s partial-add
+   *  message) must be able to keep the established cause instead of overwriting it — `flash` is a
+   *  single slot, so the later call wins. Read through a ref because the caller reads it in the same
+   *  tick the refusal was published, before React has re-rendered.
+   *
+   *  ⚠️ A CLAUSE, NOT A SENTENCE (T32), and written by `publishRefusal`, NOT by `explainCaught` —
+   *  both of which this docblock got wrong before. The consumer composes it into a sentence of its
+   *  own, so a finished sentence here made the diner hear the verdict twice.
+   *
+   *  ⚠️ CLEARED at the top of every write by `forgetRefusal` (T31), so a cause cannot outlive the
+   *  write it explains. */
   const lastRefusalRef = useRef<string | null>(null);
   const settlingRef = useRef(false);
 
@@ -707,7 +716,7 @@ export function TableCartProvider({
    * same server truth), and re-mints ONLY on the arm where the re-read itself failed.
    *
    * The re-read is TICKETED like the other two, so a view issued after it still wins the render. The
-   * sentence is unaffected: `refusal`, `holderIsViewer` and `fresh` are all read off `v` directly, and
+   * sentence is unaffected: `refusal` and `fresh` are both read off `v` directly, and
    * they describe why THIS write was refused — a fact about the moment it was diagnosed, which a
    * later view does not revise. Being overtaken can only mean the list beside the sentence is newer
    * than the sentence, never older.
@@ -1118,10 +1127,20 @@ export function TableCartProvider({
         // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
         // when the tap was a remove. Only a genuine non-landing is announced.
         //
-        // ⚠️ `setQty` IS ABSOLUTE, NOT A DELTA, so the re-read settles it exactly: the line sits at
-        // `qty`, or is gone when the tap was a remove. That is a stronger attribution than `add`'s
-        // — no peer write can forge it — so there is no `unknown` arm on a successful read here,
-        // and `landed` is never null when `fresh` is non-null.
+        // ⚠️ THE ATTRIBUTION IS ONE-SIDED, AND THE OLD NOTE HERE CLAIMED IT BOTH WAYS (blind
+        // adversarial pass on this PR). `setQty` is absolute, so no peer write can forge a LANDING:
+        // the line reads `qty` only if something set it there. It can absolutely forge a
+        // NON-landing — our set to 3 commits, an authorized host sets the same line to 5 inside the
+        // round trip, and `line?.qty === qty` answers false for a write that landed. There is
+        // therefore no `unknown` arm here not because the evidence is stronger than `add`'s, but
+        // because this path has no third value to return; `add` reaches `unconfirmed` through
+        // `classifyAddLanding`'s own `unknown`, and this one cannot.
+        //
+        // What that costs is bounded to the SENTENCE, not the retry: a superseded set is reported
+        // `refused`, and `refusedWriteNotice` keeps the hedged opener for exactly the `unknown`
+        // cause it arrives under (`cart-freeze.ts`). Giving this path a real `unknown` arm is
+        // OPEN-ITEMS T41 — it trades a hedged sentence for a lost view, which is the wrong way round
+        // until a slice can mutate the trade-off.
         const line = fresh?.find((i) => i.id === cartItemId);
         const result = recoveredWrite({
           reread: fresh,
