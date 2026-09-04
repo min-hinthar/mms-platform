@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
-import { classifyRefusedWrite, refusedWriteNotice } from "@/lib/cart-freeze";
+import { classifyRefusedWrite, refusedWriteClause, refusedWriteNotice } from "@/lib/cart-freeze";
 import { mayClaimLanding, mayRetry, threadableView } from "@/lib/write-outcome";
 import type { WriteResult } from "@/lib/write-outcome";
 
@@ -160,23 +160,28 @@ const LOCKED_BY_PEER = view({ locked: true, lockedBy: PEER_SEAT });
  * class of mistake impossible, and is the repo's "never transcribe a value into an assertion" rule
  * applied to copy.
  */
+const REFUSAL = {
+  peerLock: classifyRefusedWrite({
+    ok: true,
+    freeze: { locked: true, lockedBy: PEER_SEAT, mySeat: MY_SEAT },
+    settling: false,
+  }),
+  settling: classifyRefusedWrite({
+    ok: true,
+    freeze: { locked: false, lockedBy: null, mySeat: MY_SEAT },
+    settling: true,
+  }),
+} as const;
+
+/** What the LATCH holds — a fragment, since T32. */
+const CLAUSE = {
+  peerLock: refusedWriteClause(REFUSAL.peerLock),
+  settling: refusedWriteClause(REFUSAL.settling),
+};
+/** What the TOAST says — the same classification, rendered as a whole sentence. */
 const NOTICE = {
-  peerLock: refusedWriteNotice(
-    classifyRefusedWrite({
-      ok: true,
-      freeze: { locked: true, lockedBy: PEER_SEAT, mySeat: MY_SEAT },
-      settling: false,
-    }),
-    false,
-  ),
-  settling: refusedWriteNotice(
-    classifyRefusedWrite({
-      ok: true,
-      freeze: { locked: false, lockedBy: null, mySeat: MY_SEAT },
-      settling: true,
-    }),
-    false,
-  ),
+  peerLock: refusedWriteNotice(REFUSAL.peerLock),
+  settling: refusedWriteNotice(REFUSAL.settling),
 };
 
 /**
@@ -248,10 +253,16 @@ describe("a refused write is explained from a READ, never guessed", () => {
     // `locked` true, and the freeze announcement then lands in the SAME single slot — so a test
     // reading only the region would pass with `publishRefusal` deleted entirely. This is the value
     // `publishRefusal` alone writes, and the value `YourUsual` carries into its own copy.
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
-    // The two arms this must NOT be: the re-mint sentence, and the settle freeze's clause.
-    expect(ctl.lastRefusalNotice()).not.toMatch(/[Rr]econnect/);
-    expect(ctl.lastRefusalNotice()).not.toBe(NOTICE.settling);
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
+    // ⚠️ T32's BOUNDARY GUARD. The latch must carry the FRAGMENT, never the finished sentence —
+    // `YourUsual` composes it into a sentence of its own that already opens with the same verdict,
+    // so handing over the whole notice is what made the diner hear it twice. This assertion is what
+    // fails if the two renderings are ever swapped back.
+    expect(ctl.lastRefusalClause()).not.toBe(NOTICE.peerLock);
+    expect(NOTICE.peerLock).toContain(CLAUSE.peerLock);
+    // The two arms this must NOT be: the re-mint vocabulary, and the settle freeze's clause.
+    expect(ctl.lastRefusalClause()).not.toMatch(/[Rr]econnect/);
+    expect(ctl.lastRefusalClause()).not.toBe(CLAUSE.settling);
     // The one arm that may re-mint is the arm that could not read the cart at all.
     expect(h.revalidate).not.toHaveBeenCalled();
   });
@@ -278,8 +289,8 @@ describe("a refused write is explained from a READ, never guessed", () => {
     expect(result.state).toBe("refused");
     // The settle freeze has its OWN clause, and `classifyRefusedWrite` tests it FIRST to match
     // `inertReason`'s precedence — one cart must never get two freezes with different words.
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.settling));
-    expect(ctl.lastRefusalNotice()).not.toBe(NOTICE.peerLock);
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.settling));
+    expect(ctl.lastRefusalClause()).not.toBe(NOTICE.peerLock);
   });
 });
 
@@ -309,7 +320,7 @@ describe("the optimistic claim is retracted when it cannot be confirmed", () => 
 
     const result = await ctl.add(ITEM);
     expect(result.state).toBe("unconfirmed");
-    expect(ctl.lastRefusalNotice()).toBeNull();
+    expect(ctl.lastRefusalClause()).toBeNull();
   });
 
   it("DOES remember a real refusal, so a consumer can carry it instead of erasing it", async () => {
@@ -318,7 +329,7 @@ describe("the optimistic claim is retracted when it cannot be confirmed", () => 
     mount();
 
     await ctl.add(ITEM);
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
   });
 });
 
@@ -412,7 +423,7 @@ describe("setItemQty takes the same fork — T18 names BOTH catches", () => {
     // ⚠️ ON `lastRefusalNotice`, NOT ON THE REGION. `publishRefusal` is this value's ONLY writer, so
     // this reddens if the stepper's refusal publication is deleted — which a region assertion does
     // not, because the lock-transition announcement lands in the same slot from another effect.
-    await waitFor(() => expect(ctl.lastRefusalNotice()).toBe(NOTICE.peerLock));
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
   });
 
   it("reports UNCONFIRMED, not refused, when the re-read could not see the cart", async () => {
@@ -451,6 +462,30 @@ describe("there is exactly ONE live region, and the last sentence wins", () => {
   });
 });
 
+describe("the latch belongs to THIS write — T31", () => {
+  it("does not hand a later write the previous refusal's cause", async () => {
+    // ⚠️ RED AT HEAD, deliberately. `lastRefusalRef` has ONE writer and ZERO clears repo-wide, so a
+    // cause established for an earlier, unrelated write survives indefinitely and is handed to
+    // whatever reads it next. `YourUsual` reads it to name WHY a dish did not go through.
+    //
+    // ⚠️ This is NOT the sequence T31 filed. That row said the stale read is reachable through the
+    // no-cart exit; it is not — `add` is a useCallback whose FIRST dependency is `cartId`, so a
+    // running loop keeps a closure with the old non-null id, and a fresh tap is gated by
+    // `notReady = loading || !cartId`. The latch defect is real; the route to it was wrong.
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+    mount();
+
+    await ctl.add(ITEM);
+    await waitFor(() => expect(ctl.lastRefusalClause()).not.toBeNull());
+
+    // A LATER write that succeeds establishes nothing about a refusal — so the cause must be gone.
+    h.addItem.mockResolvedValue(view({ items: [line(1)] }));
+    await ctl.add(ITEM);
+    expect(ctl.lastRefusalClause()).toBeNull();
+  });
+});
+
 describe("no cart at all is a refusal with nothing to thread", () => {
   it("refuses without speaking, so a retry is the honest offer", async () => {
     h.session.current = null;
@@ -458,9 +493,10 @@ describe("no cart at all is a refusal with nothing to thread", () => {
     const result: WriteResult<CartItem[]> = await ctl.add(ITEM);
     expect(result).toEqual({ state: "refused", view: null });
     expect(h.addItem).not.toHaveBeenCalled();
-    // ⚠️ AND IT PUBLISHES NOTHING — which is the boundary of the defect filed as T31. Nothing ever
-    // clears `lastRefusalRef`, so in a SEQUENCE this exit hands `YourUsual` a stale freeze sentence
-    // for a fresh no-cart refusal. Pinned here as it stands so the fix has a failing start.
-    expect(ctl.lastRefusalNotice()).toBeNull();
+    // ⚠️ AND IT PUBLISHES NOTHING. Note what this does NOT prove: the fixture mounts with a null
+    // session, so the latch was never written, and the assertion passes both before and after any
+    // T31 fix. It is a shape check on this exit, not a failing start — the real staleness proof is
+    // the SEQUENCING test above, which needs a write that actually establishes a cause first.
+    expect(ctl.lastRefusalClause()).toBeNull();
   });
 });

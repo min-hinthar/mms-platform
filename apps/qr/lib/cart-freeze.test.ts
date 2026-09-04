@@ -8,6 +8,7 @@ import {
   freezeBlocksPayment,
   freezeNotice,
   refusalNeedsRemint,
+  refusedWriteClause,
   refusedWriteNotice,
   reopenFailureNotice,
   visibleFreeze,
@@ -368,13 +369,14 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
   });
 
   it("the freeze clause comes from `inertReason` — the vocabulary /menu already speaks", () => {
-    // MUTATION: hand-write any lock clause here → this fails. `AddButton`, `ItemSheet` and
-    // `YourUsual` all render `inertReason` for the same frozen cart; a second vocabulary in the
+    // MUTATION: hand-write any lock clause here → this fails. `AddButton` and `ItemSheet` render
+    // `inertReason` as the accessible name of the disabled control for the same frozen cart, and
+    // since T32 `YourUsual` composes from the very clause under test; a second vocabulary in the
     // refusal gives one lock two stories on one screen.
-    expect(refusedWriteNotice({ cause: "frozen", freeze: "peer" }, false)).toContain(
+    expect(refusedWriteNotice({ cause: "frozen", freeze: "peer" })).toContain(
       inertReason({ minting: false, locked: true, lockedByYou: false, settling: false })!,
     );
-    expect(refusedWriteNotice({ cause: "frozen", freeze: "self" }, true)).toContain(
+    expect(refusedWriteNotice({ cause: "frozen", freeze: "self" })).toContain(
       inertReason({ minting: false, locked: true, lockedByYou: true, settling: false })!,
     );
     expect(refusedWriteNotice({ cause: "settling" })).toContain(
@@ -388,15 +390,29 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     // "this viewer holds an attempt token", not "this surface has a Reopen button" — so passing
     // false from /menu asserted a SECOND checkout from the mere absence of a token. A diner who
     // walked back from /cart after a failed release is ONE tab.
-    const notice = refusedWriteNotice({ cause: "frozen", freeze: "self" }, true).toLowerCase();
+    const notice = refusedWriteNotice({ cause: "frozen", freeze: "self" }).toLowerCase();
     for (const forbidden of ["another checkout", "another tab", "on this device", "someone"]) {
       expect(notice).not.toContain(forbidden);
     }
     expect(notice).toContain("you check out");
   });
 
-  it("only `unreachable` may mention reconnecting — it is the only arm that re-mints", () => {
-    expect(refusedWriteNotice({ cause: "unreachable" }).toLowerCase()).toContain("reconnect");
+  it("`unreachable` HAS NO SENTENCE — the type refuses it (T30)", () => {
+    // It was computed on every unreachable write and discarded on every one: `explainCaught`'s catch
+    // is the only producer, that arm leaves the re-read null, `recoveredWrite` calls a null re-read
+    // `unconfirmed`, and only `refused` publishes. Dead copy, pinned green by the test that used to
+    // stand here.
+    //
+    // ⚠️ ASSERTED THROUGH THE TYPE, not a string. `@ts-expect-error` FAILS THE BUILD if the call
+    // ever becomes legal again, which is the only way to state "this cannot be spoken" such that a
+    // future edit re-animating the arm is caught rather than silently re-shipped.
+    // @ts-expect-error `unreachable` is excluded from `PublishableRefusal` — that is the guard.
+    void (() => refusedWriteNotice({ cause: "unreachable" }));
+    // The RECOVERY that arm triggers is untouched and still takes the full union.
+    expect(refusalNeedsRemint({ cause: "unreachable" })).toBe(true);
+  });
+
+  it("no publishable arm mentions reconnecting — that vocabulary belongs to the re-mint", () => {
     for (const refusal of [
       { cause: "frozen", freeze: "peer" },
       { cause: "settling" },
@@ -406,31 +422,82 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     }
   });
 
-  it("`unreachable` states what we saw and what we are doing — never that the session expired", () => {
-    // `assertCartMember` throws UNAVAILABLE() for cart/session/membership QUERY errors, and the
-    // Server Action can fail in transport, so a failed read does not establish an expired session.
-    const notice = refusedWriteNotice({ cause: "unreachable" }).toLowerCase();
-    for (const forbidden of ["expired", "timed out", "session ended", "signed out"]) {
-      expect(notice).not.toContain(forbidden);
-    }
-  });
-
-  it("`unknown` claims no cause at all — and does not assert the write failed to land", () => {
-    // `addItemAction` commits and THEN returns `getCartView`, so its promise can reject after the
-    // write landed. "That didn't go through" would be false in exactly that case.
+  it("`unknown` claims no CAUSE — but it does not hedge the VERDICT, and must not borrow the unconfirmed opener", () => {
+    // ⚠️ THIS ASSERTION FLIPPED, deliberately, and the dating is the argument. The old copy opened
+    // "We couldn’t confirm that", with a comment reasoning that a commit-then-read action can reject
+    // AFTER the write landed. True when it was written (#248) — `refused` then meant both "refused"
+    // and "committed but unseen". #251 split those apart: `refused` is now returned only when the
+    // re-read SUCCEEDED and the write was not in it, so a non-landing is positively established, and
+    // the ambiguous case routes to `unconfirmed` instead. The hedge outlived its reason.
+    //
+    // It also COLLIDED: `unconfirmedWriteNotice()` opens with the same six words for the OPPOSITE
+    // epistemic state, so a diner could not tell "we know it failed" from "we don't know". That is
+    // what this forbids — the two vocabularies must stay distinguishable.
     const notice = refusedWriteNotice({ cause: "unknown" }).toLowerCase();
     for (const forbidden of ["lock", "checking out", "reconnect", "splitting", "session"]) {
       expect(notice).not.toContain(forbidden);
     }
-    expect(notice).toContain("couldn’t confirm");
+    expect(notice).not.toContain("couldn’t confirm");
+    expect(notice).toContain("didn’t go through");
     expect(notice.length).toBeGreaterThan(0);
+  });
+
+  it("the CLAUSE is a fragment, never a sentence — this is T32's rule at its source", () => {
+    // ⚠️ THE POINT OF THE WHOLE SLICE. `YourUsual` appends this into a sentence it already opened,
+    // so a clause that carries its own verdict makes the diner hear it twice. Three independent
+    // predicates, each of which alone is falsified by the mutant `clause-ships-a-whole-sentence`:
+    // lowercase-initial (it continues a sentence), no terminal period (its caller supplies one), and
+    // — the one that matters — it never contains the prefix's own verdict.
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "frozen", freeze: "self" },
+      { cause: "frozen", freeze: "held" },
+      { cause: "settling" },
+      { cause: "unknown" },
+    ] as const) {
+      const clause = refusedWriteClause(refusal);
+      expect(clause[0]).toBe(clause[0]?.toLowerCase());
+      expect(clause.endsWith(".")).toBe(false);
+      expect(clause).not.toContain("didn’t go through");
+    }
+  });
+
+  it("the notice is ONE template over that clause — the two cannot drift", () => {
+    // ⚠️ TAKEN ALONE THIS IS NEAR-TAUTOLOGICAL: `refusedWriteNotice` is DEFINED as this template, so
+    // it restates the definition. Its falsifiability comes entirely from the mutant
+    // `refusal/notice-forks-from-the-clause`, which reintroduces a per-arm switch — and then this is
+    // the assertion that reddens. Read it as the anchor for that mutant, not as an independent
+    // proof, and do not delete it on the grounds that it "cannot fail".
+    for (const refusal of [
+      { cause: "frozen", freeze: "peer" },
+      { cause: "frozen", freeze: "self" },
+      { cause: "settling" },
+      { cause: "unknown" },
+    ] as const) {
+      expect(refusedWriteNotice(refusal)).toBe(
+        `That didn’t go through — ${refusedWriteClause(refusal)}.`,
+      );
+    }
+  });
+
+  it("attribution comes from the CLASSIFIED freeze, not a caller's flag", () => {
+    // The retired `viewerHoldsLock` parameter asked every caller to re-answer a question
+    // `classifyRefusedWrite` had already answered. One fact, two computations — the drift shape W17
+    // named. `refusal.freeze` carries it, and only "self" means the viewer.
+    expect(refusedWriteClause({ cause: "frozen", freeze: "self" })).toContain("you check out");
+    expect(refusedWriteClause({ cause: "frozen", freeze: "peer" })).toContain("someone checks out");
+    // ⚠️ `held` COLLAPSES ONTO `peer`, and that is pre-existing, not introduced here: `inertReason`
+    // has one non-self lock clause. It is asserted rather than left implicit so the collapse is a
+    // decision on the record — filed as a nice-to-do, since "someone" is true of a held lock too.
+    expect(refusedWriteClause({ cause: "frozen", freeze: "held" })).toBe(
+      refusedWriteClause({ cause: "frozen", freeze: "peer" }),
+    );
   });
 
   it("every arm returns a non-empty sentence", () => {
     for (const refusal of [
       { cause: "frozen", freeze: "peer" },
       { cause: "settling" },
-      { cause: "unreachable" },
       { cause: "unknown" },
     ] as const) {
       expect(refusedWriteNotice(refusal)).toBeTruthy();

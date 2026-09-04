@@ -16,8 +16,11 @@ import {
   cartFreeze,
   classifyRefusedWrite,
   refusalNeedsRemint,
+  refusedWriteClause,
   refusedWriteNotice,
   type FreezeInput,
+  type PublishableRefusal,
+  type RefusedWrite,
 } from "@/lib/cart-freeze";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
@@ -90,16 +93,23 @@ type CartCtx = {
    *  count, and a notice that leaves before it can be read is the same defect as no notice. Derive
    *  it (`freshnessDurationMs`) rather than picking a number per call site. */
   announce: (msg: string, ms?: number) => void;
-  /** T14 — the sentence the provider last published for a REFUSED write, or null if none.
+  /** T14 — the CLAUSE the provider last published for a REFUSED write, or null if none.
    *
    *  `announce` is a single slot: the last caller wins. So a consumer that announces its own outcome
-   *  after `add` resolves null (`YourUsual`'s partial-add message) would otherwise overwrite the
-   *  established cause with generic advice — and "try from the menu below" is dead advice under a
-   *  freeze, which is the exact string this slice removed one layer down. Read it and carry it.
+   *  after `add` resolves would otherwise overwrite the established cause with generic advice — and
+   *  "try from the menu below" is dead advice under a freeze, which is the exact string this slice's
+   *  ancestor removed one layer down. Read it and carry it.
+   *
+   *  ⚠️ A CLAUSE, NOT A SENTENCE (T32). It used to hand over the whole notice, which already opens
+   *  "That didn't go through — ", and `YourUsual` appended that inside a sentence that opened the
+   *  same way: the diner heard the verdict twice. A fragment is the only thing a second caller can
+   *  compose with, and `cart-freeze.ts` names it once for both.
+   *
+   *  ⚠️ CLEARED AT THE TOP OF EVERY WRITE (T31), so a cause can never outlive the write it explains.
    *
    *  A FUNCTION, not a value: the caller reads it in the same tick the refusal was published, before
    *  React has re-rendered, so state would still hold the previous value. */
-  lastRefusalNotice: () => string | null;
+  lastRefusalClause: () => string | null;
   /** Pickup mode only: the chosen slot (ISO instant) + a way to (re)open the picker. */
   pickupSlot: string | null;
   openSlotSheet: () => void;
@@ -705,15 +715,19 @@ export function TableCartProvider({
   const explainCaught = useCallback(
     async (
       id: string,
-    ): Promise<{ fresh: CartItem[] | null; viewIsCurrent: boolean; notice: string }> => {
+    ): Promise<{
+      fresh: CartItem[] | null;
+      viewIsCurrent: boolean;
+      /** null ⇔ the re-read itself failed (`unreachable`), which is never publishable — T30. */
+      refusal: PublishableRefusal | null;
+    }> => {
       let fresh: CartItem[] | null = null;
       // ⚠️ Did the re-read WIN the screen? (Codex round 3 on #251, P1.) `applyView` answers, and
       // discarding that answer let an OVERTAKEN snapshot be threaded into the next queued write —
       // rows that may predate the view that beat it. `readView` already makes exactly this
       // distinction (`readIsOurs`); this helper is the second ticketed read and had not adopted it.
       let viewIsCurrent = false;
-      let refusal;
-      let holderIsViewer = false;
+      let refusal: RefusedWrite;
       const seq = issueRead(viewSeqRef.current);
       try {
         const v = await getCartView(id);
@@ -721,8 +735,9 @@ export function TableCartProvider({
         // `fresh` is kept even when overtaken: it is what we OBSERVED, and the refusal it classifies
         // is a fact about that moment. Only its use as a threadable list is gated, one layer out.
         fresh = v.items;
-        holderIsViewer =
-          cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
+        // ⚠️ NO `holderIsViewer` ANY MORE. It re-answered, from a second `cartFreeze` call, a
+        // question `classifyRefusedWrite` answers on the very next line — one fact computed twice,
+        // which is the drift shape W17 named. `refusal.freeze === "self"` carries it now.
         refusal = classifyRefusedWrite({
           ok: true,
           freeze: { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat },
@@ -734,6 +749,13 @@ export function TableCartProvider({
         // re-read establishes only that we cannot see the cart. The re-mint still runs, because a
         // dead session is the one cause it can repair and this read did not rule it out; the COPY
         // says what we observed and what we are doing, never why.
+        //
+        // ⚠️ `fresh` IS CLEARED EXPLICITLY, not left to luck. It is null on entry and the only write
+        // to it sits inside the `try` above, so this is a no-op TODAY — and it is exactly the kind
+        // of invariant that a later edit breaks silently. The mutant
+        // `refusal/unreadable-cart-yields-a-list` is what makes this line load-bearing rather than
+        // decorative: with a list here, the unreachable arm classifies as a refusal we cannot name.
+        fresh = null;
         refusal = classifyRefusedWrite({ ok: false });
       }
       // ⚠️ THE NOTICE IS RETURNED, NOT PUBLISHED (Codex round 2 on #248). `addItem`/`setQty` commit
@@ -748,20 +770,56 @@ export function TableCartProvider({
         recoveringRef.current = true;
         revalidate();
       }
-      return { fresh, viewIsCurrent, notice: refusedWriteNotice(refusal, holderIsViewer) };
+      // ⚠️ THE CLASSIFICATION CROSSES THE SEAM, NOT A SENTENCE (T32). The caller may be the provider
+      // publishing it alone, or `YourUsual` composing it into its own sentence — and those need
+      // different renderings of one fact. Handing over the finished sentence is what made the card
+      // append a whole verdict inside its own, so the diner heard it twice.
+      //
+      // `unreachable` is narrowed away HERE, at the one seam it could have escaped through: that
+      // arm's write is `unconfirmed`, never `refused`, so nothing downstream may publish it (T30).
+      return {
+        fresh,
+        viewIsCurrent,
+        refusal: refusal.cause === "unreachable" ? null : refusal,
+      };
     },
     [applyView, revalidate],
   );
 
-  /** Publish a refusal the caller has decided is real (no landing was detected), and remember it so
-   *  a consumer announcing its own outcome afterwards can carry the cause instead of erasing it. */
+  /**
+   * Publish a refusal the caller has decided is real (no landing was detected), and latch its CLAUSE
+   * so a consumer announcing its own outcome afterwards can carry the cause instead of erasing it.
+   *
+   * ⚠️ THE TOAST GETS THE SENTENCE, THE LATCH GETS THE CLAUSE (T32). They are two renderings of one
+   * classification, composed in `cart-freeze.ts` from a single fragment. The latch used to hold the
+   * whole sentence, and `YourUsual` appended it to a sentence of its own that already opened with
+   * the same verdict.
+   */
   const publishRefusal = useCallback(
-    (notice: string) => {
-      lastRefusalRef.current = notice;
-      flash(notice, 2600);
+    (refusal: PublishableRefusal) => {
+      lastRefusalRef.current = refusedWriteClause(refusal);
+      flash(refusedWriteNotice(refusal), 2600);
     },
     [flash],
   );
+
+  /**
+   * Drop a latched cause, so it can never outlive the write it was about (T31).
+   *
+   * ⚠️ CALLED AT THE TOP OF EVERY WRITE, above the `!cartId` guards — entry-clearing is the only
+   * ordering that holds. The latch's sole writer runs inside an awaited catch chain, so a consumer
+   * reading it a microtask later must see THIS write's value or nothing; and the cart-change effect
+   * where a "clear on re-mint" would naturally live opens `if (!cartId) return;`, which is blind
+   * through exactly the null-cart window a re-mint transits.
+   *
+   * The filed row said a stale read was reachable through the no-cart exit. It is not: `add` is a
+   * `useCallback` whose first dependency is `cartId`, so a running loop keeps a closure with the old
+   * non-null id, and a fresh tap is gated by `notReady = loading || !cartId`. The latch defect is
+   * real and this fixes it; the route the row named was wrong.
+   */
+  const forgetRefusal = useCallback(() => {
+    lastRefusalRef.current = null;
+  }, []);
 
   /**
    * Retract the optimistic claim when the write cannot be confirmed (Codex round 1 on #251, P2).
@@ -827,6 +885,10 @@ export function TableCartProvider({
       notes?: string,
       qty: number = 1,
     ): Promise<WriteResult<CartItem[]>> => {
+      // T31 — drop any latched cause FIRST, above the guard below. A cause belongs to the write that
+      // established it; nothing else ever cleared it, so a consumer reading it after an unrelated
+      // later write was handed the previous refusal's reason.
+      forgetRefusal();
       // No cart to write to: nothing left, so a retry is the right offer. No view exists to thread.
       if (!cartId) return { state: "refused", view: null };
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
@@ -916,7 +978,7 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
-        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
         // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
         // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
         // on that trailing read with the add already in the cart. Reporting failure there is a lie
@@ -958,7 +1020,12 @@ export function TableCartProvider({
         // Only a state that establishes a refusal may publish one — an `unconfirmed` write has not
         // been refused, and saying so is the fabricated-diagnosis class this slice's ancestors
         // (M116, T14) exist to remove. The caller is told "unconfirmed" and decides for itself.
-        if (result.state === "refused") publishRefusal(notice);
+        // ⚠️ THE `&& refusal` IS TOTAL, NOT DEFENSIVE. `refused` requires a re-read that SUCCEEDED
+        // (`recoveredWrite` answers `unconfirmed` for a null one), and `refusal` is null only when
+        // that read failed — so the two can never disagree. It is written as a narrowing rather than
+        // a cast because the mutant `refusal/unreadable-cart-yields-a-list` proves the coupling
+        // instead of asserting it.
+        if (result.state === "refused" && refusal) publishRefusal(refusal);
         // The optimistic "Added to your order" is still on screen; retract it rather than let an
         // outcome that may not claim a landing stand as one.
         else if (result.state === "unconfirmed") publishUnconfirmed();
@@ -978,6 +1045,7 @@ export function TableCartProvider({
       readView,
       explainCaught,
       flash,
+      forgetRefusal,
       publishRefusal,
       publishUnconfirmed,
       announceShortfall,
@@ -1001,6 +1069,8 @@ export function TableCartProvider({
       // rapid decrements from 3 then set 2 twice instead of 2 then 1, because `AddButton` threads
       // this value into its next queued op. A signature that cannot express an outcome guarantees
       // the outcome is misreported; widening it is not a refactor, it is the defect.
+      // T31 — same entry clear as `add`: a latched cause never outlives its own write.
+      forgetRefusal();
       if (!cartId) return { state: "refused", view: null };
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
@@ -1042,7 +1112,7 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
@@ -1058,14 +1128,23 @@ export function TableCartProvider({
           landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
           viewIsCurrent,
         });
-        if (result.state === "refused") publishRefusal(notice);
+        if (result.state === "refused" && refusal) publishRefusal(refusal);
         else if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishRefusal, publishUnconfirmed],
+    [
+      cartId,
+      applyView,
+      readView,
+      explainCaught,
+      flash,
+      forgetRefusal,
+      publishRefusal,
+      publishUnconfirmed,
+    ],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every
@@ -1147,7 +1226,7 @@ export function TableCartProvider({
         refresh,
         revalidate,
         announce: flash,
-        lastRefusalNotice: () => lastRefusalRef.current,
+        lastRefusalClause: () => lastRefusalRef.current,
         pickupSlot,
         openSlotSheet,
         isGroup,

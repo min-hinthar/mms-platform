@@ -325,12 +325,49 @@ export type RefusedWrite =
   | { cause: "unknown" };
 
 /**
+ * A refusal that may be SPOKEN — every cause except `unreachable`.
+ *
+ * ⚠️ THIS TYPE IS T30, TURNED FROM AN EMERGENT FACT INTO A COMPILE ERROR. `unreachable` is produced
+ * by exactly one place — `explainCaught`'s catch arm — and that arm leaves the re-read null, which
+ * `recoveredWrite` classifies `unconfirmed`, which never publishes a refusal. So its sentence was
+ * computed on every unreachable write and discarded on every one: dead copy, pinned green by a lib
+ * test and a mutant.
+ *
+ * Retiring the string rather than routing it is the deliberate half of T30's own two options.
+ * Routing is not merely awkward, it is WRONG: it would speak a refusal's sentence over a write that
+ * is `unconfirmed`, which is exactly what `refusal/unconfirmed-lent-a-refusals-sentence` exists to
+ * forbid. Nothing shipped is lost — the re-mint that arm triggers narrates itself separately, and
+ * `refusalNeedsRemint` still takes the FULL `RefusedWrite`, so the recovery is untouched.
+ *
+ * ⚠️ The invariant behind it is STATEMENT ORDER, not a proof: in `explainCaught`, `fresh = v.items`
+ * runs before `classifyRefusedWrite({ ok: true, … })` with nothing throwable between them. One
+ * inserted throwing statement would re-animate a retired sentence. The type is what makes that a
+ * compile error instead of a surprise.
+ */
+export type PublishableRefusal = Exclude<RefusedWrite, { cause: "unreachable" }>;
+
+/**
  * Classify a refused cart write from the outcome of ONE re-read.
  *
  * `reread` is the caller's `getCartView` attempt: `{ ok: false }` when it threw, otherwise the lock
  * facts and the settle flag from the same call — one read, so they cannot disagree with each other
  * or with the view the caller just applied.
+ *
+ * ⚠️ OVERLOADED SO A SUCCESSFUL READ CANNOT TYPE AS `unreachable`. That arm is returned on the very
+ * first line, under `!reread.ok` — so `{ ok: true }` provably never reaches it, and before this
+ * overload every caller had to re-establish that fact by hand or cast. The narrow return is what
+ * lets a successful classification flow straight into `refusedWriteClause`, whose parameter excludes
+ * the arm; the wide signature is kept for `refusalNeedsRemint`, which needs the full union.
  */
+export function classifyRefusedWrite(reread: {
+  ok: true;
+  freeze: FreezeInput;
+  settling: boolean;
+}): PublishableRefusal;
+export function classifyRefusedWrite(reread: { ok: false }): { cause: "unreachable" };
+export function classifyRefusedWrite(
+  reread: { ok: false } | { ok: true; freeze: FreezeInput; settling: boolean },
+): RefusedWrite;
 export function classifyRefusedWrite(
   reread: { ok: false } | { ok: true; freeze: FreezeInput; settling: boolean },
 ): RefusedWrite {
@@ -362,7 +399,22 @@ export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
 }
 
 /**
- * The sentence for a refused cart write: what we OBSERVED, then the state of the cart NOW.
+ * The CLAUSE for a refused cart write — current state, as a fragment: lowercase-initial, no terminal
+ * period, and never a sentence of its own.
+ *
+ * ⚠️ THIS EXISTS BECAUSE A SECOND CALLER APPENDS IT (T32). `refusedWriteNotice` reads correctly when
+ * the provider publishes it alone. `YourUsual` composes its own sentence around the cause, and it
+ * used to append the whole notice — so a peer-lock partial add said, in one live region:
+ *
+ *   "Tea Leaf Salad didn’t go through. That didn’t go through — the order’s locked while someone
+ *    checks out."
+ *
+ * The verdict twice, the second "That" with no referent but the first clause. The `unknown` arm was
+ * worse: a refusal followed by "We couldn’t confirm that", two opposite verdicts in one breath.
+ *
+ * So the clause is named ONCE, here, and BOTH callers compose from it — the "name it ONCE" rule
+ * applied to a sentence fragment. `refusedWriteNotice` is now a single template over this function,
+ * which is why the two can no longer drift.
  *
  * ⚠️ THE FREEZE CLAUSE COMES FROM `inertReason`, NOT `freezeNotice`. Two reasons, both found in
  * review:
@@ -372,41 +424,54 @@ export function refusalNeedsRemint(refusal: RefusedWrite): boolean {
  *     "Another checkout on this device is holding this order", which asserts a SECOND checkout from
  *     the mere absence of a token. A diner who walked back from /cart after a failed release is one
  *     tab, not two. `inertReason`'s self clause says only "the order's locked while you check out".
- *  2. /menu already speaks `inertReason` from `AddButton`, `ItemSheet` and `YourUsual`. Routing the
- *     refusal through `freezeNotice` gave one frozen cart two vocabularies on one screen — the exact
- *     thing `inertReason`'s own docblock exists to prevent.
+ *  2. /menu already speaks `inertReason` from `AddButton` and `ItemSheet`, which render it as the
+ *     accessible name of the disabled control. Routing the refusal through `freezeNotice` gave one
+ *     frozen cart two vocabularies on one screen — the exact thing `inertReason`'s own docblock
+ *     exists to prevent. (The older note here also named `YourUsual`; that was never true — the card
+ *     imports no `inertReason`. Since T32 it composes from this clause, so the claim holds at last.)
  *
- * The prefix is an observation ("That didn't go through") and the clause is current state, so
- * nothing here claims the freeze CAUSED the refusal — which one re-read cannot establish.
+ * ⚠️ ATTRIBUTION IS DERIVED FROM THE CLASSIFIED FREEZE, not from a caller-supplied flag. The old
+ * `viewerHoldsLock` parameter asked every caller to re-answer a question `classifyRefusedWrite` had
+ * already answered — a second computation of one fact, which is how they drift. `refusal.freeze`
+ * carries it, and `"self"` is the only value that means the viewer.
  */
-export function refusedWriteNotice(
-  refusal: RefusedWrite,
-  viewerHoldsLock: boolean = false,
-): string {
+export function refusedWriteClause(refusal: PublishableRefusal): string {
   switch (refusal.cause) {
     case "frozen":
-      return `That didn’t go through — ${inertReason({
+      return inertReason({
         minting: false,
         locked: true,
-        lockedByYou: viewerHoldsLock,
+        lockedByYou: refusal.freeze === "self",
         settling: false,
-      })}.`;
+      })!;
     case "settling":
-      return `That didn’t go through — ${inertReason({
-        minting: false,
-        locked: false,
-        settling: true,
-      })}.`;
-    case "unreachable":
-      // An OBSERVATION plus the action being taken. Not "your session expired" — a failed read does
-      // not establish that (`assertCartMember` throws UNAVAILABLE for query and transport errors
-      // too), and the re-mint is an attempt at repair, not a verdict.
-      return "We couldn’t reach your order just now — reconnecting to your table…";
+      return inertReason({ minting: false, locked: false, settling: true })!;
     default:
       // The write did not land as far as we can tell, and the view beside this sentence is server
       // truth (the caller applied the same re-read). Nothing about a lock, a table, or a session.
-      return "We couldn’t confirm that — the order below is up to date.";
+      return "the order below is up to date";
   }
+}
+
+/**
+ * The sentence for a refused cart write: what we OBSERVED, then the state of the cart NOW.
+ *
+ * ONE template over ONE clause. The prefix is an observation and the clause is current state, so
+ * nothing here claims the freeze CAUSED the refusal — which one re-read cannot establish.
+ *
+ * ⚠️ THE `unknown` ARM NOW SAYS "That didn't go through" LIKE THE REST, and that is a behavioural
+ * change, not a tidy-up. It used to open "We couldn’t confirm that", which is the OPPOSITE claim and
+ * the one `unconfirmedWriteNotice()` still makes — the two were byte-identical openers for two
+ * opposite epistemic states, so a diner could not tell "we know it failed" from "we don't know".
+ *
+ * The hedge is a leftover: it entered when `refused` still meant both "refused" and "committed but
+ * unseen", and #251 split those apart without updating the copy. Today `refused` is returned only
+ * when the re-read SUCCEEDED and the write was not in it (`write-outcome.ts`), so a non-landing is
+ * positively established — and on the add path a concurrent same-dish edit routes to `unknown` →
+ * `unconfirmed` rather than here, so the ambiguous case never reaches this sentence.
+ */
+export function refusedWriteNotice(refusal: PublishableRefusal): string {
+  return `That didn’t go through — ${refusedWriteClause(refusal)}.`;
 }
 
 /**
