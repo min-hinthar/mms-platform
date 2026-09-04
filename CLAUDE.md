@@ -72,7 +72,15 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # BEFORE any mutation: <file>" — which reads exactly like a real defect and
                          # is not. On a stall or a surprising pre-flight failure: kill ALL runs,
                          # `git checkout -- .`, confirm clean, start exactly one. Never report a
-                         # result whose run you did not watch finish. Measure with:
+                         # result whose run you did not watch finish. ⚠️ AND NEVER COMMIT WHILE A
+                         # RUN IS LIVE — the dirty-tree abort protects the RUN from your edits, not
+                         # your COMMIT from the run: at every instant one tracked module on disk is a
+                         # deliberately-broken version of itself, so `git commit -am` snapshots a
+                         # mutant. #250 pushed `split.ts`'s `await releaseHold(pi)` → `"released"`
+                         # inside a DOCS-only commit that way; CI surfaced it as a failure in a file
+                         # the PR never touched (LEARNINGS #74). `pgrep -f "[v]erify-slice"` before
+                         # any commit — bracket the first char or the pattern matches your own shell.
+                         # Measure with:
                          #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u | wc -l
 pnpm verify:slice --no-gate --only=totals   # iterate on one module
 pnpm format              # prettier --write

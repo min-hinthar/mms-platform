@@ -704,7 +704,7 @@ export async function abortSettlement(cartId: string): Promise<void> {
   for (const row of deleted ?? []) {
     const pi = row.stripe_payment_intent_id;
     if (!pi || attempted.has(pi)) continue;
-    const outcome = "released";
+    const outcome = await releaseHold(pi);
     // A PI claimed inside the abort window is seconds old and cannot have been captured, so `captured`
     // here is a genuine surprise — real money whose row is already gone. W11 (M43): both cases now
     // also land in the durable refunds ledger; the log stops being the only artifact.
