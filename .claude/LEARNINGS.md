@@ -1233,3 +1233,44 @@ three separate ways, all one shape:
 The through-line with #70: it is not enough for a refusal to speak, and it is not enough for it to
 be _derived_ — the derivation has to support the specific claim the sentence makes. Two independent
 reviewers found this on code written specifically to remove the same class one layer up.
+
+## #74 — `verify:slice` is DIRTY-tree protection only in one direction: never COMMIT while a run is live (#250, 2026-09-04)
+
+The warning in `CLAUDE.md` says the run "ABORTS if a target file is DIRTY — commit or stash first."
+That protects the run from your edits. Nothing protects your commit from the run.
+
+`scripts/verify-slice.mjs` REWRITES each of the 63 money/authority modules in place, runs the owning
+suite, and restores the file. So at any instant during a multi-minute run, exactly one tracked file
+on disk is a deliberately-broken version of itself. A `git add -A` / `git commit -am` in that instant
+snapshots the mutant into the commit — and pushes it.
+
+That is what shipped `659a1af` on #250: the run died mid-flight (log truncated at 180/275 caught) with
+`apps/qr/lib/split.ts` still carrying `split/abort-captured-ignores-the-payment-intent`'s successor —
+`const outcome = await releaseHold(pi)` replaced by `const outcome = "released"`. The commit was a
+DOCS-ONLY change (filing T27); the diff picked up a money-path module the slice had nothing to do with.
+
+Why nothing else caught it:
+
+- **The commit looked clean at review time** — I read the diff I intended, not the diff `git` staged.
+- **CI caught it, but as a test failure in a file I had not touched** (`lib/split.test.ts:342`,
+  "expected [ 'pi_old' ] to include 'pi_claimed_mid_abort'"), which reads exactly like the unrelated
+  pre-existing breakage the drive-to-green rules tell you to rule out — the one shape that invites
+  "not mine". It IS mine; the mutant is in the diff.
+- **The mutant is a plausible line.** `const outcome = "released"` type-checks, lints, formats, and
+  reads as a deliberate simplification. Only its own suite can tell.
+
+Rules, in falling order of cheapness:
+
+1. **Never run `git add -A` / `git commit -am` while a slice run may be live.** Check with
+   `pgrep -f "[v]erify-slice"` first — bracket the first char, or the pattern self-matches your own
+   shell and reports a run that isn't there.
+2. **Commit by explicit path** when a run's state is uncertain. A docs commit should name the docs.
+3. **After ANY killed or stalled run: `git checkout -- .` and confirm clean BEFORE the next command.**
+   `CLAUDE.md` already says this for the _next run's_ benefit; it is equally the _commit's_.
+4. **Diff what git staged, not what you meant.** `git diff --cached --stat` names files, and a file
+   outside the slice's scope in a slice's commit is the whole tell — here, `split.ts` in a T27 docs
+   commit.
+
+The general form, and the reason it belongs beside #60: a tool that mutates the working tree makes
+the working tree an unreliable narrator for as long as it runs. Every check that reads the tree —
+including `git` itself — is reading a fixture, not the code.

@@ -97,7 +97,12 @@ export function isTransportFailure(e: unknown): boolean {
   );
 }
 
-const UNAVAILABLE = () =>
+/** The ONE "we cannot see it" answer. Exported because `getCartView` needs to give the same one:
+ *  `/cart` branches on `e instanceof AuthzError && e.code === "unavailable"` to reach the outage
+ *  screen, and a bare `Error` from anywhere else falls to the arm that tells the diner their order
+ *  "isn't available on this device" — the audit's worst-rated copy, which W10a exists to have
+ *  deleted. One sentence, one code, one construction site. */
+export const UNAVAILABLE = () =>
   new AuthzError("We’re having trouble on our end — try again in a moment", 503, "unavailable");
 
 /** Verify the caller's anonymous-auth session from cookies → their `auth.uid()`. */

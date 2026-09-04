@@ -5,6 +5,7 @@ import { useCart } from "./TableCartProvider";
 import { InviteSheet } from "./InviteSheet";
 import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
+import { freezeBanner } from "@/lib/cart-freeze";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
 import { Avatar, Icon } from "@mms/ui";
 
@@ -48,7 +49,15 @@ export function GuestList() {
   // (AddButtons disable in parallel). A PLAIN visual banner (v7.2 .lockbar) — NOT a second live
   // region: the transition is announced through the provider's single live region, and the disabled
   // Add buttons carry the locked state for SR users who tab to them.
-  if (locked)
+  //
+  // ⚠️ T22(d) — WHICH banner is `freezeBanner`'s call, not this branch's position. A cart can read
+  // locked AND settling at once (abortSettlement's refreeze window), and the old `if (locked)`
+  // early-return sat 74 lines above the settling branch — so the lock bar, which carries no control,
+  // shadowed the settle banner, the one element here that carries "Pay your share →". The diner was
+  // told to wait on the surface that had somewhere to send them, while the Add pills two elements
+  // away already said "the order's locked while your table pays".
+  const banner = freezeBanner({ locked, settling, cartId });
+  if (banner === "lock")
     return (
       <p style={lockBar}>
         <Icon
@@ -136,7 +145,7 @@ export function GuestList() {
   // Plain visual banner, not a live region: the provider announced the transition through the view's
   // one region. Unlike `locked` (a moment that passes on its own) settling needs somewhere to GO —
   // the diner's share is waiting on the board — so this one carries a link.
-  if (settling && cartId)
+  if (banner === "settle" && cartId)
     return (
       <p style={settleBar}>
         <Icon

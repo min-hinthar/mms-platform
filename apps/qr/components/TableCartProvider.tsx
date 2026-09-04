@@ -20,6 +20,7 @@ import {
   type FreezeInput,
 } from "@/lib/cart-freeze";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
+import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
 import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
 import { setDisplayName } from "@/lib/members";
@@ -684,30 +685,62 @@ export function TableCartProvider({
       setPendingDelta((n) => n + qty);
       // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
       flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000, "ထည့်ပြီးပါပြီ");
-      // Authoritative unit count BEFORE this add (from the ref, never a stale render closure) so we can
-      // tell how many units ACTUALLY landed — a merge into a line near the 99 cap can fill fewer than
-      // requested, and the optimistic "Added N" above would then overstate it (W5c pre-merge honesty).
-      const beforeUnits = itemsRef.current.reduce((a, i) => a + i.qty, 0);
-      // The pre-add lines, for the post-commit-read-failure check in the catch below.
+      // The pre-add lines (from the ref, never a stale render closure). BOTH the success path and the
+      // recovery path below compare against this one snapshot through `classifyAddLanding`, so they
+      // cannot disagree about how many units landed — the "name it ONCE" rule applied to a count.
       const itemsBefore = itemsRef.current;
       try {
         // Modifier ids only (R6b sheet) — `addItem`→`priceItem` validates them against the item's groups
         // and re-derives the charge; a client-sent price is never trusted. ONE round-trip returns the view.
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
         const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
-        applyView(view);
-        // If the server capped the merge (landed < requested), correct the earlier optimistic announce so
-        // the SR live region and the count agree with what actually landed. Only fires at the 99-cap edge.
-        if (qty > 1) {
-          const landed = view.items.reduce((a, i) => a + i.qty, 0) - beforeUnits;
-          if (landed >= 0 && landed < qty)
-            flash(
-              landed === 0
-                ? "That line is already at our 99 max"
-                : `Added ${landed} — that line is now at our 99 max`,
-              3000,
-            );
+        // ⚠️ `null` MEANS THE WRITE LANDED AND THE VIEW COULD NOT BE READ — never that the tap
+        // failed (see `viewAfterWrite` in cart.ts). No refusal is published and the optimistic
+        // announce stands, because the add succeeded.
+        if (!view) {
+          // ⚠️ AWAIT the re-read, and never hand back the PRE-WRITE snapshot as though it were fresh
+          // (Codex round 2, P1). `AddButton` threads this return value into its next queued op
+          // (`const source = threaded ?? itemsRef.current`), so a stale list makes a following "−"
+          // look for a line that is not in it, skip silently, and leave the server holding an item
+          // the screen does not show. A successful re-read writes `itemsRef` synchronously inside
+          // `applyView`, so after this await the snapshot is genuinely current.
+          const reread = await readView();
+          // Still unreadable: thread NOTHING rather than something stale. `null` here is not a
+          // refusal — none is published — it means "no fresh list", and the queue falls back to its
+          // own snapshot exactly as it does for a first op.
+          return reread ? itemsRef.current : null;
         }
+        applyView(view);
+        // If the server capped the merge, correct the earlier optimistic announce so the SR live
+        // region and the count agree with what actually landed.
+        //
+        // ⚠️ PER DISH, NOT PER BASKET (T21(c)). This used to subtract basket-wide totals, which any
+        // concurrent peer write skews: a tablemate removing one unit of THEIR line made `landed`
+        // come out one short and fired "Added 4 — that line is now at our 99 max" about a dish
+        // sitting at 6 of 99. That needs no near-cap line to reach, so it was likelier than the cap
+        // it claimed. `none` is spoken HERE and only here: the mutation returned a view, so a zero
+        // is proof of the cap rather than a write we could not confirm.
+        //
+        // ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass). It used to be, which left the most
+        // ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced
+        // "Added to your order" and nothing ever took it back. `partial` cannot occur for a request
+        // of one — a single unit either lands or does not — so the only sentence this adds for a
+        // quick-add is the true one.
+        const { outcome } = classifyAddLanding({
+          before: itemsBefore,
+          after: view.items,
+          menuItemId,
+          requested: qty,
+        });
+        // ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
+        // `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
+        // excludes comped rows and still answers success — so an add that matched a comped sibling
+        // is a successful no-op, and "That line is already at our 99 max" would name a cap that is
+        // not the cause. Growth is the only thing proving the write moved this line, so only a short
+        // GROWTH is diagnosed. The comped-sibling no-op is a real defect in its own right, filed as
+        // T25 rather than described wrongly here.
+        const correction = addShortfallNotice(outcome);
+        if (correction) flash(correction, 3000);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return view.items;
@@ -730,20 +763,41 @@ export function TableCartProvider({
         // dish in the same window is the one false positive left, and it errs toward reporting a
         // success we are unsure of instead of a duplicate charge — the safer direction.
         if (fresh) {
-          const unitsFor = (rows: CartItem[]) =>
-            rows.reduce((a, i) => a + (i.menuItemId === menuItemId ? i.qty : 0), 0);
-          // Landed after all: say nothing. Announcing a refusal here is the false statement.
-          if (unitsFor(fresh) > unitsFor(itemsBefore)) return fresh;
+          // Only the OUTCOME is used here — the recovery path never speaks a count (see below).
+          const { outcome } = classifyAddLanding({
+            before: itemsBefore,
+            after: fresh,
+            menuItemId,
+            requested: qty,
+          });
+          // Growth of this dish is the evidence the write landed: say nothing and keep it.
+          //
+          // ⚠️ AND SAY NOTHING ABOUT A SHORTFALL EITHER, WHICH IS WHERE AN EARLIER DRAFT WENT WRONG
+          // (blind adversarial pass). `classifyAddLanding` attributes growth to the single line that
+          // moved, and on the SUCCESS path that line must be ours — the write returned a view, so our
+          // line grew, and a peer growing too would make two. Here we do NOT know our write landed,
+          // so the one line that grew may be a tablemate's: announcing "Added 2 — that line is now at
+          // our 99 max" off it would credit the diner with a landing that never happened AND assert a
+          // cap on a dish nowhere near one. Both halves fabricated, in the one live region. The
+          // correction belongs where attribution holds; here silence is the honest answer, as it was
+          // before this slice.
+          if (outcome === "full" || outcome === "partial") return fresh;
+          // `none` and `unknown` fall through to the refusal: nothing of this dish grew, so there is
+          // no evidence of a landing to keep.
         }
         publishRefusal(notice);
-        // Returns null so the item sheet stays OPEN (keeping the diner's modifier choices) instead
-        // of reading as a false success.
+        // ⚠️ The null is read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close
+        // on tap (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant,
+        // and it never awaits this. The older comment here claimed the sheet stays open "keeping the
+        // diner's modifier choices", which stopped being true then — and it is the only caller that
+        // can pass qty > 1, so a reader reasoning from it would mis-model the whole partial-fill
+        // path above. What the null still does is stop a refusal reading as a success.
         return null;
       } finally {
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -766,6 +820,19 @@ export function TableCartProvider({
         // ONE round-trip: setQty now returns the fresh server-authoritative view (like addItem), so we
         // apply it directly instead of a second getCartView refresh — the "cart actions feel delayed" fix.
         const view = await setQtyAction(cartItemId, qty);
+        // Same contract as `add`: null is "written, unreadable". The stepper keeps its optimistic
+        // position rather than snapping back over a change the server accepted.
+        if (!view) {
+          // ⚠️ AWAIT it (Codex round 2, P1). `AddButton` threads this list into the next queued op,
+          // so returning the PRE-write quantity makes two rapid decrements from 3 set 2 twice
+          // instead of 2 then 1 — and one tap visually snaps back until an unawaited re-read lands.
+          // A successful re-read writes `itemsRef` synchronously inside `applyView`.
+          await readView();
+          // If that also failed there is nothing newer than the last applied view. This signature
+          // cannot say "unknown", so it returns the freshest list it has — which is what the queue
+          // would have fallen back to anyway.
+          return itemsRef.current;
+        }
         applyView(view);
         return view.items;
       } catch {
@@ -793,7 +860,7 @@ export function TableCartProvider({
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

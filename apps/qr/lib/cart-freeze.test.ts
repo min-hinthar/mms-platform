@@ -4,6 +4,7 @@ import {
   cartFreeze,
   classifyRefusedWrite,
   freezeBlocksEdits,
+  freezeBanner,
   freezeBlocksPayment,
   freezeNotice,
   refusalNeedsRemint,
@@ -434,5 +435,42 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     ] as const) {
       expect(refusedWriteNotice(refusal)).toBeTruthy();
     }
+  });
+});
+
+/**
+ * T22(d) — the guest-list banner, when both freeze axes are set at once.
+ *
+ * The separating case is the FIRST one: it is what `GuestList`'s old branch order got wrong, and
+ * every other case in this block passes under either ordering. A suite without it would go green on
+ * the defect.
+ */
+describe("freezeBanner — the banner with somewhere to go wins", () => {
+  it("shows the SETTLE banner when the cart is locked AND settling", () => {
+    // The shipped defect: an `if (locked)` early-return shadowed the settle branch, replacing the
+    // one banner that carries "Pay your share →" with a lock bar carrying no control at all.
+    expect(freezeBanner({ locked: true, settling: true, cartId: "c-1" })).toBe("settle");
+  });
+
+  it("shows the settle banner while only settling", () => {
+    expect(freezeBanner({ locked: false, settling: true, cartId: "c-1" })).toBe("settle");
+  });
+
+  it("shows the lock banner while only locked", () => {
+    expect(freezeBanner({ locked: true, settling: false, cartId: "c-1" })).toBe("lock");
+  });
+
+  it("shows nothing on an editable cart", () => {
+    expect(freezeBanner({ locked: false, settling: false, cartId: "c-1" })).toBeNull();
+  });
+
+  // The settle banner's whole value is its link, and the link needs the id. Without a cart there is
+  // no destination, so the lock bar is the honest fallback rather than a link to nowhere.
+  it("falls back to the lock banner when there is no cart to link to", () => {
+    expect(freezeBanner({ locked: true, settling: true, cartId: null })).toBe("lock");
+  });
+
+  it("shows nothing when settling without a cart and no lock", () => {
+    expect(freezeBanner({ locked: false, settling: true, cartId: null })).toBeNull();
   });
 });

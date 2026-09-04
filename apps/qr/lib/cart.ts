@@ -18,7 +18,7 @@ import {
 import type { LineState } from "@mms/db";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
-import { assertCartItemMember, assertCartMember, AuthzError } from "./authz";
+import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
 import { releasePayAttempt } from "./lock";
@@ -27,6 +27,37 @@ import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } f
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
+
+/**
+ * The view a MUTATION returns — and it must never fail the mutation.
+ *
+ * ⚠️ THE WRITE HAS ALREADY COMMITTED BY THE TIME THIS RUNS. `addItem` and `setQty` insert or bump
+ * the row, touch the cart, and only THEN render a view, so a failure here says nothing about whether
+ * the diner's tap landed. Both of the plausible answers are wrong:
+ *
+ *   • RESOLVING with a blank view (what shipped before T21(a)) hands the caller an empty cart as
+ *     server truth — `TableCartProvider` applied it and the basket vanished under an optimistic
+ *     "Added to your order";
+ *   • THROWING (T21(a)'s first draft, and the blind pass caught it) tells every caller the WRITE
+ *     failed. `/grocery` then rolls its optimistic list back to the pre-tap snapshot — UI 2, server
+ *     3, and checkout charges 3, which is the exact invariant that file's own comment forbids — and
+ *     `KioskMenu` leaves the sheet open with "something went wrong", inviting the operator to re-tap
+ *     an add that already committed and charging the guest twice.
+ *
+ * So it answers `null`: *the write landed, the view could not be read*. Callers that ignore the
+ * return value are unaffected; callers that render it re-read instead of painting a lie.
+ */
+async function viewAfterWrite(
+  cartId: string,
+): Promise<Awaited<ReturnType<typeof getCartView>> | null> {
+  try {
+    return await getCartView(cartId);
+  } catch {
+    // Deliberate, and narrow: the ONLY thing swallowed here is our inability to RENDER the result of
+    // a write that already succeeded. `getCartView` still throws for every plain reader.
+    return null; // written, unreadable — NEVER a refused write
+  }
+}
 
 /**
  * SERVER-AUTHORITATIVE cart. The browser never sends a price — it sends a menu item id +
@@ -108,8 +139,9 @@ export async function addItem(
 
   // Return the fresh server-authoritative view so the caller renders in ONE round-trip (not a separate
   // getCartView refresh afterward). Re-running assertCartMember here is a couple of indexed reads on the
-  // same warm function — cheap next to a second network round-trip.
-  return getCartView(input.cartId);
+  // same warm function — cheap next to a second network round-trip. `null` = written but unreadable;
+  // see `viewAfterWrite`, and never conflate it with a refused write.
+  return viewAfterWrite(input.cartId);
 }
 
 export async function setQty(cartItemId: string, qty: number) {
@@ -144,8 +176,8 @@ export async function setQty(cartItemId: string, qty: number) {
   // Return the fresh server-authoritative view so the caller re-syncs in ONE round-trip (mirrors
   // addItem) instead of a separate getCartView afterward — the "cart actions feel delayed" fix. The
   // amounts stay server-derived here; the client never re-prices. Callers that don't need the view
-  // (Checkout keeps its own optimistic layer) simply ignore it.
-  return getCartView(cartId);
+  // (Checkout keeps its own optimistic layer) simply ignore it. `null` = written but unreadable.
+  return viewAfterWrite(cartId);
 }
 
 /**
@@ -615,18 +647,36 @@ export async function getCartView(cartId: string): Promise<{
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
   const db = serviceClient();
-  const { data: cart } = await db
+  // ⚠️ T21(a) — BOTH ERRORS ARE BOUND, AND A FAILED READ THROWS. These two were the only unbound
+  // reads in this file, and the cost was not a missing field: postgrest RESOLVES on failure (the
+  // service client never calls `.throwOnError()`), so a dropped socket, a statement timeout, a pool
+  // error and a 42703 all land as `{ data: null, error }` — and `rows ?? []` below turned that into
+  // an EMPTY ITEM LIST, returned as authoritative. The totals come from a SECOND read
+  // (`getCartTotals`) which does bind and throw, so the two can disagree: the kiosk review rendered
+  // an empty list above a live "Total $53.40" with its failure screen suppressed, and the provider
+  // applied the blank cart with the optimistic "Added to your order" still on screen.
+  //
+  // The throw is `UNAVAILABLE()`, not a bare Error, because the SHAPE is what routes it: `/cart`
+  // tests `code === "unavailable"` to reach the outage screen and otherwise tells the diner their
+  // order "isn't available on this device". A verdict we cannot support is the thing W10a deleted.
+  //
+  // 503 for BOTH arms is deliberate even though `.single()` also errors on zero rows: this function
+  // cannot tell "gone" from "unreadable", and `assertCartMember` — which can, and answers 404
+  // `no_cart` — proved this cart open one statement earlier. Unknowable is not a verdict.
+  const { data: cart, error: cartErr } = await db
     .from("qr_carts")
     .select("pickup_slot,fire_at,tab_type")
     .eq("id", id)
     .single();
-  const { data: rows } = await db
+  if (cartErr) throw UNAVAILABLE();
+  const { data: rows, error: rowsErr } = await db
     .from("qr_cart_items")
     .select(
       "id,menu_item_id,name,qty,modifiers,unit_price_cents,tax_cents,by_seat,state,fire_at,comped,fulfillment,notes",
     )
     .eq("cart_id", id)
     .order("created_at", { ascending: true });
+  if (rowsErr) throw UNAVAILABLE();
   // Resolve which lines are now 86'd so the cart can disable their "+" (QA §D sold-out trap — a peer
   // can 86 an item that's already in a cart). menu_item_id is a soft text ref: a menu_items uuid for
   // restaurant lines, a barcode for grocery. Filter to UUID-shaped ids before the lookup — `id` is a

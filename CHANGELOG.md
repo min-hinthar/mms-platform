@@ -4,6 +4,141 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The refusal-recovery path stops answering a failure with a fact (2026-09-04)
+
+**T21(a) — an unreadable cart came back as an EMPTY one, and that is not a missing field.** The two
+reads in `getCartView` were the only unbound destructures in `cart.ts`, and postgrest **resolves**
+rather than rejects — the service client never calls `.throwOnError()` — so a dropped socket, a
+statement timeout, a pool error and a 42703 all arrived as `{ data: null, error }`. `rows ?? []` then
+returned an empty item list as server truth. The totals come from a **second** read that always bound
+and threw, so the two could disagree: `KioskReview` renders the list and then the total
+unconditionally with `loadFailed` false, so a staff terminal showed an empty basket above a live
+"Total $53.40" with its own honest failure screen suppressed.
+
+A scout pass corrected the filed row twice before any code changed. It scoped the exposure to "the
+recovery path", which is the **narrowest** of six callers; the widest is the mutation happy path,
+where `addItem`/`setQty` return `getCartView`, so a partial read resolves, `applyView` runs in the
+try block, and the cart blanks with **no notice at all** while the optimistic "Added to your order"
+still stands. And "beside a non-zero total" is true for exactly one caller — /cart and Checkout
+return the designed empty-cart state early, and `CartBar` renders nothing at count 0.
+
+⚠️ **The throw SHAPE is the routing.** `/cart` reaches its outage screen only through
+`e instanceof AuthzError && e.code === "unavailable"`; anything else falls to the arm that tells the
+diner their order "isn't available on this device. Start from the menu." — blaming their device,
+implying the order is gone, offering no retry. That is the audit's worst-rated copy and the exact
+sentence W10a exists to have deleted, so `UNAVAILABLE()` is now exported and thrown from one place.
+Three mutants — the unbound line read, the bare-`Error` shape, and the one below — plus a control case
+proving a genuinely **empty** cart still answers `[]`, because over-blocking here would break the
+state every diner starts in. (That control is a test, not a mutant; an earlier draft of this entry
+counted it as one.)
+
+⚠️ **And the throw must NOT escape a mutation — the half a blind adversarial pass had to find.**
+`addItem`/`setQty` commit the row and only then render a view, so a failure there says nothing about
+whether the tap landed — but every consumer reads a rejection as "the write failed". `/grocery`
+rolled its optimistic list back to the pre-tap snapshot, leaving the basket at 2 while the server held
+3 and checkout charged 3 — the exact divergence that file's own comment forbids, arriving from the
+opposite direction — and `KioskMenu` left the sheet open with "something went wrong", so the operator
+re-taps an add that already committed and the guest is charged twice. The mutations answer `null`
+now: _written, unreadable_. Callers that ignore the return value are unaffected; the provider applies
+nothing and re-reads instead of painting either a blank cart or a false refusal.
+
+⚠️ **And it AWAITS that re-read** — Codex round 2, two P1s. `AddButton` threads a write's returned
+list into its next queued operation (`const source = threaded ?? itemsRef.current`), so handing back
+the pre-write snapshot as though it were fresh made a queued "−" hunt for a line that was not in it,
+skip silently, and leave the server holding an item the screen did not show; on `setQty` it threaded
+the old quantity, so two rapid decrements from 3 set 2 twice instead of 2 then 1. A successful
+re-read writes `itemsRef` synchronously, so after the await the snapshot is current — and when it
+also fails, `add` threads nothing rather than something stale.
+
+That double-failure window is the one thing this slice does not close: with no view at all, `null`
+still conflates "committed" with "refused" for `YourUsual`, and `setItemQty`'s signature cannot say
+"unknown". It needs a third state threaded through three components, which is a contract change
+rather than a fix, so it is filed as **T26** with the shape written out — not left implicit.
+
+**T21(c) — "Added 5 to your order" could be the last thing said when one unit landed.** `add`
+announces optimistically before the server answers, and the correction for a capped merge existed on
+only one of the two paths. The scout found the filed row pointed at the smaller half: reusing "the
+same correction" would have imported a second defect, because the success path counted
+**basket-wide**, so any concurrent peer write skewed it — a tablemate removing one unit of _their_
+line fired "Added 4 — that line is now at our 99 max" about a dish sitting at 6 of 99, which needs no
+near-cap line at all and is therefore likelier than the cap it claims.
+
+`apps/qr/lib/add-landing.ts` is now the one rule — and it took two more rounds to get the unit of
+counting right. Per **dish** was still wrong: `insertOrIncLine` merges only into a row matching on
+seat AND `added_by` AND fulfillment AND notes AND price, so one dish is several lines and a peer's
+line is not the diner's. Summing the dish reproduced the same defect one level down (Codex round 1).
+The count is now **attributed**: an add grows exactly one line or creates one, so if exactly one line
+of the dish grew, that growth is ours and the number is exact; if two grew, one is a peer's and
+nothing here can say which; if none grew but one shrank, our add is invisible in the difference. The
+last two answer `unknown`, and `unknown` is spoken as silence.
+
+⚠️ **The correction is spoken only where attribution holds** — the success path, where the mutation
+returned a view, so our line must have grown. In the recovery path we do not know our write landed,
+so the one line that grew may be a tablemate's; announcing a cap off it would credit the diner with a
+landing that never happened _and_ assert a cap on a dish nowhere near one. Both halves fabricated, in
+the one live region. That path keeps its silence, as it had before this slice.
+
+⚠️ **And the correction states no COUNT at all** — Codex round 4, the last inference to go. A
+resulting quantity of 99 proves the line is capped; it does not make the delta attributable to this
+add. An authorized host editing the same row moves it under us — from a snapshot of 97 the host sets
+98, our request for five lands one unit at 99, and the delta reads 2 — so "Added 2" would be wrong
+about the only number it states. The copy now says what the data proves and stops: "Some of that
+couldn't be added — that line is at our 99 max" where the cap is evidenced, and "Nothing was added —
+your order below is up to date" where it is not, because a zero can equally be the comped sibling of
+T25. Round 3's silence on `none` was itself a regression — a genuine cap left "Added 5" standing —
+and this restores a correction without restoring a cause.
+
+Across five rounds this one function shed one inference per round: basket → dish → line →
+line-at-the-cap → the count itself. What that converged on is the finding, and it is filed as **T27**:
+**the correction cannot be computed from client snapshots at all.** Two under-corrections remain — a
+host edit can inflate a delta past the request so no correction fires, and the `null`-view path
+returns before the check — and both leave the optimistic announce standing, which is exactly what
+shipped before this slice. They are strictly narrower than the state they replace and none of them
+touches an amount, so they are filed rather than chased into a sixth round. The real fix is one
+change and it is not on the client: have `mms_cart_item_inc_qty` return the units it applied, and
+every ambiguity above dissolves — same RPC, same migration as T25.
+
+⚠️ **And the cap is only named when the line is AT the cap** — Codex round 3. Line identity separates
+a peer's row from ours; it cannot separate two writes to the SAME row. An authorized host editing
+this line during the add moves it under us — from a snapshot of 10 the host sets 9, our 5 lands, the
+line reads 14 — a net growth of 4 against a request of 5 with nothing capped and everything having
+worked. `mms_cart_item_inc_qty` only short-fills at the column maximum, so the RESULTING quantity is
+the evidence and the delta alone is an inference. Inferring is what produced every fabricated cap
+sentence in this PR, so the last inference is gone.
+
+⚠️ **And only a short GROWTH is diagnosed** — Codex round 2. A zero delta does not establish the cap:
+`insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty` excludes
+comped rows and still answers success, so an add that matched a comped sibling is a successful no-op
+and "That line is already at our 99 max" would name a cause that is not the one. The sentence is now
+reachable only when growth proves the write moved the line. The comped-sibling no-op is a real defect
+in its own right and is filed as **T25** rather than described wrongly.
+
+Three mutants, on fixtures that carry a second line of the same dish moving in the same window — a
+one-line fixture would let the summed and attributed counts produce identical numbers.
+
+**T22(d) — the banner with no control was shadowing the one with somewhere to go.** A cart can read
+locked **and** settling at once, and `GuestList` answered which banner to show with branch _order_ —
+an `if (locked)` early return 74 lines above the settling branch. So the lock bar won and suppressed
+"Pay your share →", telling the diner to wait on the surface that had somewhere to send them, while
+the Add pills two elements away already said "the order's locked while your table pays".
+`freezeBanner` decides it now, settling-first for `inertReason`'s reason, and `GuestList` renders off
+the rule instead of off position.
+
+⚠️ **The rest of T22 does not survive `CartBar`, and is closed rather than built.** The row's headline
+— a frozen /menu hides its own escape routes — is wrong for every freeze a diner can reach: `CartBar`
+has no freeze term, `count` sums every line in every state, and both freeze axes require a cart that
+_has_ lines. The only "no route to /cart" state is the empty cart, whose /cart destination links back
+to /menu — a loop presented as an escape. The row's co-occurrence mechanism was wrong too: a lock past
+its TTL reads `lockedFresh` **false**, i.e. settling-only. The real path is `abortSettlement`'s
+`refreeze`, whose UPDATE carries no `locked` predicate.
+
+Also filed with their mechanisms corrected: **T24** (the view ticket orders by client issuance, not
+by server observation — Codex round 5 on #249), **T19** (triple, not double; the 40-SKU example names
+a surface that mounts no subscription at all; and it had to land _behind_ T21(a), or coalescing would
+have reduced the frequency of a money-path symptom while leaving the bug live), and **T18** (the three
+/menu tap components are _invisible_ to `check-child-freeze`, not exempt — so an EXEMPT entry would be
+a dead exemption that the guard's own rule then fails).
+
 ### The /menu freeze can heal, and it knows whose lock it is (2026-09-03)
 
 **T20 — both primary add surfaces on /menu could go permanently inert, and being inert is what kept
