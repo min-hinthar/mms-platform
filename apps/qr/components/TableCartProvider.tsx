@@ -849,12 +849,20 @@ export function TableCartProvider({
           // and that distinction is the whole of T26: the old `null` here meant "no fresh list" but
           // read to `YourUsual` as "did not go through", and its retry re-added a committed dish.
           const reread = await readView();
-          if (!readIsOurs(reread)) {
-            publishUnconfirmed();
-            return { state: "unconfirmed" };
-          }
+          // ⚠️ `applied`, NOT `unconfirmed`, EVEN WHEN THE RE-READ FAILS (Codex round 4 on #251, P2).
+          // The comment above is the argument and the code used to contradict it: `viewAfterWrite`
+          // returns null only AFTER the row landed, so the mutation response has already established
+          // the outcome. A failed re-read leaves us without a VIEW, not without a verdict —
+          // downgrading it retracted a true success notice, suppressed the analytics capture, and
+          // made `YourUsual` tell the diner a dish it had just added could not be confirmed.
+          //
+          // `unconfirmed` belongs only where the mutation response ITSELF said nothing: the catch
+          // arm, where the action rejected and the write may or may not have committed.
+          if (!readIsOurs(reread)) return { state: "applied", view: null };
           // The re-read is ours, so correct the optimistic announce against it exactly as the
           // success path does — a cap reached on a write whose first view failed is still a cap.
+          // (Not reachable above: without a view there is nothing to attribute a shortfall against,
+          // so the optimistic announce stands — the T27 residual, unchanged by this slice.)
           announceShortfall(itemsBefore, itemsRef.current, menuItemId, qty);
           return { state: "applied", view: itemsRef.current };
         }
@@ -1003,10 +1011,12 @@ export function TableCartProvider({
           // that may predate this write. The row COMMITTED either way — `viewAfterWrite` only
           // returns null after it landed — so the two states here are `applied` and `unconfirmed`.
           const reread = await readView();
-          if (readIsOurs(reread)) return { state: "applied", view: itemsRef.current };
-          // The optimistic `announce` ("Removed Tea Leaf Salad") is still on screen — retract it.
-          publishUnconfirmed();
-          return { state: "unconfirmed" };
+          // Same as `add`'s arm: the row COMMITTED (that is what a null view means here), so this is
+          // `applied` either way and the optimistic `announce` stands. Only the VIEW is missing, and
+          // `view: null` says exactly that — the next queued op re-reads rather than threading.
+          return readIsOurs(reread)
+            ? { state: "applied", view: itemsRef.current }
+            : { state: "applied", view: null };
         }
         applyView(view);
         return { state: "applied", view: view.items };

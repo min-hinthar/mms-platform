@@ -286,11 +286,19 @@ export function AddButton({
           // good recovery read: two rapid decrements from 3 lost the second tap even when the
           // refresh had cleanly observed 2. Provider state is not a channel this continuation can
           // read — the value has to come back out of the call, and now it does.
-          const refreshed = prior?.state === "unconfirmed" ? await refresh() : null;
+          //
+          // ⚠️ GATE ON THE VIEW, NOT THE STATE (Codex round 4 on #251, P1). Round 3 gave `applied`
+          // and `refused` a null view for an OVERTAKEN read, so a state check no longer identifies
+          // the cases that have nothing to thread: both now fall through to the stale ref. The
+          // question this line asks is "do I have a current list?", and `threadableView` is the one
+          // that answers it — checking `state` was only ever a proxy, and my own change invalidated
+          // the proxy without updating the check.
+          const threaded = prior ? threadableView(prior) : null;
+          const refreshed = prior && threaded === null ? await refresh() : null;
           // Freshest lines, in order of how well we can trust them: the prior op's own view, then a
           // refresh we just applied, and only then the last render's snapshot — which is the correct
           // source for a FIRST op and the stale one for a following op, hence the ordering.
-          const source = (prior ? threadableView(prior) : null) ?? refreshed ?? itemsRef.current;
+          const source = threaded ?? refreshed ?? itemsRef.current;
           const lines = matchOwnLines(source, menuItemId, defaultFulfillment, mySeat);
           const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
           if (!target) {
