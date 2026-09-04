@@ -82,6 +82,13 @@ bilingual EN/MY app, on every avatar's accessible label as well as the banner. B
 judged on the trimmed name; the projection does one job only, recognising the Latin spellings that
 would make the sentence read as the reader. Five scripts are pinned by test.
 
+⚠️ **And the fix broke its own mutant, which is why there are now two.** Retargeting `view-seq.ts`'s
+anchors after the round-2 rewrite, I missed that `peer-name.ts` had changed shape too — so
+`name/a-tablemate-can-name-themselves-the-reader` matched 0×, and `verify:slice` reported it **STALE**,
+which fails the gate. Codex round 3 caught it before the run finished. The anchor is retargeted, and
+the rule it guarded has been **split in two**, because the fix created a second behaviour worth
+pinning separately: one mutant restores the impostor hole, the other restores the non-Latin erasure.
+
 **A monotonic view ticket, landed early.** `apps/qr/lib/view-seq.ts` orders the cart view by what has
 been **applied**, not by what was merely issued: a read takes a ticket before it awaits and lands
 unless some view beat it to the screen. This is the first part of **T21(b)**, brought forward because

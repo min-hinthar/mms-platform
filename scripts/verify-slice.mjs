@@ -320,8 +320,17 @@ const MUTANTS = [
     file: "apps/qr/lib/peer-name.ts",
     suite: "lib/peer-name.test.ts",
     why: 'T20 \u2014 presence names are peer-supplied with almost no filtering by design (`setName` clamps length only, `cleanPresence` strips control characters), and the pay-lock banner puts one into a sentence ABOUT THE READER. Passing the name through unnarrowed restores "You is checking out \u2014 the order\u2019s locked for a moment": the seat comparison keeps the app\u2019s BELIEF right while the sentence still opens with the word the impersonation is built on',
-    find: '  if (normalized === "" || FIRST_OR_SECOND_PERSON.has(normalized)) return "Someone";',
-    replace: '  if (normalized === "") return "Someone";',
+    find: '  if (latin !== "" && FIRST_OR_SECOND_PERSON.has(latin)) return "Someone";',
+    replace: '  if (latin === "\\u0000") return "Someone";',
+  },
+  {
+    id: "name/a-non-latin-name-is-erased",
+    file: "apps/qr/lib/peer-name.ts",
+    suite: "lib/peer-name.test.ts",
+    why: 'T20 (Codex round 2 on #249) \u2014 THIS IS THE SHIPPED DEFECT, restored, and it is the one the impostor defence caused. Judging blankness on the LETTERS-ONLY projection collapses every name written in Burmese, Chinese or any non-Latin script to "" and answers "Someone" \u2014 in a bilingual EN/MY app, on the lock banner AND on every peer avatar\u2019s accessible label. A guard against one contrived name that silently misnames the ordinary guest. Blankness belongs to the TRIMMED name; the projection exists only to recognise the Latin spellings that would read as the reader',
+    find: '  const trimmed = (name ?? "").trim();\n  if (trimmed === "") return "Someone";',
+    replace:
+      '  const trimmed = (name ?? "").trim();\n  if (trimmed.toLowerCase().replace(/[^a-z]/g, "") === "") return "Someone";',
   },
   {
     id: "seq/a-stale-read-overwrites-a-newer-view",
