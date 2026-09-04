@@ -116,6 +116,22 @@ const COUNT_RULES = [
   // claim and must be measured. Requires nearby mutant context so this can't grab an unrelated
   // "(3 today)". Found in round 2 — HANDOFF carried a `(124 today)` nothing could falsify.
   { re: /mutants?[^.\n]{0,40}?\((\d+)\s+today\)/gi, key: "mutants", label: "verify:slice mutants" },
+  // T20 (blind adversarial pass): the mutant COUNT was guarded and the MODULE count beside it was
+  // not, so the same edit that refreshed "261 mutations" left "59 money/authority modules (56 under
+  // apps/qr/lib" stale one line below — a wrong live-state number in the two files CLAUDE.md itself
+  // names as live-state docs, reported clean by this script. Both phrasings appear verbatim in
+  // CLAUDE.md and README, and both describe what `verify:slice` REWRITES IN PLACE, which is the
+  // number a reader checks before deciding whether a dirty tree is safe.
+  {
+    re: /(\d+)\s+money\/authority\s+modules/gi,
+    key: "modules",
+    label: "verify:slice target modules",
+  },
+  {
+    re: /(\d+)\s+under\s+`?apps\/qr\/lib`?/gi,
+    key: "libModules",
+    label: "verify:slice target modules under apps/qr/lib",
+  },
 ];
 
 /**
@@ -166,6 +182,24 @@ const MISSING_RULES = [
   // each label is preceded by its own number, so neither half matches.
   { re: /(?:^|[+·|(])[ \t]*(qr|ui)[ \t]+tests/gim, label: (m) => `${m[1]} tests` },
   { re: /(?:^|[+·|(])[ \t]*(verify:slice)[ \t]+mutants/gim, label: () => "a mutant count" },
+  // T20 round 2 (Codex): the module rules added below were born with the very blind spot this list
+  // exists to close — they only fire when digits are present, so deleting the number made the claim
+  // vanish from the check and `countFailures` reported clean. Both twins are anchored on the
+  // phrasing that CARRIES a count, not on the bare words: CLAUDE.md legitimately says "applies 264
+  // semantic mutations to the money/authority modules" with no count of its own, and a bare
+  // `money/authority modules` rule would fail that honest sentence.
+  {
+    re: /rewrites[ \t]+the[ \t]+money\/authority[ \t]+modules/gi,
+    label: () => "a module count",
+  },
+  {
+    // `[ \t\n]+`, not `[ \t]+`: CLAUDE.md wraps this very claim across two comment lines, and
+    // `joinWrappedComments` blanks the `#` marker but deliberately KEEPS the newline so line numbers
+    // stay exact. A tab/space-only gap therefore misses the wrapped half — which is the file the
+    // claim actually lives in.
+    re: /(?:^|[(])[ \t]*under[ \t\n]+`?apps\/qr\/lib/gim,
+    label: () => "a module count for apps/qr/lib",
+  },
 ];
 
 export function countFailures(text, truth, name = "<doc>") {
@@ -211,10 +245,17 @@ export function measure(root) {
       .split("\n")
       .filter((l) => l.includes(" > ")).length;
   const verifySlice = readFileSync(path.join(root, "scripts/verify-slice.mjs"), "utf8");
+  // DISTINCT paths, not mutant count: several mutants share a file, and what the docs describe is
+  // the set of modules the run REWRITES IN PLACE.
+  const targets = [
+    ...new Set((verifySlice.match(/^\s*file:\s*"([^"]+)"/gm) || []).map((m) => m.split('"')[1])),
+  ];
   return {
     qr: list("apps/qr"),
     ui: list("packages/ui"),
     mutants: (verifySlice.match(/^\s*id:\s*"/gm) || []).length,
+    modules: targets.length,
+    libModules: targets.filter((f) => f.startsWith("apps/qr/lib/")).length,
   };
 }
 

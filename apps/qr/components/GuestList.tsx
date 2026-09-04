@@ -23,6 +23,7 @@ export function GuestList() {
     loading,
     locked,
     lockedByName,
+    lockedByYou,
     tableNumber,
     revalidate,
     settling,
@@ -55,8 +56,11 @@ export function GuestList() {
           size={14}
           style={{ display: "inline", verticalAlign: "-2px", marginRight: 3 }}
         />
-        {lockedByName === "You" ? "You’re" : `${lockedByName} is`} checking out — the order’s locked
-        for a moment.
+        {/* T20 — the FACT, not the label: `lockedByName` is peer-supplied presence text, so a
+            tablemate named "You" used to make this banner tell an uninvolved diner they were
+            checking out AND suppress the real holder's name. */}
+        {lockedByYou ? "You’re" : `${lockedByName} is`} checking out — the order’s locked for a
+        moment.
       </p>
     );
 
@@ -172,6 +176,14 @@ export function GuestList() {
       <ul role="list" aria-label="Guests at your table" style={listReset}>
         {list.map((m, i) => {
           const isMe = m.seat === me.seat;
+          // ⚠️ THE GUEST'S OWN NAME, NOT `peerDisplayName` — and the difference is what the string
+          // CLAIMS. Codex round 4 on #249: an earlier draft narrowed this label the way the lock
+          // banner is narrowed, which cost a guest legitimately called "U" (a Burmese honorific) or
+          // "Me" their identity in the one place a screen-reader user hears it, and bought nothing.
+          // The banner narrows because it builds a SENTENCE ABOUT THE READER ("… is checking out");
+          // a list entry asserts nothing, and the viewer's own row already carries "(you)", so
+          // "Someone" here would be over-blocking — as expensive as under-blocking, per this repo's
+          // own rule. The impersonation lives in the sentence, so the defence stays in the sentence.
           const label = isMe ? `${m.name} (you)` : m.name;
           return (
             // Rise-in per avatar (keys are stable seats — presence re-syncs never re-animate; only a

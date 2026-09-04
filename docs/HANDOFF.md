@@ -5,6 +5,54 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #249 — T20 closed; the /menu freeze can heal, and it knows whose lock it is)
+>
+> **`main` is at `c88e254`** (#248). #249 closes **T20**, the `high` row #248 filed against itself.
+>
+> **⚠️ A SCOUT PASS BEFORE ANY CODE CHANGED IS WHAT MADE THIS SLICE CORRECT, AND IT CORRECTED THREE
+> THINGS.** Worth repeating as a method: five independent readings of the same subsystem, run before
+> the first edit, each asked to quote source rather than summarise.
+>
+> 1. **`settling` decays exactly like `locked`** — T20 named only the lock, but `assertCartMember`
+>    computes BOTH by arithmetic, and the settle window is twice as long. `frozen` has two stale-true
+>    axes.
+> 2. **The lock also removes the escape routes.** `TableTimeline`'s `quiet` drops both /cart links,
+>    `AppHeader` hides its cart link on /menu, `CartBar` renders nothing at count 0 — so the diner
+>    loses the route to the one surface that does a fresh read. That is what made the dead end
+>    permanent. Filed as **T22**.
+> 3. **T21(a)'s premise was half wrong** and it is worth knowing before you pick it up: `getCartTotals`
+>    already reads `qr_cart_items` and THROWS, and `getCartView` retypes that to
+>    `AuthzError(503, "unavailable")` — so a persistent outage already rejects. The live hole is the
+>    narrower race between two round-trips. **The genuinely unguarded read is `qr_carts`**
+>    (`pickup_slot`/`fire_at`/`tab_type`), and its failure silently relights ASAP over a SCHEDULED
+>    pickup — the W19 bug from a new cause — and reports a `secure` tab as `none`.
+>
+> **The fix.** `CART_LOCK_TTL_MS`/`SETTLE_TTL_MS` moved to `apps/qr/lib/lock-ttl.ts` (no
+> `server-only`), seven production importers and three test stubs repointed, **no re-export left
+> behind**. `freezeRecheckDelayMs` is the longest held axis, `null` when editable. The provider
+> schedules ONE re-read at that horizon and re-arms from each fresh observation.
+>
+> ⚠️ **The client cannot compute the expiry** — `getCartView` carries no `locked_at`/`settle_at` — so
+> the schedule bounds our ignorance rather than predicting an expiry. Do not "improve" it into a
+> computed expiry without first putting those columns on the view.
+>
+> ⚠️ **The first draft fired exactly ONCE.** Deps were the freeze axes, so a re-read finding the cart
+> still frozen re-armed nothing. Caught in the author's own read, not by a reviewer. If you write an
+> effect that re-schedules itself off state the re-schedule does not change, it does not re-schedule.
+>
+> **Ownership now comes from seat ids.** Four sites compared against `lockedByName`, which is
+> peer-supplied presence text; a tablemate named "You" made their lock read as the viewer's own.
+> `lockedByYou` is exported from the provider and zero `lockedByName === "You"` comparisons remain.
+>
+> **Still open, in order:** **T21(a)** (bind the two discarded errors in `getCartView` — note it has
+> ZERO mutants and ZERO direct coverage today, a live `check-freeze-parity` exemption, and a
+> staleness trap: `cart/promo-diagnosis-read-swallows-its-error` anchors on a bare two-line
+> `if (error) return "error";`, so give the new arm a different shape) · **T21(b)** (a monotonic view
+> token — the token belongs INSIDE `applyView`, which writes three refs the write paths read as
+> authority, and two of the five appliers are mutation-returned views whose freshness is the SERVER's
+> commit instant) · **T22** · the **cart→intent link** (M123 · M124 · M151 · M152 — owner
+> authorization required) · **C16** (owner-only) · **T16 · T17 · T18 · T19**.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #248 — T10 · T12 · T14 · T15 closed; /menu stops telling diners their connection dropped)
 >
 > **`main` is at `70521e6`** — #247 merged on the owner's explicit instruction with `codex-review`
@@ -517,7 +565,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 259 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1179 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 266 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1214 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1239,7 +1287,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (259 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (266 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

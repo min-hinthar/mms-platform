@@ -19,6 +19,9 @@ import {
   refusedWriteNotice,
   type FreezeInput,
 } from "@/lib/cart-freeze";
+import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
+import { peerDisplayName } from "@/lib/peer-name";
+import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -103,6 +106,16 @@ type CartCtx = {
    *  else. `lockedByName` is who (resolved from presence; "You" if it's the viewer). */
   locked: boolean;
   lockedByName: string | null;
+  /** T20 — does the VIEWER hold the lock? Derived from seat ids (`lockedBy === viewerSeat`), never
+   *  from `lockedByName`.
+   *
+   *  ⚠️ `lockedByName` IS PEER-SUPPLIED TEXT. It resolves through presence, and `setName` clamps only
+   *  length while `cleanPresence` strips only control/format characters — so "You" is a name a
+   *  tablemate can legitimately choose. Four call sites used to infer ownership by comparing against
+   *  that string, which let a diner named "You" make a peer's lock read as the viewer's own: the
+   *  banner said "You're checking out" to someone who was not, and simultaneously suppressed the
+   *  real holder's name. The correct derivation already existed here; it was simply never exported. */
+  lockedByYou: boolean;
   /** Split-tender settlement freeze (M3·P3.3b): true while the table settles its shares → the whole cart
    *  is read-only (the server rejects add/setQty). Distinct from the pay-window `locked`; the menu controls
    *  gate on it too so a quick add/remove can't fire an optimistic confirmation the server will reject. */
@@ -247,6 +260,31 @@ export function TableCartProvider({
   const prevSettling = useRef<boolean | null>(null);
 
   // T14 — the freeze the WRITE paths read. See the note in `applyView`, which is the only writer.
+  /**
+   * T21(b) partial — a monotonic ticket so an OLDER read cannot overwrite a NEWER applied view.
+   *
+   * Five paths apply a view here and none of them cancels or supersedes another, so the LAST TO
+   * RESOLVE won rather than the last to be issued. Realtime does no debouncing and fires one refresh
+   * per row event, so a single multi-row change (a send-to-kitchen batch, a split opening N shares)
+   * already fanned out N concurrent reads whose landing order is arbitrary; #249's scheduled re-read
+   * adds one more, and its whole job is to observe a freeze — so a slow one resolving after a newer
+   * read could put `locked: true` back over a cart the server had already released, and the surface
+   * would stay frozen until the NEXT scheduled read a full TTL later. That is the interaction Codex
+   * flagged on this diff, and it is why the ticket lands here rather than waiting for the full T21(b).
+   *
+   * ⚠️ A MUTATION'S RETURNED VIEW OUTRANKS THE READS IN FLIGHT WHEN IT LANDS — as a policy, not as
+   * a proof. `addItem`/`setQty` commit and then call `getCartView` SEPARATELY, so a peer really can
+   * change the cart in between and a read still in flight may hold newer rows (Codex round 2 killed
+   * this docblock's original "same statement" claim, which was simply false). The tie goes to the
+   * write because the errors are not symmetric: a refused-but-newer read costs a peer's change
+   * arriving one event late — and that peer's write emits its own row event, so it self-heals —
+   * while an applied-but-older read erases a line the diner just watched land, and they re-add it.
+   * See `view-seq.ts` for the full argument. Only ticketed callers (the three plain reads — the
+   * initial load, `refresh` and `explainCaught`'s diagnosis) can be refused, and a read is refused
+   * only by a view that BEAT it to the screen, never by one that merely started later.
+   */
+  const viewSeqRef = useRef<ViewSeq>(newViewSeq());
+
   const freezeRef = useRef<FreezeInput>({ locked: false, lockedBy: null, mySeat: null });
   /** The last sentence `explainCaught` published. A caller that announces its OWN outcome after a
    *  refused write (`YourUsual`'s partial-add message) must be able to keep the established cause
@@ -257,7 +295,10 @@ export function TableCartProvider({
 
   // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
   // refresh in lockstep so a new field can never be applied in one path and forgotten in another.
-  const applyView = useCallback((v: Awaited<ReturnType<typeof getCartView>>) => {
+  const applyView = useCallback((v: Awaited<ReturnType<typeof getCartView>>, seq?: number) => {
+    // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
+    // read still in flight. A ticket that is no longer current = a read another view has overtaken.
+    if (!acceptView(viewSeqRef.current, seq)) return;
     setItems(v.items);
     setTotals(v.totals);
     setPickupSlot(v.pickupSlot);
@@ -282,28 +323,52 @@ export function TableCartProvider({
     if (prevSettling.current === null) prevSettling.current = v.settling;
   }, []);
 
-  const refresh = useCallback(async () => {
-    if (!cartId) return;
+  /**
+   * The one plain re-read, and it REPORTS whether it worked.
+   *
+   * ⚠️ The boolean is not decoration — it is what terminates the scheduled re-read below. A cart
+   * that has been paid answers `cart_closed` from `assertCartMember` FOREVER (`mms_fulfill_order`
+   * sets `status='paid'`, and the status check precedes every freeze axis), so a caller that retries
+   * on the strength of "still frozen" would retry until the tab is closed. `false` means this read
+   * taught us nothing about the freeze — not that the freeze is gone.
+   */
+  const readView = useCallback(async (): Promise<boolean> => {
+    if (!cartId) return false;
+    // Minted BEFORE the await: the ticket records the order reads were ISSUED in, which is the order
+    // their answers describe. Comparing on resolve is what stops the slower of two from winning.
+    const seq = issueRead(viewSeqRef.current);
     try {
-      applyView(await getCartView(cartId));
+      applyView(await getCartView(cartId), seq);
+      return true;
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
+      return false;
     }
   }, [cartId, applyView]);
+
+  /** The public shape: consumers re-read, they don't inspect the outcome. */
+  const refresh = useCallback(async () => {
+    await readView();
+  }, [readView]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
   // pattern: sync React from an external system), with a cancel guard against an unmounted update.
   useEffect(() => {
     if (!cartId) return;
     let active = true;
+    // TICKETED like every other read. `active` guards a DIFFERENT thing — an update after unmount —
+    // and says nothing about whether a fresher view already landed: this effect re-runs on `cartId`,
+    // and an add fired the moment the menu paints can commit its server-fresh view while this first
+    // read is still in flight. Without a ticket that older read would then overwrite it.
+    const seq = issueRead(viewSeqRef.current);
     void getCartView(cartId)
       .then((v) => {
         if (!active) return;
         // Route the FIRST view through `applyView` too (it used to hand-copy the same six setters).
         // The duplicate was exactly the drift the helper's own comment warns about, and W9b needs one
         // place that also seeds the settle baseline.
-        applyView(v);
+        applyView(v, seq);
         // W5e: no longer force-open the slot sheet at the menu. Pickup timing is now an explicit
         // ASAP↔scheduled choice at CHECKOUT (ASAP is a first-class default — a null slot fires
         // immediately at settlement), so a diner is never blocked behind "pick a time" before ordering.
@@ -448,6 +513,60 @@ export function TableCartProvider({
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [refresh]);
 
+  /**
+   * T20 — the one thing that lets a stale freeze heal on /menu.
+   *
+   * ⚠️ BOTH FREEZE AXES EXPIRE BY ARITHMETIC, NOT BY A WRITE. `assertCartMember` computes `locked`
+   * as `locked_at > now - CART_LOCK_TTL_MS` and `settling` the same way against `SETTLE_TTL_MS`, so
+   * when either lapses NO ROW CHANGES — no Postgres-Changes event, nothing for `useCartRealtime` to
+   * deliver, and a cached `true` that no subscription can ever clear.
+   *
+   * That would merely be untidy if the frozen surface could ask again. It cannot: `AddButton` and
+   * `ItemSheet` put the freeze on NATIVE `disabled`, so their controls leave the tab order and can
+   * emit no request at all — the inertness is what preserves the inertness. And the lock also hides
+   * both routes off the page (`TableTimeline`'s `quiet` drops the two /cart links; `AppHeader` hides
+   * its cart link on /menu; `CartBar` renders nothing at count 0), so a diner whose tablemate
+   * abandoned a checkout could sit on a permanently dead menu until they reloaded.
+   *
+   * The visibility listener above covers a BACKGROUNDED tab; this covers the one that stays open.
+   * It is a single scheduled re-read, not a poll: `freezeRecheckDelayMs` returns null unless a
+   * freeze is actually held, and the delay is the longest held axis.
+   *
+   * ⚠️ THE CHAIN TERMINATES ON A FAILED READ, AND THAT IS THE WHOLE DESIGN (blind adversarial pass
+   * on this diff, CRITICAL). Re-arming on "still frozen" alone does not terminate: once the table
+   * pays, `mms_fulfill_order` sets `qr_carts.status='paid'`, `assertCartMember` throws `cart_closed`
+   * BEFORE it computes either freeze axis, and `readView` swallows it — so `locked` can never fall
+   * and an abandoned tab would fire a Server Action every five minutes for as long as it is open.
+   * The same shape covers a persistent 503, a dead session and an offline tab.
+   *
+   * So the re-arm asks a different question: did this read TEACH US ANYTHING? Only a read that came
+   * back can have moved the freeze, and only then is a further wait justified — a cart still frozen
+   * on a fresh, successful read is a lock that was RE-ACQUIRED, which is a new observation and earns
+   * a new window. A read that failed leaves the surface exactly where it was BEFORE this change:
+   * stale until the next realtime event or foreground. That is the honest floor, and it is bounded.
+   */
+  useEffect(() => {
+    const delay = freezeRecheckDelayMs({ locked, settling });
+    if (delay === null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      timer = setTimeout(() => {
+        void readView().then((read) => {
+          // `cancelled` is checked AFTER the await too: the effect can be torn down while the read
+          // is in flight (an unmount, or the axes flipping), and a chain that re-armed from a
+          // resolved promise would outlive its own cleanup.
+          if (!cancelled && read) arm();
+        });
+      }, delay);
+    };
+    arm();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [locked, settling, readView]);
+
   // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
   // view (keyed React state, never client math) + announce a peer's ADD honestly (by_seat is the adder
   // → a reliable "who" for INSERTs; qty/remove just refresh, since the event doesn't carry the actor).
@@ -491,15 +610,22 @@ export function TableCartProvider({
    *
    * `explainCaught` re-reads once, applies that view (so the sentence and the list beside it are the
    * same server truth), and re-mints ONLY on the arm where the re-read itself failed.
+   *
+   * The re-read is TICKETED like the other two, so a view issued after it still wins the render. The
+   * sentence is unaffected: `refusal`, `holderIsViewer` and `fresh` are all read off `v` directly, and
+   * they describe why THIS write was refused — a fact about the moment it was diagnosed, which a
+   * later view does not revise. Being overtaken can only mean the list beside the sentence is newer
+   * than the sentence, never older.
    */
   const explainCaught = useCallback(
     async (id: string): Promise<{ fresh: CartItem[] | null; notice: string }> => {
       let fresh: CartItem[] | null = null;
       let refusal;
       let holderIsViewer = false;
+      const seq = issueRead(viewSeqRef.current);
       try {
         const v = await getCartView(id);
-        applyView(v);
+        applyView(v, seq);
         fresh = v.items;
         holderIsViewer =
           cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
@@ -690,11 +816,18 @@ export function TableCartProvider({
   // `lockedBy`) and falls back to the session's own copy only before the first view lands. W9b put
   // `mySeat` on that view precisely so this comparison cannot be defeated by a second read.
   const viewerSeat = mySeat ?? session?.seat ?? null;
+  const lockedByYou = !!locked && !!lockedBy && lockedBy === viewerSeat;
+  // ⚠️ THE PEER BRANCH GOES THROUGH `peerDisplayName`, AND THAT IS THE OTHER HALF OF THE IMPOSTOR
+  // FIX. `lockedByYou` settled who the app BELIEVES holds the lock; this settles what the sentence
+  // SAYS. Without it a tablemate named "You" still produced "You is checking out — the order's
+  // locked for a moment" on the banner and in the live region: ungrammatical, and it still opens
+  // with the word the attack is built on. Named once here so the banner and the announcer below
+  // cannot disagree.
   const lockedByName = !locked
     ? null
-    : lockedBy && lockedBy === viewerSeat
+    : lockedByYou
       ? "You"
-      : (members.find((m) => m.seat === lockedBy)?.name ?? "Someone");
+      : peerDisplayName(members.find((m) => m.seat === lockedBy)?.name);
 
   // Announce the pay-lock transition through the SINGLE live region (the lockbar banner is plain
   // visual). Diff via a ref so it fires on the edge, not every render; deferred (not a sync effect set).
@@ -704,11 +837,11 @@ export function TableCartProvider({
     prevLocked.current = locked;
     const msg = !locked
       ? "The order’s unlocked — you can edit again"
-      : lockedByName === "You"
+      : lockedByYou
         ? "You’re checking out — the order’s locked"
         : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;
     void Promise.resolve().then(() => flash(msg, 2600));
-  }, [locked, lockedByName, flash]);
+  }, [locked, lockedByName, lockedByYou, flash]);
 
   // W9b — the settlement freeze is the OTHER way this cart goes read-only, and it announced nothing:
   // a guest browsing the menu simply found every Add inert. Same single live region and the same edge
@@ -754,6 +887,7 @@ export function TableCartProvider({
         setName,
         locked,
         lockedByName,
+        lockedByYou,
         settling,
       }}
     >

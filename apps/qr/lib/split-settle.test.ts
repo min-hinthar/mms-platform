@@ -93,9 +93,10 @@ vi.mock("./stripe", () => ({
 vi.mock("./lock", () => ({
   extendSettlement: () => Promise.resolve(),
   releaseSettlement: () => Promise.resolve(null),
-  CART_LOCK_TTL_MS: 300000,
-  SETTLE_TTL_MS: 600000,
 }));
+// T20 — the TTLs live in `./lock-ttl` now. Left UNMOCKED on purpose: these two values already equal
+// production, so stubbing them was a transcribed copy of a number whose source has since changed
+// address — exactly the drift the "name it ONCE" rule is about. The real module is pure.
 
 const { onShareFailed, onShareAuthorized } = await import("./split-settle");
 

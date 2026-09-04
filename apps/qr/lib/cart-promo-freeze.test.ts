@@ -58,12 +58,14 @@ vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, fl
 vi.mock("./order-lines", () => ({ priceItem: () => Promise.resolve({}) }));
 
 // The REAL TTLs — importing them is what makes the freshness boundary in this suite the same one
-// production uses. A copy here would drift the moment either constant moved.
+// production uses. A copy here would drift the moment either constant moved. T20 moved them to
+// `./lock-ttl` (a module without `server-only`, so a client can hold them); this mock stays because
+// it exists for `releaseCartLock`, which is still lock.ts's.
 vi.mock("./lock", async () => {
   const actual = await vi.importActual<typeof import("./lock")>("./lock");
   return { ...actual, releaseCartLock: () => Promise.resolve() };
 });
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 type Row = Record<string, unknown>;
 

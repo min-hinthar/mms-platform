@@ -1,7 +1,8 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
-import { extendSettlement, releaseSettlement, CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { extendSettlement, releaseSettlement } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 /**
  * Split-tender settlement orchestration (M3·P3.3b, Option A: authorize-all → capture-together). Driven

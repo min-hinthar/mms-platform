@@ -130,7 +130,7 @@ function ItemSheetBody({
   hearted?: boolean;
   onToggleHeart?: (id: string) => void;
 }) {
-  const { add, cartId, loading, locked, lockedByName, settling } = useCart();
+  const { add, cartId, loading, locked, lockedByYou, settling } = useCart();
   const { shouldAnimate } = useAnimationPreference();
   // On mount (each keyed remount = open OR upsell swap): reset the SHARED sheet scroll to the top so a
   // swapped-in item starts at its hero, not wherever the previous item's "Goes well with" row sat. Reading
@@ -166,7 +166,8 @@ function ItemSheetBody({
   // mint window and behind a peer's checkout: `loading` had been on the cart context with zero
   // consumers. It does NOT relax `blocked` — an add with no cartId still can't fire.
   const minting = loading && !cartId;
-  const reason = inertReason({ minting, locked, lockedByYou: lockedByName === "You", settling });
+  // T20 — the FACT, not the label (see AddButton). `lockedByName` is peer-supplied presence text.
+  const reason = inertReason({ minting, locked, lockedByYou, settling });
   // Upsell respects the diner's ACTIVE dietary filters (fail-safe): a "No shellfish" diner must not be
   // recommended a shellfish dish the browse list just hid. Stable per item (the body is keyed on item.id).
   const upsell = useMemo(
@@ -215,8 +216,10 @@ function ItemSheetBody({
     // rides along — free text, trimmed here, length-bounded again server-side.
     // W20 (owner: "adding feels lagged … why not make optimistic and instant feedback") — close NOW,
     // not after the round trip. The provider's add() is already optimistic (count bump + "Added"
-    // flash the instant it is called) and owns BOTH outcomes: a refusal flashes "Reconnecting to
-    // your table…" + re-mints, and the reconciled view simply won't carry the line. Deliberate
+    // flash the instant it is called) and owns BOTH outcomes: a refusal is NAMED from a fresh read
+    // ("someone's checking out", "the table is splitting the bill") and only the arm that could not
+    // read the cart at all re-mints — T14 replaced the blanket "Reconnecting to your table…" this
+    // comment used to describe — and the reconciled view simply won't carry the line. Deliberate
     // trade: on that rare refusal the diner re-opens the sheet and re-picks — every-tap latency was
     // the wrong price for keeping their choices warm.
     void add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);

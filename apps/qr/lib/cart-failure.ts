@@ -2,7 +2,7 @@ import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getCallerUid } from "./authz";
 import type { CartUnavailable } from "./cart-unavailable";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 /**
  * W9d — WHY a cart the shopper is holding stopped working, safe to tell them.

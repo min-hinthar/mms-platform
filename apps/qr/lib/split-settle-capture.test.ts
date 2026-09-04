@@ -125,9 +125,14 @@ vi.mock("./stripe", () => ({
 }));
 vi.mock("./lock", () => ({
   releaseSettlement: () => Promise.resolve(null),
-  SETTLE_TTL_MS: 10 * 60 * 1000,
-  CART_LOCK_TTL_MS: 90 * 1000,
 }));
+// T20 — there is deliberately NO `./lock-ttl` mock here. There used to be a 90s CART_LOCK_TTL_MS
+// override on `./lock`, and moving the constants left it INERT without a single test going red. It
+// is not carried across for two reasons: nothing here depends on the shortened window (`split-settle.ts`
+// short-circuits on `cart.locked === true` and this suite's `cartRow` sets `locked: false,
+// locked_at: null` and never mutates them), and a whole-module `vi.mock` of `./lock-ttl` would
+// answer `undefined` for `freezeRecheckDelayMs` to any future importer that lands in this module
+// graph — a trap that fails at CALL time rather than at resolution. The real module is pure.
 
 const mod = await import("./split-settle");
 

@@ -4,6 +4,135 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The /menu freeze can heal, and it knows whose lock it is (2026-09-03)
+
+**T20 — both primary add surfaces on /menu could go permanently inert, and being inert is what kept
+them inert.** `assertCartMember` computes both freeze axes by arithmetic — `locked_at > now -
+CART_LOCK_TTL_MS`, `settle_at > now - SETTLE_TTL_MS` — so when either lapses **no row changes**: no
+Postgres-Changes event, nothing for `useCartRealtime` to deliver, and a cached `true` that no
+subscription can ever clear. `AddButton` and `ItemSheet` put that cached value on NATIVE `disabled`,
+which removes their controls from the tab order, so neither can emit the request whose returned view
+would correct it. A tablemate abandoning a checkout left the menu dead for five minutes; an abandoned
+split, ten.
+
+Two things the filed row understated, both measured by a scout pass before any code changed.
+**`settling` decays exactly like `locked`** — the row named only the lock, so `frozen = locked ||
+settling` has two stale-true axes and the longer one is twice the window. And **the lock removes the
+escape routes too**: `TableTimeline`'s `quiet` drops both /cart links, `AppHeader` hides its cart link
+on /menu, and `CartBar` renders nothing at count 0 — so the diner loses the route to the one surface
+whose freeze bar carries a live re-read control. That half is filed as **T22**; this change makes the
+state bounded rather than permanent **for as long as the cart can still be read** — a cart that has
+been paid answers `cart_closed` forever, and there the freeze stays exactly as stale as it was
+before, on a menu whose order is already settled.
+
+`CART_LOCK_TTL_MS` and `SETTLE_TTL_MS` now live in `apps/qr/lib/lock-ttl.ts`, a module without
+`server-only`. All seven production importers and three test stubs were repointed and **no re-export
+was left in `lock.ts`** — two import paths for one value is the shape the name-it-ONCE rule exists to
+prevent. `freezeRecheckDelayMs` is the rule: the **longest** held axis (a cart that is both stays
+frozen until both lapse, so the shorter horizon buys only a round trip), and `null` for an editable
+cart, which is what keeps this a scheduled re-read instead of a poll. Both arms carry a mutant.
+
+⚠️ **The client cannot compute the expiry and does not try.** `getCartView` returns `locked` and
+`settling` but never `locked_at` or `settle_at`. The schedule bounds our _ignorance_ and nothing
+more: a freeze observed now was acquired at or before now, so **absent re-acquisition** it cannot
+outlive now + its TTL. That is an upper bound, not a prediction — it is not the first moment the
+answer can have changed, and it does not guarantee the next read finds a different one. A freeze
+acquired seconds before we saw it lapses long before the delay elapses, and a diner landing 9m59s
+into a settlement waits the full window for a freeze that ends in one second. The fix for that is a
+shape change (`locked_at`/`settle_at` on the view, so the client can compute the real deadline),
+filed as **T23** rather than approximated with a smaller constant.
+
+⚠️ **The effect was wrong in both directions before it was right, and a different pass caught each.**
+The first draft fired exactly **once** — its deps were the freeze axes, so a re-read that found the
+cart still frozen changed nothing React could see and scheduled no new timer; a second checkout would
+have held the surface dead for its whole window. The tick that fixed that then **never stopped**,
+which the blind adversarial pass returned as a CRITICAL: once the table pays, `mms_fulfill_order`
+sets `qr_carts.status='paid'` and `assertCartMember` throws `cart_closed` **before** it computes
+either freeze axis, so `locked` can never fall and an abandoned tab fired a Server Action every five
+minutes for as long as it stayed open — the same shape for a persistent 503, a dead session, or an
+offline tab.
+
+The shipped form re-arms on a different question: **did this read teach us anything?** `readView`
+reports whether it came back; a still-frozen _successful_ read is a lock that was re-acquired and
+earns a new window, while a failed read ends the chain and leaves the surface exactly where it sat
+before this change — stale until the next realtime event or foreground. That is the honest floor, and
+it terminates. The `null` arm still ends the chain the moment the cart is editable.
+
+**And the ownership half.** Four sites derived "the lock is mine" by comparing against
+`lockedByName` — **peer-supplied presence text**, where `setName` clamps only length and
+`cleanPresence` strips only control characters. A tablemate who renames themselves "You" made their
+lock read as the viewer's own: the banner told an uninvolved diner they were checking out _and_
+suppressed the real holder's name. The correct seat-id derivation already existed in the provider two
+lines above three of the call sites and had simply never been exported. `lockedByYou` now is, and
+`AddButton`, `ItemSheet`, `GuestList` and the provider's own announcer all read the fact instead of
+the label. Zero `lockedByName === "You"` comparisons remain in the app.
+
+⚠️ **That fixed the fact and left the sentence** — also the blind pass. The peer branch still rendered
+the raw presence name, so the same impostor produced **"You is checking out — the order's locked for a
+moment"**: ungrammatical, and still opening with the word the attack is built on. `apps/qr/lib/peer-name.ts`
+narrows a name that would read as the reader (letters-only-normalized `you` / `youre` / `u` / `me` /
+`i`) to the "Someone" the banner already shows for an unresolved seat — applied **once** at the
+derivation, so the banner and the live region cannot disagree. The list is exact rather than
+prefix-matched on purpose: Yu, Youn and Mei are names people have.
+
+⚠️ **And the narrowing stops at the sentence** — Codex round 4. An earlier draft also narrowed the
+guest-list avatar labels, which cost a guest legitimately called "U" (a Burmese honorific) or "Me"
+their identity in the one place a screen-reader user hears it, and bought nothing: a list entry
+asserts nothing about the reader, and the viewer's own row already carries "(you)". Over-blocking is
+as expensive as under-blocking. The impersonation lives in the sentence, so the defence lives there
+and nowhere else — one call site, `lockedByName`'s peer branch.
+
+⚠️ **The first draft of that defence misnamed almost everyone it was meant to protect** — Codex round
+2, and the worst finding of the PR. It judged blankness on the **letters-only projection**, so a name
+in Burmese, Chinese or any non-Latin script collapsed to `""` and came back "Someone" — in a
+bilingual EN/MY app, on every avatar's accessible label as well as the banner. Blankness is now
+judged on the trimmed name; the projection does one job only, recognising the Latin spellings that
+would make the sentence read as the reader. Five scripts are pinned by test.
+
+⚠️ **And the fix broke its own mutant, which is why there are now two.** Retargeting `view-seq.ts`'s
+anchors after the round-2 rewrite, I missed that `peer-name.ts` had changed shape too — so
+`name/a-tablemate-can-name-themselves-the-reader` matched 0×, and `verify:slice` reported it **STALE**,
+which fails the gate. Codex round 3 caught it before the run finished. The anchor is retargeted, and
+the rule it guarded has been **split in two**, because the fix created a second behaviour worth
+pinning separately: one mutant restores the impostor hole, the other restores the non-Latin erasure.
+
+**A monotonic view ticket, landed early.** `apps/qr/lib/view-seq.ts` orders the cart view by what has
+been **applied**, not by what was merely issued: a read takes a ticket before it awaits and lands
+unless some view beat it to the screen. This is the first part of **T21(b)**, brought forward because
+the scheduled re-read adds an unsequenced caller whose whole job is to observe a freeze — a slow one
+resolving late could have put `locked: true` back over a cart the server had already released.
+
+⚠️ **Both halves of that rule were wrong in the first draft, and Codex round 2 caught both.** It
+refused any ticket that was not the newest _issued_, so a newer read that **failed** still suppressed
+an older read that had **succeeded** — which is T20's own bug restored: the freeze re-read sees the
+lock expired, a visibility refresh issued moments later 503s and applies nothing, and the good
+observation is discarded anyway. A request in flight now reserves nothing.
+
+And the justification for letting a mutation's view win was **false**: `addItem`/`setQty` commit and
+then call `getCartView` **separately**, so a peer can change the cart in between and a read in flight
+may genuinely hold newer rows. The behaviour stands, but on a policy rather than a proof — a
+refused-but-newer read costs a peer's change arriving one event late, and that peer's write emits its
+own row event so it self-heals; an applied-but-older read erases a line the diner just watched land,
+and they re-add it. Only one of those touches money. Reads issued _after_ the mutation's view lands
+are unaffected.
+
+Also: `split-settle-capture.test.ts`'s 90s `CART_LOCK_TTL_MS` mock is **gone** rather than repointed.
+It was inert (its only cart row sets `locked: false, locked_at: null`, short-circuiting the consumer
+before the TTL is read), and a whole-module `vi.mock` of `./lock-ttl` would answer `undefined` for
+`freezeRecheckDelayMs` to any future importer landing in that graph — a trap that fails at call time,
+not at resolution.
+
+**The guard that let this rot:** `check:docs` measured the mutant count beside two module counts it
+could not see, so the same edit that refreshed "263 mutations" left "59 money/authority modules (56
+under `apps/qr/lib`)" stale one line below, in the two files CLAUDE.md itself names as live-state
+docs. Both phrasings are now measured from `verify-slice.mjs`'s distinct `file:` targets — and, after
+Codex round 2, both carry a **numberless twin** in `MISSING_RULES`, because a rule that only fires on
+a well-formed claim cannot notice a claim whose number was deleted. The twins are anchored on the
+phrasing that carries a count ("rewrites the N …"), not on the bare words: CLAUDE.md legitimately
+says "applies 265 semantic mutations to the money/authority modules" with no count of its own, and a
+bare rule would fail that honest sentence. The `apps/qr/lib` twin spans a newline, because CLAUDE.md
+wraps this very claim across two comment lines.
+
 ### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
 
 **Round 1 rewrote most of this.** Codex and a blind adversarial pass independently returned the same

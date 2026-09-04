@@ -8,17 +8,12 @@ import { serviceClient } from "@mms/db/server";
  * assertCartMember + every cart-mutating path; this module only manages the lock's lifecycle.
  */
 
-// How long a lock holds before it's treated as abandoned and re-acquirable. A diner rarely spends
-// >5 min on the Payment Element; a hard tab-close (no decline / no "Edit order") frees the cart for
-// the rest of the table within this window. MUST match the staleness cutoff used by both the acquire
-// UPDATE below and the effective-lock check in lib/authz.ts.
-export const CART_LOCK_TTL_MS = 5 * 60 * 1000;
-
-// Split-tender settlement freeze (M3·P3.3b). Longer than the single-pay lock: a whole table pays in
-// turn (each person opens the Element, picks a tip, authorizes), so 10 min before an abandoned
-// settlement auto-frees. Same staleness-cutoff discipline as the pay-lock (acquire UPDATE + the
-// effective-settling check in lib/authz.ts both use this, on the app clock).
-export const SETTLE_TTL_MS = 10 * 60 * 1000;
+// T20 — the two TTLs moved to `lib/lock-ttl.ts`, a module without `server-only`, because a CLIENT
+// needs them: both freezes expire by arithmetic with no row write, so no realtime event can ever
+// clear a component's cached `true`. Re-exported here would leave two import paths for one value,
+// so every caller was repointed instead — this module now IMPORTS them like any other consumer and
+// deliberately does NOT re-export them. Read that module's header before changing either value.
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 /** M119 (b) — `unavailable` is the honest fourth answer: we could not READ the cart's status, so
  *  we do not know whether it is open. It is not `closed`; see the acquire path below. */

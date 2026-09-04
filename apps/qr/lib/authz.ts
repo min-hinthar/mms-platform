@@ -1,7 +1,7 @@
 import "server-only";
 import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import type { LineState } from "./permissions";
 import {
   SESSION_RENEW_THRESHOLD_MS,

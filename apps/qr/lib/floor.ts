@@ -5,7 +5,7 @@ import { serviceClient } from "@mms/db/server";
 import { clearTableInput, mergeTablesInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
-import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
