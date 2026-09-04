@@ -728,6 +728,28 @@ That second failure is also the `drop function` earning its place. Had the one-a
 left behind as an overload, case 10 would have gone on passing **against the cart-wide body the
 change existed to remove** — green, and measuring the defect.
 
+**And a mutant anchor that SPANS A DECLARATION BOUNDARY goes stale with no signature change at all
+— the third time in one arc (#249 r3, #250, #251).** On #251 the anchor for
+`written/an-unconfirmed-write-may-be-announced` was `return r.state === "applied";` plus the blank
+line and the NEXT function's docblock opening, because the bare return alone was not unique. Then a
+Codex round asked for a new `unconfirmedWriteNotice`, I inserted it between those two declarations,
+and the anchor matched 0×. Nothing about `mayClaimLanding` changed; the guard disarmed because its
+anchor described its NEIGHBOUR.
+
+The fix is a rule about what an anchor may quote: **bind it to the subject's own declaration** —
+signature line through closing brace — never to whatever text follows. Uniqueness is not the test to
+optimise for; a unique anchor reaching into a neighbour is exactly as fragile as a non-unique one,
+and worse because it looks deliberate. When a body alone is ambiguous, widen UPWARD into the
+`export function …` line, which is stable and belongs to the subject, not downward into the next
+thing someone will insert before.
+
+Two mechanical habits follow, both cheap:
+
+- After ANY insertion into a mutated module — not just an edit to the mutated function — re-measure
+  every anchor in that file: `src.split(find).length - 1` must be exactly 1.
+- `verify:slice` reports STALE as a FAILURE and it is the only thing that catches this. A run that
+  ends `1 mutant(s) STALE` is red; treating it as "281 of 282 caught" is how a disarmed guard ships.
+
 **A discriminated union whose member carries a multi-literal discriminant never narrows.**
 `{ result: "acquired"; era: string } | { result: Exclude<LockResult, "acquired">; era: null }` looks
 right and typechecks, but `===` on a member whose discriminant is itself a union cannot ELIMINATE

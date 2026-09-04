@@ -457,9 +457,9 @@ const MUTANTS = [
     file: "apps/qr/lib/write-outcome.ts",
     suite: "lib/write-outcome.test.ts",
     why: "T26 \u2014 `mayClaimLanding` and `mayRetry` answer false together for `unconfirmed` and are still not the same question: it means BOTH 'do not re-send' and 'do not claim it'. Collapsing the claim half to not-refused makes a write nobody could see into a spoken success in the one live region an SR user has \u2014 the fabricated-diagnosis class M116 and T14 exist to remove, arriving from the honest direction this time",
-    find: '  return r.state === "applied";\n}\n\n/**\n * Classify a write whose response was LOST or REJECTED',
+    find: 'export function mayClaimLanding<V>(r: WriteResult<V>): boolean {\n  return r.state === "applied";\n}',
     replace:
-      '  return r.state !== "refused";\n}\n\n/**\n * Classify a write whose response was LOST or REJECTED',
+      'export function mayClaimLanding<V>(r: WriteResult<V>): boolean {\n  return r.state !== "refused";\n}',
   },
   {
     id: "seq/a-stale-read-overwrites-a-newer-view",
