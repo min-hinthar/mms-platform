@@ -13,6 +13,13 @@
  * themselves what they like. So the narrowing happens where the name is put into a sentence about
  * the reader, and only for the forms that make the sentence read as first or second person.
  *
+ * ⚠️ THAT SCOPE IS EXACT, AND IT IS ONE CALL SITE: `lockedByName`'s peer branch, which the banner
+ * and the live region both read. It is deliberately NOT applied to the guest-list avatar labels —
+ * Codex round 4 on #249. A list entry makes no claim about the reader, and the viewer's own row
+ * already carries "(you)", so narrowing there only costs a guest called "U" (a Burmese honorific)
+ * or "Me" their identity in the one place a screen-reader user hears it. Over-blocking is as
+ * expensive as under-blocking; the impersonation lives in the sentence, so the defence does too.
+ *
  * ⚠️ THE FALLBACK IS "Someone", WHICH IS ALREADY THE HONEST ANSWER HERE — it is what the banner
  * shows while presence has not yet resolved the seat. Refusing a name never invents a different
  * diner; it declines to name this one, which is exactly the state the surface already handles.

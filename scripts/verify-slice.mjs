@@ -327,7 +327,7 @@ const MUTANTS = [
     id: "name/a-non-latin-name-is-erased",
     file: "apps/qr/lib/peer-name.ts",
     suite: "lib/peer-name.test.ts",
-    why: 'T20 (Codex round 2 on #249) \u2014 THIS IS THE SHIPPED DEFECT, restored, and it is the one the impostor defence caused. Judging blankness on the LETTERS-ONLY projection collapses every name written in Burmese, Chinese or any non-Latin script to "" and answers "Someone" \u2014 in a bilingual EN/MY app, on the lock banner AND on every peer avatar\u2019s accessible label. A guard against one contrived name that silently misnames the ordinary guest. Blankness belongs to the TRIMMED name; the projection exists only to recognise the Latin spellings that would read as the reader',
+    why: 'T20 (Codex round 2 on #249) \u2014 THIS IS THE SHIPPED DEFECT, restored, and it is the one the impostor defence caused. Judging blankness on the LETTERS-ONLY projection collapses every name written in Burmese, Chinese or any non-Latin script to "" and answers "Someone" \u2014 in a bilingual EN/MY app, on the lock banner AND on every peer avatar\u2019s accessible label. A guard against one contrived name that silently misnames the ordinary guest, on the banner and in the live region that read `lockedByName`. Blankness belongs to the TRIMMED name; the projection exists only to recognise the Latin spellings that would read as the reader',
     find: '  const trimmed = (name ?? "").trim();\n  if (trimmed === "") return "Someone";',
     replace:
       '  const trimmed = (name ?? "").trim();\n  if (trimmed.toLowerCase().replace(/[^a-z]/g, "") === "") return "Someone";',

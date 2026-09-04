@@ -6,7 +6,6 @@ import { InviteSheet } from "./InviteSheet";
 import { JoinTable } from "./JoinTable";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { MAX_PARTY_SIZE } from "@/lib/limits";
-import { peerDisplayName } from "@/lib/peer-name";
 import { Avatar, Icon } from "@mms/ui";
 
 /**
@@ -177,10 +176,15 @@ export function GuestList() {
       <ul role="list" aria-label="Guests at your table" style={listReset}>
         {list.map((m, i) => {
           const isMe = m.seat === me.seat;
-          // T20 — the same narrowing the lock banner uses. A peer named "You" would otherwise give a
-          // screen-reader user an avatar announced as "You" sitting beside the viewer's own
-          // "<name> (you)", which is the impostor one surface over.
-          const label = isMe ? `${m.name} (you)` : peerDisplayName(m.name);
+          // ⚠️ THE GUEST'S OWN NAME, NOT `peerDisplayName` — and the difference is what the string
+          // CLAIMS. Codex round 4 on #249: an earlier draft narrowed this label the way the lock
+          // banner is narrowed, which cost a guest legitimately called "U" (a Burmese honorific) or
+          // "Me" their identity in the one place a screen-reader user hears it, and bought nothing.
+          // The banner narrows because it builds a SENTENCE ABOUT THE READER ("… is checking out");
+          // a list entry asserts nothing, and the viewer's own row already carries "(you)", so
+          // "Someone" here would be over-blocking — as expensive as under-blocking, per this repo's
+          // own rule. The impersonation lives in the sentence, so the defence stays in the sentence.
+          const label = isMe ? `${m.name} (you)` : m.name;
           return (
             // Rise-in per avatar (keys are stable seats — presence re-syncs never re-animate; only a
             // genuinely NEW guest animates once on mount). `.mms-rise` (the dynamic-mount variant —

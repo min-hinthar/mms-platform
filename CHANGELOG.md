@@ -72,8 +72,15 @@ the raw presence name, so the same impostor produced **"You is checking out — 
 moment"**: ungrammatical, and still opening with the word the attack is built on. `apps/qr/lib/peer-name.ts`
 narrows a name that would read as the reader (letters-only-normalized `you` / `youre` / `u` / `me` /
 `i`) to the "Someone" the banner already shows for an unresolved seat — applied **once** at the
-derivation, so the banner, the live region and the guest-list avatar label cannot disagree. The list
-is exact rather than prefix-matched on purpose: Yu, Youn and Mei are names people have.
+derivation, so the banner and the live region cannot disagree. The list is exact rather than
+prefix-matched on purpose: Yu, Youn and Mei are names people have.
+
+⚠️ **And the narrowing stops at the sentence** — Codex round 4. An earlier draft also narrowed the
+guest-list avatar labels, which cost a guest legitimately called "U" (a Burmese honorific) or "Me"
+their identity in the one place a screen-reader user hears it, and bought nothing: a list entry
+asserts nothing about the reader, and the viewer's own row already carries "(you)". Over-blocking is
+as expensive as under-blocking. The impersonation lives in the sentence, so the defence lives there
+and nowhere else — one call site, `lockedByName`'s peer branch.
 
 ⚠️ **The first draft of that defence misnamed almost everyone it was meant to protect** — Codex round
 2, and the worst finding of the PR. It judged blankness on the **letters-only projection**, so a name
