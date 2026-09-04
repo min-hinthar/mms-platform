@@ -1296,3 +1296,51 @@ Rules, in falling order of cheapness:
 The general form, and the reason it belongs beside #60: a tool that mutates the working tree makes
 the working tree an unreliable narrator for as long as it runs. Every check that reads the tree —
 including `git` itself — is reading a fixture, not the code.
+
+## #75 — a guard with TWO mirrors is a guard at its LOOSEST mirror, and the loose one is usually the one that gates the merge (#252, 2026-09-04)
+
+`.test.tsx` became runnable, which made a per-file `@vitest-environment jsdom` docblock load-bearing.
+Vitest reads that pragma out of RAW FILE TEXT with an unanchored regex — no docblock-position
+constraint — so a `.test.ts` that merely MENTIONS the phrase in a comment silently switches
+environment: no count change, no timing change, no other symptom. This repo writes long explanatory
+comments in test files, and the PR that introduced the rule was itself writing prose about the rule.
+
+The guard was therefore written twice, as the orphan check already is: once in
+`scripts/verify-slice.mjs` and once in `ci.yml`. Both "copied vitest's regex". They still disagreed:
+
+- **JS `\s` spans newlines; `grep` is line-oriented.** A pragma whose environment word sits on the
+  NEXT line is honoured by vitest, caught by `verify:slice`, and **missed by CI**.
+- **`\b` diverged too.** On `jsdom-`, JS backtracks and captures `jsdom`; the shell captured `jsdom-`.
+
+The direction matters more than the divergence. `verify:slice` is a local gate nobody is obliged to
+run; `ci.yml` is what actually blocks a merge. **A two-mirror guard is only as strong as the mirror
+that gates, and the gating mirror is the one written in the weaker language.** The fix was to stop
+mirroring: `scripts/check-test-env.mjs` is ONE module, called by both, so the two cannot drift.
+
+Corollary on the parse-don't-scan rule (#60): copying the RUNTIME's own regex is correct here and is
+not an exception. The guarded fact IS text — vitest matches text — so a text matcher and the runtime
+agree by construction, while a parser would ignore a pragma inside a string literal that vitest
+honours. Parse when the subject is executable behaviour; mirror the matcher when the subject IS a
+matcher. Either way, write it once.
+
+## #76 — an assertion on a SINGLE-SLOT live region can be satisfied by a different effect, so it proves nothing about the code you think it pins (#252, 2026-09-04)
+
+The first draft of the provider suite asserted that `setItemQty`'s refusal made the live region match
+`/checking out/i`. It passed. It was worthless: **no producible refusal contains that phrase** — the
+lock clause reads "while someone CHECKS out" — and what satisfied the regex was an unrelated effect.
+The recovery re-read flips `locked` false→true, and the lock-transition announcement writes "Someone
+is checking out — the order's locked" into the SAME single slot. Deleting
+`if (result.state === "refused") publishRefusal(notice);` reddened nothing.
+
+Two rules, both cheap:
+
+1. **Assert on the value the code under test ALONE writes.** Here that is `lastRefusalNotice()` —
+   written only by `publishRefusal`, and the value `YourUsual` actually carries. A shared output
+   channel (one live region, one toast slot, one log) is a shared fixture: many writers, one reader,
+   and a passing assertion cannot tell you which writer produced it.
+2. **DERIVE expected copy by calling the producer; never transcribe a sentence.** The same suite
+   invented `"Nour is checking out — your order is locked for a moment."`, a string
+   `refusedWriteNotice` cannot emit. That is the "never transcribe a number into an assertion" rule
+   applied to prose, and it has the same failure mode plus one: the invented string HID a live defect
+   (the real sentence stutters — T32) for the length of a PR. Deriving it made the defect visible in
+   the first run.

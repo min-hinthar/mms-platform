@@ -5,6 +5,93 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-04 · PR #250 · #251 · #252 — the /menu write path is now honest AND observable)
+>
+> **`main` is at `233418d`** (#252). Three slices landed since the #249 block below, and that block's
+> "still open, in order" list is stale: **T21(a), T21(c), T22(d), T26, M36, M46 and T18 are all
+> closed.** Read this one instead.
+>
+> ### What the three slices actually changed
+>
+> **#250 (`d79c010`)** — T21(a) · T21(c) · T22(d). `getCartView` destructured `qr_carts` and
+> `qr_cart_items` WITHOUT binding `error`, so a failed line read resolved as an EMPTY cart for every
+> caller in the app. Bound and thrown.
+>
+> **#251 (`2a5084c`)** — T26. A cart mutation answered `null` for BOTH "refused" and "committed,
+> view unreadable", and `setItemQty`'s signature could not express "unknown" at all. Replaced by a
+> three-state `WriteResult` (`apps/qr/lib/write-outcome.ts`). **Eight Codex rounds, twelve findings,
+> every one in code the PR introduced.** Three patterns worth carrying: a widened value silently
+> breaks predicates reading it as a proxy; a ticket orders DECISIONS, not later reads of shared
+> state; encode the invariant, don't assert it in a comment.
+>
+> **#252 (`233418d`)** — M46 · T18, and the one that changes how you work here.
+>
+> ### ⚠️ A `.test.tsx` RUNS NOW — and the mechanism is NOT a project
+>
+> `apps/qr/vitest.config.ts` includes `**/*.test.{ts,tsx}`; a component suite opts into a DOM **one
+> file at a time** with `/** @vitest-environment jsdom */`, which vitest reads from RAW FILE TEXT and
+> prefers over the config. Three measured facts, each of which the obvious plan had wrong:
+>
+> 1. **`test.projects` is a trap here.** With `extends: true` a child's `include` CONCATENATES with
+>    the parent's — measured node 1274, dom 1275, i.e. a jsdom project silently re-running every node
+>    suite under jsdom. Without `extends`, the alias and the JSX runtime must be duplicated per child.
+> 2. **`@vitejs/plugin-react` is unnecessary** — `esbuild.jsx: "automatic"` already supplies the
+>    runtime. The config comment promising it had been wrong for months.
+> 3. **The framer stub owed to "the first `*.test.tsx`" was never owed to it.** It belongs to whichever
+>    suite renders a framer CONSUMER — `AddButton`, still unwritten (**T29**).
+>
+> ⚠️ **Vitest's pragma matcher is UNANCHORED** — it scans the whole file with no docblock-position
+> constraint — so a `.test.ts` that merely MENTIONS the phrase switches environment with no count
+> change and no other symptom. `scripts/check-test-env.mjs` is ONE module called by BOTH
+> `verify:slice` and `ci.yml`, carrying a verbatim copy of vitest's regex. **It is one module because
+> the first draft made it two and they disagreed exactly where it mattered:** JS `\s` spans newlines,
+> `grep` is line-oriented, so a pragma whose environment word sits on the NEXT line is honoured by
+> vitest, caught by `verify:slice`, and **MISSED by CI** — the looser mirror being the one that gates
+> the merge. Copying the runtime's own regex is deliberate against parse-don't-scan: the guarded fact
+> IS text, and a parser would ignore a pragma in a string literal that vitest honours.
+>
+> `verify:slice` now rewrites **two components** in place (`TableCartProvider.tsx`,
+> `menu/YourUsual.tsx`) alongside the 64 lib/route modules. `pgrep -f "[v]erify-slice"` before any
+> commit still applies, and now applies to component files too.
+>
+> ### ⚠️ THREE GATES RAN AND EACH FOUND WHAT THE OTHERS MISSED — do not drop one
+>
+> - **The scout pass (before any code)** killed the plan that would otherwise have shipped: all three
+>   numbered facts above came from it. A six-lens read costs one workflow and has now corrected filed
+>   premises on three consecutive slices.
+> - **Red-first probes** found two defects in the guards themselves — the `tr` trailing-newline bug
+>   that would have rejected EVERY legitimate component test, and the two-mirror divergence above.
+> - **The blind adversarial pass returned REJECT with 2 CRITICALs**, both invisible to a green suite:
+>   an assertion satisfied by an unrelated effect writing to the SAME single live region (so deleting
+>   `publishRefusal` reddened nothing), and a fixture asserting a sentence no producer emits.
+> - **Codex found nothing on #252** — the inversion of its usual record. Neither gate is redundant.
+>
+> **Both fixtures now DERIVE their expected copy by calling `refusedWriteNotice`.** Never transcribe a
+> sentence into a component assertion; the invented one hid a live defect for the length of a PR.
+>
+> ### The rows this arc leaves, in the order they are worth doing
+>
+> 1. **T32** (med) — the /menu partial-add sentence STUTTERS: `YourUsual` appends a cause that already
+>    opens with "That didn't go through — ", and the `unknown` arm pairs a refusal with "We couldn't
+>    confirm that". Pinned AS-IS by `YourUsual.test.tsx`, so **the fix starts from a failing
+>    assertion**. Wants a clause export from `cart-freeze.ts` (name-it-once applied to a fragment).
+> 2. **T31** (med) — `lastRefusalRef` is never cleared, and both writers have a THIRD refusal exit
+>    (`if (!cartId)`) that publishes nothing, so a fresh no-cart refusal can announce a stale freeze
+>    sentence. Reachable in one hop.
+> 3. **T28** (med) — `check-child-freeze` has NO component-side expected set (`grep EXPECTED` → zero
+>    hits) while its sibling `check-freeze-parity` has one. Any audited component can leave the
+>    subject set silently — the identical escape the /menu surface already took. Needs no runner.
+> 4. **T29** (med) — `AddButton` (four propositions, owes the framer stub) then `ItemSheet`
+>    (Radix portal + `ResizeObserver`, thin logic). Do `AddButton` alone.
+> 5. **T30** (low) — `refusedWriteNotice`'s `unreachable` copy is unreachable on /menu, pinned green
+>    by a lib test. Route it or retire it; do NOT just delete the `case` (a mutant goes STALE).
+> 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost now that T21(a) landed.
+> 7. **M59 · M141** — both named the missing runner as their blocker; both unblocked.
+>
+> Still owner-gated and untouched: the cart→intent link (**M123 · M124 · M151 · M152**), **C16**
+> (make `codex-review` a REQUIRED check — until then the merge ritual is all that stands between the
+> gate and #241 happening again), and the prod-migration items on the divergent history.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-03 · PR #249 — T20 closed; the /menu freeze can heal, and it knows whose lock it is)
 >
 > **`main` is at `c88e254`** (#248). #249 closes **T20**, the `high` row #248 filed against itself.
