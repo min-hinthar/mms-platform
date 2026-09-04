@@ -44,10 +44,12 @@ import { inertReason } from "./inert-reason";
  *
  * ## Why this is a module and not three lines in the component
  *
- * `Checkout.tsx` has no test runner (there is not one `.test.tsx` in the app) and sits outside
- * `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s mutant set — a rule written
- * there cannot be guarded at all. That is the W17 lesson, and it is why `effectiveTipRate` and
- * `tipPresets` are pure modules too.
+ * `Checkout.tsx` sits outside `check-money-coverage`'s MONEY_PATHS and outside `verify:slice`'s
+ * mutant set, so a rule written there is guarded by nothing. M46 (PR #252) made a `.test.tsx`
+ * RUNNABLE — `TableCartProvider.test.tsx` and `YourUsual.test.tsx` are real jsdom suites with ten
+ * mutants between them — so the claim is no longer "impossible", it is "unguarded until someone
+ * writes the suite, and coarser when they do". That is the W17 lesson, and it is why
+ * `effectiveTipRate` and `tipPresets` are pure modules too.
  *
  * ## What is deliberately NOT here
  *

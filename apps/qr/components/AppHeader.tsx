@@ -145,8 +145,9 @@ export function AppHeader() {
   const showCart = !!cartId && !showSingle && !showTray && !onMenu && pathname !== "/cart";
 
   // ── W22b · the chip's disclosure behaviour ─────────────────────────────────────────────────────
-  // Panel content is built in `lib/live-order-panel.ts` (a rule left in a .tsx cannot be guarded —
-  // there is no React test runner here). The chip decides only WHEN to open.
+  // Panel content is built in `lib/live-order-panel.ts`. Since M46 a `.test.tsx` DOES run (jsdom,
+  // per-file docblock), so the reason is no longer "impossible" but "finer-grained": a pure module
+  // carries a mutant and needs no render. The chip decides only WHEN to open.
   const panel = clientLive && tracked && kind ? buildLiveOrderPanel(tracked, kind) : null;
   const closeChip = useCallback(() => {
     setChipOpen(false);

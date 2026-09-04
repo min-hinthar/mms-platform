@@ -4,6 +4,110 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A `.tsx` can be tested at all, and the /menu freeze wiring is the first thing pinned by it (2026-09-04)
+
+**M46 — the decision this repo deferred for a month, made both ways.** The row asked to "either add a
+jsdom project to the vitest config for component tests, or write down the rule that decision logic
+never lives in a `.tsx`". The honest answer was both, and the mechanism turned out not to be a
+project at all.
+
+`apps/qr/vitest.config.ts` now includes `**/*.test.{ts,tsx}`, and a component suite opts into a DOM
+**one file at a time** with `/** @vitest-environment jsdom */` — which vitest reads out of raw file
+text and prefers over the config, so the 104 node suites are untouched by construction
+(`npx vitest list` was identical at 1274 with the include widened and no `.test.tsx` present).
+
+Three things were measured and rejected on the way, each of which the obvious plan had wrong:
+
+- **`test.projects` is a trap here.** With `extends: true` a child's `include` CONCATENATES with the
+  parent's, so a jsdom project silently re-runs every node suite under jsdom — measured node 1274,
+  dom 1275. Without `extends`, the alias and the JSX runtime must be duplicated into each child.
+- **`@vitejs/plugin-react` is unnecessary.** `esbuild.jsx: "automatic"` already supplies the runtime;
+  the plugin's job is Fast Refresh, which no test run uses. The config comment that promised it was
+  simply wrong, and now says so.
+- **The framer stub the R3 note owed to "the first `*.test.tsx`" was never owed to it.** Neither
+  `TableCartProvider` nor `YourUsual` imports framer-motion. `AddButton` does — so the stub belongs
+  to the suite that renders a framer CONSUMER, and that suite is still unwritten (T29).
+
+**The hazard the pragma introduces, and the guard that closes it.** Vitest's matcher is UNANCHORED —
+it scans the whole file, with no docblock-position constraint — so a `.test.ts` that merely MENTIONS
+the phrase in a comment switches environment with no count change, no timing change and no other
+symptom. This repo writes long explanatory comments in test files, so that is a live hazard, not a
+hypothetical. The check lives in ONE module, `scripts/check-test-env.mjs`, which both
+`verify:slice` and `ci.yml` call. It carries a verbatim copy of vitest's own regex — deliberate
+against parse-don't-scan, because the guarded fact IS text: the runtime matches text, and a parser
+would ignore a pragma inside a string literal that vitest honours.
+
+⚠️ **It is one module because the first draft made it two, and they disagreed where it mattered.**
+The blind adversarial pass measured it: JS `\s` spans newlines while `grep` is line-oriented, so a
+pragma whose environment word sits on the NEXT line is honoured by vitest, caught by `verify:slice`
+and MISSED by CI — the looser mirror being the one that gates the merge. (`\b` diverged too: on
+`jsdom-`, JS backtracks and captures `jsdom` while the shell captures `jsdom-`.) "The two agree by
+construction" was a claim about the word EXTRACTION, not about the match. Now there is one match.
+
+**Seven red-first probes, run against both callers, and two of them found real defects.** Probe 1:
+the CI matcher compared the whole matched phrase, and `tr -s '[:space:]' ' '` turns the match's
+trailing newline into a trailing space — so every legitimate component test would have been
+rejected. Probe 7 is the newline-spanning pragma above, which the shell matcher missed entirely and
+which the shared module catches. The other five: a `.test.tsx` under `packages/ui` is still an orphan (its config is
+unchanged, deliberately — widening the shared filter would re-open the whitelisted-by-directory hole
+W8 closed); `scripts/zz.test.ts` still fails; `packages/db/zz.spec.ts` still fails; a `.test.tsx`
+with no pragma fails; and a mid-file prose mention inside `lib/totals.test.ts` fails, restored
+byte-identical.
+
+**T18 — and now the wiring nothing could see.** `classifyRefusedWrite` / `refusalNeedsRemint` /
+`refusedWriteNotice` / `recoveredWrite` were each pinned in `lib/`. The code that CALLS them was
+invisible two ways at once: no config matched `.test.tsx`, and `check-child-freeze` never opens a
+component that imports the cart actions from the React CONTEXT rather than from `lib/` — it
+`continue`s at `localToExported.size === 0`, a line that sits BEFORE the exemption check.
+(`check-money-coverage`'s `.tsx` skip is deleted here too, but be precise about what that buys:
+`MONEY_PATHS` is `apps/qr/lib/` and `apps/qr/app/api/`, so `components/**` was never in its subject
+set and these two files still are not. The skip's stated reason had simply gone false while the
+guard kept passing — the dangerous class — and removing it puts `apps/qr/lib/email.tsx` back in
+scope, proved red-first by giving that file a money marker and watching the guard demand a mutant.) Deleting `explainCaught` and restoring the unconditional
+`revalidate()` — the M116/T14 fabricated diagnosis, verbatim — would have left the whole gate green.
+
+Two suites now pin it, and **ten `verify:slice` mutants**, the first non-`lib/` targets this repo has
+had:
+
+- `components/TableCartProvider.test.tsx` — five mocks, three of them unavoidable `server-only`
+  import chains, two the seams the fixtures steer. Everything is observed through the ONE live
+  region and the context's own values. It covers the gated re-mint (a peer's lock must NOT re-mint,
+  a failed re-read must), both catches' refused/unconfirmed fork, the committed-but-unreadable arm,
+  and the absolute-quantity attribution on `setQty`.
+- `components/menu/YourUsual.test.tsx` — ONE mock, no polyfills. It covers the duplicate-charge
+  rule (`mayRetry` gates the resend), the partial-add prefix that may name only a dish PROVEN to
+  have landed, the unconfirmed tally surviving across invocations, and suppression never outliving
+  its cart.
+
+**Eighteen hand mutations were watched failing before any mutant was recorded** — eight against
+`YourUsual`, ten against the provider — re-run in full after the review fixes rewrote the fixtures, because a green test file shipped as proof is this repo's
+most-repeated defect. One of the eighteen exposed a defect in the FIXTURE rather than the code: the
+`CartItem` builder was written `{ menu_item_id: … } as unknown as CartItem`, which type-checks and is
+wrong (the field is `menuItemId`), so the landing assertion failed for a reason unrelated to the code
+under test. The cast is gone and both fixtures are typed by the action's own return.
+
+Two things the suites deliberately do NOT claim. The `check-child-freeze` exemption on
+`TableCartProvider` **remains**: only its "no component suite" clause was false, and the structural
+reasons were always the real ones (rules 1-3 demand a pre-write gate whose ABSENCE is the T14 fix;
+rule 4 requires the component to be rendered by `Checkout.tsx`, which never renders the /menu
+provider). And the exemption's REASON is checked by nothing — the dead-exemption rule tests only
+that the key matched — so that is stated rather than implied.
+
+**Four rows filed, two of them live defects the surface exposed the moment it became observable.**
+`T28` (the guard has no component-side expected set, so an audited component can leave its subject
+set silently — the identical escape the /menu surface already took), `T29` (`AddButton` and
+`ItemSheet`, deferred with their propositions written down), `T30` (`refusedWriteNotice`'s
+`unreachable` copy is unreachable on /menu, pinned green by a lib test), `T31` (`lastRefusalRef` is
+never cleared and a third refusal exit publishes nothing, so a fresh no-cart refusal can announce a
+stale freeze sentence).
+
+One regression caught by `check:docs` rather than by CI: adding `jsdom` changed vitest's pnpm
+peer-hash, so `packages/ui/node_modules/vitest` was left pointing at a pruned store entry and that
+package's suite could not start. A root `pnpm install` relinks it; the lockfile carries the fix.
+
+`M46` and `T18` closed; `M59` and `M141` unblocked (both named the missing runner as their blocker).
+1300 qr tests + 138 ui tests, 295 mutants, 66 mutated modules at merge.
+
 ### A committed cart write can say so, and a refusal is now the only thing a caller may retry (2026-09-04)
 
 **T26 — one value carried two meanings, and four verified P1s rode it.** #250 gave the cart mutations
