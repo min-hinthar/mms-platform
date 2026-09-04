@@ -149,7 +149,6 @@ const exempted = [];
 for (const rel of changedFiles()) {
   if (!MONEY_PATHS.some((re) => re.test(rel))) continue;
   if (/\.(test|spec)\.[tj]sx?$/.test(rel)) continue; // a test needs no mutant of its own
-  if (/\.tsx$/.test(rel)) continue; // no vitest config here runs .tsx — tracked as OPEN-ITEMS M46
   const abs = path.join(ROOT, rel);
   if (!existsSync(abs)) continue; // renamed away
   const src = readFileSync(abs, "utf8");

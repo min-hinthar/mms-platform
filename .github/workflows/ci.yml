@@ -75,10 +75,17 @@ jobs:
       # it. A plain shell check, not a vitest test — a test that reads outside its own workspace is
       # itself turbo-cache-exposed and would defeat the purpose.
       #
-      # ⚠️ `.test.tsx` is an orphan ANYWHERE. Neither config matches it (apps/qr is `**/*.test.ts`,
-      # packages/ui is `src/**/*.test.ts`), so a React component test — the single most likely future
-      # orphan — would otherwise be whitelisted by directory and silently never run. When jsdom lands,
-      # widen the vitest include FIRST, then relax this.
+      # ⚠️ `.test.tsx` RUNS UNDER apps/qr ONLY (M46, 2026-09-04). apps/qr includes
+      # `**/*.test.{ts,tsx}`; packages/ui is still `src/**/*.test.ts`, so a `.test.tsx` THERE runs
+      # nowhere and stays an orphan. The two filters below are deliberately different widths —
+      # widening the shared one instead would re-open the whitelisted-by-directory hole W8 closed.
+      #
+      # ⚠️ AND THE ENVIRONMENT IS DECLARED IN THE FILE, NOT THE CONFIG. Vitest picks a file's
+      # environment from a `@vitest-environment` docblock BEFORE consulting the config, and its
+      # matcher is UNANCHORED — it scans the whole file with no docblock-position constraint. So a
+      # `.test.ts` that merely MENTIONS the phrase in a comment switches environment with no count
+      # change, no timing change and no other symptom. The pragma block below refuses that, using a
+      # verbatim copy of vitest's own regex: the guarded fact IS text, because vitest matches text.
       - name: No orphaned test files
         run: |
           # Enumerated through git, not `find`: only files git would SHIP can answer "a test no
@@ -89,8 +96,11 @@ jobs:
           # test file is still caught before it is committed. Keep this in step with
           # scripts/verify-slice.mjs, which mirrors it.
           all_ts=$(git ls-files --cached --others --exclude-standard -- '*.test.ts')
+          # A SECOND pathspec, not a looser one: `git ls-files -- '*.test.ts'` does NOT match
+          # `.test.tsx` (measured), so `all_ts` has never once enumerated a tsx file.
+          all_tsx=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx')
           # The guard's own self-check: "no orphans" and "nothing was looked at" print the same word.
-          # A bare total is not enough — apps/qr alone holds ~87 tests, so a listing accidentally
+          # A bare total is not enough — apps/qr alone holds 104 tests, so a listing accidentally
           # scoped to that subtree clears any count floor while packages/*, scripts/ and the repo
           # root go unlooked-at. Require every configured suite root to be represented, which cannot
           # hold for a listing scoped inside one of them. Keep in step with scripts/verify-slice.mjs.
@@ -102,19 +112,40 @@ jobs:
             exit 1
           fi
           ts_orphans=$(echo "$all_ts" | grep -v -E '^(apps/qr/|packages/ui/src/)' || true)
-          # `.test.tsx` and BOTH `.spec` suffixes run NOWHERE: apps/qr includes `**/*.test.ts` and
-          # packages/ui `src/**/*.test.ts`, so none of these three is matched by any config, at any
-          # path. `.spec` is here because of T5 and Codex P2 on #241 — the downgrade of that row
-          # claimed W8's guard had closed the "invisible test" hole, and it had closed it only for
-          # the `.test` suffix. A conventional `packages/db/foo.spec.ts` was neither enumerated here
-          # nor executed by any package's `test` script, which is the ORIGINAL failure mode intact
-          # under a different filename. Rejecting the suffix outright is the honest fix: this repo
-          # has one test-file convention, and a file that cannot run should never land quietly.
-          nonrunners=$(git ls-files --cached --others --exclude-standard -- '*.test.tsx' '*.spec.ts' '*.spec.tsx' || true)
-          if [ -n "$ts_orphans" ] || [ -n "$nonrunners" ]; then
-            echo "::error::Test file(s) that NO vitest config runs — they never execute:"
+          # NARROWER on purpose — apps/qr only. See the header note.
+          tsx_orphans=$(echo "$all_tsx" | grep -v -E '^apps/qr/' || true)
+          # BOTH `.spec` suffixes run NOWHERE: apps/qr includes `**/*.test.{ts,tsx}` and packages/ui
+          # `src/**/*.test.ts`, so neither is matched by any config, at any path. `.spec` is here
+          # because of T5 and Codex P2 on #241 — the downgrade of that row claimed W8's guard had
+          # closed the "invisible test" hole, and it had closed it only for the `.test` suffix. A
+          # conventional `packages/db/foo.spec.ts` was neither enumerated here nor executed by any
+          # package's `test` script, which is the ORIGINAL failure mode intact under a different
+          # filename. Rejecting the suffix outright is the honest fix: this repo has one test-file
+          # convention, and a file that cannot run should never land quietly.
+          nonrunners=$(git ls-files --cached --others --exclude-standard -- '*.spec.ts' '*.spec.tsx' || true)
+          # The environment a file will ACTUALLY run in, computed the way vitest computes it: the
+          # FIRST match of its own regex wins, and no match means the config default (node).
+          # `[A-Za-z0-9_-]` is POSIX ERE for JS `[\w-]`. Keep in step with scripts/verify-slice.mjs.
+          bad_pragma=""
+          for f in $all_ts; do
+            if grep -qE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f"; then
+              bad_pragma="$bad_pragma
+$f  (a .test.ts must not declare an environment — name it .test.tsx if it needs a DOM)"
+            fi
+          done
+          for f in $all_tsx; do
+            first=$(grep -ohE '@(vitest|jest)-environment[[:space:]]+[A-Za-z0-9_-]+' "$f" | head -1 | tr -s '[:space:]' ' ')
+            if [ "$first" != "@vitest-environment jsdom" ]; then
+              bad_pragma="$bad_pragma
+$f  (first pragma is '$first', expected '@vitest-environment jsdom' as the opening docblock)"
+            fi
+          done
+          if [ -n "$ts_orphans" ] || [ -n "$tsx_orphans" ] || [ -n "$nonrunners" ] || [ -n "$bad_pragma" ]; then
+            echo "::error::Test file(s) that NO vitest config runs, or that run in the wrong environment:"
             [ -n "$ts_orphans" ] && echo "$ts_orphans"
-            [ -n "$nonrunners" ] && echo "$nonrunners  (no config includes *.test.tsx or *.spec.* — see the note in ci.yml)"
+            [ -n "$tsx_orphans" ] && echo "$tsx_orphans  (.test.tsx runs under apps/qr only — see the note in ci.yml)"
+            [ -n "$nonrunners" ] && echo "$nonrunners  (no config includes *.spec.* — see the note in ci.yml)"
+            [ -n "$bad_pragma" ] && echo "$bad_pragma"
             exit 1
           fi
           echo "No orphaned test files."

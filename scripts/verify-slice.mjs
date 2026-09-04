@@ -2662,12 +2662,15 @@ const find = (...patterns) =>
     .filter(Boolean)
     .map((p) => `./${p}`);
 const allTs = find("*.test.ts");
+// A SECOND pathspec, not a looser one: `git ls-files -- '*.test.ts'` does NOT match `.test.tsx`
+// (measured), so `allTs` has never once enumerated a tsx file.
+const allTsx = find("*.test.tsx");
 /**
  * The guard's own self-check, because "no orphans found" and "nothing was looked at" print the same
  * word. The git form can enumerate empty-and-zero where `find` could not (no `.git`, a
  * `safe.directory` refusal); `run()` throws on a nonzero exit, so the earlier `|| true` was removed.
  *
- * A bare count is not enough, though (Codex round 2): with ~89 tests under `apps/qr` alone, an
+ * A bare count is not enough, though (Codex round 2): with 104 tests under `apps/qr` alone, an
  * enumeration accidentally scoped to that one subtree clears any total-count floor while every
  * potential orphan root — `packages/*`, `scripts/`, the repo root itself — goes unlooked-at, and the
  * guard prints "clean". So the check is per-ROOT: every configured suite root must be represented,
@@ -2689,20 +2692,53 @@ if (allTs.length < 10 || unseen.length) {
   process.exit(1);
 }
 const tsOrphans = allTs.filter((p) => !SUITE_ROOTS.some((r) => r.re.test(p)));
-// `.test.tsx` and BOTH `.spec` suffixes are matched by NO vitest config at any path (apps/qr
-// includes `**/*.test.ts`, packages/ui `src/**/*.test.ts`), so any of them is an orphan
+// ⚠️ NARROWER THAN `SUITE_ROOTS` ON PURPOSE (M46). apps/qr includes `**/*.test.{ts,tsx}`;
+// packages/ui is still `src/**/*.test.ts`, so a `.test.tsx` THERE runs nowhere. Reusing the shared
+// root list here would whitelist it by directory — the exact hole W8 closed.
+const tsxOrphans = allTsx.filter((p) => !/^\.\/apps\/qr\//.test(p));
+// BOTH `.spec` suffixes are matched by NO vitest config at any path, so either is an orphan
 // wherever it sits. `.spec` joined this list from T5 / Codex P2 on #241: the orphan guard had
 // only ever enumerated the `.test` suffix, so a conventional `packages/db/foo.spec.ts` ran
 // nowhere AND was reported by nothing — the original invisible-test hole, under a different
 // filename. Keep in step with the mirror in ci.yml.
-const nonRunners = find("*.test.tsx", "*.spec.ts", "*.spec.tsx");
-const orphans = [...tsOrphans, ...nonRunners];
-console.log(orphans.length ? c.red("FAIL") : c.green("clean"));
+const nonRunners = find("*.spec.ts", "*.spec.tsx");
+
+/**
+ * ⚠️ THE ENVIRONMENT IS DECLARED IN THE FILE, AND VITEST'S MATCHER IS UNANCHORED (M46).
+ *
+ * Vitest reads a `@vitest-environment` control comment out of the RAW FILE TEXT and prefers it over
+ * the project config, taking the FIRST match with no docblock-position constraint. So a `.test.ts`
+ * that merely MENTIONS the phrase in a comment silently switches environment — no count change, no
+ * timing change, no other symptom — and this repo writes long explanatory comments in test files.
+ *
+ * This matcher is a VERBATIM copy of vitest's own, and that is deliberate against the parse-don't-
+ * scan rule (LEARNINGS #60): the guarded fact IS text, because the runtime matches text. A parser
+ * would be LESS faithful — it would ignore a pragma inside a string literal that vitest honours.
+ * Update this regex if vitest's changes.
+ */
+const PRAGMA = /@(?:vitest|jest)-environment\s+([\w-]+)\b/;
+/** The environment a file will ACTUALLY run in: the first match, else the config default. */
+const declaredEnv = (rel) => readFileSync(path.join(ROOT, rel), "utf8").match(PRAGMA)?.[1] ?? null;
+const badPragma = [
+  // A `.test.ts` inherits `environment: "node"`; declaring anything at all is either a silent
+  // environment switch or prose that will become one.
+  ...allTs
+    .filter((p) => declaredEnv(p) !== null)
+    .map((p) => `${p} — a .test.ts must not declare an environment (name it .test.tsx for a DOM)`),
+  // A `.test.tsx` MUST declare jsdom: the config default is node, where the first `render` throws.
+  ...allTsx
+    .filter((p) => declaredEnv(p) !== "jsdom")
+    .map((p) => `${p} — first pragma is ${declaredEnv(p) ?? "absent"}, expected jsdom`),
+];
+
+const orphans = [...tsOrphans, ...tsxOrphans, ...nonRunners];
+console.log(orphans.length || badPragma.length ? c.red("FAIL") : c.green("clean"));
 for (const o of orphans)
   console.log(`  ${c.red("orphan")} ${o} ${c.dim("— no vitest config runs this")}`);
+for (const b of badPragma) console.log(`  ${c.red("environment")} ${b}`);
 
 // ── verdict ───────────────────────────────────────────────────────────────────────────────────────
-const failed = survived.length + stale.length + orphans.length;
+const failed = survived.length + stale.length + orphans.length + badPragma.length;
 if (failed === 0) {
   console.log(
     c.green(c.bold(`\n✓ verify:slice passed — ${targets.length} mutants caught, no orphans\n`)),
