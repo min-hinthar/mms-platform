@@ -695,13 +695,20 @@ export function TableCartProvider({
         // `notes` (W3b) is the kitchen note — free text, length-bounded server-side, never a price.
         const view = await addItemAction(cartId, menuItemId, modifierIds, notes, qty);
         // ⚠️ `null` MEANS THE WRITE LANDED AND THE VIEW COULD NOT BE READ — never that the tap
-        // failed (see `viewAfterWrite` in cart.ts). Applying nothing and re-reading is the whole
-        // handling: the add succeeded, so no refusal is published and the optimistic announce
-        // stands. The re-read is ticketed like every other, so a slow one cannot overwrite a newer
-        // view when it lands.
+        // failed (see `viewAfterWrite` in cart.ts). No refusal is published and the optimistic
+        // announce stands, because the add succeeded.
         if (!view) {
-          void readView();
-          return itemsRef.current;
+          // ⚠️ AWAIT the re-read, and never hand back the PRE-WRITE snapshot as though it were fresh
+          // (Codex round 2, P1). `AddButton` threads this return value into its next queued op
+          // (`const source = threaded ?? itemsRef.current`), so a stale list makes a following "−"
+          // look for a line that is not in it, skip silently, and leave the server holding an item
+          // the screen does not show. A successful re-read writes `itemsRef` synchronously inside
+          // `applyView`, so after this await the snapshot is genuinely current.
+          const reread = await readView();
+          // Still unreadable: thread NOTHING rather than something stale. `null` here is not a
+          // refusal — none is published — it means "no fresh list", and the queue falls back to its
+          // own snapshot exactly as it does for a first op.
+          return reread ? itemsRef.current : null;
         }
         applyView(view);
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
@@ -725,7 +732,14 @@ export function TableCartProvider({
           menuItemId,
           requested: qty,
         });
-        if (outcome === "partial" || outcome === "none") flash(partialAddNotice(landed), 3000);
+        // ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
+        // `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
+        // excludes comped rows and still answers success — so an add that matched a comped sibling
+        // is a successful no-op, and "That line is already at our 99 max" would name a cap that is
+        // not the cause. Growth is the only thing proving the write moved this line, so only a short
+        // GROWTH is diagnosed. The comped-sibling no-op is a real defect in its own right, filed as
+        // T25 rather than described wrongly here.
+        if (outcome === "partial") flash(partialAddNotice(landed), 3000);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return view.items;
@@ -748,7 +762,8 @@ export function TableCartProvider({
         // dish in the same window is the one false positive left, and it errs toward reporting a
         // success we are unsure of instead of a duplicate charge — the safer direction.
         if (fresh) {
-          const { landed, outcome } = classifyAddLanding({
+          // Only the OUTCOME is used here — the recovery path never speaks a count (see below).
+          const { outcome } = classifyAddLanding({
             before: itemsBefore,
             after: fresh,
             menuItemId,
@@ -781,7 +796,7 @@ export function TableCartProvider({
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -807,7 +822,14 @@ export function TableCartProvider({
         // Same contract as `add`: null is "written, unreadable". The stepper keeps its optimistic
         // position rather than snapping back over a change the server accepted.
         if (!view) {
-          void readView();
+          // ⚠️ AWAIT it (Codex round 2, P1). `AddButton` threads this list into the next queued op,
+          // so returning the PRE-write quantity makes two rapid decrements from 3 set 2 twice
+          // instead of 2 then 1 — and one tap visually snaps back until an unawaited re-read lands.
+          // A successful re-read writes `itemsRef` synchronously inside `applyView`.
+          await readView();
+          // If that also failed there is nothing newer than the last applied view. This signature
+          // cannot say "unknown", so it returns the freshest list it has — which is what the queue
+          // would have fallen back to anyway.
           return itemsRef.current;
         }
         applyView(view);
@@ -837,7 +859,7 @@ export function TableCartProvider({
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

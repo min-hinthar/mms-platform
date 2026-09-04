@@ -42,6 +42,14 @@ re-taps an add that already committed and the guest is charged twice. The mutati
 now: _written, unreadable_. Callers that ignore the return value are unaffected; the provider applies
 nothing and re-reads instead of painting either a blank cart or a false refusal.
 
+⚠️ **And it AWAITS that re-read** — Codex round 2, two P1s. `AddButton` threads a write's returned
+list into its next queued operation (`const source = threaded ?? itemsRef.current`), so handing back
+the pre-write snapshot as though it were fresh made a queued "−" hunt for a line that was not in it,
+skip silently, and leave the server holding an item the screen did not show; on `setQty` it threaded
+the old quantity, so two rapid decrements from 3 set 2 twice instead of 2 then 1. A successful
+re-read writes `itemsRef` synchronously, so after the await the snapshot is current — and when it
+also fails, `add` threads nothing rather than something stale.
+
 **T21(c) — "Added 5 to your order" could be the last thing said when one unit landed.** `add`
 announces optimistically before the server answers, and the correction for a capped merge existed on
 only one of the two paths. The scout found the filed row pointed at the smaller half: reusing "the
@@ -64,6 +72,13 @@ returned a view, so our line must have grown. In the recovery path we do not kno
 so the one line that grew may be a tablemate's; announcing a cap off it would credit the diner with a
 landing that never happened _and_ assert a cap on a dish nowhere near one. Both halves fabricated, in
 the one live region. That path keeps its silence, as it had before this slice.
+
+⚠️ **And only a short GROWTH is diagnosed** — Codex round 2. A zero delta does not establish the cap:
+`insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty` excludes
+comped rows and still answers success, so an add that matched a comped sibling is a successful no-op
+and "That line is already at our 99 max" would name a cause that is not the one. The sentence is now
+reachable only when growth proves the write moved the line. The comped-sibling no-op is a real defect
+in its own right and is filed as **T25** rather than described wrongly.
 
 Three mutants, on fixtures that carry a second line of the same dish moving in the same window — a
 one-line fixture would let the summed and attributed counts produce identical numbers.
