@@ -22,7 +22,8 @@ import {
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
-import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
+import { acceptView, issueRead, newViewSeq, readReachedServer, type ViewSeq } from "@/lib/view-seq";
+import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -46,21 +47,32 @@ type CartCtx = {
    *  (`priceItem`/`addItem`) re-derives every amount; the client never sends a price. Omitted ⇒ quick-add
    *  with no modifiers (the inline menu AddButton path). Resolves the fresh server-authoritative items on a
    *  successful add (so the caller's serialized write-queue can thread a deterministic snapshot to its next
-   *  op), or `null` if the add was refused/recovered (the item sheet stays OPEN, keeping the diner's
-   *  modifier choices). A non-empty array and `null` are still truthy/falsy, so `if (await add(...))` holds. */
+   *  op), or the state that says why there is none.
+   *
+   *  ⚠️ THREE STATES, NOT A NULLABLE LIST (T26). The old `CartItem[] | null` made `if (await add(…))`
+   *  read as "did it work", and it does not: `null` meant BOTH "refused" and "committed, view
+   *  unreadable", so `YourUsual` retried committed adds and charged the dish twice. Ask the question
+   *  you mean — `mayRetry`, `threadableView`, `mayClaimLanding` (lib/write-outcome.ts) — never
+   *  truthiness. */
   add: (
     menuItemId: string,
     modifierIds?: string[],
     notes?: string,
     qty?: number,
-  ) => Promise<CartItem[] | null>;
+  ) => Promise<WriteResult<CartItem[]>>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
    *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region so
    *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
-  setItemQty: (cartItemId: string, qty: number, announce?: string) => Promise<CartItem[]>;
-  refresh: () => Promise<void>;
+  setItemQty: (
+    cartItemId: string,
+    qty: number,
+    announce?: string,
+  ) => Promise<WriteResult<CartItem[]>>;
+  /** Re-read the cart. Resolves with the items it APPLIED, or `null` if the read failed or was
+   *  overtaken — a caller in a promise chain must use this value, not its own `itemsRef`. */
+  refresh: () => Promise<CartItem[] | null>;
   /** W21 (Codex P1 on #191) — resolves once every in-flight cart write (add / setItemQty) has
    *  settled. The checkout NAVIGATION awaits this: an optimistic add exposes the CartBar instantly,
    *  and racing it to /cart could mint a PaymentIntent that locks the cart BEFORE the add lands —
@@ -294,35 +306,49 @@ export function TableCartProvider({
   const lastRefusalRef = useRef<string | null>(null);
   const settlingRef = useRef(false);
 
+  // What a ticketed read established, and the rows it accepted — as a UNION, so `items` is
+  // non-null exactly when the read won the screen and no caller can thread rows from one that
+  // did not (Codex round 5 on #251, P1).
+  type ReadResult =
+    | { outcome: "applied"; items: CartItem[] }
+    | { outcome: "overtaken" | "failed"; items: null };
+
   // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
   // refresh in lockstep so a new field can never be applied in one path and forgotten in another.
-  const applyView = useCallback((v: Awaited<ReturnType<typeof getCartView>>, seq?: number) => {
-    // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
-    // read still in flight. A ticket that is no longer current = a read another view has overtaken.
-    if (!acceptView(viewSeqRef.current, seq)) return;
-    setItems(v.items);
-    setTotals(v.totals);
-    setPickupSlot(v.pickupSlot);
-    setLocked(v.locked);
-    setLockedBy(v.lockedBy);
-    setMySeat(v.mySeat);
-    setSettling(v.settling);
-    // T14 — the same three facts in a REF, because the write paths must read the CURRENT freeze
-    // without taking it as a dependency: putting `locked` in `add`/`setItemQty`'s dep arrays would
-    // re-create both callbacks on every lock flip and churn every consumer that memoizes on them.
-    // Written HERE, from the same view, so the ref and the state can never disagree (`itemsRef`
-    // exists for exactly this reason).
-    freezeRef.current = { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat };
-    settlingRef.current = v.settling;
-    // ⚠️ AND THE LINES, SYNCHRONOUSLY (Codex round 3 on #248). `itemsRef` is also written by an
-    // effect below, which runs after the commit — so two rapid queued adds could both read the
-    // PRE-first-add array as their baseline. `add`'s post-commit landing check compares this
-    // baseline against a re-read, so the FIRST add's units then looked like evidence that the
-    // SECOND one landed: a genuinely refused second tap reported as success with its refusal
-    // suppressed. Writing here, from the view being applied, closes the window the effect leaves.
-    itemsRef.current = v.items;
-    if (prevSettling.current === null) prevSettling.current = v.settling;
-  }, []);
+  // ⚠️ RETURNS WHETHER IT APPLIED (T26). A caller that is about to treat `itemsRef` as proof of its
+  // OWN read needs to know it was not overtaken; `readView` is the only consumer that uses the
+  // answer, and it converts it into a `ReadOutcome` so the two questions stay apart.
+  const applyView = useCallback(
+    (v: Awaited<ReturnType<typeof getCartView>>, seq?: number): boolean => {
+      // No ticket = a mutation's own returned view (server-commit fresh): it wins and invalidates any
+      // read still in flight. A ticket that is no longer current = a read another view has overtaken.
+      if (!acceptView(viewSeqRef.current, seq)) return false;
+      setItems(v.items);
+      setTotals(v.totals);
+      setPickupSlot(v.pickupSlot);
+      setLocked(v.locked);
+      setLockedBy(v.lockedBy);
+      setMySeat(v.mySeat);
+      setSettling(v.settling);
+      // T14 — the same three facts in a REF, because the write paths must read the CURRENT freeze
+      // without taking it as a dependency: putting `locked` in `add`/`setItemQty`'s dep arrays would
+      // re-create both callbacks on every lock flip and churn every consumer that memoizes on them.
+      // Written HERE, from the same view, so the ref and the state can never disagree (`itemsRef`
+      // exists for exactly this reason).
+      freezeRef.current = { locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat };
+      settlingRef.current = v.settling;
+      // ⚠️ AND THE LINES, SYNCHRONOUSLY (Codex round 3 on #248). `itemsRef` is also written by an
+      // effect below, which runs after the commit — so two rapid queued adds could both read the
+      // PRE-first-add array as their baseline. `add`'s post-commit landing check compares this
+      // baseline against a re-read, so the FIRST add's units then looked like evidence that the
+      // SECOND one landed: a genuinely refused second tap reported as success with its refusal
+      // suppressed. Writing here, from the view being applied, closes the window the effect leaves.
+      itemsRef.current = v.items;
+      if (prevSettling.current === null) prevSettling.current = v.settling;
+      return true;
+    },
+    [],
+  );
 
   /**
    * The one plain re-read, and it REPORTS whether it worked.
@@ -333,24 +359,56 @@ export function TableCartProvider({
    * on the strength of "still frozen" would retry until the tab is closed. `false` means this read
    * taught us nothing about the freeze — not that the freeze is gone.
    */
-  const readView = useCallback(async (): Promise<boolean> => {
-    if (!cartId) return false;
+  const readView = useCallback(async (): Promise<ReadResult> => {
+    // ⚠️ IT RETURNS THE ROWS IT ACCEPTED, NOT JUST A VERDICT (Codex round 5 on #251, P1). Every
+    // caller used to read `itemsRef.current` AFTER awaiting this — and the await is a microtask
+    // boundary. A concurrently resolving mutation runs its UNTICKETED `applyView` in that gap and
+    // replaces the ref, so the caller threaded rows that did not come from the read it had just
+    // classified as its own. `AddButton` then computes an absolute `setQty` from them.
+    //
+    // The ticket makes the ACCEPTANCE decision race-free; it cannot make a later read of shared
+    // mutable state race-free. Carry the value out instead of going back for it.
+    if (!cartId) return { outcome: "failed", items: null };
     // Minted BEFORE the await: the ticket records the order reads were ISSUED in, which is the order
     // their answers describe. Comparing on resolve is what stops the slower of two from winning.
     const seq = issueRead(viewSeqRef.current);
     try {
-      applyView(await getCartView(cartId), seq);
-      return true;
+      // ⚠️ THREE STATES, NOT TWO (T26, Codex round 4 on #250 — P1). This used to `return true` the
+      // moment `getCartView` resolved, discarding whether `applyView` actually took it. A read that
+      // came back but was OVERTAKEN leaves someone else's view on screen — and the view that won may
+      // be a mutation's, which lands without a ticket and may have read its rows BEFORE our write
+      // committed. The recovery path was handing that snapshot to a queued op as proof of its own
+      // add. `readReachedServer` / `readIsOurs` (view-seq.ts) are the two questions, named apart.
+      const v = await getCartView(cartId);
+      const applied = applyView(v, seq);
+      // ⚠️ The union makes "rows exist exactly when the read won" a COMPILER-CHECKED fact rather
+      // than a comment — the first draft of this fix stated it in prose and `tsc` immediately found
+      // the call site that would have trusted it. Encoding the invariant is the whole lesson of
+      // this slice, applied to the fix for it.
+      return applied
+        ? { outcome: "applied", items: v.items }
+        : { outcome: "overtaken", items: null };
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
-      return false;
+      return { outcome: "failed", items: null };
     }
   }, [cartId, applyView]);
 
-  /** The public shape: consumers re-read, they don't inspect the outcome. */
-  const refresh = useCallback(async () => {
-    await readView();
+  /**
+   * The public re-read. Returns the items it APPLIED, or `null` when the read failed or was
+   * overtaken (Codex round 3 on #251, P2).
+   *
+   * ⚠️ Returning void made this unusable by the one caller that needed it. `AddButton` awaits a
+   * refresh and then reads its own `itemsRef` — a LOCAL ref synced in a passive effect, so inside a
+   * promise chain it still holds the pre-write rows however well the refresh went. Two rapid
+   * decrements from 3 therefore lost the second tap even when the recovery read had cleanly
+   * observed 2. Provider state is not a channel a continuation can read; the value has to come back
+   * out of the call.
+   */
+  const refresh = useCallback(async (): Promise<CartItem[] | null> => {
+    // The rows come back WITH the verdict — never re-read from `itemsRef` here (see `readView`).
+    return (await readView()).items;
   }, [readView]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
@@ -469,6 +527,17 @@ export function TableCartProvider({
   // expired and was swept (honest "timed out, fresh order"); the SAME cart ⇒ renewed/transient
   // (nudge a retry). Deferred (microtask) so it's not a synchronous setState in the effect body.
   const recoveringRef = useRef(false);
+  /**
+   * Was the write that TRIGGERED this re-mint one we could not confirm? (Codex round 2 on #251, P1.)
+   *
+   * ⚠️ The same-cart recovery sentence below ends "please try that again", and `explainCaught` calls
+   * `revalidate()` on exactly the arm where the cart could not be read — which is also the arm that
+   * produces `unconfirmed`. So the sequence was: publish "we couldn't confirm that", re-mint, then
+   * OVERWRITE it with an instruction to retry a write that may already have committed. The provider
+   * spent this whole slice making sure nothing invites that retry, and then invited it itself, two
+   * effects away, in the one live region.
+   */
+  const recoveryWriteUnconfirmedRef = useRef(false);
   const prevCartIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!cartId) return;
@@ -476,10 +545,18 @@ export function TableCartProvider({
     prevCartIdRef.current = cartId;
     if (!recoveringRef.current) return;
     recoveringRef.current = false;
+    const unconfirmed = recoveryWriteUnconfirmedRef.current;
+    recoveryWriteUnconfirmedRef.current = false;
+    // A NEW cart means the old one was swept: nothing the diner did to it survived, so there is
+    // nothing to double-add and the honest sentence is the same either way.
     const msg =
       prev && prev !== cartId
         ? "Your table session timed out — we started a fresh order."
-        : "Reconnected to your table — please try that again.";
+        : unconfirmed
+          ? // SAME cart, and the write that sent us here may have landed on it. Point at the cart,
+            // never at the retry: re-sending is the one action that can charge the dish twice.
+            "Reconnected to your table — check your order below."
+          : "Reconnected to your table — please try that again.";
     void Promise.resolve().then(() => flash(msg, 3500));
   }, [cartId, flash]);
 
@@ -553,11 +630,18 @@ export function TableCartProvider({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
       timer = setTimeout(() => {
-        void readView().then((read) => {
+        void readView().then(({ outcome }) => {
           // `cancelled` is checked AFTER the await too: the effect can be torn down while the read
           // is in flight (an unmount, or the axes flipping), and a chain that re-armed from a
           // resolved promise would outlive its own cleanup.
-          if (!cancelled && read) arm();
+          //
+          // ⚠️ `readReachedServer`, NOT `readIsOurs` (T26). This asks whether the cart is reachable,
+          // and an OVERTAKEN read proves that just as well as an applied one — the freeze axes on
+          // screen came from the view that beat it. Narrowing this to `applied` would kill the chain
+          // whenever a concurrent read or mutation won the race, on a cart that is still frozen and
+          // whose axes therefore do not re-run this effect: the permanent dead menu T20 exists to
+          // fix, straight back. The two questions are named apart in view-seq.ts for this line.
+          if (!cancelled && readReachedServer(outcome)) arm();
         });
       }, delay);
     };
@@ -619,14 +703,23 @@ export function TableCartProvider({
    * than the sentence, never older.
    */
   const explainCaught = useCallback(
-    async (id: string): Promise<{ fresh: CartItem[] | null; notice: string }> => {
+    async (
+      id: string,
+    ): Promise<{ fresh: CartItem[] | null; viewIsCurrent: boolean; notice: string }> => {
       let fresh: CartItem[] | null = null;
+      // ⚠️ Did the re-read WIN the screen? (Codex round 3 on #251, P1.) `applyView` answers, and
+      // discarding that answer let an OVERTAKEN snapshot be threaded into the next queued write —
+      // rows that may predate the view that beat it. `readView` already makes exactly this
+      // distinction (`readIsOurs`); this helper is the second ticketed read and had not adopted it.
+      let viewIsCurrent = false;
       let refusal;
       let holderIsViewer = false;
       const seq = issueRead(viewSeqRef.current);
       try {
         const v = await getCartView(id);
-        applyView(v, seq);
+        viewIsCurrent = applyView(v, seq);
+        // `fresh` is kept even when overtaken: it is what we OBSERVED, and the refusal it classifies
+        // is a fact about that moment. Only its use as a threadable list is gated, one layer out.
         fresh = v.items;
         holderIsViewer =
           cartFreeze({ locked: v.locked, lockedBy: v.lockedBy, mySeat: v.mySeat }) === "self";
@@ -655,7 +748,7 @@ export function TableCartProvider({
         recoveringRef.current = true;
         revalidate();
       }
-      return { fresh, notice: refusedWriteNotice(refusal, holderIsViewer) };
+      return { fresh, viewIsCurrent, notice: refusedWriteNotice(refusal, holderIsViewer) };
     },
     [applyView, revalidate],
   );
@@ -670,14 +763,72 @@ export function TableCartProvider({
     [flash],
   );
 
+  /**
+   * Retract the optimistic claim when the write cannot be confirmed (Codex round 1 on #251, P2).
+   *
+   * ⚠️ EVERY `unconfirmed` RETURN MUST COME THROUGH HERE. `add` and `setItemQty` both flash their
+   * outcome OPTIMISTICALLY on tap — "Added to your order", "Removed Tea Leaf Salad" — so publishing
+   * nothing on this state is not neutrality: it leaves standing a claim `mayClaimLanding` explicitly
+   * forbids. `AddButton` and `ItemSheet` never speak after the provider, so for them the optimistic
+   * sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing
+   * if the claim is already on screen and the code merely declines to retract it.
+   *
+   * NOT `publishRefusal`: this deliberately does not touch `lastRefusalRef`, which means "a refusal
+   * the caller decided is real" and is carried into `YourUsual`'s copy. An unconfirmed write has not
+   * been refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
+   */
+  const publishUnconfirmed = useCallback(() => {
+    // Latch BEFORE the flash: `explainCaught` has already fired `revalidate()` on the arm that could
+    // not read the cart, so the recovery effect may run at any point after this and must find the
+    // flag set. Cleared by that effect, so a later ordinary re-mint still says "try that again".
+    recoveryWriteUnconfirmedRef.current = true;
+    flash(unconfirmedWriteNotice(), 3000);
+  }, [flash]);
+
+  /**
+   * Correct the optimistic announce when the server took FEWER units than were asked for.
+   *
+   * ⚠️ ONE DEFINITION, TWO PATHS (T26 + Codex round 5 on #250, P2). This used to live inline on the
+   * success path only, so the arm where the mutation's own view failed and a re-read recovered it
+   * skipped the correction entirely: adding five to a line at 98 commits one unit, the first view
+   * read fails, the re-read applies quantity 99 — and "Added 5 to your order" stood as the final
+   * word in the live region. Both paths hold the same evidence (a committed write plus a view we
+   * can attribute), so they must speak the same sentence; the "name it ONCE" rule applied to copy.
+   *
+   * ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
+   * `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
+   * excludes comped rows and still answers success — so an add that matched a comped sibling is a
+   * successful no-op, and "That line is already at our 99 max" would name a cap that is not the
+   * cause. Growth is the only thing proving the write moved this line, so only a short GROWTH is
+   * diagnosed. That no-op is a real defect in its own right, filed as T25 rather than described
+   * wrongly here.
+   *
+   * ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass on #250). It used to be, which left the most
+   * ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced "Added
+   * to your order" and nothing ever took it back. `partial` cannot occur for a request of one — a
+   * single unit either lands or does not — so the only sentence this adds for a quick-add is true.
+   *
+   * ⚠️ AND IT IS NOT CALLED FROM THE RECOVERY PATH, deliberately. There, attribution does not hold:
+   * see the note at that call site.
+   */
+  const announceShortfall = useCallback(
+    (before: CartItem[], after: CartItem[], menuItemId: string, requested: number) => {
+      const { outcome } = classifyAddLanding({ before, after, menuItemId, requested });
+      const correction = addShortfallNotice(outcome);
+      if (correction) flash(correction, 3000);
+    },
+    [flash],
+  );
+
   const add = useCallback(
     async (
       menuItemId: string,
       modifierIds: string[] = [],
       notes?: string,
       qty: number = 1,
-    ): Promise<CartItem[] | null> => {
-      if (!cartId) return null;
+    ): Promise<WriteResult<CartItem[]>> => {
+      // No cart to write to: nothing left, so a retry is the right offer. No view exists to thread.
+      if (!cartId) return { state: "refused", view: null };
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
@@ -704,11 +855,31 @@ export function TableCartProvider({
           // look for a line that is not in it, skip silently, and leave the server holding an item
           // the screen does not show. A successful re-read writes `itemsRef` synchronously inside
           // `applyView`, so after this await the snapshot is genuinely current.
+          //
+          // ⚠️ AND `readIsOurs`, NOT "it came back" (T26). An OVERTAKEN read leaves a view on screen
+          // that may predate this add, so `itemsRef` is not evidence of it.
+          //
+          // The write COMMITTED — `viewAfterWrite` only returns null after the row landed — so this
+          // is `applied` when we can see it and `unconfirmed` when we cannot. It is never `refused`,
+          // and that distinction is the whole of T26: the old `null` here meant "no fresh list" but
+          // read to `YourUsual` as "did not go through", and its retry re-added a committed dish.
           const reread = await readView();
-          // Still unreadable: thread NOTHING rather than something stale. `null` here is not a
-          // refusal — none is published — it means "no fresh list", and the queue falls back to its
-          // own snapshot exactly as it does for a first op.
-          return reread ? itemsRef.current : null;
+          // ⚠️ `applied`, NOT `unconfirmed`, EVEN WHEN THE RE-READ FAILS (Codex round 4 on #251, P2).
+          // The comment above is the argument and the code used to contradict it: `viewAfterWrite`
+          // returns null only AFTER the row landed, so the mutation response has already established
+          // the outcome. A failed re-read leaves us without a VIEW, not without a verdict —
+          // downgrading it retracted a true success notice, suppressed the analytics capture, and
+          // made `YourUsual` tell the diner a dish it had just added could not be confirmed.
+          //
+          // `unconfirmed` belongs only where the mutation response ITSELF said nothing: the catch
+          // arm, where the action rejected and the write may or may not have committed.
+          if (reread.outcome !== "applied") return { state: "applied", view: null };
+          // The re-read is ours, so correct the optimistic announce against it exactly as the
+          // success path does — a cap reached on a write whose first view failed is still a cap.
+          // (Not reachable above: without a view there is nothing to attribute a shortfall against,
+          // so the optimistic announce stands — the T27 residual, unchanged by this slice.)
+          announceShortfall(itemsBefore, reread.items, menuItemId, qty);
+          return { state: "applied", view: reread.items };
         }
         applyView(view);
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
@@ -726,12 +897,7 @@ export function TableCartProvider({
         // "Added to your order" and nothing ever took it back. `partial` cannot occur for a request
         // of one — a single unit either lands or does not — so the only sentence this adds for a
         // quick-add is the true one.
-        const { outcome } = classifyAddLanding({
-          before: itemsBefore,
-          after: view.items,
-          menuItemId,
-          requested: qty,
-        });
+        announceShortfall(itemsBefore, view.items, menuItemId, qty);
         // ⚠️ ONLY `partial` SPEAKS (Codex round 2, P2). A zero delta does NOT establish the 99 cap:
         // `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty`
         // excludes comped rows and still answers success — so an add that matched a comped sibling
@@ -739,11 +905,9 @@ export function TableCartProvider({
         // not the cause. Growth is the only thing proving the write moved this line, so only a short
         // GROWTH is diagnosed. The comped-sibling no-op is a real defect in its own right, filed as
         // T25 rather than described wrongly here.
-        const correction = addShortfallNotice(outcome);
-        if (correction) flash(correction, 3000);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
-        return view.items;
+        return { state: "applied", view: view.items };
       } catch {
         // ⚠️ THE CAUSE IS RE-ESTABLISHED, NEVER GUESSED (T14). This catch used to flash
         // "Reconnecting to your table…" and re-mint the session for EVERY throw — while its own
@@ -752,7 +916,7 @@ export function TableCartProvider({
         // had dropped and watched a session re-mint they did not need: the M116 fabricated-diagnosis
         // class, surviving here because Next redacts Server Action messages in production, so the
         // server's own "Order is locked while someone checks out" never reaches this browser.
-        const { fresh, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
         // ⚠️ A THROW IS NOT PROOF THE WRITE DID NOT LAND (Codex P1 on #248). `addItem` commits the
         // line, calls `touchCart`, and only THEN returns `getCartView` — so its promise can reject
         // on that trailing read with the add already in the cart. Reporting failure there is a lie
@@ -762,42 +926,62 @@ export function TableCartProvider({
         // than the basket's, so an unrelated peer add cannot fake a landing. A peer adding the SAME
         // dish in the same window is the one false positive left, and it errs toward reporting a
         // success we are unsure of instead of a duplicate charge — the safer direction.
-        if (fresh) {
-          // Only the OUTCOME is used here — the recovery path never speaks a count (see below).
-          const { outcome } = classifyAddLanding({
-            before: itemsBefore,
-            after: fresh,
-            menuItemId,
-            requested: qty,
-          });
-          // Growth of this dish is the evidence the write landed: say nothing and keep it.
-          //
-          // ⚠️ AND SAY NOTHING ABOUT A SHORTFALL EITHER, WHICH IS WHERE AN EARLIER DRAFT WENT WRONG
-          // (blind adversarial pass). `classifyAddLanding` attributes growth to the single line that
-          // moved, and on the SUCCESS path that line must be ours — the write returned a view, so our
-          // line grew, and a peer growing too would make two. Here we do NOT know our write landed,
-          // so the one line that grew may be a tablemate's: announcing "Added 2 — that line is now at
-          // our 99 max" off it would credit the diner with a landing that never happened AND assert a
-          // cap on a dish nowhere near one. Both halves fabricated, in the one live region. The
-          // correction belongs where attribution holds; here silence is the honest answer, as it was
-          // before this slice.
-          if (outcome === "full" || outcome === "partial") return fresh;
-          // `none` and `unknown` fall through to the refusal: nothing of this dish grew, so there is
-          // no evidence of a landing to keep.
-        }
-        publishRefusal(notice);
-        // ⚠️ The null is read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close
-        // on tap (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant,
-        // and it never awaits this. The older comment here claimed the sheet stays open "keeping the
-        // diner's modifier choices", which stopped being true then — and it is the only caller that
-        // can pass qty > 1, so a reader reasoning from it would mis-model the whole partial-fill
-        // path above. What the null still does is stop a refusal reading as a success.
-        return null;
+        //
+        // ⚠️ THE RECOVERY PATH NEVER SPEAKS A SHORTFALL, WHICH IS WHERE AN EARLIER DRAFT WENT WRONG
+        // (blind adversarial pass on #250). `classifyAddLanding` attributes growth to the single line
+        // that moved, and on the SUCCESS path that line must be ours — the write returned a view, so
+        // our line grew, and a peer growing too would make two. Here we do NOT know our write landed,
+        // so the one line that grew may be a tablemate's: announcing "Added 2 — that line is now at
+        // our 99 max" off it would credit the diner with a landing that never happened AND assert a
+        // cap on a dish nowhere near one. Both halves fabricated, in the one live region. That is why
+        // `announceShortfall` is NOT called here and IS called on the null-view arm above, which has
+        // the same standing as the success path: a committed write plus a view we can attribute.
+        //
+        // ⚠️ THREE STATES, AND `unknown` IS NOT A REFUSAL (T26, Codex rounds 3-4 on #250 — P1).
+        // `recoveredWrite` reads the two observations this path actually has: whether the re-read
+        // gave us a cart we can trust, and whether THIS dish grew in it. `unknown` — a successful
+        // read whose delta is unattributable because a peer touched the same dish — used to fall
+        // straight to the refusal below, so a write that may well have landed was reported as
+        // refused and `YourUsual` re-added it. `fresh === null` (the re-read failed) is the same
+        // shape one layer out. Neither is evidence of a refusal; both are evidence of ignorance.
+        const outcome = fresh
+          ? classifyAddLanding({ before: itemsBefore, after: fresh, menuItemId, requested: qty })
+              .outcome
+          : null;
+        const result = recoveredWrite({
+          reread: fresh,
+          // `full`/`partial` = this dish grew, so the write landed. `none` = the cart was read and
+          // this dish did not move, which IS evidence of a refusal. `unknown` = unattributable.
+          landed: outcome === null ? null : outcome === "unknown" ? null : outcome !== "none",
+          viewIsCurrent,
+        });
+        // Only a state that establishes a refusal may publish one — an `unconfirmed` write has not
+        // been refused, and saying so is the fabricated-diagnosis class this slice's ancestors
+        // (M116, T14) exist to remove. The caller is told "unconfirmed" and decides for itself.
+        if (result.state === "refused") publishRefusal(notice);
+        // The optimistic "Added to your order" is still on screen; retract it rather than let an
+        // outcome that may not claim a landing stand as one.
+        else if (result.state === "unconfirmed") publishUnconfirmed();
+        // ⚠️ Read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close on tap
+        // (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant, and it
+        // never awaits this. The older comment here claimed the sheet stays open "keeping the diner's
+        // modifier choices", which stopped being true then — and it is the only caller that can pass
+        // qty > 1, so a reader reasoning from it would mis-model the whole partial-fill path above.
+        return result;
       } finally {
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
+    [
+      cartId,
+      applyView,
+      readView,
+      explainCaught,
+      flash,
+      publishRefusal,
+      publishUnconfirmed,
+      announceShortfall,
+    ],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -806,8 +990,18 @@ export function TableCartProvider({
   // Checkout's `changeQty`: swallow a refused write (locked/closed) and re-sync from server truth via
   // refresh, with the same session-recovery path `add` uses for a silently-expired session.
   const setItemQty = useCallback(
-    async (cartItemId: string, qty: number, announce?: string): Promise<CartItem[]> => {
-      if (!cartId) return itemsRef.current;
+    async (
+      cartItemId: string,
+      qty: number,
+      announce?: string,
+    ): Promise<WriteResult<CartItem[]>> => {
+      // ⚠️ THE RETURN TYPE IS THE FIX (T26, Codex round 3-4 on #250 — P1). This was
+      // `Promise<CartItem[]>`, so the "written, unreadable" state had nowhere to go and the function
+      // returned `itemsRef.current` — the PRE-write quantity — as though it were the result. Two
+      // rapid decrements from 3 then set 2 twice instead of 2 then 1, because `AddButton` threads
+      // this value into its next queued op. A signature that cannot express an outcome guarantees
+      // the outcome is misreported; widening it is not a refactor, it is the defect.
+      if (!cartId) return { state: "refused", view: null };
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
       if (announce) flash(announce, 2000);
@@ -827,14 +1021,18 @@ export function TableCartProvider({
           // so returning the PRE-write quantity makes two rapid decrements from 3 set 2 twice
           // instead of 2 then 1 — and one tap visually snaps back until an unawaited re-read lands.
           // A successful re-read writes `itemsRef` synchronously inside `applyView`.
-          await readView();
-          // If that also failed there is nothing newer than the last applied view. This signature
-          // cannot say "unknown", so it returns the freshest list it has — which is what the queue
-          // would have fallen back to anyway.
-          return itemsRef.current;
+          //
+          // ⚠️ AND `readIsOurs`, NOT "it came back" (T26). An overtaken read leaves a view on screen
+          // that may predate this write. The row COMMITTED either way — `viewAfterWrite` only
+          // returns null after it landed — so the two states here are `applied` and `unconfirmed`.
+          const reread = await readView();
+          // Same as `add`'s arm: the row COMMITTED (that is what a null view means here), so this is
+          // `applied` either way and the optimistic `announce` stands. Only the VIEW is missing, and
+          // `view: null` says exactly that — the next queued op re-reads rather than threading.
+          return { state: "applied", view: reread.items };
         }
         applyView(view);
-        return view.items;
+        return { state: "applied", view: view.items };
       } catch {
         // Re-sync from server truth (like Checkout's changeQty): a rejected remove — line already
         // gone/fired/locked, or a line the viewer does not own — must snap the stepper back, not leave
@@ -844,23 +1042,30 @@ export function TableCartProvider({
         // re-minted the session and said "Reconnecting" on every outcome, including the one where the
         // re-read had just succeeded and reported a locked cart. `explainCaught` keeps the re-read and
         // the snap-back, and attributes the refusal to what the re-read established.
-        const { fresh, notice } = await explainCaught(cartId);
+        const { fresh, viewIsCurrent, notice } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
         // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
         // when the tap was a remove. Only a genuine non-landing is announced.
-        if (fresh) {
-          const line = fresh.find((i) => i.id === cartItemId);
-          const landed = qty <= 0 ? line === undefined : line?.qty === qty;
-          if (landed) return fresh;
-        }
-        publishRefusal(notice);
-        return fresh ?? itemsRef.current;
+        //
+        // ⚠️ `setQty` IS ABSOLUTE, NOT A DELTA, so the re-read settles it exactly: the line sits at
+        // `qty`, or is gone when the tap was a remove. That is a stronger attribution than `add`'s
+        // — no peer write can forge it — so there is no `unknown` arm on a successful read here,
+        // and `landed` is never null when `fresh` is non-null.
+        const line = fresh?.find((i) => i.id === cartItemId);
+        const result = recoveredWrite({
+          reread: fresh,
+          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
+          viewIsCurrent,
+        });
+        if (result.state === "refused") publishRefusal(notice);
+        else if (result.state === "unconfirmed") publishUnconfirmed();
+        return result;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal, publishUnconfirmed],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

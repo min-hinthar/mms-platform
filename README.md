@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 1249 qr tests + 138 ui tests · 275 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 1274 qr tests + 138 ui tests · 284 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,10 +152,10 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 275 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 284 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 63 money/authority modules it mutates IN PLACE
-                                       # (60 under apps/qr/lib, plus the create-share-intent,
+                                       # ⚠️ rewrites the 64 money/authority modules it mutates IN PLACE
+                                       # (61 under apps/qr/lib, plus the create-share-intent,
                                        # setup-intent and board routes) and restores them. It ABORTS if a target file
                                        # is DIRTY, so commit first.
 pnpm check:docs                        # GFM table parity (prettier INTRODUCES the breaks) + live-state

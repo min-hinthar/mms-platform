@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
 import { useCart } from "@/components/TableCartProvider";
+import { mayRetry } from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/lib/menu/your-usual";
 
@@ -33,7 +34,36 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
   const { add, announce, cartId, lastRefusalNotice, loading } = useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
-  const [doneCount, setDoneCount] = useState(0);
+  /**
+   * Progress through the list, and how much of it we could not SEE — both scoped to ONE cart.
+   *
+   * ⚠️ `done` alone cannot carry the second fact: it means "do not send these again", which is true
+   * of a landing AND of an unconfirmed write, so it drove `allIn`, the "Added ✓" label and the
+   * button's accessible name into claiming a dish nobody saw. Progress and CONFIDENCE are two facts.
+   *
+   * ⚠️ AND BOTH BELONG TO A CART (Codex round 5 on #251, P2). `explainCaught`'s unreachable arm calls
+   * `revalidate()`, which can come back with a FRESH cart id — the provider announces exactly that
+   * ("your table session timed out — we started a fresh order"). The new cart contains none of these
+   * dishes, but the counters survived: `allIn` stayed true and the CTA sat disabled reading "Sent"
+   * over an empty cart with no way back. Retry SUPPRESSION is what these counters are for, and
+   * suppression must never outlive the cart it was reasoning about.
+   *
+   * Carried WITH the cart id and derived rather than reset in an effect: an effect would render the
+   * stale counts once before correcting them, and this repo lints synchronous setState in effects
+   * for that reason. A mismatched id simply reads as zero.
+   */
+  const [progress, setProgress] = useState<{ cart: string | null; done: number; unseen: number }>({
+    cart: null,
+    done: 0,
+    unseen: 0,
+  });
+  const ofThisCart = progress.cart === cartId;
+  const doneCount = ofThisCart ? progress.done : 0;
+  const unseenCount = ofThisCart ? progress.unseen : 0;
+  const setProgressFor = useCallback(
+    (cart: string | null, done: number, unseen: number) => setProgress({ cart, done, unseen }),
+    [],
+  );
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const items = outcome.state === "none" ? [] : outcome.items;
@@ -61,13 +91,29 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     if (busy || allIn || notReady || items.length === 0) return;
     setBusy(true);
     haptic("add");
+    // Dishes whose write committed but whose result we could not SEE, THIS invocation. Folded into
+    // the persistent tally on every exit path — including the refusal return, which is the one an
+    // earlier draft dropped.
+    let unseen = 0;
     try {
       for (let i = doneCount; i < items.length; i += 1) {
         const item = items[i];
         if (!item) break;
         const res = await add(item.id);
-        // `add` resolves null on a refused write (locked, settling, or a cart it could not read).
-        if (res === null) {
+        // ⚠️ THIS LOOP IS THE REASON T26 EXISTS. It used to test `res === null`, and `null` meant
+        // BOTH "refused" and "committed, view unreadable" — so a dish that HAD landed took the arm
+        // below, which sets `doneCount` to resume at this index, and the diner's retry added it a
+        // second time. A duplicate line on a real bill, from a tap that worked.
+        //
+        // `mayRetry` is the only question that may gate a resend: it is true for `refused` alone,
+        // where the cart was actually read and this dish was not in it.
+        if (!mayRetry(res)) {
+          // Committed, or committed-but-unseen. Either way the write is NOT re-sendable, so move
+          // past it. `unconfirmed` additionally may not be CLAIMED — hence the tally.
+          if (res.state === "unconfirmed") unseen += 1;
+          continue;
+        }
+        {
           // ⚠️ THIS ARM USED TO OVERWRITE THE ESTABLISHED CAUSE WITH DEAD ADVICE (adversarial round
           // 1 on #248). The provider has just re-read the cart and published what it found through
           // the SAME single-slot live region; announcing here replaces it, and "try it from the menu
@@ -76,30 +122,76 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // landed. A freeze can arrive DURING this loop, so the tap-time gate above cannot cover
           // it: the first dish succeeds, the second is refused, and this is the arm that runs.
           const cause = lastRefusalNotice();
-          const landed = i > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
+          // ⚠️ ONLY NAME A DISH WE SAW LAND, ACROSS INVOCATIONS (Codex round 2 on #251, P2). This
+          // prefix used to fire on `i > 0` alone, so it credited `items[0]` even when that dish was
+          // the unconfirmed one. The first fix subtracted only THIS pass's tally — which is zero on
+          // a resumed pass, so the moment the persisted counter started working it exposed the same
+          // false claim one attempt later: dish 1 unconfirmed, dish 2 refused, retry, dish 2 refused
+          // again, and the notice credits dish 1. The dishes before index `i` span both passes, so
+          // the unseen among them do too.
+          const confirmed = i - unseenCount - unseen;
+          const landed = confirmed > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
           announce(
             cause
               ? `${landed}${item.name} didn’t go through. ${cause}`
               : `${landed}we couldn’t add ${item.name} just now.`,
           );
-          setDoneCount(i); // resume here, so a retry never re-adds what already landed
+          // Resume at `i` so a retry never re-adds what already landed, and COMMIT THE TALLY on
+          // this path too — dropping it here is exactly how an unconfirmed dish became a claimed
+          // one: the retry resumed at the refused dish with a fresh zero and announced that
+          // everything landed. Both are written together, against this cart.
+          setProgressFor(cartId, i, unseenCount + unseen);
           return;
         }
       }
-      setDoneCount(items.length);
-      announce(`Added ${dishes} to your order.`);
+      setProgressFor(cartId, items.length, unseenCount + unseen);
+      // ⚠️ ONLY CLAIM WHAT WE SAW (T26). Every dish was sent and none may be re-sent, so the loop
+      // completed — but a write whose view we never read is not a landing we can assert, and this
+      // is the same single live region the provider speaks through. Naming the cart as the place to
+      // check is honest and actionable; "Added 5 to your order" over an outage is neither.
+      //
+      // The total spans invocations: a dish left unconfirmed before a refusal is still unconfirmed
+      // after the retry that clears the refusal.
+      announce(
+        unseenCount + unseen > 0
+          ? `${dishes} sent — we couldn’t confirm all of them. Check your order below.`
+          : `Added ${dishes} to your order.`,
+      );
     } finally {
       setBusy(false);
       // Keep focus where the diner put it; the button is never disabled, so this is a no-op in the
       // common case and a repair if a re-render moved things.
       btnRef.current?.focus({ preventScroll: true });
     }
-  }, [add, announce, allIn, busy, dishes, doneCount, items, lastRefusalNotice, notReady]);
+  }, [
+    add,
+    announce,
+    allIn,
+    busy,
+    cartId,
+    dishes,
+    doneCount,
+    items,
+    lastRefusalNotice,
+    notReady,
+    setProgressFor,
+    unseenCount,
+  ]);
 
   if (outcome.state === "none") return null;
 
   const label = usualAction(outcome);
-  const text = allIn ? "Added ✓" : busy ? "Adding…" : notReady ? "One moment…" : label;
+  // `allIn` means "nothing left to send", which is NOT "everything landed" once an unconfirmed
+  // write can sit behind it. Both the visible label and the accessible name key off the tally.
+  const text = allIn
+    ? unseenCount > 0
+      ? "Sent"
+      : "Added ✓"
+    : busy
+      ? "Adding…"
+      : notReady
+        ? "One moment…"
+        : label;
 
   return (
     <section className="usual-card mms-rise" aria-labelledby="usual-h">
@@ -118,7 +210,13 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
         /* The visible label is short; the accessible name names the dishes, so a screen-reader diner
            hears WHAT is being added without hunting for the line above. It tracks the visible text
            rather than contradicting it (WCAG 2.5.3 — label in name). */
-        aria-label={allIn ? `${dishes} added to your order` : `${text} — ${dishes}`}
+        aria-label={
+          allIn
+            ? unseenCount > 0
+              ? `${dishes} sent — check your order below`
+              : `${dishes} added to your order`
+            : `${text} — ${dishes}`
+        }
       >
         {text}
       </button>
