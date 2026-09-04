@@ -75,14 +75,32 @@ narrows a name that would read as the reader (letters-only-normalized `you` / `y
 derivation, so the banner, the live region and the guest-list avatar label cannot disagree. The list
 is exact rather than prefix-matched on purpose: Yu, Youn and Mei are names people have.
 
-**A monotonic view ticket, landed early.** `apps/qr/lib/view-seq.ts` makes the cart view ordered by
-_issue_ rather than by arrival: a read takes a ticket before it awaits and is applied only while
-nothing newer has been issued, while a mutation's returned view — rendered server-side inside the
-statement that committed the write — is applied unconditionally and invalidates every read in flight.
-This is the first part of **T21(b)**, brought forward because the scheduled re-read adds an
-unsequenced caller whose whole job is to observe a freeze: a slow one resolving late could have put
-`locked: true` back over a cart the server had already released, and the surface would then have
-stayed dead for another full TTL.
+⚠️ **The first draft of that defence misnamed almost everyone it was meant to protect** — Codex round
+2, and the worst finding of the PR. It judged blankness on the **letters-only projection**, so a name
+in Burmese, Chinese or any non-Latin script collapsed to `""` and came back "Someone" — in a
+bilingual EN/MY app, on every avatar's accessible label as well as the banner. Blankness is now
+judged on the trimmed name; the projection does one job only, recognising the Latin spellings that
+would make the sentence read as the reader. Five scripts are pinned by test.
+
+**A monotonic view ticket, landed early.** `apps/qr/lib/view-seq.ts` orders the cart view by what has
+been **applied**, not by what was merely issued: a read takes a ticket before it awaits and lands
+unless some view beat it to the screen. This is the first part of **T21(b)**, brought forward because
+the scheduled re-read adds an unsequenced caller whose whole job is to observe a freeze — a slow one
+resolving late could have put `locked: true` back over a cart the server had already released.
+
+⚠️ **Both halves of that rule were wrong in the first draft, and Codex round 2 caught both.** It
+refused any ticket that was not the newest _issued_, so a newer read that **failed** still suppressed
+an older read that had **succeeded** — which is T20's own bug restored: the freeze re-read sees the
+lock expired, a visibility refresh issued moments later 503s and applies nothing, and the good
+observation is discarded anyway. A request in flight now reserves nothing.
+
+And the justification for letting a mutation's view win was **false**: `addItem`/`setQty` commit and
+then call `getCartView` **separately**, so a peer can change the cart in between and a read in flight
+may genuinely hold newer rows. The behaviour stands, but on a policy rather than a proof — a
+refused-but-newer read costs a peer's change arriving one event late, and that peer's write emits its
+own row event so it self-heals; an applied-but-older read erases a line the diner just watched land,
+and they re-add it. Only one of those touches money. Reads issued _after_ the mutation's view lands
+are unaffected.
 
 Also: `split-settle-capture.test.ts`'s 90s `CART_LOCK_TTL_MS` mock is **gone** rather than repointed.
 It was inert (its only cart row sets `locked: false, locked_at: null`, short-circuiting the consumer
@@ -93,7 +111,13 @@ not at resolution.
 **The guard that let this rot:** `check:docs` measured the mutant count beside two module counts it
 could not see, so the same edit that refreshed "263 mutations" left "59 money/authority modules (56
 under `apps/qr/lib`)" stale one line below, in the two files CLAUDE.md itself names as live-state
-docs. Both phrasings are now measured from `verify-slice.mjs`'s distinct `file:` targets.
+docs. Both phrasings are now measured from `verify-slice.mjs`'s distinct `file:` targets — and, after
+Codex round 2, both carry a **numberless twin** in `MISSING_RULES`, because a rule that only fires on
+a well-formed claim cannot notice a claim whose number was deleted. The twins are anchored on the
+phrasing that carries a count ("rewrites the N …"), not on the bare words: CLAUDE.md legitimately
+says "applies 265 semantic mutations to the money/authority modules" with no count of its own, and a
+bare rule would fail that honest sentence. The `apps/qr/lib` twin spans a newline, because CLAUDE.md
+wraps this very claim across two comment lines.
 
 ### The freeze reaches /menu, and a refused write stops inventing a cause (2026-09-03)
 

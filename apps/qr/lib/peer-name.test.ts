@@ -34,8 +34,21 @@ describe("peerDisplayName — a tablemate cannot name themselves the reader", ()
     expect(peerDisplayName(null)).toBe("Someone");
     expect(peerDisplayName(undefined)).toBe("Someone");
     expect(peerDisplayName("   ")).toBe("Someone");
-    // A name of pure punctuation or emoji normalizes to nothing to say — same answer.
-    expect(peerDisplayName("🙂")).toBe("Someone");
+  });
+
+  // ⚠️ THE ROUND-2 FINDING, and the one that would have misnamed most of this app's guests. The
+  // first draft judged blankness on the LETTERS-ONLY projection, so every name in a non-Latin script
+  // collapsed to "" and came back "Someone" — on a bilingual EN/MY surface, and on every avatar's
+  // accessible label as well as the banner.
+  it.each([
+    ["မောင်မောင်", "Burmese"],
+    ["ဧး", "Burmese, short"],
+    ["李明", "Chinese"],
+    ["Аня", "Cyrillic"],
+    ["🙂", "an emoji-only name — odd, but theirs"],
+  ])("preserves %o (%s)", (name) => {
+    expect(peerDisplayName(name)).toBe(name);
+    expect(sentence(name)).toBe(`${name} is checking out`);
   });
 
   it("trims incidental whitespace rather than rendering it into the sentence", () => {

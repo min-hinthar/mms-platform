@@ -28,9 +28,22 @@ const FIRST_OR_SECOND_PERSON = new Set(["you", "youre", "u", "me", "i"]);
 /**
  * The name to put in "<name> is checking out". Returns the peer's own name unless it would read as
  * the reader, and `"Someone"` for that case, for an unresolved seat, and for a blank name.
+ *
+ * ⚠️ BLANKNESS IS JUDGED ON THE TRIMMED NAME, NEVER ON THE ASCII PROJECTION — Codex round 2 on #249,
+ * and the first draft got this exactly backwards in a bilingual app. It tested the letters-only
+ * projection for emptiness, so a name written in Burmese, Chinese or any non-Latin script projected
+ * to `""` and was replaced with "Someone". Since this helper backs both the lock banner and every
+ * peer avatar's accessible label, that erased the real name of most of the guests this app is built
+ * for — a defence against one contrived name that silently misnamed the ordinary case.
+ *
+ * The projection now does one job only: recognising the handful of Latin spellings that would make
+ * the sentence read as the reader. An empty projection means "nothing Latin to compare", which is
+ * not a reason to refuse a name.
  */
 export function peerDisplayName(name: string | null | undefined): string {
-  const normalized = (name ?? "").toLowerCase().replace(/[^a-z]/g, "");
-  if (normalized === "" || FIRST_OR_SECOND_PERSON.has(normalized)) return "Someone";
-  return name?.trim() ?? "Someone";
+  const trimmed = (name ?? "").trim();
+  if (trimmed === "") return "Someone";
+  const latin = trimmed.toLowerCase().replace(/[^a-z]/g, "");
+  if (latin !== "" && FIRST_OR_SECOND_PERSON.has(latin)) return "Someone";
+  return trimmed;
 }

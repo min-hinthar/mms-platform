@@ -21,7 +21,7 @@ import {
 } from "@/lib/cart-freeze";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { peerDisplayName } from "@/lib/peer-name";
-import { acceptView, issueRead, type ViewSeq } from "@/lib/view-seq";
+import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -272,14 +272,18 @@ export function TableCartProvider({
    * would stay frozen until the NEXT scheduled read a full TTL later. That is the interaction Codex
    * flagged on this diff, and it is why the ticket lands here rather than waiting for the full T21(b).
    *
-   * ⚠️ A MUTATION'S RETURNED VIEW IS NOT A READ, AND MUST ALWAYS WIN. `addItem`/`setQty` render their
-   * view server-side inside the same statement that committed the write, so its freshness is the
-   * SERVER's commit instant — never stale relative to a client read that merely started later.
-   * `applyView` called WITHOUT a ticket is that case: it bumps the counter, which invalidates any
-   * read still in flight. Only ticketed callers (the three plain reads — the initial load, `refresh`
-   * and `explainCaught`'s diagnosis) can be refused.
+   * ⚠️ A MUTATION'S RETURNED VIEW OUTRANKS THE READS IN FLIGHT WHEN IT LANDS — as a policy, not as
+   * a proof. `addItem`/`setQty` commit and then call `getCartView` SEPARATELY, so a peer really can
+   * change the cart in between and a read still in flight may hold newer rows (Codex round 2 killed
+   * this docblock's original "same statement" claim, which was simply false). The tie goes to the
+   * write because the errors are not symmetric: a refused-but-newer read costs a peer's change
+   * arriving one event late — and that peer's write emits its own row event, so it self-heals —
+   * while an applied-but-older read erases a line the diner just watched land, and they re-add it.
+   * See `view-seq.ts` for the full argument. Only ticketed callers (the three plain reads — the
+   * initial load, `refresh` and `explainCaught`'s diagnosis) can be refused, and a read is refused
+   * only by a view that BEAT it to the screen, never by one that merely started later.
    */
-  const viewSeqRef = useRef<ViewSeq>({ issued: 0 });
+  const viewSeqRef = useRef<ViewSeq>(newViewSeq());
 
   const freezeRef = useRef<FreezeInput>({ locked: false, lockedBy: null, mySeat: null });
   /** The last sentence `explainCaught` published. A caller that announces its OWN outcome after a

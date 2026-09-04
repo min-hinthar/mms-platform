@@ -182,6 +182,24 @@ const MISSING_RULES = [
   // each label is preceded by its own number, so neither half matches.
   { re: /(?:^|[+·|(])[ \t]*(qr|ui)[ \t]+tests/gim, label: (m) => `${m[1]} tests` },
   { re: /(?:^|[+·|(])[ \t]*(verify:slice)[ \t]+mutants/gim, label: () => "a mutant count" },
+  // T20 round 2 (Codex): the module rules added below were born with the very blind spot this list
+  // exists to close — they only fire when digits are present, so deleting the number made the claim
+  // vanish from the check and `countFailures` reported clean. Both twins are anchored on the
+  // phrasing that CARRIES a count, not on the bare words: CLAUDE.md legitimately says "applies 264
+  // semantic mutations to the money/authority modules" with no count of its own, and a bare
+  // `money/authority modules` rule would fail that honest sentence.
+  {
+    re: /rewrites[ \t]+the[ \t]+money\/authority[ \t]+modules/gi,
+    label: () => "a module count",
+  },
+  {
+    // `[ \t\n]+`, not `[ \t]+`: CLAUDE.md wraps this very claim across two comment lines, and
+    // `joinWrappedComments` blanks the `#` marker but deliberately KEEPS the newline so line numbers
+    // stay exact. A tab/space-only gap therefore misses the wrapped half — which is the file the
+    // claim actually lives in.
+    re: /(?:^|[(])[ \t]*under[ \t\n]+`?apps\/qr\/lib/gim,
+    label: () => "a module count for apps/qr/lib",
+  },
 ];
 
 export function countFailures(text, truth, name = "<doc>") {
