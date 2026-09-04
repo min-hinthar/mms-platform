@@ -86,6 +86,26 @@ export function mayClaimLanding<V>(r: WriteResult<V>): boolean {
 }
 
 /**
+ * What to say about a write we could not see — because saying NOTHING is also a claim.
+ *
+ * ⚠️ Codex round 1 on #251 (P2), and it is this slice's own defect arriving from the other side.
+ * `mayClaimLanding` answers false for `unconfirmed`, but the provider flashes "Added to your order"
+ * OPTIMISTICALLY on tap and then published nothing on this state — so the optimistic claim stood as
+ * the final word in the one live region. `AddButton` and `ItemSheet` never speak after the provider,
+ * so for them it was the ONLY word. A predicate that forbids a claim is worth nothing if the claim
+ * was already made and the code merely declines to retract it.
+ *
+ * The sentence names the observation and gives somewhere to go, and it is true on BOTH ways of
+ * reaching `unconfirmed`: when the re-read failed we have no current list, and when it succeeded but
+ * the delta was unattributable we do — "check your order below" is right either way. That is why it
+ * is not `refusedWriteNotice`'s "the order below is up to date", which asserts a currency we do not
+ * always have.
+ */
+export function unconfirmedWriteNotice(): string {
+  return "We couldn’t confirm that — check your order below.";
+}
+
+/**
  * Classify a write whose response was LOST or REJECTED, from the one recovery re-read that follows.
  *
  * The caller supplies what it observed, never a conclusion:

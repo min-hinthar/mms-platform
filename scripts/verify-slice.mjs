@@ -421,6 +421,14 @@ const MUTANTS = [
     replace: '  return o === "applied";',
   },
   {
+    id: "written/the-unconfirmed-notice-asserts-a-currency-it-lacks",
+    file: "apps/qr/lib/write-outcome.ts",
+    suite: "lib/write-outcome.test.ts",
+    why: "T26 (Codex round 1 on #251, P2) \u2014 this sentence RETRACTS an optimistic 'Added to your order', and it is reached on both ways into `unconfirmed`. On one of them the re-read FAILED, so there is no current list: borrowing `refusedWriteNotice`'s 'the order below is up to date' tells the diner the cart they are looking at is settled when we cannot see it \u2014 a fabricated verdict wearing the copy of an honest one, in the one live region an SR user has",
+    find: '  return \"We couldn\u2019t confirm that \u2014 check your order below.\";',
+    replace: '  return \"We couldn\u2019t confirm that \u2014 the order below is up to date.\";',
+  },
+  {
     id: "written/an-unreadable-cart-reads-as-a-refusal",
     file: "apps/qr/lib/write-outcome.ts",
     suite: "lib/write-outcome.test.ts",

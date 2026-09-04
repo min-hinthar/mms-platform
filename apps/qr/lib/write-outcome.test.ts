@@ -4,6 +4,7 @@ import {
   mayRetry,
   recoveredWrite,
   threadableView,
+  unconfirmedWriteNotice,
   type WriteResult,
 } from "./write-outcome";
 
@@ -100,5 +101,23 @@ describe("mayClaimLanding — separate from mayRetry on purpose", () => {
     // (no-claim, retry), unconfirmed is (no-claim, no-retry). No two states share a pair.
     const pair = (r: WriteResult<typeof VIEW>) => `${mayClaimLanding(r)}/${mayRetry(r)}`;
     expect(new Set([pair(APPLIED), pair(UNCONFIRMED), pair(REFUSED)]).size).toBe(3);
+  });
+});
+
+describe("unconfirmedWriteNotice — what to say about a write we could not see", () => {
+  it("does not assert that the visible order is current", () => {
+    // The sentence is reached on BOTH ways into `unconfirmed`, and on one of them the re-read
+    // failed — so we have no current list. `refusedWriteNotice`'s "the order below is up to date"
+    // would be a claim we cannot support, which is the class this whole slice removes.
+    const notice = unconfirmedWriteNotice();
+    expect(notice).not.toMatch(/up to date/i);
+    // It must still say what we observed and give somewhere to go.
+    expect(notice).toMatch(/couldn’t confirm/i);
+    expect(notice).toMatch(/order below/i);
+  });
+
+  it("never claims the write landed", () => {
+    // It replaces an optimistic "Added to your order"; repeating the claim would defeat it.
+    expect(unconfirmedWriteNotice()).not.toMatch(/\badded\b/i);
   });
 });

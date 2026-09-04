@@ -31,7 +31,7 @@ import {
   type ReadOutcome,
   type ViewSeq,
 } from "@/lib/view-seq";
-import { recoveredWrite, type WriteResult } from "@/lib/write-outcome";
+import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -708,6 +708,24 @@ export function TableCartProvider({
   );
 
   /**
+   * Retract the optimistic claim when the write cannot be confirmed (Codex round 1 on #251, P2).
+   *
+   * ⚠️ EVERY `unconfirmed` RETURN MUST COME THROUGH HERE. `add` and `setItemQty` both flash their
+   * outcome OPTIMISTICALLY on tap — "Added to your order", "Removed Tea Leaf Salad" — so publishing
+   * nothing on this state is not neutrality: it leaves standing a claim `mayClaimLanding` explicitly
+   * forbids. `AddButton` and `ItemSheet` never speak after the provider, so for them the optimistic
+   * sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing
+   * if the claim is already on screen and the code merely declines to retract it.
+   *
+   * NOT `publishRefusal`: this deliberately does not touch `lastRefusalRef`, which means "a refusal
+   * the caller decided is real" and is carried into `YourUsual`'s copy. An unconfirmed write has not
+   * been refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
+   */
+  const publishUnconfirmed = useCallback(() => {
+    flash(unconfirmedWriteNotice(), 3000);
+  }, [flash]);
+
+  /**
    * Correct the optimistic announce when the server took FEWER units than were asked for.
    *
    * ⚠️ ONE DEFINITION, TWO PATHS (T26 + Codex round 5 on #250, P2). This used to live inline on the
@@ -786,7 +804,10 @@ export function TableCartProvider({
           // and that distinction is the whole of T26: the old `null` here meant "no fresh list" but
           // read to `YourUsual` as "did not go through", and its retry re-added a committed dish.
           const reread = await readView();
-          if (!readIsOurs(reread)) return { state: "unconfirmed" };
+          if (!readIsOurs(reread)) {
+            publishUnconfirmed();
+            return { state: "unconfirmed" };
+          }
           // The re-read is ours, so correct the optimistic announce against it exactly as the
           // success path does — a cap reached on a write whose first view failed is still a cap.
           announceShortfall(itemsBefore, itemsRef.current, menuItemId, qty);
@@ -869,6 +890,9 @@ export function TableCartProvider({
         // been refused, and saying so is the fabricated-diagnosis class this slice's ancestors
         // (M116, T14) exist to remove. The caller is told "unconfirmed" and decides for itself.
         if (result.state === "refused") publishRefusal(notice);
+        // The optimistic "Added to your order" is still on screen; retract it rather than let an
+        // outcome that may not claim a landing stand as one.
+        else if (result.state === "unconfirmed") publishUnconfirmed();
         // ⚠️ Read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close on tap
         // (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant, and it
         // never awaits this. The older comment here claimed the sheet stays open "keeping the diner's
@@ -879,7 +903,16 @@ export function TableCartProvider({
         setPendingDelta((n) => n - qty);
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishRefusal, announceShortfall],
+    [
+      cartId,
+      applyView,
+      readView,
+      explainCaught,
+      flash,
+      publishRefusal,
+      publishUnconfirmed,
+      announceShortfall,
+    ],
   );
 
   // Menu inline quick-qty (R5c): decrement/remove the viewer's OWN draft line from the menu (the "+" goes
@@ -924,9 +957,10 @@ export function TableCartProvider({
           // that may predate this write. The row COMMITTED either way — `viewAfterWrite` only
           // returns null after it landed — so the two states here are `applied` and `unconfirmed`.
           const reread = await readView();
-          return readIsOurs(reread)
-            ? { state: "applied", view: itemsRef.current }
-            : { state: "unconfirmed" };
+          if (readIsOurs(reread)) return { state: "applied", view: itemsRef.current };
+          // The optimistic `announce` ("Removed Tea Leaf Salad") is still on screen — retract it.
+          publishUnconfirmed();
+          return { state: "unconfirmed" };
         }
         applyView(view);
         return { state: "applied", view: view.items };
@@ -955,12 +989,13 @@ export function TableCartProvider({
           landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
         });
         if (result.state === "refused") publishRefusal(notice);
+        else if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
         setPendingDelta((d) => d - delta);
       }
     },
-    [cartId, applyView, readView, explainCaught, flash, publishRefusal],
+    [cartId, applyView, readView, explainCaught, flash, publishRefusal, publishUnconfirmed],
   );
 
   // W21 (Codex P1 on #191) — the context hands out TRACKED versions so `settled()` sees every

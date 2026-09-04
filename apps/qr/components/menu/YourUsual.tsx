@@ -35,6 +35,17 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
   const [doneCount, setDoneCount] = useState(0);
+  /**
+   * How many of the dishes already passed were COMMITTED BUT UNSEEN (Codex round 1 on #251, P2).
+   *
+   * ⚠️ `doneCount` alone cannot carry this, and that is the whole finding: it means "do not send
+   * these again", which is true of a landing AND of an unconfirmed write — so it drives `allIn`, the
+   * "Added ✓" label and the button's accessible name into claiming a landing for a dish nobody saw.
+   * A per-invocation local could not fix it either: when a later dish is REFUSED the function
+   * returns, the local is discarded, and the retry starts at zero and then announces that every dish
+   * was added. Progress and CONFIDENCE are two facts, so they need two pieces of state.
+   */
+  const [unseenCount, setUnseenCount] = useState(0);
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const items = outcome.state === "none" ? [] : outcome.items;
@@ -62,8 +73,9 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     if (busy || allIn || notReady || items.length === 0) return;
     setBusy(true);
     haptic("add");
-    // Dishes whose write committed but whose result we could not SEE. They are not re-sendable, so
-    // the loop moves past them — but the closing sentence must not count them as landed.
+    // Dishes whose write committed but whose result we could not SEE, THIS invocation. Folded into
+    // the persistent tally on every exit path — including the refusal return, which is the one an
+    // earlier draft dropped.
     let unseen = 0;
     try {
       for (let i = doneCount; i < items.length; i += 1) {
@@ -92,23 +104,35 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // landed. A freeze can arrive DURING this loop, so the tap-time gate above cannot cover
           // it: the first dish succeeds, the second is refused, and this is the arm that runs.
           const cause = lastRefusalNotice();
-          const landed = i > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
+          // ⚠️ ONLY NAME A DISH WE SAW LAND. This prefix used to fire on `i > 0` alone, so it
+          // credited `items[0]` even when that dish was the unconfirmed one — announcing a landing
+          // for the exact write this slice exists to stop claiming.
+          const confirmed = i - unseen;
+          const landed = confirmed > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
           announce(
             cause
               ? `${landed}${item.name} didn’t go through. ${cause}`
               : `${landed}we couldn’t add ${item.name} just now.`,
           );
           setDoneCount(i); // resume here, so a retry never re-adds what already landed
+          // ⚠️ COMMIT THE TALLY ON THIS PATH TOO. Dropping it here is exactly how an unconfirmed
+          // dish became a claimed one: the retry resumes at the refused dish with a fresh zero and
+          // then announces that everything landed.
+          setUnseenCount((n) => n + unseen);
           return;
         }
       }
       setDoneCount(items.length);
+      setUnseenCount((n) => n + unseen);
       // ⚠️ ONLY CLAIM WHAT WE SAW (T26). Every dish was sent and none may be re-sent, so the loop
       // completed — but a write whose view we never read is not a landing we can assert, and this
       // is the same single live region the provider speaks through. Naming the cart as the place to
       // check is honest and actionable; "Added 5 to your order" over an outage is neither.
+      //
+      // The total spans invocations: a dish left unconfirmed before a refusal is still unconfirmed
+      // after the retry that clears the refusal.
       announce(
-        unseen > 0
+        unseenCount + unseen > 0
           ? `${dishes} sent — we couldn’t confirm all of them. Check your order below.`
           : `Added ${dishes} to your order.`,
       );
@@ -118,12 +142,33 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
       // common case and a repair if a re-render moved things.
       btnRef.current?.focus({ preventScroll: true });
     }
-  }, [add, announce, allIn, busy, dishes, doneCount, items, lastRefusalNotice, notReady]);
+  }, [
+    add,
+    announce,
+    allIn,
+    busy,
+    dishes,
+    doneCount,
+    items,
+    lastRefusalNotice,
+    notReady,
+    unseenCount,
+  ]);
 
   if (outcome.state === "none") return null;
 
   const label = usualAction(outcome);
-  const text = allIn ? "Added ✓" : busy ? "Adding…" : notReady ? "One moment…" : label;
+  // `allIn` means "nothing left to send", which is NOT "everything landed" once an unconfirmed
+  // write can sit behind it. Both the visible label and the accessible name key off the tally.
+  const text = allIn
+    ? unseenCount > 0
+      ? "Sent"
+      : "Added ✓"
+    : busy
+      ? "Adding…"
+      : notReady
+        ? "One moment…"
+        : label;
 
   return (
     <section className="usual-card mms-rise" aria-labelledby="usual-h">
@@ -142,7 +187,13 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
         /* The visible label is short; the accessible name names the dishes, so a screen-reader diner
            hears WHAT is being added without hunting for the line above. It tracks the visible text
            rather than contradicting it (WCAG 2.5.3 — label in name). */
-        aria-label={allIn ? `${dishes} added to your order` : `${text} — ${dishes}`}
+        aria-label={
+          allIn
+            ? unseenCount > 0
+              ? `${dishes} sent — check your order below`
+              : `${dishes} added to your order`
+            : `${text} — ${dishes}`
+        }
       >
         {text}
       </button>
