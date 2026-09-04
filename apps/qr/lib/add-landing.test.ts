@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyAddLanding, partialAddNotice, type LineUnits } from "./add-landing";
+import { addShortfallNotice, classifyAddLanding, type LineUnits } from "./add-landing";
 
 /**
  * T21(c) — the landed count, tested on fixtures that SEPARATE the two implementations.
@@ -211,13 +211,34 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
   });
 });
 
-describe("partialAddNotice — the two strings the diner already hears", () => {
-  it("names the units that landed", () => {
-    expect(partialAddNotice(1)).toBe("Added 1 — that line is now at our 99 max");
-    expect(partialAddNotice(4)).toBe("Added 4 — that line is now at our 99 max");
+/**
+ * ⚠️ THE NOTICE STATES NO COUNT, and that is what the fourth round of review established. A
+ * resulting quantity of 99 proves the line is CAPPED; it does not make the delta attributable to
+ * this add, because an authorized host editing the same row moves it under us. So the copy says what
+ * the data proves and stops.
+ */
+describe("addShortfallNotice — says what is known, and nothing more", () => {
+  it("names the cap when the line is provably at it", () => {
+    expect(addShortfallNotice("partial")).toBe(
+      "Some of that couldn’t be added — that line is at our 99 max",
+    );
   });
 
-  it("says the line was already full when nothing landed", () => {
-    expect(partialAddNotice(0)).toBe("That line is already at our 99 max");
+  it("states the outcome WITHOUT a cause when nothing landed", () => {
+    // A zero can be the cap or a comped sibling (T25) — naming either would be a guess.
+    expect(addShortfallNotice("none")).toBe("Nothing was added — your order below is up to date");
+  });
+
+  it.each(["full", "unknown"] as const)("says nothing for %s", (outcome) => {
+    expect(addShortfallNotice(outcome)).toBeNull();
+  });
+
+  it("never states a COUNT OF UNITS — the one number that is not attributable", () => {
+    // Precise on purpose: 99 is the column maximum, a constant the server proves, and naming it is
+    // fine. What no branch may say is how many units THIS tap added, because a concurrent write to
+    // the same row makes that delta someone else's too.
+    for (const o of ["full", "partial", "none", "unknown"] as const) {
+      expect(addShortfallNotice(o) ?? "").not.toMatch(/\bAdded\s+\d/);
+    }
   });
 });

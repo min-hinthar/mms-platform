@@ -114,16 +114,29 @@ export function classifyAddLanding(input: {
 }
 
 /**
- * The correction, in the two strings the success path already shipped — kept verbatim, because they
- * are the copy a diner and a screen reader have been hearing.
+ * The correction for an optimistic announce the server did not honour — or `null` when there is
+ * nothing honest to say.
  *
- * `landed === 0` is only ever spoken where the CAP is proven (see `add`'s success path). In the
- * recovery path a zero is indistinguishable from a write that never committed, so it must stay a
- * refusal there — saying "already at our 99 max" about a write we cannot confirm is the M116
- * fabricated-diagnosis class, and the asymmetry between the two callers is deliberate.
+ * ⚠️ IT STATES NO COUNT, AND THAT IS THE POINT (Codex round 4 on #250). A resulting quantity of 99
+ * proves the line is CAPPED; it does not make the delta attributable to this add. An authorized host
+ * editing the same row during the round trip moves it under us — from a snapshot of 97 the host sets
+ * 98, our request for five lands one at 99, and the delta reads 2. "Added 2" would then be wrong
+ * about the only number it states. Line identity separates a peer's ROW from ours and cannot
+ * separate two writes to the SAME row, so the count is knowable only from the mutation itself.
+ *
+ * Every round of review on this module removed one inference — basket → dish → line → line-at-the-cap
+ * → and now the count itself. What survives is what the data actually proves: something did not fit,
+ * or nothing landed.
  */
-export function partialAddNotice(landed: number): string {
-  return landed === 0
-    ? "That line is already at our 99 max"
-    : `Added ${landed} — that line is now at our 99 max`;
+export function addShortfallNotice(outcome: AddLanding["outcome"]): string | null {
+  // At the cap, and we KNOW it: the resulting quantity is server truth, so naming the maximum is a
+  // fact rather than an inference.
+  if (outcome === "partial") return "Some of that couldn’t be added — that line is at our 99 max";
+  // Nothing landed. WHY is not knowable here: the line may be at the maximum, or the add may have
+  // matched a comped sibling (`insertOrIncLine` does not filter `comped`; `mms_cart_item_inc_qty`
+  // excludes comped rows and still answers success — OPEN-ITEMS T25). So the sentence states the
+  // outcome and stops, which is the one thing that is true in both cases.
+  if (outcome === "none") return "Nothing was added — your order below is up to date";
+  // `full` needs no correction, and `unknown` has nothing honest to say.
+  return null;
 }

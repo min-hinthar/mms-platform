@@ -20,7 +20,7 @@ import {
   type FreezeInput,
 } from "@/lib/cart-freeze";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
-import { classifyAddLanding, partialAddNotice } from "@/lib/add-landing";
+import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
 import { acceptView, issueRead, newViewSeq, type ViewSeq } from "@/lib/view-seq";
 import { setDisplayName } from "@/lib/members";
@@ -726,7 +726,7 @@ export function TableCartProvider({
         // "Added to your order" and nothing ever took it back. `partial` cannot occur for a request
         // of one — a single unit either lands or does not — so the only sentence this adds for a
         // quick-add is the true one.
-        const { landed, outcome } = classifyAddLanding({
+        const { outcome } = classifyAddLanding({
           before: itemsBefore,
           after: view.items,
           menuItemId,
@@ -739,7 +739,8 @@ export function TableCartProvider({
         // not the cause. Growth is the only thing proving the write moved this line, so only a short
         // GROWTH is diagnosed. The comped-sibling no-op is a real defect in its own right, filed as
         // T25 rather than described wrongly here.
-        if (outcome === "partial") flash(partialAddNotice(landed), 3000);
+        const correction = addShortfallNotice(outcome);
+        if (correction) flash(correction, 3000);
         // Return the fresh items so a caller's serialized write-queue threads THIS add's server truth into
         // its next op (a following "−" then trims a real, current line — no stale-read snap-back).
         return view.items;

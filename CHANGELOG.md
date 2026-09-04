@@ -78,6 +78,19 @@ so the one line that grew may be a tablemate's; announcing a cap off it would cr
 landing that never happened _and_ assert a cap on a dish nowhere near one. Both halves fabricated, in
 the one live region. That path keeps its silence, as it had before this slice.
 
+⚠️ **And the correction states no COUNT at all** — Codex round 4, the last inference to go. A
+resulting quantity of 99 proves the line is capped; it does not make the delta attributable to this
+add. An authorized host editing the same row moves it under us — from a snapshot of 97 the host sets
+98, our request for five lands one unit at 99, and the delta reads 2 — so "Added 2" would be wrong
+about the only number it states. The copy now says what the data proves and stops: "Some of that
+couldn't be added — that line is at our 99 max" where the cap is evidenced, and "Nothing was added —
+your order below is up to date" where it is not, because a zero can equally be the comped sibling of
+T25. Round 3's silence on `none` was itself a regression — a genuine cap left "Added 5" standing —
+and this restores a correction without restoring a cause.
+
+Across four rounds this one function shed one inference per round: basket → dish → line →
+line-at-the-cap → the count itself.
+
 ⚠️ **And the cap is only named when the line is AT the cap** — Codex round 3. Line identity separates
 a peer's row from ours; it cannot separate two writes to the SAME row. An authorized host editing
 this line during the add moves it under us — from a snapshot of 10 the host sets 9, our 5 lands, the
