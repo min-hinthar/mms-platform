@@ -27,6 +27,13 @@
  *  identity a peer's line of the SAME dish is indistinguishable from the diner's own. */
 export type LineUnits = { id: string; menuItemId: string; qty: number };
 
+/**
+ * The per-line maximum, mirrored from the column CHECK (`qty between 1 and 99`,
+ * `20260619000100_cart_item_qty_cap.sql`). It is the ONLY reason `mms_cart_item_inc_qty` ever
+ * short-fills, which is what makes it evidence rather than an inference — see `classifyAddLanding`.
+ */
+export const LINE_QTY_MAX = 99;
+
 export type AddLanding = {
   /** Units attributed to THIS tap. Zero when nothing landed or nothing can be attributed. */
   landed: number;
@@ -47,15 +54,15 @@ function dishDeltas(
   before: readonly LineUnits[],
   after: readonly LineUnits[],
   menuItemId: string,
-): { grew: number[]; shrank: boolean } {
+): { grew: { by: number; to: number }[]; shrank: boolean } {
   const ofDish = (rows: readonly LineUnits[]) => rows.filter((r) => r.menuItemId === menuItemId);
   const was = new Map(ofDish(before).map((r) => [r.id, r.qty]));
   const now = new Map(ofDish(after).map((r) => [r.id, r.qty]));
-  const grew: number[] = [];
+  const grew: { by: number; to: number }[] = [];
   let shrank = false;
   for (const [id, qty] of now) {
     const d = qty - (was.get(id) ?? 0);
-    if (d > 0) grew.push(d);
+    if (d > 0) grew.push({ by: d, to: qty });
     else if (d < 0) shrank = true;
   }
   // A line that disappeared shrank to nothing.
@@ -92,9 +99,18 @@ export function classifyAddLanding(input: {
 }): AddLanding {
   const { grew, shrank } = dishDeltas(input.before, input.after, input.menuItemId);
   if (grew.length > 1) return { landed: 0, outcome: "unknown" };
-  const landed = grew[0] ?? 0;
-  if (landed === 0) return { landed: 0, outcome: shrank ? "unknown" : "none" };
-  return { landed, outcome: landed >= input.requested ? "full" : "partial" };
+  const only = grew[0];
+  if (!only) return { landed: 0, outcome: shrank ? "unknown" : "none" };
+  if (only.by >= input.requested) return { landed: only.by, outcome: "full" };
+  // ⚠️ A SHORTFALL IS ONLY A CAP IF THE LINE IS AT THE CAP (Codex round 3 on #250). Line identity
+  // separates a PEER's row from ours, but it cannot separate two writes to the SAME row: an
+  // authorized host editing this very line during our add moves it under us, so from a client
+  // snapshot of 10 the host can set 9, our 5 lands, the line reads 14 — a net growth of 4 against a
+  // request of 5, with nothing capped and everything having worked. `mms_cart_item_inc_qty` ONLY
+  // short-fills at the column maximum, so the resulting quantity is the evidence; the delta alone
+  // is an inference, and inferring here is what produced every fabricated cap sentence in this PR.
+  if (only.to >= LINE_QTY_MAX) return { landed: only.by, outcome: "partial" };
+  return { landed: only.by, outcome: "unknown" };
 }
 
 /**

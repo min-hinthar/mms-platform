@@ -35,14 +35,30 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
   // line grows by 2 against a request of 5 — nothing else moved, so the shortfall IS this tap's, and
   // the cap sentence is owed. Without a fixture at exactly this shape, a rule that never spoke would
   // look as green as one that spoke correctly.
-  it("reports the shortfall when this dish's only line grew short of the request", () => {
+  it("reports the shortfall when this dish's only line grew short of the request AND hit the cap", () => {
     const r = classifyAddLanding({
-      before: [line("mohinga", 4)],
-      after: [line("mohinga", 6)],
+      before: [line("mohinga", 97)],
+      after: [line("mohinga", 99)],
       menuItemId: "mohinga",
       requested: 5,
     });
     expect(r).toEqual({ landed: 2, outcome: "partial" });
+  });
+
+  // ⚠️ THE ROUND-3 CASE (Codex, #250). Line identity separates a PEER's row from ours; it cannot
+  // separate two writes to the SAME row. An authorized host editing this very line during our add
+  // moves it under us — from a snapshot of 10 the host sets 9, our 5 lands, the line reads 14 — a
+  // net growth of 4 against a request of 5 with NOTHING capped and everything having worked.
+  // `mms_cart_item_inc_qty` only short-fills at the column maximum, so the resulting quantity is the
+  // evidence and the delta alone is an inference.
+  it("answers unknown for a shortfall on a line nowhere near the cap", () => {
+    const r = classifyAddLanding({
+      before: [line("mohinga", 10)],
+      after: [line("mohinga", 14)],
+      menuItemId: "mohinga",
+      requested: 5,
+    });
+    expect(r.outcome).toBe("unknown");
   });
 
   it("reports a partial fill at the 99 cap", () => {
@@ -129,8 +145,8 @@ describe("classifyAddLanding — counts THIS dish, not the basket", () => {
     // Our line grew 1 → 5 against a request of 5, so four landed and the correction is owed. The
     // peer's disappearing line neither adds to that count nor hides it.
     const r = classifyAddLanding({
-      before: [line("mohinga", 1, "mine"), line("mohinga", 3, "theirs")],
-      after: [line("mohinga", 5, "mine")],
+      before: [line("mohinga", 95, "mine"), line("mohinga", 3, "theirs")],
+      after: [line("mohinga", 99, "mine")],
       menuItemId: "mohinga",
       requested: 5,
     });

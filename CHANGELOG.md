@@ -50,6 +50,11 @@ the old quantity, so two rapid decrements from 3 set 2 twice instead of 2 then 1
 re-read writes `itemsRef` synchronously, so after the await the snapshot is current — and when it
 also fails, `add` threads nothing rather than something stale.
 
+That double-failure window is the one thing this slice does not close: with no view at all, `null`
+still conflates "committed" with "refused" for `YourUsual`, and `setItemQty`'s signature cannot say
+"unknown". It needs a third state threaded through three components, which is a contract change
+rather than a fix, so it is filed as **T26** with the shape written out — not left implicit.
+
 **T21(c) — "Added 5 to your order" could be the last thing said when one unit landed.** `add`
 announces optimistically before the server answers, and the correction for a capped merge existed on
 only one of the two paths. The scout found the filed row pointed at the smaller half: reusing "the
@@ -72,6 +77,14 @@ returned a view, so our line must have grown. In the recovery path we do not kno
 so the one line that grew may be a tablemate's; announcing a cap off it would credit the diner with a
 landing that never happened _and_ assert a cap on a dish nowhere near one. Both halves fabricated, in
 the one live region. That path keeps its silence, as it had before this slice.
+
+⚠️ **And the cap is only named when the line is AT the cap** — Codex round 3. Line identity separates
+a peer's row from ours; it cannot separate two writes to the SAME row. An authorized host editing
+this line during the add moves it under us — from a snapshot of 10 the host sets 9, our 5 lands, the
+line reads 14 — a net growth of 4 against a request of 5 with nothing capped and everything having
+worked. `mms_cart_item_inc_qty` only short-fills at the column maximum, so the RESULTING quantity is
+the evidence and the delta alone is an inference. Inferring is what produced every fabricated cap
+sentence in this PR, so the last inference is gone.
 
 ⚠️ **And only a short GROWTH is diagnosed** — Codex round 2. A zero delta does not establish the cap:
 `insertOrIncLine`'s sibling query does not filter `comped`, while `mms_cart_item_inc_qty` excludes

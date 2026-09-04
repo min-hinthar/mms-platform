@@ -340,6 +340,14 @@ const MUTANTS = [
     replace: '  return { landed, outcome: "full" };',
   },
   {
+    id: "landing/a-cap-inferred-from-the-delta-alone",
+    file: "apps/qr/lib/add-landing.ts",
+    suite: "lib/add-landing.test.ts",
+    why: 'T21(c), Codex round 3 on #250 \u2014 line identity separates a PEER\u2019s row from ours, but it cannot separate two writes to the SAME row. An authorized host editing this line during our add moves it under us: from a client snapshot of 10 the host sets 9, our 5 lands, the line reads 14 \u2014 a net growth of 4 against a request of 5 with NOTHING capped and everything having worked, and "Added 4 \u2014 that line is now at our 99 max" is then false in both halves. `mms_cart_item_inc_qty` only short-fills at the column maximum, so the RESULTING quantity is the evidence; the delta alone is an inference, and inferring is what produced every fabricated cap sentence in this PR',
+    find: '  if (only.to >= LINE_QTY_MAX) return { landed: only.by, outcome: "partial" };\n  return { landed: only.by, outcome: "unknown" };',
+    replace: '  return { landed: only.by, outcome: "partial" };',
+  },
+  {
     id: "landing/a-peer-removal-reported-as-a-cap",
     file: "apps/qr/lib/add-landing.ts",
     suite: "lib/add-landing.test.ts",
