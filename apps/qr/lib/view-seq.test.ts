@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptView, issueRead, readIsOurs, readReachedServer, type ViewSeq } from "./view-seq";
+import { acceptView, issueRead, readReachedServer, type ViewSeq } from "./view-seq";
 
 /**
  * T21(b) partial — the read-ordering ticket, in the terms the defect is stated in: two views in
@@ -122,18 +122,13 @@ describe("ReadOutcome — the two questions a read answers, named apart (T26)", 
     expect(readReachedServer("failed")).toBe(false);
   });
 
-  it("readIsOurs treats an OVERTAKEN read as NOT ours", () => {
-    // The recovery path's question. A view that beat ours to the screen may be a mutation's, which
-    // lands without a ticket and may have read its rows BEFORE our write committed — so `itemsRef`
-    // is not evidence of our own add.
-    expect(readIsOurs("applied")).toBe(true);
-    expect(readIsOurs("overtaken")).toBe(false);
-    expect(readIsOurs("failed")).toBe(false);
-  });
-
-  it("the two disagree on exactly one state, and that state is why they are separate", () => {
-    const states = ["applied", "overtaken", "failed"] as const;
-    const differ = states.filter((s) => readReachedServer(s) !== readIsOurs(s));
-    expect(differ).toEqual(["overtaken"]);
+  it("OVERTAKEN is the state that made the two questions separate", () => {
+    // `readIsOurs` was removed in Codex round 5 on #251 — the provider's `readView` returns a union
+    // whose rows exist only in the `applied` arm, so "is this snapshot mine?" is now enforced by the
+    // type rather than by a predicate. What survives here is the half that is still a RUNTIME
+    // decision: T20's re-arm must treat an overtaken read as a success, because the cart was
+    // reachable. Narrowing this to `applied` kills the chain on a still-frozen cart whose unchanged
+    // axes never re-run the effect — the permanent dead menu T20 exists to fix.
+    expect(readReachedServer("overtaken")).toBe(true);
   });
 });

@@ -405,14 +405,6 @@ const MUTANTS = [
       '  const trimmed = (name ?? "").trim();\n  if (trimmed.toLowerCase().replace(/[^a-z]/g, "") === "") return "Someone";',
   },
   {
-    id: "read/an-overtaken-read-passes-as-ours",
-    file: "apps/qr/lib/view-seq.ts",
-    suite: "lib/view-seq.test.ts",
-    why: "T26 (Codex round 4 on #250, P1) \u2014 `readIsOurs` is what lets the recovery path hand `itemsRef` to a queued op as proof of its OWN write. Widening it to accept `overtaken` restores the exact defect: the view that beat ours to the screen may be a mutation's, which lands WITHOUT a ticket and may have read its rows before our commit, so the snapshot can predate the very add it is being offered as evidence of. The two questions differ on precisely this state \u2014 which is why they are two functions",
-    find: '  return o === "applied";',
-    replace: '  return o !== "failed";',
-  },
-  {
     id: "read/reaching-the-server-narrows-to-ours",
     file: "apps/qr/lib/view-seq.ts",
     suite: "lib/view-seq.test.ts",

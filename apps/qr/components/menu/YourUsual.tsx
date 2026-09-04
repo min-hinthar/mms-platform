@@ -34,18 +34,36 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
   const { add, announce, cartId, lastRefusalNotice, loading } = useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
-  const [doneCount, setDoneCount] = useState(0);
   /**
-   * How many of the dishes already passed were COMMITTED BUT UNSEEN (Codex round 1 on #251, P2).
+   * Progress through the list, and how much of it we could not SEE — both scoped to ONE cart.
    *
-   * ⚠️ `doneCount` alone cannot carry this, and that is the whole finding: it means "do not send
-   * these again", which is true of a landing AND of an unconfirmed write — so it drives `allIn`, the
-   * "Added ✓" label and the button's accessible name into claiming a landing for a dish nobody saw.
-   * A per-invocation local could not fix it either: when a later dish is REFUSED the function
-   * returns, the local is discarded, and the retry starts at zero and then announces that every dish
-   * was added. Progress and CONFIDENCE are two facts, so they need two pieces of state.
+   * ⚠️ `done` alone cannot carry the second fact: it means "do not send these again", which is true
+   * of a landing AND of an unconfirmed write, so it drove `allIn`, the "Added ✓" label and the
+   * button's accessible name into claiming a dish nobody saw. Progress and CONFIDENCE are two facts.
+   *
+   * ⚠️ AND BOTH BELONG TO A CART (Codex round 5 on #251, P2). `explainCaught`'s unreachable arm calls
+   * `revalidate()`, which can come back with a FRESH cart id — the provider announces exactly that
+   * ("your table session timed out — we started a fresh order"). The new cart contains none of these
+   * dishes, but the counters survived: `allIn` stayed true and the CTA sat disabled reading "Sent"
+   * over an empty cart with no way back. Retry SUPPRESSION is what these counters are for, and
+   * suppression must never outlive the cart it was reasoning about.
+   *
+   * Carried WITH the cart id and derived rather than reset in an effect: an effect would render the
+   * stale counts once before correcting them, and this repo lints synchronous setState in effects
+   * for that reason. A mismatched id simply reads as zero.
    */
-  const [unseenCount, setUnseenCount] = useState(0);
+  const [progress, setProgress] = useState<{ cart: string | null; done: number; unseen: number }>({
+    cart: null,
+    done: 0,
+    unseen: 0,
+  });
+  const ofThisCart = progress.cart === cartId;
+  const doneCount = ofThisCart ? progress.done : 0;
+  const unseenCount = ofThisCart ? progress.unseen : 0;
+  const setProgressFor = useCallback(
+    (cart: string | null, done: number, unseen: number) => setProgress({ cart, done, unseen }),
+    [],
+  );
   const btnRef = useRef<HTMLButtonElement>(null);
 
   const items = outcome.state === "none" ? [] : outcome.items;
@@ -118,16 +136,15 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
               ? `${landed}${item.name} didn’t go through. ${cause}`
               : `${landed}we couldn’t add ${item.name} just now.`,
           );
-          setDoneCount(i); // resume here, so a retry never re-adds what already landed
-          // ⚠️ COMMIT THE TALLY ON THIS PATH TOO. Dropping it here is exactly how an unconfirmed
-          // dish became a claimed one: the retry resumes at the refused dish with a fresh zero and
-          // then announces that everything landed.
-          setUnseenCount((n) => n + unseen);
+          // Resume at `i` so a retry never re-adds what already landed, and COMMIT THE TALLY on
+          // this path too — dropping it here is exactly how an unconfirmed dish became a claimed
+          // one: the retry resumed at the refused dish with a fresh zero and announced that
+          // everything landed. Both are written together, against this cart.
+          setProgressFor(cartId, i, unseenCount + unseen);
           return;
         }
       }
-      setDoneCount(items.length);
-      setUnseenCount((n) => n + unseen);
+      setProgressFor(cartId, items.length, unseenCount + unseen);
       // ⚠️ ONLY CLAIM WHAT WE SAW (T26). Every dish was sent and none may be re-sent, so the loop
       // completed — but a write whose view we never read is not a landing we can assert, and this
       // is the same single live region the provider speaks through. Naming the cart as the place to
@@ -151,11 +168,13 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     announce,
     allIn,
     busy,
+    cartId,
     dishes,
     doneCount,
     items,
     lastRefusalNotice,
     notReady,
+    setProgressFor,
     unseenCount,
   ]);
 

@@ -22,15 +22,7 @@ import {
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
-import {
-  acceptView,
-  issueRead,
-  newViewSeq,
-  readIsOurs,
-  readReachedServer,
-  type ReadOutcome,
-  type ViewSeq,
-} from "@/lib/view-seq";
+import { acceptView, issueRead, newViewSeq, readReachedServer, type ViewSeq } from "@/lib/view-seq";
 import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
@@ -314,6 +306,13 @@ export function TableCartProvider({
   const lastRefusalRef = useRef<string | null>(null);
   const settlingRef = useRef(false);
 
+  // What a ticketed read established, and the rows it accepted — as a UNION, so `items` is
+  // non-null exactly when the read won the screen and no caller can thread rows from one that
+  // did not (Codex round 5 on #251, P1).
+  type ReadResult =
+    | { outcome: "applied"; items: CartItem[] }
+    | { outcome: "overtaken" | "failed"; items: null };
+
   // One place to fan a fresh server view into the six pieces of cart state — keeps addItem/setQty/
   // refresh in lockstep so a new field can never be applied in one path and forgotten in another.
   // ⚠️ RETURNS WHETHER IT APPLIED (T26). A caller that is about to treat `itemsRef` as proof of its
@@ -360,8 +359,16 @@ export function TableCartProvider({
    * on the strength of "still frozen" would retry until the tab is closed. `false` means this read
    * taught us nothing about the freeze — not that the freeze is gone.
    */
-  const readView = useCallback(async (): Promise<ReadOutcome> => {
-    if (!cartId) return "failed";
+  const readView = useCallback(async (): Promise<ReadResult> => {
+    // ⚠️ IT RETURNS THE ROWS IT ACCEPTED, NOT JUST A VERDICT (Codex round 5 on #251, P1). Every
+    // caller used to read `itemsRef.current` AFTER awaiting this — and the await is a microtask
+    // boundary. A concurrently resolving mutation runs its UNTICKETED `applyView` in that gap and
+    // replaces the ref, so the caller threaded rows that did not come from the read it had just
+    // classified as its own. `AddButton` then computes an absolute `setQty` from them.
+    //
+    // The ticket makes the ACCEPTANCE decision race-free; it cannot make a later read of shared
+    // mutable state race-free. Carry the value out instead of going back for it.
+    if (!cartId) return { outcome: "failed", items: null };
     // Minted BEFORE the await: the ticket records the order reads were ISSUED in, which is the order
     // their answers describe. Comparing on resolve is what stops the slower of two from winning.
     const seq = issueRead(viewSeqRef.current);
@@ -372,11 +379,19 @@ export function TableCartProvider({
       // be a mutation's, which lands without a ticket and may have read its rows BEFORE our write
       // committed. The recovery path was handing that snapshot to a queued op as proof of its own
       // add. `readReachedServer` / `readIsOurs` (view-seq.ts) are the two questions, named apart.
-      return applyView(await getCartView(cartId), seq) ? "applied" : "overtaken";
+      const v = await getCartView(cartId);
+      const applied = applyView(v, seq);
+      // ⚠️ The union makes "rows exist exactly when the read won" a COMPILER-CHECKED fact rather
+      // than a comment — the first draft of this fix stated it in prose and `tsc` immediately found
+      // the call site that would have trusted it. Encoding the invariant is the whole lesson of
+      // this slice, applied to the fix for it.
+      return applied
+        ? { outcome: "applied", items: v.items }
+        : { outcome: "overtaken", items: null };
     } catch {
       // Cart no longer open (paid/closed) → assertCartMember 403. Swallow so a stale read after a
       // successful add can't surface as a false-negative "Couldn't add"; P1.3 redirects to a receipt.
-      return "failed";
+      return { outcome: "failed", items: null };
     }
   }, [cartId, applyView]);
 
@@ -392,8 +407,8 @@ export function TableCartProvider({
    * out of the call.
    */
   const refresh = useCallback(async (): Promise<CartItem[] | null> => {
-    const outcome = await readView();
-    return readIsOurs(outcome) ? itemsRef.current : null;
+    // The rows come back WITH the verdict — never re-read from `itemsRef` here (see `readView`).
+    return (await readView()).items;
   }, [readView]);
 
   // Initial load when the cart id resolves — setState lives in the `.then` callback (the allowed
@@ -615,7 +630,7 @@ export function TableCartProvider({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
       timer = setTimeout(() => {
-        void readView().then((read) => {
+        void readView().then(({ outcome }) => {
           // `cancelled` is checked AFTER the await too: the effect can be torn down while the read
           // is in flight (an unmount, or the axes flipping), and a chain that re-armed from a
           // resolved promise would outlive its own cleanup.
@@ -626,7 +641,7 @@ export function TableCartProvider({
           // whenever a concurrent read or mutation won the race, on a cart that is still frozen and
           // whose axes therefore do not re-run this effect: the permanent dead menu T20 exists to
           // fix, straight back. The two questions are named apart in view-seq.ts for this line.
-          if (!cancelled && readReachedServer(read)) arm();
+          if (!cancelled && readReachedServer(outcome)) arm();
         });
       }, delay);
     };
@@ -858,13 +873,13 @@ export function TableCartProvider({
           //
           // `unconfirmed` belongs only where the mutation response ITSELF said nothing: the catch
           // arm, where the action rejected and the write may or may not have committed.
-          if (!readIsOurs(reread)) return { state: "applied", view: null };
+          if (reread.outcome !== "applied") return { state: "applied", view: null };
           // The re-read is ours, so correct the optimistic announce against it exactly as the
           // success path does — a cap reached on a write whose first view failed is still a cap.
           // (Not reachable above: without a view there is nothing to attribute a shortfall against,
           // so the optimistic announce stands — the T27 residual, unchanged by this slice.)
-          announceShortfall(itemsBefore, itemsRef.current, menuItemId, qty);
-          return { state: "applied", view: itemsRef.current };
+          announceShortfall(itemsBefore, reread.items, menuItemId, qty);
+          return { state: "applied", view: reread.items };
         }
         applyView(view);
         // If the server capped the merge, correct the earlier optimistic announce so the SR live
@@ -1014,9 +1029,7 @@ export function TableCartProvider({
           // Same as `add`'s arm: the row COMMITTED (that is what a null view means here), so this is
           // `applied` either way and the optimistic `announce` stands. Only the VIEW is missing, and
           // `view: null` says exactly that — the next queued op re-reads rather than threading.
-          return readIsOurs(reread)
-            ? { state: "applied", view: itemsRef.current }
-            : { state: "applied", view: null };
+          return { state: "applied", view: reread.items };
         }
         applyView(view);
         return { state: "applied", view: view.items };

@@ -138,9 +138,19 @@ export function readReachedServer(o: ReadOutcome): boolean {
 }
 
 /**
- * Is the view on screen the one THIS read produced? The recovery path's question — the only state in
- * which the current snapshot provably contains our own write.
+ * ⚠️ `readIsOurs` LIVED HERE AND IS GONE ON PURPOSE (Codex round 5 on #251).
+ *
+ * It answered "is the view on screen the one THIS read produced?" — the recovery path's question,
+ * and the right one. The provider's `readView` now returns a UNION whose rows exist ONLY in the
+ * `applied` arm, so the same rule is enforced by the type system: a caller cannot reach for the rows
+ * of a read that lost the screen, because in that arm there are none. That is strictly stronger than
+ * a predicate every call site had to remember to consult — and it left this function with zero
+ * callers.
+ *
+ * A mutant guarding an unreachable function measures nothing, so the function, its test and its
+ * mutant were removed together rather than left as decoration. The invariant did not weaken; it
+ * moved from a runtime check into a shape.
+ *
+ * `readReachedServer` is NOT subsumed and stays: T20's re-arm asks a genuinely different question,
+ * and an overtaken read answers it yes.
  */
-export function readIsOurs(o: ReadOutcome): boolean {
-  return o === "applied";
-}
