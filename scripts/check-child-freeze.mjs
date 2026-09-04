@@ -283,7 +283,10 @@ const EXEMPT = new Map([
       "re-reads and names only what that read established, and only the unreachable arm re-mints. " +
       "The RULE is pinned in lib (cart-freeze.test.ts + the refusal/* mutants), and since M46/T18 (PR " +
       "#252) the WIRING is pinned too — `components/TableCartProvider.test.tsx` drives both catches " +
-      "through the context under jsdom, with seven `refusal/*` mutants naming that suite. The exemption " +
+      "through the context under jsdom, and a family of `refusal/*` mutants names that suite. (An " +
+      "earlier draft of this note said 'seven'; it was eight when written and eleven after T32, which " +
+      "is why the count is not stated — a number in prose beside a table that grows is a fact with a " +
+      "half-life.) The exemption " +
       "REMAINS, for the two structural reasons that were always the real ones: rules 1-3 demand `if " +
       "(frozen) return` BEFORE the mutation, and the ABSENCE of that pre-write gate IS the T14 fix (a " +
       "gate on a cached lock intercepts the very write that would correct it); and rule 4 requires an " +
