@@ -4,6 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A committed cart write can say so, and a refusal is now the only thing a caller may retry (2026-09-04)
+
+**T26 — one value carried two meanings, and four verified P1s rode it.** #250 gave the cart mutations
+a `null` meaning "written, unreadable" so the SERVER would stop reporting a committed write as a
+refusal. The client half still collapsed: `add` answered `null` for **both** "refused" and
+"committed, view unreadable", and `setItemQty`'s `Promise<CartItem[]>` could not express "unknown" at
+all, so it returned the **pre-write** list as though it were the result.
+
+What that cost, each verified against source by Codex on #250:
+
+- `YourUsual` reads every null as a refusal. It calls `setDoneCount(i)` — the comment says "so a
+  retry never re-adds what already landed" — and the retry then re-added the dish that HAD landed. A
+  duplicate line on a real bill, from a tap that worked.
+- `AddButton` threads the return value into its next queued op. Two rapid decrements from 3 both
+  computed `3 - 1` and set 2 twice instead of 2 then 1.
+- An `unknown` landing from a **successful** read (a peer touched the same dish, so the delta is
+  unattributable) fell through to the refusal arm too — the sentinel was wrong even when nothing was
+  broken, which puts the duplicate charge one busy table away rather than one outage away.
+
+**The fix is a shape, not a branch.** `apps/qr/lib/write-outcome.ts` names three states — `applied`
+(it landed, and here is the cart) · `unconfirmed` (the request left; we cannot see what became of it)
+· `refused` (the cart was read and this write is not in it) — with three predicates that are
+deliberately not one boolean: `mayRetry` (refused alone), `threadableView` (applied alone),
+`mayClaimLanding` (applied alone). `unconfirmed` answers **false to both** retry and claim, and that
+pair is what separates the three states: no two share it.
+
+**Why an unconfirmed write is never retried,** since the tempting reading is that it failed: the two
+ways to be wrong are not symmetric. Treating a committed write as refused charges the diner twice for
+one tap, and nothing on the client heals it. Treating a refused write as committed loses a dish the
+diner can see is missing and re-tap. The same asymmetry `view-seq.ts` already reasons from.
+
+**The read half shipped with it.** `applyView` now returns whether it applied, and `readView` answers
+a three-valued `ReadOutcome`, because "the response came back" and "this view is on screen" are
+different facts with different callers:
+
+- `readReachedServer` — T20's re-arm chain. An **overtaken** read still proves the cart is reachable,
+  and narrowing this to `applied` would kill the chain on a cart that is still frozen and whose
+  unchanged axes never re-run the effect: the permanently dead /menu T20 exists to fix.
+- `readIsOurs` — the recovery path. A view that beat ours to the screen may be a **mutation's**, which
+  lands without a ticket and may have read its rows before our commit, so it is not evidence of our
+  own write.
+
+They differ on exactly one state, and a test asserts that difference is `["overtaken"]`.
+
+**Six mutants** (275 → 281), each watched fail through the harness — the two `ReadOutcome` predicates
+swapped _into each other_ (they fail in opposite directions, which is why both are pinned), the two
+`recoveredWrite` arms collapsed to `refused`, and both predicates widened.
+
+Also closed on the way: Codex round 5's "correct capped adds after the null-view reread".
+`announceShortfall` is now one definition, called by both paths that can attribute a landing and
+deliberately **not** by the recovery path, where attribution does not hold — the "name it ONCE" rule
+applied to copy. And **M36** closes as verified-by-source: its mechanism (the mutation throwing on a
+trailing totals read) is gone in both layers, though not by the `totals: "unknown"` remedy it filed.
+
 ### The refusal-recovery path stops answering a failure with a fact (2026-09-04)
 
 **T21(a) — an unreadable cart came back as an EMPTY one, and that is not a missing field.** The two

@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useRef, useState } from "react";
 import { useCart } from "@/components/TableCartProvider";
+import { mayRetry } from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/lib/menu/your-usual";
 
@@ -61,13 +62,28 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     if (busy || allIn || notReady || items.length === 0) return;
     setBusy(true);
     haptic("add");
+    // Dishes whose write committed but whose result we could not SEE. They are not re-sendable, so
+    // the loop moves past them — but the closing sentence must not count them as landed.
+    let unseen = 0;
     try {
       for (let i = doneCount; i < items.length; i += 1) {
         const item = items[i];
         if (!item) break;
         const res = await add(item.id);
-        // `add` resolves null on a refused write (locked, settling, or a cart it could not read).
-        if (res === null) {
+        // ⚠️ THIS LOOP IS THE REASON T26 EXISTS. It used to test `res === null`, and `null` meant
+        // BOTH "refused" and "committed, view unreadable" — so a dish that HAD landed took the arm
+        // below, which sets `doneCount` to resume at this index, and the diner's retry added it a
+        // second time. A duplicate line on a real bill, from a tap that worked.
+        //
+        // `mayRetry` is the only question that may gate a resend: it is true for `refused` alone,
+        // where the cart was actually read and this dish was not in it.
+        if (!mayRetry(res)) {
+          // Committed, or committed-but-unseen. Either way the write is NOT re-sendable, so move
+          // past it. `unconfirmed` additionally may not be CLAIMED — hence the tally.
+          if (res.state === "unconfirmed") unseen += 1;
+          continue;
+        }
+        {
           // ⚠️ THIS ARM USED TO OVERWRITE THE ESTABLISHED CAUSE WITH DEAD ADVICE (adversarial round
           // 1 on #248). The provider has just re-read the cart and published what it found through
           // the SAME single-slot live region; announcing here replaces it, and "try it from the menu
@@ -87,7 +103,15 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
         }
       }
       setDoneCount(items.length);
-      announce(`Added ${dishes} to your order.`);
+      // ⚠️ ONLY CLAIM WHAT WE SAW (T26). Every dish was sent and none may be re-sent, so the loop
+      // completed — but a write whose view we never read is not a landing we can assert, and this
+      // is the same single live region the provider speaks through. Naming the cart as the place to
+      // check is honest and actionable; "Added 5 to your order" over an outage is neither.
+      announce(
+        unseen > 0
+          ? `${dishes} sent — we couldn’t confirm all of them. Check your order below.`
+          : `Added ${dishes} to your order.`,
+      );
     } finally {
       setBusy(false);
       // Keep focus where the diner put it; the button is never disabled, so this is a no-op in the

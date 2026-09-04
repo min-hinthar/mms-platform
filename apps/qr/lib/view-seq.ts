@@ -96,3 +96,51 @@ export function acceptView(s: ViewSeq, seq?: number): boolean {
   s.applied = seq;
   return true;
 }
+
+/**
+ * T26 — what a ticketed read ESTABLISHED, because "the response came back" and "this view is on
+ * screen" are different facts and two callers need different ones.
+ *
+ * `readView` used to answer one boolean meaning RECEIVED, and both callers read it as whichever
+ * they needed:
+ *
+ *   • The T20 scheduled freeze re-read asks *did this read reach the server* — only a read that came
+ *     back can have moved the freeze, and only then is a further wait justified. It must keep
+ *     treating an overtaken read as a success, or the chain dies on a cart that is still frozen and
+ *     the permanent-freeze bug T20 exists to fix comes straight back.
+ *   • `add`/`setItemQty`'s recovery path asks *is the on-screen snapshot the result of MY read* —
+ *     because it is about to hand that snapshot to a queued operation as proof of its own write.
+ *
+ * Those diverge on exactly one state, and Codex round 4 on #250 found the cost (P1): a concurrent
+ * mutation's view lands during our re-read, `acceptView` refuses ours as overtaken, and the boolean
+ * still said true — so the provider returned `itemsRef.current` believing it held our add, when the
+ * view that won may have read its rows BEFORE our write committed (see the policy note above: a
+ * mutation's view wins without a ticket, and that is deliberately not a proof of freshness).
+ *
+ * Naming the three states is what stops the next edit from collapsing them back: an inline
+ * `!== "failed"` and an inline `=== "applied"` are one careless edit apart, and nothing would go red.
+ */
+export type ReadOutcome =
+  /** Came back AND won the screen — `itemsRef` now holds exactly what this read saw. */
+  | "applied"
+  /** Came back, but a view applied after it was issued had already landed. The server answered; the
+   *  screen is someone else's. */
+  | "overtaken"
+  /** Did not come back: a 503, a closed cart, an offline tab. We learned nothing. */
+  | "failed";
+
+/**
+ * Did this read reach the server at all? The T20 re-arm's question — an overtaken read still proves
+ * the cart is reachable, which is what a further wait rests on.
+ */
+export function readReachedServer(o: ReadOutcome): boolean {
+  return o !== "failed";
+}
+
+/**
+ * Is the view on screen the one THIS read produced? The recovery path's question — the only state in
+ * which the current snapshot provably contains our own write.
+ */
+export function readIsOurs(o: ReadOutcome): boolean {
+  return o === "applied";
+}

@@ -6,6 +6,7 @@ import type { CartItem } from "@mms/db";
 import { useAnimationPreference, useRipple } from "@mms/ui";
 import { useCart } from "./TableCartProvider";
 import { MicroBurst } from "./MicroBurst";
+import { mayClaimLanding, threadableView, type WriteResult } from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
 
@@ -60,8 +61,19 @@ export function AddButton({
   name: string;
   soldOut?: boolean;
 }) {
-  const { add, setItemQty, items, cartId, loading, locked, lockedByYou, settling, isGroup, me } =
-    useCart();
+  const {
+    add,
+    setItemQty,
+    refresh,
+    items,
+    cartId,
+    loading,
+    locked,
+    lockedByYou,
+    settling,
+    isGroup,
+    me,
+  } = useCart();
   const [busy, setBusy] = useState(false);
   // Optimistic add delta (R7 perf): the button morphs to the stepper the INSTANT it's tapped, before the
   // server round-trip returns, so a tap never sits at "…" waiting on the network. Reconciled to server
@@ -117,7 +129,12 @@ export function AddButton({
   // `add` (relative — order-independent), a "−" trims a specific line by id, and each op reads the FRESHEST
   // lines (threaded from the prior op's returned view) before it writes. The digit stays instant via the
   // optimistic delta; the writes drain in the background, in tap order.
-  const writeChain = useRef<Promise<CartItem[] | null>>(Promise.resolve(null));
+  // ⚠️ THE CHAIN THREADS THE OUTCOME, NOT A NULLABLE LIST (T26). It used to carry `CartItem[] | null`,
+  // and `null` meant three different things by the time it reached the next op: no prior op, a
+  // refused one, and a COMMITTED one whose view could not be read. Only the third is dangerous —
+  // `itemsRef.current` is then the pre-write list — and a bare null could not distinguish it.
+  // `null` here now means exactly "no prior op ran".
+  const writeChain = useRef<Promise<WriteResult<CartItem[]> | null>>(Promise.resolve(null));
   // Latest committed items in a ref (effect-synced, not a render closure) so a decrement op that has no
   // threaded predecessor — the first op, or one following a concurrent create — still seeds from the freshest
   // snapshot rather than the tap-time closure.
@@ -163,10 +180,14 @@ export function AddButton({
     }
   }, [inCart, blocked]);
 
-  // Record a CONFIRMED add only: the provider's `add` returns null (never throws) on a refused/expired add,
-  // so an unconditional capture would log phantom adds. Returns the result through for the queue to thread.
-  function captureAdd(result: CartItem[] | null): CartItem[] | null {
-    if (result) posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
+  // Record a CONFIRMED add only: the provider's `add` never throws, and it reports a refused or an
+  // unreadable add rather than a landing, so an unconditional capture would log phantom adds.
+  // ⚠️ `mayClaimLanding`, not truthiness (T26). An `unconfirmed` write is a live object and was
+  // therefore truthy under the old nullable-list shape's successor — the exact class of bug the three
+  // states exist to remove. Analytics may only count a landing we can actually see.
+  function captureAdd(result: WriteResult<CartItem[]>): WriteResult<CartItem[]> {
+    if (mayClaimLanding(result))
+      posthog.capture("menu_item_add_clicked", { menu_item_id: menuItemId });
     return result;
   }
 
@@ -190,16 +211,16 @@ export function AddButton({
     }
     writeChain.current = writeChain.current
       .then(async () => {
-        let fresh: CartItem[] | null = null;
+        let res: WriteResult<CartItem[]> | null = null;
         try {
-          fresh = captureAdd(await add(menuItemId));
+          res = captureAdd(await add(menuItemId));
         } finally {
           // Reconcile: on success the returned view already includes the add (delta nets to 0, no flicker);
           // on failure serverQty is unchanged, so the delta reverting drops back to the Add pill.
           setOptimistic((n) => n - 1);
           if (fromPill) setBusy(false);
         }
-        return fresh; // thread THIS add's server truth so a following "−" trims a real, current line
+        return res; // thread THIS add's outcome so a following "−" knows what it may trust
       })
       .catch(() => null);
   }
@@ -219,35 +240,57 @@ export function AddButton({
     const announce = emptying ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
     // If an emptying "−" is REVERTED (the write fails and the draft line survives), the optimistic +1 below
     // remounts the stepper — arm a refocus so the pill's focus doesn't drop to <body> (WCAG 2.4.3).
-    const armRevertRefocus = (fresh: CartItem[]) => {
-      if (
-        emptying &&
-        matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)
-      ) {
+    // ⚠️ AN UNCONFIRMED WRITE ARMS THE REFOCUS TOO (T26). The flag exists so focus does not drop to
+    // <body> when a removal is REVERTED and the stepper remounts; without a view we cannot tell
+    // whether the line survived, and arming it wrongly costs nothing (the effect that consumes it
+    // only fires if the stepper actually mounts), while NOT arming it strands focus. Same defensive
+    // direction the catch arm below already takes.
+    const armRevertRefocus = (res: WriteResult<CartItem[]>) => {
+      if (!emptying) return;
+      const fresh = threadableView(res);
+      if (fresh === null) {
+        if (res.state === "unconfirmed") refocusStepper.current = true;
+        return;
+      }
+      if (matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)) {
         refocusStepper.current = true;
       }
     };
     writeChain.current = writeChain.current
-      .then(async (threaded) => {
+      .then(async (prior) => {
         try {
+          // ⚠️ A PRIOR `unconfirmed` OP MEANS `itemsRef` IS BEHIND, SO RE-READ FIRST (T26, Codex
+          // round 3 on #250 — P1). That state says the write COMMITTED and we could not see it, so
+          // the snapshot still holds the pre-write quantity: two rapid decrements from 3 both
+          // computed `3 - 1` and set 2 twice instead of 2 then 1.
+          //
+          // A `refused` prior op needs no re-read — nothing changed, and the provider's recovery
+          // already applied a fresh view. Only ignorance costs a round trip.
+          //
+          // If the re-read ALSO fails (a sustained outage) the fallback is still the stale list, and
+          // that degrades honestly rather than corrupting: `setQty` is ABSOLUTE, so re-sending
+          // `qty - 1` against a quantity the server already has is an idempotent no-op — the tap is
+          // lost, the cart is not wrong. That is the floor, and it is the right one to fail to.
+          if (prior?.state === "unconfirmed") await refresh();
           // Freshest lines: the prior op's returned view, else the latest committed snapshot. Recomputed here
           // (not from a tap-time closure) so serialized "−" taps each peel a real, still-present line. Peel a
           // qty-1 line first (a duplicate fully removed → set converges to one), else trim the last line.
-          const source = threaded ?? itemsRef.current;
+          const source = (prior ? threadableView(prior) : null) ?? itemsRef.current;
           const lines = matchOwnLines(source, menuItemId, defaultFulfillment, mySeat);
           const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
           if (!target) {
             setOptimistic((n) => n + 1); // nothing to remove (already gone) → drop the optimistic step
-            return source;
+            // Nothing was written, so the next op may trust the snapshot exactly as a first op does.
+            return null;
           }
-          const fresh = await setItemQty(target.id, target.qty - 1, announce);
-          armRevertRefocus(fresh); // set BEFORE the reconcile so the flag is armed when the stepper remounts
+          const res = await setItemQty(target.id, target.qty - 1, announce);
+          armRevertRefocus(res); // set BEFORE the reconcile so the flag is armed when the stepper remounts
           setOptimistic((n) => n + 1); // reconcile: the returned view's serverQty now reflects the removal
-          return fresh;
+          return res;
         } catch {
           if (emptying) refocusStepper.current = true; // defensive: assume the line survived the throw
           setOptimistic((n) => n + 1); // defensive: setItemQty swallows its own errors, so this rarely runs
-          return itemsRef.current;
+          return null;
         }
       })
       .catch(() => null);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptView, issueRead, type ViewSeq } from "./view-seq";
+import { acceptView, issueRead, readIsOurs, readReachedServer, type ViewSeq } from "./view-seq";
 
 /**
  * T21(b) partial — the read-ordering ticket, in the terms the defect is stated in: two views in
@@ -108,5 +108,32 @@ describe("issueRead / acceptView — the newest view wins, whatever order they l
     expect(s.issued).toBe(3);
     // The distinction the round-2 fix rests on: three reads outstanding, nothing on screen yet.
     expect(s.applied).toBe(0);
+  });
+});
+
+describe("ReadOutcome — the two questions a read answers, named apart (T26)", () => {
+  it("readReachedServer treats an OVERTAKEN read as a success", () => {
+    // T20's re-arm rests on this. An overtaken read still proves the cart is reachable — the freeze
+    // axes on screen came from the view that beat it — and narrowing this to `applied` would kill
+    // the re-arm chain on a cart that is still frozen, whose unchanged axes do not re-run the
+    // effect: the permanent dead menu T20 exists to fix.
+    expect(readReachedServer("applied")).toBe(true);
+    expect(readReachedServer("overtaken")).toBe(true);
+    expect(readReachedServer("failed")).toBe(false);
+  });
+
+  it("readIsOurs treats an OVERTAKEN read as NOT ours", () => {
+    // The recovery path's question. A view that beat ours to the screen may be a mutation's, which
+    // lands without a ticket and may have read its rows BEFORE our write committed — so `itemsRef`
+    // is not evidence of our own add.
+    expect(readIsOurs("applied")).toBe(true);
+    expect(readIsOurs("overtaken")).toBe(false);
+    expect(readIsOurs("failed")).toBe(false);
+  });
+
+  it("the two disagree on exactly one state, and that state is why they are separate", () => {
+    const states = ["applied", "overtaken", "failed"] as const;
+    const differ = states.filter((s) => readReachedServer(s) !== readIsOurs(s));
+    expect(differ).toEqual(["overtaken"]);
   });
 });
