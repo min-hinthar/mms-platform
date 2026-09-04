@@ -46,10 +46,23 @@
 export type WriteResult<V> =
   /** It landed, and this is the server's view of the cart with it in. */
   | { state: "applied"; view: V }
-  /** The request left; we cannot see whether it landed. NEVER retry, NEVER claim it. */
+  /** The request left; we cannot see whether it landed. NEVER retry, NEVER claim it, and there is
+   *  no view — this is the ONLY state without one. */
   | { state: "unconfirmed" }
-  /** It did not land. The cart was read and this write is not in it. */
-  | { state: "refused" };
+  /**
+   * It did not land. The cart was READ and this write is not in it.
+   *
+   * ⚠️ IT CARRIES THAT READ (Codex round 2 on #251, P1). A refusal is established BY a successful
+   * recovery read, so this state holds the freshest view anyone has — and the first draft threw it
+   * away, which is not merely wasteful: `AddButton`'s fallback is a LOCAL `itemsRef` synced in a
+   * passive `useEffect`, so inside a promise chain it still holds the pre-write list. A host moving
+   * a line 3 → 5 while the first request was refused then had the next rapid decrement send the
+   * absolute quantity 2 instead of 4, silently overwriting the concurrent change. `setQty` is
+   * absolute, so a stale baseline is a wrong number, not a lost tap.
+   *
+   * `view` is null only where there was no cart to read (an unmounted/session-less caller).
+   */
+  | { state: "refused"; view: V | null };
 
 /**
  * May the caller send this write again?
@@ -71,7 +84,10 @@ export function mayRetry<V>(r: WriteResult<V>): boolean {
  * that is correct for a FIRST op is wrong for a following one.
  */
 export function threadableView<V>(r: WriteResult<V>): V | null {
-  return r.state === "applied" ? r.view : null;
+  // `unconfirmed` is the only state that has no trustworthy view: `applied` carries the mutation's
+  // own, `refused` carries the recovery read that PROVED the refusal. Withholding the refusal's view
+  // hands the caller back to a stale snapshot for no gain (Codex round 2 on #251, P1).
+  return r.state === "unconfirmed" ? null : r.view;
 }
 
 /**
@@ -129,5 +145,7 @@ export function recoveredWrite<V>(input: {
   // Read fine, attribution ambiguous. Before T26 this fell to the refusal arm, so a successful read
   // produced the retry-a-committed-add bug with nothing broken at all.
   if (landed === null) return { state: "unconfirmed" };
-  return landed ? { state: "applied", view: reread } : { state: "refused" };
+  // Both arms carry the read: it is the current cart either way, and the refusal arm is the one the
+  // caller most needs it on — see the type's note.
+  return landed ? { state: "applied", view: reread } : { state: "refused", view: reread };
 }

@@ -240,16 +240,23 @@ export function AddButton({
     const announce = emptying ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
     // If an emptying "−" is REVERTED (the write fails and the draft line survives), the optimistic +1 below
     // remounts the stepper — arm a refocus so the pill's focus doesn't drop to <body> (WCAG 2.4.3).
-    // ⚠️ AN UNCONFIRMED WRITE ARMS THE REFOCUS TOO (T26). The flag exists so focus does not drop to
-    // <body> when a removal is REVERTED and the stepper remounts; without a view we cannot tell
-    // whether the line survived, and arming it wrongly costs nothing (the effect that consumes it
-    // only fires if the stepper actually mounts), while NOT arming it strands focus. Same defensive
-    // direction the catch arm below already takes.
+    // ⚠️ ARM ON EVERY OUTCOME WHERE THE LINE MAY SURVIVE (T26 + Codex round 2 on #251, P2). The flag
+    // exists so focus does not drop to <body> when an emptying removal is REVERTED and the stepper
+    // remounts. Three cases, and only the first is the happy one:
+    //
+    //   • a view we can read (applied, or a REFUSED write whose recovery read we now carry) — ask it
+    //     directly whether a line survived;
+    //   • `unconfirmed` — no view exists, so we cannot tell. Arm it: arming wrongly costs nothing
+    //     (the effect only fires if the stepper actually mounts), NOT arming strands focus.
+    //
+    // A refusal used to fall through the `fresh === null` branch and arm nothing — yet a refusal is
+    // precisely the case where the line certainly SURVIVED, so the stepper certainly remounts and
+    // the focused Add pill certainly unmounts. It was the one outcome guaranteed to strand focus.
     const armRevertRefocus = (res: WriteResult<CartItem[]>) => {
       if (!emptying) return;
       const fresh = threadableView(res);
       if (fresh === null) {
-        if (res.state === "unconfirmed") refocusStepper.current = true;
+        refocusStepper.current = true;
         return;
       }
       if (matchOwnLines(fresh, menuItemId, defaultFulfillment, mySeat).some((l) => l.qty > 0)) {
@@ -259,18 +266,21 @@ export function AddButton({
     writeChain.current = writeChain.current
       .then(async (prior) => {
         try {
-          // ⚠️ A PRIOR `unconfirmed` OP MEANS `itemsRef` IS BEHIND, SO RE-READ FIRST (T26, Codex
-          // round 3 on #250 — P1). That state says the write COMMITTED and we could not see it, so
-          // the snapshot still holds the pre-write quantity: two rapid decrements from 3 both
-          // computed `3 - 1` and set 2 twice instead of 2 then 1.
+          // ⚠️ `itemsRef` HERE IS A LOCAL REF SYNCED IN A PASSIVE EFFECT (line 141), so inside this
+          // promise chain it holds the list from the last RENDER — not whatever the provider applied
+          // a moment ago. That is why the prior op's own view is the primary source and this is only
+          // the fallback, and why `await refresh()` cannot substitute for threading: refreshing
+          // updates the PROVIDER, and this ref catches up a render later (Codex round 2 on #251, P1).
           //
-          // A `refused` prior op needs no re-read — nothing changed, and the provider's recovery
-          // already applied a fresh view. Only ignorance costs a round trip.
+          // Every outcome except `unconfirmed` now carries a view — `applied` the mutation's own,
+          // `refused` the recovery read that proved the refusal — so the fallback is reached only
+          // when there genuinely is no current cart to be had.
           //
-          // If the re-read ALSO fails (a sustained outage) the fallback is still the stale list, and
-          // that degrades honestly rather than corrupting: `setQty` is ABSOLUTE, so re-sending
-          // `qty - 1` against a quantity the server already has is an idempotent no-op — the tap is
-          // lost, the cart is not wrong. That is the floor, and it is the right one to fail to.
+          // `unconfirmed` still re-reads first: that state means the write COMMITTED and we could
+          // not see it, so the last render's list holds the pre-write quantity. If the re-read also
+          // fails the fallback degrades honestly rather than corrupting — `setQty` is ABSOLUTE, so
+          // re-sending `qty - 1` against a quantity the server already has is an idempotent no-op:
+          // the tap is lost, the cart is not wrong.
           if (prior?.state === "unconfirmed") await refresh();
           // Freshest lines: the prior op's returned view, else the latest committed snapshot. Recomputed here
           // (not from a tap-time closure) so serialized "−" taps each peel a real, still-present line. Peel a

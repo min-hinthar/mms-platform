@@ -19,7 +19,8 @@ import {
 const VIEW = [{ id: "line-1", qty: 2 }];
 const APPLIED: WriteResult<typeof VIEW> = { state: "applied", view: VIEW };
 const UNCONFIRMED: WriteResult<typeof VIEW> = { state: "unconfirmed" };
-const REFUSED: WriteResult<typeof VIEW> = { state: "refused" };
+const REFUSED: WriteResult<typeof VIEW> = { state: "refused", view: VIEW };
+const REFUSED_NO_CART: WriteResult<typeof VIEW> = { state: "refused", view: null };
 
 describe("recoveredWrite — what one recovery re-read establishes", () => {
   it("a re-read that could not see the cart is UNCONFIRMED, never refused", () => {
@@ -41,8 +42,13 @@ describe("recoveredWrite — what one recovery re-read establishes", () => {
     expect(threadableView(r)).toBe(VIEW);
   });
 
-  it("a read that shows the write is NOT in the cart is the only refusal", () => {
-    expect(recoveredWrite({ reread: VIEW, landed: false })).toEqual({ state: "refused" });
+  it("a read that shows the write is NOT in the cart is the only refusal — and it KEEPS that read", () => {
+    // Codex round 2 on #251 (P1): the refusal is established BY this read, so it is the freshest
+    // view anyone has. Discarding it sent the caller back to a stale local snapshot.
+    expect(recoveredWrite({ reread: VIEW, landed: false })).toEqual({
+      state: "refused",
+      view: VIEW,
+    });
   });
 
   it("a failed re-read stays unconfirmed even when the caller claims a landing", () => {
@@ -80,8 +86,21 @@ describe("threadableView — only an applied write yields a list to thread", () 
     expect(threadableView(UNCONFIRMED)).toBeNull();
   });
 
-  it("yields null for refused", () => {
-    expect(threadableView(REFUSED)).toBeNull();
+  it("yields the recovery view for refused — it is the freshest cart we have", () => {
+    // `AddButton` threads this into the next queued op, and `setQty` is ABSOLUTE: with a stale
+    // baseline a following decrement sends a wrong number rather than losing a tap. A concurrent
+    // host edit 3 -> 5 during a refused write made the next "−" send 2 instead of 4.
+    expect(threadableView(REFUSED)).toBe(VIEW);
+  });
+
+  it("yields null for a refusal with no cart to read", () => {
+    expect(threadableView(REFUSED_NO_CART)).toBeNull();
+  });
+
+  it("unconfirmed is the ONLY state without a threadable view", () => {
+    const states: WriteResult<typeof VIEW>[] = [APPLIED, UNCONFIRMED, REFUSED];
+    const withoutView = states.filter((r) => threadableView(r) === null);
+    expect(withoutView).toEqual([UNCONFIRMED]);
   });
 });
 

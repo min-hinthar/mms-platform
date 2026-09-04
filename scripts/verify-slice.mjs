@@ -421,6 +421,14 @@ const MUTANTS = [
     replace: '  return o === "applied";',
   },
   {
+    id: "written/a-refused-writes-view-is-discarded",
+    file: "apps/qr/lib/write-outcome.ts",
+    suite: "lib/write-outcome.test.ts",
+    why: "T26 (Codex round 2 on #251, P1) \u2014 a refusal is ESTABLISHED by a successful recovery read, so it holds the freshest cart anyone has, and `AddButton` threads it into the next queued op. Withholding it sends that op to a LOCAL `itemsRef` synced in a passive effect, which inside a promise chain still holds the pre-write list \u2014 and `setQty` is ABSOLUTE, so a stale baseline is a WRONG NUMBER, not a lost tap: a host moving a line 3 \u2192 5 during the refused write makes the next decrement send 2 instead of 4 and silently overwrite them",
+    find: '  return r.state === "unconfirmed" ? null : r.view;',
+    replace: '  return r.state === "applied" ? r.view : null;',
+  },
+  {
     id: "written/the-unconfirmed-notice-asserts-a-currency-it-lacks",
     file: "apps/qr/lib/write-outcome.ts",
     suite: "lib/write-outcome.test.ts",

@@ -499,6 +499,17 @@ export function TableCartProvider({
   // expired and was swept (honest "timed out, fresh order"); the SAME cart ⇒ renewed/transient
   // (nudge a retry). Deferred (microtask) so it's not a synchronous setState in the effect body.
   const recoveringRef = useRef(false);
+  /**
+   * Was the write that TRIGGERED this re-mint one we could not confirm? (Codex round 2 on #251, P1.)
+   *
+   * ⚠️ The same-cart recovery sentence below ends "please try that again", and `explainCaught` calls
+   * `revalidate()` on exactly the arm where the cart could not be read — which is also the arm that
+   * produces `unconfirmed`. So the sequence was: publish "we couldn't confirm that", re-mint, then
+   * OVERWRITE it with an instruction to retry a write that may already have committed. The provider
+   * spent this whole slice making sure nothing invites that retry, and then invited it itself, two
+   * effects away, in the one live region.
+   */
+  const recoveryWriteUnconfirmedRef = useRef(false);
   const prevCartIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (!cartId) return;
@@ -506,10 +517,18 @@ export function TableCartProvider({
     prevCartIdRef.current = cartId;
     if (!recoveringRef.current) return;
     recoveringRef.current = false;
+    const unconfirmed = recoveryWriteUnconfirmedRef.current;
+    recoveryWriteUnconfirmedRef.current = false;
+    // A NEW cart means the old one was swept: nothing the diner did to it survived, so there is
+    // nothing to double-add and the honest sentence is the same either way.
     const msg =
       prev && prev !== cartId
         ? "Your table session timed out — we started a fresh order."
-        : "Reconnected to your table — please try that again.";
+        : unconfirmed
+          ? // SAME cart, and the write that sent us here may have landed on it. Point at the cart,
+            // never at the retry: re-sending is the one action that can charge the dish twice.
+            "Reconnected to your table — check your order below."
+          : "Reconnected to your table — please try that again.";
     void Promise.resolve().then(() => flash(msg, 3500));
   }, [cartId, flash]);
 
@@ -722,6 +741,10 @@ export function TableCartProvider({
    * been refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
    */
   const publishUnconfirmed = useCallback(() => {
+    // Latch BEFORE the flash: `explainCaught` has already fired `revalidate()` on the arm that could
+    // not read the cart, so the recovery effect may run at any point after this and must find the
+    // flag set. Cleared by that effect, so a later ordinary re-mint still says "try that again".
+    recoveryWriteUnconfirmedRef.current = true;
     flash(unconfirmedWriteNotice(), 3000);
   }, [flash]);
 
@@ -767,8 +790,8 @@ export function TableCartProvider({
       notes?: string,
       qty: number = 1,
     ): Promise<WriteResult<CartItem[]>> => {
-      // No cart to write to: nothing left, so a retry is the right offer.
-      if (!cartId) return { state: "refused" };
+      // No cart to write to: nothing left, so a retry is the right offer. No view exists to thread.
+      if (!cartId) return { state: "refused", view: null };
       // Optimistic: bump the visible count + confirm on tap, so the cart bar responds immediately
       // instead of after the round-trip. The total stays server-authoritative (no client price math),
       // so it settles when the view returns — the count is the instant feedback. `qty` (W5c sheet
@@ -932,7 +955,7 @@ export function TableCartProvider({
       // rapid decrements from 3 then set 2 twice instead of 2 then 1, because `AddButton` threads
       // this value into its next queued op. A signature that cannot express an outcome guarantees
       // the outcome is misreported; widening it is not a refactor, it is the defect.
-      if (!cartId) return { state: "refused" };
+      if (!cartId) return { state: "refused", view: null };
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
       if (announce) flash(announce, 2000);

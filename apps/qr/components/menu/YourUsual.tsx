@@ -104,10 +104,14 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // landed. A freeze can arrive DURING this loop, so the tap-time gate above cannot cover
           // it: the first dish succeeds, the second is refused, and this is the arm that runs.
           const cause = lastRefusalNotice();
-          // ⚠️ ONLY NAME A DISH WE SAW LAND. This prefix used to fire on `i > 0` alone, so it
-          // credited `items[0]` even when that dish was the unconfirmed one — announcing a landing
-          // for the exact write this slice exists to stop claiming.
-          const confirmed = i - unseen;
+          // ⚠️ ONLY NAME A DISH WE SAW LAND, ACROSS INVOCATIONS (Codex round 2 on #251, P2). This
+          // prefix used to fire on `i > 0` alone, so it credited `items[0]` even when that dish was
+          // the unconfirmed one. The first fix subtracted only THIS pass's tally — which is zero on
+          // a resumed pass, so the moment the persisted counter started working it exposed the same
+          // false claim one attempt later: dish 1 unconfirmed, dish 2 refused, retry, dish 2 refused
+          // again, and the notice credits dish 1. The dishes before index `i` span both passes, so
+          // the unseen among them do too.
+          const confirmed = i - unseenCount - unseen;
           const landed = confirmed > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
           announce(
             cause
