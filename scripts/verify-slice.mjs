@@ -618,6 +618,99 @@ const MUTANTS = [
     find: '      return "We couldn\u2019t reach your order just now \u2014 reconnecting to your table\u2026";',
     replace: '      return "Your table session expired \u2014 reconnecting to your table\u2026";',
   },
+  // ── M46 / T18: the /menu freeze WIRING, in `.tsx` ────────────────────────────────────────────
+  //
+  // ⚠️ THE FIRST NON-`lib/` MUTANT TARGETS. Everything above mutates a pure module; these two are
+  // React components, and they are here because the rules below live ONLY in them. `mayRetry`,
+  // `recoveredWrite`, `refusalNeedsRemint` and `refusedWriteNotice` are each pinned in `lib/` — the
+  // code that CALLS them was invisible to every check until this PR: no vitest config matched
+  // `.test.tsx`, `check-money-coverage` skipped the suffix, and `check-child-freeze` never opens a
+  // component that imports the cart actions from the React context rather than from `lib/`.
+  //
+  // Each `find` is ONE self-contained line that DECLARES its subject. Deliberately not a span
+  // across a comment: three anchors in this file have already gone stale that way, because an edit
+  // to prose between two statements breaks a matcher about neither of them.
+  {
+    id: "refusal/remint-restored-unconditionally",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 — THE M116/T14 DEFECT, RESTORED IN THE ONE PLACE THAT STILL SHIPS IT. `explainCaught` re-mints the table session only on the arm whose re-read FAILED; every other arm has just proved the session works by reading the cart through it. Re-minting unconditionally tells a diner whose tablemate is checking out that their connection dropped, and makes them watch a recovery for a session that was never broken. The rule is pinned in lib; this is the call site, and deleting the condition here left the whole gate green before this suite existed",
+    find: "      if (refusalNeedsRemint(refusal)) {",
+    replace: "      if (true) {",
+  },
+  {
+    id: "refusal/committed-write-downgraded-to-unconfirmed",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T26/T18 — `viewAfterWrite` returns null only AFTER the row committed, so a null mutation view plus a failed re-read leaves us without a VIEW, not without a verdict. Downgrading it to `unconfirmed` retracts a true success notice and makes `YourUsual` tell the diner a dish it had just added could not be confirmed (Codex round 4 on #251). `applied` with `view: null` says exactly what is known: it landed, and there is nothing safe to thread onward",
+    find: '          if (reread.outcome !== "applied") return { state: "applied", view: null };',
+    replace: '          if (reread.outcome !== "applied") return { state: "unconfirmed" };',
+  },
+  {
+    id: "refusal/unconfirmed-retraction-goes-silent",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 (Codex round 1 on #251, P2) — both writes flash their outcome OPTIMISTICALLY on tap, so publishing nothing on `unconfirmed` is not neutrality: it leaves standing a claim `mayClaimLanding` forbids. `AddButton` and `ItemSheet` never speak after the provider, so for them the optimistic sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing if the claim is already on screen and the code merely declines to retract it",
+    find: "    flash(unconfirmedWriteNotice(), 3000);",
+    replace: "    void unconfirmedWriteNotice;",
+  },
+  {
+    id: "refusal/unconfirmed-lent-a-refusals-sentence",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 — `publishUnconfirmed` deliberately does NOT write `lastRefusalRef`, which means “a refusal the caller decided is real” and is carried into `YourUsual`'s copy. Lending an unconfirmed write a refusal's cause attaches a diagnosis to a write nobody established anything about — the fabricated-diagnosis class, arriving through the retraction built to prevent it",
+    find: "  const publishUnconfirmed = useCallback(() => {",
+    replace:
+      "  const publishUnconfirmed = useCallback(() => {\n    lastRefusalRef.current = unconfirmedWriteNotice();",
+  },
+  {
+    id: "refusal/settle-freeze-never-classified",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 — `settling` is a second freeze axis with its own clause (“the order’s locked while your table pays”), and `classifyRefusedWrite` tests it FIRST to match `inertReason`'s precedence. Dropping it from the re-read hands a settling cart the generic “we couldn’t confirm that”, so the diner is never told the one thing that explains the refusal and when it lifts",
+    find: "          settling: v.settling,",
+    replace: "          settling: false,",
+  },
+  {
+    id: "refusal/recovery-view-discarded",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18/T26 (Codex round 2 on #251, P1) — a refusal is ESTABLISHED BY this read, so it holds the freshest cart anyone has. Discarding it sends `AddButton` back to `itemsRef`, a LOCAL ref synced in a passive effect that inside a promise chain still holds the pre-write list — and `setQty` is ABSOLUTE, so a stale baseline writes a WRONG NUMBER over a concurrent host edit rather than losing a tap",
+    find: "        fresh = v.items;",
+    replace: "        fresh = [];",
+  },
+  {
+    id: "refusal/qty-landing-becomes-a-presence-test",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T18 — `setQty` is absolute, which is what makes its recovery attribution exact: the line sits AT `qty`, or is gone when the tap was a remove. Weakening that to “the line exists” reports every refused decrement as a landing, so the stepper keeps a quantity the server rejected and the next queued write derives from it",
+    find: "          landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,",
+    replace: "          landed: fresh === null ? null : line !== undefined,",
+  },
+  {
+    id: "usual/committed-write-retried",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T18/T26 — THE DUPLICATE CHARGE. This loop used to test `res === null`, and null meant BOTH “refused” and “committed, view unreadable”, so a dish that HAD landed took the refusal arm, set the resume index to itself, and the diner's retry added it a second time: a real line on a real bill from a tap that worked. `mayRetry` is true for `refused` alone — the one state where the cart was read and the dish was not in it",
+    find: "        if (!mayRetry(res)) {",
+    replace: '        if (res.state === "applied") {',
+  },
+  {
+    id: "usual/prefix-credits-a-dish-nobody-saw",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T18 (Codex round 2 on #251, P2) — the partial-add prefix may name only a dish PROVEN to have landed, across invocations. It fired on `i > 0` alone, so it credited the first dish even when that dish was the unconfirmed one; subtracting only THIS pass's tally then re-created the same false claim one attempt later, because a resumed pass starts at zero. The dishes before index `i` span both passes, so the unseen among them do too",
+    find: "          const confirmed = i - unseenCount - unseen;",
+    replace: "          const confirmed = i;",
+  },
+  {
+    id: "usual/suppression-outlives-its-cart",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T18 (Codex round 5 on #251, P2) — retry suppression must never outlive the cart it was reasoning about. `explainCaught`'s unreachable arm calls `revalidate()`, which can return a FRESH cart id containing none of these dishes; the counters used to survive that, so the CTA sat disabled reading “Added ✓” over an empty cart with no way back",
+    find: "  const ofThisCart = progress.cart === cartId;",
+    replace: "  const ofThisCart = true;",
+  },
   {
     id: "freeze/reopen-failure-goes-silent",
     file: "apps/qr/lib/cart-freeze.ts",

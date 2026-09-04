@@ -5,10 +5,10 @@ import type { TrackedOrder } from "./track-order";
 /**
  * W22b — what the expanded live-order chip is allowed to SAY, as data.
  *
- * This lives in `lib/` and not in the component on purpose: a rule left in a `.tsx` cannot be guarded
- * at all (there is no React test runner here — every one of the 56 suites is a pure node `.test.ts`),
- * and the rules below are exactly the ones that would quietly become lies. The component renders these
- * rows; it decides nothing.
+ * This lives in `lib/` and not in the component on purpose, and the reason SURVIVED M46 in a weaker
+ * form: a `.test.tsx` runs now (jsdom, opted in per file), but a pure module is falsified by a value
+ * rather than by a render, and the rules below are exactly the ones that would quietly become lies.
+ * The component renders these rows; it decides nothing.
  *
  * The honesty contract, in one place:
  *   • Every row is a REAL stored value — a timestamp the expo/webhook actually wrote, the diner's own

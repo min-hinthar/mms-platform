@@ -113,8 +113,10 @@ R4 interactions.ts → @mms/ui  ─┘  (needs R3 for useSpring)
 
 > **Shipped 2026-06-29 (with R4).** `framer-motion ^12.26.1` + `MotionProvider` (`LazyMotion domAnimation
 strict`) at the root. `domMax`/`DomMaxProvider` deferred to R5 (sheet swipe). Framer Vitest stub deferred:
-> QR's vitest is node-env and only matches `*.test.ts` (no jsdom component suite imports framer yet) — the
-> first `*.test.tsx` adds the stub.
+> QR's vitest was node-env and matched only `*.test.ts`. **Superseded by M46 (PR #252):** the include is
+> `*.test.{ts,tsx}` and a `.test.tsx` opts into jsdom per file. No framer stub was needed — neither
+> `TableCartProvider` nor `YourUsual` imports framer-motion; `AddButton` does, so the stub is owed by
+> whoever writes ITS suite, not by the first `.test.tsx`.
 
 **Goal:** land the vendor and the topology so R4+ can use springs/drag/presence.
 

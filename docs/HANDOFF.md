@@ -565,7 +565,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 284 `verify:slice` mutants green · `pnpm check:docs` clean (96 files, 1274 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 294 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1300 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1287,7 +1287,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (284 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (294 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
@@ -1477,8 +1477,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > - **R3+R4 ✅ shipped** — framer-motion adopted lazily (`MotionProvider` = root LazyMotion/domAnimation,
 >   strict; `domMax`/`DomMaxProvider` deferred to R5b sheet-swipe) + the interaction hooks
 >   (`useTilt`/`useMagnetic`/`useHeroParallax`/`useRipple`) ported to `packages/ui/src/interactions.ts`.
->   First consumer: `AddButton` press-spring + ripple. **When the first `*.test.tsx` lands, add the framer
->   Vitest stub** (vitest is node-env today; switch to jsdom + add a `framer-motion` mock).
+>   First consumer: `AddButton` press-spring + ripple. ~~**When the first `*.test.tsx` lands, add the
+>   framer Vitest stub**~~ — **CORRECTED by M46 (PR #252)**: the first `.test.tsx` landed and needed NO
+>   framer stub, because the stub is owed by the suite that renders a framer CONSUMER. `AddButton` is
+>   the only file in the /menu freeze set that imports it, and its suite is still unwritten.
 > - **R2 ✅ shipped** — dark mode is now LIVE. Nonce blocking inline script in `layout.tsx` (carries the
 >   `proxy.ts` per-request nonce) sets `.dark` from `prefers-color-scheme` before paint; `ThemeSync` handles
 >   live OS flips; no next-themes. A verified per-surface audit (workflow) found only small latent dark bugs —

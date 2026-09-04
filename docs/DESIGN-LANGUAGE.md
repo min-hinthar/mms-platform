@@ -251,8 +251,8 @@ deep (CartBar · grocery CTA · offline pill · toasts) and the top edge three.
   reviewer doesn't "fix" it.
 
 **What an ambient order surface may say.** Stored values only, derived in `lib/live-order-panel.ts`
-rather than in the component (there is no React test runner here — a rule in a `.tsx` cannot be
-guarded at all). Real expo timestamps, the diner's own pickup slot as an ABSOLUTE time, the
+rather than in the component (M46 made a `.test.tsx` runnable, but a pure module is still falsified
+by a value rather than a render, so decision logic stays in `lib/`). Real expo timestamps, the diner's own pickup slot as an ABSOLUTE time, the
 fulfillment-time total rendered verbatim. **Never** an ETA, an elapsed cook time, a queue position,
 a stage counter, or a staff name. **"In the kitchen" gets no clock** — `togo_status='preparing'` is
 stamped by the Stripe webhook at payment, so using it as a cook-start would be a fabricated time

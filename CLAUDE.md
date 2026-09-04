@@ -62,10 +62,11 @@ pnpm dev                 # apps/qr on :3000
 pnpm turbo lint typecheck build test   # the gate — run before any PR
 pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard (a changed money
                          # file MUST have a mutant, or an in-file `verify:slice-exempt — <reason>`)
-                         # + photo-filter grep + gate + 284 mutations + orphan check (a few minutes)
-                         # ⚠️ REWRITES the 64 money/authority modules it mutates IN PLACE (61 under
-                         # apps/qr/lib, plus create-share-intent, setup-intent and board routes) and
-                         # restores them. It ABORTS if a target file is DIRTY — commit or stash
+                         # + photo-filter grep + gate + 294 mutations + orphan check (a few minutes)
+                         # ⚠️ REWRITES the 66 money/authority modules it mutates IN PLACE (61 under
+                         # apps/qr/lib, plus create-share-intent, setup-intent and board routes, plus
+                         # TableCartProvider.tsx and menu/YourUsual.tsx — the first COMPONENTS in the
+                         # set, since M46) and restores them. It ABORTS if a target file is DIRTY — commit or stash
                          # first. ⚠️ ONE RUN PER CHECKOUT, and BOTH failure modes lie: a run can
                          # STALL alive-but-idle (seen: ~5h, empty output), and two overlapping runs
                          # rewrite each other's modules so the second reports "✗ These suites fail
@@ -149,7 +150,7 @@ The review/adversarial gates catch **escapes** — they are not your first pass.
 - **a11y — sweep _every_ interactive/region element, not just the layout** (QA-CHECKLIST §A): ≥44px touch targets; an accessible name on each control/list/region (`aria-label`/`-labelledby`); `role="list"` when `list-style:none`; **one** live region per view (no redundant `aria-live` on `role="status"`/`alert`); focus moved on remove / route / step change; decorative glyphs + emoji `aria-hidden`; a `prefers-reduced-motion` off-switch on any animation.
 - **Error / recovery paths** — every `await` / `{ error }` is handled or a **commented, deliberate** swallow (a silent one → a broken session or a stuck screen); every async UI has a **loading _and_ a failure/recovery** state (never strand the user); fail fast on unrecoverable errors instead of burning a full retry budget; on serverless, drain side-effects with `after()` (don't couple the response to them).
 - **Copy / fidelity** — strings **verbatim** from `docs/prototype/v7.2.html`; no promise the code doesn't keep ("live status here" only where it's wired); honest microcopy (no fabricated ETAs/counts); tokens, never hardcoded colors.
-- **`pnpm verify:slice` FIRST — the mechanical gate, before the subagent.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it runs the gate, applies 284 semantic mutations to the money/authority modules (each must turn its owning suite RED), and mirrors CI's orphan-suite check. A few minutes, zero tokens; the review round that found the same class cost ~1M tokens and 56 minutes. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
+- **`pnpm verify:slice` FIRST — the mechanical gate, before the subagent.** Three review rounds across W9a/W8 each returned BLOCK, and nearly every finding reduced to one thing: **a guard was written and never made to fail.** A green test file was shipped as proof. `scripts/verify-slice.mjs` answers "can this guard fail?" mechanically — it runs the gate, applies 294 semantic mutations to the money/authority modules (each must turn its owning suite RED), and mirrors CI's orphan-suite check. A few minutes, zero tokens; the review round that found the same class cost ~1M tokens and 56 minutes. **A SURVIVING mutant means the fixture is degenerate** — two code paths produce identical numbers on it — so find inputs that _separate_ them (search numerically), don't just pile on assertions. A **STALE** mutant (pattern no longer matches) is a failure too, not a skip. Add a mutant whenever you add a money/authority rule.
 - **The red-first rule.** Never write a guard you have not watched fail: a test, a lint rule, a CI step, a SQL assert. Induce the violation, see it go red, revert. Two live bugs shipped past "proved, not assumed" claims that had only been proved for one shape (a bare `/menu` surviving as a default parameter; a `.test.tsx` orphan the guard whitelisted by directory).
 - **Guards PARSE — they never scan (LEARNINGS #60; eleven Codex findings in one day, all this shape).** A guard about executable behaviour that matches a _name, substring, count, position, or constant_ will be satisfied by text that does not ship the behaviour: a comment, a dead `{false && …}` branch, an `await Promise.all` reorder. So: parse with `typescript` (already a dependency — comments are not AST nodes) when the subject is JS/TS, and where no parser exists (CSS) constrain the scan instead — comments stripped, the candidate selected by what it DECLARES, ambiguity refused; bind extractions to the live candidate — excluding the enumerated literal-dead shapes, which is liveness against parked dead copies, not a reachability proof — and evaluate the shipped literal, refusing ambiguity instead of picking by position (**uniqueness ≠ liveness**); assert sequencing as _awaited, in a statement that finishes first_, never as lexical order; and aim red-first at the MATCHER too — ask "what text satisfies this without shipping the behaviour?" and falsify that exact evasion. ⚠️ `ts.forEachChild` is a SEARCH primitive: a visitor that returns a truthy value aborts the walk — write `(c) => { visit(c); }`.
 - **Never transcribe a number into an assertion — nor a LIST.** Compute it in the shell and paste the output. A value that crosses from prose (a subagent summary, a plan doc) into an expectation is how `-600 → -59` shipped when the real value is `-58`. Same rule for sets: a merge-conflict resolution is verified as a set operation — derive `closed(parent1)` / `closed(parent2)` / `closed(merge)`, assert nothing lost and nothing invented — never from a remembered list (the #242 list was wrong twice; the resolution was right, provably, only after measuring — LEARNINGS #61).
@@ -179,9 +180,13 @@ are not style notes; each one shipped, or nearly shipped, a wrong number to a gu
   SURVIVING because a fixed 15/20/30 ladder never breaches the 50% cap. A surviving mutant means the
   code or the fixture cannot express the failure — make the rule reachable (`tipPresets` takes the
   ladder as a defaulted parameter), never delete the mutant.
-- **Decision logic belongs in `lib/`, not a component.** `Checkout.tsx` sits outside
-  `check-money-coverage`'s `MONEY_PATHS` and has no component test, so a rule left there **cannot be
-  guarded at all**. That is why `effectiveTipRate` and `tipPresets` are pure modules.
+- **Decision logic belongs in `lib/`, not a component — and M46 changed the REASON, not the rule.**
+  A `.test.tsx` now runs (jsdom, opted in per file with `/** @vitest-environment jsdom */`; see
+  `apps/qr/vitest.config.ts`), and `verify:slice` mutates components too. But `Checkout.tsx` still
+  sits outside `check-money-coverage`'s `MONEY_PATHS` and still has no suite, and a pure module is
+  falsified by a VALUE where a component needs a render plus five mocks. So `lib/` first: it is
+  finer-grained, not merely possible. That is why `effectiveTipRate` and `tipPresets` are pure
+  modules. Use a component suite for WIRING that has nowhere else to live (T18).
 - **Prove a DB constraint against the real database, red-first.** Before applying the cash-tip
   migration, the probe was run against prod and an `UPDATE tip_cents = -1` was **accepted** — the
   hole was live, not theoretical. Constraints get a SQL test in `supabase/tests/` (registered in

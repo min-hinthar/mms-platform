@@ -15,8 +15,9 @@
  *     only to decide whether anything landed at all, and then returned silently — so a partial fill
  *     left the optimistic "Added 5" standing as the last thing said.
  *
- * One rule, both paths. Pure, so it can carry a mutant — the correction lived in a `.tsx`, and this
- * app has no component test runner, so it could not be guarded at all.
+ * One rule, both paths. Pure, so it can carry a mutant. (The correction used to live in a `.tsx`,
+ * which nothing could guard at all; since M46 a component CAN be tested and mutated, but a pure
+ * module is still the right home — it is finer-grained and needs no render to falsify.)
  *
  * ⚠️ THIS DESCRIBES AN ANNOUNCEMENT, NEVER AN AMOUNT. Every price is server-derived and the view is
  * already applied by the time either caller asks, so a wrong answer here is a wrong sentence in the

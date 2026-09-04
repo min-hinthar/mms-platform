@@ -281,8 +281,14 @@ const EXEMPT = new Map([
       "lock included. That is the M116 fabricated diagnosis, excused by this very entry. T14 is " +
       "CLOSED (#248): both catches route through `explainCaught` → `classifyRefusedWrite`, which " +
       "re-reads and names only what that read established, and only the unreachable arm re-mints. " +
-      "The RULE is pinned in lib (cart-freeze.test.ts + the refusal/* mutants); the WIRING in this " +
-      ".tsx is not, because the app has no component suite. OPEN-ITEMS T18.",
+      "The RULE is pinned in lib (cart-freeze.test.ts + the refusal/* mutants), and since M46/T18 (PR " +
+      "#252) the WIRING is pinned too — `components/TableCartProvider.test.tsx` drives both catches " +
+      "through the context under jsdom, with seven `refusal/*` mutants naming that suite. The exemption " +
+      "REMAINS, for the two structural reasons that were always the real ones: rules 1-3 demand `if " +
+      "(frozen) return` BEFORE the mutation, and the ABSENCE of that pre-write gate IS the T14 fix (a " +
+      "gate on a cached lock intercepts the very write that would correct it); and rule 4 requires an " +
+      "audited component to be rendered by Checkout.tsx, which never renders the /menu provider. What " +
+      "changed is the reason, not the verdict. OPEN-ITEMS T18.",
   ],
   [
     `${COMPONENTS}/kiosk/KioskMenu.tsx`,
