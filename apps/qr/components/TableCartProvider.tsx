@@ -1124,8 +1124,8 @@ export function TableCartProvider({
         const { fresh, viewIsCurrent, refusal } = await explainCaught(cartId);
         // Same post-commit rule as `add`: `setQty` writes the row and only THEN returns the view, so
         // a trailing-read failure lands here with the qty already applied. The target is exact
-        // (`setQty` is absolute, not a delta), so the re-read settles it: the line at `qty`, or gone
-        // when the tap was a remove. Only a genuine non-landing is announced.
+        // (`setQty` is absolute, not a delta), so the re-read is the evidence: the line at `qty`, or
+        // gone when the tap was a remove.
         //
         // ⚠️ THE ATTRIBUTION IS ONE-SIDED, AND THE OLD NOTE HERE CLAIMED IT BOTH WAYS (blind
         // adversarial pass on this PR). `setQty` is absolute, so no peer write can forge a LANDING:

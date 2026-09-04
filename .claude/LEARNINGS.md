@@ -1391,3 +1391,30 @@ Two habits fall out. Before trusting any assertion labelled red-first, **run it 
 failure text** — "expected X to be null" is a defect; "X is not a function" is a rename. And when a
 test's own comment claims it will fail, that claim is itself a testable statement: check it, because a
 false one is indistinguishable from a true one until someone tries.
+
+## #79 — a mutant anchor chosen BEFORE `pnpm format` goes stale on the commit that adds it (#254, 2026-09-04)
+
+`refusal/unknown-borrows-the-assertive-opener` was written, red-first probed (CAUGHT), and then went
+**STALE on its own PR** — `pattern matched 0×`. Nothing about the rule changed. `pnpm format` ran
+between the probe and the commit and wrapped the declaration the anchor named:
+
+```ts
+// what the anchor was written against
+const opener = refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+
+// what prettier shipped
+const opener = refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+```
+
+Two things follow, and only the second is the real lesson:
+
+1. **Order the pre-PR steps `format` → choose anchor → red-first probe.** A probe against unformatted
+   text proves the mutant can fail against a file that is not the one being committed. Prefer an
+   anchor prettier cannot reflow — here, the ternary line alone rather than the whole declaration.
+2. **This is the same class as every other finding in this arc, one layer out.** A guard was proved
+   against a version of its subject that did not ship. The red-first rule says "watch it fail"; it
+   has to be _the shipped text_ that you watched it fail against. `verify:slice` caught this exactly
+   as designed — a STALE mutant is a FAILURE, not a skip, and this is what that rule buys.
+
+The near-miss is worth naming: had the anchor stayed loosely matched (a substring that survived the
+wrap), the mutant would have gone green while testing nothing, and no gate would have said a word.

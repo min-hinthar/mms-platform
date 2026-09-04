@@ -637,8 +637,12 @@ const MUTANTS = [
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
     why: "The blind adversarial pass on this PR reversed a draft that made this exact edit. `refused` means the re-read succeeded and the write was not in it \u2014 true of the STATE, false of `setItemQty`'s PATH, which establishes it by comparing ONE absolute value (`line?.qty === qty`) that an authorized host writing the same line inside the round trip forges into a false negative. That case carries no lock and no settle, so it lands on `unknown` \u2014 the one arm with no server statement behind it, and the only one that may not assert the verdict",
-    find: '  const opener = refusal.cause === "unknown" ? "We couldn\u2019t confirm that" : "That didn\u2019t go through";',
-    replace: '  const opener = "That didn\u2019t go through";',
+    // ⚠️ ANCHORED ON THE TERNARY LINE ALONE, NOT ON `const opener = …`. The first draft matched the
+    // whole declaration on ONE line and went STALE in the same PR that added it: `pnpm format` ran
+    // AFTER the red-first probe and wrapped the declaration, so the mutant matched 0× on its own
+    // commit. Choose an anchor from the FORMATTED text, and re-probe after formatting.
+    find: '    refusal.cause === "unknown" ? "We couldn\u2019t confirm that" : "That didn\u2019t go through";',
+    replace: '    "That didn\u2019t go through";',
   },
   {
     id: "refusal/clause-ships-a-whole-sentence",
