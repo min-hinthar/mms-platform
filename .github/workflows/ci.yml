@@ -63,6 +63,13 @@ jobs:
       # J4 (residual) — cross-FILE parity: the client freeze mirrors the server's bare `locked`.
       # File-read-only and parsed, so it rides the fast lane beside the other correctness guards.
       - run: pnpm check:freeze-parity
+      # P2 — the staff device locale is read on /staff and /board ONLY. Two parsed rules: the two
+      # reader modules are unreachable from every non-staff route root (transitively — a two-hop
+      # import through a shared component is the realistic break), and the cookie NAME literal lives
+      # in exactly one file (which catches the inline `cookies().get("…")` that has no import to
+      # walk). W16b retired the app-wide locale toggle by owner directive; "staff only" is worth what
+      # the mechanism proving it is worth.
+      - run: pnpm check:staff-lang
       # T9 — the same question one layer out: every CHILD component that can fire one of those
       # mutations takes the freeze fact, refuses in its handler, and surfaces the refusal. Its
       # subject set is DERIVED from the lib modules (never a file list — that is what made

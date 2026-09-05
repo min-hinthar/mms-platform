@@ -24,6 +24,7 @@
     "review:bundle": "node scripts/review-bundle.mjs",
     "check:migration-versions": "node scripts/check-migration-versions.mjs",
     "check:promo-pin": "node scripts/check-promo-grant-pin.mjs",
+    "check:staff-lang": "node scripts/check-staff-lang.mjs",
     "check:pay-attempt": "node scripts/check-pay-attempt.mjs",
     "check:freeze-parity": "node scripts/check-freeze-parity.mjs",
     "check:child-freeze": "node scripts/check-child-freeze.mjs",
