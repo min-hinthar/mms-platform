@@ -453,6 +453,32 @@ describe("clearPromoForTable — the remove carries the SAME five predicates (OP
     expect(row?.promo_code).toBe("PILOT15");
   });
 
+  it("still REMOVES when the lock is STALE — an abandoned pay screen must not strand a code", async () => {
+    // The other direction, and it is the one that closes the P2e dead end: if a remove over-blocks
+    // on an expired lock, the merge refusal points at an action that is itself refused for five
+    // minutes. Over-blocking is as expensive as under-blocking.
+    row = openCart({
+      promo_code: "PILOT15",
+      locked: true,
+      locked_at: iso(CART_LOCK_TTL_MS + 60_000),
+      locked_by: "u-2",
+    });
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(row?.promo_code).toBeNull();
+  });
+
+  it("still REMOVES when `locked` is true but `locked_at` is null — that is not a lock", async () => {
+    row = openCart({ promo_code: "PILOT15", locked: true, locked_at: null });
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(row?.promo_code).toBeNull();
+  });
+
+  it("still REMOVES when the settlement freeze is STALE", async () => {
+    row = openCart({ promo_code: "PILOT15", settle_at: iso(SETTLE_TTL_MS + 60_000) });
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(row?.promo_code).toBeNull();
+  });
+
   it("is IDEMPOTENT — a second tap on a cart with no code is a no-op, never a fabricated refusal", async () => {
     row = openCart({ promo_code: null, promo_granted_cents: null });
     expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
