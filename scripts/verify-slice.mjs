@@ -738,8 +738,13 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T31 \u2014 a cause belongs to the write that established it. The latch has ONE writer and, before this PR, ZERO clears, so a consumer reading it after an unrelated later write was handed the previous refusal's reason and announced it as this dish's. Dropping the entry clear restores exactly that",
-    find: "  const forgetRefusal = useCallback(() => {\n    lastRefusalRef.current = null;\n  }, []);",
-    replace: "  const forgetRefusal = useCallback(() => {}, []);",
+    // ⚠️ RE-ANCHORED BY T33, which added a comment INSIDE this function and so broke an anchor that
+    // spanned the whole body. It now names the declaration plus the live statement — unique
+    // (`lastRefusalRef.current = null` appears exactly once) and load-bearing, rather than a shape
+    // any future comment can invalidate. `verify:slice` caught the staleness, which is the rule
+    // working: a STALE mutant is a FAILURE, not a skip.
+    find: "  const forgetRefusal = useCallback(() => {\n    lastRefusalRef.current = null;",
+    replace: "  const forgetRefusal = useCallback(() => {",
   },
   {
     id: "refusal/unreadable-cart-yields-a-list",
