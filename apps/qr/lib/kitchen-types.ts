@@ -25,9 +25,21 @@ export type KitchenLine = {
    *  turns the ticket's 86 control from an offer into a statement. */
   soldOut: boolean;
   name: string;
+  /** P1 — the dish's Burmese name from the LIVE catalog (`menu_items.name_my`), or null: the catalog
+   *  has none (K15 pending), it is blank, it equals the English label, or the line is a grocery
+   *  barcode. `name` stays the add-time EN snapshot (the `cart.ts` posture). The board renders MY
+   *  as the primary line ONLY when this is set and keeps EN in the primary slot otherwise — it never
+   *  leaves a hole and never shrinks. Derived by `lib/ticket-names.ts`. */
+  nameMy: string | null;
   qty: number;
   /** Human-readable modifier labels (e.g. ["Spicy", "No egg"]) — empty when the line has none. */
   modifiers: string[];
+  /** P1 — per-slot Burmese option labels (`modifier_options.name_my` via the M3
+   *  `modifier_option_ids`), the SAME length as `modifiers`, null where the option has no Burmese.
+   *  The RENDERER does the fallback (an English label wrapped in `lang="en"`), so English is never
+   *  typeset in Padauk or announced as Burmese. All null when the ids and labels do not pair 1:1
+   *  (a legacy row) or the advisory lookup degraded. Derived by `lib/ticket-names.ts`. */
+  modifiersMy: (string | null)[];
   /** The kitchen note ("no peanuts — allergy"), or null. Bounded at 160 (Zod + column CHECK). */
   notes: string | null;
   state: "fired" | "in_progress";

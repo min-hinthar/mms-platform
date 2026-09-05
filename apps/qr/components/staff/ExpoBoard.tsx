@@ -1,11 +1,20 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+} from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import { burmeseAddsInfo } from "@/lib/ticket-names";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
@@ -331,6 +340,34 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
         {line.qty}×
       </span>
       <span style={{ flex: 1, minWidth: 0 }}>
+        {/* P1 — the Burmese half of the bag line, above the English the counter already showed.
+            Name and modifiers fall back INDEPENDENTLY: a bag line with Burmese options but an
+            English-only name still shows its Burmese options. Per-slot English fallbacks are
+            marked lang="en" and reset to the body face. */}
+        {burmeseAddsInfo(line.nameMy, line.modifiersMy) && (
+          <span lang="my" style={myLine}>
+            {line.nameMy ?? (
+              <span lang="en" style={enInMy}>
+                {line.name}
+              </span>
+            )}
+            {line.modifiersMy.some((m) => m !== null) && (
+              <span style={{ color: "var(--t2)" }}>
+                {" · "}
+                {line.modifiers.map((en, i) => (
+                  <Fragment key={i}>
+                    {i > 0 && " · "}
+                    {line.modifiersMy[i] ?? (
+                      <span lang="en" style={enInMy}>
+                        {en}
+                      </span>
+                    )}
+                  </Fragment>
+                ))}
+              </span>
+            )}
+          </span>
+        )}
         {line.name}
         {line.modifiers.length > 0 && (
           <span style={{ color: "var(--t2)" }}> · {line.modifiers.join(" · ")}</span>
@@ -393,10 +430,27 @@ const lineList: CSSProperties = {
 };
 const lineRow: CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  // P1 — baseline, not center: with a Burmese line above the English one the label is two lines
+  // tall, and the 2× badge and the destination tag belong on the FIRST line's baseline.
+  alignItems: "baseline",
   gap: "var(--s2)",
   fontSize: "var(--fs-sm)",
 };
+// P1 — the Burmese line on a bag row: its own block, the body size (Padauk's consonant body is ~8%
+// shorter than Hanken's x-height, and the expo's 13px row is already at the Burmese floor), 700 =
+// the heaviest cut Padauk ships, the Burmese leading token, and never a synthesized bold (a
+// swap-window fallback face would smear the stacked marks).
+const myLine: CSSProperties = {
+  display: "block",
+  fontFamily: "var(--font-my)",
+  fontSize: "var(--fs-body)",
+  fontWeight: 700,
+  fontSynthesis: "none",
+  lineHeight: "var(--lh-my)",
+};
+// Interleaved English inside a Burmese run keeps the body face (Padauk's Latin reads as
+// "Burmese-styled English").
+const enInMy: CSSProperties = { fontFamily: "var(--font-body)" };
 const qtyBadge: CSSProperties = { fontWeight: 800, color: "var(--ac-strong)", flex: "none" };
 const destTag: CSSProperties = {
   flex: "none",

@@ -12,7 +12,7 @@ expo state, and (via `fired_at/started_at/bumped_at`) every kitchen metric for f
 ┌──────────────────────────────────┐
 │ T4 · dine-in        🕐 03:42     │ ← header strip: 32px table# / name+code · channel badge ·
 │──────────────────────────────────│    mm:ss elapsed. The STRIP background is the urgency color.
-│ 2  Mohinga                       │ ← qty = solid chip, display weight; item ≥28px / weight 800
+│ 2  Mohinga                       │ ← qty = solid chip, display weight; item ≥28px / heaviest cut (Hanken 800 · Padauk 700); Burmese primary ≥30px (body parity, P1)
 │      no cilantro                 │ ← modifiers indented, ≥20px, FULL contrast (allergy-critical)
 │ 1  Shan Noodles                  │
 │ ▓▓ NO PEANUTS — allergy ▓▓       │ ← notes: red band, highest-contrast element on the card

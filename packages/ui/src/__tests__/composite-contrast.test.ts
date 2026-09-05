@@ -585,3 +585,35 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
     expect(withShine).toBeGreaterThan(withSheen);
   });
 });
+
+describe("the KDS held card — two stacked fades the hex audit cannot see (P1)", () => {
+  /**
+   * `.kds-ticket-held { opacity: var(--kds-held-op) }` fades the CARD; `.kds-line:disabled
+   * { opacity: var(--kds-line-off-op) }` fades the LINE, and a held line is always disabled
+   * (`disabled={pending || held}`, KdsBoard). So the English echo under a Burmese dish name
+   * (`.kds-line-en`, 21px/800) composites through BOTH: the line group over the card face, then the
+   * card over the page. The design panel on P1 shipped one draft that set the echo in --t2 and
+   * quoted the single-fade number (4.15:1) — the stacked one is 2.7:1, under even the 3:1
+   * large-text floor. This pins the stacked composite, in Night (the KDS default), for the colour
+   * the echo actually uses AND for the one it must not.
+   */
+  const held = Number(raw(dark, "--kds-held-op"));
+  const off = Number(raw(dark, "--kds-line-off-op"));
+  const LARGE = 3; // WCAG 1.4.3 large text (≥18.66px bold) floor — 21px/800 qualifies
+  const stacked = (ink: Rgba) => {
+    const cd = t(dark, "--cd");
+    const pg = t(dark, "--pg");
+    const line = over({ ...ink, a: off }, cd); // the disabled line group over the card face
+    const text = over({ ...line, a: held }, pg); // the held card over the page
+    const ground = over({ ...cd, a: held }, pg); // the same card, where there is no ink
+    return ratio(text, ground);
+  };
+  it("Night · --tx on a held, disabled line clears the large-text floor", () => {
+    expect(held).toBeGreaterThan(0);
+    expect(off).toBeGreaterThan(0);
+    expect(stacked(t(dark, "--tx"))).toBeGreaterThanOrEqual(LARGE);
+  });
+  it("Night · --t2 does NOT — this is why .kds-line-en is --tx and not the muted echo", () => {
+    expect(stacked(t(dark, "--t2"))).toBeLessThan(LARGE);
+  });
+});

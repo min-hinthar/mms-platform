@@ -1,11 +1,12 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
+import { allDayRows, burmeseAddsInfo } from "@/lib/ticket-names";
 import type {
   KdsThresholds,
   KitchenLine,
@@ -316,18 +317,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
   // All-Day rail: pure client-side reduce over the LIVE lines (station-filtered — the rail answers
   // "how many mohinga does THIS screen owe right now"), grouped item+modifiers, largest first.
-  const allDay = useMemo(() => {
-    const counts = new Map<string, { label: string; qty: number }>();
-    for (const t of live) {
-      for (const l of t.lines) {
-        const label = l.modifiers.length ? `${l.name} · ${l.modifiers.join(", ")}` : l.name;
-        const cur = counts.get(label);
-        if (cur) cur.qty += l.qty;
-        else counts.set(label, { label, qty: l.qty });
-      }
-    }
-    return [...counts.values()].sort((a, b) => b.qty - a.qty);
-  }, [live]);
+  // P1 moved the reduce into lib/ticket-names.ts (`allDayRows`) so its two rules — the key is the
+  // English label, and a row carries the most Burmese known for it — are falsified by a value.
+  const allDay = useMemo(() => allDayRows(live.flatMap((t) => t.lines)), [live]);
 
   // ── Control handlers ───────────────────────────────────────────────────────────────────────────
   const pickStation = (key: "all" | KitchenStation) => {
@@ -561,7 +553,26 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               <ul role="list">
                 {allDay.map((row) => (
                   <li key={row.label}>
-                    <span style={{ minWidth: 0 }}>{row.label}</span>
+                    <span style={{ minWidth: 0 }}>
+                      {burmeseAddsInfo(row.nameMy, row.modifiersMy) ? (
+                        // P1 — the Burmese row the cook counts by, English echo beneath at the
+                        // chrome size. Same per-slot fallback as the ticket (ModsMy).
+                        <>
+                          <span className="kds-rail-my" lang="my">
+                            {row.nameMy ?? <span lang="en">{row.name}</span>}
+                            {row.modifiers.length > 0 && (
+                              <>
+                                {" · "}
+                                <ModsMy modifiers={row.modifiers} modifiersMy={row.modifiersMy} />
+                              </>
+                            )}
+                          </span>
+                          <span className="kds-rail-en">{row.label}</span>
+                        </>
+                      ) : (
+                        row.label
+                      )}
+                    </span>
                     <b>×{row.qty}</b>
                   </li>
                 ))}
@@ -867,9 +878,32 @@ function KdsLineRow({
           {line.qty}
         </span>
         <span className="kds-line-main">
-          <p className="kds-line-name">{line.name}</p>
+          {/* P1 — the line Mom reads a hundred times a night. Burmese takes the primary slot ONLY
+              when the catalog has it (`nameMy`, lib/ticket-names.ts); the English snapshot echoes
+              beneath at the modifier size, full contrast — Dad's line, and the one a K15 correction
+              cannot retire. An English-only dish renders exactly as it did before P1. The
+              aria-label above stays English on purpose: a flat string carries no lang, and an
+              English TTS voice garbles Myanmar codepoints — P2 owns the moment the chrome speaks
+              Burmese; the visible English echo keeps WCAG 2.5.3 meanwhile. */}
+          {line.nameMy ? (
+            <>
+              <p className="kds-line-name" lang="my">
+                {line.nameMy}
+              </p>
+              <p className="kds-line-en">{line.name}</p>
+            </>
+          ) : (
+            <p className="kds-line-name">{line.name}</p>
+          )}
           {line.modifiers.length > 0 && (
-            <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>
+            <>
+              {line.modifiersMy.some((m) => m !== null) && (
+                <p className="kds-line-mods" lang="my">
+                  <ModsMy modifiers={line.modifiers} modifiersMy={line.modifiersMy} />
+                </p>
+              )}
+              <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>
+            </>
           )}
           {(line.fulfillment === "togo" || line.state === "in_progress") && (
             <p className="kds-line-tag">
@@ -907,5 +941,36 @@ function KdsLineRow({
         ))}
       {line.notes && <p className="kds-note">{line.notes}</p>}
     </li>
+  );
+}
+
+/**
+ * P1 — a Burmese modifier run with PER-SLOT English fallbacks. Each slot is EITHER the option's
+ * Burmese (inheriting the parent's lang="my") OR its English label wrapped in lang="en" and reset to
+ * the body face in CSS — so English is never typeset in Padauk's Latin glyphs or announced as
+ * Burmese (QA-CHECKLIST §A: keep lang="en" on interleaved English). The separators are text nodes
+ * inside a block element, never children of a flex container, so DESIGN-LANGUAGE §6's
+ * whitespace-node rule cannot bite. Rendered only when some slot HAS Burmese (the caller checks), so
+ * an all-English line is byte-identical to pre-P1.
+ */
+function ModsMy({
+  modifiers,
+  modifiersMy,
+}: {
+  modifiers: string[];
+  modifiersMy: (string | null)[];
+}) {
+  return (
+    <>
+      {modifiers.map((en, i) => {
+        const my = modifiersMy[i] ?? null;
+        return (
+          <Fragment key={i}>
+            {i > 0 && " · "}
+            {my !== null ? my : <span lang="en">{en}</span>}
+          </Fragment>
+        );
+      })}
+    </>
   );
 }

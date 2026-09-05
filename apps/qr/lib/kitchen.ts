@@ -21,6 +21,7 @@ import type {
   KitchenStation,
   KitchenTicket,
 } from "./kitchen-types";
+import { catalogNameMy, pairModifiersMy, UUID_RE, uuidOptionIds } from "./ticket-names";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -46,7 +47,6 @@ const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
   drinks: "drinks",
   "appetizers-salads": "cold",
 };
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_THRESHOLDS: KdsThresholds = {
   dineinAmberMin: 8,
@@ -118,7 +118,9 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // outage client keeps the last-known queue, so erring toward `outage` never blanks anything.
   const { data: lines, error: linesError } = await db
     .from("qr_cart_items")
-    .select("id,name,qty,modifiers,state,fire_at,cart_id,fulfillment,notes,menu_item_id")
+    .select(
+      "id,name,qty,modifiers,modifier_option_ids,state,fire_at,cart_id,fulfillment,notes,menu_item_id",
+    )
     .in("state", ["fired", "in_progress"])
     .not("fire_at", "is", null)
     .order("fire_at", { ascending: true })
@@ -142,27 +144,50 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // Menu-station lookup: kitchen lines are always restaurant items (grocery never fires), but filter to
   // uuid-shaped ids defensively — menu_item_id is a soft ref that also carries grocery barcodes.
   const menuIds = [...new Set(lines.map((l) => l.menu_item_id).filter((id) => UUID_RE.test(id)))];
+  // P1 — the option ids behind the Burmese modifier labels. Partitioned to uuid-shaped ids BEFORE the
+  // IN-list: `modifier_option_ids` is a soft jsonb ref and ONE malformed value would fail the whole
+  // read (and, being advisory, silently strip Burmese from every modifier on the board).
+  const optionIds = [...new Set(lines.flatMap((l) => uuidOptionIds(l.modifier_option_ids)))];
 
-  const [sessRes, orderRes, menuRes] = await Promise.all([
+  const [sessRes, orderRes, menuRes, optRes] = await Promise.all([
     // No mode/status filter (W3a): dine-in enforces active below; pickup/scango outlive their session.
     db.from("table_sessions").select("id,qr_code,table_number,mode,status").in("id", sessionIds),
     // The order anchors the pickup/scango identity: its uuid tail IS the short code the diner's
     // /track + exit pass show, so the kitchen and the customer's phone always agree.
     db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
     menuIds.length
-      ? db.from("menu_items").select("id,is_sold_out,menu_categories(slug)").in("id", menuIds)
+      ? db
+          .from("menu_items")
+          .select("id,is_sold_out,name_my,menu_categories(slug)")
+          .in("id", menuIds)
       : Promise.resolve({
           data: [] as {
             id: string;
             is_sold_out: boolean;
+            name_my: string | null;
             menu_categories: { slug: string } | null;
           }[],
           error: null,
         }),
+    // P1 — ADVISORY: the Burmese half of the modifiers. Its failure is a logged degrade (every
+    // modifier renders English, which is exactly what the board showed before P1), never `outage`:
+    // a name read cannot misidentify a ticket, and freezing the board over a label would be the
+    // over-blocking direction. Flipping this to `outage` is a one-line change if that ever changes.
+    optionIds.length
+      ? db.from("modifier_options").select("id,name_my").in("id", optionIds)
+      : Promise.resolve({ data: [] as { id: string; name_my: string | null }[], error: null }),
   ]);
   // Same rule as the anchor reads: a failed session read skips every ticket (false-empty); a failed
   // order/menu read strips pickup call-out codes / station routing — misidentity, not degradation.
+  // (`name_my` rides the menu read that already gates on `outage` — one query, one posture.)
   if (sessRes.error || orderRes.error || menuRes.error) return { ok: false, reason: "outage" };
+  if (optRes.error)
+    console.error("[kitchen] modifier_options name_my read failed — modifiers render EN", {
+      message: optRes.error.message,
+    });
+  const optionNameMy = new Map(
+    (optRes.error ? [] : (optRes.data ?? [])).map((o) => [o.id, o.name_my]),
+  );
   const sessById = new Map((sessRes.data ?? []).map((s) => [s.id, s]));
   const orderByCart = new Map<string, string>();
   for (const o of orderRes.data ?? []) {
@@ -172,10 +197,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   // W23a — which dishes are ALREADY off the menu, so the ticket's 86 control shows the current answer
   // instead of an affordance the server would refuse. Same read, one more column.
   const soldOutItems = new Set<string>();
+  const nameMyByItem = new Map<string, string | null>();
   for (const m of menuRes.data ?? []) {
     const slug = m.menu_categories?.slug;
     stationByItem.set(m.id, (slug && STATION_BY_CATEGORY[slug]) || "wok");
     if (m.is_sold_out) soldOutItems.add(m.id);
+    nameMyByItem.set(m.id, m.name_my);
   }
 
   // Assemble tickets, preserving the oldest-first line order (lines is already sorted by fire_at).
@@ -196,11 +223,15 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
       // pickup cart is an edge no diner surface produces — skip rather than cook unpaid food.
       continue;
     }
+    const modifiers = Array.isArray(l.modifiers) ? (l.modifiers as string[]) : [];
     const line: KitchenLine = {
       id: l.id,
       name: l.name,
+      // P1 — the Burmese the cook reads first, from the live catalog; `name` stays the snapshot.
+      nameMy: catalogNameMy(nameMyByItem.get(l.menu_item_id), l.name),
       qty: l.qty,
-      modifiers: Array.isArray(l.modifiers) ? (l.modifiers as string[]) : [],
+      modifiers,
+      modifiersMy: pairModifiersMy(l.modifier_option_ids, modifiers, optionNameMy),
       notes: l.notes ?? null,
       state: l.state === "in_progress" ? "in_progress" : "fired",
       firedAt: l.fire_at ?? nowIso,
