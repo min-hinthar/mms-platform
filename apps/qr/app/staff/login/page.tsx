@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getStaffAuth } from "@/lib/staff";
 import { safeNext } from "@/lib/safe-next";
 import { StaffLogin } from "@/components/staff/StaffLogin";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Staff sign-in — Mandalay Morning Star" };
 
@@ -29,5 +31,17 @@ export default async function StaffLoginPage({
   // wrong account can recover, not loop.
   if (auth.kind === "staff") redirect(next);
   const denied = auth.kind === "not_staff" || params.denied === "1";
-  return <StaffLogin denied={denied} next={next} />;
+  // P2 — the language control belongs HERE above all other staff surfaces: this is the first screen
+  // the kitchen tablet shows, before anyone is signed in. It is also why `setStaffLang` is ungated —
+  // a `staffGate` on the writer would make this control inert on exactly this page. The form's own
+  // copy stays English this slice (OPEN-ITEMS P2c); the control does not have to wait for it.
+  const lang = await readStaffLang();
+  return (
+    <>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
+        <StaffLangSwitch lang={lang} />
+      </div>
+      <StaffLogin denied={denied} next={next} />
+    </>
+  );
 }
