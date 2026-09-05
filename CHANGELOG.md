@@ -4,6 +4,57 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
+
+**The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese
+first.** P1 gave them the ticket; this gives them the chrome around it. A staff-DEVICE locale
+(`mms_staff_lang`) decides which language the console speaks, set once per tablet and never asked
+again — absent means Burmese, so nobody has to find the control to be understood, only to leave it.
+
+**Three decisions carry their own guard, and each was watched failing first.**
+
+_The writer is UNGATED, deliberately._ `staffGate` makes a live auth round trip that answers
+`unavailable` mid-outage and refuses anonymous callers — so gating the language control would remove
+it from `/staff/login` (nobody signed in yet), `/staff/lock`, `/board` (a device token, no staff
+session) and the outage shell: every screen where it matters most. What is written carries no
+authority; a two-value Zod enum is the whole validation.
+
+_`path: "/"`, not `/staff`._ `/board` is not under `/staff`, and the lock cookie next door IS
+path-scoped — copying that instinct would have starved the wall TV while every `/staff` page kept
+working, a failure with no symptom anywhere a `/staff` test would look.
+
+_The staff root stamps `data-lang`, never `lang`._ The global `[lang="my"]` rule sets
+`overflow-wrap: anywhere` AND `line-height`, both INHERITING, while `[lang="en"]` resets only the
+wrap — so a Burmese root re-leads every Latin run beneath it and lets `$42.10` break mid-amount, with
+no opt-out. Burmese is marked per span instead. **WCAG 3.1.1 is therefore knowingly unsatisfied at
+`lang=my` and 3.1.2 holds at every span** — filed as P2d with an audit as its precondition, and the
+`data-` attribute exists to make the wrong "fix" inconvenient.
+
+**Owner decisions taken before any code was written** (2026-09-05): the station chips
+(All/Wok/Cold/Drinks) stay **Latin in both tongues** — a wrong Burmese word there hides tickets, and
+they are set-once jargon; **Burmese numerals in prose counts** ("အော်ဒါ ၃ ခု") with money, clock
+times, table numbers and pickup codes staying Latin; and the English echo on the important things
+only — headings, action buttons, outage sentences, the 86 control and money labels, but not 44px
+chips (two scripts cannot legibly stack in one) or live regions (a bilingual announcement says
+everything twice).
+
+**The dictionary is STANDALONE, not spread into `DICT`** — `lib/i18n/index.ts` is imported by CLIENT
+diner components and `DICT` is one dynamically-indexed literal, so nothing tree-shakes and a spread
+would ship every staff Burmese string in a guest's bundle. Coverage is paid for rather than given up.
+
+**`frozenBoardCopy` had no test at all before this.** It is the sentence six boards show when the
+ordering system is unreachable — the copy that tells the floor to fall back to paper — and its
+English is now pinned EXACTLY in all four head/tail combinations, so making it bilingual could not
+quietly reword what English-reading staff rely on. Its noun is a dictionary key rather than a free
+string, which is what had made all six call sites untranslatable. The Burmese arm is pinned
+structurally (Myanmar script, the right noun, a LATIN clock, the same threshold), never to a
+literal — every Burmese value is a K15 draft and a native-check correction must not redden a suite.
+
+`check:staff-lang` joins the CI fast lane with two complementary parsed rules: the reader modules are
+unreachable from every non-staff route root **transitively** (a two-hop import through a shared
+component is the realistic break, and a membership check would pass it), and the cookie NAME literal
+lives in exactly one file — which catches the inline `cookies().get("…")` that has no import to walk.
+
 ### The kitchen ticket reads Burmese first (2026-09-05 · pilot P1)
 
 **The line Mom reads a hundred times a night.** Every KDS and expo line now carries the catalog's
