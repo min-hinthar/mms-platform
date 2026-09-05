@@ -850,7 +850,7 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING: its test asserted a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot. \u26a0\ufe0f THE FIND SPANS THE WHOLE if/else PAIR, and the #254 blind pass is why: the first draft cut only the `if`, leaving `});` followed by a bare `else` \u2014 a SyntaxError. `suitePasses` is an exit-code check, so a file that will not PARSE reddens the suite and scores `caught` while proving nothing. A mutation must remain valid code or it measures the parser",
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
     replace:
       '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
   },
@@ -859,7 +859,7 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "The SIBLING the #252 retarget left uncovered, found by the #254 blind pass. `add`'s publish fork is textually identical to `setItemQty`'s, so one anchor could never cover both \u2014 and after the retarget NEITHER was covered, on the exact line whose own note says the stepper's refusal had been pinned by nothing. This one is anchored through `add`'s interleaved comment, which is what makes it unique; the sibling spans its own if/else pair instead",
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);\n        // The optimistic "Added to your order" is still on screen; retract it rather than let an\n        // outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed();',
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        // The optimistic "Added to your order" is still on screen; retract it rather than let an\n        // outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed();',
     replace: '        if (result.state === "unconfirmed") publishUnconfirmed();',
   },
   {
