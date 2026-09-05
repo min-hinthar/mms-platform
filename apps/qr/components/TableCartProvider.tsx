@@ -960,8 +960,11 @@ export function TableCartProvider({
         // concurrent peer write skews: a tablemate removing one unit of THEIR line made `landed`
         // come out one short and fired "Added 4 — that line is now at our 99 max" about a dish
         // sitting at 6 of 99. That needs no near-cap line to reach, so it was likelier than the cap
-        // it claimed. `none` is spoken HERE and only here: the mutation returned a view, so a zero
-        // is proof of the cap rather than a write we could not confirm.
+        // it claimed. `none` is spoken HERE and only here, because the mutation returned a view — so
+        // the write provably COMMITTED and the sentence is not a guess about that. ⚠️ It is still not
+        // proof of the CAP, which this note used to claim: a zero net delta is equally a comped
+        // sibling (T25) or a concurrent restore (T43). `addShortfallNotice` says only "Nothing was
+        // added", which is what a zero actually supports.
         //
         // ⚠️ NOT GATED ON `qty > 1` (blind adversarial pass). It used to be, which left the most
         // ordinary way to hit the cap uncorrected: a single "+" on a line already at 99 announced
@@ -1021,8 +1024,14 @@ export function TableCartProvider({
           : null;
         const result = recoveredWrite({
           reread: fresh,
-          // `full`/`partial` = this dish grew, so the write landed. `none` = the cart was read and
-          // this dish did not move, which IS evidence of a refusal. `unknown` = unattributable.
+          // `full`/`partial` = this dish grew, so the write landed. `unknown` = unattributable.
+          //
+          // ⚠️ `none` IS TREATED AS A REFUSAL AND IS NOT ONE — the note here claimed "this dish did
+          // not move, which IS evidence of a refusal" (Codex round 4 on #255). `none` means the NET
+          // delta was zero, which a restoring host produces on a write that COMMITTED: `dishDeltas`
+          // does nothing at `d === 0`. `mayRetry` is then true and `YourUsual` re-adds it. This line
+          // is the defect OPEN-ITEMS **T43** fixes; it is left as-is deliberately, because changing
+          // the mapping without the classifier is how a wrong number ships.
           landed: outcome === null ? null : outcome === "unknown" ? null : outcome !== "none",
           viewIsCurrent,
         });
@@ -1136,11 +1145,25 @@ export function TableCartProvider({
         // because this path has no third value to return; `add` reaches `unconfirmed` through
         // `classifyAddLanding`'s own `unknown`, and this one cannot.
         //
-        // What that costs is bounded to the SENTENCE, not the retry: a superseded set is reported
-        // `refused`, and `refusedWriteNotice` keeps the hedged opener for exactly the `unknown`
-        // cause it arrives under (`cart-freeze.ts`). Giving this path a real `unknown` arm is
-        // OPEN-ITEMS T41 — it trades a hedged sentence for a lost view, which is the wrong way round
-        // until a slice can mutate the trade-off.
+        // ⚠️ AND THE COST IS NOT BOUNDED TO THE SENTENCE — the previous note here said it was, and
+        // Codex round 2 on #255 falsified that twice over. `recoveredWrite` answers `refused`, so
+        // `mayRetry` is TRUE for a write that landed: the STATE is wrong, not just the copy. Nor is
+        // the hedge a containment: it rides the `unknown` CAUSE, and this same ordering reaches
+        // `frozen` whenever the host starts checkout after overwriting (`cart-freeze.ts`), where the
+        // opener is assertive.
+        //
+        // Giving this path a real `unknown` arm is OPEN-ITEMS T41. The old note called that a trade
+        // of "a hedged sentence for a lost view" — ALSO WRONG, and worth deleting rather than
+        // softening, because it was the stated reason not to fix this: `AddButton`'s queue reads
+        // `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)`, so the stale
+        // snapshot is reachable ONLY for a FIRST op; a following op with no view sends nothing
+        // (Codex round 6 on #251 closed exactly that). Routing here to `unconfirmed` cannot
+        // re-create the P1 it was said to risk.
+        //
+        // ⚠️ The obvious third arm is ALSO unsound: "the line sits at the PRE-write value → refused"
+        // fails when a host RESTORES that value after our write landed — the same restoration
+        // ordering that makes `classifyAddLanding` answer `none` on the add path (T43). Only "the
+        // line sits at our target" establishes anything; everything else is honestly `unknown`.
         const line = fresh?.find((i) => i.id === cartItemId);
         const result = recoveredWrite({
           reread: fresh,

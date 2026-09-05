@@ -144,7 +144,14 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // loop only ever calls `add`, and `add` reaches `refused` only through
           // `classifyAddLanding`'s `none` — nothing of the dish grew AND nothing shrank — while a
           // contested dish answers `unknown` there and routes to `unconfirmed`, which `mayRetry`
-          // filters out above. So on this path the verdict is established and stating it is honest.
+          // filters out above.
+          //
+          // ⚠️ THAT DOES NOT MAKE THE VERDICT ESTABLISHED, and this comment claimed it did (Codex
+          // round 3 on #255). `dishDeltas` does nothing at `d === 0`, so a host RESTORING the
+          // pre-add quantity produces neither growth nor shrink and lands on `none` — our add
+          // committed, this sentence says it did not, and `mayRetry` re-sends it. OPEN-ITEMS **T43**
+          // fixes the classification; until it does, this asymmetry is a NARROWER exposure than
+          // `setItemQty`'s rather than an exempt one. Do not reason from it as a guarantee.
           //
           // ⚠️ BOTH JOINERS ARE FORCED BY THE CLAUSE, not cosmetic (T32). The appended fragment is
           // lowercase and period-free, so the sentence must supply its own em-dash and full stop —

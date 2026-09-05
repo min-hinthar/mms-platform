@@ -466,25 +466,36 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
  *
  *   • `add` establishes a non-landing by ATTRIBUTED GROWTH — `classifyAddLanding` answers `unknown`
  *     whenever two lines of the dish grew or one shrank, and `TableCartProvider` maps that to
- *     `landed: null` → `unconfirmed`. So a concurrent same-dish edit never reaches this sentence, and
- *     `none` really does mean the dish did not move.
+ *     `landed: null` → `unconfirmed`. ⚠️ BUT `none` DOES NOT MEAN THE DISH DID NOT MOVE, which is
+ *     what this bullet used to claim (Codex round 3 on #255). `dishDeltas` tests `d > 0` and `d < 0`
+ *     and does nothing at `d === 0`, so a host RESTORING the pre-add quantity leaves neither growth
+ *     nor shrink and falls to `none` — a landed add, reported refused, and `mayRetry` then re-sends
+ *     it. OPEN-ITEMS **T43**. So this path is narrower than `setItemQty`'s, not sound.
  *   • `setItemQty` establishes it by comparing ONE ABSOLUTE VALUE — `line?.qty === qty`. A peer write
  *     cannot forge a landing that way, but it can forge a NON-landing: our set to 3 commits, an
  *     authorized host sets the same line to 5 inside the round trip, the re-read reads 5, and the
  *     comparison answers false for a write that landed. Nothing on that path can tell the two apart,
  *     and the cart carries no lock or settle to explain it — so it arrives here as `unknown`.
  *
- * `frozen` and `settling` keep the assertive opener: they are causes the server states, reached
- * through a cart that is demonstrably inert. `unknown` is the arm with no such witness, so it keeps
- * the hedge — which is also the only sentence that is true on BOTH readings of it.
+ * `frozen` and `settling` keep the assertive opener, and ⚠️ THAT IS A NARROWING, NOT A PROOF (Codex
+ * round 2 on #255). An earlier draft of this docblock called the inert cart a WITNESS for the
+ * verdict; it is not. A freeze describes the cart at RE-READ time and says nothing about whether our
+ * write landed before it — host overwrites our line, THEN starts checkout, and `line?.qty === qty`
+ * is false while this function answers `frozen`, so the assertive opener fires on a committed write.
+ * The verdict is unsound under every cause on the `setItemQty` path; the hedge on `unknown` shrinks
+ * the exposure and does not close it (OPEN-ITEMS T41). Keep the per-cause opener — it is strictly
+ * better than asserting everywhere — and do not reason from it as though it were established.
  *
  * That leaves the opener shared with `unconfirmedWriteNotice()`, and deliberately: the two are no
  * longer opposite claims, they are two degrees of the same uncertainty, and the CLAUSES separate
  * them — "check your order below" where we may hold no current view, "the order below is up to date"
  * where the re-read succeeded and is on screen. Giving `setItemQty` a real `unknown` arm is the
- * source-level fix and is filed as OPEN-ITEMS **T41**; it is not free (an `unconfirmed` result
- * carries no view, so it would hand `AddButton`’s queue back to its own snapshot) and belongs in a
- * slice that can mutate the trade-off, not in the sentence.
+ * source-level fix and is filed as OPEN-ITEMS **T41**. ⚠️ THE COST THIS PARAGRAPH USED TO CITE WAS
+ * FALSE (Codex round 2 on #255): it said an `unconfirmed` result would hand `AddButton`’s queue back
+ * to its own snapshot and re-create #251’s stale-absolute-quantity P1. It cannot — the queue reads
+ * `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)` and SENDS NOTHING when a
+ * following op has no view (Codex round 6 on #251 closed exactly that). The fix is cheaper than this
+ * docblock claimed, and the claim is what kept it filed.
  */
 export function refusedWriteNotice(refusal: PublishableRefusal): string {
   // The hedge is CAUSE-BOUND, not path-bound, because the sentence has no path to read. `unknown` is

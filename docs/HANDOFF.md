@@ -5,6 +5,126 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #254 — the refusal sentence is composed once, and the hedge is per cause)
+>
+> **`main` is at `4a3ea98`** (#254). The block below is the #250/#251/#252 arc and its "rows this arc
+> leaves" list is now STALE in its top three entries: **T30, T31 and T32 are closed by this PR.** Read
+> this one; that one for the `.test.tsx` mechanism, which is unchanged and still load-bearing.
+>
+> ### What shipped
+>
+> `cart-freeze.ts` names the refusal CLAUSE once (`refusedWriteClause` — lowercase, period-free) and
+> both callers compose from it; `refusedWriteNotice` is a template over it. `/menu`'s partial-add
+> message no longer says the verdict twice. `forgetRefusal()` runs at the top of both writers, above
+> the `!cartId` guards, so a cause cannot outlive an EARLIER write — ⚠️ which is NOT the same as being
+> bound to one (Codex on #255, verified): `track` is a ledger, not a serializer (it adds the promise to
+> a Set and returns it unchanged), so two overlapping writes share one provider-global
+> `lastRefusalRef`. Write B can publish between A resolving and `YourUsual` reading the latch, and A's
+> dish then announces B's diagnosis. Filed as **T42**. The `unreachable` sentence is retired and
+> `PublishableRefusal` makes its absence a compile error rather than an emergent property of statement
+> order.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: the opener is per cause, and the obvious simplification is WRONG
+>
+> A draft of this PR flipped `unknown` to the assertive "That didn't go through", on the reasoning that
+> #251 made `refused` mean "the re-read SUCCEEDED and the write was not in it". The flip was wrong and
+> the hedge shipped — but ⚠️ **the FIRST version of this block justified it too narrowly, and Codex
+> falsified two of its three claims on #255.** The corrected account, each part verified against
+> source:
+>
+> - `setItemQty` compares ONE ABSOLUTE VALUE, `line?.qty === qty`. `setQty` is absolute, so no peer
+>   write can forge a LANDING — but an authorized host setting the same line inside the round trip
+>   forges a NON-landing: our set to 3 commits, the re-read reads the host's 5, the comparison answers
+>   false for a write that landed. That much was right.
+> - ❌ **"`add` has no such hole" was FALSE.** `dishDeltas` tests `d > 0` and `d < 0` and does nothing
+>   at `d === 0`, so a host restoring the line to its PRE-ADD quantity (starts at 2, our add commits 3,
+>   host sets 2 back) yields no growth AND no shrink → `classifyAddLanding` answers `none`, not
+>   `unknown` → `refused`. Proven executably, not read: `mayRetry` is then TRUE, so `YourUsual` resumes
+>   at that dish and RE-ADDS one that landed. That is the double-charge direction `write-outcome.ts`'s
+>   own asymmetry argument calls the expensive one. Filed as **T43**.
+> - ❌ **"`frozen`/`settling` keep the assertion safely" was FALSE.** The freeze describes the cart at
+>   RE-READ time and says nothing about whether our write landed before it. Host overwrites our line,
+>   then starts checkout; `line?.qty === qty` is false AND `classifyRefusedWrite` answers `frozen`, so
+>   the assertive opener fires on a committed write. Folded into **T41**.
+>
+> **So the honest statement is: the non-landing verdict is unsound on BOTH paths and under EVERY cause;
+> the per-cause hedge narrows the exposure, it does not close it.** Keep the hedge — it is strictly
+> better than asserting everywhere — and do not read it as a proof. `YourUsual` asserting the verdict
+> on every cause is a residual of the same family, not a justified exception. The source docblocks in
+> `cart-freeze.ts`, `TableCartProvider.tsx` and `menu/YourUsual.tsx` that asserted the retracted
+> versions are corrected in this PR. ⚠️ The first attempt at that sentence claimed completeness after
+> fixing only TWO of them, and Codex round 3 found three more — the same "appending a correction
+> leaves the original standing" shape, this time in the claim that the sweep was done. Grep before
+> asserting a sweep is complete.
+>
+> ⚠️ **AND THE BLOCKER THAT KEPT T41/T43 FILED RATHER THAN FIXED WAS FALSE** (Codex round 2 on #255).
+> Both rows, and the first draft of this block, said routing these to `unconfirmed` hands `AddButton`'s
+> queue back to its own snapshot and re-creates #251's stale-absolute-quantity P1. It cannot:
+> `AddButton` reads `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)` and **sends
+> nothing** when a following op has no view — Codex round 6 on #251 closed exactly that. The claim was
+> inherited from #254's docblock and re-stated three times without being checked against the queue.
+> So the fix is cheaper than filed. ⚠️ Note also that the obvious third arm ("the line at the PRE-write
+> value → refused") is ITSELF unsound under a RESTORING host — the same ordering as T43. Only "the line
+> sits at our target" establishes anything.
+>
+> ### ⚠️ TWO GUARD RULES THIS SLICE PAID FOR
+>
+> 1. **`verify:slice` now refuses a mutant whose mutated file does not PARSE.** The blind pass found a
+>    retargeted mutant producing a dangling `else` (confirmed with esbuild: `Unexpected "else"`),
+>    scoring `caught` off a SyntaxError while proving nothing about the guard. This is LEARNINGS #60
+>    arriving from a direction "guards parse, never scan" did not cover — the GUARD parsed fine; its
+>    MUTATION did not.
+> 2. **Choose a mutant anchor from FORMATTED text, and probe red-first AFTER formatting** (LEARNINGS
+>    #79). `refusal/unknown-borrows-the-assertive-opener` was probed CAUGHT, then `pnpm format` wrapped
+>    the declaration it named, and it went **STALE on its own commit** — `pattern matched 0×`. Same
+>    class as everything else in this arc, one layer out: a guard proved against a version of its
+>    subject that was not committed. `verify:slice` caught it because a STALE mutant is a FAILURE, not
+>    a skip; that rule is what bought it.
+>
+> ### Also worth knowing
+>
+> - **Both blind-pass CRITICALs were shape defects in NEW test code, not in product code**, and the
+>   second is a trap the split into two producers newly created: three predicates for "the clause is a
+>   fragment" (lowercase-initial · no terminal period · does not contain the verdict) are ALL VACUOUS
+>   on `""`, so deleting an arm's clause passed every one. Assert non-empty FIRST.
+> - **A count of another module's outputs does not belong in prose.** `YourUsual.test.tsx` carried one,
+>   it was wrong, and the first correction was ALSO wrong because T30 retired an arm in the same diff.
+>   Replaced with a claim that does not rot.
+> - The merge ritual held: draft → `@codex review` → round 1 clean on `482b7010e4` → mark ready →
+>   `@codex review` → `codex-review` green **with a summary saying "Codex has reviewed" that SHA** →
+>   merge. ⚠️ The draft stand-down is GREEN and names the SHA while explicitly saying it has NOT been
+>   reviewed — green alone is never the signal, the summary text is. A `publish-codex-verdict` job
+>   showing `cancelled` on the head is the workflow's own PR-keyed `concurrency` superseding an older
+>   wait; it is not the gate and it is not a failure, though it does leave `mergeable_state:
+"unstable"`.
+>
+> ### The rows this arc leaves, in the order they are worth doing
+>
+> 1. **T33** (high) — the composed sentence is ERASED by the lock/settle banner in the same tick, on
+>    exactly the taps that produce it: the diagnosing re-read is the read that flips `locked`, and both
+>    transition effects defer into the same single slot. #254 made the sentence correct; it did not
+>    make it readable. Everything above is invisible until this is fixed.
+> 2. **T41 · T43** (med) — the unsound non-landing verdict, on `setItemQty` and on `add` respectively.
+>    T43 is the sharper of the two (it ends in a re-added dish, not just a wrong sentence). Read both
+>    rows before starting — but note the "this regresses #251" blocker they used to carry is FALSE and
+>    now retracted in both, so these are cheaper than they look.
+> 3. **T42** (med) — the refusal latch is provider-global and `track` does not serialize, so a
+>    concurrent write's clause can be read by another write's continuation.
+> 4. **T28** (med) — `check-child-freeze` has NO component-side expected set while its sibling
+>    `check-freeze-parity` has one. Any audited component can leave the subject set silently.
+> 5. **T29** (med) — `AddButton` (four propositions, owes the framer stub), then `ItemSheet`. Do
+>    `AddButton` alone.
+> 6. **T34–T40** — filed by the #254 scout; T38 (the hand-written freeze literals and their
+>    near-duplicate pairs — the inventory lives in T38's own row, deliberately not copied here) is
+>    T32's rule applied to the rest of the vocabulary.
+> 7. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
+>
+> Still owner-gated and untouched: the cart→intent link (**M123 · M124 · M151 · M152**), **C16** (make
+> `codex-review` a REQUIRED check — until then the merge ritual is all that stands between the gate and
+> #241 happening again), and the prod-migration items on the divergent history. Sweep
+> [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) — it is the single registry — rather than trusting any count
+> written here.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-04 · PR #250 · #251 · #252 — the /menu write path is now honest AND observable)
 >
 > **`main` is at `233418d`** (#252). Three slices landed since the #249 block below, and that block's

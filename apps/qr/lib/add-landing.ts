@@ -40,9 +40,18 @@ export type AddLanding = {
   landed: number;
   /**
    * `full` — everything asked for arrived. `partial` — some did, fewer than asked, and the shortfall
-   * is attributable to this tap. `none` — nothing arrived and nothing else moved, so the cap is
-   * established. `unknown` — a write we cannot see moved this dish inside our round trip, and the
-   * difference no longer describes what the diner just did.
+   * is attributable to this tap. `unknown` — a write we cannot see moved this dish inside our round
+   * trip, and the difference no longer describes what the diner just did.
+   *
+   * ⚠️ `none` MEANS "THE NET DELTA WAS ZERO", NOT "NOTHING ARRIVED" — this docblock said the latter,
+   * and every copy of the claim downstream came from here (Codex rounds 3-4 on #255). Three
+   * different things produce it and the outcome cannot tell them apart: the line is at
+   * `LINE_QTY_MAX`; the add matched a COMPED sibling and succeeded as a no-op (OPEN-ITEMS T25); or a
+   * write we cannot see RESTORED the line to its pre-add quantity, so `dishDeltas` — which tests
+   * `d > 0` and `d < 0` and does nothing at `d === 0` — sees our landed add cancel out (OPEN-ITEMS
+   * T43). `addShortfallNotice` has always been honest about this ("WHY is not knowable here"); the
+   * type's own docstring was not, and the recovery path in `TableCartProvider` reads `none` as
+   * `landed: false` on that strength. The cap is NOT established by `none`.
    */
   outcome: "full" | "partial" | "none" | "unknown";
 };
