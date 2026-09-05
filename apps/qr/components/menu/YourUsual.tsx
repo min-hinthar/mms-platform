@@ -31,7 +31,7 @@ import { USUAL_HEADING, usualAction, usualDishes, type UsualOutcome } from "@/li
  *    control focusable and announced, which is what `AddButton` already does.
  */
 export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
-  const { add, announce, cartId, lastRefusalNotice, loading } = useCart();
+  const { add, announce, cartId, lastRefusalClause, loading } = useCart();
   const [busy, setBusy] = useState(false);
   /** How many of `items` are confirmed in the cart — the resume point, not a boolean. */
   /**
@@ -118,10 +118,17 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // 1 on #248). The provider has just re-read the cart and published what it found through
           // the SAME single-slot live region; announcing here replaces it, and "try it from the menu
           // below" points at a menu that is frozen too — the exact string this slice removed one
-          // layer down. So carry the provider's sentence when there is one, and only name what
+          // layer down. So carry the provider's cause when there is one, and only name what
           // landed. A freeze can arrive DURING this loop, so the tap-time gate above cannot cover
           // it: the first dish succeeds, the second is refused, and this is the arm that runs.
-          const cause = lastRefusalNotice();
+          //
+          // ⚠️ A CLAUSE, NOT THE WHOLE SENTENCE (T32). This appended `refusedWriteNotice`'s output,
+          // which opens "That didn't go through — " on every freeze arm — so a peer-lock partial add
+          // said the verdict TWICE in the one polite live region, the second "That" with no referent
+          // but the first clause. The `unknown` arm was worse: a refusal followed by "We couldn't
+          // confirm that", two opposite verdicts in one breath. `cart-freeze.ts` names the fragment
+          // once and both callers compose from it.
+          const clause = lastRefusalClause();
           // ⚠️ ONLY NAME A DISH WE SAW LAND, ACROSS INVOCATIONS (Codex round 2 on #251, P2). This
           // prefix used to fire on `i > 0` alone, so it credited `items[0]` even when that dish was
           // the unconfirmed one. The first fix subtracted only THIS pass's tally — which is zero on
@@ -130,11 +137,24 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
           // again, and the notice credits dish 1. The dishes before index `i` span both passes, so
           // the unseen among them do too.
           const confirmed = i - unseenCount - unseen;
-          const landed = confirmed > 0 ? `Added ${items[0]?.name ?? ""} — ` : "";
+          // ⚠️ THIS SENTENCE ASSERTS THE NON-LANDING ON EVERY CAUSE, WHERE `refusedWriteNotice`
+          // HEDGES ON `unknown` — and the asymmetry is load-bearing, not an oversight (blind
+          // adversarial pass on this PR). That hedge exists for `setItemQty`, whose evidence is one
+          // absolute-value comparison a concurrent host write can forge into a false negative. THIS
+          // loop only ever calls `add`, and `add` reaches `refused` only through
+          // `classifyAddLanding`'s `none` — nothing of the dish grew AND nothing shrank — while a
+          // contested dish answers `unknown` there and routes to `unconfirmed`, which `mayRetry`
+          // filters out above. So on this path the verdict is established and stating it is honest.
+          //
+          // ⚠️ BOTH JOINERS ARE FORCED BY THE CLAUSE, not cosmetic (T32). The appended fragment is
+          // lowercase and period-free, so the sentence must supply its own em-dash and full stop —
+          // and the landed prefix must end in a PERIOD, because keeping its em-dash would put two in
+          // one sentence ("Added Mohinga — Tea Leaf Salad didn't go through — the order's locked…").
+          const landed = confirmed > 0 ? `Added ${items[0]?.name ?? ""}. ` : "";
           announce(
-            cause
-              ? `${landed}${item.name} didn’t go through. ${cause}`
-              : `${landed}we couldn’t add ${item.name} just now.`,
+            clause
+              ? `${landed}${item.name} didn’t go through — ${clause}.`
+              : `${landed}We couldn’t add ${item.name} just now.`,
           );
           // Resume at `i` so a retry never re-adds what already landed, and COMMIT THE TALLY on
           // this path too — dropping it here is exactly how an unconfirmed dish became a claimed
@@ -172,7 +192,7 @@ export function YourUsual({ outcome }: { outcome: UsualOutcome }) {
     dishes,
     doneCount,
     items,
-    lastRefusalNotice,
+    lastRefusalClause,
     notReady,
     setProgressFor,
     unseenCount,

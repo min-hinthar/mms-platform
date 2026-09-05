@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { WriteResult } from "@/lib/write-outcome";
 import type { CartItem } from "@mms/db";
-import { classifyRefusedWrite, refusedWriteNotice } from "@/lib/cart-freeze";
+import { classifyRefusedWrite, refusedWriteClause, refusedWriteNotice } from "@/lib/cart-freeze";
 import type { UsualCandidate, UsualOutcome } from "@/lib/menu/your-usual";
 
 /**
@@ -32,7 +32,7 @@ const ctx = vi.hoisted(() => ({
     add: (id: string) => Promise<WriteResult<CartItem[]>>;
     announce: (msg: string, ms?: number) => void;
     cartId: string | null;
-    lastRefusalNotice: () => string | null;
+    lastRefusalClause: () => string | null;
     loading: boolean;
   },
 }));
@@ -61,39 +61,41 @@ const REFUSED: WriteResult<CartItem[]> = { state: "refused", view: [] };
  * The sentence the provider publishes for a peer lock — DERIVED from the module that produces it.
  *
  * ⚠️ THE FIRST DRAFT INVENTED THIS STRING, and the blind adversarial pass on #252 called it CRITICAL
- * for the right reason: `refusedWriteNotice` can produce exactly four sentences, and
- * "Nour is checking out — your order is locked for a moment." is not among them. Asserting a
- * composition around a string no producer emits proves nothing about the composition — and it hid
- * what the real one reads like.
+ * for the right reason: "Nour is checking out — your order is locked for a moment." is not something
+ * `refusedWriteNotice` can emit. Asserting a composition around a string no producer emits proves
+ * nothing about the composition — and it hid what the real one reads like.
  *
- * ⚠️ IT STUTTERS, AND THAT IS A REAL SHIPPED DEFECT — filed as T32, NOT fixed here. `YourUsual`
- * composes `${dish} didn’t go through. ${cause}`, and every freeze cause already opens with
- * "That didn’t go through — ", so the live region says it twice in one breath. The `unknown` cause
- * is worse: a refusal followed by "We couldn’t confirm that". The fix is a clause export from
- * `cart-freeze.ts` (the "name it ONCE" rule applied to a sentence fragment) plus a mutant, which is
- * a copy change and does not belong in a test-infrastructure PR. It is pinned AS IT STANDS so the
- * fix starts from a failing assertion rather than from a blank page.
+ * (That note also stated a COUNT of the producer's distinct sentences. It was wrong; so was the
+ * correction the first draft of THIS comment made, because the count changed under it — T30 retired
+ * an arm in the same PR. The lesson is not "measure harder", it is that a count of another module's
+ * outputs does not belong in prose at all: it is a fact with a half-life, in the file written to
+ * stop facts being transcribed. What matters is the RULE, and the rule is asserted below.)
+ *
+ * ⚠️ THE STUTTER IT EXPOSED IS FIXED (T32, this PR). `YourUsual` used to append the whole notice to
+ * a sentence of its own that already opened the same way, so the diner heard the verdict twice; the
+ * `unknown` arm paired a refusal with "We couldn’t confirm that", two opposite verdicts in one
+ * breath. `cart-freeze.ts` now names the CLAUSE once and both callers compose from it, so this
+ * fixture derives the fragment and the sentence separately and asserts which one crosses the seam.
  */
-const LOCK_NOTICE = refusedWriteNotice(
-  classifyRefusedWrite({
-    ok: true,
-    freeze: { locked: true, lockedBy: "seat-peer", mySeat: "seat-me" },
-    settling: false,
-  }),
-  false,
-);
+const REFUSAL_PEER = classifyRefusedWrite({
+  ok: true,
+  freeze: { locked: true, lockedBy: "seat-peer", mySeat: "seat-me" },
+  settling: false,
+});
+/** What the card appends since T32: a fragment, never the finished sentence. */
+const LOCK_CLAUSE = refusedWriteClause(REFUSAL_PEER);
 
 // Typed mocks, not `ReturnType<typeof vi.fn>` — an untyped mock assigned into the fixture is an
 // `any` in disguise, and this file's whole job is to notice when the component's contract drifts.
 let add: Mock<(id: string) => Promise<WriteResult<CartItem[]>>>;
 let announce: Mock<(msg: string, ms?: number) => void>;
-let lastRefusalNotice: Mock<() => string | null>;
+let lastRefusalClause: Mock<() => string | null>;
 
 beforeEach(() => {
   add = vi.fn(async () => APPLIED);
   announce = vi.fn();
-  lastRefusalNotice = vi.fn(() => null);
-  ctx.current = { add, announce, cartId: "cart-1", lastRefusalNotice, loading: false };
+  lastRefusalClause = vi.fn(() => null);
+  ctx.current = { add, announce, cartId: "cart-1", lastRefusalClause, loading: false };
 });
 
 // RTL's auto-cleanup only registers when vitest `globals` is on, and this repo leaves it off.
@@ -146,12 +148,27 @@ describe("YourUsual — a partial add names only what it saw land", () => {
     // Codex round 2 on #251 (P2): the prefix used to fire on `i > 0` alone, so it credited the
     // first dish even when that dish was the unconfirmed one — a false claim about a real order.
     add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED);
-    lastRefusalNotice.mockReturnValue(LOCK_NOTICE);
+    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);
     await waitFor(() => expect(announce).toHaveBeenCalled());
-    expect(announce).toHaveBeenLastCalledWith(`Tea Leaf Salad didn’t go through. ${LOCK_NOTICE}`);
+    expect(announce).toHaveBeenLastCalledWith(`Tea Leaf Salad didn’t go through — ${LOCK_CLAUSE}.`);
+    // The PAIR is what makes the prohibition below meaningful: without a positive, "never embed the
+    // whole sentence" is satisfied by announcing nothing at all.
+    expect(announce.mock.lastCall?.[0]).toContain(LOCK_CLAUSE);
+    // ⚠️ T32's RULE: the card must never embed the provider's whole SENTENCE inside its own, because
+    // every freeze arm of `refusedWriteNotice` opens with "That didn't go through — " and the card's
+    // sentence opens the same way — so embedding it made the diner hear the verdict twice.
+    //
+    // This assertion was written BEFORE the fix and watched failing at `edfe402` with
+    // "expected 'Tea Leaf Salad didn’t go through. Tha…' not to contain 'That didn’t go through — …'"
+    // — the prohibition itself, not a rename or a missing symbol. It is written in the past tense
+    // because at merge it passes; a present-tense "today it does exactly that" would be a false
+    // claim about the shipped code, which is LEARNINGS #78 applied to this very comment.
+    //
+    // Paired with the positive above so the rule is not satisfied by announcing nothing at all.
+    expect(announce.mock.lastCall?.[0]).not.toContain(refusedWriteNotice(REFUSAL_PEER));
     // The established cause is carried verbatim; this component must never author its own.
     expect(announce.mock.lastCall?.[0]).not.toMatch(/Added Mohinga/);
     expect(announce.mock.lastCall?.[0]).not.toMatch(/from the menu below/);
@@ -161,13 +178,13 @@ describe("YourUsual — a partial add names only what it saw land", () => {
     // The separating fixture for the assertion above: same shape, one state changed. Without this
     // pair the prefix rule is degenerate — an implementation that never credits anything passes.
     add.mockResolvedValueOnce(APPLIED).mockResolvedValueOnce(REFUSED);
-    lastRefusalNotice.mockReturnValue(LOCK_NOTICE);
+    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);
     await waitFor(() => expect(announce).toHaveBeenCalled());
     expect(announce).toHaveBeenLastCalledWith(
-      `Added Mohinga — Tea Leaf Salad didn’t go through. ${LOCK_NOTICE}`,
+      `Added Mohinga. Tea Leaf Salad didn’t go through — ${LOCK_CLAUSE}.`,
     );
   });
 
@@ -178,7 +195,7 @@ describe("YourUsual — a partial add names only what it saw land", () => {
     await press(2);
     await waitFor(() => expect(announce).toHaveBeenCalled());
     expect(announce).toHaveBeenLastCalledWith(
-      "Added Mohinga — we couldn’t add Tea Leaf Salad just now.",
+      "Added Mohinga. We couldn’t add Tea Leaf Salad just now.",
     );
   });
 });
@@ -190,7 +207,7 @@ describe("YourUsual — the unconfirmed tally outlives the invocation that produ
     // unconfirmed and dish 2 refused; the retry resumes at dish 2 with a FRESH per-pass tally, and
     // an implementation that consults only that tally announces that everything landed.
     add.mockResolvedValueOnce(UNCONFIRMED).mockResolvedValueOnce(REFUSED);
-    lastRefusalNotice.mockReturnValue(LOCK_NOTICE);
+    lastRefusalClause.mockReturnValue(LOCK_CLAUSE);
     render(<YourUsual outcome={PAIR} />);
 
     await press(2);

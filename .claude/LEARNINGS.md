@@ -1344,3 +1344,77 @@ Two rules, both cheap:
    applied to prose, and it has the same failure mode plus one: the invented string HID a live defect
    (the real sentence stutters — T32) for the length of a PR. Deriving it made the defect visible in
    the first run.
+
+## #77 — a composed sentence needs its mutant at the BOUNDARY, not inside the consumer that mocks its context (#254, 2026-09-04)
+
+T32's defect lived in two files at once: `cart-freeze.ts` produced a sentence, `YourUsual.tsx` appended
+it inside a sentence of its own that already opened the same way, and the diner heard the verdict
+twice. Neither file is wrong on its own — the notice reads correctly when the provider publishes it
+alone, and the card's template is unremarkable. The defect is the JOIN.
+
+That has a consequence for where the guard goes, and the obvious placement is the wrong one:
+
+- **Not in the consumer's suite.** `YourUsual.test.tsx` mocks the whole cart context, so whatever it
+  asserts about the appended string it asserts about a FIXTURE. It cannot see the producer changing
+  its prefix; it would stay green through exactly the drift it was written to catch.
+- **Not an import ban.** An AST or lint rule forbidding the consumer from importing the sentence
+  producer is defeated four ways — an aliased import (the matcher reads the local binding, a bug this
+  repo has already recorded), a namespace import, an indirection through a variable, and —
+  undefeatably by _any_ matcher — hand-writing the producer's prefix into the template. That last one
+  calls nothing banned and ships the exact defect.
+- **At the boundary.** The mutant belongs where the two meet: the provider line that decides WHICH
+  rendering crosses the seam. Both functions take the same argument, so latching the whole sentence
+  instead of the fragment typechecks perfectly and restores the defect exactly — which is what makes
+  it a real mutation rather than a syntax error. Beside it, one behavioural mutant reconstructs the
+  producer's prefix by hand, so the un-matchable evasion is falsified by comparing the announced
+  string against the producer's live output rather than by pattern.
+
+The general rule: **when one value is rendered two ways for two callers, guard the choice of
+rendering, not either rendering.** A test on the producer proves the strings; a test on the consumer
+proves the template; only the boundary proves they compose.
+
+## #78 — a "failing start" that mounts an empty fixture cannot fail in either direction (#254, 2026-09-04)
+
+#252 pinned T31's no-cart exit and wrote, in the file, "Pinned here as it stands so the fix has a
+failing start." The scout measured it: that fixture mounts with a null session, so the latch was never
+written, and `expect(latch).toBeNull()` passes before the fix and after it. It was a shape check
+wearing a red-first label — the most expensive kind of green test, because the label tells the next
+reader not to look.
+
+A failing start has to be a SEQUENCE when the defect is one: establish the state (refuse a write, so a
+cause is latched), then perform the act that should clear it (a later write that succeeds), then
+assert. That test was red at HEAD for the right reason — and the proof it was the right reason is that
+it had to be run under the OLD symbol name first, because running it under the new one failed with
+"not a function", which is red for the wrong reason and proves nothing.
+
+Two habits fall out. Before trusting any assertion labelled red-first, **run it at HEAD and read the
+failure text** — "expected X to be null" is a defect; "X is not a function" is a rename. And when a
+test's own comment claims it will fail, that claim is itself a testable statement: check it, because a
+false one is indistinguishable from a true one until someone tries.
+
+## #79 — a mutant anchor chosen BEFORE `pnpm format` goes stale on the commit that adds it (#254, 2026-09-04)
+
+`refusal/unknown-borrows-the-assertive-opener` was written, red-first probed (CAUGHT), and then went
+**STALE on its own PR** — `pattern matched 0×`. Nothing about the rule changed. `pnpm format` ran
+between the probe and the commit and wrapped the declaration the anchor named:
+
+```ts
+// what the anchor was written against
+const opener = refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+
+// what prettier shipped
+const opener = refusal.cause === "unknown" ? "We couldn’t confirm that" : "That didn’t go through";
+```
+
+Two things follow, and only the second is the real lesson:
+
+1. **Order the pre-PR steps `format` → choose anchor → red-first probe.** A probe against unformatted
+   text proves the mutant can fail against a file that is not the one being committed. Prefer an
+   anchor prettier cannot reflow — here, the ternary line alone rather than the whole declaration.
+2. **This is the same class as every other finding in this arc, one layer out.** A guard was proved
+   against a version of its subject that did not ship. The red-first rule says "watch it fail"; it
+   has to be _the shipped text_ that you watched it fail against. `verify:slice` caught this exactly
+   as designed — a STALE mutant is a FAILURE, not a skip, and this is what that rule buys.
+
+The near-miss is worth naming: had the anchor stayed loosely matched (a substring that survived the
+wrap), the mutant would have gone green while testing nothing, and no gate would have said a word.

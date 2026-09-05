@@ -34,6 +34,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 import { envFailures } from "./check-test-env.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -597,27 +598,18 @@ const MUTANTS = [
     id: "refusal/lock-clause-forks-from-inertReason",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
-    why: 'T14 \u2014 the "name it ONCE" rule applied to copy, and the round-1 finding that moved it here. /menu already speaks `inertReason` from `AddButton`, `ItemSheet` and `YourUsual`; a hand-written clause gives one frozen cart two vocabularies on one screen. The replacement is the string the FIRST draft actually shipped, via `freezeNotice`\'s tokenless `self` branch \u2014 which asserts a SECOND checkout from the mere absence of an attempt token, when a diner who walked back from /cart after a failed release is one tab',
-    find: '    case "frozen":\n      return `That didn\u2019t go through \u2014 ${inertReason({\n        minting: false,\n        locked: true,\n        lockedByYou: viewerHoldsLock,\n        settling: false,\n      })}.`;',
+    why: 'T14/T32 \u2014 the "name it ONCE" rule applied to copy. /menu speaks `inertReason` from `AddButton` and `ItemSheet` (the disabled control\'s accessible name) and, since T32, from `YourUsual`, which composes THIS clause. A hand-written lock clause gives one frozen cart two vocabularies on one screen. The replacement is also lowercase and period-free, so it satisfies the shape contract and reddens only the AGREEMENT assertion \u2014 which is the point: a fork that looks like a clause is the one a shape check cannot see',
+    find: '      return inertReason({\n        minting: false,\n        locked: true,\n        lockedByYou: refusal.freeze === "self",\n        settling: false,\n      })!;',
     replace:
-      '    case "frozen":\n      return viewerHoldsLock\n        ? "Another checkout on this device is holding this order. It frees up on its own shortly."\n        : "Someone is checking out \u2014 the order\u2019s locked for a moment.";',
+      '      return refusal.freeze === "self" ? "another checkout on this device is holding this order" : "someone is checking out";',
   },
   {
     id: "refusal/unknown-borrows-the-reconnect-sentence",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
-    why: 'T14 \u2014 the fabrication isolated to the copy. "Reconnecting" is established ONLY by a re-read that failed, and it is the sentence that accompanies a session re-mint. Saying it for a write refused on a cart we just read tells the diner their connection is at fault and invites them to wait for a recovery that is not running',
-    find: '      return "We couldn\u2019t confirm that \u2014 the order below is up to date.";',
-    replace:
-      '      return "We couldn\u2019t reach your order just now \u2014 reconnecting to your table\u2026";',
-  },
-  {
-    id: "refusal/unreachable-claims-an-expired-session",
-    file: "apps/qr/lib/cart-freeze.ts",
-    suite: "lib/cart-freeze.test.ts",
-    why: "T14 (Codex round 1 on #248) \u2014 a failed re-read does NOT establish an expired session: `assertCartMember` throws `UNAVAILABLE()` for cart, session and membership QUERY errors, and the Server Action can fail in transport. The honest arm reports what was observed and what is being attempted; naming the session as the cause is the same fabricated diagnosis one layer up, on the one arm that also takes a recovery action",
-    find: '      return "We couldn\u2019t reach your order just now \u2014 reconnecting to your table\u2026";',
-    replace: '      return "Your table session expired \u2014 reconnecting to your table\u2026";',
+    why: 'T14 \u2014 the fabrication isolated to the copy. "Reconnecting" is established ONLY by a re-read that failed, and it is the sentence that accompanies a session re-mint. Saying it for a write refused on a cart we just READ tells the diner their connection is at fault and invites them to wait for a recovery that is not running. Since T30 the reconnect sentence has no publishable arm at all, which makes borrowing it strictly worse: it names a recovery the diner will never see happen',
+    find: '      return "the order below is up to date";',
+    replace: '      return "we\u2019re reconnecting to your table";',
   },
   // ── M46 / T18: the /menu freeze WIRING, in `.tsx` ────────────────────────────────────────────
   //
@@ -631,6 +623,78 @@ const MUTANTS = [
   // Each `find` is ONE self-contained line that DECLARES its subject. Deliberately not a span
   // across a comment: three anchors in this file have already gone stale that way, because an edit
   // to prose between two statements breaks a matcher about neither of them.
+  {
+    id: "refusal/notice-forks-from-the-clause",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T32 \u2014 the whole slice in one line. The notice must be ONE template over the clause, because a second caller (`YourUsual`) appends the clause into a sentence of its own; the moment the notice re-derives its own text, the two renderings can drift and the diner hears one verdict twice. The replacement is the per-arm switch that shipped before this PR",
+    find: "  return `${opener} \u2014 ${refusedWriteClause(refusal)}.`;",
+    replace:
+      '  return refusal.cause === "frozen" ? "That didn\u2019t go through \u2014 the order\u2019s locked while someone checks out." : `${opener} \u2014 ${refusedWriteClause(refusal)}.`;',
+  },
+  {
+    id: "refusal/unknown-borrows-the-assertive-opener",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "The blind adversarial pass on this PR reversed a draft that made this exact edit. `refused` means the re-read succeeded and the write was not in it \u2014 true of the STATE, false of `setItemQty`'s PATH, which establishes it by comparing ONE absolute value (`line?.qty === qty`) that an authorized host writing the same line inside the round trip forges into a false negative. That case carries no lock and no settle, so it lands on `unknown` \u2014 the one arm with no server statement behind it, and the only one that may not assert the verdict",
+    // ⚠️ ANCHORED ON THE TERNARY LINE ALONE, NOT ON `const opener = …`. The first draft matched the
+    // whole declaration on ONE line and went STALE in the same PR that added it: `pnpm format` ran
+    // AFTER the red-first probe and wrapped the declaration, so the mutant matched 0× on its own
+    // commit. Choose an anchor from the FORMATTED text, and re-probe after formatting.
+    find: '    refusal.cause === "unknown" ? "We couldn\u2019t confirm that" : "That didn\u2019t go through";',
+    replace: '    "That didn\u2019t go through";',
+  },
+  {
+    id: "refusal/clause-ships-a-whole-sentence",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T32 AT ITS SOURCE, and the mutant this PR exists for \u2014 the clause is a FRAGMENT that its callers finish. Ship a whole sentence from one arm and `refusedWriteNotice` says the verdict twice while `YourUsual` says it three times. Caught by all three shape predicates (lowercase-initial, no terminal period, and does not contain the verdict), so any one of them going decorative is visible",
+    find: "      return inertReason({ minting: false, locked: false, settling: true })!;",
+    replace:
+      '      return "That didn\u2019t go through \u2014 the order\u2019s locked while your table pays.";',
+  },
+  {
+    id: "refusal/attribution-forks-from-the-classified-freeze",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "T32 \u2014 this PR MOVED attribution from a caller-supplied `viewerHoldsLock` parameter to a value derived from the classification, so the rule needs its own mutant or the move is unguarded. Collapsing it tells a diner holding their OWN pay lock that `someone` is checking out \u2014 true of a stranger, false of them, and the M116 fabricated-diagnosis shape on the one arm where the app knows better",
+    find: '        lockedByYou: refusal.freeze === "self",',
+    replace: "        lockedByYou: false,",
+  },
+  {
+    id: "refusal/usual-gets-the-whole-sentence",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T32 AT THE BOUNDARY \u2014 and this is where drift can actually happen, so this is where it is mutated. Both functions take the same argument, so latching the SENTENCE typechecks perfectly and restores the exact defect: `YourUsual` appends it to a sentence that already opens with the same verdict. No matcher over `YourUsual` can see this \u2014 the consumer mocks its context, so only the provider's own boundary assertion falsifies it",
+    find: "      lastRefusalRef.current = refusedWriteClause(refusal);",
+    replace: "      lastRefusalRef.current = refusedWriteNotice(refusal);",
+  },
+  {
+    id: "refusal/latch-outlives-its-write",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T31 \u2014 a cause belongs to the write that established it. The latch has ONE writer and, before this PR, ZERO clears, so a consumer reading it after an unrelated later write was handed the previous refusal's reason and announced it as this dish's. Dropping the entry clear restores exactly that",
+    find: "  const forgetRefusal = useCallback(() => {\n    lastRefusalRef.current = null;\n  }, []);",
+    replace: "  const forgetRefusal = useCallback(() => {}, []);",
+  },
+  {
+    id: "refusal/unreadable-cart-yields-a-list",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "T30 \u2014 what makes the explicit `fresh = null` and the `&& refusal` narrowing load-bearing rather than decorative. With a list here the unreachable arm classifies as a REFUSAL whose cause is null, the publish is skipped, and the optimistic \u201cAdded to your order\u201d stands as the diner's last word over a write nobody could see",
+    find: "        fresh = null;\n        refusal = classifyRefusedWrite({ ok: false });",
+    replace:
+      "        fresh = itemsRef.current;\n        refusal = classifyRefusedWrite({ ok: false });",
+  },
+  {
+    id: "usual/reconstructs-the-refusal-prefix",
+    file: "apps/qr/components/menu/YourUsual.tsx",
+    suite: "components/menu/YourUsual.test.tsx",
+    why: "T32's UNDEFEATABLE EVASION, made falsifiable. A guard banning the import is beaten by hand-writing the producer's prefix in the template \u2014 it calls nothing banned and ships the exact defect. Only comparing the announced string against the producer's real output can see it, which is why the guard is behavioural and this mutant reconstructs the prefix byte-for-byte",
+    find: "              ? `${landed}${item.name} didn\u2019t go through \u2014 ${clause}.`",
+    replace:
+      "              ? `${landed}${item.name} didn\u2019t go through. That didn\u2019t go through \u2014 ${clause}.`",
+  },
   {
     id: "refusal/remint-restored-unconditionally",
     file: "apps/qr/components/TableCartProvider.tsx",
@@ -684,10 +748,17 @@ const MUTANTS = [
     id: "refusal/qty-refusal-goes-unpublished",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
-    why: "T18 (blind adversarial pass on #252, CRITICAL — this mutant exists because the FIRST draft of the suite could not catch it). Deleting the stepper's refusal publication leaves the diner's refused decrement unexplained AND leaves `lastRefusalRef` unwritten, so `YourUsual`'s `lastRefusalNotice()` reads null or, worse, a STALE cause from an earlier refusal. The original assertion read the live region for /checking out/ — a phrase no producible refusal contains (the clause is \"while someone CHECKS out\") — so what satisfied it was the unrelated lock-transition announcement landing in the same single slot. The suite now asserts the value `publishRefusal` alone writes",
-    find:
-      '        if (result.state === "refused") publishRefusal(notice);\n' +
-      '        else if (result.state === "unconfirmed") publishUnconfirmed();',
+    why: "The blind adversarial pass on #252 (CRITICAL) \u2014 the stepper's refusal was pinned by NOTHING: its test asserted a phrase no producible refusal contains, and what satisfied the regex was the lock-transition banner landing in the same single slot. \u26a0\ufe0f THE FIND SPANS THE WHOLE if/else PAIR, and the #254 blind pass is why: the first draft cut only the `if`, leaving `});` followed by a bare `else` \u2014 a SyntaxError. `suitePasses` is an exit-code check, so a file that will not PARSE reddens the suite and scores `caught` while proving nothing. A mutation must remain valid code or it measures the parser",
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        else if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+    replace:
+      '        if (result.state === "unconfirmed") publishUnconfirmed();\n        return result;',
+  },
+  {
+    id: "refusal/add-refusal-goes-unpublished",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "The SIBLING the #252 retarget left uncovered, found by the #254 blind pass. `add`'s publish fork is textually identical to `setItemQty`'s, so one anchor could never cover both \u2014 and after the retarget NEITHER was covered, on the exact line whose own note says the stepper's refusal had been pinned by nothing. This one is anchored through `add`'s interleaved comment, which is what makes it unique; the sibling spans its own if/else pair instead",
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        // The optimistic "Added to your order" is still on screen; retract it rather than let an\n        // outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed();',
     replace: '        if (result.state === "unconfirmed") publishUnconfirmed();',
   },
   {
@@ -2713,6 +2784,29 @@ console.log(c.green(`green (${suites.length} suite${suites.length === 1 ? "" : "
 console.log(c.bold(`\nmutating (${targets.length}) — each must turn its suite RED\n`));
 const survived = [];
 const stale = [];
+const unparseable = [];
+
+/**
+ * Does the mutated source still PARSE?
+ *
+ * ⚠️ ADDED BY THE BLIND ADVERSARIAL PASS ON #254 (CRITICAL), and the defect it caught is the reason
+ * this exists rather than a style note. A retargeted mutant cut the `if` out of an `if/else` pair,
+ * leaving a bare `else` — a SyntaxError. `suitePasses` is an exit-code check, so a file that will not
+ * parse reddens EVERY test in its suite, the mutant scores `caught`, and the operator reads green.
+ *
+ * A mutation that does not parse measures the PARSER, not the guard. It is scored `caught` for a
+ * reason that has nothing to do with the proposition it exists to prove, and the assertion it was
+ * written to protect is left unproven while looking proven — the exact class this whole script is
+ * built to refuse, arriving through the script itself.
+ *
+ * `typescript` is already a dependency and its parser reports syntactic diagnostics without a
+ * program or a typecheck, so this costs milliseconds per mutant.
+ */
+const parses = (rel, code) => {
+  const kind = rel.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+  const sf = ts.createSourceFile(rel, code, ts.ScriptTarget.Latest, true, kind);
+  return sf.parseDiagnostics.length === 0;
+};
 try {
   for (const m of targets) {
     const abs = path.join(ROOT, m.file);
@@ -2727,7 +2821,16 @@ try {
       );
       continue;
     }
-    writeFileSync(abs, src.replace(m.find, m.replace));
+    const mutated = src.replace(m.find, m.replace);
+    if (!parses(m.file, mutated)) {
+      // Not a pass and not a failure of the CODE — a failure of the MUTATION. See `parses` above.
+      unparseable.push(m);
+      console.log(
+        `  ${c.red("UNPARSEABLE")}  ${m.id} ${c.dim("— the mutated file does not parse; it would score `caught` off a SyntaxError")}`,
+      );
+      continue;
+    }
+    writeFileSync(abs, mutated);
     const caught = !suitePasses(m.suite);
     writeFileSync(abs, src);
     if (caught) {
@@ -2823,7 +2926,8 @@ for (const o of orphans)
 for (const b of badPragma) console.log(`  ${c.red("environment")} ${b}`);
 
 // ── verdict ───────────────────────────────────────────────────────────────────────────────────────
-const failed = survived.length + stale.length + orphans.length + badPragma.length;
+const failed =
+  survived.length + stale.length + unparseable.length + orphans.length + badPragma.length;
 if (failed === 0) {
   console.log(
     c.green(c.bold(`\n✓ verify:slice passed — ${targets.length} mutants caught, no orphans\n`)),
@@ -2841,6 +2945,17 @@ if (survived.length) {
         "  Usually the fixture is DEGENERATE — two code paths produce the same numbers on it.\n",
       ) +
       c.dim("  Find inputs that separate them (search numerically), don't just add assertions.\n"),
+  );
+}
+if (unparseable.length) {
+  console.log(
+    c.red(`  ${unparseable.length} mutant(s) UNPARSEABLE — the mutation, not the code, is broken:`),
+  );
+  for (const m of unparseable) console.log(`    · ${m.id} (${m.file})`);
+  console.log(
+    c.dim(
+      "\n  A mutation must remain valid code. One that does not parse reddens its whole suite for a\n",
+    ) + c.dim("  reason unrelated to the rule, so it scores `caught` while proving nothing.\n"),
   );
 }
 if (stale.length) {

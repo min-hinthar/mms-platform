@@ -4,6 +4,92 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The refusal sentence is composed once, and a cause never outlives its write (2026-09-04)
+
+**T32 — the /menu partial add said the verdict twice.** `YourUsual` appended the provider's whole
+notice to a sentence of its own that already opened the same way, so a peer-lock partial add
+announced, in the one polite live region:
+
+> Tea Leaf Salad didn’t go through. **That didn’t go through** — the order’s locked while someone
+> checks out.
+
+The second "That" has no referent but the first clause. The `unknown` arm was worse — a refusal
+followed by "We couldn’t confirm that", two opposite verdicts in one breath.
+
+`refusedWriteNotice` was never at fault: it is written to stand alone and reads correctly when the
+provider publishes it. The defect is that a **second caller appended it**. So `cart-freeze.ts` names
+the CLAUSE once — `refusedWriteClause`, a lowercase period-free fragment — and both callers compose
+from it; the notice is a single template over it. Derived on every arm: the verdict appears once,
+one em-dash, and no collision with `unconfirmedWriteNotice()`.
+
+Both joiner changes in `YourUsual` are forced, not cosmetic: the clause is lowercase and period-free
+so the sentence supplies its own em-dash and stop, and the landed prefix ends in a PERIOD because
+keeping its em-dash would put two in one sentence.
+
+**A draft flipped `unknown` to the assertive opener, and the blind pass reversed it — the reversal is
+the more useful record.** The argument for flipping was that #251 made `refused` mean "the re-read
+SUCCEEDED and the write was not in it", so a non-landing is positively established. That is true of
+the STATE and false of one PATH. `add` establishes it by attributed growth, and a contested dish
+answers `classifyAddLanding`'s own `unknown` → `unconfirmed`, so it never reaches the sentence.
+`setItemQty` establishes it by comparing ONE absolute value: `setQty` is absolute, so no peer write
+can forge a LANDING, but an authorized host setting the same line inside the round trip forges a
+NON-landing — our 3 commits, the re-read reads the host's 5, and `line?.qty === qty` says it failed.
+That case carries no lock and is not settling, so it lands exactly on `unknown`. The hedge therefore
+stays on that arm and only that arm; `frozen` and `settling` keep the assertive opener, because the
+server states those and the cart is demonstrably inert in the re-read. Sharing an opener with
+`unconfirmedWriteNotice()` is no longer a collision but two degrees of one uncertainty, and the
+CLAUSES separate them. `YourUsual` still asserts the verdict on every cause, justified in-file: it
+only ever calls `add`. The state itself is still wrong (`mayRetry` calls a landed write re-sendable)
+and is filed as **T41** with the trade-off that makes it a slice of its own — `unconfirmed` carries
+no view by construction, so the source-level fix hands `AddButton`'s queue back to its own snapshot.
+
+Attribution also moved from a caller-supplied `viewerHoldsLock` parameter to `refusal.freeze ===
+"self"` — one fact, computed once, with the duplicated `cartFreeze` call in `explainCaught` deleted.
+
+**T30 — a sentence computed on every unreachable write and discarded on every one.** Verified
+unreachable by AST, and unreachable _everywhere_: the only producer is `explainCaught`'s catch, that
+arm structurally leaves the re-read null, `recoveredWrite` calls a null re-read `unconfirmed`, and
+only `refused` publishes. **Retired rather than routed** — routing was the row's other option and is
+actively wrong: it would speak a refusal's sentence over an `unconfirmed` write, exactly what
+`refusal/unconfirmed-lent-a-refusals-sentence` forbids. `PublishableRefusal` turns the invariant from
+emergent statement order into a compile error, and `classifyRefusedWrite` is overloaded so a
+successful read cannot type as the retired arm. `refusalNeedsRemint` still takes the full union.
+
+**T31 — the latch is cleared at the top of every write, and the row's own reachability claim is
+retracted.** The defect was real: one writer, zero clears repo-wide, so a cause established for one
+write was handed to whatever read it next. But "reachable in one hop" was **false, measured**: `add`
+is a `useCallback` whose first dependency is `cartId`, so a running loop keeps a closure with the old
+non-null id; a fresh tap is gated by `notReady = loading || !cartId`; and the first hop returns
+`unconfirmed`, which the loop skips past before reaching the latch. It was **latent, not live**. The
+note claiming the provider suite pinned it "so the fix has a failing start" was also false — that
+fixture mounts with a null session, so it passed either way. The real failing start is a sequencing
+test, watched red before any source moved.
+
+**Guards.** Three mutants retargeted (all four stale anchors were predicted and measured before the
+edit), one retired with its subject, seven added. `refusal/qty-refusal-goes-unpublished`'s anchor is
+widened into `setItemQty`'s own `landed:` line: the publish pair is textually identical in both
+writers, and its uniqueness rested only on `add` having an interleaved comment — a mutant whose
+targeting depends on a COMMENT is one edit from silently aiming at the wrong function.
+
+One of the new mutants exists for an evasion no matcher can see:
+`usual/reconstructs-the-refusal-prefix` hand-writes the producer's prefix into the template, calling
+nothing importable and shipping the exact defect. Only comparing the announced string against the
+producer's real output catches it.
+
+**Nine rows filed** (T33–T41), one **high** and one **medium**: the composed sentence is erased by the
+lock/settle banner in the same tick, on exactly the taps that produce it — the diagnosing re-read is
+the read that flips `locked`, and both transition effects defer into the same single slot. This PR
+made the sentence correct; it did not make it readable.
+
+Also corrected: two counts written into prose in #252 — `check-child-freeze`'s "seven `refusal/*`
+mutants" (eight then, eleven now) and `YourUsual.test.tsx`'s claim about how many distinct sentences
+the producer emits. The second is the sharper lesson, because **the first attempt to correct it was
+also wrong**: the measurement was taken against the pre-T30 producer, and this PR retires an arm, so
+the number changed under the correction inside the same diff. Both are now replaced by claims that do
+not rot. A count of another module's outputs does not belong in prose at all.
+
+`T30` · `T31` · `T32` closed. 1305 qr tests + 138 ui tests, 303 mutants at merge.
+
 ### A `.tsx` can be tested at all, and the /menu freeze wiring is the first thing pinned by it (2026-09-04)
 
 **M46 — the decision this repo deferred for a month, made both ways.** The row asked to "either add a
