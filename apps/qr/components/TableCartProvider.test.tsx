@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
@@ -220,17 +220,37 @@ const mount = () =>
 const spoken = () => screen.getByRole("status").textContent ?? "";
 
 /**
- * Let every DEFERRED announcement land before reading the region (T33).
+ * Wait until the live region STOPS CHANGING, then read it (T33).
  *
- * ⚠️ A BARE `await waitFor(...)` IS NOT ENOUGH and that is the entire point of this helper. The
- * freeze banners go through `void Promise.resolve().then(...)` from a passive effect, so they arrive
- * strictly after the synchronous `publishRefusal` — a read taken any earlier sees the sentence that
- * is about to be overwritten and passes on a broken build. Two macrotask turns clear the effect
- * flush and the microtask it schedules.
+ * ⚠️ A BARE `await waitFor(...)` IS NOT ENOUGH, and neither is a fixed number of turns — the first
+ * draft of this helper was two `setTimeout(0)`s and it FAILED IN CI on a test that passed locally,
+ * then failed locally on a DIFFERENT test when the suite was re-run. Both halves matter:
+ *
+ *  • `waitFor` is wrong for these assertions because it succeeds on the FIRST tick that satisfies
+ *    them. The refusal sentence is published synchronously and the banner overwrites it a microtask
+ *    later, so a `waitFor` for the refusal passes on a build where the banner still wins.
+ *  • A fixed drain is wrong because the arrival it waits for is React's passive-effect flush
+ *    (scheduler-driven) plus the microtask that effect queues. How many macrotask turns that takes
+ *    is not a constant — it moved between one-file and whole-suite runs, which is exactly the
+ *    difference between local and CI.
+ *
+ * So this waits for QUIESCENCE instead of guessing a duration: turns pass until the region's text is
+ * unchanged three times running. That is correct for both directions — a banner that has not arrived
+ * yet is still pending (the text is still moving), and a banner that would overwrite the refusal has
+ * already done so by the time it settles. The blind pass raised the fixed drain as an open question
+ * and I answered it from "the tests pass", which is how a timing dependence hides.
  */
 const drainDeferredAnnounces = async () => {
-  await new Promise((r) => setTimeout(r, 0));
-  await new Promise((r) => setTimeout(r, 0));
+  let previous: string | null = null;
+  let unchangedTurns = 0;
+  for (let turn = 0; turn < 50 && unchangedTurns < 3; turn += 1) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const now = spoken();
+    unchangedTurns = now === previous ? unchangedTurns + 1 : 0;
+    previous = now;
+  }
 };
 
 beforeEach(() => {
