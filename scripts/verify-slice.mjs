@@ -969,8 +969,8 @@ const MUTANTS = [
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: "M153 \u2014 the fail-closed arm, same rule as `releasePayAttempt`. A caller that cannot name its attempt cannot show the lock is its own, so it issues no statement at all and the TTL is the backstop. Removing the guard sends a null era into the filter, which is an argument about how nulls compare rather than a decision anyone made",
-    find: "  if (!era) return null;\n  const db = serviceClient();",
-    replace: "  const db = serviceClient();",
+    find: "): Promise<ReleaseError> {\n  if (!era) return null;\n  const db = serviceClient();",
+    replace: "): Promise<ReleaseError> {\n  const db = serviceClient();",
   },
   {
     id: "lock/attempt-token-dropped",
@@ -990,8 +990,9 @@ const MUTANTS = [
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: "M123(a\u2032) \u2014 the pin rides in the SAME payload as the lock deliberately. Drop it and every predicate assertion stays green while the statement releases a lock over a LIVE pin: `acquireSettlement` gates on the raw `locked` column, so that state is exactly what admits cash / Terminal / split, each deriving from `getCartTotals`, which returns the pin outright. The stale discount is charged, recorded, and burns a promo redemption the basket never earned",
-    find: "      { promo_granted_cents: null, locked: false, locked_at: null, locked_by: null },",
-    replace: "      { locked: false, locked_at: null, locked_by: null },",
+    find: '      {\n        promo_granted_cents: null,\n        live_payment_intent_id: null,\n        locked: false,\n        locked_at: null,\n        locked_by: null,\n      },\n      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("locked_by", uid)',
+    replace:
+      '      {\n        live_payment_intent_id: null,\n        locked: false,\n        locked_at: null,\n        locked_by: null,\n      },\n      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("locked_by", uid)',
   },
   {
     id: "lock/no-token-releases-anyway",
@@ -1054,8 +1055,8 @@ const MUTANTS = [
     file: "apps/qr/lib/cart.ts",
     suite: "lib/cart-promo-freeze.test.ts",
     why: "M70 \u2014 the split-tender freeze is the OTHER half of the same window, and it is table-wide: every member's cart is frozen while the table pays in turn. Dropping this term lets a promo change land mid-settlement, against holds already authorized under the old code",
-    find: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);",
-    replace: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`);",
+    find: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)",
+    replace: "    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)",
   },
   {
     id: "cart/promo-lock-check-ignores-the-ttl",
