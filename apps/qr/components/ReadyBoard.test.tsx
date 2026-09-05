@@ -105,7 +105,7 @@ describe("the two column headings", () => {
 
   it("English leads, Burmese follows — and BOTH are present", async () => {
     const { container } = await renderBoard("en");
-    const heads = [...container.querySelectorAll(".orb-col h2")];
+    const heads = [...container.querySelectorAll<HTMLElement>(".orb-col h2")];
     expect(heads).toHaveLength(2);
     expect(heads[0]!.textContent).toContain("Preparing");
     expect(heads[0]!.textContent).toContain(PREPARING_MY);
@@ -120,7 +120,7 @@ describe("the two column headings", () => {
 
   it("Burmese leads, English follows — and BOTH are still present", async () => {
     const { container } = await renderBoard("my");
-    const heads = [...container.querySelectorAll(".orb-col h2")];
+    const heads = [...container.querySelectorAll<HTMLElement>(".orb-col h2")];
     // The heading spans two tongues, so it carries neither mark; the CSS companion reaches the
     // Burmese half through a DESCENDANT selector and gives that half — and only it — Padauk.
     expect(heads[0]!.hasAttribute("lang")).toBe(false);
