@@ -29,6 +29,7 @@ import { acceptView, issueRead, newViewSeq, readReachedServer, type ViewSeq } fr
 import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
 import {
   explainedByRefusal,
+  explanationHolds,
   freezeBannerSuppressed,
   type ExplainedFreeze,
 } from "@/lib/live-region";
@@ -825,21 +826,28 @@ export function TableCartProvider({
    * the same verdict.
    */
   const publishRefusal = useCallback(
-    (refusal: PublishableRefusal, viewIsCurrent: boolean) => {
+    (refusal: PublishableRefusal) => {
       lastRefusalRef.current = refusedWriteClause(refusal);
       // T33 — record WHICH freeze this sentence explained, so the banner for that same freeze stays
       // silent instead of overwriting it a microtask later. Derived from the CAUSE, never from the
       // cart's current flags: the cause is what was spoken, the flags are what is true now, and the
       // two disagreeing by a tick is the whole class of defect this sits in.
       //
-      // ⚠️ GATED ON THE VIEW HAVING WON, and a draft that was not shipped a live over-block (blind
-      // pass on this PR, CRITICAL). `explainCaught` classifies from the read it made EVEN WHEN THAT
-      // READ LOST THE SCREEN — deliberately, since the refusal is a fact about the moment it looked.
-      // But a latch is not a fact about a moment, it is a claim about what the diner can currently
-      // SEE. Latch an overtaken read's freeze and the rendered state never carries it, so no release
-      // edge can ever fire for it, and the next genuine lock is announced to nobody: the exact W9b
-      // silence this arbitration exists to avoid, caused by the arbitration.
-      explainedFreezeRef.current = viewIsCurrent ? explainedByRefusal(refusal.cause) : null;
+      // ⚠️ CURRENCY IS ASKED HERE, AGAINST WHAT IS ON SCREEN — not carried in from the read (blind
+      // pass CRITICAL, then Codex round 1 P1 on the first fix for it). `explainCaught` classifies
+      // from the read it made EVEN WHEN THAT READ LOST THE SCREEN, deliberately: the refusal is a
+      // fact about the moment it looked. A latch is a different claim — that the diner can SEE this
+      // freeze — so it needs a different source.
+      //
+      // Passing `applyView`'s return value down was the first attempt and it is a SNAPSHOT, not a
+      // check: it answers "did my read win when it landed", and another mutation's view can apply
+      // between that and this line. `freezeRef`/`settlingRef` are written synchronously by
+      // `applyView` from the very view it applies, so reading them here asks the question at the
+      // only moment that matters.
+      explainedFreezeRef.current = explanationHolds(explainedByRefusal(refusal.cause), {
+        locked: freezeRef.current.locked,
+        settling: settlingRef.current,
+      });
       flash(refusedWriteNotice(refusal), 2600);
     },
     [flash],
@@ -1095,7 +1103,7 @@ export function TableCartProvider({
         // that read failed — so the two can never disagree. It is written as a narrowing rather than
         // a cast because the mutant `refusal/unreadable-cart-yields-a-list` proves the coupling
         // instead of asserting it.
-        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);
+        if (result.state === "refused" && refusal) publishRefusal(refusal);
         // The optimistic "Added to your order" is still on screen; retract it rather than let an
         // outcome that may not claim a landing stand as one.
         else if (result.state === "unconfirmed") publishUnconfirmed();
@@ -1222,7 +1230,7 @@ export function TableCartProvider({
           landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
           viewIsCurrent,
         });
-        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);
+        if (result.state === "refused" && refusal) publishRefusal(refusal);
         else if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
@@ -1280,10 +1288,17 @@ export function TableCartProvider({
   useEffect(() => {
     if (locked === prevLocked.current) return;
     prevLocked.current = locked;
-    // T33 — the release edge clears what a refusal explained: the fact has ended, so it may no
-    // longer silence anything. Without this, peer-releases-then-re-locks leaves a stale "locked"
-    // suppressing a banner about a freeze the diner was never told about.
-    if (!locked) explainedFreezeRef.current = null;
+    // T33 — the release edge clears what a refusal explained, so a fact that has ended can no longer
+    // silence anything. Without it, peer-releases-then-re-locks leaves a stale axis suppressing a
+    // banner about a freeze the diner was never told about.
+    //
+    // ⚠️ SCOPED TO THIS AXIS (Codex round 1 on #256, P2). An unconditional clear discards a SETTLING
+    // explanation when the LOCK lifts — reachable when one recovery view carries the whole handoff
+    // ({locked, !settling} → {!locked, settling}), where the refusal is classified `settling` and
+    // this effect runs first. The settle-enter callback would then see null and overwrite the
+    // detailed refusal with the generic banner: the exact collision this slice removes, rebuilt by
+    // its own cleanup.
+    if (!locked && explainedFreezeRef.current === "locked") explainedFreezeRef.current = null;
     const msg = !locked
       ? // ⚠️ THE RELEASE IS NOT ALWAYS AN INVITATION (blind pass on this PR). `locked` and `settling`
         // are independent columns, so a pay-lock can lift while the table is still splitting — and
@@ -1305,6 +1320,7 @@ export function TableCartProvider({
           axis: "locked",
           entering: locked,
           explained: explainedFreezeRef.current,
+          current: { locked, settling: settlingRef.current },
         })
       )
         return;
@@ -1323,8 +1339,9 @@ export function TableCartProvider({
     const prev = prevSettling.current;
     if (prev === null || prev === settling) return;
     prevSettling.current = settling;
-    // T33 — same release-clears-the-fact rule as the lock edge above.
-    if (!settling) explainedFreezeRef.current = null;
+    // T33 — same release-clears-the-fact rule as the lock edge above, and SCOPED the same way: a
+    // settle release must not discard a lock explanation that is still true.
+    if (!settling && explainedFreezeRef.current === "settling") explainedFreezeRef.current = null;
     const msg = settling
       ? "Your table is splitting the bill — the order’s locked while everyone pays"
       : "The split was called off — you can edit the order again";
@@ -1334,6 +1351,7 @@ export function TableCartProvider({
           axis: "settling",
           entering: settling,
           explained: explainedFreezeRef.current,
+          current: { locked: freezeRef.current.locked, settling },
         })
       )
         return;

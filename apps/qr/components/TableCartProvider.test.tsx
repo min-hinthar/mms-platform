@@ -185,7 +185,10 @@ const CLAUSE = {
   settling: refusedWriteClause(REFUSAL.settling),
 };
 /** What the TOAST says — the same classification, rendered as a whole sentence. */
-const NOTICE = { peerLock: refusedWriteNotice(REFUSAL.peerLock) };
+const NOTICE = {
+  peerLock: refusedWriteNotice(REFUSAL.peerLock),
+  settling: refusedWriteNotice(REFUSAL.settling),
+};
 
 /**
  * Exposes the context to the test without pulling in AddButton or ItemSheet.
@@ -401,6 +404,24 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     await ctl.add(ITEM);
     await drainDeferredAnnounces();
     expect(spoken()).not.toContain("is checking out");
+  });
+
+  it("a LOCK release does not discard a SETTLING explanation that is still true", async () => {
+    // ⚠️ Codex round 1 on #256 (P2). One recovery view can carry the whole handoff —
+    // {locked, !settling} → {!locked, settling} — and the refusal is then classified `settling`
+    // (`classifyRefusedWrite` tests settling first). The lock-RELEASE effect runs before the
+    // settle-ENTER one, so an unconditional clear discards the settling explanation and the settle
+    // banner overwrites the refusal: the exact collision this slice removes, rebuilt by its cleanup.
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    mount();
+    await drainDeferredAnnounces();
+
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
+    await ctl.add(ITEM);
+    await drainDeferredAnnounces();
+
+    expect(spoken()).toBe(NOTICE.settling);
   });
 
   it("clears the settle axis on ITS release, not only the lock axis", async () => {

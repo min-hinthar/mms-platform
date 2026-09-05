@@ -52,6 +52,29 @@ export type FreezeAxis = "locked" | "settling";
 export type ExplainedFreeze = FreezeAxis | null;
 
 /**
+ * Does the freeze a refusal explained STILL hold, given what is on screen right now?
+ *
+ * ⚠️ THIS EXISTS BECAUSE A `viewIsCurrent` SNAPSHOT IS NOT A CURRENCY CHECK (Codex round 1 on #256,
+ * P1). The first fix for the overtaken-read hole passed `applyView`'s return value from
+ * `explainCaught` down to `publishRefusal`. That answers "did my read win **when it landed**" — and
+ * between then and the caller resuming from `await explainCaught(...)`, another mutation's view can
+ * apply and take the screen. The flag still reads `true`, the rendered cart is editable, and the
+ * latch claims a freeze nobody can see: the same silence one microtask further out.
+ *
+ * So currency is asked AT PUBLISH TIME, against the freeze the caller can read synchronously from
+ * the refs `applyView` writes from the very view it applies. A latch is a claim about what the diner
+ * SEES; the only honest source for that is what is on screen when the claim is made.
+ */
+export function explanationHolds(
+  axis: ExplainedFreeze,
+  current: { locked: boolean; settling: boolean },
+): ExplainedFreeze {
+  if (axis === null) return null;
+  const stillFrozen = axis === "settling" ? current.settling : current.locked;
+  return stillFrozen ? axis : null;
+}
+
+/**
  * Should the freeze-transition banner stay silent?
  *
  * Three rules, and each is falsifiable on its own:
@@ -96,9 +119,20 @@ export function freezeBannerSuppressed(input: {
   /** `true` when the cart is entering this freeze; `false` for the release edge. */
   entering: boolean;
   explained: ExplainedFreeze;
+  /** The freeze state AFTER this transition — what the diner can act on now. */
+  current: { locked: boolean; settling: boolean };
 }): boolean {
-  // Rule 1, first and alone — so no later branch can ever silence a release.
-  if (!input.entering) return false;
+  // ⚠️ RULE 1, MADE PRECISE — and its own test is what forced this. A release was unconditionally
+  // exempt, on the grounds that "you can edit again" is new information no refusal carries. That is
+  // the RIGHT reason and it was attached to the wrong predicate: the axes are independent, so a
+  // pay-lock can lift while the table still settles, and THAT release restores nothing. It cannot
+  // strand anyone, because the diner still cannot edit either way — and it was overwriting a refusal
+  // that names both the verdict and the live reason.
+  //
+  // So a release speaks whenever the diner's ability to act CHANGED, or whenever they hold no live
+  // explanation. It is silent only when the cart is still frozen on an axis a refusal has already
+  // explained — which is the same redundancy test as the entering case, not a weakening of rule 1.
+  if (!input.entering) return explanationHolds(input.explained, input.current) !== null;
   if (input.explained === null) return false;
   // Rules 2 and 3, by RANK rather than equality — see the precedence note above. A refusal that
   // explained a freeze at least as wide as this banner's has already said the stronger true thing.
