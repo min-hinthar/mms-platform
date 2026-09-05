@@ -16,6 +16,7 @@ import type {
   KitchenTicket,
 } from "@/lib/kitchen-types";
 import { EmptyState, Icon } from "@mms/ui";
+import { useStaffLang } from "./StaffLangProvider";
 
 /**
  * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
@@ -78,6 +79,9 @@ function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "am
 }
 
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
+  // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
+  // thing on this board to speak it; the rest of the chrome follows in its own commit.
+  const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
   // W10b — ONE degraded state carrying WHEN it started and WHY. `outage` = the server told us it
@@ -450,7 +454,13 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               been waiting that long — that's the truth, not fake liveness. */}
           {err ??
             (degraded
-              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the queue", degraded.cause)
+              ? frozenBoardCopy(
+                  lang,
+                  snap.serverNow,
+                  nowMs - degraded.since,
+                  "what.queue",
+                  degraded.cause,
+                )
               : (notice ??
                 (count === 0
                   ? "All clear"

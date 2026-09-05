@@ -17,6 +17,7 @@ import { TerminalSettleButton, TerminalCollectPanel, type TerminalCollect } from
 import { MergeTableButton } from "./MergeTableButton";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -45,6 +46,8 @@ export function FloorDetailLive({
   terminalReady?: boolean;
 }) {
   const router = useRouter();
+  // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
+  const lang = useStaffLang();
   const [detail, setDetail] = useState<TableDetail>(initial);
   const [writeError, setWriteError] = useState<string | null>(null);
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard). Only a genuine
@@ -411,9 +414,10 @@ export function FloorDetailLive({
           {writeError ??
             (degraded
               ? frozenBoardCopy(
+                  lang,
                   detail.serverNow,
                   nowMs - degraded.since,
-                  "this order",
+                  "what.order",
                   degraded.cause,
                 )
               : null)}

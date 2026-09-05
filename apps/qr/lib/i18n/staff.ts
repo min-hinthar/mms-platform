@@ -55,6 +55,7 @@ export const STAFF = {
   "what.bags": { en: "the bags", my: "ပါဆယ်ထုပ်များ" }, // grounded: kiosk `toGo` (ပါဆယ်)
   "what.room": { en: "the room", my: "ခန်းမ" },
   "what.order": { en: "this order", my: "ဒီအော်ဒါ" },
+  "what.list": { en: "this list", my: "ဒီစာရင်း" },
 
   // ── the outage voice (class A — stacked pair; read when nothing else works) ─
   "out.head.cant": {

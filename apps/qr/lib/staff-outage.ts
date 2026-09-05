@@ -1,3 +1,7 @@
+import { STAFF, ts, type StaffKey } from "./i18n/staff";
+import { tf } from "./i18n/fill";
+import type { StaffLang } from "./staff-lang";
+
 /**
  * W10b — the staff outage vocabulary. Plain module (no "server-only"): the boards are clients, and
  * lib/authz.ts (the server twin of `isRetryableAuthShape`) can't be imported here.
@@ -22,6 +26,22 @@ export const STAFF_OUTAGE_ESCALATE_MS = 120_000;
  */
 export const STAFF_WRITE_OUTAGE =
   "We can’t reach the ordering system — that change wasn’t saved. Keep it on paper for now.";
+
+/**
+ * P2 — the same sentence in Burmese. A CONSTANT twin rather than a `ts(lang, …)` call, because
+ * `STAFF_WRITE_OUTAGE` is re-exported by `lib/staff.ts` and returned from 24 `staffGate` arms as a
+ * plain string; threading a language through that contract is an auth-path edit this slice does not
+ * take (filed as P2c). The client reason-switches that RENDER it pick the twin by language, so the
+ * one sentence every staff mutation shows during an outage is bilingual where it is read.
+ */
+export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
+
+/**
+ * The nouns a frozen board can be showing. Narrowed to the dictionary's `what.*` keys so a board
+ * cannot pass a free string: the previous signature took `what: string`, which meant every call site
+ * carried its own English literal and no translation could reach them.
+ */
+export type WhatKey = Extract<StaffKey, `what.${string}`>;
 
 /**
  * Why a board is degraded — and therefore how much blame the copy is entitled to assign.
@@ -76,24 +96,29 @@ export function nextDegraded(
  * elapsed measurement separate is the fix.
  */
 export function frozenBoardCopy(
+  lang: StaffLang,
   asOfIso: string,
   degradedForMs: number,
-  what: string,
+  what: WhatKey,
   cause: StaffDegradedCause = "outage",
 ): string {
+  // The clock stays LATIN in both tongues: it is matched against a wall clock and a printed ticket,
+  // and `toLocaleTimeString` is the device's own rendering of an absolute instant.
   const t = new Date(asOfIso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   const escalated = degradedForMs >= STAFF_OUTAGE_ESCALATE_MS;
   // Phrased to avoid a verb agreeing with `what` — "the bags is frozen" was the first cut's tell.
+  // Burmese has no such agreement, but the same three parts assemble in both tongues so the
+  // escalation logic stays one branch rather than two translations of a branch.
   const head =
     cause === "outage"
       ? escalated
-        ? "Still can’t reach the ordering system"
-        : "We can’t reach the ordering system"
+        ? ts(lang, "out.head.still")
+        : ts(lang, "out.head.cant")
       : escalated
-        ? "Still not updating"
-        : "Not updating right now";
-  const tail = escalated ? "Take new orders on paper; nothing here is lost." : "Reconnecting…";
-  return `${head} — showing ${what} as of ${t}. ${tail}`;
+        ? ts(lang, "out.head.stillNotUpdating")
+        : ts(lang, "out.head.notUpdating");
+  const tail = escalated ? ts(lang, "out.tail.paper") : ts(lang, "out.tail.reconnecting");
+  return tf(lang, "out.frozen", { head, what: ts(lang, what), t, tail });
 }
 
 /**
