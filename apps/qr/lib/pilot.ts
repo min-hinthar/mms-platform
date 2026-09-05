@@ -37,6 +37,18 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
  * A FAILED READ IS NEVER A ZERO. Any read error collapses the whole result to `{ ok: false }` and
  * the sheet says it cannot read tonight's numbers — the same rule, and the same reason, as
  * `getDayCashSummary` and `getCartTotals`: a confident zero on this screen is a lie about the day.
+ *
+ * ⚠️ IT WALKS THE DAY'S ORDERS TWICE, and the bound that makes that acceptable is stated rather than
+ * assumed. `getDayCashSummary` pages `qr_orders` for its tender columns, and the loop below pages the
+ * same rows again for their session mode — so a page view costs 2·⌈N/1000⌉ + 5 sequential round
+ * trips at N orders in the day. Reading both from one pass would mean either widening the register's
+ * projection or re-deriving its arithmetic here, and the second is the drift the W17 rules forbid on
+ * exactly this kind of screen. The bound: this is a family restaurant running a two-week pilot at
+ * tens of orders a day, so both passes are one page each and milliseconds apart. Two consequences
+ * follow if that ever stops being true — the round trips grow linearly, and the two passes are taken
+ * at DIFFERENT INSTANTS, so an order landing between them is in the count and not in the money (or
+ * the reverse). At pilot volume that window is invisible; past a few hundred orders a day, read the
+ * orders once and hand the rows to both derivations.
  */
 
 export type PilotNight = {
@@ -46,6 +58,16 @@ export type PilotNight = {
   pilotRedemptions: number;
   /** The pilot code these redemptions belong to, so the copy never hardcodes it twice. */
   promoCode: string;
+  /**
+   * Does an ACTIVE `promo_codes` row for that code exist at all?
+   *
+   * P5 landed ahead of P3, which is the slice that inserts the row — so on Day 0 the redemption
+   * count is a structural zero. "0 discounts given" is true and reads as "nobody used it", which is
+   * a different statement and the wrong one. The sheet says "not set up yet" instead, and this is
+   * the fact that decides. `false` also covers a deactivated code (`active = false`), which is how
+   * the pilot ENDS — the count freezes and the sheet should say why.
+   */
+  promoLive: boolean;
   /** The day's paid orders, bucketed by the door they came in — see `pilot-night.ts`. */
   split: ChannelSplit;
   /** The register's own day summary, quoted verbatim. */
@@ -87,7 +109,7 @@ export async function getPilotNight(): Promise<PilotNightResult> {
   // Exact counts, never a page length: `head: true` asks PostgREST for the count and no rows, so a
   // day with more than a page of ratings still reports the real number rather than the cap. (This is
   // the trap `getDayCashSummary` pages around for its own read — same failure, different shape.)
-  const [redemptions, ratingsAll, ratingsLow, recoveries] = await Promise.all([
+  const [redemptions, ratingsAll, ratingsLow, recoveries, promoRow] = await Promise.all([
     db
       .from("promo_redemptions")
       .select("id", { count: "exact", head: true })
@@ -102,7 +124,12 @@ export async function getPilotNight(): Promise<PilotNightResult> {
       .select("id", { count: "exact", head: true })
       .gte("created_at", sinceIso)
       .lte("rating", LOW_RATING),
+    // ⚠️ NOT day-scoped, deliberately: an orphan charge from Tuesday is still owed back on Friday.
+    // The SHEET says so on the card (`pilot.night.recovery.scope`) — a card headed "since midnight"
+    // must not let an all-time figure pass as tonight's, and a docblock is not where a reader looks.
     db.from("qr_refunds_needed").select("id", { count: "exact", head: true }).eq("resolved", false),
+    // Does the code exist and is it live? `maybeSingle` so "no row" is data, not an error.
+    db.from("promo_codes").select("active").eq("code", PILOT_PROMO_CODE).maybeSingle(),
   ]);
   // `{ data: null, error }` is how postgrest-js reports a transport failure — it RESOLVES rather than
   // rejecting — so an unchecked read here would answer a confident `null` count that `?? 0` would
@@ -117,7 +144,10 @@ export async function getPilotNight(): Promise<PilotNightResult> {
     pilotRedemptions === null ||
     ratingsTotal === null ||
     ratingsLowCount === null ||
-    unresolvedRecoveries === null
+    unresolvedRecoveries === null ||
+    // Same rule for the row read: a failed lookup must not report "not set up yet", which is a
+    // claim about the campaign rather than about the read.
+    promoRow.error
   )
     return { ok: false, reason: "outage" };
 
@@ -159,6 +189,7 @@ export async function getPilotNight(): Promise<PilotNightResult> {
       sinceIso,
       pilotRedemptions,
       promoCode: PILOT_PROMO_CODE,
+      promoLive: promoRow.data?.active === true,
       split: bucketByChannel(rows),
       money: cash.summary,
       ratings: { total: ratingsTotal, low: ratingsLowCount },

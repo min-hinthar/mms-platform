@@ -3148,6 +3148,38 @@ const MUTANTS = [
     find: "    return { ok: false };",
     replace: "    return { ok: true, rows: [] };",
   },
+  {
+    id: "pilot/redemptions-count-every-campaign",
+    file: "apps/qr/lib/pilot.ts",
+    suite: "lib/pilot-read.test.ts",
+    why: "P5 (blind pass) — the figure is LABELLED with the pilot's code. Drop the code filter and every campaign's redemptions are reported under it, which is a wrong participation count presented as the pilot's own. Caught only because the suite's fake keys a query on its table AND its filters; the first fake keyed on table plus position, and this deletion was silently green",
+    find: '      .eq("code", PILOT_PROMO_CODE)\n      .gte("redeemed_at", sinceIso),',
+    replace: '      .gte("redeemed_at", sinceIso),',
+  },
+  {
+    id: "pilot/low-ratings-counts-every-rating",
+    file: "apps/qr/lib/pilot.ts",
+    suite: "lib/pilot-read.test.ts",
+    why: "P5 (blind pass) — the two `mms_feedback` reads differ ONLY by this filter. Drop it and `low` equals `total`, so a perfect night reports every rating as needing follow-up — and the manager stops believing the chip. The suite tells the two apart by the filter now, not by which one Promise.all issued first",
+    find: '      .gte("created_at", sinceIso)\n      .lte("rating", LOW_RATING),',
+    replace: '      .gte("created_at", sinceIso),',
+  },
+  {
+    id: "pilot/resolved-recoveries-still-counted-as-waiting",
+    file: "apps/qr/lib/pilot.ts",
+    suite: "lib/pilot-read.test.ts",
+    why: 'P5 (blind pass) — the sheet says "{n} waiting on the approvals screen". Counting resolved rows too means the number never falls after someone clears one, so the nightly "was anything charged with no order" check reports work that is already done, every night, until nobody reads it',
+    find: 'db.from("qr_refunds_needed").select("id", { count: "exact", head: true }).eq("resolved", false),',
+    replace: 'db.from("qr_refunds_needed").select("id", { count: "exact", head: true }),',
+  },
+  {
+    id: "pilot/promo-liveness-fails-open",
+    file: "apps/qr/lib/pilot.ts",
+    suite: "lib/pilot-read.test.ts",
+    why: 'P5 (blind pass) — P5 shipped ahead of P3, which inserts the `promo_codes` row, so before it merges there IS no code. Reporting it live turns the structural zero back into "0 discounts given", which reads as "nobody used it" — a claim about the guests instead of about the campaign, on Day 0 of the pilot',
+    find: "      promoLive: promoRow.data?.active === true,",
+    replace: "      promoLive: true,",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

@@ -68,12 +68,16 @@ describe("buildGlossary — the printed word-check sheet", () => {
     expect(g.openForCorrection).toBe(allRows.filter((r) => r.locked === null).length);
   });
 
-  it("never prints either language-control autonym as a correctable line", () => {
+  it("never prints either language-control autonym — on ANY row, locked or open", () => {
     // The one thing the pilot brief forbids outright. Belt AND braces: `autonyms.test.ts` keeps them
     // out of the dictionary; this keeps them off the SHEET even if that guard were relaxed.
-    const open = allRows.filter((r) => r.locked === null);
+    //
+    // ⚠️ IT WALKS EVERY ROW, and the first cut filtered to `locked === null` first. That was the
+    // guard reading its own docblock rather than the sheet: a LOCKED ROW IS STILL A PRINTED ROW
+    // (`SheetTable` renders it, with its reason where the box would be), so an autonym arriving as a
+    // `STAFF_SETTLED` or `STAFF_LATIN_BY_DESIGN` value would have printed with this guard green.
     for (const autonym of ["မြန်မာ", "English"])
-      expect(open.filter((r) => r.en === autonym || r.my === autonym)).toEqual([]);
+      expect(allRows.filter((r) => r.en === autonym || r.my === autonym)).toEqual([]);
   });
 
   it("is stable and grouped by surface — the same keys print in the same order every time", () => {

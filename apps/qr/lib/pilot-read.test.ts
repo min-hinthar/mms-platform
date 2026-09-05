@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DaySummary } from "./register-math";
 
 /**
@@ -19,32 +19,46 @@ import type { DaySummary } from "./register-math";
 
 vi.mock("server-only", () => ({}));
 
-/** A scripted result for one awaited query. */
-type Result = { count?: number | null; data?: unknown[] | null; error?: unknown };
+/** A scripted answer. `data` is a row LIST for a paged read and a single row for `maybeSingle`. */
+type Result = { count?: number | null; data?: unknown; error?: unknown };
 
 /**
  * The minimum of the postgrest builder `pilot.ts` uses. Written out rather than proxied so the next
  * reader can see exactly which chain shapes are covered — a method the module starts using and this
  * fake lacks is a TypeError in the suite, which is the failure we want.
+ *
+ * ⚠️ IT RECORDS THE FILTERS, AND THAT IS THE WHOLE POINT. The first cut returned `this` from every
+ * filter method and dispatched on the table name plus queue position — so `.eq("code", PILOT15)`,
+ * `.eq("resolved", false)` and `.lte("rating", 3)` could each be DELETED from `pilot.ts` with the
+ * suite still green: the sheet would report every campaign's redemptions under the PILOT15 label,
+ * count already-cleared recovery rows as waiting, and set `low` equal to `total`. The two
+ * `mms_feedback` reads in particular were told apart only by their ORDER in the script, which is
+ * exactly the "guard satisfied by position" shape LEARNINGS #60 names. A query's identity here is
+ * its table AND its filters.
  */
 class FakeQuery implements PromiseLike<Result> {
+  private readonly filters: string[] = [];
   constructor(
     private readonly table: string,
-    private readonly take: (table: string) => Result,
+    private readonly take: (key: string) => Result,
   ) {}
   select() {
     return this;
   }
-  eq() {
+  eq(col: string, value: unknown) {
+    this.filters.push(`eq:${col}=${String(value)}`);
     return this;
   }
-  gte() {
+  gte(col: string, value: unknown) {
+    this.filters.push(`gte:${col}=${String(value)}`);
     return this;
   }
-  lte() {
+  lte(col: string, value: unknown) {
+    this.filters.push(`lte:${col}=${String(value)}`);
     return this;
   }
-  in() {
+  in(col: string, values: readonly unknown[]) {
+    this.filters.push(`in:${col}=${values.join(",")}`);
     return this;
   }
   order() {
@@ -53,25 +67,36 @@ class FakeQuery implements PromiseLike<Result> {
   range() {
     return this;
   }
+  maybeSingle() {
+    return this;
+  }
+  /** `<table>|<sorted filters>` — the identity a script entry is keyed on. */
+  key(): string {
+    return `${this.table}|${[...this.filters].sort().join("&")}`;
+  }
   then<A, B>(
     onOk?: ((value: Result) => A | PromiseLike<A>) | null,
     onErr?: ((reason: unknown) => B | PromiseLike<B>) | null,
   ): PromiseLike<A | B> {
-    return Promise.resolve(this.take(this.table)).then(onOk, onErr);
+    return Promise.resolve(this.take(this.key())).then(onOk, onErr);
   }
 }
 
-/** Per-table queues; the last entry repeats once a queue is drained. */
+/**
+ * Queues keyed by `<table>|<filters>`. The last entry repeats once a queue is drained (so the paged
+ * orders read can be scripted page by page), and an UNSCRIPTED key is an error — which is what makes
+ * a deleted or altered filter fail loudly instead of silently borrowing another query's answer.
+ */
 let script: Record<string, Result[]>;
 let queries: string[];
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) =>
-      new FakeQuery(table, (t) => {
-        queries.push(t);
-        const queue = script[t];
-        if (!queue?.length) return { error: new Error(`unscripted read of ${t}`) };
+      new FakeQuery(table, (key) => {
+        queries.push(key);
+        const queue = script[key];
+        if (!queue?.length) return { error: new Error(`unscripted read: ${key}`) };
         return queue.length === 1 ? queue[0]! : queue.shift()!;
       }),
   }),
@@ -102,29 +127,48 @@ vi.mock("./register", () => ({
 
 const { getPilotNight } = await import("./pilot");
 
+/** A PDT afternoon, so every fixture's day window is one known instant and the keys are spellable. */
+const NOW = "2026-09-05T19:30:00Z";
+const SINCE = "2026-09-05T07:00:00.000Z";
+
+/** The six queries `getPilotNight` is allowed to make, each named by its table AND its filters. */
+function keysFor(since: string) {
+  return {
+    redemptions: `promo_redemptions|eq:code=PILOT15&gte:redeemed_at=${since}`,
+    ratingsAll: `mms_feedback|gte:created_at=${since}`,
+    ratingsLow: `mms_feedback|gte:created_at=${since}&lte:rating=3`,
+    recoveries: "qr_refunds_needed|eq:resolved=false",
+    promoRow: "promo_codes|eq:code=PILOT15",
+    orders: `qr_orders|gte:created_at=${since}&in:status=paid,refunded`,
+  };
+}
+const K = keysFor(SINCE);
+
+const LIVE_CODE: Result = { data: { active: true }, error: null };
+
 /** A quiet-but-successful night: every read answered, every answer zero. */
-function quiet() {
+function quiet(since = SINCE) {
+  const k = keysFor(since);
   script = {
-    promo_redemptions: [{ count: 0, error: null }],
-    mms_feedback: [
-      { count: 0, error: null },
-      { count: 0, error: null },
-    ],
-    qr_refunds_needed: [{ count: 0, error: null }],
-    qr_orders: [{ data: [], error: null }],
+    [k.redemptions]: [{ count: 0, error: null }],
+    [k.ratingsAll]: [{ count: 0, error: null }],
+    [k.ratingsLow]: [{ count: 0, error: null }],
+    [k.recoveries]: [{ count: 0, error: null }],
+    [k.promoRow]: [LIVE_CODE],
+    [k.orders]: [{ data: [], error: null }],
   };
 }
 
-/** A busy night with an asymmetric shape, so no two figures can be confused for each other. */
-function busy() {
+/** A busy night, asymmetric on purpose so no two figures can be confused for each other. */
+function busy(since = SINCE) {
+  const k = keysFor(since);
   script = {
-    promo_redemptions: [{ count: 3, error: null }],
-    mms_feedback: [
-      { count: 7, error: null },
-      { count: 2, error: null },
-    ],
-    qr_refunds_needed: [{ count: 1, error: null }],
-    qr_orders: [
+    [k.redemptions]: [{ count: 3, error: null }],
+    [k.ratingsAll]: [{ count: 7, error: null }],
+    [k.ratingsLow]: [{ count: 2, error: null }],
+    [k.recoveries]: [{ count: 1, error: null }],
+    [k.promoRow]: [LIVE_CODE],
+    [k.orders]: [
       {
         data: [
           { status: "paid", table_sessions: { mode: "dinein" } },
@@ -140,10 +184,16 @@ function busy() {
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(NOW));
   queries = [];
   gate = { ok: true, caller: {} };
   cash = { ok: true, summary: SUMMARY, sinceIso: "ignored" };
   busy();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("getPilotNight — the night sheet's reads", () => {
@@ -154,6 +204,7 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.night.pilotRedemptions).toBe(3);
     expect(res.night.ratings).toEqual({ total: 7, low: 2 });
     expect(res.night.unresolvedRecoveries).toBe(1);
+    expect(res.night.promoLive).toBe(true);
     expect(res.night.split.channels).toEqual([
       { mode: "dinein", orders: 2 },
       { mode: "pickup", orders: 1 },
@@ -162,20 +213,44 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.night.split.unattributed).toBe(1);
   });
 
-  it("quotes the register's day summary verbatim rather than deriving a second one", () => {
+  it("asks for exactly the six queries it claims, filters and all", async () => {
+    // The FILTERS are the identity here, not the table names. Drop `.eq("code", PILOT15)` and the
+    // redemptions read becomes a different query — one that counts every campaign under the pilot's
+    // label. This assertion is what turns that from a silent relabelling into a failure.
+    await getPilotNight();
+    expect(new Set(queries)).toEqual(new Set(Object.values(K)));
+  });
+
+  it("tells the two feedback reads apart by their FILTER, not by their order", async () => {
+    // The first cut keyed the script on table name plus position, so `total` and `low` were
+    // distinguished only by which one `Promise.all` happened to issue first — and swapping the two
+    // builders in the source was invisible. Scripting them in the OPPOSITE insertion order proves
+    // the distinction now rides `lte:rating=3`.
+    script = {
+      [K.ratingsLow]: [{ count: 2, error: null }],
+      [K.ratingsAll]: [{ count: 7, error: null }],
+      [K.redemptions]: [{ count: 3, error: null }],
+      [K.recoveries]: [{ count: 1, error: null }],
+      [K.promoRow]: [LIVE_CODE],
+      [K.orders]: [{ data: [], error: null }],
+    };
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.night.ratings).toEqual({ total: 7, low: 2 });
+  });
+
+  it("quotes the register's day summary verbatim rather than deriving a second one", async () => {
     // Object identity, not a value comparison: a re-derivation that happened to agree today is the
     // drift the W17 rule is about, and identity is the only assertion that refuses it outright.
-    return getPilotNight().then((res) => {
-      expect(res.ok).toBe(true);
-      if (res.ok) expect(res.night.money).toBe(SUMMARY);
-    });
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.night.money).toBe(SUMMARY);
   });
 
   it("scopes the night to the LA calendar day, the same window the register uses", async () => {
-    vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-15T19:30:00Z")); // PDT — 12:30pm in LA
+    quiet("2026-07-15T07:00:00.000Z");
     const res = await getPilotNight();
-    vi.useRealTimers();
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.night.sinceIso).toBe("2026-07-15T07:00:00.000Z");
   });
@@ -190,36 +265,56 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.night.unresolvedRecoveries).toBe(0);
   });
 
-  it.each([
-    ["promo_redemptions", 0],
-    ["mms_feedback", 0],
-    ["mms_feedback", 1],
-    ["qr_refunds_needed", 0],
-  ] as const)("an ERROR on the %s read (#%i) is an outage, never a zero", async (table, index) => {
+  it("says the pilot code is NOT LIVE when no row exists, rather than reporting a zero", async () => {
+    // P5 landed ahead of P3, which inserts the row. "0 discounts given" is true and reads as
+    // "nobody used it" — a different claim, and the wrong one on Day 0.
     quiet();
-    script[table]![index] = { count: null, error: new Error("connection reset") };
+    script[K.promoRow] = [{ data: null, error: null }];
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.night.promoLive).toBe(false);
+  });
+
+  it("a DEACTIVATED code is not live either", async () => {
+    quiet();
+    script[K.promoRow] = [{ data: { active: false }, error: null }];
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.night.promoLive).toBe(false);
+  });
+
+  it("a FAILED code lookup is an outage, not 'not set up yet'", async () => {
+    // The two say opposite things about the campaign. Only one of them is ever a fact about a
+    // dropped socket.
+    quiet();
+    script[K.promoRow] = [{ data: null, error: new Error("connection reset") }];
     const res = await getPilotNight();
     expect(res).toEqual({ ok: false, reason: "outage" });
   });
 
-  it.each([
-    ["promo_redemptions", 0],
-    ["mms_feedback", 0],
-    ["mms_feedback", 1],
-    ["qr_refunds_needed", 0],
-  ] as const)(
-    "a NULL count with no error on the %s read (#%i) is an outage too",
-    async (table, index) => {
+  it.each(["redemptions", "ratingsAll", "ratingsLow", "recoveries"] as const)(
+    "an ERROR on the %s read is an outage, never a zero",
+    async (name) => {
+      quiet();
+      script[K[name]] = [{ count: null, error: new Error("connection reset") }];
+      const res = await getPilotNight();
+      expect(res).toEqual({ ok: false, reason: "outage" });
+    },
+  );
+
+  it.each(["redemptions", "ratingsAll", "ratingsLow", "recoveries"] as const)(
+    "a NULL count with no error on the %s read is an outage too",
+    async (name) => {
       // The shape a `?? 0` swallows most quietly: PostgREST answered, but did not count.
       quiet();
-      script[table]![index] = { count: null, error: null };
+      script[K[name]] = [{ count: null, error: null }];
       const res = await getPilotNight();
       expect(res).toEqual({ ok: false, reason: "outage" });
     },
   );
 
   it("an error on the ORDERS read is an outage, not an empty day", async () => {
-    script.qr_orders = [{ data: null, error: new Error("statement timeout") }];
+    script[K.orders] = [{ data: null, error: new Error("statement timeout") }];
     const res = await getPilotNight();
     expect(res).toEqual({ ok: false, reason: "outage" });
   });
@@ -231,14 +326,14 @@ describe("getPilotNight — the night sheet's reads", () => {
       status: "paid",
       table_sessions: { mode: "dinein" },
     }));
-    script.qr_orders = [
+    script[K.orders] = [
       { data: full, error: null },
       { data: [{ status: "paid", table_sessions: { mode: "pickup" } }], error: null },
     ];
     const res = await getPilotNight();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
-    expect(queries.filter((t) => t === "qr_orders")).toHaveLength(2);
+    expect(queries.filter((q) => q === K.orders)).toHaveLength(2);
     expect(res.night.split.channels).toEqual([
       { mode: "dinein", orders: 1000 },
       { mode: "pickup", orders: 1 },
@@ -248,14 +343,14 @@ describe("getPilotNight — the night sheet's reads", () => {
 
   it("stops after a short page rather than asking forever", async () => {
     await getPilotNight();
-    expect(queries.filter((t) => t === "qr_orders")).toHaveLength(1);
+    expect(queries.filter((q) => q === K.orders)).toHaveLength(1);
   });
 
   it("reads the session mode through an ARRAY embed too, not only an object", async () => {
     // PostgREST returns a to-one embed as an object, but the generated row type models it loosely
     // and older shapes arrive as a one-element array. Reading only one shape would send every order
     // to `unattributed` — a sheet that reported "no channel recorded" for the entire day.
-    script.qr_orders = [
+    script[K.orders] = [
       {
         data: [
           { status: "paid", table_sessions: [{ mode: "scango" }] },

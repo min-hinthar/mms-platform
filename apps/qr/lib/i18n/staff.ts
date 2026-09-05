@@ -264,9 +264,27 @@ export const STAFF = {
   // read-only nightly sheet on /staff/feedback. Both are read by the two people whose language
   // this whole arc exists for, so both are Burmese-primary with the English echo beside.
   "pilot.gloss.title": { en: "Word check", my: "စာလုံး စစ်ဆေးစာရွက်" },
+  // ⚠️ THE SCOPE IS IN THE SENTENCE, and it was not in the first draft. "Every Burmese word this
+  // console shows" was FALSE: the dish and option names P1 put on the kitchen ticket as its PRIMARY
+  // line come from `menu_items.name_my` / the modifier catalog, not from this dictionary, and no
+  // derivation of `STAFF` can reach them. A sheet that claims completeness and omits the console's
+  // largest Burmese surface sends a corrector away believing the check is done.
   "pilot.gloss.lede": {
-    en: "Every Burmese word this console shows. Read each line; where a word is wrong, write the right one beside it.",
-    my: "ဒီစက် ပြတဲ့ မြန်မာစာလုံး အားလုံး။ တစ်ကြောင်းစီ ဖတ်ပြီး မှားနေတာရှိရင် ဘေးမှာ မှန်တာ ရေးပါ။",
+    en: "Every Burmese word the console’s own buttons, labels and messages show. Read each line; where a word is wrong, write the right one beside it.",
+    my: "ဒီစက်ရဲ့ ခလုတ်၊ အညွှန်း၊ စာသားတွေမှာ ပြတဲ့ မြန်မာစာလုံး အားလုံး။ တစ်ကြောင်းစီ ဖတ်ပြီး မှားနေတာရှိရင် ဘေးမှာ မှန်တာ ရေးပါ။",
+  },
+  // …and the omission is NAMED, because this sheet teaches its reader that absences get explained
+  // (the autonym note does exactly that), which makes an unexplained one read as "there is nothing
+  // else". The dish names are not unchecked — they are checked where they are READ.
+  "pilot.gloss.scope": {
+    en: "Dish and option names are NOT on this sheet. Those come from the menu, not from the console, and they get checked where they are read — on the kitchen ticket, with the English beneath each one.",
+    my: "ဟင်းအမည်နဲ့ ရွေးချယ်စရာ အမည်တွေကို ဒီစာရွက်မှာ မထည့်ထားပါ။ အဲဒါတွေက မီနူးထဲကလာတာ၊ ဒီစက်ကလာတာ မဟုတ်ပါ — ဖတ်တဲ့နေရာမှာပဲ စစ်ပါတယ်၊ မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်မှာ တစ်ခုစီအောက်က အင်္ဂလိပ်စာနဲ့အတူ။",
+  },
+  // The braces are machine slots. A corrector who translates `{n}` breaks a string — `strings.test.ts`
+  // catches it at CI rather than at the pass, but the paper is where it should never be written.
+  "pilot.gloss.slots": {
+    en: "Keep anything in curly braces exactly as it is — {n}, {t} and {x} are where the app puts a number, a time or a name. Change the words around them, never the braces.",
+    my: "တွန့်ကွင်းထဲက အရာတွေကို ရှိတဲ့အတိုင်း ထားပါ — {n}၊ {t}၊ {x} နေရာတွေမှာ အက်ပ်က ဂဏန်း၊ အချိန်၊ နာမည် ထည့်ပါတယ်။ ဘေးက စကားလုံးတွေကိုပဲ ပြင်ပါ၊ တွန့်ကွင်းကို မပြင်ပါနဲ့။",
   },
   "pilot.gloss.print": { en: "Print", my: "ပုံနှိပ်" },
   // ⚠️ Neither heading may be `မြန်မာ` or `English` on its own — those two strings are the language
@@ -308,9 +326,17 @@ export const STAFF = {
   "pilot.night.money.cash": { en: "Cash", my: "ငွေသား" },
   "pilot.night.money.card": { en: "Card · online", my: "ကတ် · အွန်လိုင်း" },
   "pilot.night.money.reader": { en: "Card · reader", my: "ကတ် · စက်" },
+  // ⚠️ VERBATIM FROM THE AUTHORITY, because quoting a figure without its caveat changes what the
+  // figure says. `/staff/register` labels these buckets "Order totals by status — line-level refunds
+  // aren’t netted out", and M2 is why: a partial refund leaves `status='paid'`, so the bucket is
+  // GROSS of it. Dropping that line made "Taken today" read as a drawer figure it is not.
   "pilot.night.money.where": {
-    en: "The register has the full report, refunds included.",
-    my: "အပြည့်အစုံကို ကောင်တာ စာမျက်နှာမှာ ကြည့်ပါ — ငွေပြန်အမ်းတာတွေပါ ပါပါတယ်။",
+    en: "Order totals by status — line-level refunds are NOT taken off these. The register has the full report.",
+    my: "အခြေအနေအလိုက် အော်ဒါ စုစုပေါင်း — တစ်မျိုးချင်း ပြန်အမ်းတာတွေကို ဒီကနေ မနုတ်ထားပါ။ အပြည့်အစုံကို ကောင်တာ စာမျက်နှာမှာ ကြည့်ပါ။",
+  },
+  "pilot.night.money.refunded": {
+    en: "{n} paid today and since fully refunded ({m}) — not counted above.",
+    my: "ဒီနေ့ ရှင်းပြီး နောက်မှ ငွေအပြည့် ပြန်အမ်းထားတာ {n} ခု ({m}) — အပေါ်မှာ မရေတွက်ပါ။",
   },
   "pilot.night.ratings": { en: "Ratings tonight", my: "ဒီည အမှတ်ပေးချက်" },
   "pilot.night.ratings.low": { en: "{n} need following up", my: "{n} ခု လိုက်ကြည့်ရန်" },
@@ -320,14 +346,31 @@ export const STAFF = {
     en: "{n} waiting on the approvals screen.",
     my: "ခွင့်ပြုချက် စာမျက်နှာမှာ {n} ခု စောင့်နေပါတယ်။",
   },
+  // ⚠️ The one figure on this card that is NOT tonight's, said on the card rather than in a docblock.
+  // Day-scoping it would be worse — an orphan charge from Tuesday is still owed back on Friday — but
+  // a card headed "Since midnight" must not let an all-time number pass as tonight's.
+  "pilot.night.recovery.scope": {
+    en: "All time, not only tonight — a charge from any day is owed back until someone clears it.",
+    my: "ဒီညတစ်ညတည်း မဟုတ်ဘဲ အားလုံးပါ — ဘယ်နေ့ကမဆို တစ်ယောက်ယောက် မရှင်းပေးမချင်း ပြန်အမ်းရဦးမယ်။",
+  },
   "pilot.night.unattributed": { en: "No channel recorded", my: "ဘယ်ကလာမှန်း မမှတ်ရသေးပါ" },
   "pilot.night.stripe": {
     en: "Compare this against Stripe by hand before you close — this screen cannot see Stripe.",
     my: "မပိတ်ခင် Stripe နဲ့ လက်နဲ့ တိုက်စစ်ပါ — ဒီစခရင်က Stripe ကို မမြင်ပါ။",
   },
+  // ⚠️ IT QUALIFIES THE DISCOUNT COUNT AND NOTHING ELSE, and it renders beside that figure. Written
+  // first as a bare "not counted above" under the recovery block, where the things above it were the
+  // orders and the takings — and a split-settled table IS in both: `mms_fulfill_split_order` writes a
+  // real `qr_orders` row with `status='paid'`. What it does not write is a `promo_redemptions` row.
   "pilot.night.split": {
-    en: "A table that split its bill is not counted above: a split settle records no discount use.",
-    my: "ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲကို အပေါ်မှာ မရေတွက်ပါ — ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ။",
+    en: "Missing from this one: a table that split its bill. A split settle records no discount use — its order and its money ARE counted.",
+    my: "ဒီဂဏန်းမှာ မပါတာ — ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲ။ ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ — အော်ဒါနဲ့ ငွေကတော့ ရေတွက်ထားပါတယ်။",
+  },
+  // Day 0 runs before P3 inserts the code. "0 discounts given" would be true and would read as
+  // "nobody used it"; this says the other thing, and the read that decides is in `getPilotNight`.
+  "pilot.night.promo.unset": {
+    en: "{x} isn’t set up yet — there is no code to give.",
+    my: "{x} ကို မပြင်ဆင်ရသေးပါ — ပေးစရာ ကုဒ် မရှိသေးပါ။",
   },
   "pilot.night.unreadable": {
     en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
@@ -380,7 +423,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
  * hour early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences
  * are the only instruction anyone has when nothing else on the tablet works.
  *
- * ⚠️ DATA AND COMMENT MUST AGREE, and `staff-markers.test.ts` is what makes that true rather than
+ * ⚠️ DATA AND COMMENT MUST AGREE, and `lib/i18n/autonyms.test.ts` is what makes that true rather than
  * hoped: it PARSES this module (the TypeScript compiler, so a comment inside a string cannot
  * satisfy it) for every entry carrying a trailing `K15-HIGH` marker and asserts the two sets are
  * EQUAL — both directions. A key marked in a comment but missing here is a string Mom is never asked

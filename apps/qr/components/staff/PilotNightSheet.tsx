@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { Chrome } from "./Chrome";
 import { getPilotNight } from "@/lib/pilot";
@@ -55,12 +56,48 @@ export async function PilotNightSheet() {
       </div>
 
       <dl className="pns-grid">
-        <Figure
-          value={night.pilotRedemptions}
-          label={
-            <Chrome lang={lang} k="pilot.night.promo" vars={{ x: night.promoCode }} echo="stack" />
-          }
-        />
+        {night.promoLive ? (
+          <Figure
+            value={night.pilotRedemptions}
+            label={
+              <Chrome
+                lang={lang}
+                k="pilot.night.promo"
+                vars={{ x: night.promoCode }}
+                echo="stack"
+              />
+            }
+            // C4 — the disclosure lives BESIDE the figure it qualifies. Under the recovery block it
+            // read as "not counted above" about the orders and the takings, where it is FALSE: a
+            // split settle writes a real paid `qr_orders` row. What it skips is the redemption.
+            detail={
+              <span className="pns-chip pns-chip-warn">
+                <Chrome lang={lang} k="pilot.night.split" echo={false} />
+              </span>
+            }
+          />
+        ) : (
+          // P5 landed ahead of P3, which inserts the row. A structural 0 under "discounts given"
+          // would be true and would read as "nobody used it" — a different claim, and the wrong one.
+          <div className="pns-cell">
+            <dt className="pns-label">
+              <Chrome
+                lang={lang}
+                k="pilot.night.promo"
+                vars={{ x: night.promoCode }}
+                echo="stack"
+              />
+            </dt>
+            <dd className="pns-value pns-value-none">
+              <Chrome
+                lang={lang}
+                k="pilot.night.promo.unset"
+                vars={{ x: night.promoCode }}
+                echo="stack"
+              />
+            </dd>
+          </div>
+        )}
         <Figure
           value={night.split.counted + night.split.unattributed}
           label={<Chrome lang={lang} k="pilot.night.orders" echo="stack" />}
@@ -113,6 +150,22 @@ export async function PilotNightSheet() {
           <Money lang={lang} k="pilot.night.money.card" cents={night.money.cardCents} />
           <Money lang={lang} k="pilot.night.money.reader" cents={night.money.terminalCents} />
         </dl>
+        {/* C2 — the register prints this line beside the same buckets and the sheet dropped it.
+            A fully-refunded order is NOT in the figures above, so a drawer count that ignores this
+            is over by exactly those orders. Shown only when there are any, like the register. */}
+        {night.money.refundedCount > 0 && (
+          <p className="pns-note pns-note-warn">
+            <Chrome
+              lang={lang}
+              k="pilot.night.money.refunded"
+              vars={{
+                n: night.money.refundedCount,
+                m: `$${(night.money.refundedCents / 100).toFixed(2)}`,
+              }}
+              echo="stack"
+            />
+          </p>
+        )}
         <p className="pns-note">
           <Chrome lang={lang} k="pilot.night.money.where" echo="stack" />
         </p>
@@ -139,10 +192,10 @@ export async function PilotNightSheet() {
           </p>
         )}
         <p className="pns-note">
-          <Chrome lang={lang} k="pilot.night.stripe" echo="stack" />
+          <Chrome lang={lang} k="pilot.night.recovery.scope" echo="stack" />
         </p>
         <p className="pns-note">
-          <Chrome lang={lang} k="pilot.night.split" echo="stack" />
+          <Chrome lang={lang} k="pilot.night.stripe" echo="stack" />
         </p>
       </div>
 
@@ -155,7 +208,7 @@ export async function PilotNightSheet() {
 
 function Unreadable({ lang }: { lang: StaffLang }) {
   return (
-    <section className="pns pns-unreadable" aria-labelledby="pns-h">
+    <section className="pns" aria-labelledby="pns-h">
       <h2 className="pns-title" id="pns-h">
         <Chrome lang={lang} k="pilot.night.title" echo="inline" />
       </h2>
@@ -177,8 +230,8 @@ function Figure({
   detail = null,
 }: {
   value: number;
-  label: React.ReactNode;
-  detail?: React.ReactNode;
+  label: ReactNode;
+  detail?: ReactNode;
 }) {
   return (
     <div className="pns-cell">

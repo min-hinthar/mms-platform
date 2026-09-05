@@ -8,13 +8,21 @@ import type { StaffChannel } from "./i18n/staff";
  * door; nothing here touches the database or the clock.
  *
  * ⚠️ THE ONE RULE THIS FILE EXISTS FOR: an order whose channel is not recorded is COUNTED APART and
- * never folded into a bucket. `qr_orders.session_id` is nullable and `table_sessions.mode` is only
- * reachable through it, so "no session row" is a real state, not a theoretical one — and a screen
- * someone reads as a statement of fact must not answer a question it cannot answer. Splitting three
- * unattributed orders across three channels, or silently dropping them so the buckets no longer sum
- * to the day, are the same defect: a number the app invented. `counted` is what the buckets add up
+ * never folded into a bucket. Splitting unattributed orders across three channels, or silently
+ * dropping them so the buckets no longer sum to the day, are the same defect: a number the app
+ * invented, on a screen someone reads as a statement of fact. `counted` is what the buckets add up
  * to, and it is deliberately NOT the day's order count — the sheet prints both so the gap is visible
  * rather than reconciled away.
+ *
+ * ⚠️ WHICH SHAPES ACTUALLY REACH THAT PATH TODAY, stated precisely because the first draft named the
+ * wrong one. It claimed a null `session_id` was "a real state, not a theoretical one" — and against
+ * the live schema it is not: `table_sessions.mode` is `not null check (mode in
+ * ('dinein','scango','pickup'))`, every fulfilment function sets `session_id` from the cart, and the
+ * FK carries no `on delete` action so a session row cannot be deleted out from under an order. What
+ * DOES reach it is a mode value this map has not learned — the CHECK is one migration away from
+ * gaining a fourth — and that is the shape the mutant and the fixtures are aimed at. The nullable
+ * column is handled too, because a defensive branch on a nullable type costs one line and a screen
+ * that answers "we don't know" is the fail-safe direction; it is not claimed to be reachable today.
  *
  * ⚠️ MONEY IS NOT DERIVED HERE, ON PURPOSE. The day's takings already have one authority —
  * `summarizeDay` behind `getDayCashSummary`, the register's Z-report — and a second derivation of a

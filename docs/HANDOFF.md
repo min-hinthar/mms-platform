@@ -51,9 +51,35 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > count from a query that fails LOUD — one outage could have put "7 ratings tonight" and "no feedback
 > yet" on the same screen. It returns an outcome now (`lib/feedback-read.test.ts`, plus a mutant).
 >
+> ### ⚠️ THE BLIND PASS RETURNED REJECT WITH FOUR CRITICALS — every one real, and one shape
+>
+> Each was a **disclosure that did not travel with the number it qualified**. Carry this forward: on
+> a surface built to be honest, the caveat is part of the figure, and moving one three blocks away is
+> the same defect as deleting it.
+>
+> 1. The sheet claimed "every Burmese word this console shows" while omitting the console's LARGEST
+>    Burmese surface — the dish and option names P1 made the kitchen ticket's primary line, which
+>    live in `menu_items` / the modifier catalog and which no derivation of `STAFF` can reach.
+> 2. "Taken today" quoted the register's buckets and dropped BOTH caveats that make them honest (M2
+>    leaves a partial refund at `status='paid'`, so the buckets are gross of it; a fully-refunded
+>    order is excluded outright). The register prints both lines beside the same numbers.
+> 3. "Charged with no order" is an ALL-TIME count and the card is headed "Since midnight".
+> 4. The split-bill disclosure sat under the recovery block, three blocks from the figure it
+>    qualifies — and was FALSE where it sat: `mms_fulfill_split_order` writes a real paid
+>    `qr_orders` row, so a split table IS in the orders and IS in the takings. Only the redemption
+>    is missing.
+>
+> **And the guard was green for the wrong reason** (the shape LEARNINGS #60 names, found again):
+> `pilot-read.test.ts`'s fake keyed each query on its table name and its POSITION in the queue, so
+> `.eq("code", PILOT15)`, `.eq("resolved", false)` and `.lte("rating", 3)` could each be deleted with
+> the suite still green. The two `mms_feedback` reads were distinguished only by which one
+> `Promise.all` happened to issue first. A query's identity is its table AND its filters now, four
+> more mutants pin it, and `glossary.test.ts`'s autonym check had the same shape one layer over — it
+> filtered to unlocked rows first, and a locked row still PRINTS.
+>
 > ### Gate
 >
-> Eleven new mutants, each watched failing first, and every new guard induced red before shipping
+> Fifteen new mutants, each watched failing first, and every new guard induced red before shipping
 > (both directions on the marker parity, and the matcher's own evasion — prose containing the marker —
 > falsified). ⚠️ **Codex could not review this PR: the connector reported its usage limit reached on
 > #259 (2026-09-05), so the `codex-review` check cannot go green.** The blind adversarial pass is the
@@ -144,7 +170,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (368 today)**, **1372 qr + 138 ui tests at the time (1563 + 140 today)**, 69 target modules at the time (74 under `apps/qr/lib` today, 81 in all), 97 local
+> **334 mutants at the time (372 today)**, **1372 qr + 138 ui tests at the time (1563 + 140 today)**, 69 target modules at the time (74 under `apps/qr/lib` today, 81 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1023,7 +1049,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 368 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1563 qr tests + 140 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 372 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1568 qr tests + 140 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1745,7 +1771,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (368 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (372 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -66,6 +66,47 @@ screen. It returns an outcome now.
 money files touched. `KdsBoard`'s private channel→key map moved to `STAFF_CHANNEL_KEY` rather than
 being copied for the sheet — one vocabulary, one binding.
 
+### ⚠️ THE BLIND PASS RETURNED REJECT WITH FOUR CRITICALS — every one real, and one shape
+
+Each was a **disclosure that did not travel with the number it qualified**, which is the failure mode
+a sheet built for honesty can least afford:
+
+_The sheet claimed completeness it does not have._ "Every Burmese word this console shows" — and the
+console's LARGEST Burmese surface is the dish and option names P1 put on the kitchen ticket as its
+primary line, which come from `menu_items` and the modifier catalog and which no derivation of
+`STAFF` can reach. The sheet also teaches its reader that absences get explained (the autonym note
+does exactly that), so the unexplained one read as "there is nothing else". Now the lede says what it
+covers, a printed note names what it does not and where those words ARE checked, and the K15 row no
+longer claims the sheet enumerates its backlog.
+
+_"Taken today" quoted the register's figures and dropped both caveats that made them honest._ M2
+leaves a partial refund at `status='paid'`, so the buckets are GROSS of it, and a fully-refunded
+order is excluded entirely — `/staff/register` prints both facts beside the same numbers. The pilot
+sheet printed neither, under a heading a manager counts a drawer against.
+
+_"Charged with no order" is an all-time count inside a card headed "Since midnight."_ Day-scoping it
+would be worse — an orphan charge from Tuesday is still owed back on Friday — so the card says
+"all time" now, where a reader is, instead of a source docblock, where they are not.
+
+_The split-bill disclosure sat three blocks below the figure it qualifies and was false where it
+sat._ `mms_fulfill_split_order` writes a real paid `qr_orders` row, so a split table IS in "orders
+paid" and IS in the card takings; what it does not write is a `promo_redemptions` row. It renders
+beside the discount count now and names only that.
+
+**And the guard the pass found was green for the wrong reason.** `pilot-read.test.ts`'s fake keyed a
+query on its table name and its position in the queue, so `.eq("code", PILOT15)`,
+`.eq("resolved", false)` and `.lte("rating", 3)` could each be DELETED with the suite still green —
+the sheet reporting every campaign under the pilot's label, counting cleared recovery rows as
+waiting, and setting `low` equal to `total`. The two `mms_feedback` reads were told apart ONLY by
+which one `Promise.all` issued first. A query's identity is now its table AND its filters, four more
+mutants pin it, and each was watched failing. `glossary.test.ts`'s autonym check had the same shape
+one layer over — it filtered to unlocked rows first, and a locked row still PRINTS.
+
+One thing the pass surfaced became a product decision rather than a fix: P5 landed ahead of P3, so
+the `PILOT15` row does not exist yet and "0 discounts given" would be true and would read as "nobody
+used it". The sheet reads `promo_codes` and says "isn't set up yet" instead — which also covers the
+day the pilot ENDS and the code is deactivated.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese

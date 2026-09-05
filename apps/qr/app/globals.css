@@ -9251,10 +9251,10 @@ html[data-fx="lite"] .mms-scrim {
 }
 
 @media print {
-  .pgl {
-    max-width: none;
-    padding: 0;
-  }
+  /* NO `.pgl { max-width; padding }` rule here. The W7a block above already sets
+     `main { padding: 12px !important; max-width: none !important }` and `.pgl` IS the `<main>`, so
+     a second declaration without `!important` is inert — the shape LEARNINGS #60 calls a matcher
+     satisfied by text that does not ship the behaviour, one layer down in CSS. */
   /* The first band is the ten minutes that matter, so it gets its own sheet of paper. Everything
      else follows behind it. */
   .pgl-band-high {
@@ -9350,6 +9350,13 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-h1);
   line-height: 1.1;
 }
+/* The cell that carries a SENTENCE instead of a figure (the code is not set up yet). It must not
+   wear the numeral's size and weight — those say "this is a measurement". */
+.pns-value-none {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+}
 .pns-detail {
   display: flex;
   flex-wrap: wrap;
@@ -9401,6 +9408,11 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-xs);
   color: var(--t3);
   line-height: 1.5;
+}
+/* The one note that is not background: money the figures above do NOT account for. */
+.pns-note-warn {
+  color: var(--warn);
+  font-weight: 600;
 }
 .pns-ok {
   margin: 0;

@@ -38,6 +38,15 @@ export const dynamic = "force-dynamic";
  * minutes, page one is the ten minutes that matter. The sheet PRINTS its own counts (measured from
  * the dictionary at render), so no number about its size is written down anywhere to rot.
  *
+ * ⚠️ WHAT IS ABSENT IS SAID ON THE PAPER — all of it. Three things are not on this sheet and each
+ * has a printed reason: the DISH AND OPTION names (they come from `menu_items` / the modifier
+ * catalog, not from this dictionary, and no derivation of `STAFF` can reach them — they are checked
+ * where they are read, on the kitchen ticket, with the English beneath); the BRACED SLOTS, which are
+ * machine placeholders a corrector must keep; and the two language-button autonyms below. The first
+ * of those was missing from the first draft while the lede claimed "every Burmese word this console
+ * shows" — a sheet that teaches its reader that absences are explained makes an unexplained one read
+ * as "there is nothing else".
+ *
  * ⚠️ THE TWO LANGUAGE-BUTTON AUTONYMS ARE DELIBERATELY ABSENT, and the sheet SAYS SO. They are
  * component constants in `StaffLangSwitch` precisely so a native-check pass cannot correct one into
  * the other language — the single edit that would leave whoever cannot read the other label with no
@@ -81,6 +90,15 @@ export default async function GlossaryPage() {
             vars={{ n: glossary.openForCorrection, total: glossary.total }}
             echo="inline"
           />
+        </p>
+        {/* Three notes, and each explains an ABSENCE or a rule the paper cannot enforce. They are
+            boxed rather than footnoted because an unexplained gap gets written into the margin, and
+            a margin note against a decision already made is worse than no sheet. */}
+        <p className="pgl-note">
+          <Chrome lang={lang} k="pilot.gloss.scope" echo="stack" />
+        </p>
+        <p className="pgl-note">
+          <Chrome lang={lang} k="pilot.gloss.slots" echo="stack" />
         </p>
         <p className="pgl-note">
           <Chrome lang={lang} k="pilot.gloss.autonyms" echo="stack" />
