@@ -4,6 +4,99 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The sentence that names the dish survives the banner that names nothing (2026-09-05)
+
+**T33 — the one live region is arbitrated.** Three merged PRs made the /menu refusal sentence
+correct. None of them made it READABLE: `flash` is a single slot, `publishRefusal` writes it
+synchronously, and the lock/settle banners defer into it through `void Promise.resolve().then(...)`
+— so the banner landed last, on exactly the taps that produce a refusal. It collides because it
+shares a cause: the re-read that DIAGNOSES the refusal is the read that flips `locked` through
+`applyView`.
+
+**Measured against HEAD before anything was designed**, with a jsdom probe rather than an argument
+about React's scheduler:
+
+```
+Expected: "That didn’t go through — the order’s locked while someone checks out."
+Received: "Someone is checking out — the order’s locked"
+```
+
+Same fact. The survivor names neither the verdict nor — through `YourUsual` — the dish.
+
+**The fix is redundancy, not priority**, and the distinction is the whole design. A priority ladder
+answers "which of these matters more", which is the wrong question: the banner is not less
+important, it is exactly what a diner who did NOTHING needs (W9b filed that case). It is redundant
+only for a diner who just tried to write and was told why. So `apps/qr/lib/live-region.ts` decides
+on redundancy: **a release ALWAYS speaks** (never silence "you can edit again" — the over-blocking
+direction is the one this repo has paid for), **entering a freeze is silent only when the SAME axis
+was explained**, and **`unknown` explains nothing** (its clause names no freeze). The axis comes
+from the CAUSE, never the cart's current flags — the cause is what was spoken, the flags are what is
+true now, and those disagreeing by a tick is the class this sits in.
+
+**Two things the red-first probes found that reasoning had not.** A per-write clear beside
+`lastRefusalRef` was written first and its mutant SURVIVED: `explained` is non-null only while the
+freeze it names is true, and the only way out is the release edge, so the clear was unreachable and
+is gone with the search recorded. And the settle-axis test's first fixture settled a cart with
+`locked:false` — the lock release edge cleared `explained` before the settle banner ran, so the
+mutant survived against a fixture that separated nothing. The input that separates them keeps the
+pay-lock held while the table starts splitting, which is also the shape a real table takes.
+
+An existing test broke, and instructively: "never mounts a second status region" waited on
+`/checking out/i`, which matches ONLY the banner — the refusal clause reads "…while someone CHECKS
+out". Its wait was satisfied by the very announcement T33 removes. #252 had recorded that collision
+as a reason to assert somewhere else; this slice reads the same fact as a bug.
+
+**The blind pass returned REJECT on the first draft, and both findings were defects the design had
+created rather than ones it missed.**
+
+- **The latch could be set from a recovery read that LOST the screen.** `explainCaught` classifies
+  from what its read observed even when `applyView` rejects the view — deliberately, since a refusal
+  is a fact about the moment it looked. But a latch is a claim about what the diner can SEE. An
+  overtaken read therefore latched a freeze the rendered state never carried, no release edge could
+  ever fire for it, and the next genuine lock was announced to NOBODY — the exact W9b silence this
+  arbitration exists to prevent, produced by the arbitration. Fixed at the source: the latch is gated
+  on the view having won.
+- **Equality-only suppression was wrong where both freezes enter on one view.** `locked_at` and
+  `settle_at` are independent columns, and `classifyRefusedWrite` tests settling first — so the
+  refusal explains `settling`, an equality rule let the LOCK banner through, and because its effect
+  is declared first it became the surviving sentence. The region would have swapped from the wider
+  banner to the narrower one with the refusal still erased: worse than not arbitrating. Fixed with a
+  rank that mirrors `inertReason`'s documented precedence.
+
+Also from that pass: the settle-release clear shipped with neither mutant nor test (its lock twin had
+both, on the axis this module calls the more consequential); the release copy said "you can edit
+again" on a cart still settling, which rule 1 would have pinned IN rather than merely left standing;
+and the lock mutant's fixture mounted already-locked, so its catch depended on when React flushed
+passive effects rather than on the rule.
+
+**And the per-write clear came back, then went again — for a better reason.** Draft 1 deleted it on a
+surviving mutant, reading that as "unreachable" when the repo's rule says it means the fixture is
+blind. The pass found the separating input. The fix is the gate, not a second clear: the gate makes
+the invariant TRUE where the clear would only have papered over a latch that should not exist. With
+it, the clear is genuinely subsumed — and the asymmetry with `lastRefusalRef` is principled, since
+that ref is read by a CONSUMER after the write while this one is read by the banner effects.
+
+**Codex found two more, and both were the same shape one altitude down: a check that answers about
+the wrong MOMENT.** Round 1: the first fix for the overtaken read passed `applyView`'s return value
+down to `publishRefusal` — a SNAPSHOT of "did my read win when it landed", which another mutation's
+view can invalidate before the caller resumes from `await`. Currency is now asked at publish time
+against the refs `applyView` writes, because a latch is a claim about what is on screen when the
+claim is made. Round 1 also caught the release-edge clears discarding the OTHER axis's live
+explanation; writing that test is what exposed rule 1 as too blanket — a pay-lock lifting while the
+table still settles restores nothing, so it cannot strand anyone and must not overwrite the refusal.
+
+Round 2: the latch recorded only the AXIS, and the lock sentence names a HOLDER —
+`refusedWriteClause` renders a frozen refusal through `inertReason({ lockedByYou: refusal.freeze ===
+"self" })`. `locked` never goes false across a handoff, so no release edge retires the latch: an
+ownership change left it suppressing the banner for the other holder while the region still named
+the first. `ExplainedFreeze` now carries `self` on the lock arm, derived from the same
+`refusal.freeze` field the clause forks on, and BOTH edges route through `explanationHolds` rather
+than only the release. The paired P3 was a docblock still demanding a per-write clear the caller
+deliberately does not do — a contract that reads as a bug in its own caller and invites the deleted
+clear back.
+
+`T33` closed. Sixteen mutants added, every one watched red.
+
 ### The refusal sentence is composed once, and a cause never outlives its write (2026-09-04)
 
 **T32 — the /menu partial add said the verdict twice.** `YourUsual` appended the provider's whole
