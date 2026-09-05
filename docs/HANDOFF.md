@@ -5,6 +5,98 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #254 — the refusal sentence is composed once, and the hedge is per cause)
+>
+> **`main` is at `4a3ea98`** (#254). The block below is the #250/#251/#252 arc and its "rows this arc
+> leaves" list is now STALE in its top three entries: **T30, T31 and T32 are closed by this PR.** Read
+> this one; that one for the `.test.tsx` mechanism, which is unchanged and still load-bearing.
+>
+> ### What shipped
+>
+> `cart-freeze.ts` names the refusal CLAUSE once (`refusedWriteClause` — lowercase, period-free) and
+> both callers compose from it; `refusedWriteNotice` is a template over it. `/menu`'s partial-add
+> message no longer says the verdict twice. `forgetRefusal()` runs at the top of both writers, above
+> the `!cartId` guards, so a cause cannot outlive its write. The `unreachable` sentence is retired and
+> `PublishableRefusal` makes its absence a compile error rather than an emergent property of statement
+> order.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: the opener is per cause, and the obvious simplification is WRONG
+>
+> A draft of this PR flipped `unknown` to the assertive "That didn't go through", on the reasoning that
+> #251 made `refused` mean "the re-read SUCCEEDED and the write was not in it". **That is true of the
+> STATE and false of one PATH**, and the distinction is worth re-reading before touching either:
+>
+> - `add` establishes a non-landing by ATTRIBUTED GROWTH. `classifyAddLanding` answers its own
+>   `unknown` whenever two lines of the dish grew or one shrank, and the provider maps that to
+>   `landed: null` → `unconfirmed`. A contested dish never reaches the sentence, so `none` really does
+>   mean the dish did not move.
+> - `setItemQty` establishes it by comparing ONE ABSOLUTE VALUE, `line?.qty === qty`. `setQty` is
+>   absolute, so no peer write can forge a LANDING — but an authorized host setting the same line
+>   inside the round trip forges a NON-landing: our set to 3 commits, the re-read reads the host's 5,
+>   and the comparison answers false for a write that landed. No lock, not settling, so it arrives as
+>   `unknown`.
+>
+> So `frozen` and `settling` keep the assertion (the server states them and the cart is demonstrably
+> inert in the applied re-read); `unknown` keeps the hedge. Sharing an opener with
+> `unconfirmedWriteNotice()` is no longer a collision but two degrees of one uncertainty, and the
+> CLAUSES separate them. `YourUsual` still asserts the verdict on every cause and that is correct —
+> it only ever calls `add`. The residual STATE bug (`mayRetry` calls a landed write re-sendable) is
+> **T41**, and it is not free: `unconfirmed` carries no view by construction, so the source-level fix
+> hands `AddButton`'s queue back to its own snapshot — the stale-absolute-quantity P1 from #251.
+>
+> ### ⚠️ TWO GUARD RULES THIS SLICE PAID FOR
+>
+> 1. **`verify:slice` now refuses a mutant whose mutated file does not PARSE.** The blind pass found a
+>    retargeted mutant producing a dangling `else` (confirmed with esbuild: `Unexpected "else"`),
+>    scoring `caught` off a SyntaxError while proving nothing about the guard. This is LEARNINGS #60
+>    arriving from a direction "guards parse, never scan" did not cover — the GUARD parsed fine; its
+>    MUTATION did not.
+> 2. **Choose a mutant anchor from FORMATTED text, and probe red-first AFTER formatting** (LEARNINGS
+>    #79). `refusal/unknown-borrows-the-assertive-opener` was probed CAUGHT, then `pnpm format` wrapped
+>    the declaration it named, and it went **STALE on its own commit** — `pattern matched 0×`. Same
+>    class as everything else in this arc, one layer out: a guard proved against a version of its
+>    subject that was not committed. `verify:slice` caught it because a STALE mutant is a FAILURE, not
+>    a skip; that rule is what bought it.
+>
+> ### Also worth knowing
+>
+> - **Both blind-pass CRITICALs were shape defects in NEW test code, not in product code**, and the
+>   second is a trap the split into two producers newly created: three predicates for "the clause is a
+>   fragment" (lowercase-initial · no terminal period · does not contain the verdict) are ALL VACUOUS
+>   on `""`, so deleting an arm's clause passed every one. Assert non-empty FIRST.
+> - **A count of another module's outputs does not belong in prose.** `YourUsual.test.tsx` carried one,
+>   it was wrong, and the first correction was ALSO wrong because T30 retired an arm in the same diff.
+>   Replaced with a claim that does not rot.
+> - The merge ritual held: draft → `@codex review` → round 1 clean on `482b7010e4` → mark ready →
+>   `@codex review` → `codex-review` green **with a summary saying "Codex has reviewed" that SHA** →
+>   merge. ⚠️ The draft stand-down is GREEN and names the SHA while explicitly saying it has NOT been
+>   reviewed — green alone is never the signal, the summary text is. A `publish-codex-verdict` job
+>   showing `cancelled` on the head is the workflow's own PR-keyed `concurrency` superseding an older
+>   wait; it is not the gate and it is not a failure, though it does leave `mergeable_state:
+"unstable"`.
+>
+> ### The rows this arc leaves, in the order they are worth doing
+>
+> 1. **T33** (high) — the composed sentence is ERASED by the lock/settle banner in the same tick, on
+>    exactly the taps that produce it: the diagnosing re-read is the read that flips `locked`, and both
+>    transition effects defer into the same single slot. #254 made the sentence correct; it did not
+>    make it readable. Everything above is invisible until this is fixed.
+> 2. **T41** (med) — `setItemQty`'s missing `unknown` arm, above. Read T41's row for the trade-off
+>    before starting; the naive fix regresses #251.
+> 3. **T28** (med) — `check-child-freeze` has NO component-side expected set while its sibling
+>    `check-freeze-parity` has one. Any audited component can leave the subject set silently.
+> 4. **T29** (med) — `AddButton` (four propositions, owes the framer stub), then `ItemSheet`. Do
+>    `AddButton` alone.
+> 5. **T34–T40** — filed by the #254 scout; T38 (the nine hand-written freeze literals with five
+>    near-duplicate PAIRS) is T32's rule applied to the rest of the vocabulary.
+> 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
+>
+> Still owner-gated and untouched: the cart→intent link (**M123 · M124 · M151 · M152**), **C16** (make
+> `codex-review` a REQUIRED check — until then the merge ritual is all that stands between the gate and
+> #241 happening again), and the prod-migration items on the divergent history. Sweep
+> [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) — it is the single registry — rather than trusting any count
+> written here.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-04 · PR #250 · #251 · #252 — the /menu write path is now honest AND observable)
 >
 > **`main` is at `233418d`** (#252). Three slices landed since the #249 block below, and that block's
