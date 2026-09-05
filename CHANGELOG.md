@@ -4,6 +4,82 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A promo can be put on a table at the counter — and, for the first time, taken off (2026-09-05 · pilot P3)
+
+**`applyPromo` was the only writer of `qr_carts.promo_code` in the app, it only ever wrote a
+non-empty code, and it was reachable only from the diner's own Checkout.** Two things followed, and
+this slice is both. The pilot's own script has a table typing `PILOT15` and then paying CASH — a
+settle that never opens Checkout — so without a staff apply the incentive reached only guests who
+finished on their own phone. And a promo could never be REMOVED, while `lib/floor.ts` had been
+refusing table merges with _"remove it before merging"_ since S1.4: an instruction naming an action
+the product did not implement, so that merge was refused permanently (OPEN-ITEMS P2e, now closed).
+
+**Both writes carry `applyPromo`'s FULL predicate set, and the remove is the sharper case.** Status,
+the TTL-aware pay lock, the TTL-aware settlement freeze, and `live_payment_intent_id is null` — the
+pin these statements null is what a captured charge reconciles against, because `mms_promo_discount`
+returns `promo_granted_cents` VERBATIM whenever it is set (M70). Dropping a code RAISES the total the
+webhook re-derives, so a remove under a live intent is the M152 (a) charged-card-no-order hazard
+reached from the other side. The row count comes from `{ count: "exact" }` and deliberately not
+`.select("id")`: PostgREST 14 re-projects a top-level `or()` against the RETURNING list and 42703s,
+the outage that once gave every checkout a spurious 409 (`lock.ts:66-73`).
+
+**Four decisions that are not style, each with a mutant behind it.**
+
+_The refusal diagnosis moved out of `cart.ts`._ `refusedPromoReason` became `lib/promo-refusal.ts`
+the moment a second writer existed. Two copies of a refusal diagnosis is the drift shape the W17
+rules name, and this one decides what a diner and a server are TOLD about a refused money write; the
+two mutants that guard it now cover both doors instead of one.
+
+_The apply returns a REASON, not a sentence._ The six staff server modules return English `error:`
+strings and P2c defers converting them because that changes a plain-string contract across an auth
+path. This module is new, so it inherits no such debt: it returns a stable key and the render site
+picks the bilingual twin — the `<OutageText>` pattern. The person applying this code at the register
+reads Burmese, and a refusal he cannot read is the pilot failing at the surface it exists to test.
+
+_The apply is bounded per CALLER; the remove is bounded not at all._ A Server Action is a public
+POST, so a stolen staff cookie is all a code-space scan needs — but spending the diner's
+session-keyed `mms_promo_attempt` budget would let a guest who fat-fingers ten codes disable the
+register's control for five minutes. So `STAFF_PROMO_RATE` keys on the staff id. The remove carries
+no guessable secret and is the RECOVERY path the merge refusal points at, so bounding it would lock a
+server out of merging the table too — the over-blocking half of the tip-cap lesson, and one that
+`verify:slice` proved was unguarded until a test for it existed.
+
+_The drill-down shows the DELIVERED discount, never the apply-time quote._ `settlePromoCents` comes
+off the same `getCartTotals` call as the settle total. A pinned grant outranks the live derivation
+and M22's reward-first clamp can take the delivered promo to 0 while the quote stays whole — so the
+two are legitimately different numbers, and quoting one beside a total derived from the other is
+exactly the drift the W17 rules forbid. An earlier draft of this reasoning named a third mechanism
+(voided/comped lines) that had not been true since `20260622060000`; the SQL was re-read and the
+comment corrected, because it is the mechanism the next reader acts on.
+
+**The merge refusal stands, and finally says which table.** The reasoning is unchanged — a merge
+re-parents server-priced lines and the discount is re-derived per cart at settle, so the source's
+code cannot follow and recomputing the target's off a larger subtotal swings what a guest pays. What
+changed is that it is now actionable, and it names the side carrying the code rather than "one of
+these tables", which is not something a server can act on without opening both. Deliberately NOT an
+auto-clear: silently dropping a quoted discount is the outcome that paragraph exists to prevent.
+
+**`PILOT15` is authored as DATA and is NOT applied.** `value 0.15` — a FRACTION, because
+`promo_pct_max_100` is `kind <> 'pct' or value <= 1` · `per_session_limit 1` · `min_subtotal_cents 0`
+· `max_uses 200`, the ceiling if the code leaks · `valid_until` bounded but generous, since Day 0 is
+still blocked on hardware and env · `valid_from` null, so the owner-gated apply is the only start
+gate. `on conflict do update` rather than the house `do nothing`, with `active` and `used` excluded:
+a policy row that re-applies green while changing nothing is green for the wrong reason, but a re-run
+must never resurrect a code the owner switched off or hand back a spent budget. Applying it is a
+separate, owner-authorized step (§O4).
+
+⚠️ **The code is not dine-in-only and the card says it is.** `promo_codes` has no mode-scope column,
+which PILOT_PLAN §3 P3 accepts outright — the pilot scopes it by who gets the card. Registered as
+OPEN-ITEMS **P3a** rather than fixed, bounded by `max_uses`.
+
+**Proven, not asserted.** 27 new `verify:slice` mutants, every one watched turning its suite red —
+including one that SURVIVED first: the remove's TTL check had no over-blocking test, so a predicate
+reading the raw `locked` column changed nothing the fixture could see. `lib/floor.ts` carried ZERO
+mutants before this while matching three money markers. The SQL test ran on a local PostgreSQL 16
+with all 98 migrations applied in order (Docker is unavailable in the agent environment, so the
+Supabase-shaped prerequisites were built by hand), and every one of its assertions was induced red
+and watched fail — nine falsifications across five cases, listed in the test's own header.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese

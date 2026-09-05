@@ -5,6 +5,51 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · pilot P3 — the register can put a promo on a table, and take one off)
+>
+> **This slice is a DRAFT PR on `claude/money-slice-pilot-4a2ody`, not on `main`.** It ships
+> `lib/staff-promo.ts` (`applyPromoForTable` / `clearPromoForTable`), the drill-down control that
+> drives them, and the `PILOT15` row **as an unapplied migration file**.
+>
+> ### The three things a next session must not re-derive
+>
+> 1. **`PILOT15` IS NOT APPLIED, and its numbers are the owner's call.** The file is
+>    `supabase/migrations/20260905120000_pilot15_promo.sql` — `value 0.15` (a FRACTION;
+>    `promo_pct_max_100` is `kind <> 'pct' or value <= 1`) · `per_session_limit 1` ·
+>    `min_subtotal_cents 0` · `max_uses 200` · `valid_until` 2026-10-31 America/Los_Angeles ·
+>    `valid_from` **null**, so the owner-gated apply is the only start gate. Measured against prod on
+>    2026-09-05 before it was written: zero `PILOT15` rows exist; the only codes present are
+>    `TEAHOUSE5` (flat 500, used 0/500) and `WELCOME10` (pct 0.10, used 0/1000). Apply via the
+>    one-file MCP path per §O4, then read the row back.
+> 2. **The link gate is on the REMOVE too, and that is the load-bearing half.** `mms_promo_discount`
+>    returns `promo_granted_cents` VERBATIM whenever it is non-null (M70), so dropping a code RAISES
+>    the total the webhook re-derives — the M152 (a) charged-card-no-order hazard, reached from the
+>    other side. Both writes therefore carry all five of `applyPromo`'s predicates, and the row count
+>    comes from `{ count: "exact" }`, never `.select("id")` (`lock.ts:66-73`).
+> 3. **The apply is rate-limited per CALLER; the remove is not, deliberately.** `STAFF_PROMO_RATE`
+>    keys on the staff id rather than spending the diner's session-keyed `mms_promo_attempt` budget —
+>    a guest fat-fingering ten codes must not disable the register. The remove carries no guessable
+>    secret and is the recovery path the merge refusal points at, so bounding it would lock a server
+>    out of merging the table. `staff-promo/clear-becomes-rate-limited` is the mutant that guards the
+>    asymmetry against a tidy-up.
+>
+> ### What it cost to learn
+>
+> `verify:slice` returned one SURVIVING mutant on the first run: the remove's TTL check had every
+> under-blocking case pinned and no over-blocking one, so a predicate reading the raw `locked` column
+> changed nothing the fixture could see. The fix was three tests, not a deleted mutant. And an early
+> draft of the quote-versus-delivered comment named a mechanism (voided/comped lines) that stopped
+> being true at `20260622060000`; the SQL was re-read and the comment corrected — the conclusion
+> survived on two OTHER mechanisms (the pin, and M22's reward-first clamp), but the mechanism is what
+> the next reader acts on.
+>
+> ### Still open here
+>
+> **P3a** (new): `PILOT15` is not dine-in-only — `promo_codes` has no mode-scope column, which
+> PILOT_PLAN §3 P3 accepts outright, bounded by `max_uses`. **P2e is CLOSED.** ⚠️ Codex had hit its
+> usage limit for code reviews on 2026-09-05 (posted on #259), so `codex-review` is RED on this head
+> and the blind adversarial pass is the ONLY independent reviewer this slice had.
+>
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
 >
 > **`main` is at `dfcda72`** (#257, squash of `c166d43`). **Prod has the migration:**
