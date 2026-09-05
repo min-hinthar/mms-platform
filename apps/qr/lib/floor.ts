@@ -9,6 +9,7 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
+import { tableDisplay } from "./floor-types";
 import type {
   ClearTableResult,
   FloorPoll,
@@ -244,7 +245,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
-      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents")
+      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
@@ -356,6 +357,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   // surface offers percentages against. The register was computing its chips off settleTotalCents,
   // which INCLUDES tax, so the same "20%" label charged more at the counter than at the kiosk.
   let settleTipBaseCents: number | null = null;
+  // P3 — the promo's DELIVERED contribution, read off the SAME totals object as the two figures
+  // above rather than re-derived. `getCartTotals` already reconciles the pin, the live derivation and
+  // M22's reward-first clamp; a second computation here would be a second answer to the same money
+  // question, which is precisely the drift the W17 rules forbid.
+  let settlePromoCents: number | null = null;
   if (cart && itemCount > 0) {
     const settleTotals = await getCartTotals(cart.id, 0).catch((e: unknown) => {
       console.error("[floor] getTableDetail settle total unreadable", {
@@ -367,6 +373,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     if (!settleTotals) return { kind: "outage" };
     settleTotalCents = settleTotals.totalCents;
     settleTipBaseCents = settleTotals.subtotalCents - settleTotals.discountCents;
+    settlePromoCents = settleTotals.promoCents;
   }
   let lastActivityAt = laterIso(session.created_at ?? nowIso, lastLineAt);
   if (paid) lastActivityAt = laterIso(lastActivityAt, paid.created_at);
@@ -410,6 +417,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // the write in lib/cart.ts (kiosk-tip/*) and the settle itself (cash-tip/*).
     intendedTipCents: cart?.intended_tip_cents ?? null,
     paidTotalCents: paid?.total_cents ?? null,
+    // P3 — what is applied, and what it is actually worth against this basket.
+    promoCode: cart?.promo_code ?? null,
+    settlePromoCents,
     // Tab lifecycle (S3.1) — only meaningful while a cart is open; a settled/absent cart reads 'none'.
     tab,
     tabOpenedAt: cart?.tab_opened_at ?? null,
@@ -525,7 +535,10 @@ export async function clearTable(raw: unknown): Promise<ClearTableResult> {
 async function resolveOpenCart(db: ReturnType<typeof serviceClient>, sessionId: string) {
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode")
+    // P3 — `qr_code` + `table_number` so the merge refusal can NAME the side carrying the promo.
+    // Now that the remove exists, "one of these tables" is an instruction staff cannot act on
+    // without opening both; `tableDisplay` turns this into the number on the tent.
+    .select("id,status,mode,qr_code,table_number")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError) return { session: null, cart: null, unavailable: true as const };
@@ -671,11 +684,32 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
   // (the source code is tied to the closing session + its per-session redemption cap; recomputing the
   // target's discount off the larger subtotal silently swings the charge either way). So refuse when EITHER
   // side has a promo — staff removes it, then merges — rather than silently change what a guest pays.
-  if (src.cart.promo_code || tgt.cart.promo_code)
+  //
+  // ⚠️ P3 — that reasoning is UNCHANGED and the refusal STANDS; what changed is that it is now an
+  // instruction staff can follow. Until `clearPromoForTable` shipped (OPEN-ITEMS P2e) `applyPromo` was
+  // the only writer of this column and it only ever wrote a NON-EMPTY code, so "remove it before
+  // merging" named an action the product did not implement and this merge was refused permanently.
+  // Deliberately NOT an auto-clear: silently dropping a discount a guest was quoted is the exact
+  // "silently change what a guest pays" outcome the paragraph above refuses. The sentence now says
+  // WHICH side carries the code, because with two tables in play "one of these" is not something a
+  // server can act on without opening both.
+  if (src.cart.promo_code || tgt.cart.promo_code) {
+    const tgtName = tableDisplay({
+      tableNumber: tgt.session.table_number,
+      label: tgt.session.qr_code,
+    });
     return {
       ok: false,
-      error: "One of these tables has a promo code applied — remove it before merging.",
+      error:
+        src.cart.promo_code && tgt.cart.promo_code
+          ? "Both tables have a promo code applied — remove them on each table, then merge."
+          : src.cart.promo_code
+            ? "This table has a promo code applied — remove it here, then merge."
+            : // An unregistered sticker or a counter session has no tent number to name, so it gets the
+              // phrase the picker itself used rather than a raw `reg-…` token dressed up as a table.
+              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there, then merge.`,
     };
+  }
 
   // Refuse if money is moving on EITHER side (shared mutex — lib/pay-guard.ts).
   const [srcFlight, tgtFlight] = await Promise.all([

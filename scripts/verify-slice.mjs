@@ -1076,7 +1076,7 @@ const MUTANTS = [
   },
   {
     id: "cart/promo-diagnosis-read-swallows-its-error",
-    file: "apps/qr/lib/cart.ts",
+    file: "apps/qr/lib/promo-refusal.ts",
     suite: "lib/cart-promo-freeze.test.ts",
     why: "M119 \u2014 the diagnosis read's OWN fabricated diagnosis. Unbound, a failed read makes `cart` null, `!cart` true, and the answer `cart_closed`: an outage reaches the diner as a fact about their order. `error` is the honest fourth outcome, and `maybeSingle` is what makes `error` mean exactly one thing",
     find: '  if (error) return "error";\n',
@@ -2598,7 +2598,7 @@ const MUTANTS = [
   },
   {
     id: "cart/promo-diagnosis-ignores-the-live-intent",
-    file: "apps/qr/lib/cart.ts",
+    file: "apps/qr/lib/promo-refusal.ts",
     suite: "lib/cart-promo-freeze.test.ts",
     why: "M152(a) — the refusal's DIAGNOSIS. With the write correctly refused, a reason read that does not know about the link falls through to `cart_closed` on an open cart: a fabricated diagnosis on a money surface, the M116/M119 class this repo spent four PRs removing",
     find: '  if (cart.live_payment_intent_id) return "locked";',
@@ -3056,6 +3056,248 @@ const MUTANTS = [
     why: 'M108-adjacent, and the shape TWO rounds got wrong in the same direction — `!== "dinein"` publishes a row absent from an answer that DID arrive (a truncated `.in()`) AND any mode value the CHECK gains later that means table service. The board is defined positively (takeout + grocery), so it must name the modes it publishes; an unknown mode belongs off the wall, not on it',
     find: "      return mode !== undefined && BOARD_MODES.has(mode);",
     replace: '      return mode !== "dinein";',
+  },
+
+  // ── P3 · the staff promo door (apply + remove) and the merge refusal it makes true ──────────────
+  // Two new authority surfaces and one that was never guarded at all. `lib/staff-promo.ts` is the
+  // SECOND writer of `qr_carts.promo_code` and the FIRST that can clear it, so every predicate
+  // `applyPromo` carries has to be carried here too — the pin these statements null is what a
+  // captured charge reconciles against. `lib/floor.ts` had ZERO mutants before this block while
+  // matching three money markers, shielded only by an unrelated file-level exemption; the merge
+  // refusal it now guards is the one rule standing between a merge and a re-derived discount priced
+  // against a subtotal the guest was never quoted.
+  {
+    id: "staff-promo/apply-ignores-the-pay-lock",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "P3 — the staff apply re-tests the freeze in the statement that WRITES, for the same reason applyPromo does (M70): the pre-check is read before awaited round trips, long enough for a diner to reach the pay screen and pin the grant. Gated on status alone this clears a LIVE attempt's pin, and the webhook then re-derives an amount the capture cannot match",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
+  },
+  {
+    id: "staff-promo/apply-ignores-the-settlement-freeze",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "P3 — the split-tender freeze is the other half of the same window and it is TABLE-WIDE: every member's cart is frozen while the table pays in turn. Without this term a staff apply lands mid-settlement, against holds already authorized under the old amount",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+  },
+  {
+    id: "staff-promo/apply-ignores-the-live-intent",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "M152 (a) through the staff door — the freeze predicates are deliberately TTL-aware, so five minutes after a captured intent whose webhook is merely late they pass. Without the link gate a staff apply then moves the pin that capture reconciles against: a charged card and no order. For the REMOVE it is worse, because dropping the code RAISES the total the webhook re-derives",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("id", cart.id);\n',
+  },
+  {
+    id: "staff-promo/apply-not-status-guarded",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the status guard belongs IN the SQL statement, not only in the client (CLAUDE.md's money rule). Without it a staff apply rewrites the promo on a cart that has already been fulfilled or cancelled — a discount edit against a settled order",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n',
+  },
+  {
+    id: "staff-promo/apply-lock-check-ignores-the-ttl",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "OVER-blocking is as expensive as under-blocking (the tip-cap lesson). A lock is only real while `locked_at` is inside CART_LOCK_TTL — `locked = true` with a stale or null timestamp is an abandoned pay screen. Reading the raw column refuses a legitimate apply for five minutes at the counter, on the table the pilot script has Dad applying a code at",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false`)\n',
+  },
+  {
+    id: "staff-promo/apply-blocked-write-reads-as-ok",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "`.update()` returns no row count, so a write the predicates BLOCKED still answers ok (the W17 lesson). Without the count check the apply reports success to a server standing at the table while the cart never moved — and the money it implies changed did not",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id));\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
+  },
+  {
+    id: "staff-promo/apply-transport-error-reads-as-a-refusal",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "a dropped socket is not a verdict about the cart. Swallowing `updErr` sends the apply on to the diagnosis read, which finds an open, unfrozen cart and answers `cart_closed` — a fabricated diagnosis of exactly the M116/M119 shape, told to a server whose tap actually hit a network failure",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
+    replace:
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
+  },
+  {
+    id: "staff-promo/clear-ignores-the-pay-lock",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "P3 — the staff remove re-tests the freeze in the statement that WRITES, for the same reason applyPromo does (M70): the pre-check is read before awaited round trips, long enough for a diner to reach the pay screen and pin the grant. Gated on status alone this clears a LIVE attempt's pin, and the webhook then re-derives an amount the capture cannot match",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
+  },
+  {
+    id: "staff-promo/clear-ignores-the-settlement-freeze",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "P3 — the split-tender freeze is the other half of the same window and it is TABLE-WIDE: every member's cart is frozen while the table pays in turn. Without this term a staff remove lands mid-settlement, against holds already authorized under the old amount",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+  },
+  {
+    id: "staff-promo/clear-ignores-the-live-intent",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "M152 (a) through the staff door — the freeze predicates are deliberately TTL-aware, so five minutes after a captured intent whose webhook is merely late they pass. Without the link gate a staff remove then moves the pin that capture reconciles against: a charged card and no order. For the REMOVE it is worse, because dropping the code RAISES the total the webhook re-derives",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("id", cart.id);\n',
+  },
+  {
+    id: "staff-promo/clear-not-status-guarded",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the status guard belongs IN the SQL statement, not only in the client (CLAUDE.md's money rule). Without it a staff remove rewrites the promo on a cart that has already been fulfilled or cancelled — a discount edit against a settled order",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n',
+  },
+  {
+    id: "staff-promo/clear-lock-check-ignores-the-ttl",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "OVER-blocking is as expensive as under-blocking (the tip-cap lesson). A lock is only real while `locked_at` is inside CART_LOCK_TTL — `locked = true` with a stale or null timestamp is an abandoned pay screen. Reading the raw column refuses a legitimate remove for five minutes at the counter, on the table the pilot script has Dad applying a code at",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false`)\n',
+  },
+  {
+    id: "staff-promo/clear-blocked-write-reads-as-ok",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "`.update()` returns no row count, so a write the predicates BLOCKED still answers ok (the W17 lesson). Without the count check the remove reports success to a server standing at the table while the cart never moved — and the money it implies changed did not",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id));\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
+  },
+  {
+    id: "staff-promo/clear-transport-error-reads-as-a-refusal",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "a dropped socket is not a verdict about the cart. Swallowing `updErr` sends the remove on to the diagnosis read, which finds an open, unfrozen cart and answers `cart_closed` — a fabricated diagnosis of exactly the M116/M119 shape, told to a server whose tap actually hit a network failure",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
+    replace:
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
+  },
+  {
+    id: "staff-promo/apply-keeps-the-old-grant",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "M70 — a new code must void any grant pinned for the OLD one, in the SAME statement so the two cannot drift. `mms_pin_promo_grant` only pins when null, so a stale grant left here silently OUTRANKS the code just applied: `mms_promo_discount` returns the pin verbatim and the register charges a discount the new code never earned",
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n',
+    replace: '    .update({ promo_code: normalized }, { count: "exact" })\n',
+  },
+  {
+    id: "staff-promo/clear-keeps-the-pin",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "OPEN-ITEMS P2e — `mms_promo_discount` returns `promo_granted_cents` VERBATIM whenever it is non-null and only then falls through to the live derivation. Clearing the code alone therefore leaves the pinned discount in force with no code behind it: a saving nothing on any surface can explain, surviving until the cart closes",
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n',
+    replace: '    .update({ promo_code: null }, { count: "exact" })\n',
+  },
+  {
+    id: "staff-promo/apply-lowercases-the-code",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the code is stored as the lookup key. `mms_promo_discount_live` reads `promo_codes` by the value in `qr_carts.promo_code` verbatim and the rows are upper-case, so a lower-case write prices at ZERO on every surface — with no error anywhere, because a missing row is a 0 discount by contract. The diner path uppercases for exactly this reason",
+    find: "  const normalized = code.toUpperCase();\n",
+    replace: "  const normalized = code;\n",
+  },
+  {
+    id: "staff-promo/apply-skips-the-validity-gate",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "`mms_promo_check` is the SINGLE apply-time gate — active, window, min-subtotal, global cap, per-session cap — and it returns its verdict as DATA because Next redacts thrown Server Action errors in prod. Testing only that a row came back accepts every invalid verdict it can produce: an expired code, an exhausted budget, a table that already redeemed it",
+    find: '  if (!check?.valid) return no((check?.reason ?? "invalid") as StaffPromoReason);\n',
+    replace: '  if (!check) return no("invalid");\n',
+  },
+  {
+    id: "staff-promo/apply-swallows-the-validity-rpc-error",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "an unreadable gate is not an invalid code. Swallowing the RPC error leaves `check` undefined, the guard below answers `invalid`, and a server is told the pilot card in their hand is a bad code during an outage — the fabricated-diagnosis shape on the surface the pilot depends on",
+    find: '  if (chkErr) return no("error");\n',
+    replace: "  void chkErr;\n",
+  },
+  {
+    id: "staff-promo/apply-is-unbounded",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "a Server Action is a public POST, so a stolen staff cookie is all a code-space scan needs. The diner door is bounded at 10 attempts per 5 minutes; without this gate the staff door is the weaker entrance to the same secret, and the code space can be enumerated as fast as the network allows",
+    find: '  if (!(await withinStaffPromoRate(gate.staffId))) return no("rate_limited");\n',
+    replace: "  void withinStaffPromoRate;\n",
+  },
+  {
+    id: "staff-promo/clear-becomes-rate-limited",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the asymmetry is DELIBERATE and this is the refactor that would erase it 'for symmetry'. A remove carries no guessable secret, so there is nothing to enumerate — and it is the RECOVERY path the merge refusal points at, so a server rate-limited out of removing a promo is rate-limited out of merging the table too. Over-blocking is as expensive as under-blocking",
+    find: '  const { sessionId } = parsed.data;\n\n  const { session, cart, unavailable } = await openCartFor(sessionId);\n  if (unavailable) return no("outage");\n  if (!session) return no("table_closed");\n  if (!cart) return no("no_order");\n  if (await paymentInFlightReason(cart)) return no("locked");\n',
+    replace:
+      '  const { sessionId } = parsed.data;\n  if (!(await withinStaffPromoRate(gate.staffId))) return no("rate_limited");\n\n  const { session, cart, unavailable } = await openCartFor(sessionId);\n  if (unavailable) return no("outage");\n  if (!session) return no("table_closed");\n  if (!cart) return no("no_order");\n  if (await paymentInFlightReason(cart)) return no("locked");\n',
+  },
+  {
+    id: "staff-promo/outage-reads-as-signin",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "W10b — an unreadable identity is not a signed-out one. Collapsing `unavailable` into the sign-in ask is the loop that ends in a destroyed board mid-service: the tablet is working, the staff member is signed in, and the console tells them to sign in again",
+    find: '  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };\n',
+    replace: '  if (auth.kind === "unavailable") return { ok: false, reason: "signin" };\n',
+  },
+  {
+    id: "staff-promo/apply-ignores-the-split-mutex",
+    file: "apps/qr/lib/staff-promo.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the UPDATE's predicates cannot see an AUTHORIZED SPLIT SHARE on a cart whose settlement freeze has already gone stale — `captureAllIfReady` deliberately captures on a stale freeze once the table is covered. `paymentInFlightReason` is the only gate that knows, and without it the promo moves under captured cards",
+    find: '  if (await paymentInFlightReason(cart)) return no("locked");\n\n  const db = serviceClient();\n  const { data: rows, error: chkErr } = await db.rpc("mms_promo_check", {\n',
+    replace:
+      '  void paymentInFlightReason;\n\n  const db = serviceClient();\n  const { data: rows, error: chkErr } = await db.rpc("mms_promo_check", {\n',
+  },
+  {
+    id: "floor/merge-carries-a-promo-across-carts",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-merge-promo.test.ts",
+    why: "OPEN-ITEMS P2e / S1.4 — a merge re-parents server-priced lines into the TARGET cart, and the discount and per-line tax are re-derived per cart at settle. The source's code is tied to the closing session and its per-session redemption cap so it cannot follow, and recomputing the target's discount off the larger subtotal swings what a guest pays in either direction. Dropping the refusal is not a UX regression, it is a wrong charge — and floor.ts carried NO mutants at all before P3 while matching three money markers",
+    find: '  if (src.cart.promo_code || tgt.cart.promo_code) {\n    const tgtName = tableDisplay({\n      tableNumber: tgt.session.table_number,\n      label: tgt.session.qr_code,\n    });\n    return {\n      ok: false,\n      error:\n        src.cart.promo_code && tgt.cart.promo_code\n          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : src.cart.promo_code\n            ? "This table has a promo code applied — remove it here, then merge."\n            : // An unregistered sticker or a counter session has no tent number to name, so it gets the\n              // phrase the picker itself used rather than a raw `reg-…` token dressed up as a table.\n              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there, then merge.`,\n    };\n  }\n',
+    replace: "",
+  },
+  {
+    id: "floor/merge-refusal-names-the-wrong-table",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-merge-promo.test.ts",
+    why: "the two arms are one keystroke apart and the refusal is the only thing telling a server where to go. Swapping them sends someone to the target table to remove a code the SOURCE carries — a dead end that reads like a working instruction, which is the shape P2e was filed for in the first place",
+    find: '          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : src.cart.promo_code\n',
+    replace:
+      '          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : tgt.cart.promo_code\n',
+  },
+  {
+    id: "floor/detail-drops-the-promo-code",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "P3 — the drill-down is where a cashier learns a discount is on the table BEFORE taking cash, and (since P2e) the only screen that can remove one. Dropping the field does not mis-charge anyone — the settle total is derived either way — it hides the discount from the person collecting the money and hides the remove control from the merge refusal that points at it",
+    find: "    promoCode: cart?.promo_code ?? null,\n",
+    replace: "    promoCode: null,\n",
+  },
+  {
+    id: "floor/detail-quotes-the-combined-discount",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the 'name it ONCE' rule, at the seam where it is easiest to lose: `discountCents` is promo PLUS reward (M22) and the two identifiers sit one line apart on the same object. Reading the wrong one tells a cashier the code is worth the whole discount, overstating the promo by the entire reward on any cart carrying one — a number a guest can be told out loud",
+    find: "    settlePromoCents = settleTotals.promoCents;\n",
+    replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
 ];
 

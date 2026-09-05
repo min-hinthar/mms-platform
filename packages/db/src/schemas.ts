@@ -329,6 +329,26 @@ export const verifyStaffPinInput = z.object({
  *  and logs it. The client asserts only the session id. */
 export const clearTableInput = z.object({ sessionId: uuid });
 
+/**
+ * staffApplyPromo / staffClearPromo (P3) — a staff member applies or removes a promo code on a
+ * table's open order, from the drill-down, so it can be done at a cash or terminal settle rather
+ * than only from the diner's own Checkout.
+ *
+ * Addressed by SESSION, not cart id, and that is the authority boundary rather than a convenience:
+ * a staff caller is authorized against the TABLE they are standing at (`staffGate` + the session's
+ * open cart), never against a cart id the request supplies — mirroring `clearTableInput` and
+ * `settleCashInput`. Handing the cart id in would let a staff POST name a cart on any other table.
+ *
+ * The code is shaped here and validated server-side against `promo_codes` (`mms_promo_check`), the
+ * same single gate the diner path uses; `.max(40)` matches `applyPromoInput` so neither door accepts
+ * a longer string than the other. The remove carries no code at all — see `clearPromoForTable`.
+ */
+export const staffApplyPromoInput = z.object({
+  sessionId: uuid,
+  code: z.string().trim().min(1).max(40),
+});
+export const staffClearPromoInput = z.object({ sessionId: uuid });
+
 /** openTab (S3.1) — mark a dine-in cart as a trust tab (deferred settlement). Shape only; the server
  *  resolves the opener's authority (staff OR diner member) + the open/dine-in/idempotency guards
  *  (mms_open_tab). The client asserts which cart, never the tab state. */
@@ -670,6 +690,8 @@ export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
+export type StaffApplyPromoInput = z.infer<typeof staffApplyPromoInput>;
+export type StaffClearPromoInput = z.infer<typeof staffClearPromoInput>;
 export type OpenTabInput = z.infer<typeof openTabInput>;
 export type SendToKitchenInput = z.infer<typeof sendToKitchenInput>;
 export type UndoFireInput = z.infer<typeof undoFireInput>;

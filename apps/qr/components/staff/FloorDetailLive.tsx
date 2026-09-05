@@ -1,5 +1,12 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
@@ -15,6 +22,7 @@ import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
 import { TerminalSettleButton, TerminalCollectPanel, type TerminalCollect } from "./TerminalSettle";
 import { MergeTableButton } from "./MergeTableButton";
+import { StaffPromoControl } from "./StaffPromoControl";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
 import { useStaffLang } from "./StaffLangProvider";
@@ -49,7 +57,11 @@ export function FloorDetailLive({
   // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
   const lang = useStaffLang();
   const [detail, setDetail] = useState<TableDetail>(initial);
-  const [writeError, setWriteError] = useState<string | null>(null);
+  // P3 — a NODE, not a string. `StaffPromoControl`'s refusals are bilingual (<Chrome/>), and the
+  // alternative to widening this was a SECOND live region in the promo card — which the QA
+  // checklist forbids and which would announce two things at once on a shared tablet. Every
+  // existing caller still passes a string, and a string is a ReactNode.
+  const [writeError, setWriteError] = useState<ReactNode>(null);
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard). Only a genuine
   // `closed` bounces back to the floor; an unreadable table is NOT a cleared one. `since` and
   // `nowMs` share the device clock, so the escalation elapsed is measured in one domain.
@@ -427,6 +439,22 @@ export function FloorDetailLive({
               : null)}
         </p>
       </section>
+
+      {/* Promo (P3) — after the order, BEFORE the settle: a discount is the last thing that changes
+          what the guest owes, and the cashier reads it in that order. Rendered whenever there is an
+          open cart, including read-only mid-payment, because "is a discount on this?" is a question
+          staff need answered exactly when they cannot change it. */}
+      {detail.cartId != null && (
+        <StaffPromoControl
+          sessionId={sessionId}
+          lang={lang}
+          promoCode={detail.promoCode}
+          promoCents={detail.settlePromoCents}
+          canWrite={canWrite}
+          onError={setWriteError}
+          onChanged={onChange}
+        />
+      )}
 
       {/* Open a tab (S3.1) — when there's an open cart, no tab yet, and no payment in flight. Marks the
           table so it settles once at close; moves no money. The diner can also open one from /cart. */}

@@ -109,6 +109,21 @@ export type TableDetail = {
    *  settle UI shows those differently, so the distinction has to survive the read. */
   intendedTipCents: number | null;
   paidTotalCents: number | null;
+  /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
+   *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
+   *  it (OPEN-ITEMS P2e — the merge refusal named that action for months while nothing implemented
+   *  it). Null once the cart is settled/absent, like every other open-cart field here. */
+  promoCode: string | null;
+  /** P3 — the promo's DELIVERED contribution in cents, from the SAME `getCartTotals` call that
+   *  produced `settleTotalCents`, so the two cannot disagree.
+   *
+   *  ⚠️ NOT the apply-time quote from `mms_promo_check`. A pinned `promo_granted_cents` outranks
+   *  the live derivation (M70) and the quote never reads it, and M22's reward-first clamp can take
+   *  the delivered promo to 0 while the quote stays whole — so the two are legitimately different
+   *  numbers. Showing the quote beside a settle total derived from the other would be the "computed
+   *  in one place, quoted in another" drift the W17 rules name. Null when there is no open cart with
+   *  items (there is no total for it to belong to). */
+  settlePromoCents: number | null;
   /** Tab lifecycle (S3.1) — `none`/`trust`/`secure`. When not `none`, the drill-down shows a "Tab
    *  open" badge + the open-since time, and the settle action reads "Close tab". */
   tab: "none" | "trust" | "secure";
