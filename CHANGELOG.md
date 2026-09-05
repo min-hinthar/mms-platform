@@ -4,6 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### One TV, two audiences — /board gains a kitchen pulse band (2026-09-05 · pilot P6)
+
+**The wall board keeps its customer-safe Preparing | Ready columns exactly as they were and gains a
+second section for the other audience in the same room.** The band carries the kitchen's load — live
+ticket count, the oldest ticket's age in minutes — an unattributed all-day dish rail, and dine-in as
+**table number plus one of two coarse statuses**. Same sanitized `/api/board` poll, same device
+token, one more section in the payload.
+
+**The privacy boundary is the slice, and it is the output TYPE.** `lib/board-pulse.ts` has no field
+for a guest name, a session/cart/order id, a per-table dish list, a modifier or an amount, so none
+of them can arrive by a later edit at a call site. The table strip is a POSITIVE allowlist (`dinein`
+only) — the mirror of the orders half's takeout-only allowlist, so a fourth `table_sessions.mode`
+value reaches neither until somebody decides it should. A test asserts the property over the
+serialized payload rather than over key names: ids seeded with values that could not appear by
+coincidence do not come back out.
+
+**The all-day rail is withheld below three live tickets, and the docblock states exactly what that
+buys.** At one ticket the rail IS that table's order beside its number; at two, a guest who knows
+their own order differences the other out. The floor closes exact attribution **from a single
+frame** by an observer who can resolve none of the counted tickets — it is not anonymity, and four
+open channels are named rather than hidden: frame deltas at a 5s poll, a residual that shrinks with
+every ticket the observer already knows, `allDayMore` as an aggregate over withheld rows, and
+absence as a per-table signal (P6a).
+
+**Three findings from the blind recon pass changed the design, not just the copy.**
+
+_The word was wrong._ "Ready" asserts a fact the schema does not hold: `bumped_at` means the PASS
+finished the food and there is no runner event anywhere. On a screen a dining room reads it is also
+aimed at the wrong person — dine-in is table service, so a guest reading "Ready" has nothing to do.
+The status is `up` / **Food up** / **ဟင်းထွက်ပြီ**, and the linger constant stopped being a bound on
+a claim and became a display window over a fact that stays true.
+
+_Ghost tables._ The strip gated on `status = 'active'` alone and a comment argued that was
+deliberate, because the TTL "bounds a JWT, not a meal". Measured, that is wrong where it matters:
+`is_member` requires `expires_at > now()`, so past four hours the diners cannot act on their own
+cart, nothing closes the session and nothing extends the clock — one unbumped line pinned a table
+number to a public wall for good. The strip now pairs both predicates, as the floor board always
+has; the load figures deliberately keep the KDS's test so the wall and the pass count the same
+tickets, and the residual is filed (P6b).
+
+_An exact timestamp crossed below the floor._ `oldestFiredAt` at one live ticket beside one table
+states that party's order instant to the room. The payload carries `oldestMinutes`, computed
+server-side from the one clock — which also deleted the screen's two-clock subtraction.
+
+**Read postures differ on purpose.** The session-mode read stays fail-CLOSED (503, publish nothing)
+because its failure would put dine-in names on the Ready column; the new kitchen reads are
+fail-DEGRADED to `pulse: null`, never a zeroed band, because "all clear" over a full wok is the lie
+`lib/kitchen.ts` already refuses. The pulse's windows are cut from the DATABASE clock (`mms_now`),
+since the undo-grace comparison is ten seconds wide.
+
+**Four new `board.*` keys and no more.** The band speaks the words the pass already speaks —
+`kds.title`, `kds.table`, `kds.line.cooking`, `kds.allday.title`, `kds.more`, `kds.allclear`,
+`kds.a11y.allDay` — so a K15 correction lands in one place instead of two.
+
+**Guards.** 25 assertions on the shaper, 15 on the route, 20 on the board's
+markup (13 of them on the new band), and 13 `verify:slice` mutants. `pulse/cooking-loses-to-ready` SURVIVED its first fixture — two states on
+two sessions, where the ternary and its mutant agree — and the fixture that separates them puts both
+on one session, which is what a table actually looks like mid-service. The bilingual property test
+had never rendered one byte of the band; it now sweeps every state the band can mount. `tx on pg`,
+the wall's largest type and previously uncovered, joins the contrast audit, watched red by reverting
+the dark ink.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese
