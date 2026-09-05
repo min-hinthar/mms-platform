@@ -74,6 +74,21 @@ describe("the dictionary guards", () => {
     expect(burmeseDigits).toEqual([]);
   });
 
+  it("P3 — NO dictionary value anywhere carries a Myanmar digit, either tongue", () => {
+    // The rule above walks `CART_MONEY_KEYS` only, so it covers the diner receipt and nothing else.
+    // Every staff money string — `promo.worth`'s `{m}`, the register's settle lines, the tip ladder —
+    // lives in `STAFF`, which that list cannot name, so the staff half of the money-numerals rule had
+    // no guard at all. This is the whole rule instead of a list of it: Burmese numerals enter ONLY
+    // through `localizeCount` at render (fill.ts), for `{n}`/`{total}` counts, so a literal ၀–၉ in a
+    // TEMPLATE is by construction a number that skipped the classifier — the one place that decides
+    // money and identifiers stay Latin. Checked on both tongues because an `en` value with Burmese
+    // digits is the same defect wearing the other hat.
+    const withMyDigits = allEntries
+      .filter(([, , v]) => /[၀-၉]/.test(v.my) || /[၀-၉]/.test(v.en))
+      .map(([id]) => id);
+    expect(withMyDigits).toEqual([]);
+  });
+
   it("the S14a glossary holds — the order NOUN is အော်ဒါ, never the formal မှာယူမှု", () => {
     const drifted = allEntries.filter(([, , v]) => v.my.includes("မှာယူမှု")).map(([id]) => id);
     expect(drifted).toEqual([]);

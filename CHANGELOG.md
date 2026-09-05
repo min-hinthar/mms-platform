@@ -73,13 +73,52 @@ the PR merges. `max_uses 200` is the bound on that window.
 which PILOT_PLAN §3 P3 accepts outright — the pilot scopes it by who gets the card. Registered as
 OPEN-ITEMS **P3a** rather than fixed, bounded by `max_uses`.
 
-**Proven, not asserted.** 27 new `verify:slice` mutants, every one watched turning its suite red —
-including one that SURVIVED first: the remove's TTL check had no over-blocking test, so a predicate
-reading the raw `locked` column changed nothing the fixture could see. `lib/floor.ts` carried ZERO
-mutants before this while matching three money markers. The SQL test ran on a local PostgreSQL 16
-with all 98 migrations applied in order (Docker is unavailable in the agent environment, so the
-Supabase-shaped prerequisites were built by hand), and every one of its assertions was induced red
-and watched fail — nine falsifications across five cases, listed in the test's own header.
+**⚠️ One predicate shipped in the first draft and was REVERTED, and the reversal is the decision
+worth reading.** That draft closed the Stripe Terminal window on these two doors alone with
+`settle_at IS NULL` instead of the TTL-aware disjunct. Three independent blind auditors rejected it
+from three different triggers, and they were right: `settle_at` is only ever nulled by a CLEAN
+release, so an abandoned split (`abortSettlement` has exactly one caller — the diner's own host UI)
+or a terminal decline whose release write failed leaves it set forever. The strict form then refuses
+BOTH promo doors for the life of that cart while `canWrite` — which is TTL-aware — renders the
+controls enabled, and P2e re-opens exactly: the merge refusal points at a remove that is itself
+refused. The window it would have closed is real but PRE-EXISTING and repo-wide — `acquireSettlement`
+deliberately re-acquires on a stale freeze, so `settleCash` already takes money there — so closing it
+on the lowest-money door at the price of a permanent dead end is a net regression. Reverted to
+parity, both directions pinned by mutants, and the real fix (the terminal tender recording its PI on
+the cart) filed as **P3b (high)**.
+
+**Hardening from the deep pass, each with a mutant and a falsification behind it.** The apply now
+refuses OVER a code the cart already carries (`promo_code.is.null,promo_code.eq.<attempted>`) rather
+than replacing it silently — the register's view is a 5s poll, so a diner can apply on their own
+phone while a server holds a stale form, and the refusal names the recovery instead of a fabricated
+`cart_closed`. The remove answers "nothing to clear" WITHOUT writing, because it is deliberately
+unbounded and an unconditional UPDATE makes every tap a table-wide realtime broadcast plus a PostHog
+event plus two `revalidatePath`s. No control uses the native `disabled` attribute — that drops focus
+to `<body>` in a real browser and jsdom does not reproduce it, the exact defect `StaffLangSwitch`
+shipped under a green assertion — so it is `aria-disabled`/`readOnly` with a re-entry guard on a ref.
+The refusal lookup gained a runtime fallback: seven of its reasons arrive as DATA from
+`mms_promo_check` and are cast, so a reason added in SQL would render `<Chrome k={undefined}>` and
+throw inside render. And the focus latch is ONE SHOT — consumed by the first refresh, matched or
+not — so it can never outlive its own action and move a cashier's focus on someone else's change.
+
+**Proven, not asserted.** 47 new `verify:slice` mutants (357 → 404 total, measured against the merge
+base), every one watched turning its suite red — including two that SURVIVED first: the remove's TTL
+check had no over-blocking test, and the split mutex's fixture was degenerate against the strict
+settle predicate. Three new suites where there were none: `lib/rate.test.ts` (bucket uniqueness, key
+pass-through and the FAIL-OPEN decision the module had only ever stated in prose),
+`components/staff/StaffPromoControl.test.tsx`, and a repo-wide dictionary guard that no staff value
+in either tongue carries a Myanmar digit — the money-numerals rule had only ever been checked on the
+diner's `CART_MONEY_KEYS`. `lib/floor.ts` carried ZERO mutants before this while matching two money
+markers (measured against `check-money-coverage`'s list, not counted by eye). The SQL test ran on a
+local PostgreSQL 16 with all 98 migrations applied in order (Docker is unavailable in the agent
+environment, so the Supabase-shaped prerequisites were built by hand): **twelve of its twenty-two
+assertions** were induced red and watched fail, and the header now says exactly which twelve and why
+the rest are pinned by construction — an earlier draft claimed all of them, which is the
+green-for-the-wrong-reason shape this repo audits guards for. The newest case is the one that was
+missing entirely: the migration's `on conflict do update` list EXCLUDES `active` and `used`, so a
+re-apply cannot resurrect a code the owner dark-switched off or hand back a spent budget — and the
+migration is `\ir`-included rather than transcribed, so the case can never drift from the statement
+it is about.
 
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 

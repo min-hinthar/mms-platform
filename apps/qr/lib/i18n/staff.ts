@@ -19,9 +19,11 @@ import type { Entry } from "./types";
  * NUMERALS (owner, 2026-09-05): Burmese numerals in PROSE counts — "အော်ဒါ ၃ ခု" — and Latin
  * everywhere a number is an identifier or an amount: money, clock times, table numbers, pickup
  * codes, and the KDS stat row (its column is `tabular-nums` and Padauk ships no tabular Myanmar
- * figures, so Burmese digits there would make the row ragged). No dictionary VALUE carries a digit
- * of either script: counts arrive through the `{n}` / `{total}` slots and `tf()` converts them at
- * render, so the rule lives in one function with one guard rather than in a hundred strings.
+ * figures, so Burmese digits there would make the row ragged). No dictionary VALUE carries a MYANMAR
+ * digit — counts arrive through the `{n}` / `{total}` slots and `tf()` converts them at render, so
+ * the rule lives in one function with one guard (`strings.test.ts`, "NO dictionary value anywhere
+ * carries a Myanmar digit") rather than in a hundred strings. Latin digits are a different matter and
+ * one value has one: `kds.86`'s "86 this dish", where 86 is the kitchen VERB, not a number.
  *
  * ⚠️ Every MY value is a Claude-authored working draft pending Min's native check (K15), EXCEPT
  * where a `grounded:` comment names its in-repo source. Two are already settled and must NOT be
@@ -274,9 +276,13 @@ export const STAFF = {
   // K15-HIGH — this is the sentence a cashier reads before taking cash, so it must be the DELIVERED
   // figure, never the apply-time quote. {m} arrives already formatted.
   "promo.worth": { en: "{m} off this order", my: "ဒီအော်ဒါ {m} လျှော့" },
+  // NO "right now": the causes are not all transient. `mms_promo_discount_live` returns 0 when the
+  // code is switched off or PAST `valid_until` (permanent) as much as when a void dropped the basket
+  // under its minimum or M22's reward-first clamp already covered it (transient). A sentence that
+  // implies "check back in a minute" on a code that expired last week is copy the code does not keep.
   "promo.zero": {
-    en: "On the order, but worth nothing on it right now.",
-    my: "အော်ဒါမှာ ရှိပေမဲ့ အခု လျှော့ဈေး မရသေးပါ။",
+    en: "On the order, but it isn’t taking anything off.",
+    my: "အော်ဒါမှာ ရှိပေမဲ့ လျှော့ဈေး မရပါ။",
   },
   "promo.noItems": {
     en: "On the order — nothing to price yet.",
@@ -312,6 +318,12 @@ export const STAFF = {
     my: "ဒီစားပွဲမှာ ဖွင့်ထားတဲ့ အော်ဒါ မရှိပါ။",
   },
   "promo.err.cartClosed": { en: "That order is no longer open.", my: "ဒီအော်ဒါ မဖွင့်ထားတော့ပါ။" },
+  // The apply refuses OVER an existing code rather than replacing it silently (staff-promo.ts), so
+  // this sentence has to name the recovery — the Remove button is on this same card.
+  "promo.err.codeApplied": {
+    en: "Another code is already on this order — remove it first.",
+    my: "ဒီအော်ဒါမှာ တခြားကုဒ် ရှိနေပါပြီ — အရင် ဖြုတ်ပါ။",
+  },
   // K15-HIGH — the money refusal. A promo must not move while a payment is open on it, and this is
   // the sentence that explains why the tap did nothing.
   "promo.err.locked": {

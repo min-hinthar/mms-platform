@@ -26,23 +26,44 @@
 --      percentage decision is actually exercised end to end: a `value` of 15 would quote 1500% here.
 --   5. The per-session cap REFUSES a second redemption on the same table session, through
 --      `mms_promo_check` — the cap the plan chose, asserted rather than assumed.
+--   6. RE-APPLYING THE MIGRATION CANNOT RESURRECT A SWITCHED-OFF CODE OR REFUND A SPENT BUDGET.
+--      The file's `on conflict (code) do update` deliberately EXCLUDES `active` and `used`, and that
+--      exclusion is the only thing standing between a routine re-apply and (a) turning a code the
+--      owner killed in an emergency back on, (b) handing back redemptions already counted. Nothing
+--      tested it, so the two most consequential words in the migration — the two column names NOT in
+--      the update list — were unguarded. The migration file is `\ir`-INCLUDED rather than
+--      transcribed here, so this case can never drift from the statement it is about.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/pilot15_promo_test.sql
 --
--- ── RED-FIRST, and this file was not shipped on a green run alone ──────────────────────────────
--- Run on a local PostgreSQL 16 cluster with the full 98-migration stack applied in order (Docker is
+-- ── RED-FIRST: what was falsified, exactly ──────────────────────────────────────────────────────
+-- Run on a local PostgreSQL 16 cluster with the full migration stack applied in order (Docker is
 -- unavailable in the agent environment, so `supabase db start` is not; the Supabase-shaped
 -- prerequisites — the `auth`/`extensions`/`realtime` schemas, `auth.uid()`, the three roles — were
--- created by hand and all 98 files then applied with zero failures). Every assertion below was then
--- INDUCED red and watched fail before being restored:
+-- created by hand and all 98 files then applied with zero failures). TWELVE falsifications were run,
+-- each induced red, watched fail, and restored green:
 --   1  · value 0.15 → 0.20 · per_session_limit 1 → 2 · max_uses 200 → null
 --   2  · valid_until → null · valid_until → a typo'd 2025
 --   3  · `promo_pct_max_100` dropped (the probe insert of 15 then SUCCEEDS)
 --   4  · `mms_promo_check`'s `round(v_subtotal * v_promo.value)` halved · its `upper(p_code)` removed
 --   5  · its `per_session_limit` branch neutered to `if false then`
--- Nine falsifications, nine distinct failures, green again after each. The GUC above is proven live
--- by the fact that any of them fired at all.
+--   6  · `active` ADDED to the migration's do-update list · `used` ADDED to it · the whole list
+--        replaced by `do nothing` (the policy columns then never update)
+--
+-- ⚠️ TWELVE OF 22 ASSERTIONS, NOT ALL OF THEM, and saying "every assertion was induced red"
+-- was the wrong claim — it is exactly the "green for the wrong reason" shape this repo audits guards
+-- for. The rest are pinned by construction rather than by a falsification of their own: several sit
+-- in the SAME `do $$` block as one that WAS falsified, and a block aborts at its first failing
+-- ASSERT, so falsifying one hides the others behind it. Two are honestly weaker than the rest and
+-- are named so nobody reads more into them:
+--   · `assert p.active` (case 1) cannot fail on a FRESH stack — the row is inserted moments earlier
+--     and `active` takes its column default. It is a live assertion against PROD, where the owner's
+--     dark switch (`update promo_codes set active = false`) is the one thing that turns it red, and
+--     case 6 is what actually guards the mechanism.
+--   · `assert p.valid_from is null` (case 2) restates the insert. It earns its place by making a
+--     LATER addition of a second start gate a deliberate edit to this file.
+-- The GUC below is proven live by the fact that any falsification fired at all.
 --
 -- ⚠️ `set local plpgsql.check_asserts = on` is NOT optional — with the GUC off every ASSERT compiles
 -- out and the file exits 0 having proved nothing.
@@ -169,6 +190,50 @@ begin
   assert not r.valid and r.reason = 'session_limit',
     format('PILOT15.5: a second redemption on one table answered valid=%s reason=%s',
            r.valid, r.reason);
+end $$;
+
+-- ── 6 · re-applying the migration cannot resurrect a dark-switched code, or refund a spent budget ─
+-- The migration is INCLUDED, not copied: `\ir` resolves relative to THIS FILE, so the statement under
+-- test is the one that will actually be applied, and a future edit to its do-update list is caught
+-- here instead of drifting past a hand-typed twin. Everything is still inside the transaction the
+-- footer rolls back.
+update public.promo_codes
+   set active = false,            -- the owner's emergency dark switch
+       used = 5,                  -- a budget already spent
+       value = 0.99,              -- and a policy column that SHOULD be corrected by a re-apply
+       max_uses = 1
+ where code = 'PILOT15';
+
+\ir ../migrations/20260905120000_pilot15_promo.sql
+
+do $$
+declare p public.promo_codes%rowtype;
+begin
+  select * into p from public.promo_codes where code = 'PILOT15';
+  assert not p.active,
+    'a re-apply turned PILOT15 back ON — `active` must stay out of the do-update list, or routine '
+    'redeployment silently reverses the owner''s emergency switch-off';
+end $$;
+
+do $$
+declare p public.promo_codes%rowtype;
+begin
+  select * into p from public.promo_codes where code = 'PILOT15';
+  assert p.used = 5,
+    format('a re-apply reset PILOT15.used to %s — `used` is a consumed BUDGET, not policy, and '
+           'resetting it hands back redemptions already counted against max_uses', p.used);
+end $$;
+
+do $$
+declare p public.promo_codes%rowtype;
+begin
+  select * into p from public.promo_codes where code = 'PILOT15';
+  -- …and the POLICY columns must still update, or `do update` is `do nothing` wearing a costume and
+  -- an edited window in the migration would read as applied while prod kept the old numbers.
+  assert p.value = 0.15,
+    format('a re-apply left PILOT15.value at %s — the do-update list is not doing its job', p.value);
+  assert p.max_uses = 200,
+    format('a re-apply left PILOT15.max_uses at %s', p.max_uses);
 end $$;
 
 rollback;

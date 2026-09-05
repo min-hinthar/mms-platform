@@ -22,14 +22,28 @@
 --   per_session_limit 1   — one redemption per TABLE SESSION. The plan's own wording, and the cap
 --                           `mms_promo_consume` re-counts under a row lock, so it is a DB invariant
 --                           rather than only an app-layer gate.
+--                           ⚠️ AND IT BARELY BINDS AT THE COUNTER, which is worth knowing before
+--                           anyone reads it as "one per guest". The unit is a session, and a
+--                           counter-style session is ONE ORDER: `closeCounterStyleSession` closes
+--                           every `reg-` (and pickup `kiosk-`) session at settle, so the next
+--                           customer — or the same one, two minutes later — is a fresh session with
+--                           a fresh budget. It bounds a DINE-IN table, which is the surface the
+--                           pilot is measuring; at the register the real ceiling is `max_uses`.
 --   min_subtotal_cents 0  — no minimum. The pilot is measuring whether the surfaces work, not
 --                           lifting ticket size, and a minimum would refuse the smallest tables,
 --                           which are the ones most likely to expose a rounding edge.
 --   max_uses 200          — the blast radius if the code LEAKS, which is the only real downside of a
 --                           standing code. At a ~$40 average ticket, 200 redemptions is ~$1,200 of
---                           discount; the pilot itself needs perhaps 100. `used` is bumped at
---                           FULFILLMENT, so the true overrun ceiling is 200 plus whatever applied
---                           while under the cap and has not settled yet — a handful of live tables.
+--                           discount; the pilot itself needs perhaps 100.
+--                           ⚠️ AND 200 IS A SOFT CEILING, deliberately quoted the way the function
+--                           that enforces it quotes it: `used` is bumped at FULFILLMENT, so the
+--                           overrun is every cart that APPLIED while under the cap and has not
+--                           fulfilled yet — and `mms_promo_consume`'s own comment
+--                           (20260620000000_promo_validation.sql:131-133) says that is "potentially
+--                           many during a promo blast — not 'a few'". An earlier draft of this line
+--                           said "a handful of live tables", which is the opposite of what the
+--                           enforcing code documents; if a leak matters, the lever is
+--                           `active = false`, not a tighter `max_uses`.
 --   valid_until           — 2026-10-31 23:59:59 America/Los_Angeles. The pilot is two weeks from a
 --                           Day 0 that is still blocked on hardware (O1) and env (O2), so this is
 --                           deliberately generous rather than exact. What it must NOT be is null: a

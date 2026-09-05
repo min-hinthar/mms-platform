@@ -29,6 +29,20 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    2026-09-05 before it was written: zero `PILOT15` rows exist; the only codes present are
 >    `TEAHOUSE5` (flat 500, used 0/500) and `WELCOME10` (pct 0.10, used 0/1000). Apply via the
 >    one-file MCP path per §O4, then read the row back.
+>    1b. **⚠️ THE SETTLE PREDICATE WAS TIGHTENED AND THEN REVERTED — do not re-tighten it.** A first
+>    draft made both staff doors `settle_at IS NULL` to close the Stripe Terminal window (a real hole:
+>    `linkPaymentIntent` has one caller, `terminal.ts` writes no `qr_carts` column, no share row, no
+>    single-pay lock, so the settlement freeze is its only guard). Three blind auditors rejected it:
+>    `settle_at` is nulled only by a CLEAN release, so an abandoned split (`abortSettlement` has
+>    exactly ONE caller — the diner's own host UI) or a terminal decline whose release write failed
+>    leaves it set for the LIFE of the cart, and a strict predicate refuses both promo doors there
+>    while the component's `canWrite` — TTL-aware — renders them ENABLED. That re-opens P2e outright:
+>    the merge refusal points at a remove that is itself refused. And the window was never this door's
+>    — `acquireSettlement` deliberately re-acquires on a stale freeze (`lock.ts:128`), so `settleCash`
+>    already takes money there and `clearTable` cancels the cart there. Both directions are now pinned
+>    by mutants (`{apply,clear}-ignores-the-settlement-freeze` and `-settle-check-ignores-the-ttl`),
+>    so re-tightening reddens the suite. The real fix is **P3b (high)**: the terminal tender records
+>    its PI on the cart, closing it for every gate at once. Reasoning: LEARNINGS **#91**.
 > 2. **The link gate is on the REMOVE too, and that is the load-bearing half.** `mms_promo_discount`
 >    returns `promo_granted_cents` VERBATIM whenever it is non-null (M70), so dropping a code RAISES
 >    the total the webhook re-derives — the M152 (a) charged-card-no-order hazard, reached from the
@@ -41,22 +55,41 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    out of merging the table. `staff-promo/clear-becomes-rate-limited` is the mutant that guards the
 >    asymmetry against a tidy-up.
 >
+> ### What the deep pass added after the first draft
+>
+> Besides the revert above: the apply now refuses OVER a code the cart already carries
+> (`promo_code.is.null,promo_code.eq.<attempted>`) instead of silently replacing one a guest was
+> quoted — the register's view is a 5s poll, so the race is ordinary — and `refusedPromoReason` takes
+> the attempted code so the refusal names the recovery rather than fabricating `cart_closed`. The
+> remove answers "nothing to clear" WITHOUT writing (it is unbounded by design, and an unconditional
+> UPDATE is a table-wide realtime broadcast plus a PostHog event plus two `revalidatePath`s per tap).
+> No control uses native `disabled` — `aria-disabled`/`readOnly` plus a ref re-entry guard, the
+> `StaffLangSwitch` lesson — and the refusal lookup has a runtime fallback because seven of its
+> reasons arrive as DATA from `mms_promo_check` and are cast. Three new suites where there were none:
+> `lib/rate.test.ts`, `components/staff/StaffPromoControl.test.tsx`, and a repo-wide guard that no
+> staff dictionary value carries a Myanmar digit. 47 new mutants, 357 → 404.
+>
 > ### What it cost to learn
 >
-> `verify:slice` returned one SURVIVING mutant on the first run: the remove's TTL check had every
-> under-blocking case pinned and no over-blocking one, so a predicate reading the raw `locked` column
-> changed nothing the fixture could see. The fix was three tests, not a deleted mutant. And an early
-> draft of the quote-versus-delivered comment named a mechanism (voided/comped lines) that stopped
-> being true at `20260622060000`; the SQL was re-read and the comment corrected — the conclusion
-> survived on two OTHER mechanisms (the pin, and M22's reward-first clamp), but the mechanism is what
-> the next reader acts on.
+> `verify:slice` returned SURVIVING mutants twice: the remove's TTL check had every under-blocking
+> case pinned and no over-blocking one, and the split mutex's fixture went degenerate against the
+> strict settle predicate. Each fix was tests, never a deleted mutant. An early draft of the
+> quote-versus-delivered comment named a mechanism (voided/comped lines) that stopped being true at
+> `20260622060000`; the SQL was re-read and the comment corrected — the conclusion survived on two
+> OTHER mechanisms (the pin, and M22's reward-first clamp), but the mechanism is what the next reader
+> acts on. And a red-first probe loop restored with `git checkout --`, which restores to **HEAD**:
+> it deleted an hour of uncommitted work and then produced four green-for-the-wrong-reason "red"
+> results against the wrong baseline (LEARNINGS **#90**).
 >
 > ### Still open here
 >
-> **P3a** (new): `PILOT15` is not dine-in-only — `promo_codes` has no mode-scope column, which
-> PILOT_PLAN §3 P3 accepts outright, bounded by `max_uses`. **P2e is CLOSED.** ⚠️ Codex had hit its
-> usage limit for code reviews on 2026-09-05 (posted on #259), so `codex-review` is RED on this head
-> and the blind adversarial pass is the ONLY independent reviewer this slice had.
+> **P3a** `PILOT15` is not dine-in-only — `promo_codes` has no mode-scope column, which PILOT_PLAN §3
+> P3 accepts outright, bounded by `max_uses`. **P3b (high)** the Terminal window, above. **P3c** no
+> durable audit row for a staff promo change. **P3d** the merge refusal is English-only on a console
+> that speaks Burmese (P2c's shape, but `mergeTables`' own copy, so not covered by it). **P3e**
+> `openCartFor` widened for one caller. **P2e is CLOSED.** ⚠️ Codex had hit its usage limit for code
+> reviews on 2026-09-05 (posted on #259), so `codex-review` is RED on this head and the blind
+> adversarial passes are the ONLY independent review this slice had.
 >
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
 >
@@ -141,7 +174,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (384 today)**, **1372 qr + 138 ui tests at the time (1557 + 140 today)**, 69 target modules at the time (72 under `apps/qr/lib` today, 79 in all), 97 local
+> **334 mutants at the time (404 today)**, **1372 qr + 138 ui tests at the time (1576 + 140 today)**, 69 target modules at the time (74 under `apps/qr/lib` today, 82 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1020,7 +1053,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 384 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1557 qr tests + 140 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 404 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1576 qr tests + 140 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1742,7 +1775,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (384 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (404 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

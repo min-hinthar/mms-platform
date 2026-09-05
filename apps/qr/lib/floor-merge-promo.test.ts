@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * redemption cap, so it cannot follow — and recomputing the target's discount off the larger
  * subtotal silently swings what a guest pays, in either direction. Dropping the refusal is therefore
  * not a UX regression, it is a wrong charge. `floor.ts` carried ZERO mutants before this suite while
- * matching three money markers, so that rule was revertible with the whole gate green.
+ * matching two money markers, so that rule was revertible with the whole gate green.
  *
  * The second is product truth. Until `clearPromoForTable` shipped in this same PR, "remove it before
  * merging" named an action nothing in the product implemented — `applyPromo` was the only writer of

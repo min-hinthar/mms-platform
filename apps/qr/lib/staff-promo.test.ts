@@ -39,7 +39,16 @@ vi.mock("./staff", () => ({
 
 /** The caller-scoped rate gate (STAFF_PROMO_RATE), forced per test. */
 let rateAllows = true;
-vi.mock("./rate", () => ({ withinStaffPromoRate: () => Promise.resolve(rateAllows) }));
+/** Every key the gate was asked about. The gate is keyed by the CALLER, never by the table — a
+ *  session-keyed budget would let one griefing table lock the register out of the whole floor. A
+ *  mock that discarded the argument could not tell those two apart. */
+let rateKeys: string[] = [];
+vi.mock("./rate", () => ({
+  withinStaffPromoRate: (key: string) => {
+    rateKeys.push(key);
+    return Promise.resolve(rateAllows);
+  },
+}));
 
 /** The split-share mutex — its own module, so it is stubbed rather than driven from `row`. */
 let inFlight: string | null = null;
@@ -76,6 +85,9 @@ let row: Row | null = null;
 let readFails = false;
 /** Forced failure for the UPDATE itself. */
 let updateFails = false;
+/** How many UPDATEs actually reached the DB — the remove's no-op short-circuit is invisible
+ *  otherwise, since "wrote nothing" and "wrote the same nulls" have the same row state. */
+let updateCalls = 0;
 /** What `mms_promo_check` answers. */
 let check: { valid: boolean; reason: string | null; discount_cents: number } = {
   valid: true,
@@ -124,7 +136,7 @@ const matches = (r: Row, filters: Filter[]) =>
         : f.expr.split(",").some((t) => term(r, t)),
   );
 
-function builder(values: Row | null) {
+function builder(values: Row | null, exactCount = true) {
   const filters: Filter[] = [];
   const api = {
     eq(col: string, val: unknown) {
@@ -145,14 +157,19 @@ function builder(values: Row | null) {
       return Promise.resolve({ data: hit, error: null });
     },
     // The UPDATE is awaited directly, so the builder itself has to be thenable.
-    then(resolve: (r: { count: number; error: { message: string } | null }) => void) {
+    then(resolve: (r: { count: number | null; error: { message: string } | null }) => void) {
       if (updateFails) {
         resolve({ count: 0, error: { message: "update failed" } });
         return;
       }
       const hit = row !== null && matches(row, filters);
       if (hit && values) Object.assign(row as Row, values);
-      resolve({ count: hit ? 1 : 0, error: null });
+      // ⚠️ NULL without `{ count: "exact" }`, because that is what PostgREST answers: the count is
+      // read off `Content-Range`, which the server only sends when the request asked for it. A fake
+      // that handed back a number regardless would let a mutant DELETE the option and survive —
+      // while in production every successful write would then read `count: null`, fail the
+      // `(count ?? 0) === 0` check and report a refusal on a cart that did move.
+      resolve({ count: hit ? (exactCount ? 1 : null) : exactCount ? 0 : null, error: null });
     },
   };
   return api;
@@ -161,7 +178,10 @@ function builder(values: Row | null) {
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => ({
-      update: (values: Row) => builder(values),
+      update: (values: Row, opts?: { count?: string }) => {
+        updateCalls += 1;
+        return builder(values, opts?.count === "exact");
+      },
       select: () => builder(null),
     }),
     rpc: (fn: string) =>
@@ -196,6 +216,8 @@ const openCart = (over: Row = {}): Row => ({
 beforeEach(() => {
   auth = { kind: "staff", caller: { staffId: "st-1", role: "server" } };
   rateAllows = true;
+  rateKeys = [];
+  updateCalls = 0;
   inFlight = null;
   sessionMissing = false;
   cartMissing = false;
@@ -255,25 +277,26 @@ describe("applyPromoForTable — the staff write is atomic against the pay freez
     expect(row?.promo_code).toBe("PILOT15");
   });
 
-  it("REFUSES on a STALE settlement freeze — the Stripe Terminal window (blind pass, CRITICAL)", async () => {
-    // The reader PI is invisible to every other gate: `lib/terminal.ts` writes no `qr_carts` column
-    // (`linkPaymentIntent` has exactly one caller, `create-intent`), never takes the single-pay
-    // lock, and creates no share row — so `paymentInFlightReason` counts zero. Its only guard is
-    // this freeze, kept alive by the register's CLIENT poll. Close the panel for ten minutes and a
-    // TTL-aware predicate would let the promo move under a capturable charge: the capture then
-    // reconciles to a different total and the guest is charged with no order.
+  it("still APPLIES on a STALE settlement freeze — the TTL is the designed backstop, not a leak", async () => {
+    // ⚠️ THIS ASSERTION WAS THE OTHER WAY ROUND FOR ONE COMMIT, and reverting it is the decision the
+    // module docblock argues. `settle_at` is only ever nulled by a CLEAN release, so a strict
+    // `settle_at IS NULL` predicate refuses both promo doors for the LIFE of a cart whose settlement
+    // was merely abandoned — a split tapped and then paid in cash, or a terminal decline whose
+    // `releaseSettlementFor` write failed (both call sites drop that error deliberately). Meanwhile
+    // `canWrite` in the drill-down is TTL-aware, so the control renders ENABLED and the register taps
+    // forever against "Someone's paying" for a payment that already died — and P2e re-opens, because
+    // the merge refusal points at a remove that is itself refused. The Terminal window this would
+    // have closed is real, PRE-EXISTING and repo-wide (`acquireSettlement` deliberately re-acquires
+    // on a stale freeze, so `settleCash` already takes money there); closing it on the lowest-money
+    // door at the price of a permanent dead end is a net regression. Filed as OPEN-ITEMS P3b.
     row = openCart({
       settle_at: iso(SETTLE_TTL_MS + 60_000),
       locked: false,
       locked_at: null,
       live_payment_intent_id: null,
     });
-    expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
-      ok: false,
-      reason: "locked",
-    });
-    expect(row?.promo_code).toBeNull();
-    expect(row?.promo_granted_cents).toBe(900);
+    expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({ ok: true });
+    expect(row?.promo_code).toBe("PILOT15");
   });
 
   it("APPLIES when no settlement has been started at all — the pilot's own happy path", async () => {
@@ -287,6 +310,34 @@ describe("applyPromoForTable — the staff write is atomic against the pay freez
   it("still APPLIES when `locked` is true but `locked_at` is null — that is not a lock", async () => {
     row = openCart({ locked: true, locked_at: null });
     expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({ ok: true });
+  });
+
+  it("REFUSES over a code the cart already carries, and says which situation that is", async () => {
+    // The register's view is a 5s poll, so a diner can apply a code on their own phone while a
+    // server has the (stale) apply form open. Without the `promo_code.is.null,promo_code.eq.<code>`
+    // term that tap SILENTLY REPLACES a code the guest was already quoted, and the only trace is a
+    // discount that changed. The reason matters as much as the refusal: `cart_closed` is what the
+    // diagnosis answers without the attempted code passed to it — a verdict about a cart that is
+    // demonstrably open, on a screen whose recovery (Remove) is one tap away.
+    row = openCart({ promo_code: "WELCOME10", promo_granted_cents: 900 });
+    expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
+      ok: false,
+      reason: "code_applied",
+    });
+    expect(row?.promo_code).toBe("WELCOME10");
+    expect(row?.promo_granted_cents).toBe(900);
+  });
+
+  it("still APPLIES the SAME code over itself — that is a pin refresh, not a replacement", async () => {
+    // The over-blocking half. `eq.${normalized}` is what keeps a re-apply working, and a re-apply is
+    // how a server clears a stale grant pinned for the code already on the cart. A bare
+    // `promo_code.is.null` would refuse it and leave the pin — outranking the code it belongs to.
+    // Lower-case IN, upper-case ON THE ROW: the predicate compares the NORMALIZED value, so a
+    // mutant that dropped `.toUpperCase()` before building it would refuse this legitimate re-apply.
+    row = openCart({ promo_code: "PILOT15", promo_granted_cents: 750 });
+    expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({ ok: true });
+    expect(row?.promo_code).toBe("PILOT15");
+    expect(row?.promo_granted_cents).toBeNull();
   });
 
   it("answers cart_closed when the cart is genuinely closed", async () => {
@@ -305,16 +356,6 @@ describe("applyPromoForTable — the staff write is atomic against the pay freez
       reason: "error",
     });
     expect(row?.promo_granted_cents).toBe(900);
-  });
-
-  it("diagnoses the stale-settle refusal as LOCKED, never a fabricated cart_closed", async () => {
-    // The write and the diagnosis have to agree. Without `anySettleStarted` the diagnosis falls
-    // through every branch and answers `cart_closed` on a cart that is demonstrably open — the
-    // M116/M119 fabricated-verdict shape, on the one refusal that prevents a charged card with no
-    // order. This asserts the REASON, which is the only thing that distinguishes the two.
-    row = openCart({ settle_at: iso(SETTLE_TTL_MS + 60_000), status: "open" });
-    const res = await applyPromoForTable({ sessionId: SESSION, code: "pilot15" });
-    expect(res).toEqual({ ok: false, reason: "locked" });
   });
 
   it("answers error when the UPDATE itself fails — a transport failure is not a refusal", async () => {
@@ -362,6 +403,15 @@ describe("applyPromoForTable — the gates before the write", () => {
     expect(row?.promo_code).toBeNull();
   });
 
+  it("spends the STAFF ACCOUNT's budget, never the table's — the key is asserted, not assumed", async () => {
+    // Without this the mock would answer the same for any argument, and a mutant re-keying the gate
+    // to `sessionId` would survive. It is not a cosmetic difference: a session-keyed budget lets one
+    // griefing table (or one server fat-fingering codes at it) lock the register's apply out for
+    // every OTHER table, and a per-caller budget is what `STAFF_PROMO_RATE` exists to be.
+    await applyPromoForTable({ sessionId: SESSION, code: "pilot15" });
+    expect(rateKeys).toEqual(["st-1"]);
+  });
+
   it("refuses a malformed request, naming the field that failed, and writes NOTHING", async () => {
     // The two halves get DIFFERENT verdicts, and that is the point (blind pass). A bad CODE is
     // honestly `invalid`. A bad session id is not a verdict about the code at all — answering
@@ -401,15 +451,12 @@ describe("applyPromoForTable — the gates before the write", () => {
   });
 
   it("refuses when a split share is already authorized, which the UPDATE's predicates cannot see", async () => {
-    // ⚠️ `settle_at: null`, and that is the whole point of the fixture. It used to be a STALE
-    // `settle_at`, and the Terminal fix above made that DEGENERATE: the tightened predicate now
-    // refuses a stale freeze on its own, so dropping the `paymentInFlightReason` pre-check changed
-    // no outcome and the mutant SURVIVED. `paymentInFlightReason`'s share-count branch is
-    // explicitly "independent of the freshness TTL" (pay-guard.ts) — a cart whose settlement was
-    // released while a share is still authorized/captured is exactly what it exists for, and it is
-    // the ONE state where this pre-check is the only thing standing between a promo write and money
-    // already collected. Separating the two paths is what makes the guard reachable.
-    row = openCart({ settle_at: null });
+    // A STALE `settle_at`, which is the exact state `paymentInFlightReason`'s share-count branch is
+    // written for — it is "independent of the freshness TTL" (pay-guard.ts) because
+    // `captureAllIfReady` deliberately captures on a stale freeze once the table is covered. So the
+    // predicates below PASS this row, money has already been collected on it, and this pre-check is
+    // the only thing standing between the two. That is what makes the guard reachable.
+    row = openCart({ settle_at: iso(SETTLE_TTL_MS + 60_000) });
     inFlight = "split_in_progress";
     expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
       ok: false,
@@ -517,9 +564,10 @@ describe("clearPromoForTable — the remove carries the SAME five predicates (OP
     expect(row?.promo_code).toBeNull();
   });
 
-  it("REFUSES on a STALE settlement freeze — and this is the deterministic half", async () => {
-    // A remove RAISES the total the webhook re-derives, so a captured reader charge can never
-    // reconcile again. Same Terminal window as the apply; strictly worse outcome.
+  it("still REMOVES on a STALE settlement freeze — parity with the apply, and with P2e", async () => {
+    // The remove is the half that matters most here: it is the action the merge refusal points at,
+    // so a strict `settle_at IS NULL` would leave a table that once tapped "Split the bill" unable
+    // to remove a code OR merge, for the life of the cart, with no way out from any staff surface.
     row = openCart({
       promo_code: "PILOT15",
       settle_at: iso(SETTLE_TTL_MS + 60_000),
@@ -527,11 +575,8 @@ describe("clearPromoForTable — the remove carries the SAME five predicates (OP
       locked_at: null,
       live_payment_intent_id: null,
     });
-    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({
-      ok: false,
-      reason: "locked",
-    });
-    expect(row?.promo_code).toBe("PILOT15");
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(row?.promo_code).toBeNull();
   });
 
   it("REMOVES when no settlement has been started — the merge-refusal recovery path stays open", async () => {
@@ -540,9 +585,40 @@ describe("clearPromoForTable — the remove carries the SAME five predicates (OP
     expect(row?.promo_code).toBeNull();
   });
 
-  it("is IDEMPOTENT — a second tap on a cart with no code is a no-op, never a fabricated refusal", async () => {
+  it("is IDEMPOTENT — a second tap on a cart with no code is a no-op, and writes NOTHING", async () => {
+    // Both halves. `ok` because the honest answer to "nothing to remove" is a no-op, not a
+    // fabricated `cart_closed` from the diagnosis read — and NO WRITE, because this action is
+    // deliberately unbounded, so an unconditional UPDATE makes every tap a `qr_carts` realtime
+    // broadcast to the whole table plus a PostHog event plus two `revalidatePath`s, on a cart where
+    // nothing changed. Row state alone cannot tell those apart: writing the same nulls looks
+    // identical afterwards, which is why `updateCalls` exists.
     row = openCart({ promo_code: null, promo_granted_cents: null });
     expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(updateCalls).toBe(0);
+  });
+
+  it("DOES write when only the PIN survives — a grant with no code is the P2e ghost discount", async () => {
+    // The short-circuit is `code === null && pin === null`, not `code === null`. A pinned grant with
+    // no code behind it is precisely the state `mms_promo_discount` returns VERBATIM, so skipping
+    // the write here would leave a saving nothing on any surface can explain until the cart closes.
+    row = openCart({ promo_code: null, promo_granted_cents: 750 });
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
+    expect(updateCalls).toBe(1);
+    expect(row?.promo_granted_cents).toBeNull();
+  });
+
+  it("refuses when a split share is already authorized — the predicates cannot see one", async () => {
+    // The clear door needs this pre-check for the same reason the apply does, and worse: a remove
+    // RAISES the total the webhook re-derives, so running one over a captured share is a charge that
+    // can never reconcile. Stale freeze, so the UPDATE's own predicates PASS the row.
+    row = openCart({ promo_code: "PILOT15", settle_at: iso(SETTLE_TTL_MS + 60_000) });
+    inFlight = "split_in_progress";
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(row?.promo_code).toBe("PILOT15");
+    expect(updateCalls).toBe(0);
   });
 
   it("is NOT rate-limited — it is the recovery path the merge refusal points at", async () => {

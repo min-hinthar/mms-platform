@@ -35,10 +35,18 @@ import { Chrome } from "./Chrome";
 /**
  * Every refusal the action can return, mapped to the copy that explains it.
  *
- * `Record<StaffPromoReason, …>` and not a lookup with a fallback: adding a reason to the union
- * without copy for it is then a COMPILE error rather than a control that refuses silently. `outage`
- * points at the sentence every other staff mutation already shows during an outage, rather than a
- * fourteenth variation on it.
+ * `Record<StaffPromoReason, …>` and not a bare lookup: adding a reason to the union without copy for
+ * it is then a COMPILE error rather than a control that refuses silently. `outage` points at the
+ * sentence every other staff mutation already shows during an outage, rather than a fifteenth
+ * variation on it.
+ *
+ * ⚠️ AND a runtime fallback beside it, because the union is not the only author of these values.
+ * Seven of them (`invalid` … `session_limit`) arrive as DATA from `mms_promo_check` and are CAST to
+ * the union in `staff-promo.ts`; a new `reason` string added in SQL therefore reaches this table
+ * without a TypeScript error, `REASON_KEY[reason]` is `undefined`, and `<Chrome k={undefined}>`
+ * throws inside render — taking the whole drill-down to `app/staff/error.tsx` on a refusal. The
+ * compile-time exhaustiveness still does its job for reasons this module owns; the fallback covers
+ * the ones it does not.
  */
 const REASON_KEY: Record<StaffPromoReason, StaffKey> = {
   invalid: "promo.err.invalid",
@@ -54,9 +62,13 @@ const REASON_KEY: Record<StaffPromoReason, StaffKey> = {
   table_closed: "promo.err.tableClosed",
   no_order: "promo.err.noOrder",
   cart_closed: "promo.err.cartClosed",
+  code_applied: "promo.err.codeApplied",
   locked: "promo.err.locked",
   error: "promo.err.error",
 };
+
+/** The lookup every render site uses — see the ⚠️ above for why it can miss. */
+const reasonKey = (reason: StaffPromoReason): StaffKey => REASON_KEY[reason] ?? "promo.err.error";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -91,26 +103,40 @@ export function StaffPromoControl({
   const appliedRef = useRef<HTMLParagraphElement>(null);
   /** Set ONLY by a successful action of ours, so a 5s poll can never plant focus on its own. */
   const awaiting = useRef<null | "applied" | "cleared">(null);
+  /** Mirrors `busy` synchronously — see `run`. A render-lagged flag cannot gate a double tap. */
+  const busyRef = useRef(false);
 
   useEffect(() => {
-    if (awaiting.current === "applied" && promoCode) {
-      awaiting.current = null;
-      appliedRef.current?.focus({ preventScroll: true });
-    } else if (awaiting.current === "cleared" && !promoCode) {
-      awaiting.current = null;
-      inputRef.current?.focus({ preventScroll: true });
-    }
+    // ONE SHOT: the latch is spent by the FIRST `promoCode` change after the action, whether or not
+    // it is the one we asked for. Consuming it only on a MATCH leaves it armed indefinitely when the
+    // follow-up read is degraded (`onChanged` can fail; the drill-down keeps its last good data), and
+    // a latch that outlives its own action moves a cashier's focus on some later change it never
+    // caused. Our action's outcome is decided by the next refresh; if that refresh disagrees, we do
+    // not keep the claim open.
+    const want = awaiting.current;
+    if (!want) return;
+    awaiting.current = null;
+    if (want === "applied" && promoCode) appliedRef.current?.focus({ preventScroll: true });
+    else if (want === "cleared" && !promoCode) inputRef.current?.focus({ preventScroll: true });
   }, [promoCode]);
 
   const fail = useCallback(
     (reason: StaffPromoReason) => {
-      onError(<Chrome lang={lang} k={REASON_KEY[reason]} />);
+      onError(<Chrome lang={lang} k={reasonKey(reason)} />);
     },
     [lang, onError],
   );
 
   const run = useCallback(
     async (which: "apply" | "clear") => {
+      // THE re-entry guard, and the reason the controls below are `aria-disabled` rather than
+      // `disabled`: a natively-disabled button drops focus to `<body>` in a real browser, and jsdom
+      // does NOT reproduce that — `StaffLangSwitch` shipped exactly that defect with a green
+      // "keeps focus" assertion over it. `aria-disabled` keeps the node in the focus order and says
+      // the same thing, so the click it does NOT block has to be blocked here. On a ref, not on
+      // `busy`: this callback does not close over `busy`, so state would be stale by a render.
+      if (busyRef.current) return;
+      busyRef.current = true;
       // Clear the region FIRST: a prior line-edit error must not be read as this attempt's answer.
       onError(null);
       setBusy(which);
@@ -132,6 +158,7 @@ export function StaffPromoControl({
         // reload. That is the exact `settleCash` lesson, one component over.
         fail("error");
       } finally {
+        busyRef.current = false;
         setBusy(null);
       }
     },
@@ -155,7 +182,10 @@ export function StaffPromoControl({
             </span>
             <span style={worth}>
               {promoCents == null ? (
-                <Chrome lang={lang} k="promo.noItems" />
+                // Same echo as `promo.worth` below: these three are ONE money line rendered three
+                // ways, and Chrome's policy is per SITE — an echo that appears only when a code is
+                // worth something would read as the echo meaning "worth something".
+                <Chrome lang={lang} k="promo.noItems" echo="inline" />
               ) : promoCents > 0 ? (
                 // `{m}` is preformatted money and stays Latin in both tongues (the fill.ts slot
                 // contract). The figure is the DELIVERED one, so this line and the settle button
@@ -173,7 +203,7 @@ export function StaffPromoControl({
                 // An applied code currently worth nothing — a void dropped the basket under the
                 // minimum, or a reward already covers it. Saying "off this order" here would be a
                 // saving the receipt will not show.
-                <Chrome lang={lang} k="promo.zero" />
+                <Chrome lang={lang} k="promo.zero" echo="inline" />
               )}
             </span>
           </p>
@@ -182,7 +212,7 @@ export function StaffPromoControl({
               type="button"
               className="staff-btn"
               style={removeBtn}
-              disabled={busy !== null}
+              aria-disabled={busy !== null || undefined}
               onClick={() => void run("clear")}
             >
               {busy === "clear" ? (
@@ -221,14 +251,18 @@ export function StaffPromoControl({
               autoCorrect="off"
               spellCheck={false}
               enterKeyHint="done"
-              disabled={busy !== null}
+              // readOnly, never `disabled`: same focus rule as the buttons, and it additionally
+              // stops the value drifting under an in-flight apply that already read it.
+              readOnly={busy !== null}
               style={input}
             />
             <button
               type="submit"
               className="staff-btn"
               style={applyBtn}
-              disabled={busy !== null || !code.trim()}
+              // `aria-disabled` does NOT stop a submit (the rule `Checkout.tsx` states at its own
+              // Apply button) — the form's `onSubmit` guard below is what actually refuses one.
+              aria-disabled={busy !== null || !code.trim() || undefined}
             >
               {busy === "apply" ? (
                 <Chrome lang={lang} k="promo.applying" echo="inline" />

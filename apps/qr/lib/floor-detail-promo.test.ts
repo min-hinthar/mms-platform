@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * server-side either way, so losing these two fields never mis-charges anyone — it lets a cashier
  * take cash for a discounted table without knowing a discount applied, and it hides the code from
  * the one screen that can now remove it. Before P3, `floor.ts` carried NO mutants at all while
- * matching three money markers, so both fields would have been revertible with the gate green.
+ * matching two money markers, so both fields would have been revertible with the gate green.
  *
  * The second assertion is the "name it ONCE" one and it is the sharper of the two: `settlePromoCents`
  * must come off the SAME `getCartTotals` result as `settleTotalCents`. Swapping it for

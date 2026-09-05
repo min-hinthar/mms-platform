@@ -8,7 +8,7 @@ import { openCartFor } from "./staff-open-cart";
 import { paymentInFlightReason } from "./pay-guard";
 import { refusedPromoReason } from "./promo-refusal";
 import { withinStaffPromoRate } from "./rate";
-import { CART_LOCK_TTL_MS } from "./lock-ttl";
+import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { getPostHogClient } from "./posthog-server";
 
 /**
@@ -38,40 +38,58 @@ import { getPostHogClient } from "./posthog-server";
  * P2e names the link gate explicitly. `applyPromo`'s own comments carry the archaeology (M70 ·
  * M152 a); read them before touching either statement here.
  *
- * ## ⚠️ AND ONE PREDICATE STRICTER THAN `applyPromo`'s, because a THIRD tender exists
+ * ## ⚠️ A THIRD TENDER IS INVISIBLE TO ALL OF THEM — inherited, not closed here (OPEN-ITEMS P3b)
  *
- * The blind adversarial pass on this PR found the hole and it is real: **a Stripe Terminal (card
- * reader) settle is invisible to every one of those gates.** `lib/terminal.ts` mints the reader
- * PaymentIntent and then writes NOTHING to `qr_carts` — measured: `linkPaymentIntent` has exactly one
- * caller (`create-intent/route.ts`), so `live_payment_intent_id` stays null; the terminal path never
- * takes the single-pay lock; and it creates no `qr_cart_shares` row, so `paymentInFlightReason`'s
- * only non-TTL branch counts zero. Its sole guard is the settlement freeze, kept alive by the
- * register's CLIENT-side status poll — and `terminal.ts:286-289` says so in its own words:
- * *"Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved, the
- * cart is still open)."*
+ * A Stripe Terminal (card-reader) settle is invisible to every gate above. Measured: `linkPaymentIntent`
+ * has exactly ONE caller (`create-intent/route.ts`), so `live_payment_intent_id` stays null; `terminal.ts`
+ * writes no `qr_carts` column at all; it never takes the single-pay lock; and it creates no
+ * `qr_cart_shares` row, so `paymentInFlightReason`'s only non-TTL branch counts zero. Its sole guard is
+ * the settlement freeze, kept alive by the register's CLIENT-side poll — and `terminal.ts:286-289` names
+ * that window itself.
  *
- * Close the collect panel, background the tablet, or lose the network for ten minutes and that
- * freeze goes stale while the reader PI is still capturable — `extendSettlement` only moves a
- * STILL-FRESH freeze, so it can never be revived. A TTL-aware settle predicate then passes, and the
- * capture reconciles against a total these statements just changed: `reconcile_mismatch`, a
- * `qr_refunds_needed` row, and a guest charged with no order. The REMOVE is the deterministic half —
- * it RAISES the re-derived total, so the capture can never match again.
+ * ⚠️ A FIRST DRAFT OF THIS MODULE CLOSED THAT WINDOW HERE, with `settle_at IS NULL` instead of the
+ * TTL-aware disjunct, and it was WRONG — three independent blind auditors found the same defect from
+ * three different triggers. `settle_at` is only ever nulled by a clean release, and the abandoned states
+ * are reachable and common:
  *
- * So on this axis the staff doors are stricter than the diner's: **`settle_at IS NULL`, not "null or
- * stale."** A non-null `settle_at` on an OPEN cart means a settlement was started and never cleanly
- * ended, which for the reader is exactly the money-in-flight case. The cost is bounded and the
- * escape hatch is the normal next action: every clean exit nulls `settle_at` (cash releases in
- * `finally`, a decline and a cancel release scoped to their attempt, and a fulfilled cart leaves
- * `status='open'` behind entirely), so the state this refuses is the abandoned one — and settling or
- * clearing the table resolves it.
+ *   • an abandoned SPLIT — `openSettlement` acquires the freeze before inserting shares, and
+ *     `abortSettlement` has exactly ONE caller, `components/SettlementBoard.tsx` (the diner's own host
+ *     UI). A party that taps "Split the bill" and then pays cash at the counter leaves it set forever;
+ *   • a terminal DECLINE or CANCEL whose `releaseSettlementFor` write fails — both call sites log and
+ *     drop the error, deliberately (`lock.ts:144-146`: "the TTLs above are the real backstop").
  *
- * ⚠️ The LOCK axis stays TTL-aware, deliberately: `create-intent` DOES link its PaymentIntent, so a
- * stale lock with live money is already caught by the link gate, and tightening it too would freeze
- * the register's promo control for five minutes behind every abandoned pay screen.
+ * In every one of those the TTL is the designed backstop, and a strict null predicate has none: it
+ * refuses both promo doors for the LIFE OF THE CART while `canWrite` — which is TTL-aware — renders the
+ * controls enabled, so the register taps forever against "Someone's paying" for a payment that already
+ * died. It also re-opens P2e exactly: `mergeTables` says "remove it here first" and the remove is the
+ * thing refused. The pilot's own §5 scenario (split on the phone, then cash at the counter with the
+ * card) lands squarely in it.
  *
- * ⚠️ The same window is open to `applyPromo`, `settleCash` and `clearTable`, which this slice does
- * NOT widen and does not fix — filed as OPEN-ITEMS **P3b**. The real fix is for the terminal tender
- * to record its PI on the cart; that is a change to the terminal money path, not to this one.
+ * So these doors carry `applyPromo`'s predicate set EXACTLY, and the Terminal window is INHERITED
+ * rather than closed:
+ *
+ *   • `applyPromo` — the diner door shipping today — is TTL-aware on this axis (`cart.ts:420`);
+ *   • `acquireSettlement` DELIBERATELY re-acquires on a stale freeze (`lock.ts:128`
+ *     `settle_at.lte.${cutoff}`), so `settleCash` already TAKES MONEY in that same window;
+ *   • `clearTable` cancels the cart there too.
+ *
+ * Closing it on one door — the one that moves the least money — at the cost of a permanent dead end is
+ * a net regression. The real fix is for the terminal tender to RECORD its PaymentIntent on the cart,
+ * which closes it for every gate at once; that is a change to the terminal money path and it is filed
+ * as OPEN-ITEMS **P3b (high)**.
+ *
+ * ## The apply NEVER replaces a code the cart already carries
+ *
+ * `promo_code.is.null,promo_code.eq.<attempted>` is a sixth predicate on the apply and it is a money
+ * rule, not politeness. The register's view is a 5s poll, so a diner can apply a code on their own
+ * phone while a server has the (now stale) apply form open; without this term the server's tap
+ * silently REPLACES a code the guest was already quoted, and the only trace is a discount that
+ * changed. Re-applying the SAME code is still allowed — that is the pin refresh, not a replacement.
+ *
+ * There is deliberately NO pre-check reading `cart.promo_code` beside it. The predicate already
+ * decides, and `refusedPromoReason` is told the attempted code so it can SAY so; a second copy of
+ * that decision in this function is the drift shape the W17 rules name. The remove is the recovery,
+ * one tap away on the same control, which is why this refusal is never a dead end.
  *
  * ## Row counts, and why NOT `.select("id")`
  *
@@ -116,6 +134,7 @@ export type StaffPromoReason =
   | "table_closed"
   | "no_order"
   | "cart_closed"
+  | "code_applied"
   | "locked"
   | "error";
 
@@ -144,9 +163,12 @@ async function staffOrReason(): Promise<
   return { ok: true, staffId: auth.caller.staffId, role: auth.caller.role };
 }
 
-/** Both writes re-test the freeze in the SAME statement that writes; this is the lock's cutoff.
- *  The settle axis takes no cutoff — see the docblock: these doors refuse on ANY started settlement. */
-const lockCutoff = () => new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+/** Both writes re-test the freeze in the SAME statement that writes; these are its cutoffs. Both axes
+ *  are TTL-aware, mirroring `applyPromo` — see the docblock for why the strict form was reverted. */
+const freezeCutoffs = () => ({
+  lockCutoff: new Date(Date.now() - CART_LOCK_TTL_MS).toISOString(),
+  settleCutoff: new Date(Date.now() - SETTLE_TTL_MS).toISOString(),
+});
 
 /**
  * Apply a promo code to a table's open order, as staff (P3).
@@ -220,7 +242,7 @@ export async function applyPromoForTable(raw: unknown): Promise<StaffPromoResult
   if (!check?.valid) return no((check?.reason ?? "invalid") as StaffPromoReason);
 
   const normalized = code.toUpperCase();
-  const lockAt = lockCutoff();
+  const { lockCutoff, settleCutoff } = freezeCutoffs();
   const { count, error: updErr } = await db
     .from("qr_carts")
     // M70 — a new code voids any grant pinned for the OLD one, in the SAME statement as the code
@@ -229,13 +251,14 @@ export async function applyPromoForTable(raw: unknown): Promise<StaffPromoResult
     .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })
     .eq("id", cart.id)
     .eq("status", "open")
-    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)
-    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the
-    // freeze goes stale when the register's client poll stops. See the docblock.
-    .is("settle_at", null)
+    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)
+    // Never OVER another code — see the docblock. `eq.${normalized}` keeps a re-apply of the same
+    // code working (it is the pin refresh); a different one is refused and pointed at the remove.
+    .or(`promo_code.is.null,promo_code.eq.${normalized}`)
     .is("live_payment_intent_id", null);
   if (updErr) return no("error");
-  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id, { anySettleStarted: true }));
+  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id, { attempted: normalized }));
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {
@@ -286,11 +309,20 @@ export async function applyPromoForTable(raw: unknown): Promise<StaffPromoResult
  * a HIGHER total than the amount captured, and the reconcile refuses — a charged card with no order,
  * the same M152 (a) hazard as an apply, reached from the other side.
  *
- * ## Deliberately idempotent, and deliberately NOT rate-limited
+ * ## Deliberately idempotent — and a no-op that does NOT write
  *
  * No `promo_code is not null` predicate: a second tap must not answer a refusal, and the honest
  * answer to "nothing to remove" is a no-op, not a fabricated `cart_closed` from the diagnosis read.
- * And no rate gate — unlike the apply, a remove carries no guessable secret, so there is nothing to
+ * But answering ok is not the same as WRITING, and this action is unbounded (below), so an
+ * unconditional UPDATE makes every tap a `qr_carts` realtime broadcast to the whole table, a PostHog
+ * event and two `revalidatePath`s — on a cart where nothing changed. The short-circuit reads the row
+ * `openCartFor` already fetched, so it costs no round trip, and the predicates below still decide
+ * every write that actually happens. A code landing between the read and here is a code this caller
+ * never saw; skipping it is a no-op the next tap corrects, not a lost removal.
+ *
+ * ## Deliberately NOT rate-limited
+ *
+ * No rate gate — unlike the apply, a remove carries no guessable secret, so there is nothing to
  * enumerate; it is also the RECOVERY path the merge refusal points at, and a staff member locked out
  * of removing a promo would be locked out of merging the table too. Over-blocking is as expensive as
  * under-blocking (the delivery repo's gate lesson, and this repo's tip-cap one). `clearTable` and
@@ -309,21 +341,21 @@ export async function clearPromoForTable(raw: unknown): Promise<StaffPromoResult
   if (!session) return no("table_closed");
   if (!cart) return no("no_order");
   if (await paymentInFlightReason(cart)) return no("locked");
+  // Nothing to clear → ok, without writing. See the docblock: idempotent, but not an amplifier.
+  if (cart.promo_code === null && cart.promo_granted_cents === null) return { ok: true };
 
   const db = serviceClient();
-  const lockAt = lockCutoff();
+  const { lockCutoff, settleCutoff } = freezeCutoffs();
   const { count, error: updErr } = await db
     .from("qr_carts")
     .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })
     .eq("id", cart.id)
     .eq("status", "open")
-    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)
-    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the
-    // freeze goes stale when the register's client poll stops. See the docblock.
-    .is("settle_at", null)
+    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)
     .is("live_payment_intent_id", null);
   if (updErr) return no("error");
-  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id, { anySettleStarted: true }));
+  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id));
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {

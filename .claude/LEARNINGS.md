@@ -1576,8 +1576,11 @@ is the tell. Never put the guarded string anywhere else on the line.
 
 ## #87 — a docs guard can PRINT a number it never checks (pilot P3, 2026-09-05)
 
-`check:docs` measures five truths and enforces them through ten phrasings. Its clean message reads
-`clean (98 files, 1554+140 tests, 384 mutants)` — and **`98 files` is not one of the five**. Nothing
+`check:docs` measures five truths and enforces them through ten phrasings. Its clean message read, on the day
+this was written, `clean (98 files, 1554+140 tests, 384 mutants)` — and **`98 files` is not one of
+the five**. (Quoted as a point-in-time record on purpose: the test and mutant figures in it moved
+within the same PR, and a war story that keeps refreshing its own numbers teaches the wrong lesson —
+the guard's own message is where the live values live.) Nothing
 asserts the tracked-markdown count, so `docs/HANDOFF.md` quoted `97 files` for a while: a number the
 script emits, in a doc the script guards, that the script cannot see.
 
@@ -1621,3 +1624,79 @@ and `computeTotals` clamps reward-first, `min(promoRaw, max(subtotal − reward,
 reward covering the basket takes the delivered promo to 0 while the quote stays whole. Right answer,
 wrong mechanism — and the mechanism is what the next reader acts on, which is why "verify every
 finding against source" cuts both ways: toward the reviewer's claims AND your own.
+
+## #90 — `git checkout --` is not an undo for a red-first probe (pilot P3, 2026-09-05)
+
+The red-first rule says induce the violation, watch it fail, restore. The obvious restore is
+`git checkout -- <file>` — and it restores the file to **HEAD**, not to what was on disk a moment
+ago. On a file carrying uncommitted work that is not a restore, it is a delete: one probe loop
+falsified two guards correctly and silently threw away every edit made to `apps/qr/lib/staff-promo.ts`
+and `apps/qr/lib/i18n/staff.ts` in the preceding hour.
+
+The damage was not the lost hour. It was that the FOUR probes after it kept "going red" — against
+the HEAD version of the module, with the new suite, so every one of them was a failure of the
+revert, not of the guard under test. Four green-for-the-wrong-reason results in a row, in the
+mechanism whose entire job is to tell green from green-for-the-wrong-reason.
+
+So: `cp <file> <backup>` before a probe loop and `cp <backup> <file>` after, and end the loop with
+`git diff --stat <file>` plus a green run to prove the restore. And the general form, which is the
+part worth carrying: **a probe that cannot prove it restored has not proved anything it measured
+afterwards.** A red result is only evidence if the baseline it was measured against is the one you
+think it is.
+
+## #91 — closing a pre-existing window on ONE door can be a net regression (pilot P3, 2026-09-05)
+
+A blind auditor found a real hole: a Stripe Terminal charge is invisible to every cart-level money
+gate (`linkPaymentIntent` has one caller, `terminal.ts` writes no `qr_carts` column, no share row, no
+single-pay lock). Its only guard is the settlement freeze, kept alive by a CLIENT-side poll. The fix
+looked obvious and was applied: make the new staff promo doors `settle_at IS NULL` instead of the
+TTL-aware disjunct every other writer uses.
+
+The deep pass rejected it, from three independent triggers, and the reasoning generalises. `settle_at`
+is nulled only by a CLEAN release, so the abandoned states are reachable and ordinary: a party that
+taps "Split the bill" and then pays cash (`abortSettlement` has exactly ONE caller — the diner's own
+host UI), or a terminal decline whose `releaseSettlementFor` write fails, which both call sites drop
+deliberately because _"the TTLs above are the real backstop"_. In all of them the strict predicate
+refuses both doors for the LIFE of the cart — while the component's `canWrite` stayed TTL-aware and
+rendered the controls ENABLED, so the register taps forever against "Someone's paying" for a payment
+that already died. It also re-opened the very item the slice existed to close: the merge refusal says
+"remove it here first", and the remove was the thing refused.
+
+And the window it closed was never this door's. `acquireSettlement` deliberately re-acquires on a
+stale freeze (`lock.ts:128`), so `settleCash` already TAKES MONEY in exactly that state; `clearTable`
+cancels the cart there; `applyPromo` writes there. Tightening the lowest-money door in a set of five
+that share an exposure buys nothing measurable and costs a reachable dead end.
+
+Three rules out of it:
+
+1. **Before tightening one writer past its peers, enumerate the peers.** If the others stay open, the
+   exposure is unchanged and the asymmetry is pure cost.
+2. **A predicate with no TTL has no backstop.** Ask what nulls the column, and what happens when
+   nothing does — every state that reaches "forever" is a dead end you are choosing to ship.
+3. **Check the ENABLED state against the new refusal.** A control that renders enabled and always
+   refuses is worse than one that renders disabled, because it teaches staff the console is broken.
+
+The honest close is to make the terminal tender RECORD its PaymentIntent on the cart, which closes it
+for every gate at once — filed as OPEN-ITEMS P3b (high) rather than half-done here.
+
+## #92 — a component test that jsdom CAN answer is worth more than one it cannot (pilot P3, 2026-09-05)
+
+`StaffLangSwitch`'s source carries a ⚠️ about a defect it shipped: disabling the button just tapped
+drops focus to `<body>` in a real browser, and **jsdom does not reproduce that**, so its suite's
+"keeps focus on the tapped button" assertion was green over a live keyboard bug.
+
+The reflex when repeating that fix elsewhere is to write the same focus assertion again. Don't. Assert
+the STRUCTURE that decides it — sweep the rendered container for `[disabled]` and expect zero — which
+jsdom answers honestly, and which covers controls added later without editing the test.
+
+Two things that only showed up on the falsification run, and both are the same mistake:
+
+- The sweep must run **while the control is busy**. `disabled={false}` renders no attribute at all, so
+  a resting sweep passes against a `disabled`-using component. Hold the action's promise open.
+- The re-entry guard had to be falsified on the **Remove** button, not the apply. The apply is a
+  `<form onSubmit>` whose handler already refuses re-entry, so mutating the ref guard there changed
+  nothing — the test was green in both directions. The Remove button is a bare `onClick` beside
+  `aria-disabled`, which does not block a click, and it is the only place the guard is load-bearing.
+
+Same lesson as #90 from the other side: a guard is only evidence once you have seen the exact edit it
+exists to catch turn it red.
