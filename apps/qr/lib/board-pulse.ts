@@ -24,21 +24,51 @@ import { catalogNameMy } from "./ticket-names";
  *
  * ⚠️ THE RAIL AND THE TABLE STRIP TOGETHER ARE WHAT NEEDED A GUARD, not either alone. With ONE live
  * ticket the rail IS that ticket's order, and the strip names its table — the wall would state
- * "Table 2 is having Mohinga ×2", which is precisely the fact the paragraph above says may not
- * cross. With TWO, a guest who knows their own order subtracts it and reads the other ticket's
- * order exactly. So the rail is withheld below `PULSE_RAIL_MIN_TICKETS`. What that closes, stated
- * without overclaim: EXACT re-identification of a single party's order by a single observer. What
- * it does NOT close: a coalition of guests differencing their own orders out of a larger union.
- * It is a floor under the worst case, not anonymity, and it must not be described as anonymity.
- * The count itself is published either way — it names load, never a person.
+ * "Table 2 is having Mohinga x2", which is precisely the fact the paragraph above says may not
+ * cross. With TWO, a guest who knows their own order subtracts it and reads the other exactly. So
+ * the rail is withheld below `PULSE_RAIL_MIN_TICKETS`.
+ *
+ * ⚠️ WHAT THAT FLOOR CLOSES, STATED NARROWLY BECAUSE AN EARLIER DRAFT OF THIS PARAGRAPH OVERCLAIMED
+ * IT. It closes exact attribution **from a single frame** — one look at the wall — by an observer
+ * who cannot already resolve any of the tickets counted in it. It is a bound on the worst single
+ * reading. It is NOT anonymity, and it must never be described as anonymity, because these channels
+ * remain open and are accepted rather than hidden:
+ *
+ *   · **Frame deltas.** The screen repolls every 5s and `tickets` is published unconditionally, so
+ *     an observer who watches CONTINUOUSLY and differences two frames in which `tickets` moved by
+ *     exactly one reads that one ticket's whole order — at any ticket count. Closing it means
+ *     decoupling the rail's cadence from the strip's or quantising the counts, which costs the
+ *     kitchen the live number the band exists to show; the trade is the owner's, and it is filed as
+ *     an OPEN-ITEMS row rather than papered over here. What the floor still buys is that a GLANCE
+ *     is never enough.
+ *   · **A shrinking residual.** The anonymity set is `tickets` minus the tickets the observer can
+ *     already resolve — their own, their friends', and (because the Ready column names takeaway
+ *     customers on the same screen) any named order they happen to know. The floor counts tickets,
+ *     not unknowns, so three tickets of which two are known is a set of one.
+ *   · **`allDayMore`** is an aggregate over rows nobody was shown: the number of distinct dishes
+ *     past the display cap. Kept anyway, because a rail that truncates in SILENCE states a wrong
+ *     all-day count, which is the one number the rail exists for.
+ *   · **Absence, and the linger.** A table number that never appears has not ordered; one that
+ *     appears and vanishes was cleared. A table that reads `up` and then drops bounds that party's
+ *     plate-up instant to a five-minute public window. Both are inherent in showing tables at all,
+ *     which is what the band was asked for.
  *
  * PURE, and not in the route, for the reason `lib/board-poll.ts` already argues one file over: a
  * rule written inside a route handler does not get guarded. Every predicate here is falsifiable by
  * a VALUE, and each carries a `verify:slice` mutant.
  */
 
-/** How a table's kitchen state reads on the wall. Two values, both derived, neither invented. */
-export type PulseTableStatus = "cooking" | "ready";
+/**
+ * How a table's kitchen state reads on the wall. Two values, both derived, neither invented.
+ *
+ * ⚠️ `up`, NOT `ready` — the word is the finding, not a style choice. Nothing in this schema records
+ * that a plate reached a table: `bumped_at` is written by `mms_bump_ticket` and by
+ * `mms_line_transition`'s served edge, and both mean THE PASS FINISHED IT. There is no runner event
+ * anywhere. "Ready" on a screen a dining room reads is also aimed at the wrong person — a guest
+ * reads it as an instruction, and dine-in is table service, so there is nothing for them to do. `up`
+ * is the kitchen's own word for the fact the stamp actually holds: the food has come out.
+ */
+export type PulseTableStatus = "cooking" | "up";
 
 /** One all-day rail row: a dish and how many are on the wok, across the WHOLE kitchen. */
 export type PulseDish = { name: string; nameMy: string | null; qty: number };
@@ -49,8 +79,16 @@ export type PulseTable = { table: number; status: PulseTableStatus };
 export type BoardPulse = {
   /** Distinct tickets with food actually on the wok. HELD (future fire time) tickets are not. */
   tickets: number;
-  /** The oldest live ticket's fire time, ISO. The screen ages it against `serverNow`. */
-  oldestFiredAt: string | null;
+  /**
+   * The oldest live ticket's age in WHOLE MINUTES, or null when nothing is cooking.
+   *
+   * A MINUTE COUNT, never the fire timestamp it came from. At one live ticket beside one table on
+   * the strip, an exact `fire_at` would state that party's order instant to the room; a minute
+   * figure states what anyone watching the table already knows. It also removes a two-clock
+   * subtraction from the screen — both endpoints are the DATABASE clock here, in one place, so
+   * there is no drift to clamp and no negative age to render.
+   */
+  oldestMinutes: number | null;
   /** Largest first, capped. EMPTY below `PULSE_RAIL_MIN_TICKETS` — see the docblock. */
   allDay: PulseDish[];
   /** How many rail rows the cap dropped. Published so the screen can say so instead of truncating
@@ -74,14 +112,16 @@ export const PULSE_TABLE_MODES: ReadonlySet<string> = new Set(["dinein"]);
 /**
  * A dine-in ticket belongs to a table only while its session is live; a cleared table drops off.
  *
- * ⚠️ `active` AND NOTHING ELSE — deliberately the KDS's liveness test, not the floor board's. The
- * floor also filters `table_sessions.expires_at`, so a session past its 4-hour mint TTL that nobody
- * closed ("a ghost") still reads live HERE, exactly as it does at the pass. That divergence is the
- * intended one: `expires_at` bounds a JWT, not a meal, and a party still eating at hour five has a
- * live table. The cost is that a genuinely abandoned table with an unbumped line keeps a `cooking`
- * row on the wall — which is TRUE (the kitchen does have an open ticket for it) and is the same
- * thing the KDS says, and a wall that disagreed with the pass would be the worse failure. Recorded
- * as a known limitation shared with the KDS rather than fixed on one screen only.
+ * ⚠️ `active` IS ONLY HALF THE TEST HERE — the ghost rule in `shapeBoardPulse` is the other half,
+ * and an earlier draft of this comment argued the opposite, so the correction is worth keeping.
+ * That draft said the strip should copy the KDS (status alone) rather than the floor board (status
+ * AND `expires_at > now`), on the ground that the TTL "bounds a JWT, not a meal". Measured, that is
+ * wrong in the way that matters: `is_member` (`20260618000000_qr_platform_init.sql`) requires
+ * `expires_at > now()`, so past the TTL the DINERS THEMSELVES can no longer act on their own cart.
+ * The session is not a live table with an inconvenient clock; it is dead, and nothing closes it —
+ * `app/api/session/route.ts` states there is no background sweeper, and nothing anywhere extends
+ * the four hours. One unbumped line on such a session would pin its number to a public wall for
+ * good.
  */
 export const PULSE_LIVE_SESSION_STATUS = "active";
 
@@ -95,17 +135,16 @@ export const PULSE_LIVE_SESSION_STATUS = "active";
 export const PULSE_COOKING_STATES: ReadonlySet<string> = new Set(["fired", "in_progress"]);
 
 /**
- * How long a table keeps reading `ready` after its last line was bumped.
+ * How long a table keeps reading `up` after its last line was bumped.
  *
- * This is a BOUND ON STALENESS, not a claim about the food. Nothing records whether a runner
- * actually carried the plate out — `qr_cart_items` has `bumped_at` (stamped by `mms_bump_ticket`
- * and by `mms_line_transition` on the `served` edge, cleared again by `mms_recall_ticket`) and
- * nothing after it. So the honest reading of `ready` is "the pass finished this table's food within
- * the last five minutes", and after that the wall stops saying anything rather than keep asserting
- * a state it can no longer see. Without the bound a table would read `ready` from the bump until it
- * paid — half an hour of a screen stating something nobody checked.
+ * A DISPLAY WINDOW over a fact, not a bound on a claim — which is the difference the `up` wording
+ * buys. `bumped_at` (stamped by `mms_bump_ticket` and by `mms_line_transition`'s served edge,
+ * cleared again by `mms_recall_ticket`) says the pass finished the food, and that stays true; what
+ * stops being USEFUL is a five-minute-old announcement, so the wall stops repeating it. Without the
+ * window a table would read `up` from the bump until it paid — half an hour of a wall repeating an
+ * announcement nobody still needs.
  */
-export const PULSE_READY_LINGER_MS = 5 * 60 * 1000;
+export const PULSE_PASS_LINGER_MS = 5 * 60 * 1000;
 
 /** The rail's exposure floor. See the module docblock — this is the whole privacy argument. */
 export const PULSE_RAIL_MIN_TICKETS = 3;
@@ -140,6 +179,8 @@ export type PulseSessionRow = {
   mode: string;
   status: string;
   table_number: number | null;
+  /** The 4-hour mint TTL. NEVER extended by anything in this repo — see the ghost rule below. */
+  expires_at: string | null;
 };
 
 export type ShapePulseInput = {
@@ -162,15 +203,14 @@ export type ShapePulseInput = {
  */
 export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
   const { lines, cartById, sessionById, nameMyByItem, nowMs } = input;
-  const readyFloorMs = nowMs - PULSE_READY_LINGER_MS;
+  const passFloorMs = nowMs - PULSE_PASS_LINGER_MS;
 
   const cookingCarts = new Set<string>();
-  /** session id → does it have food on the wok / food just bumped. */
+  /** session id → has food on the wok / has food just out of it. */
   const cookingSessions = new Set<string>();
-  const readySessions = new Set<string>();
+  const passSessions = new Set<string>();
   const dishes = new Map<string, PulseDish>();
   let oldestFiredMs = Number.POSITIVE_INFINITY;
-  let oldestFiredAt: string | null = null;
 
   for (const l of lines) {
     const cart = cartById.get(l.cart_id);
@@ -189,10 +229,7 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     if (PULSE_COOKING_STATES.has(l.state)) {
       cookingCarts.add(l.cart_id);
       cookingSessions.add(cart.session_id);
-      if (fireMs < oldestFiredMs) {
-        oldestFiredMs = fireMs;
-        oldestFiredAt = l.fire_at;
-      }
+      if (fireMs < oldestFiredMs) oldestFiredMs = fireMs;
       // The rail counts what is COOKING. A bumped line has left the wok, so counting it would
       // overstate the kitchen's obligation — the one number this rail exists to state.
       const cur = dishes.get(l.name);
@@ -218,7 +255,7 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // `in_progress` and reads `cooking` again, which is what the pass is actually doing.
     if (l.state === "served" && l.bumped_at !== null) {
       const bumpedMs = new Date(l.bumped_at).getTime();
-      if (Number.isFinite(bumpedMs) && bumpedMs >= readyFloorMs) readySessions.add(cart.session_id);
+      if (Number.isFinite(bumpedMs) && bumpedMs >= passFloorMs) passSessions.add(cart.session_id);
     }
   }
 
@@ -229,14 +266,26 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // counting toward the load figures above.
     if (!PULSE_TABLE_MODES.has(sess.mode)) continue;
     if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue;
+    // …AND not a GHOST. `status` alone is what the KDS uses; the FLOOR board — the surface that owns
+    // table state — pairs it with `expires_at > now`, because nothing in this repo closes an
+    // abandoned session (`app/api/session/route.ts`: "there's no background sweeper") and nothing
+    // ever extends the 4-hour TTL. Past it `is_member` refuses the diners themselves, so the table
+    // is functionally dead while its row still says `active` — and one unbumped line would otherwise
+    // pin its number to a public wall indefinitely. The strip is about TABLES, so it follows the
+    // table authority. The load figures above deliberately do NOT, so the wall and the pass keep
+    // counting the same tickets; the residual disagreement is stated in OPEN-ITEMS rather than
+    // resolved on one screen only.
+    if (sess.expires_at === null) continue;
+    const expiresMs = new Date(sess.expires_at).getTime();
+    if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) continue;
     if (sess.table_number === null) continue;
     const cooking = cookingSessions.has(sess.id);
-    const ready = readySessions.has(sess.id);
-    if (!cooking && !ready) continue;
+    const up = passSessions.has(sess.id);
+    if (!cooking && !up) continue;
     // Two sessions can share a number across a re-seat, and one table can hold a paid cart beside a
     // fresh open one. COOKING WINS in either case: there is still food on the wok for that number,
-    // and a wall that said `ready` would send a runner to collect a plate that is not up yet.
-    const next: PulseTableStatus = cooking ? "cooking" : "ready";
+    // and a wall that said `up` would send a runner to collect a plate that is not out yet.
+    const next: PulseTableStatus = cooking ? "cooking" : "up";
     if (byTable.get(sess.table_number) === "cooking") continue;
     byTable.set(sess.table_number, next);
   }
@@ -247,7 +296,13 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
 
   return {
     tickets: cookingCarts.size,
-    oldestFiredAt,
+    // No zero-clamp, deliberately: `oldestFiredMs` is only ever assigned INSIDE the cooking branch,
+    // which sits below `if (fireMs > nowMs) continue`, so the subtraction cannot be negative. A
+    // clamp here would be unreachable defensive code — a branch no mutant could make fail, which is
+    // the shape this repo calls decorative.
+    oldestMinutes: Number.isFinite(oldestFiredMs)
+      ? Math.floor((nowMs - oldestFiredMs) / 60_000)
+      : null,
     allDay,
     allDayMore: railOpen ? ranked.length - allDay.length : 0,
     tables: [...byTable.entries()]

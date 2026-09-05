@@ -270,10 +270,14 @@ export const STAFF = {
   // What genuinely has no twin at the pass is below. Every MY value is a Claude-authored working
   // draft pending Min's native check (K15).
   "board.pulse.oldest": { en: "Oldest (min)", my: "အကြာဆုံး (မိနစ်)" },
-  // NOT `board.col.ready`. That heading's Burmese — ယူသွားနိုင်ပါပြီ — tells a GUEST their bag can
-  // be collected; a table's food being up at the pass is a different fact for a different reader,
-  // and reusing the customer sentence there would put "come and collect it" beside a table number.
-  "board.pulse.ready": { en: "Ready", my: "အဆင်သင့်" },
+  // ⚠️ NOT "Ready", in either tongue, and the word IS the design decision. Nothing in this schema
+  // records that a plate reached a table — `bumped_at` means the PASS finished the food and there is
+  // no runner event anywhere — so "Ready" would assert a fact the database does not hold. It is also
+  // aimed at the wrong reader: this screen hangs in a dining room, a guest reads "Ready" as an
+  // instruction, and dine-in is table service, so there is nothing for them to do. `board.col.ready`
+  // (ယူသွားနိုင်ပါပြီ, "you can take it away") is right for the takeaway column beside it and would
+  // be a lie here. The kitchen's own word for what the stamp holds is that the food has come out.
+  "board.pulse.up": { en: "Food up", my: "ဟင်းထွက်ပြီ" },
   "board.pulse.unavailable": {
     en: "Can’t read the kitchen right now.",
     my: "မီးဖိုချောင် အခြေအနေကို အခု မဖတ်နိုင်သေးပါ။",

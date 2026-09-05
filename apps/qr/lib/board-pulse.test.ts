@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   PULSE_RAIL_MAX_ROWS,
   PULSE_RAIL_MIN_TICKETS,
-  PULSE_READY_LINGER_MS,
+  PULSE_PASS_LINGER_MS,
   shapeBoardPulse,
   type PulseCartRow,
   type PulseLineRow,
@@ -20,7 +20,7 @@ import {
  *  2. **The exposure floor.** The all-day rail and the table strip are safe apart and not together:
  *     at one live ticket the rail IS that table's order. Asserted in BOTH directions, because a
  *     floor that never opens is not a floor, it is a disabled feature.
- *  3. **Derived, never invented.** `ready` is `bumped_at` inside a bounded window and nothing else;
+ *  3. **Derived, never invented.** `up` is `bumped_at` inside a display window and nothing else;
  *     `cooking` is a live line state and nothing else. A table with neither is absent.
  *
  * The fixtures separate the rules NUMERICALLY wherever a rule is about a boundary — a served line
@@ -47,6 +47,7 @@ const session = (over: Partial<PulseSessionRow> & { id: string }): PulseSessionR
   mode: "dinein",
   status: "active",
   table_number: 2,
+  expires_at: new Date(NOW + 60 * MIN).toISOString(),
   ...over,
 });
 
@@ -87,9 +88,19 @@ describe("what is on the wall — the table strip", () => {
       sessions: [session({ id: "s1", table_number: 7 })],
     });
     expect(p.tables).toEqual([{ table: 7, status: "cooking" }]);
-    // The SHAPE is the boundary: a guest name, a session id or a dish list can only reach the wall
-    // by being added to this object, so the key set is asserted rather than the values alone.
-    expect(Object.keys(p.tables[0]!).sort()).toEqual(["status", "table"]);
+    // ⚠️ NOT a key-name check. An earlier draft asserted `Object.keys(...)` and that is exactly the
+    // matcher this repo distrusts: it stays green if `table` were populated from a session id, or
+    // if a route edit spread a wider row into the shaper (the route casts rather than projects).
+    // The property is about VALUES — nothing identifying may appear anywhere in the serialized
+    // output, so the fixture uses ids and a name that could not arrive by coincidence.
+    const identifying = shape({
+      lines: [line({ cart_id: "cart-SECRET", menu_item_id: "item-SECRET" })],
+      carts: [cart("cart-SECRET", "sess-SECRET")],
+      sessions: [session({ id: "sess-SECRET", table_number: 7 })],
+    });
+    const json = JSON.stringify(identifying);
+    for (const leak of ["cart-SECRET", "sess-SECRET", "item-SECRET"])
+      expect(json).not.toContain(leak);
   });
 
   it("a mode this code has never heard of is NOT on the strip", () => {
@@ -138,25 +149,76 @@ describe("what is on the wall — the table strip", () => {
     expect(p.tickets).toBe(1);
   });
 
-  it("COOKING wins over ready on the same table — a runner must not be sent for food still on the wok", () => {
-    // One cart just bumped, a second round already fired. Ordered so the READY session is seen
-    // first, which is the ordering a `ready`-wins bug would pass under.
+  it("COOKING wins when ONE session is both — the second course is still on the wok", () => {
+    // ⚠️ THE FIXTURE THAT SEPARATES THE RULE FROM ITS MUTANT, and the first draft did not.
+    // `verify:slice` caught `cooking ? "cooking" : "up"` → `up ? "up" : "cooking"` SURVIVING,
+    // because that draft put the two states on two DIFFERENT sessions: the later cooking row then
+    // overwrote the earlier `up` one under both readings, so the ternary's polarity never mattered.
+    // One session carrying both — a first course bumped while the second is already fired, which is
+    // what a table actually looks like mid-service — is the input on which they disagree.
     const p = shape({
       lines: [
         line({
-          cart_id: "cReady",
+          cart_id: "c1",
           state: "served",
           bumped_at: new Date(NOW - 1 * MIN).toISOString(),
         }),
-        line({ cart_id: "cCooking" }),
+        line({ cart_id: "c1" }),
       ],
-      carts: [cart("cReady", "sReady"), cart("cCooking", "sCooking")],
-      sessions: [
-        session({ id: "sReady", table_number: 3 }),
-        session({ id: "sCooking", table_number: 3 }),
-      ],
+      carts: [cart("c1", "s1")],
+      sessions: [session({ id: "s1", table_number: 3 })],
     });
     expect(p.tables).toEqual([{ table: 3, status: "cooking" }]);
+  });
+
+  it("COOKING wins across a re-seat too, whichever session the map saw first", () => {
+    // Two sessions on one number — the old table paid and a new party sat down. Asserted in BOTH
+    // orders, because the rule must not depend on which row arrived first; the guard that makes
+    // that true carries its own mutant.
+    const bumped = line({
+      cart_id: "cUp",
+      state: "served",
+      bumped_at: new Date(NOW - 1 * MIN).toISOString(),
+    });
+    const cooking = line({ cart_id: "cCooking" });
+    const carts = [cart("cUp", "sUp"), cart("cCooking", "sCooking")];
+    const both = [
+      session({ id: "sUp", table_number: 3 }),
+      session({ id: "sCooking", table_number: 3 }),
+    ];
+    expect(shape({ lines: [bumped, cooking], carts, sessions: both }).tables).toEqual([
+      { table: 3, status: "cooking" },
+    ]);
+    expect(
+      shape({ lines: [bumped, cooking], carts, sessions: [...both].reverse() }).tables,
+    ).toEqual([{ table: 3, status: "cooking" }]);
+  });
+
+  it("a GHOST session — still `active`, past its TTL — is off the wall", () => {
+    // `is_member` requires `expires_at > now()`, so past the four-hour mint TTL the diners cannot
+    // act on their own cart; nothing closes the row and nothing extends the clock. One unbumped
+    // line would otherwise pin that number to a public wall for good. Asserted one millisecond
+    // either side of the boundary.
+    const live = shape({
+      lines: [line({ cart_id: "c1" })],
+      carts: [cart("c1", "s1")],
+      sessions: [
+        session({ id: "s1", table_number: 5, expires_at: new Date(NOW + 1).toISOString() }),
+      ],
+    });
+    expect(live.tables).toEqual([{ table: 5, status: "cooking" }]);
+    for (const expires_at of [new Date(NOW).toISOString(), new Date(NOW - 1).toISOString(), null]) {
+      const ghost = shape({
+        lines: [line({ cart_id: "c1" })],
+        carts: [cart("c1", "s1")],
+        sessions: [session({ id: "s1", table_number: 5, expires_at })],
+      });
+      expect(ghost.tables).toEqual([]);
+      // …and it still counts toward the kitchen's load, which the KDS also still shows. The strip
+      // follows the FLOOR board's liveness test; the load figures follow the KDS's, so the wall and
+      // the pass keep counting the same tickets.
+      expect(ghost.tickets).toBe(1);
+    }
   });
 
   it("tables come out ascending by number", () => {
@@ -173,26 +235,26 @@ describe("what is on the wall — the table strip", () => {
   });
 });
 
-describe("`ready` is derived from a stamp, never invented", () => {
+describe("`up` is derived from a stamp, never invented", () => {
   const readySession = [session({ id: "s1", table_number: 4 })];
   const readyCart = [cart("c1", "s1")];
 
-  it("a line bumped INSIDE the linger reads ready", () => {
+  it("a line bumped INSIDE the linger reads `up`", () => {
     const p = shape({
       lines: [
         line({
           cart_id: "c1",
           state: "served",
-          bumped_at: new Date(NOW - PULSE_READY_LINGER_MS + 1).toISOString(),
+          bumped_at: new Date(NOW - PULSE_PASS_LINGER_MS + 1).toISOString(),
         }),
       ],
       carts: readyCart,
       sessions: readySession,
     });
-    expect(p.tables).toEqual([{ table: 4, status: "ready" }]);
+    expect(p.tables).toEqual([{ table: 4, status: "up" }]);
     // A bumped line has left the wok: it is not load, and it is not on the rail.
     expect(p.tickets).toBe(0);
-    expect(p.oldestFiredAt).toBeNull();
+    expect(p.oldestMinutes).toBeNull();
   });
 
   it("a line bumped OUTSIDE the linger says nothing at all", () => {
@@ -203,7 +265,7 @@ describe("`ready` is derived from a stamp, never invented", () => {
         line({
           cart_id: "c1",
           state: "served",
-          bumped_at: new Date(NOW - PULSE_READY_LINGER_MS - 1).toISOString(),
+          bumped_at: new Date(NOW - PULSE_PASS_LINGER_MS - 1).toISOString(),
         }),
       ],
       carts: readyCart,
@@ -212,7 +274,7 @@ describe("`ready` is derived from a stamp, never invented", () => {
     expect(p.tables).toEqual([]);
   });
 
-  it("a served line with NO bump stamp is not ready — an unstamped row is unknown, not done", () => {
+  it("a served line with NO bump stamp is not `up` — an unstamped row is unknown, not done", () => {
     const p = shape({
       lines: [line({ cart_id: "c1", state: "served", bumped_at: null })],
       carts: readyCart,
@@ -221,7 +283,7 @@ describe("`ready` is derived from a stamp, never invented", () => {
     expect(p.tables).toEqual([]);
   });
 
-  it("a VOIDED line is neither cooking nor ready", () => {
+  it("a VOIDED line is neither cooking nor `up`", () => {
     const p = shape({
       lines: [
         line({ cart_id: "c1", state: "voided", bumped_at: new Date(NOW).toISOString() }),
@@ -246,7 +308,7 @@ describe("load — the count and the age", () => {
     });
     expect(p.tickets).toBe(0);
     expect(p.tables).toEqual([]);
-    expect(p.oldestFiredAt).toBeNull();
+    expect(p.oldestMinutes).toBeNull();
   });
 
   it("counts TICKETS, not lines — four lines on one cart are one ticket", () => {
@@ -264,6 +326,8 @@ describe("load — the count and the age", () => {
   });
 
   it("the oldest age comes from a COOKING line — a stale served line cannot age the board", () => {
+    // …and it is a MINUTE COUNT, never the fire stamp: an exact timestamp beside one table on the
+    // strip states that party's order instant to the room.
     const p = shape({
       lines: [
         line({
@@ -282,7 +346,7 @@ describe("load — the count and the age", () => {
         session({ id: "s3", table_number: 3 }),
       ],
     });
-    expect(p.oldestFiredAt).toBe(new Date(NOW - 7 * MIN).toISOString());
+    expect(p.oldestMinutes).toBe(7);
   });
 
   it("a line we cannot PLACE is dropped, not counted anonymously", () => {

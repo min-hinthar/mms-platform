@@ -312,7 +312,6 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       <KitchenPulse
         lang={lang}
         pulse={state.kind === "live" ? state.pulse : null}
-        serverNow={state.kind === "live" ? state.serverNow : null}
         known={state.kind === "live"}
       />
     </div>
@@ -332,6 +331,11 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
  * Nothing here reaches for a guest name, a per-table dish, a modifier, an amount or an id, because
  * `BoardPulse` has no field for one.
  *
+ * The oldest age arrives as WHOLE MINUTES rather than as a fire timestamp, and that is a boundary
+ * decision made in `lib/board-pulse.ts`, not a formatting one: at one live ticket beside one table
+ * on the strip, an exact `fire_at` would state that party's order instant to the room. The screen
+ * therefore has no clock arithmetic to do and no drift to clamp.
+ *
  * `known` vs `pulse === null` are DIFFERENT unknowns and the band says so: `known: false` is a
  * board that has no snapshot at all (loading, or the offline/unlinked screens above never reach
  * here), and `pulse: null` is a live board whose kitchen read dropped. Only the second gets the
@@ -347,16 +351,13 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
 function KitchenPulse({
   lang,
   pulse,
-  serverNow,
   known,
 }: {
   lang: StaffLang;
   pulse: BoardPulse | null;
-  serverNow: string | null;
   known: boolean;
 }) {
   const my = lang === "my";
-  const minutes = pulse ? oldestMinutes(pulse.oldestFiredAt, serverNow) : null;
   return (
     <section className="orb-pulse" aria-label={ts(lang, "kds.title")}>
       <BilingualHeading lang={lang} k="kds.title" />
@@ -380,7 +381,7 @@ function KitchenPulse({
               <span lang={my ? "my" : undefined}>{ts(lang, "kds.line.cooking")}</span>
             </p>
             <p className="orb-stat">
-              <b>{minutes === null ? "—" : minutes}</b>
+              <b>{pulse.oldestMinutes === null ? "—" : pulse.oldestMinutes}</b>
               <span lang={my ? "my" : undefined}>{ts(lang, "board.pulse.oldest")}</span>
             </p>
           </div>
@@ -425,25 +426,6 @@ function KitchenPulse({
 }
 
 /**
- * The oldest ticket's age in WHOLE MINUTES, measured between two timestamps the SERVER produced.
- *
- * Minutes rather than the KDS's `m:ss`: the pass reads its screen at arm's length and a second
- * matters there; this one is read across a dining room, where a ticking seconds field is unreadable
- * and would redraw twice a minute for nothing. The two surfaces format the SAME published value
- * (`pulse.oldestFiredAt`) for their own distance — there is no second derivation to drift.
- *
- * CLAMPED AT ZERO on purpose. `oldestFiredAt` is stamped by Postgres and `serverNow` by the Node
- * process, so a few seconds of drift between them is normal and would otherwise render `-1`.
- */
-function oldestMinutes(oldestFiredAt: string | null, serverNow: string | null): number | null {
-  if (oldestFiredAt === null || serverNow === null) return null;
-  const fired = new Date(oldestFiredAt).getTime();
-  const now = new Date(serverNow).getTime();
-  if (!Number.isFinite(fired) || !Number.isFinite(now)) return null;
-  return Math.max(0, Math.floor((now - fired) / 60_000));
-}
-
-/**
  * One dine-in chip: the tent-card number and one of two coarse statuses.
  *
  * `echo={false}` on the number follows PR A's echo policy verbatim — "no echo on 44px chips and
@@ -460,7 +442,7 @@ function PulseTableChip({ lang, table }: { lang: StaffLang; table: PulseTable })
         <Chrome lang={lang} k="kds.table" vars={{ id: table.table }} />
       </span>
       <span className="orb-table-state" lang={my ? "my" : undefined}>
-        {ts(lang, table.status === "cooking" ? "kds.line.cooking" : "board.pulse.ready")}
+        {ts(lang, table.status === "cooking" ? "kds.line.cooking" : "board.pulse.up")}
       </span>
     </li>
   );

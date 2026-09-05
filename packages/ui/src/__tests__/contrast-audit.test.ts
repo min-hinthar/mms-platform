@@ -225,6 +225,13 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // R1: --surface-elevated is the theme-true white/dark chrome that floats OVER cards/photos
     // (favorite heart, close X, add ✓). Body/icon text on it must stay AA in both themes.
     { name: "tx on surface-elevated", fg: tok(map, "--tx"), bg: tok(map, "--surface-elevated") },
+    // P6 — the wall board's LARGEST type, and the pair that had no coverage at all. `.orb-root`
+    // declares `color: var(--tx); background: var(--pg)`, so every order card, every stat value and
+    // every rail dish on the TV inherits exactly this; the only asserted board pair until now was
+    // the Ready heading's gold. Both themes, even though `.orb-root` is Night-forced — `--tx` on
+    // `--pg` is also the app's ambient body pair everywhere else, so scoping it to dark would be
+    // asserting less than the tokens actually promise.
+    { name: "tx on pg (.orb-root body, and the app's ambient pair)", fg: tok(map, "--tx"), bg: pg },
     { name: "t2 on pg", fg: tok(map, "--t2"), bg: pg },
     { name: "t2 on sf", fg: tok(map, "--t2"), bg: sf },
     { name: "t2 on cd", fg: tok(map, "--t2"), bg: cd },
@@ -319,8 +326,10 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     // W22d/PR A — the ORDER-READY wall board's column heading (`.orb-col-ready h2`), DARK ONLY, and
     // the theme restriction is the entire point rather than a convenience.
     //
-    // Every `.orb-root` wrapper is Night-forced (`<div className="orb-root dark">`,
-    // `ReadyBoard.tsx:164/187/208`) and `.orb-col-ready` renders nowhere else, so this heading's
+    // Every `.orb-root` wrapper is Night-forced (all three render branches of `ReadyBoard.tsx` open
+    // `<div className="orb-root dark">` — a fact you can grep, where the line numbers this comment
+    // used to cite were already three edits stale) and `.orb-col-ready` renders nowhere else, so
+    // this heading's
     // `color: var(--gold)` always resolves through `.dark` — #f4c879 on #100c19, 12.29:1. Asserting
     // it in LIGHT would be asserting a pairing the app never renders, and it would fail: light
     // `--gold` on light `--pg` is 1.97.

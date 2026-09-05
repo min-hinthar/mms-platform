@@ -3,7 +3,7 @@ import { serviceClient } from "@mms/db/server";
 import { authorizeDevice } from "@/lib/device-auth";
 import { isUuid } from "@/lib/ticket-names";
 import {
-  PULSE_READY_LINGER_MS,
+  PULSE_PASS_LINGER_MS,
   shapeBoardPulse,
   type BoardPulse,
   type PulseCartRow,
@@ -37,9 +37,12 @@ const PULSE_LINE_CAP = 500;
  * can be signed in with the same email OTP as the portals (owner, 2026-08-21). Neither credential ⇒
  * 401; no token configured AND not staff ⇒ 503 (the board stays opt-in config, docs/ENV.md); an auth
  * read that FAILS ⇒ 503 with the outage sentence, never 401 — "we cannot tell" is not "you are not
- * allowed". The response is deliberately minimal — first name (diner-chosen call-out),
- * short order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail
- * the diner's own /track shows.
+ * allowed". The `orders` array is deliberately minimal — first name (diner-chosen call-out), short
+ * order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail the
+ * diner's own /track shows. ⚠️ That sentence used to describe the whole response and no longer can:
+ * P6's `pulse` publishes dish names (unattributed, and only above an exposure floor) and dine-in
+ * TABLE NUMBERS. It still publishes no id and no amount anywhere, and the two sections never join —
+ * nothing in `pulse` can be linked to a name in `orders`.
  *
  * Scope: takeout + grocery ONLY (`table_number is null` — dine-in status stays on the diner's phone).
  * picked_up rows ride along for 10 minutes (togo_picked_up_at) so a just-collected name lingers briefly
@@ -137,13 +140,13 @@ export async function GET(req: NextRequest) {
   // truncation at the cap drops the NEWEST rows — an under-report, which is the safe direction for
   // both honesty (the count only ever understates the wok) and exposure (fewer rows, never more).
   const pulseDayFloor = new Date(dbNowMs - 24 * 60 * 60 * 1000).toISOString();
-  const readyFloor = new Date(dbNowMs - PULSE_READY_LINGER_MS).toISOString();
+  const passFloor = new Date(dbNowMs - PULSE_PASS_LINGER_MS).toISOString();
   const linesRes = await db
     .from("qr_cart_items")
     .select("cart_id,menu_item_id,name,qty,state,fire_at,bumped_at")
     .not("fire_at", "is", null)
     .gte("fire_at", pulseDayFloor)
-    .or(`state.in.(fired,in_progress),and(state.eq.served,bumped_at.gte.${readyFloor})`)
+    .or(`state.in.(fired,in_progress),and(state.eq.served,bumped_at.gte.${passFloor})`)
     .order("fire_at", { ascending: true })
     .limit(PULSE_LINE_CAP);
   if (linesRes.error) console.error("[board] pulse line read failed:", linesRes.error.message);
@@ -185,7 +188,10 @@ export async function GET(req: NextRequest) {
     ),
   ];
   const { data: sessions, error: sessionsError } = sessionIds.length
-    ? await db.from("table_sessions").select("id,mode,status,table_number").in("id", sessionIds)
+    ? await db
+        .from("table_sessions")
+        .select("id,mode,status,table_number,expires_at")
+        .in("id", sessionIds)
     : { data: [] as PulseSessionRow[], error: null };
   // M108-adjacent: this filter is the ONLY thing keeping dine-in off a wall-mounted public screen,
   // and it read fail-OPEN — a failed read left the map empty, every `undefined !== "dinein"` passed,

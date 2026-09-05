@@ -7954,7 +7954,9 @@ html[data-seen-surface] .mms-stagger {
   text-transform: none;
 }
 /* The READY column's heading. --gold is CORRECT here and must stay: every `.orb-root` wrapper is
-   Night-forced (`<div className="orb-root dark">`, ReadyBoard.tsx:164/187/208) and `.orb-col-ready`
+   Night-forced (all three render branches of ReadyBoard.tsx open `<div className="orb-root dark">`
+   — cited as a fact you can grep rather than as line numbers, which were already three edits stale)
+   and `.orb-col-ready`
    renders nowhere else, so this resolves to the dark `--gold` #f4c879 on the dark `--pg` — 12.29:1,
    asserted in contrast-audit.test.ts. An earlier pass in this PR "fixed" it to --gold-strong on the
    strength of a 1.97:1 measurement taken against the LIGHT ground this heading never renders on;
@@ -8025,7 +8027,7 @@ html[data-seen-surface] .mms-stagger {
    on a filled surface — a new fill would be a new pairing with no coverage, and flat high-contrast is
    what reads across a room anyway.
 
-   GOLD IS THE SELECTION VOCABULARY AND IT IS NOT SPENT ELSEWHERE. `.orb-table-ready` is the only new
+   GOLD IS THE SELECTION VOCABULARY AND IT IS NOT SPENT ELSEWHERE. `.orb-table-up` is the only new
    gold in this block; the rail's quantity stays `--tx` precisely so the one lit thing on the band is
    the one a runner has to act on. Extending the lit-gold cap, never inventing a parallel one
    (DESIGN-LANGUAGE §"ONE selection vocabulary").
@@ -8122,11 +8124,11 @@ html[data-seen-surface] .mms-stagger {
   text-transform: uppercase;
   color: var(--t2);
 }
-.orb-table-ready {
+.orb-table-up {
   border-color: var(--gold);
 }
-.orb-table-ready .orb-table-no,
-.orb-table-ready .orb-table-state {
+.orb-table-up .orb-table-no,
+.orb-table-up .orb-table-state {
   color: var(--gold);
 }
 .orb-rail {

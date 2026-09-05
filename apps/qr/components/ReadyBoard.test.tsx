@@ -32,12 +32,12 @@ const SERVER_NOW = "2026-09-05T19:00:00.000Z";
 
 const pulse = (over: Partial<BoardPulse> = {}): BoardPulse => ({
   tickets: 3,
-  oldestFiredAt: new Date(Date.parse(SERVER_NOW) - 9 * 60_000).toISOString(),
+  oldestMinutes: 9,
   allDay: [{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 4 }],
   allDayMore: 0,
   tables: [
     { table: 2, status: "cooking" },
-    { table: 3, status: "ready" },
+    { table: 3, status: "up" },
   ],
   ...over,
 });
@@ -202,28 +202,24 @@ describe("P6 — the kitchen pulse band", () => {
   it("shows the table strip by number and status, and never a dish beside a table", async () => {
     const { container } = await renderPulse("en", pulse());
     const chips = [...container.querySelectorAll(".orb-table")].map((c) => c.textContent);
-    expect(chips).toEqual(["Table 2Cooking", "Table 3Ready"]);
+    expect(chips).toEqual(["Table 2Cooking", "Table 3Food up"]);
+    // NOT "Ready". Nothing records that a plate reached a table — `bumped_at` means the pass
+    // finished the food — and on a screen a dining room reads, "Ready" is an instruction aimed at a
+    // guest who has nothing to do about it. The word must stay what the stamp supports.
+    expect(container.textContent).not.toMatch(/Table 3\s*Ready/);
     // The lit-gold cap marks only the table a runner must act on — the ONE selection vocabulary.
-    expect(container.querySelectorAll(".orb-table-ready")).toHaveLength(1);
-    expect(container.querySelector(".orb-table-ready")!.textContent).toContain("Table 3");
+    expect(container.querySelectorAll(".orb-table-up")).toHaveLength(1);
+    expect(container.querySelector(".orb-table-up")!.textContent).toContain("Table 3");
   });
 
-  it("ages the oldest ticket against the SERVER's clock, in whole minutes", async () => {
+  it("renders the oldest age the SERVER measured, and does no clock arithmetic of its own", async () => {
     const { container } = await renderPulse("en", pulse());
     const stats = [...container.querySelectorAll(".orb-stat")].map((s) => s.textContent);
     expect(stats).toEqual(["3Cooking", "9Oldest (min)"]);
   });
 
-  it("never renders a negative age — the two stamps come from different clocks", async () => {
-    // `oldestFiredAt` is written by Postgres and `serverNow` by the Node process; a second of drift
-    // between them is normal, and `-1` on a wall is a bug the room can see.
-    const ahead = new Date(Date.parse(SERVER_NOW) + 30_000).toISOString();
-    const { container } = await renderPulse("en", pulse({ oldestFiredAt: ahead }));
-    expect(container.querySelectorAll(".orb-stat")[1]!.textContent).toBe("0Oldest (min)");
-  });
-
-  it("says nothing about an age it cannot measure", async () => {
-    const { container } = await renderPulse("en", pulse({ tickets: 1, oldestFiredAt: null }));
+  it("says nothing about an age the server could not measure", async () => {
+    const { container } = await renderPulse("en", pulse({ tickets: 1, oldestMinutes: null }));
     expect(container.querySelectorAll(".orb-stat")[1]!.textContent).toBe("—Oldest (min)");
   });
 
@@ -273,13 +269,26 @@ describe("P6 — the kitchen pulse band", () => {
      * and would have stayed green through every typographic defect in it. A guard that cannot reach
      * the code it guards is decorative; this is the same property, aimed at markup that exists.
      */
-    it('no English text sits inside a lang="my" element, in either direction', async () => {
+    it('no English text sits inside a lang="my" element, in ANY state the band can mount', async () => {
+      // ⚠️ Swept over every branch rather than the one fixture the first draft used. A property
+      // test only holds for the markup it actually renders, and three of these states — the
+      // overflow line, the outage note and the all-clear note — mount elements no other case does.
+      const states: (BoardPulse | null)[] = [
+        pulse(),
+        pulse({ allDayMore: 3 }),
+        pulse({ allDay: [{ name: "Mohinga", nameMy: null, qty: 4 }] }),
+        pulse({ tickets: 0, allDay: [], tables: [] }),
+        pulse({ oldestMinutes: null }),
+        null,
+      ];
       for (const lang of ["en", "my"] as const) {
-        cleanup();
-        const { container } = await renderPulse(lang, pulse());
-        const marked = [...container.querySelectorAll('[lang="my"]')];
-        expect(marked.length).toBeGreaterThan(0);
-        for (const el of marked) expect(el.textContent ?? "").not.toMatch(/[A-Za-z]/);
+        for (const state of states) {
+          cleanup();
+          const { container } = await renderPulse(lang, state);
+          const marked = [...container.querySelectorAll('[lang="my"]')];
+          expect(marked.length).toBeGreaterThan(0);
+          for (const el of marked) expect(el.textContent ?? "").not.toMatch(/[A-Za-z]/);
+        }
       }
     });
 
