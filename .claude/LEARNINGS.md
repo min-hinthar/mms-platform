@@ -1559,3 +1559,65 @@ Two rules from this. **Measure a guard change against the subject set before tru
 the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
 load-bearing, not tidy**: it is the only mechanism here that turns "the selector stopped reaching a
 function" into a failure instead of a silence.
+
+## #86 — the `pgrep` bracket trick is defeated by your own message (pilot P3, 2026-09-05)
+
+CLAUDE.md says to run `pgrep -f "[v]erify-slice"` before every commit, bracketing the first
+character so the pattern cannot match the shell running it. It returned a PID on a checkout where
+nothing was running, and the reason is the rest of the same command:
+`pgrep -f "[v]erify-slice" || echo "no verify-slice running"`. The bracket protects the PATTERN; the
+**echo message carried the literal string**, so the wrapper's command line matched it. The harness's
+`eval '…'` re-quoting puts the whole line in one process's argv, which makes every mention count.
+
+A false positive here is expensive in exactly the wrong direction: it says "a run is live" when none
+is, and the correct response to that reading is to NOT commit. So the check is only trustworthy with
+a second step — `ps -o pid,etime,cmd -p <pid>` on whatever it returns. A PID that no longer resolves
+is the tell. Never put the guarded string anywhere else on the line.
+
+## #87 — a docs guard can PRINT a number it never checks (pilot P3, 2026-09-05)
+
+`check:docs` measures five truths and enforces them through ten phrasings. Its clean message reads
+`clean (98 files, 1554+140 tests, 384 mutants)` — and **`98 files` is not one of the five**. Nothing
+asserts the tracked-markdown count, so `docs/HANDOFF.md` quoted `97 files` for a while: a number the
+script emits, in a doc the script guards, that the script cannot see.
+
+Two more on the same line were invisible for narrower reasons: `(1512 + 140 today)` needs the digits
+adjacent to the words `qr tests` for the rule to fire, and `76 in all` needs the words
+`money/authority` beside it. Both are LIVE-state claims wearing a shape no rule matches.
+
+So: refreshing "what the guard names" is not the same as refreshing the line. When you edit a line
+the guard reports on, read the WHOLE line and derive every number on it the way `measure()` does.
+And the corollary for the guard itself: a value worth printing in the clean message is a value worth
+asserting — printing it is a claim.
+
+## #88 — a full Supabase-shaped Postgres is available here without Docker (pilot P3, 2026-09-05)
+
+`supabase db start` needs Docker, which the agent environment does not have — and that has meant SQL
+tests shipped unrun, with CI as their first execution. It does not have to. PostgreSQL 16's server
+binaries are installed (`/usr/lib/postgresql/16/bin`), and the whole 98-file migration stack applies
+in order against a hand-built prerequisite layer: the `auth` / `extensions` / `realtime` schemas,
+`pgcrypto` + `pg_trgm` in `extensions`, the `anon` / `authenticated` / `service_role` roles, a stub
+`auth.users` (id · email · **email_confirmed_at** · raw_app_meta_data · is_anonymous), `auth.uid()`
+and `auth.jwt()` off `current_setting`, and `realtime.messages` + `realtime.topic()`.
+
+Two traps. `initdb` refuses to run as root, so it must go through `su postgres` — and the session
+scratchpad is `drwx-----x` under a `drwx------` parent, so the postgres user cannot traverse to it
+no matter what `PGDATA` is chmod'd to. Put the cluster somewhere that user can reach and delete it
+after. The payoff is the rule the repo cares most about: every assertion in a new
+`supabase/tests/*.sql` can be **induced red and watched fail** before it ships, which is otherwise
+impossible here.
+
+## #89 — the promo QUOTE and the promo CHARGE diverge, but not for the reason the comment said
+
+`mms_promo_check` (the apply-time quote) and `mms_promo_discount_live` (the pricing-time derivation)
+look like they should differ on voided and comped lines. They do not, and have not since
+`20260622060000_voids_comps.sql` gave BOTH the same
+`where ci.cart_id = … and ci.state <> 'voided' and not ci.comped`. A comment asserting that
+difference shipped in a first draft of `lib/staff-promo.ts` and was caught by re-reading the SQL.
+
+The conclusion it supported survived on two OTHER mechanisms, both real: `mms_promo_discount` returns
+`promo_granted_cents` **verbatim** whenever the pin is set (M70) and the quote never reads the pin;
+and `computeTotals` clamps reward-first, `min(promoRaw, max(subtotal − reward, 0))` (M22), so a
+reward covering the basket takes the delivered promo to 0 while the quote stays whole. Right answer,
+wrong mechanism — and the mechanism is what the next reader acts on, which is why "verify every
+finding against source" cuts both ways: toward the reviewer's claims AND your own.
