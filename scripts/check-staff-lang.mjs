@@ -530,6 +530,134 @@ function ariaFindings(file) {
 
 for (const file of ARIA_FILES) failures.push(...ariaFindings(file));
 
+/**
+ * RULE 3c — the `verb` control's label and its NAME are one key, checked AT THE CALL SITE.
+ *
+ * `al()`'s value test can prove that `aria` contains `visible`; it cannot prove that the BUTTON
+ * renders `visible`. Nothing stops a call site from taking the name from `al(lang, { kind: "verb",
+ * verb: "floor.verb.deactivate", … }).aria` while its children render a different key, or English,
+ * or a dish name — and then the button reads one thing and announces another, which is the whole of
+ * WCAG 2.5.3 and the whole of OPEN-ITEMS P2g one file over.
+ *
+ * So: an element whose accessible name comes from a `verb` control must ALSO render that same key in
+ * its own children — as `<Chrome k="…">` or as `ts(_, "…")`. That is a real constraint on how the
+ * call site is written, and it is the point: the two halves become one edit.
+ *
+ * The verb key must be a string LITERAL. A computed key would make the label unfindable from here,
+ * and "the guard cannot see it" is not a licence — pick the key with a ternary over two whole
+ * `al()` calls instead, the way the comp/void card does.
+ */
+function verbLabelFindings(file) {
+  const out = [];
+  let sf;
+  try {
+    sf = parse(file);
+  } catch {
+    return out;
+  }
+  const rel = relative(ROOT, file);
+
+  /** The `verb:` property of an `al(_, { kind: "verb", … })` call, or null. */
+  function verbKeyOf(node) {
+    if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return null;
+    if (node.expression.text !== "al") return null;
+    const arg = node.arguments[1];
+    if (!arg || !ts.isObjectLiteralExpression(arg)) return null;
+    const kind = arg.properties.find(
+      (pr) => ts.isPropertyAssignment(pr) && pr.name.getText(sf) === "kind",
+    );
+    if (
+      !kind ||
+      !ts.isPropertyAssignment(kind) ||
+      !ts.isStringLiteral(kind.initializer) ||
+      kind.initializer.text !== "verb"
+    )
+      return null;
+    const verb = arg.properties.find(
+      (pr) => ts.isPropertyAssignment(pr) && pr.name.getText(sf) === "verb",
+    );
+    if (!verb || !ts.isPropertyAssignment(verb)) return { key: null };
+    return ts.isStringLiteral(verb.initializer) ? { key: verb.initializer.text } : { key: null };
+  }
+
+  /** Does this subtree RENDER `key` — `<Chrome … k="key">` or `ts(_, "key")`? */
+  function rendersKey(node, key) {
+    let hit = false;
+    function visit(n) {
+      if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
+        if (n.tagName.getText(sf) === "Chrome") {
+          const k = n.attributes.properties.find(
+            (a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "k",
+          );
+          const init = k && ts.isJsxAttribute(k) ? k.initializer : undefined;
+          const lit =
+            init && ts.isStringLiteral(init)
+              ? init
+              : init && ts.isJsxExpression(init) && init.expression && ts.isStringLiteral(init.expression)
+                ? init.expression
+                : null;
+          if (lit && lit.text === key) hit = true;
+        }
+      }
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        DICT_CALLS.includes(n.expression.text)
+      ) {
+        const a = n.arguments[1];
+        if (a && ts.isStringLiteral(a) && a.text === key) hit = true;
+      }
+      ts.forEachChild(n, (c) => {
+        visit(c);
+      });
+    }
+    visit(node);
+    return hit;
+  }
+
+  function visit(node) {
+    if (
+      ts.isJsxAttribute(node) &&
+      ["aria-label", "ariaLabel"].includes(node.name.getText(sf)) &&
+      node.initializer
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+      let found = null;
+      function findAl(n) {
+        const v = verbKeyOf(n);
+        if (v && found === null) found = v;
+        ts.forEachChild(n, (c) => {
+          findAl(c);
+        });
+      }
+      findAl(node.initializer);
+      if (found) {
+        if (found.key === null) {
+          out.push(
+            `rule 3c: ${rel}:${line} — a \`verb\` control whose \`verb:\` is not a string literal. The guard cannot then find the label it must contain; pick the key with a ternary over two al() calls instead.`,
+          );
+        } else {
+          // The element this name sits on: attribute → JsxAttributes → opening element.
+          const owner = node.parent?.parent;
+          const el = owner && ts.isJsxOpeningElement(owner) ? owner.parent : owner;
+          if (!el || !rendersKey(el, found.key))
+            out.push(
+              `rule 3c: ${rel}:${line} — the control announces \`${found.key}\` but never renders it. WCAG 2.5.3 asks the NAME to contain the VISIBLE label; render the same key in this element's children, through <Chrome k="${found.key}" /> or ts(lang, "${found.key}").`,
+            );
+        }
+      }
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return out;
+}
+
+for (const file of ARIA_ALL) failures.push(...verbLabelFindings(file));
+
+
 // ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
 // A staff surface that cannot switch language is a surface one of the two readers is locked out of.
 // The switch is mounted PER SURFACE rather than by the layout (a layout strip would steal height

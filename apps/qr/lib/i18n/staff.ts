@@ -261,6 +261,13 @@ export const STAFF = {
   "floor.card.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
   "floor.card.empty": { en: "No items yet", my: "ဘာမှ မရှိသေးပါ" },
 
+  // ── VERBS — the visible word on a control, and the word its accessible name leads with ──────
+  // A `…verb…` segment is a real constraint, not a naming habit: `al()`'s `verb` arm accepts only
+  // these keys, so the set of words that can be a control's LABEL is enumerable. That is what stops
+  // an arbitrary key being borrowed as a verb and then drifting from the label it has to contain.
+  "floor.verb.deactivate": { en: "Deactivate", my: "ရပ်ဆိုင်း" },
+  "floor.verb.reactivate": { en: "Reactivate", my: "ပြန်ဖွင့်" },
+
   // ── the floor: modes (where the order came from) ──────────────────────────
   "floor.mode.dinein": { en: "Dine-in", my: "ဆိုင်မှာ စား" }, // grounded: kiosk `dineIn`
   "floor.mode.scango": { en: "Scan & Go", my: "Scan & Go" }, // LATIN BY DESIGN — the product's own name
