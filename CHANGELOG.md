@@ -62,6 +62,12 @@ exemption went dead because the writer derivation reaches ONE hop and M151 put a
 — a naive closure was measured to collapse "authorizes and writes" into "authorizes" (T44), so the
 entry is deleted with the arc recorded beside it.
 
+**The gate itself flaked once on this PR, and the flake was a race, not luck running out:** turbo ran
+`@mms/qr#typecheck` and `@mms/qr#build` concurrently, `next build` regenerates `.next/types/` (which
+`tsconfig.json` includes), and `tsc` read `validator.ts` before `routes.d.ts` existed —
+`TS2307: Cannot find module './routes.js'`, standalone typecheck green. `typecheck` now depends on
+the package's own `build` (`turbo.json`), so the directory is complete before it is read.
+
 Guards: 15 mutants (4 verdict · 4 sequence · 5 lock shapes · 2 promo write/diagnosis), a
 six-case SQL test asserting refusal AND the legitimate path AND the successor-untouched case, and
 rule 3 of `check-promo-grant-pin` — supersede before release as AWAITED sequencing, watched go red on
