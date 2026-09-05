@@ -2356,8 +2356,14 @@ const MUTANTS = [
     file: "apps/qr/lib/board-poll.ts",
     suite: "lib/board-poll.test.ts",
     why: 'a refusal counts only when it NAMES a device reason we know. Trusting the STATUS alone de-authorizes a live board on any 401/503 that did not come from our route — Vercel deployment protection answers 401 with HTML on a protected preview, a platform throttle answers 503 with an error page, an upstream may send `{error:"Service unavailable"}`, and a transient reason the API gains later is the shape most likely to be new. W10b one layer out: the failure mode of an answer we do not recognise must be a board that stays up',
-    find: '  if (body && DEVICE_REFUSALS.get(status) === body.reason) return { kind: "verdict", message };',
-    replace: '  if (status === 401 || status === 503) return { kind: "verdict", message };',
+    find:
+      "  if (body && expected !== undefined && expected === body.reason)\n" +
+      "    // `expected` is the value from DEVICE_REFUSALS, not `body.reason` — so the reason carried\n" +
+      "    // forward is one this client has actually matched, never an arbitrary string off the wire.\n" +
+      '    return { kind: "verdict", reason: expected, message };',
+    replace:
+      "  if (status === 401 || status === 503)\n" +
+      '    return { kind: "verdict", reason: expected ?? "denied", message };',
   },
   {
     id: "board-poll/no-snapshot-board-claims-it-is-connecting",
