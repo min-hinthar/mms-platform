@@ -85,6 +85,18 @@ export type StaffControl =
    * never a dictionary lookup and never a count.
    */
   | { kind: "verb"; verb: VerbKey; subject: string }
+  /**
+   * THE INVERSION of `verb`, and `recall` above is this shape hard-coded for one control: the
+   * visible label is the SUBJECT — a queue row of guest name and line meta, a chip showing a ticket
+   * code — and the name must LEAD with the action, so a person hears what the tap DOES before what
+   * it acts on.
+   *
+   * Which arm a control needs is decided by what the screen shows, not by which reads better: pick
+   * `verb` and the button must render the verb (`check-staff-lang.mjs` rule 3c enforces exactly
+   * that); pick `subject` and it must render the subject. A row that shows neither has no business
+   * carrying a name built from either.
+   */
+  | { kind: "subject"; verb: VerbKey; subject: string }
   | {
       kind: "table";
       /** The table's display token — the number off the physical tent card. Latin, always. */
@@ -129,6 +141,9 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
     case "verb": {
       const visible = ts(lang, control.verb);
       return { visible, aria: `${visible} — ${control.subject}` };
+    }
+    case "subject": {
+      return { visible: control.subject, aria: `${ts(lang, control.verb)} — ${control.subject}` };
     }
     case "table": {
       const visible = tf(lang, "floor.table", { id: control.label });

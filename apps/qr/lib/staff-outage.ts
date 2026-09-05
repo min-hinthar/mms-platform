@@ -30,15 +30,24 @@ export const STAFF_WRITE_OUTAGE =
 /**
  * P2 — the same sentence in Burmese. A CONSTANT twin rather than a `ts(lang, …)` call, because
  * `STAFF_WRITE_OUTAGE` is re-exported by `lib/staff.ts` and returned as a plain string from 27
- * `error: STAFF_WRITE_OUTAGE` arms (measured: `grep -rn 'error: STAFF_WRITE_OUTAGE\b' lib | wc -l`);
- * threading a language through that contract is an auth-path edit this slice does not take (filed as
- * OPEN-ITEMS P2c).
+ * `error: STAFF_WRITE_OUTAGE` arms; threading a language through that contract is an auth-path edit
+ * P2 does not take (the server population is OPEN-ITEMS P2i).
  *
- * The twin is picked at the RENDER site instead, by `<OutageText>` (components/staff/Chrome.tsx),
- * which is mounted in the two client sheets that show a mutation failure to a person — the loss
- * sheet's live region and the refund sheet's. Those are the only two places a staff write failure is
- * currently displayed as prose; the rest of the 27 arms feed server results that surface through
- * those same sheets or are swallowed by a refetch.
+ * ⚠️ MEASURE IT LIKE THIS, and the reason is this docblock:
+ *
+ *     grep -rnE 'error: STAFF_WRITE_OUTAGE[ ]*[},]' apps/qr/lib | wc -l    → 27
+ *
+ * The obvious command — `grep -rn 'error: STAFF_WRITE_OUTAGE\b' apps/qr/lib | wc -l` — returns
+ * **28**, because writing it here put the pattern inside the corpus it measures. The count above was
+ * right when it was taken and is right now; the INSTRUCTION was invalidated by the commit that wrote
+ * it. Anchoring to a value position (the arm ends in `}` or `,`) is more robust than excluding this
+ * file, since it survives the docblock moving.
+ *
+ * The twin is picked at the RENDER site, by `<OutageText>` (components/staff/Chrome.tsx). P2 PR B
+ * finished that: every place a staff write failure reaches the DOM as prose now renders through it,
+ * across sixteen files. And because it matches by string IDENTITY rather than by call site, it
+ * covers more arms than the 27 — a `staffGate()` given no custom `outageCopy` returns THIS sentence
+ * as `gate.error`, so those arms are translated too, without any of them knowing.
  */
 export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
 

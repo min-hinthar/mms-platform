@@ -2785,6 +2785,15 @@ const MUTANTS = [
     replace: "      parts.push(control.status);",
   },
   {
+    id: "staff-labels/subject-collapses-into-verb",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "lib/staff-labels.test.ts",
+    why: "P2 PR B — `verb` and `subject` compose the SAME two pieces and differ only in which is `visible`, so a call site that picks the wrong arm still produces a plausible name. It shipped: the register's queue row asked for `verb`, whose visible half is the word \"Resume\", on a row that shows a guest's name and a line count and never shows that word — the {visible, aria} pair went unexercised and rule 3c could not see it, because the al() call was hoisted out of the attribute. Collapse the two arms and the containment loop stays green (the aria still contains SOMETHING); only the inversion assertions separate them",
+    find: '    case "subject": {\n      return { visible: control.subject, aria: `${ts(lang, control.verb)} — ${control.subject}` };',
+    replace:
+      '    case "subject": {\n      return { visible: ts(lang, control.verb), aria: `${ts(lang, control.verb)} — ${control.subject}` };',
+  },
+  {
     id: "staff-labels/optional-fragment-always-appended",
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",

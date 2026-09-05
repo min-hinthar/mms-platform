@@ -84,11 +84,13 @@ export default async function RegisterPage() {
       ) : (
         <ul role="list" style={list} aria-label={sx(lang, "reg.a11y.queue")}>
           {queue.rows.map((r) => {
-            // The whole row is one link, so its visible content is a paragraph rather than a label —
-            // the `recall` inversion (lib/staff-labels.ts): the verb leads the announcement, and the
-            // guest's name plus the line meta are what the name must contain.
+            // The whole row is one link, so its visible content is a paragraph rather than a label:
+            // `kind: "subject"` — the verb LEADS the announcement and the row's own text is what the
+            // name must contain. Written as `kind: "verb"` first, which is the opposite arm: it
+            // makes `visible` the word "Resume", which this row never shows, so the {visible, aria}
+            // pair went unexercised and the name led with a key nothing rendered.
             const { aria } = al(lang, {
-              kind: "verb",
+              kind: "subject",
               verb: "reg.verb.resume",
               subject: rowSubject(lang, r),
             });

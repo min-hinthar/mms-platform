@@ -47,6 +47,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
   ["the recall", { kind: "recall", label: "#A12" }],
   ["the undo", { kind: "undo", label: "#A12" }],
   ["a verb control", { kind: "verb", verb: "floor.verb.deactivate", subject: "Daw Hla" }],
+  ["a subject control", { kind: "subject", verb: "reg.verb.resume", subject: "Daw Hla, 2 items" }],
   [
     "a quiet table",
     {
@@ -327,5 +328,52 @@ describe("the verb control — the general shape", () => {
     // constraint is a live rule rather than an empty one nobody could have violated yet.
     const verbs = Object.keys(STAFF).filter((k) => k.split(".").includes("verb"));
     expect(verbs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("verb and subject are INVERSES, and which one a control needs is decided by the screen", () => {
+  // The two arms compose the same two pieces and differ only in which is `visible` — so a call site
+  // that picks the wrong one still produces a plausible-looking name. That is not hypothetical: the
+  // register's queue row shipped as `verb`, whose `visible` is the word "Resume", on a row that
+  // shows a guest's name and a line count and never shows that word. The pair went unexercised and
+  // the guard could not see it (`check-staff-lang.mjs` rule 3c searched only the attribute's own
+  // initializer, and the call was hoisted). Asserting the inversion here is what makes the two arms
+  // distinguishable by a value rather than by a reading.
+  const verb = "reg.verb.resume" as const;
+  const subject = "Daw Hla, 2 items";
+
+  for (const lang of LANGS) {
+    it(`${lang}: verb SHOWS the action; subject SHOWS the thing`, () => {
+      const v = al(lang, { kind: "verb", verb, subject });
+      const s = al(lang, { kind: "subject", verb, subject });
+      expect(v.visible).toBe(ts(lang, verb));
+      expect(s.visible).toBe(subject);
+      // …and they are genuinely different, so a swap cannot pass unnoticed.
+      expect(v.visible).not.toBe(s.visible);
+    });
+
+    it(`${lang}: BOTH lead the announcement with the action`, () => {
+      // The inversion is about the visible half only. A person must hear what the tap does first in
+      // either shape — that is the whole reason `recall` was written the way it was.
+      for (const control of [
+        { kind: "verb", verb, subject } as const,
+        { kind: "subject", verb, subject } as const,
+      ]) {
+        const { aria } = al(lang, control);
+        expect(aria.startsWith(ts(lang, verb))).toBe(true);
+        expect(aria).toContain(subject);
+      }
+    });
+  }
+
+  it("recall is the `subject` shape hard-coded for one control", () => {
+    // Stated as an assertion rather than a comment: if `recall` ever stops matching this shape, the
+    // claim in `subject`'s docblock has quietly become false.
+    const r = al("my", { kind: "recall", label: "#A12" });
+    const s = al("my", { kind: "subject", verb: "reg.verb.resume", subject: "#A12" });
+    expect(r.visible).toBe("#A12");
+    expect(s.visible).toBe("#A12");
+    expect(r.aria.endsWith("#A12")).toBe(true);
+    expect(s.aria.endsWith("#A12")).toBe(true);
   });
 });

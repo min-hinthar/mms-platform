@@ -564,6 +564,24 @@ function verbLabelFindings(file) {
     return ts.isStringLiteral(verb.initializer) ? { key: verb.initializer.text } : { key: null };
   }
 
+  /**
+   * The initializer of the nearest enclosing declaration of this identifier, or null. Same scope
+   * walk `localBindingIsLocalized` uses for rule 3 — the nearest enclosing declaration is the one
+   * the browser would see, and two functions in one file may each declare `aria`.
+   */
+  function declarationInitializerOf(id) {
+    for (let n = id.parent; n; n = n.parent) {
+      const stmts = n.statements;
+      if (!stmts) continue;
+      for (const st of stmts) {
+        if (!ts.isVariableStatement(st)) continue;
+        for (const d of st.declarationList.declarations)
+          if (d.initializer && bindsName(d.name, id.text)) return d.initializer;
+      }
+    }
+    return null;
+  }
+
   /** Does this subtree RENDER `key` — `<Chrome … k="key">` or `ts(_, "key")`? */
   function rendersKey(node, key) {
     let hit = false;
@@ -613,10 +631,24 @@ function verbLabelFindings(file) {
       function findAl(n) {
         const v = verbKeyOf(n);
         if (v && found === null) found = v;
+        // ⚠️ FOLLOW A HOISTED CALL. `const { aria } = al(lang, { kind: "verb", … })` one line above
+        // and `aria-label={aria}` below is the shape a call site naturally takes when the control
+        // has several fields — and the first cut of this rule searched only the attribute's own
+        // initializer, so that shape passed while shipping a name whose verb the element never
+        // rendered. Found by an audit of this guard, not of the code it guards, which is the whole
+        // of LEARNINGS #60: a matcher satisfied by POSITION.
+        if (ts.isIdentifier(n)) {
+          const decl = declarationInitializerOf(n);
+          if (decl && !seenDecls.has(decl)) {
+            seenDecls.add(decl);
+            findAl(decl);
+          }
+        }
         ts.forEachChild(n, (c) => {
           findAl(c);
         });
       }
+      const seenDecls = new Set();
       findAl(node.initializer);
       if (found) {
         if (found.key === null) {
