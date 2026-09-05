@@ -1418,3 +1418,56 @@ Two things follow, and only the second is the real lesson:
 
 The near-miss is worth naming: had the anchor stayed loosely matched (a substring that survived the
 wrap), the mutant would have gone green while testing nothing, and no gate would have said a word.
+
+## #80 — a currency check and a SNAPSHOT look identical at the call site and answer different questions (#256, 2026-09-05)
+
+Four review rounds on one slice — a blind adversarial pass and two Codex rounds — produced four
+findings, and **every one was the same error at a lower altitude**: a check that was true, about the
+wrong MOMENT.
+
+T33 latches "which freeze a refusal just explained" so the generic banner does not overwrite the
+specific sentence a microtask later. Each round moved the same question one hop:
+
+1. **Blind pass, CRITICAL.** The latch was set from a recovery read that LOST the screen.
+   `explainCaught` classifies from what its read observed even when `applyView` rejects the view —
+   deliberately, because a refusal is a fact about the moment it LOOKED. A latch is a claim about
+   what the diner can SEE. Two different questions about two different moments, and the code asked
+   the first while the consumer needed the second.
+2. **Codex round 1, P1.** The fix passed `applyView`'s return value down to `publishRefusal`. That
+   is a **snapshot** — "did my read win when it landed" — and another mutation's view can apply
+   between then and the caller resuming from `await`. The flag still reads `true`, the rendered cart
+   is editable, and the latch claims a freeze nobody can see: the same silence, one microtask out.
+3. **Codex round 2, P2.** The latch recorded the freeze AXIS, but the lock SENTENCE names a holder
+   (`refusedWriteClause` renders `inertReason({ lockedByYou: refusal.freeze === "self" })`). `locked`
+   never goes false across a handoff, so no release edge retires the latch — an ownership change left
+   it silencing the banner for the OTHER holder while the region still named the first.
+
+Three rules fall out, and they generalise past this file:
+
+- **Ask currency where the CLAIM is made, from a source written by the thing that changed the
+  screen.** Not from a value carried in across an `await`. `freezeRef`/`settlingRef` are written
+  synchronously by `applyView` from the very view it applies, so reading them at publish time is the
+  only honest answer to "what does the diner see now".
+- **A boolean is not the fact when the sentence names an identity.** If copy forks on `X === "self"`,
+  the latch must carry that fork and revalidate it — and must read it from the **same field** the
+  copy reads (`refusal.freeze`), or you have the W17 drift shape: one fact computed twice.
+- **Whatever gate you put at the write, ask it again at the READ** if the state can move in between.
+  The entering edge here trusted a latch that publish time had checked and no release edge had
+  retired. Both edges now run `explanationHolds`.
+
+## #81 — the `verify:slice` hazard is ANY write to a target module, not just a commit (#256, 2026-09-05)
+
+`CLAUDE.md` says never COMMIT while a run is live, because at every instant one tracked module on
+disk is a deliberately-broken version of itself (LEARNINGS #74, where a mutant rode into a docs-only
+commit). That framing is too narrow and it cost a run here: **`pnpm format` was run mid-run** to
+format doc edits, and prettier reads and rewrites every matched file — including the mutated one.
+
+The run was killed and `git status` showed the tell: `apps/qr/lib/view-seq.ts` dirty, with
+`readReachedServer` returning `o === "applied"` instead of `o !== "failed"` — a live mutant parked on
+disk. Restored, tree confirmed clean, exactly one run started and watched to completion.
+
+- The dirty-tree abort protects the RUN from your edits. **Nothing protects the TREE from the run.**
+- So the rule is: no formatter, no codegen, no editor-on-save, no commit — **no writes at all** to
+  the tree — while a run is live. Do the doc pass and the `pnpm format` BEFORE you start it.
+- `pgrep -f "[v]erify-slice"` before committing is necessary and not sufficient. **`git status` after
+  every run**, and never report a number from a run whose tree you did not check afterwards.
