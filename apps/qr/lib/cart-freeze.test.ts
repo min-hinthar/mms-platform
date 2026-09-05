@@ -431,8 +431,10 @@ describe("refusedWriteNotice — observation plus current state, never a cause",
     // (`line?.qty === qty`), and an authorized host setting the same line inside the round trip
     // forges a false NEGATIVE — our write commits, the re-read reads the host's number, and the
     // comparison says it did not land. The cart carries no lock and is not settling, so it arrives
-    // exactly here. `add` has no such hole: `classifyAddLanding` answers its own `unknown` for a
-    // contested dish and that routes to `unconfirmed`, never to this sentence.
+    // exactly here. ⚠️ `add` HAS THE SAME HOLE, NARROWER — this comment claimed it did not (Codex on
+    // #255). `classifyAddLanding` answers `unknown` only when the dish's lines DISAGREE; `dishDeltas`
+    // does nothing at `d === 0`, so a host RESTORING the pre-add quantity lands on `none`, and a
+    // committed add is reported refused. OPEN-ITEMS **T43**.
     //
     // So the hedge stays on THIS arm and only this arm. Sharing the opener with
     // `unconfirmedWriteNotice()` is now correct rather than a collision — the two are degrees of one

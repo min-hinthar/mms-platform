@@ -51,8 +51,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > the per-cause hedge narrows the exposure, it does not close it.** Keep the hedge — it is strictly
 > better than asserting everywhere — and do not read it as a proof. `YourUsual` asserting the verdict
 > on every cause is a residual of the same family, not a justified exception. The source docblocks in
-> `cart-freeze.ts` and `TableCartProvider.tsx` that asserted the retracted versions are corrected in
-> this PR, so the code and this file now say the same thing.
+> `cart-freeze.ts`, `TableCartProvider.tsx` and `menu/YourUsual.tsx` that asserted the retracted
+> versions are corrected in this PR. ⚠️ The first attempt at that sentence claimed completeness after
+> fixing only TWO of them, and Codex round 3 found three more — the same "appending a correction
+> leaves the original standing" shape, this time in the claim that the sweep was done. Grep before
+> asserting a sweep is complete.
 >
 > ⚠️ **AND THE BLOCKER THAT KEPT T41/T43 FILED RATHER THAN FIXED WAS FALSE** (Codex round 2 on #255).
 > Both rows, and the first draft of this block, said routing these to `unconfirmed` hands `AddButton`'s
