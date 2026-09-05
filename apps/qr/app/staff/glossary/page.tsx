@@ -95,7 +95,7 @@ export default async function GlossaryPage() {
           <p className="pgl-band-why">
             <Chrome lang={lang} k="pilot.gloss.band.high.why" echo="stack" />
           </p>
-          <SheetTable lang={lang} rows={high.rows} />
+          <SheetTable lang={lang} rows={high.rows} labelledBy="pgl-band-high" />
           <SignOff lang={lang} />
         </section>
       )}
@@ -105,7 +105,7 @@ export default async function GlossaryPage() {
           <h2 className="pgl-band-title" id="pgl-band-rest">
             <Chrome lang={lang} k="pilot.gloss.band.rest" echo="stack" />
           </h2>
-          <SheetTable lang={lang} rows={rest.rows} />
+          <SheetTable lang={lang} rows={rest.rows} labelledBy="pgl-band-rest" />
           <SignOff lang={lang} />
         </section>
       )}
@@ -120,9 +120,19 @@ function myMark(value: string): "my" | undefined {
   return /\p{Script=Myanmar}/u.test(value) ? "my" : undefined;
 }
 
-function SheetTable({ lang, rows }: { lang: StaffLang; rows: readonly GlossaryRow[] }) {
+function SheetTable({
+  lang,
+  rows,
+  labelledBy,
+}: {
+  lang: StaffLang;
+  rows: readonly GlossaryRow[];
+  labelledBy: string;
+}) {
   return (
-    <table className="pgl-table">
+    // Named by its band heading — a table with column headers but no accessible name announces as
+    // a bare "table", and this page has two of them with identical columns.
+    <table className="pgl-table" aria-labelledby={labelledBy}>
       <thead>
         <tr>
           <th scope="col" className="pgl-col-my">

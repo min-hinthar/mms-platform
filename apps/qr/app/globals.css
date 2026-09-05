@@ -9414,7 +9414,12 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 700;
   color: var(--warn);
 }
+/* The link IS the paragraph's whole content, so it can carry the 44px target without disturbing
+   the copy around it — there is none. */
 .pns-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   color: inherit;
 }
 /* 44px, because it is the one control on this sheet and it is tapped on a tablet. */

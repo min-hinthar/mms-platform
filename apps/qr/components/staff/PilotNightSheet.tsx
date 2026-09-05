@@ -56,14 +56,12 @@ export async function PilotNightSheet() {
 
       <dl className="pns-grid">
         <Figure
-          lang={lang}
           value={night.pilotRedemptions}
           label={
             <Chrome lang={lang} k="pilot.night.promo" vars={{ x: night.promoCode }} echo="stack" />
           }
         />
         <Figure
-          lang={lang}
           value={night.split.counted + night.split.unattributed}
           label={<Chrome lang={lang} k="pilot.night.orders" echo="stack" />}
           detail={
@@ -86,7 +84,6 @@ export async function PilotNightSheet() {
           }
         />
         <Figure
-          lang={lang}
           value={night.ratings.total}
           label={<Chrome lang={lang} k="pilot.night.ratings" echo="stack" />}
           detail={
@@ -179,7 +176,6 @@ function Figure({
   label,
   detail = null,
 }: {
-  lang: StaffLang;
   value: number;
   label: React.ReactNode;
   detail?: React.ReactNode;
