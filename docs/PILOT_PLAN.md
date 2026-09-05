@@ -1,0 +1,156 @@
+# 🍽️ Pilot Plan — the family test run (2026-09-05)
+
+**The question this answers:** _"I still don't feel production ready, especially the order flows between
+customers, the kitchen tablet (Burmese primary — Mom), the front-staff kiosk + tablet (Burmese primary —
+Dad), and the order status board on the TV. How do we refine, finalize, and test-run with my parents
+and regulars (15% off dine-in as the incentive)?"_
+
+**The answer, in one line:** the customer path is production-grade and the staff path is not — because
+**every staff surface is English-only** and the kitchen ticket does not even carry the Burmese dish name.
+So the gate is not the 148-row backlog; it is **five slices + four owner actions**, then a two-week pilot
+whose own mechanics double as the native-language check nobody has been able to run.
+
+Measured against `main` at `9ed8029`, not remembered. Where a number below disagrees with
+[`OPEN-ITEMS.md`](OPEN-ITEMS.md), the registry wins.
+
+---
+
+## 1 · Where the four surfaces actually stand
+
+| Surface                        | Route(s)                                              | Verdict                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Customer** (phone)           | `/menu` · `/cart` · `/track` · receipt                | **Ready.** Server-authoritative money, live Stripe + Apple Pay (C10 · C15), refund-aware receipt, bilingual money moments (S2), ungated feedback on `/track`. The W9/T arc (#246–#256) hardened the /menu write path to the point of arbitrating a single live region. What's left here is craft debt (F2 · F5 photos/icons), not flow.                                                      |
+| **Kitchen tablet** (Mom)       | `/staff/kitchen` (KDS) · `/staff/expo`                | **Not ready for Mom.** Built to SPEC-KDS (aging strips, chime, bump/undo/recall, wake lock, outage honesty) — and **0 Burmese lines in 911 + 422 lines**. `KitchenLine` carries one `name: string` (English). Station chips, channels, "Table N", bump, held/fire: all English literals. Nothing on it consumes the dictionary.                                                              |
+| **Front tablet + kiosk** (Dad) | `/staff/register` · `/staff` floor · table drill-down | **Not ready for Dad.** Register arms (Walk-up · Phone · Start a table), cash settle, floor statuses, tab open/paid: **0 Burmese lines across 8 staff components** (`RegisterStart` · `FloorBoard` · `TableCard` · `CashSettleButton` · `StaffMenuBrowser` · `StaffOrdersBoard` · …). The kiosk (`/kiosk`) IS bilingual with a per-customer toggle — the only staff-adjacent surface that is. |
+| **Order board** (TV)           | `/board?k=…`                                          | **Ready for the LOBBY, by design.** Preparing \| Ready, first name + short code, EN/MY headings, gold flash, sanitized poll behind `BOARD_DEVICE_TOKEN`. **Takeout + grocery only — dine-in is deliberately excluded** so a table's order is never broadcast. If "everyone aware" means _staff_, this is the wrong surface (§4 · F1).                                                        |
+
+**The i18n foundation is real, and it stops at the staff door.** `apps/qr/lib/i18n/` holds 61 EN/MY
+entries (12 common · 39 cart · 10 confirm), a compile-time `t(locale, key)`, and the S2 app-wide toggle
+(cookie + profile, `<html lang>` server-stamped). **Every one of the 61 is still pending the K15 native
+check.** The kiosk consumes it; `components/staff/*` imports none of it.
+
+**Payment truth is already where each person needs it** — verify, don't build: Dad's floor board runs
+`seated → ordering → paying → paid` with "Tab open · $X" and the paid total per table; the diner's `/track`
+and receipt derive paid / partially-refunded / refunded from one module (`receipt-view.ts`). The KDS shows
+no payment state on purpose: dine-in tickets fire on **Send**, before the bill, and the kitchen cooks either
+way.
+
+**Money, honestly.** The registry's open `high` rows in Money are ONE cluster — **M123 · M124 · M151 ·
+M152**, the promo pin under concurrent / delayed card attempts — and all four are blocked on a prod
+migration (`qr_carts.live_payment_intent_id`, itself behind the divergent-history reconcile, **M125**).
+⚠️ **The pilot's incentive is a promo code on dine-in card payments, which is exactly the path this
+cluster sits on.** M152(a) is the one to read: a tablemate entering any code more than five minutes after a
+captured intent nulls the pin that capture reconciles against, and the webhook's amount mismatch is
+deterministic — Stripe's 72h retry cannot heal it, so the diner is **charged with no order row**. Low
+probability (it needs a webhook delayed past the 5-minute lock TTL), highest severity, and the pilot
+raises the odds by putting promo codes on every table. §3 · O4 is the decision.
+
+---
+
+## 2 · The pilot
+
+- **Who:** Mom on the KDS at the pass, Dad on the front tablet, both parents as the native-language
+  reviewers; then regulars, invited by name.
+- **Incentive:** `PILOT15` — 15% off dine-in, entered by the diner at checkout or applied by Dad at the
+  register. Its redemption count IS the participation count.
+- **Shape:** **Day 0** — a parents-only dinner service, three tables, every staff surface in Burmese,
+  the owner walking the §D edge-case matrix on real devices. **Days 1–14** — regulars with the code.
+  **Nightly** — the marked-up glossary + the "what went wrong" sheet.
+- **What we measure** (all already captured or one line away): `promo_redemptions` per day · orders per
+  channel per day · `/track` feedback ratings + notes (`mms_feedback`) · KDS elapsed-to-bump per ticket ·
+  glossary lines corrected · Stripe dashboard vs `qr_orders` — **zero charged-without-order**, checked
+  by hand every night because the pilot is small enough to.
+
+---
+
+## 3 · The gate — five slices, four owner actions
+
+Ordered by what blocks the pilot, not by size. One phase = one PR, the usual gate (`verify:slice` ·
+blind adversarial pass · Codex rounds).
+
+### Code (P)
+
+| #      | Slice                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              | Size         |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------ |
+| **P1** | **Burmese-first kitchen ticket.** Carry `name_my` through `kitchen.ts` / `expo.ts` onto `KitchenLine` (+ the W5c modifier/option `name_my`), render MY as the ≥28px line with EN beneath, notes untouched. Padauk metrics at SPEC-KDS scale have never been rendered in this app — verify at arm's length on the real 15.6", Night default. No chrome yet: this is the line Mom reads a hundred times a night.                                                                                                                                                                                                     | 1 PR         |
+| **P2** | **Staff chrome dictionary + device language.** `lib/i18n/staff.ts` (~80 keys: stations · channels · Table N · bump/undo/recall · held/fire · "N new" · register arms · cash settle · floor statuses · tab open/paid · bagged/picked up · every outage sentence), consumed via `t(lang, k)` on KDS · expo · floor + table card · register · cash settle · staff menu browser. `lang` from the existing S2 toggle, set once per device (Mom's and Dad's tablets = MY; the toggle stays visible). **Layout rule:** on a staff surface with `lang=my`, MY is primary and EN secondary — the kiosk's pattern, mirrored. | 2 PRs        |
+| **P3** | **`PILOT15` + staff apply.** A `promo_codes` row (pct 15, `valid_from/until`, `max_uses`, `per_session_limit 1`) inserted as **data, no DDL** · a staff-gated `applyPromoForTable` on the table drill-down / register so Dad can apply it at a cash or terminal settle (today only a diner can, from `Checkout.tsx`; `staff-cart.ts` already carries `totals.promoCents` through every settle path). Money path → mutant + review. No mode-scope column exists; the pilot scopes it by **who gets the card**.                                                                                                      | 1 PR (money) |
+| **P4** | **The walkthrough.** Not a build — the §D edge-case matrix (`QA-CHECKLIST.md`, 0 of 10 ticked today) plus a family script (§5) on the real devices, with the payment-truth surfaces in §1 verified live. Everything found becomes one fix PR; every row that passes gets ticked, with the device named.                                                                                                                                                                                                                                                                                                            | 1 fix PR     |
+| **P5** | **The pilot loop.** Tag pilot orders (PostHog `door` + the promo code) so they funnel apart from the rest · a printed one-page EN/MY glossary of every dictionary key for Mom and Dad to mark up — **K15 stops being a blocker and becomes pilot output** · the nightly sheet lives in `/staff/feedback` (K13 read-only is fine for two weeks).                                                                                                                                                                                                                                                                    | 1 PR         |
+
+### Owner (O) — start now, in parallel
+
+| #      | Action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Registry |
+| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| **O1** | **Hardware.** KDS = 15.6" Android touchscreen on a VESA arm at the pass, wipeable, off the wok line (~$300–500; iPad + rugged case is the fallback). TV = any smart TV with a browser, bookmarked to `/board?k=…`. Dad = any tablet, bookmarked to `/staff`. **Leave the kiosk out of this pilot** — it is not on the critical path and adds a fourth device to babysit.                                                                                                                       | C7       |
+| **O2** | **Env.** `BOARD_DEVICE_TOKEN` in Vercel Production (and `KIOSK_DEVICE_TOKEN` only if the kiosk joins later). Redeploy.                                                                                                                                                                                                                                                                                                                                                                         | ENV.md   |
+| **O3** | **Auth hardening on the live project** — disable public email/password signup or turn confirmations on; restrict Google to the workspace domain. Staff login is exposed in production today.                                                                                                                                                                                                                                                                                                   | C1 high  |
+| **O4** | **The migration decision.** Authorize the one-file-at-a-time MCP apply (the path every migration here has actually taken) for M125's reconcile → `live_payment_intent_id` → M151/M152 closed **before** the pilot puts a promo on every table. **Or** run the pilot with the risk and a runbook (nightly Stripe-vs-`qr_orders` check; a charged-without-order is refunded by hand the same night). Recommendation: **authorize it** — the pilot is the worst time to discover this class live. | M125     |
+
+Not gating, still worth doing in the window: **C5** (the ~3 missing dish photos — one afternoon).
+
+### Deliberately NOT before the pilot
+
+The other 114 open Money rows · W2 craft debt (F2 photo bucket, F5 emoji→SVG icons) · grocery (W4) ·
+scheduled-pickup capacity · the kiosk · C16 (`codex-review` as a required check — process, not product).
+A pilot is how those get prioritised by what actually hurt.
+
+---
+
+## 4 · Two forks for the owner (recommendation first)
+
+**F1 — What is the TV for?**
+
+- **A · Lobby ready board (recommended, and what exists).** Customers' first names + short codes,
+  takeout and grocery, EN/MY. Dine-in stays off it — a table's order is not the room's business. "Everyone
+  aware" for _staff_ is then the KDS + expo + floor on their tablets.
+- **B · Staff wall board.** All channels, table numbers, payment state — **not customer-safe**, so it is
+  not `/board`; it is the KDS on a TV, which needs a device-token mode the KDS doesn't have (small: the
+  `/board` pattern, `authorizeDevice`). Pick B only if the TV hangs in the kitchen, not the dining room.
+
+**F2 — How does the 15% arrive?**
+
+- **A · A code, `PILOT15` (recommended).** Diners type it; Dad applies it; redemptions count
+  participation; the discount reaches only tables you hand the card to. No schema change.
+- **B · Auto-applied on every dine-in order in a date window.** No typing, no staff step — and no
+  participation signal, a discount to every walk-in, and a rule in `getCartTotals` on the money path
+  with its own mutant, review, and rollback.
+
+---
+
+## 5 · The Day-0 family script (what the walkthrough actually does)
+
+Three tables, one service, every staff surface in Burmese. Each line is a thing to watch, not a
+feature to demo.
+
+1. **Table 1 — the ordinary night.** Two phones scan the same table, one host sends to the kitchen, one
+   adds a dish after the send, the bill is split by person, one pays with Apple Pay and one with a card.
+   _Watch:_ Mom's ticket reads without her leaning in; the second round lands as a second ticket, not an
+   edit; the split reconciles to the cent on both receipts; both `/track` pages say paid.
+2. **Table 2 — cash and the code.** One phone, `PILOT15` typed at checkout — then they change their
+   mind and pay cash. _Watch:_ Dad applies the code at the register; the floor card goes ordering →
+   paying → paid; the receipt shows the discount once, never twice; nothing in Stripe.
+3. **Table 3 — the things that go wrong.** A declined card, then retry (§D row 10). An 86'd dish already
+   in the cart (§D row 7). A phone that walks away mid-order and comes back. The KDS tablet's wifi pulled
+   for a minute. _Watch:_ every surface says something true, in Burmese, and nothing is stuck.
+4. **Pickup, once.** A to-go order on a phone from the parking lot. _Watch:_ it enters the KDS at fire
+   time, the expo bags it, **the TV lights the name**, the customer's phone lights at the same moment.
+5. **The glossary.** Mom and Dad each mark up the printed sheet over dessert. Every correction is a K15
+   line closed.
+
+**Done** = §D rows ticked with the device named, the script run without a stuck screen, the glossary
+back with ink on it, and nothing in Stripe that isn't in `qr_orders`.
+
+---
+
+## 6 · Sequence
+
+```
+O1–O4 start now (hardware · env · auth · the migration decision)
+P1 ticket → P2 chrome (×2) → P3 PILOT15 → P4 walkthrough + fix PR → P5 loop
+Day 0 (parents only) → Days 1–14 (regulars) → re-score the four fronts on real devices
+```
+
+Roughly six PRs and one decision. The re-score closes the loop the PRODUCTION*PLAN's definition of done
+asks for: *"scored against screenshots on real devices, with the owner's felt-quality go — not self-scored
+from code."\_ A pilot is the only way that sentence ever becomes true.
