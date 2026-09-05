@@ -6,7 +6,10 @@
  * Burmese). Three rules, each falsifiable by a value:
  *
  *  1. **A Burmese name is a catalog fact or nothing.** Blank → null. A `name_my` that IS the English
- *     label (a brand name stored twice) is English, and `lang="my"` must not claim it → null.
+ *     label (a brand name stored twice) is English, and `lang="my"` must not claim it → null. And a
+ *     `name_my` with no Myanmar-script character at all is not Burmese whatever it differs from
+ *     (a romanisation, a brand-plus-size string) → null; measured on prod at build time, none of
+ *     the 531 live names trips this, so it is a belt for the next import, not a live fix.
  *  2. **Per-slot, never pre-substituted.** `modifiersMy[i]` is the Burmese for `modifiers[i]` or
  *     null — the RENDERER does the fallback, wrapping the English in `lang="en"`, so an English
  *     label is never typeset in Padauk or announced as Burmese (QA-CHECKLIST §A: keep `lang="en"` on
@@ -14,7 +17,11 @@
  *     array with English for exactly that reason.
  *  3. **A count mismatch is NOT a mapping.** Labels and option ids are written as parallel arrays
  *     from one `chosen` list (`order-lines.ts`), so unequal lengths mean a legacy `[]` row or a
- *     partial write — every slot null, an honest unknown, never a prefix pairing.
+ *     partial write — every slot null, an honest unknown, never a prefix pairing. ⚠️ The pairing
+ *     is POSITIONAL and this module cannot detect a same-length mismatch: it holds because every
+ *     writer threads `optionIds` beside `opts` from that one list, and no path today updates one
+ *     column without the other. The day one does, a wrong (allergy-adjacent) Burmese option sits
+ *     under a correct English label with no signal — so that writer owes a snapshot, not a fix here.
  *
  * `burmeseAddsInfo` is the dedupe: when every slot is null the board renders the pre-P1 line
  * byte-identically, so an all-English ticket looks exactly as it did.
@@ -37,12 +44,16 @@ export function uuidOptionIds(raw: unknown): string[] {
   return [...new Set(storedOptionIds(raw).filter(isUuid))];
 }
 
+/** One Myanmar-block codepoint (Myanmar · Extended-A · Extended-B). A name with none is not Burmese. */
+const MYANMAR_SCRIPT = /[\u1000-\u109F\uAA60-\uAA7F\uA9E0-\uA9FF]/;
+
 /** Rule 1 — the Burmese the board may show for `en`, or null. */
 export function catalogNameMy(raw: string | null | undefined, en: string): string | null {
   if (typeof raw !== "string") return null;
   const my = raw.trim();
   if (my === "") return null;
   if (my === en.trim()) return null;
+  if (!MYANMAR_SCRIPT.test(my)) return null;
   return my;
 }
 
@@ -95,9 +106,13 @@ export function allDayKey(l: Pick<AllDayLine, "name" | "modifiers">): string {
  *  - **The key is the English label.** Burmese never enters it, so a legacy row beside a fresh
  *    one (one with `nameMy`, one without) is ONE count, not two — a split count under-reports the
  *    wok's actual obligation, which is the number the rail exists to state.
- *  - **"The most Burmese we know for this key."** The first non-null `nameMy` wins and is never
- *    overwritten by a later different value (a mid-service catalog edit re-labels the next poll, not
- *    half a row); each modifier slot fills from the first line that carries Burmese for it.
+ *  - **"The most Burmese we know for this key."** Within one poll every line of one `menu_item_id`
+ *    reads the same catalog map, so two lines under one English key differ in `nameMy` only when two
+ *    CATALOG ROWS share an English snapshot name (a re-added dish, a duplicate row) — which the
+ *    English key already conflates. The first non-null `nameMy` wins and a later different value
+ *    never overwrites it (one row, one Burmese, not a flip between two); each modifier slot fills
+ *    from the first line that carries Burmese for it, which IS reachable in one poll (a legacy `[]`
+ *    row beside a fresh one).
  */
 export function allDayRows(lines: Iterable<AllDayLine>): AllDayRow[] {
   const rows = new Map<string, AllDayRow>();

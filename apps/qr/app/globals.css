@@ -7506,11 +7506,27 @@ html[data-seen-surface] .mms-stagger {
   margin-top: 0;
 }
 /* Interleaved English inside a Burmese run (an option with no name_my yet) keeps the body face —
-   Padauk's Latin glyphs read as "Burmese-styled English". lang="en" is what QA §A asks for. */
-.kds-line-name[lang="my"] [lang="en"],
+   Padauk's Latin glyphs read as "Burmese-styled English". lang="en" is what QA §A asks for. (No
+   `.kds-line-name[lang="my"]` entry: that element carries lang="my" only when the name IS Burmese,
+   so it never holds an English child — a selector for it would be dead.) */
 .kds-line-mods[lang="my"] [lang="en"],
-.kds-rail-my [lang="en"] {
+.kds-rail-my [lang="en"],
+.expo-line-my [lang="en"] {
   font-family: var(--font-body);
+}
+/* P1 — the expo bag row's Burmese line: its own block above the English row, at the body size
+   (Padauk's consonant body is ~8% shorter than Hanken's x-height and the 13px row is already at the
+   Burmese floor), 700 = the heaviest cut Padauk ships, the Burmese leading, never a synthesized bold. */
+.expo-line-my {
+  display: block;
+  font-family: var(--font-my);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+.expo-line-my-mods {
+  color: var(--t2);
 }
 /* The English echo under a Burmese name — Dad's line, and the K15 safety net. The modifier size (the
    smallest thing a cook is asked to READ on this board), weight 800, FULL contrast: a held card

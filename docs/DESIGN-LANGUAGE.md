@@ -145,8 +145,8 @@ and warm (တယ်/မယ်/နော်); kitchen is **မီးဖိုခ�
 string joins the K15 native-check ledger the day it ships.
 
 **The staff kitchen surfaces invert the order (P1): the KDS ticket, its All-Day rail and the expo bag
-line are Burmese-FIRST — the catalog's `name_my` as the primary line, English always beneath at the
-modifier size and full contrast.** The rules are `lib/ticket-names.ts`: a Burmese slot with no
+line are Burmese-FIRST — the catalog's `name_my` as the primary line, English always beneath at full
+contrast (the modifier size on the ticket, the chrome size on the rail, the row size on the expo).** The rules are `lib/ticket-names.ts`: a Burmese slot with no
 `name_my` is `null` and the RENDERER marks the English fallback `lang="en"` (never pre-substituted,
 never typeset in Padauk); every Burmese rule is gated on the `lang` attribute so an English-only
 line is byte-identical to before; Padauk is declared at 700 (the heaviest cut it ships) with

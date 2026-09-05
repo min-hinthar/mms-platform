@@ -23,9 +23,13 @@ restores the body face — never pre-substituted, or English is typeset in Padau
 Burmese. A count mismatch between labels and option ids is not a mapping (every slot null, never a
 prefix pairing); a `name_my` identical to its English label is English; the All-Day rail's key stays
 the English label so a legacy row beside a fresh one is one count, and a row carries the most Burmese
-known for its key. An English-only line is byte-identical to before: every new CSS rule is gated on
-the `lang` attribute (a `(0,2,0)` compound, because the global `[lang="my"]` leading would otherwise
-lose to `.kds-line-name`'s later `--lh-snug` — the W16e override again).
+known for its key. An English-only KDS line mounts exactly the elements it mounted before: every
+Burmese rule is gated on the `lang` attribute (a `(0,2,0)` compound, because the global `[lang="my"]`
+leading would otherwise lose to `.kds-line-name`'s later `--lh-snug` — the W16e override again), and
+the echo and rail classes are emitted only in the Burmese BRANCH — which is a claim about JSX, not
+CSS, so `components/staff/TicketText.tsx` owns the three render sites and its jsdom suite pins the
+branch. The one change every row sees: the expo bag row aligns on the baseline now, so a two-line
+label keeps its qty badge on the first line.
 
 **Two things the hex audit could not see are now pinned.** The held card's two STACKED fades
 (`.kds-ticket-held` × `.kds-line:disabled`, a held line is always disabled) became tokens, and

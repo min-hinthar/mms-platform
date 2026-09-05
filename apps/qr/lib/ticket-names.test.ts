@@ -23,6 +23,13 @@ describe("catalogNameMy — a Burmese name is a catalog fact or nothing", () => 
     expect(catalogNameMy(null, "Mohinga")).toBeNull();
     expect(catalogNameMy(undefined, "Mohinga")).toBeNull();
   });
+  it("a name_my with no Myanmar-script character is not Burmese, whatever it differs from", () => {
+    // MUTATION: drop the script test → "Red Bull 8.4oz" ships under lang="my" in Padauk. Mixed
+    // script is fine: a brand name inside a Burmese phrase has Myanmar codepoints.
+    expect(catalogNameMy("Red Bull 8.4oz", "Red Bull")).toBeNull();
+    expect(catalogNameMy("mohinga", "Mohinga")).toBeNull();
+    expect(catalogNameMy("Red Bull အားဖြည့်", "Red Bull")).toBe("Red Bull အားဖြည့်");
+  });
   it('a name_my that IS the English label is English — lang="my" must not claim it', () => {
     // A brand name stored twice ("Red Bull" / "Red Bull"): typesetting it in Padauk under lang="my"
     // would announce English as Burmese and set Latin in Padauk's Latin glyphs.
@@ -137,8 +144,10 @@ describe("allDayRows — the rail's key is the English label; a row carries the 
   });
 
   it("THE FILL RULE: the first non-null Burmese wins and is not overwritten; each modifier slot fills from the first line that has it", () => {
-    // MUTATION: delete the `nameMy` fill → the row stays null although the second line knew the
-    // Burmese; MUTATION: overwrite instead of fill → "other" replaces the first name.
+    // The `nameMy: "other"` line models two CATALOG ROWS sharing one English snapshot name (a
+    // re-added dish) — the only way one poll hands one key two Burmese values. MUTATION: delete the
+    // `nameMy` fill → the row stays null although the second line knew the Burmese; MUTATION:
+    // overwrite instead of fill → "other" replaces the first name.
     const rows = allDayRows([
       line({ name: "Mohinga", modifiers: ["Mild", "Medium"], modifiersMy: [null, null] }),
       line({
