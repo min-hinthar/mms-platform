@@ -2738,9 +2738,27 @@ const MUTANTS = [
     id: "chrome/echo-nested-under-my",
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
-    why: "P2 — the English echo is a SIBLING of the Burmese span, never a child. Nested, it is typeset in Padauk and announced as Burmese: P1's hole rule one tier up, at the chrome instead of the dish name",
+    why: "P2 — the English echo is a SIBLING of the Burmese span, never a child. Nested, it is typeset in Padauk and announced as Burmese: P1's hole rule one tier up, at the chrome instead of the dish name. ⚠️ The first cut of this mutant DELETED `{my}` instead of nesting the echo, so it proved the Burmese half was rendered and said nothing at all about the rule it is named for — the exact `verify:slice` failure mode LEARNINGS #60 is about. It now performs the nesting",
+    find: `    <span className={echo === "stack" ? "chrome-pair" : "chrome-pair chrome-pair-inline"}>
+      {my}`,
+    replace: `    <span lang="my" className="chrome-my">
+      {renderMyTemplate(k, vars, lang)}`,
+  },
+  {
+    id: "chrome/burmese-half-dropped",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — an echoed pair that renders only its English half looks correct to the author testing in English and silently un-translates the surface for the reader it was written for",
     find: '      {my}\n      {echo === "inline" && " · "}',
     replace: '      {echo === "inline" && " · "}',
+  },
+  {
+    id: "chrome/outage-twin-never-reached",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — the ONE staff sentence with an authored Burmese twin, shown when a write fails mid-service. `staffGate` returns it as a plain English string from 27 arms, so the swap happens at the render site or nowhere; skip it and the tablet tells a Burmese-reading cook in English that nothing was saved",
+    find: '  if (lang === "my" && error === STAFF_WRITE_OUTAGE)',
+    replace: "  if (false)",
   },
   {
     id: "chrome/param-typeset-as-burmese",
@@ -2762,7 +2780,7 @@ const MUTANTS = [
     id: "staff-outage/frozen-copy-ignores-lang",
     file: "apps/qr/lib/staff-outage.ts",
     suite: "lib/staff-outage.test.ts",
-    why: "P2 — the sentence six boards show when the ordering system is unreachable, and the one that tells the floor to fall back to paper. Ignore `lang` and it stays English on a Burmese tablet, in the middle of the outage it exists to explain",
+    why: "P2 — the sentence five boards show when the ordering system is unreachable, and the one that tells the floor to fall back to paper. Ignore `lang` and it stays English on a Burmese tablet, in the middle of the outage it exists to explain",
     find: '  const tail = escalated ? ts(lang, "out.tail.paper") : ts(lang, "out.tail.reconnecting");',
     replace:
       '  const tail = escalated ? ts("en", "out.tail.paper") : ts("en", "out.tail.reconnecting");',

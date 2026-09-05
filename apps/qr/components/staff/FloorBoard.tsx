@@ -163,8 +163,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         <h2 id="floor-h" style={{ fontSize: "var(--fs-body)", margin: 0 }}>
           Tables
         </h2>
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",

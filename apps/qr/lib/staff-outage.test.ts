@@ -9,7 +9,7 @@ import {
 
 /**
  * P2 · G13 — the outage voice. **This module had no suite at all before P2**, which is worth saying
- * plainly: `frozenBoardCopy` is the sentence six boards show when the ordering system is unreachable
+ * plainly: `frozenBoardCopy` is the sentence five boards show when the ordering system is unreachable
  * — the single most consequential copy in the staff console — and nothing pinned it.
  *
  * The English arm is pinned to today's EXACT sentences, so making the whole thing bilingual cannot
@@ -94,7 +94,7 @@ describe("the write-outage sentence", () => {
     expect(STAFF_WRITE_OUTAGE_MY).not.toBe(STAFF_WRITE_OUTAGE);
   });
 
-  it("leaves the English constant byte-identical — 24 staffGate arms return it", () => {
+  it("leaves the English constant byte-identical — 27 staffGate arms return it", () => {
     expect(STAFF_WRITE_OUTAGE).toBe(
       "We can’t reach the ordering system — that change wasn’t saved. Keep it on paper for now.",
     );

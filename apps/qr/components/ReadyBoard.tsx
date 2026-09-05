@@ -244,15 +244,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
 
       <div className="orb-cols">
         <section className="orb-col" aria-label={ts(lang, "board.col.preparing")}>
-          {/* Both tongues ALWAYS render — the wall serves a mixed room and cannot choose for it.
-              `lang` decides only which one leads. The Burmese is verbatim from W3e; this slice does
-              not reword what has been on the wall since then. */}
-          <h2 lang={lang === "my" ? "my" : undefined}>
-            {ts(lang, "board.col.preparing")}
-            <small lang={lang === "my" ? undefined : "my"}>
-              {lang === "my" ? STAFF["board.col.preparing"].en : STAFF["board.col.preparing"].my}
-            </small>
-          </h2>
+          <ColumnHeading lang={lang} k="board.col.preparing" />
           {preparing.length === 0 ? (
             <p className="orb-empty">—</p>
           ) : (
@@ -265,12 +257,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         </section>
 
         <section className="orb-col orb-col-ready" aria-label={ts(lang, "board.col.ready")}>
-          <h2 lang={lang === "my" ? "my" : undefined}>
-            {ts(lang, "board.col.ready")}
-            <small lang={lang === "my" ? undefined : "my"}>
-              {lang === "my" ? STAFF["board.col.ready"].en : STAFF["board.col.ready"].my}
-            </small>
-          </h2>
+          <ColumnHeading lang={lang} k="board.col.ready" />
           {ready.length === 0 ? (
             <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
               {ts(lang, "board.empty")}
@@ -285,6 +272,35 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         </section>
       </div>
     </div>
+  );
+}
+
+/**
+ * P2 — a column heading, both tongues, ALWAYS. The wall serves a mixed room and cannot choose for
+ * it; `lang` decides only which one LEADS. The Burmese is verbatim from W3e and this slice does not
+ * reword it.
+ *
+ * ⚠️ WHY THE LEAD SITS IN ITS OWN SPAN AND `lang` NEVER GOES ON THE `<h2>`. The first cut wrote
+ * `<h2 lang="my">…<small>English</small></h2>`: under a Burmese board that nests the English echo
+ * INSIDE the Burmese element, which typesets it in Padauk and announces it to a screen reader as
+ * Burmese. That is exactly the violation `Chrome`'s rule 2 exists to prevent ("the English echo is a
+ * SIBLING, never a child"), and the heading is the one staff surface guests read. Two sibling spans,
+ * each marked for what it actually contains — and the `<h2>` itself stays unmarked, because it
+ * contains both.
+ */
+function ColumnHeading({
+  lang,
+  k,
+}: {
+  lang: StaffLang;
+  k: "board.col.preparing" | "board.col.ready";
+}) {
+  const my = lang === "my";
+  return (
+    <h2>
+      <span lang={my ? "my" : undefined}>{ts(lang, k)}</span>
+      <small lang={my ? undefined : "my"}>{my ? STAFF[k].en : STAFF[k].my}</small>
+    </h2>
   );
 }
 

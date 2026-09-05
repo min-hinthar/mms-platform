@@ -29,10 +29,16 @@ export const STAFF_WRITE_OUTAGE =
 
 /**
  * P2 — the same sentence in Burmese. A CONSTANT twin rather than a `ts(lang, …)` call, because
- * `STAFF_WRITE_OUTAGE` is re-exported by `lib/staff.ts` and returned from 24 `staffGate` arms as a
- * plain string; threading a language through that contract is an auth-path edit this slice does not
- * take (filed as P2c). The client reason-switches that RENDER it pick the twin by language, so the
- * one sentence every staff mutation shows during an outage is bilingual where it is read.
+ * `STAFF_WRITE_OUTAGE` is re-exported by `lib/staff.ts` and returned as a plain string from 27
+ * `error: STAFF_WRITE_OUTAGE` arms (measured: `grep -rn 'error: STAFF_WRITE_OUTAGE\b' lib | wc -l`);
+ * threading a language through that contract is an auth-path edit this slice does not take (filed as
+ * OPEN-ITEMS P2c).
+ *
+ * The twin is picked at the RENDER site instead, by `<OutageText>` (components/staff/Chrome.tsx),
+ * which is mounted in the two client sheets that show a mutation failure to a person — the loss
+ * sheet's live region and the refund sheet's. Those are the only two places a staff write failure is
+ * currently displayed as prose; the rest of the 27 arms feed server results that surface through
+ * those same sheets or are swallowed by a refetch.
  */
 export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
 

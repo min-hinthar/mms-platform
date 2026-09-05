@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { al, sx, type StaffControl } from "./staff-labels";
+import { ts } from "./i18n/staff";
 import type { StaffLang } from "./staff-lang";
 
 /**
@@ -122,6 +123,28 @@ describe("the visible label is what the screen actually shows", () => {
     const my = al("my", { kind: "bump", id: "#A12", items: 3 });
     expect(my.aria).toContain("#A12"); // the short code stays Latin — it is read off a printed slip
     expect(my.aria).toContain("၃"); // …but the COUNT is a prose count, so it is Burmese
+  });
+});
+
+describe("the recall chip's pair is INVERTED, because its visible label is the code", () => {
+  // The footer chip shows `⟲ #A12` — the code, not the verb — so `visible` must be the code and the
+  // verb must lead the announcement. Written the other way round first, which produced a name
+  // containing a Burmese verb the chip never displayed. The generic containment loop above cannot
+  // tell the two shapes apart (both contain SOMETHING), so the direction is asserted here.
+  for (const lang of LANGS) {
+    it(`${lang}: visible is the ticket code and the name leads with the verb`, () => {
+      const { visible, aria } = al(lang, { kind: "recall", label: "#A12" });
+      expect(visible).toBe("#A12");
+      expect(aria).toContain("#A12");
+      expect(aria.startsWith("#A12")).toBe(false); // the ACTION is announced first
+      expect(aria).toBe(`${ts(lang, "kds.recall")} — #A12`);
+    });
+  }
+
+  it("the undo button is the OTHER shape — its whole visible content IS the verb", () => {
+    const { visible, aria } = al("my", { kind: "undo", label: "#A12" });
+    expect(visible).toMatch(/[က-႟]/);
+    expect(aria.startsWith(visible)).toBe(true);
   });
 });
 

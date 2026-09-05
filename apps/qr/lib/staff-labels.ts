@@ -47,8 +47,14 @@ export type StaffControl =
   | { kind: "bump"; id: string; items: number }
   /** 86 the dish. Visible: 86 this dish / ဒီဟင်း ဖြုတ်. */
   | { kind: "eighty6"; name: string; nameMy: string | null }
-  /** Recall a bumped ticket, and the undo that follows a bump. Visible: the verb. */
+  /**
+   * Recall a bumped ticket from the footer rail. Visible: the ticket's CODE — the chip shows
+   * `⟲ #A12`, not the verb — so the pair is inverted relative to `undo`: the code is what must be
+   * contained, and the verb is what must lead the announcement. Written the other way round first,
+   * with `visible` set to the verb, which is a name that contains a string the chip never shows.
+   */
   | { kind: "recall"; label: string }
+  /** The undo that follows a bump. Visible: the verb — the button's whole content IS the label. */
   | { kind: "undo"; label: string };
 
 export function al(lang: StaffLang, control: StaffControl): StaffLabel {
@@ -70,8 +76,7 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       return { visible, aria: `${visible} — ${dish}` };
     }
     case "recall": {
-      const visible = ts(lang, "kds.recall");
-      return { visible, aria: `${visible} — ${control.label}` };
+      return { visible: control.label, aria: `${ts(lang, "kds.recall")} — ${control.label}` };
     }
     case "undo": {
       const visible = ts(lang, "kds.undo");

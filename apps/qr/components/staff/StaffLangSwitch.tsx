@@ -19,8 +19,19 @@ import type { StaffLang } from "@/lib/staff-lang";
  * autonym into the other language: that single edit makes the control unusable. The kiosk carries
  * the same pair as its only two `my === en` entries, for the same reason.
  *
- * The failure notice is a plain `role="alert"` mounted only on failure — deliberately NOT a live
- * region, so every staff view keeps its ONE.
+ * THE FAILURE NOTICE IS AN ASSERTIVE LIVE REGION, and saying otherwise was wrong: `role="alert"`
+ * carries an implicit `aria-live="assertive"`. It does not collide with the view's ONE polite region
+ * (`role="status"`), because those are different channels and the QA rule is about redundancy — no
+ * `aria-live` written ON a `role="status"`/`alert` — not about forbidding both. Assertive is the
+ * right register here: the person tapping this cannot read the console's other language, so a switch
+ * that silently failed would leave them with no way to know why nothing changed.
+ *
+ * ⚠️ THE BUTTONS ARE NEVER `disabled`, and that is a focus decision, not an oversight. Disabling the
+ * button that was just tapped drops focus to `<body>` in a real browser — jsdom does NOT reproduce
+ * that, so the suite's "keeps focus on the tapped button" assertion passed while the shipped control
+ * lost a keyboard user's place on every switch. Re-entry is blocked by the `pending` guard inside
+ * `choose` instead, and `aria-disabled` + the group's `aria-busy` say so without removing the node
+ * from the focus order.
  */
 export function StaffLangSwitch({ lang }: { lang: StaffLang }) {
   const router = useRouter();
@@ -52,7 +63,7 @@ export function StaffLangSwitch({ lang }: { lang: StaffLang }) {
         type="button"
         className="staff-lang-btn"
         aria-pressed={lang === "my"}
-        disabled={pending}
+        aria-disabled={pending}
         onClick={() => choose("my")}
         lang="my"
       >
@@ -62,7 +73,7 @@ export function StaffLangSwitch({ lang }: { lang: StaffLang }) {
         type="button"
         className="staff-lang-btn"
         aria-pressed={lang === "en"}
-        disabled={pending}
+        aria-disabled={pending}
         onClick={() => choose("en")}
       >
         English

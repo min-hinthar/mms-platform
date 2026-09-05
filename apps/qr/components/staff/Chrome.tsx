@@ -2,6 +2,7 @@
 import { Fragment, type ReactNode } from "react";
 import { STAFF, type StaffKey } from "@/lib/i18n/staff";
 import { fill } from "@/lib/i18n/fill";
+import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
 
 /**
@@ -91,4 +92,27 @@ export function Chrome({
       <span className="chrome-en">{en}</span>
     </span>
   );
+}
+
+/**
+ * P2 — a server-returned staff error, rendered in the device language where a twin exists.
+ *
+ * `staffGate` returns `STAFF_WRITE_OUTAGE` as a PLAIN STRING from 27 arms, and threading a language
+ * through that contract is an auth-path edit this slice does not take (filed as OPEN-ITEMS P2c). So
+ * the twin is picked at the RENDER site instead, by identity against the one sentence that has one:
+ * every other error passes through verbatim, because a sentence we cannot translate is better shown
+ * in English than guessed at in Burmese.
+ *
+ * Same two rules as `Chrome`: the English arm is a BRANCH returning a bare text node, and the
+ * Burmese arm is a marked span so the console's Padauk companion rules can reach it. No echo — this
+ * renders inside a live region, and a bilingual announcement says everything twice.
+ */
+export function OutageText({ lang, error }: { lang: StaffLang; error: string }) {
+  if (lang === "my" && error === STAFF_WRITE_OUTAGE)
+    return (
+      <span lang="my" className="chrome-my">
+        {STAFF_WRITE_OUTAGE_MY}
+      </span>
+    );
+  return <>{error}</>;
 }

@@ -401,8 +401,12 @@ export function FloorDetailLive({
         </p>
         {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={!writeError && degraded ? lang : undefined}
           style={{
             ...muted,
             marginTop: 6,

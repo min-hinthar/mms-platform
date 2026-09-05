@@ -1,7 +1,8 @@
 /** @vitest-environment jsdom */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Chrome } from "./Chrome";
+import { Chrome, OutageText } from "./Chrome";
+import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "@/lib/staff-outage";
 
 /**
  * P2 · G10 — the pair renderer's three rules, asserted on the rendered tree.
@@ -89,5 +90,41 @@ describe("a Latin value inside a Burmese run is marked", () => {
       <Chrome lang="my" k="kds.err.bump" vars={{ x: "မုန့်ဟင်းခါး" }} echo={false} />,
     );
     expect(container.querySelector('[lang="en"]')).toBeNull();
+  });
+});
+
+describe("OutageText — the one server sentence with a Burmese twin", () => {
+  it("swaps in the twin, marked, when the device is Burmese", () => {
+    const { container } = render(<OutageText lang="my" error={STAFF_WRITE_OUTAGE} />);
+    const marked = container.querySelector('[lang="my"]')!;
+    expect(marked.textContent).toBe(STAFF_WRITE_OUTAGE_MY);
+    expect(marked.className).toContain("chrome-my");
+    expect(marked.textContent).not.toBe(STAFF_WRITE_OUTAGE);
+  });
+
+  it("is a BRANCH under English — the same bare text node, zero elements", () => {
+    const { container } = render(<OutageText lang="en" error={STAFF_WRITE_OUTAGE} />);
+    expect(container.querySelectorAll("*")).toHaveLength(0);
+    expect(container.textContent).toBe(STAFF_WRITE_OUTAGE);
+  });
+
+  it("passes ANY other sentence through verbatim, in both tongues", () => {
+    // A sentence we have no twin for is shown in English rather than guessed at in Burmese: the
+    // swap is by identity against the one constant, never a substring or a prefix.
+    for (const lang of ["en", "my"] as const) {
+      cleanup();
+      const other = "Too many attempts. Wait 30 seconds.";
+      const { container } = render(<OutageText lang={lang} error={other} />);
+      expect(container.textContent).toBe(other);
+      expect(container.querySelector('[lang="my"]')).toBeNull();
+    }
+  });
+
+  it("does not swap on a sentence that merely CONTAINS the constant", () => {
+    const { container } = render(
+      <OutageText lang="my" error={`${STAFF_WRITE_OUTAGE} (order #A12)`} />,
+    );
+    expect(container.textContent).toContain("#A12");
+    expect(container.textContent).not.toContain(STAFF_WRITE_OUTAGE_MY);
   });
 });

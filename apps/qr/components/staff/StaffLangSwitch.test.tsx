@@ -51,10 +51,15 @@ describe("StaffLangSwitch", () => {
     expect(screen.getByRole("group").getAttribute("aria-labelledby")).toBeTruthy();
   });
 
-  it("mounts NO live region — each staff view keeps its one", () => {
+  it("mounts no POLITE region — each staff view keeps its one role=status", () => {
+    // The failure notice below IS an assertive region (`role="alert"` implies
+    // aria-live="assertive"); an earlier version of this test and the component's docblock both
+    // claimed it was not a live region at all, which is simply false about the role. What must not
+    // collide is the POLITE channel the surrounding view owns, and no `aria-live` may be written on
+    // a role that already implies one.
     const { container } = render(<StaffLangSwitch lang="my" />);
-    expect(container.querySelector("[aria-live]")).toBeNull();
     expect(container.querySelector('[role="status"]')).toBeNull();
+    expect(container.querySelector("[aria-live]")).toBeNull();
   });
 
   it("writes the chosen language once and refreshes", async () => {
@@ -73,13 +78,50 @@ describe("StaffLangSwitch", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("keeps focus on the tapped button", async () => {
+  it("never DISABLES a button — that is what would drop focus, and jsdom cannot show it", async () => {
+    // ⚠️ THE ASSERTION THAT CARRIES THE WEIGHT IS `disabled`, not `activeElement`. A real browser
+    // moves focus to <body> when the focused element becomes disabled; jsdom does not, so the
+    // focus check below passed for the whole time the buttons WERE `disabled={pending}` and the
+    // shipped control lost a keyboard user's place on every switch. Re-entry is blocked by the
+    // `pending` guard in `choose`, asserted in the next test, not by removing the node.
+    let release!: (v: { ok: true; lang: "en" }) => void;
+    setStaffLang.mockReturnValue(new Promise((r) => (release = r)));
     render(<StaffLangSwitch lang="my" />);
     const target = en();
     target.focus();
     fireEvent.click(target);
-    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    await waitFor(() => expect(setStaffLang).toHaveBeenCalled());
+    expect(target.hasAttribute("disabled")).toBe(false);
+    expect(my().hasAttribute("disabled")).toBe(false);
+    expect(target.getAttribute("aria-disabled")).toBe("true");
     expect(document.activeElement).toBe(target);
+    release({ ok: true, lang: "en" });
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it("a second tap while the first is in flight writes nothing more", async () => {
+    // The re-entry guard `disabled` used to provide, kept as behaviour now that the attribute is
+    // gone — otherwise dropping `disabled` would trade a focus bug for a double-write.
+    let release!: (v: { ok: true; lang: "en" }) => void;
+    setStaffLang.mockReturnValue(new Promise((r) => (release = r)));
+    render(<StaffLangSwitch lang="my" />);
+    fireEvent.click(en());
+    await waitFor(() => expect(setStaffLang).toHaveBeenCalledTimes(1));
+    fireEvent.click(en());
+    fireEvent.click(my());
+    expect(setStaffLang).toHaveBeenCalledTimes(1);
+    release({ ok: true, lang: "en" });
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+  });
+
+  it("the failure notice is an ASSERTIVE region, and only mounts on failure", async () => {
+    setStaffLang.mockResolvedValue({ ok: false, error: "nope" });
+    const { container } = render(<StaffLangSwitch lang="my" />);
+    expect(container.querySelector('[role="alert"]')).toBeNull();
+    fireEvent.click(en());
+    const alert = await screen.findByRole("alert");
+    // No redundant aria-live on a role that already implies one (QA §A).
+    expect(alert.hasAttribute("aria-live")).toBe(false);
   });
 
   it("shows an alert on failure and does NOT claim the new language", async () => {

@@ -32,6 +32,7 @@ const QR = join(ROOT, "apps/qr");
 const APP = join(QR, "app");
 
 const COOKIE_LITERAL = "mms_staff_lang";
+const COOKIE_CONSTANT = "STAFF_LANG_COOKIE";
 const COOKIE_HOME = join(QR, "lib/staff-lang.ts");
 const GUARDED = [join(QR, "lib/staff-lang-server.ts"), join(QR, "lib/staff-lang-actions.ts")];
 
@@ -59,6 +60,37 @@ function parse(file) {
     true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
+}
+
+/**
+ * The dictionary entry points. A string reaching the DOM through one of these is authored copy in
+ * the device language; anything else in a JSX child is data or Latin punctuation.
+ */
+const DICT_CALLS = ["ts", "tf", "frozenBoardCopy"];
+
+/**
+ * Does this subtree CALL one of `names`?
+ *
+ * ⚠️ Written as an AST walk rather than `text.includes("ts(")` on purpose, and the substring form is
+ * the exact defect it replaces: `includes("ts(")` matches `formats(`, `getStats(` and every other
+ * identifier ENDING in `ts`, and it matches the same text inside a comment. Only a CallExpression
+ * whose callee is the bare identifier counts.
+ */
+function callsAny(node, names) {
+  let hit = false;
+  function visit(n) {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      names.includes(n.expression.text)
+    )
+      hit = true;
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  }
+  visit(node);
+  return hit;
 }
 
 /** Resolve a module specifier to a file on disk, or null when it is a package. */
@@ -161,11 +193,23 @@ for (const root of routeRoots) {
 
 // ── Rule 2 — the cookie name literal lives in exactly one file ───────────────────────────────────
 const literalHomes = [];
-for (const file of [
+const constantHomes = [];
+/**
+ * The scan set. `apps/qr`'s ROOT modules are in it deliberately: `proxy.ts` is where the retired
+ * `mms_locale` cookie was read, so it is the single likeliest place for the next inline
+ * `cookies().get("mms_staff_lang")` to be written, and the first cut of this rule did not look
+ * there at all. `readdirSync` at the root rather than `walkFiles` so `node_modules`/`.next` and the
+ * three directories already listed are not walked twice.
+ */
+const RULE2_FILES = [
   ...walkFiles(join(QR, "lib")),
   ...walkFiles(join(QR, "app")),
   ...walkFiles(join(QR, "components")),
-]) {
+  ...readdirSync(QR)
+    .map((n) => join(QR, n))
+    .filter((f) => EXTS.some((e) => f.endsWith(e)) && statSync(f).isFile()),
+];
+for (const file of RULE2_FILES) {
   if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
   let sf;
   try {
@@ -174,6 +218,7 @@ for (const file of [
     continue;
   }
   let found = false;
+  let usesConstant = false;
   function visit(node) {
     // A StringLiteral or a no-substitution template — never a comment, which is not an AST node.
     if (
@@ -181,12 +226,26 @@ for (const file of [
       node.text === COOKIE_LITERAL
     )
       found = true;
+    // …and the same name reached through the EXPORTED constant, which carries no literal for the
+    // check above to see. `staff-lang.ts` is pure and must stay importable from anywhere, so rule 1
+    // cannot guard it — a diner server component importing STAFF_LANG_COOKIE and calling
+    // `cookies().get()` with it would have passed both rules.
+    if (ts.isIdentifier(node) && node.text === COOKIE_CONSTANT) usesConstant = true;
     ts.forEachChild(node, (c) => {
       visit(c);
     });
   }
   visit(sf);
   if (found) literalHomes.push(file);
+  if (usesConstant) constantHomes.push(file);
+}
+
+const CONSTANT_HOMES = [COOKIE_HOME, ...GUARDED];
+const strayConstant = constantHomes.filter((f) => !CONSTANT_HOMES.includes(f));
+if (strayConstant.length) {
+  failures.push(
+    `rule 2: ${COOKIE_CONSTANT} may only be referenced by ${CONSTANT_HOMES.map((f) => relative(ROOT, f)).join(", ")}.\n      Found in: ${strayConstant.map((f) => relative(ROOT, f)).join(", ")}\n      Reading the staff cookie through the constant bypasses the literal check above.`,
+  );
 }
 
 if (literalHomes.length !== 1 || literalHomes[0] !== COOKIE_HOME) {
@@ -288,14 +347,26 @@ for (const file of ARIA_FILES) {
     if (ts.isJsxAttribute(node) && node.name.getText(sf) === "aria-label") {
       const init = node.initializer;
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-      if (init && ts.isStringLiteral(init)) {
+      // `aria-label="x"` AND `aria-label={"x"}` — the braces are the evasion the first cut missed.
+      const literal =
+        (init && ts.isStringLiteral(init)) ||
+        (init &&
+          ts.isJsxExpression(init) &&
+          init.expression &&
+          (ts.isStringLiteral(init.expression) ||
+            ts.isNoSubstitutionTemplateLiteral(init.expression)));
+      if (literal) {
         failures.push(
           `rule 3: ${rel}:${line} — a LITERAL aria-label. Use al() for a control with a visible label, or sx() for one without.`,
         );
       } else if (init && ts.isJsxExpression(init) && init.expression) {
         const expr = init.expression;
         const text = expr.getText(sf);
-        if (ts.isTemplateExpression(expr) && !text.includes("ts(") && !text.includes("al(")) {
+        if (
+          ts.isTemplateExpression(expr) &&
+          !callsAny(expr, DICT_CALLS) &&
+          !callsAny(expr, ["al"])
+        ) {
           failures.push(
             `rule 3: ${rel}:${line} — a hand-built template aria-label. Names come from lib/staff-labels.ts.`,
           );
@@ -321,38 +392,73 @@ for (const file of ARIA_FILES) {
   visit(sf);
 }
 
-// ── Rule 4 — every staff page mounts the language control ────────────────────────────────────────
+// ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
 // A staff surface that cannot switch language is a surface one of the two readers is locked out of.
-// The switch is mounted PER PAGE rather than by the layout (a layout strip would steal height from
-// the KDS's measured `min-height: 100dvh`), so this is what makes "per page" safe.
+// The switch is mounted PER SURFACE rather than by the layout (a layout strip would steal height
+// from the KDS's measured `min-height: 100dvh`), so this is what makes "per surface" safe.
+//
+// ⚠️ THIS RULE WAS DECORATIVE IN ITS FIRST CUT AND THAT IS WHY IT LOOKS LIKE THIS NOW. It accepted
+// `<StaffOutageShell>` as evidence that a page "owns" a switch. The shell mounts NOTHING — it is the
+// full-page takeover shown when the auth answer is unknowable — and 14 of the 15 staff pages render
+// it, so the rule passed green over 13 pages with no control at all while its own comment claimed to
+// prove "no staff page forgets it". A guard satisfied by a TAG NAME rather than by the behaviour it
+// names is LEARNINGS #60 exactly, written by the session that had just read #60.
+//
+// So: the only accepted evidence is a live `<StaffLangSwitch>`, found in the page's own JSX or in a
+// component the page transitively imports (the KDS mounts it inside `KdsBoard`, not in
+// `kitchen/page.tsx`). And the 13 pages that genuinely have no control are a RATCHET, not a pass.
 //
 // ⚠️ STATED LIMIT, because a guard that overclaims is worse than none: this is a PRESENCE check over
-// the JSX a page returns, excluding the enumerated literal-dead shapes below. It is liveness against
-// a PARKED DEAD COPY, not a reachability proof — a page whose only mount sits behind a runtime-false
-// condition passes here, and the preview a11y tick is what covers that shape.
+// the JSX a module returns, excluding the enumerated literal-dead shapes below. It is liveness
+// against a PARKED DEAD COPY, not a reachability proof — a page whose only mount sits behind a
+// runtime-false condition passes here, and the preview a11y tick is what covers that shape.
 const staffPages = walkFiles(join(APP, "staff")).filter((f) => f.endsWith("/page.tsx"));
 if (staffPages.length < 10)
   failures.push(
     `rule 4 DID NOT RUN: found only ${staffPages.length} staff pages — the discovery is broken, not the codebase.`,
   );
 
-for (const file of staffPages) {
-  const src = readFileSync(file, "utf8");
+/**
+ * ⚠️ A RATCHET, not a whitelist — same contract as ARIA_TODO. P2 PR A converts `/staff/login` and
+ * the KDS; PR B takes the rest (OPEN-ITEMS P2c). A page may only ever LEAVE this list, and the
+ * self-check below fails if a listed page HAS a switch — so a finished conversion cannot sit here
+ * as a permanent exemption.
+ */
+const SWITCH_TODO = new Set(
+  [
+    "app/staff/approvals/page.tsx",
+    "app/staff/expo/page.tsx",
+    "app/staff/feedback/page.tsx",
+    "app/staff/lock/page.tsx",
+    "app/staff/menu/page.tsx",
+    "app/staff/orders/page.tsx",
+    "app/staff/page.tsx",
+    "app/staff/profile/page.tsx",
+    "app/staff/register/page.tsx",
+    "app/staff/table/[id]/add/page.tsx",
+    "app/staff/table/[id]/page.tsx",
+    "app/staff/team/page.tsx",
+    "app/staff/tips/page.tsx",
+  ].map((f) => join(QR, f)),
+);
+
+/** Does this module's own JSX mount a live `<StaffLangSwitch>`? */
+function mountsSwitchHere(file) {
   let sf;
+  let src;
   try {
+    src = readFileSync(file, "utf8");
     sf = parse(file);
   } catch {
-    continue;
+    return false;
   }
-  let mounts = false;
+  let found = false;
   function visit(node) {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      const tag = node.tagName.getText(sf);
-      if (tag === "StaffLangSwitch" || tag === "StaffOutageShell") {
+      if (node.tagName.getText(sf) === "StaffLangSwitch") {
         // Exclude the literal-dead shapes: `{false && <X/>}` and `{0 && <X/>}`.
-        const text = node.getText(sf);
         const before = src.slice(Math.max(0, node.getStart(sf) - 40), node.getStart(sf));
-        if (!/\{\s*(false|0)\s*&&\s*$/.test(before) && text.length > 0) mounts = true;
+        if (!/\{\s*(false|0)\s*&&\s*$/.test(before)) found = true;
       }
     }
     ts.forEachChild(node, (c) => {
@@ -360,9 +466,42 @@ for (const file of staffPages) {
     });
   }
   visit(sf);
-  if (!mounts)
+  return found;
+}
+
+/** …or does any module it transitively imports, within apps/qr? */
+function reachesSwitch(root) {
+  const seen = new Set([root]);
+  const queue = [root];
+  while (queue.length) {
+    const file = queue.shift();
+    if (mountsSwitchHere(file)) return true;
+    for (const dep of importsOf(file)) {
+      if (!seen.has(dep) && dep.startsWith(QR)) {
+        seen.add(dep);
+        queue.push(dep);
+      }
+    }
+  }
+  return false;
+}
+
+for (const file of staffPages) {
+  const listed = SWITCH_TODO.has(file);
+  const reaches = reachesSwitch(file);
+  if (!listed && !reaches)
     failures.push(
-      `rule 4: ${relative(ROOT, file)} mounts neither <StaffLangSwitch> nor <StaffOutageShell> (which owns one). One of the two people who read this console cannot change its language here.`,
+      `rule 4: ${relative(ROOT, file)} never reaches <StaffLangSwitch>. One of the two people who read this console cannot change its language here.`,
+    );
+  if (listed && reaches)
+    failures.push(
+      `rule 4: ${relative(ROOT, file)} now reaches <StaffLangSwitch> — it is converted. Delete its SWITCH_TODO entry so the guard starts holding it.`,
+    );
+}
+for (const file of SWITCH_TODO) {
+  if (!staffPages.includes(file))
+    failures.push(
+      `rule 4: ${relative(ROOT, file)} is on the still-to-convert list but is not a staff page. Delete the entry.`,
     );
 }
 
@@ -386,8 +525,11 @@ for (const file of ARIA_TODO) {
       const init = node.initializer;
       if (init && ts.isStringLiteral(init)) hasLiteral = true;
       if (init && ts.isJsxExpression(init) && init.expression) {
-        const t = init.expression.getText(sf);
-        if (ts.isTemplateExpression(init.expression) && !t.includes("al(") && !t.includes("ts("))
+        if (
+          ts.isTemplateExpression(init.expression) &&
+          !callsAny(init.expression, DICT_CALLS) &&
+          !callsAny(init.expression, ["al"])
+        )
           hasLiteral = true;
       }
     }
@@ -402,6 +544,148 @@ for (const file of ARIA_TODO) {
     );
 }
 
+// ── Rule 5 — a Burmese run that reaches the DOM must be MARKED ──────────────────────────────────
+// THE DEFECT THIS EXISTS FOR, in the words of the audit that found it: the console's chrome went
+// through `ts(lang, …)` into bare JSX children, and those elements — `.kds-stat span`, `.kds-badge`,
+// `.kds-line-tag`, the board's live region — declare `letter-spacing: 0.07em` and
+// `text-transform: uppercase` and NO `font-family`. So under a Burmese device the labels rendered in
+// HANKEN, tracked apart from their own diacritics, at Latin leading. The dictionary was translated
+// and the typography was not, and nothing in the build could tell.
+//
+// The rule: a dictionary call in a JSX CHILD position must sit inside an element carrying a `lang`
+// attribute, which is what `.stx-root [lang="my"]` / `.orb-root [lang="my"]` in globals.css style.
+// `<Chrome>` and `<OutageText>` mark their own output, so a call inside their props is exempt —
+// they ARE the mark.
+//
+// EXEMPT BY DESIGN: attribute positions. An `aria-label` is a flat string that carries no markup at
+// all; that trade-off is argued in `lib/staff-labels.ts` and rule 3 is what governs those.
+//
+// ⚠️ WHAT SATISFIES THIS MATCHER WITHOUT SHIPPING THE BEHAVIOUR, and what is done about each:
+// • an identifier ending in `ts` — `callsAny` matches the CALLEE, not a substring;
+// • the same call inside a comment — comments are not AST nodes;
+// • `lang={undefined}` / `lang=""` — an initializer that is literally `undefined` or empty does not
+//   count as a mark;
+// • the mark on a DIFFERENT element than the one that renders — the walk stops at the nearest
+//   enclosing JSX element chain within the file, which is the chain the browser inherits down.
+const MARK_FILES = [
+  ...ARIA_DIRS.flatMap((d) => {
+    try {
+      return walkFiles(d);
+    } catch {
+      return [];
+    }
+  }),
+  join(QR, "components/ReadyBoard.tsx"),
+].filter((f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"));
+
+/** Components that mark their own output — a dictionary call in their props needs no outer mark. */
+const SELF_MARKING = new Set(["Chrome", "OutageText"]);
+
+/** A usable `lang=` — present, with an initializer that is neither `undefined` nor the empty string. */
+function hasLangMark(el, sf) {
+  const opening = ts.isJsxElement(el) ? el.openingElement : el;
+  if (!opening.attributes) return false;
+  return opening.attributes.properties.some((a) => {
+    if (!ts.isJsxAttribute(a) || a.name.getText(sf) !== "lang") return false;
+    const init = a.initializer;
+    if (!init) return false;
+    if (ts.isStringLiteral(init)) return init.text.length > 0;
+    if (ts.isJsxExpression(init) && init.expression)
+      return init.expression.getText(sf).trim() !== "undefined";
+    return false;
+  });
+}
+
+/** Is this node lexically inside ANY JSX at all? A call outside JSX never renders directly. */
+function isInsideJsx(node) {
+  for (let n = node.parent; n; n = n.parent)
+    if (
+      ts.isJsxElement(n) ||
+      ts.isJsxSelfClosingElement(n) ||
+      ts.isJsxFragment(n) ||
+      ts.isJsxExpression(n)
+    )
+      return true;
+  return false;
+}
+
+let marked = 0;
+for (const file of MARK_FILES) {
+  let sf;
+  try {
+    sf = parse(file);
+  } catch {
+    continue;
+  }
+  const rel = relative(ROOT, file);
+  function visit(node) {
+    // Iterate over the CALLS, never over the JSX expressions that contain them. The first cut did
+    // the reverse and flagged five correctly-marked sites: `{failed && (<span lang="my">{ts(…)}</span>)}`
+    // has an OUTER expression whose parent is an unmarked `<header>`, and a subtree search from
+    // there finds the call and blames the wrong element. Starting at the call and walking OUT is
+    // the only direction that identifies the element the text actually lands in.
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      DICT_CALLS.includes(node.expression.text)
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+      let el = node.parent;
+      let verdict = null; // "marked" | "attribute" | null (= not in JSX at all)
+      while (el) {
+        // An attribute value: a flat string with no markup. rule 3 governs those.
+        if (ts.isJsxAttribute(el)) {
+          verdict = "attribute";
+          break;
+        }
+        if (ts.isJsxElement(el) || ts.isJsxSelfClosingElement(el)) {
+          const tag = (ts.isJsxElement(el) ? el.openingElement : el).tagName.getText(sf);
+          if (SELF_MARKING.has(tag) || hasLangMark(el, sf)) {
+            verdict = "marked";
+            break;
+          }
+        }
+        el = el.parent;
+      }
+      if (verdict === "marked") marked++;
+      else if (verdict === null && !isInsideJsx(node))
+        // Not rendered from JSX at all — a string handed to `setNotice`/`onError`, which lands in a
+        // live region this rule cannot follow. STATED LIMIT: those regions are marked by hand and
+        // `KdsBoard`'s is asserted in its own suite.
+        void 0;
+      else if (verdict === null)
+        failures.push(
+          `rule 5: ${rel}:${line} — a dictionary string reaches the DOM with no lang mark on any enclosing element. Under Burmese it renders in the Latin face, tracked and uppercased. Add lang={lang}, or render it through <Chrome>.`,
+        );
+    }
+    // …and the same call handed to a component PROP that renders as text. Only the two EmptyState
+    // slots exist today; both take a ReactNode, so both must carry <Chrome>, not a bare string.
+    if (
+      ts.isJsxAttribute(node) &&
+      ["title", "subtitle"].includes(node.name.getText(sf)) &&
+      node.initializer &&
+      ts.isJsxExpression(node.initializer) &&
+      node.initializer.expression &&
+      callsAny(node.initializer.expression, DICT_CALLS)
+    ) {
+      const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+      failures.push(
+        `rule 5: ${rel}:${line} — a dictionary string passed as a bare \`${node.name.getText(sf)}\` prop. The slot takes a ReactNode; pass <Chrome> so the Burmese arrives marked.`,
+      );
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+}
+
+// Self-check: a rule that finds nothing to hold is not passing, it is not running.
+if (marked < 10)
+  failures.push(
+    `rule 5 DID NOT RUN: found only ${marked} marked dictionary renders across ${MARK_FILES.length} staff components — the discovery is broken, not the codebase.`,
+  );
+
 // ── Report ──────────────────────────────────────────────────────────────────────────────────────
 if (failures.length) {
   console.error("staff locale isolation … \x1b[31mFAILED\x1b[0m");
@@ -409,5 +693,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · cookie name in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length} staff pages mount the control)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · cookie name in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert · ${marked} marked dictionary renders)\x1b[0m`,
 );

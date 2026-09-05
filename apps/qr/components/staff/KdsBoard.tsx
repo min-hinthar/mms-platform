@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
@@ -54,13 +62,34 @@ const STATIONS: { key: "all" | KitchenStation; k: StaffKey }[] = [
   { key: "drinks", k: "kds.station.drinks" },
 ];
 
-/** The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code). */
-function ticketId(lang: StaffLang, t: KitchenTicket): { main: string; sub: string | null } {
-  // The table NUMBER stays Latin in both tongues — it is read off the physical tent.
-  if (t.channel === "dinein")
-    return { main: tf(lang, "kds.table", { id: t.tableNumber ?? t.label }), sub: null };
+/**
+ * The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code).
+ *
+ * Returns BOTH forms from one derivation, because they are needed in two shapes and must never
+ * drift: `main` is the flat string an accessible name and a recall entry carry, `node` is what the
+ * strip renders. Only the dine-in arm is CHROME — "Table {id}" is our sentence and speaks the
+ * device's language, so its node goes through `Chrome` (which marks the Burmese and wraps the Latin
+ * table number `lang="en"`, per that module's rule 3). A guest's name and a `#CODE` are DATA: they
+ * are printed on a slip in Latin and are rendered unmarked in both tongues, because marking them
+ * `lang="my"` would claim a name is Burmese and let `overflow-wrap: anywhere` break a code.
+ *
+ * The table NUMBER stays Latin in both tongues either way — it is read off the physical tent.
+ */
+function ticketId(
+  lang: StaffLang,
+  t: KitchenTicket,
+): { main: string; node: ReactNode; sub: string | null } {
+  if (t.channel === "dinein") {
+    const vars = { id: t.tableNumber ?? t.label };
+    return {
+      main: tf(lang, "kds.table", vars),
+      node: <Chrome lang={lang} k="kds.table" vars={vars} />,
+      sub: null,
+    };
+  }
   const code = t.shortCode ? `#${t.shortCode}` : t.label;
-  return t.customerName ? { main: t.customerName, sub: code } : { main: code, sub: null };
+  const main = t.customerName ?? code;
+  return { main, node: main, sub: t.customerName ? code : null };
 }
 
 const CHANNEL_KEY: Record<KitchenTicket["channel"], StaffKey> = {
@@ -380,7 +409,10 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       setNotice(tf(lang, "kds.live.bumped", { x: label }));
       void refresh();
     },
-    [refresh],
+    // `lang` is a REAL dependency, not a lint appeasement: `refresh` is permanently stable, so a
+    // deps list of [refresh] freezes this closure at its first render and the live region keeps
+    // announcing the bump in whichever language the console started in, for the rest of the shift.
+    [lang, refresh],
   );
 
   const [recallPending, startRecall] = useTransition();
@@ -431,19 +463,19 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         <div className="kds-stats" aria-label={sx(lang, "kds.a11y.stats")}>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count}</b>
-            <span>{ts(lang, "kds.stat.open")}</span>
+            <span lang={lang}>{ts(lang, "kds.stat.open")}</span>
           </p>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count === 0 ? "—" : fmtElapsed(oldestMs)}</b>
-            <span>{ts(lang, "kds.stat.oldest")}</span>
+            <span lang={lang}>{ts(lang, "kds.stat.oldest")}</span>
           </p>
           <p className={`kds-stat${lateCount > 0 ? " kds-stat-late" : ""}`} style={{ margin: 0 }}>
             <b>{lateCount}</b>
-            <span>{ts(lang, "kds.stat.late")}</span>
+            <span lang={lang}>{ts(lang, "kds.stat.late")}</span>
           </p>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{snap.stats.servedToday === 0 ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
-            <span>{ts(lang, "kds.stat.avg")}</span>
+            <span lang={lang}>{ts(lang, "kds.stat.avg")}</span>
           </p>
         </div>
 
@@ -452,6 +484,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             aria-live=polite (the codebase idiom). */}
         <p
           role="status"
+          // The region's whole content is chrome in the device language (never a pair — a bilingual
+          // live region announces everything twice), so the MARK belongs on the region itself.
+          lang={lang}
           style={{
             margin: 0,
             fontSize: "var(--kfs-meta)",
@@ -537,8 +572,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           {/* P2 — last in the control row, after the station chips and the sound control. Mounted
               per surface rather than by the layout: a layout-owned strip would steal height from
               `.kds-root { min-height: 100dvh }`, which is exactly what P4 measures on the real
-              15.6" tablet ("count how many tickets scroll"). An AST guard proves no staff page
-              forgets it. */}
+              15.6" tablet ("count how many tickets scroll"). `check-staff-lang.mjs` rule 4 holds
+              THIS surface and `/staff/login` to that mount and reddens if either loses it; the
+              other 13 staff pages are on its ratchet, un-converted, and PR B takes them. */}
           <StaffLangSwitch lang={lang} />
         </div>
       </header>
@@ -550,8 +586,8 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                 arrivals we can't deliver ("tickets appear the moment an order is sent" is false
                 while we can't hear about orders at all). */}
             <EmptyState
-              title={ts(lang, degraded ? "kds.empty.degraded" : "kds.empty")}
-              subtitle={ts(lang, degraded ? "kds.empty.outage" : "kds.empty.hint")}
+              title={<Chrome lang={lang} k={degraded ? "kds.empty.degraded" : "kds.empty"} />}
+              subtitle={<Chrome lang={lang} k={degraded ? "kds.empty.outage" : "kds.empty.hint"} />}
             />
           </div>
         ) : (
@@ -618,7 +654,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   <span key={i} className="kds-dot" data-current={i === safePage} />
                 ))}
               </span>
-              <span className="sr-only">
+              <span className="sr-only" lang={lang}>
                 {tf(lang, "kds.page", { n: safePage + 1, total: pageCount })}
               </span>
               <button
@@ -664,6 +700,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   className="kds-recall-btn"
                   onClick={() => doRecall(r)}
                   disabled={recallPending}
+                  aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
                   <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
                   {r.label}
@@ -764,7 +801,7 @@ function TicketCard({
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
       <header className={stripClass}>
         <span className="kds-id">
-          {id.main}
+          {id.node}
           {id.sub && <small>{id.sub}</small>}
         </span>
         <span className="kds-strip-side">
@@ -778,7 +815,7 @@ function TicketCard({
           </span>
           {/* Class C — a badge this size cannot legibly stack two scripts, so it speaks the
               device's language alone. */}
-          <span className="kds-badge">
+          <span className="kds-badge" lang={lang}>
             {ticket.held ? ts(lang, "kds.held") : ""}
             {ts(lang, CHANNEL_KEY[ticket.channel])}
           </span>
@@ -926,7 +963,7 @@ function KdsLineRow({
               therefore carries no lang; that trade is argued in `staff-labels.ts`. */}
           <TicketLineText line={line} />
           {(line.fulfillment === "togo" || line.state === "in_progress") && (
-            <p className="kds-line-tag">
+            <p className="kds-line-tag" lang={lang}>
               {line.fulfillment === "togo" ? ts(lang, "kds.line.bagit") : ""}
               {line.fulfillment === "togo" && line.state === "in_progress" ? " · " : ""}
               {line.state === "in_progress" ? ts(lang, "kds.line.cooking") : ""}

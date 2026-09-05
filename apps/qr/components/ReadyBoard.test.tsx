@@ -44,6 +44,20 @@ async function renderBoard(lang: "en" | "my", refusal?: { status: number; body: 
 }
 
 describe("the two column headings", () => {
+  /**
+   * The rule both cases below share, and the defect they were rewritten for: the `<h2>` carries
+   * BOTH tongues, so it must carry NO `lang` of its own, and each half must be marked for what IT
+   * contains. The first cut put `lang="my"` on the heading itself under a Burmese board, which
+   * nested the English echo inside a Burmese element — Padauk type and a Burmese announcement for an
+   * English word, the very thing `Chrome`'s rule 2 forbids. Asserted in BOTH directions so the fix
+   * cannot regress into the mirror-image bug.
+   */
+  function halves(h2: HTMLElement) {
+    const small = h2.querySelector("small")!;
+    const lead = [...h2.children].find((c) => c !== small) as HTMLElement;
+    return { lead, small };
+  }
+
   it("English leads, Burmese follows — and BOTH are present", async () => {
     const { container } = await renderBoard("en");
     const heads = [...container.querySelectorAll("h2")];
@@ -52,22 +66,41 @@ describe("the two column headings", () => {
     expect(heads[0]!.textContent).toContain(PREPARING_MY);
     expect(heads[1]!.textContent).toContain("Ready");
     expect(heads[1]!.textContent).toContain(READY_MY);
-    // Under English the Burmese half is the marked part.
-    expect(heads[0]!.querySelector("small")!.getAttribute("lang")).toBe("my");
+    const { lead, small } = halves(heads[0]!);
+    expect(lead.textContent).toBe("Preparing");
+    expect(lead.hasAttribute("lang")).toBe(false); // English is the document's ambient tongue
+    expect(small.getAttribute("lang")).toBe("my");
     expect(heads[0]!.hasAttribute("lang")).toBe(false);
   });
 
   it("Burmese leads, English follows — and BOTH are still present", async () => {
     const { container } = await renderBoard("my");
     const heads = [...container.querySelectorAll("h2")];
-    expect(heads[0]!.getAttribute("lang")).toBe("my");
-    // The heading element itself now carries the Burmese, so the CSS companion can give it Padauk —
-    // the rule this fixes had no font-family at all, so these two words rendered in the Latin face.
-    expect(heads[0]!.childNodes[0]!.textContent).toBe(PREPARING_MY);
-    expect(heads[0]!.querySelector("small")!.textContent).toBe("Preparing");
-    expect(heads[0]!.querySelector("small")!.hasAttribute("lang")).toBe(false);
-    expect(heads[1]!.childNodes[0]!.textContent).toBe(READY_MY);
-    expect(heads[1]!.querySelector("small")!.textContent).toBe("Ready");
+    // The heading spans two tongues, so it carries neither mark; the CSS companion reaches the
+    // Burmese half through a DESCENDANT selector and gives that half — and only it — Padauk.
+    expect(heads[0]!.hasAttribute("lang")).toBe(false);
+    const first = halves(heads[0]!);
+    expect(first.lead.getAttribute("lang")).toBe("my");
+    expect(first.lead.textContent).toBe(PREPARING_MY);
+    expect(first.small.textContent).toBe("Preparing");
+    expect(first.small.hasAttribute("lang")).toBe(false);
+    const second = halves(heads[1]!);
+    expect(second.lead.getAttribute("lang")).toBe("my");
+    expect(second.lead.textContent).toBe(READY_MY);
+    expect(second.small.textContent).toBe("Ready");
+    expect(second.small.hasAttribute("lang")).toBe(false);
+  });
+
+  it('no English text ever sits inside a lang="my" element, in either direction', async () => {
+    // The rule stated as a property rather than a shape, so a future heading refactor is held to it
+    // too: everything under a Burmese mark must be Myanmar script.
+    for (const lang of ["en", "my"] as const) {
+      cleanup();
+      const { container } = await renderBoard(lang);
+      const marked = [...container.querySelectorAll('[lang="my"]')];
+      expect(marked.length).toBeGreaterThan(0);
+      for (const el of marked) expect(el.textContent ?? "").not.toMatch(/[A-Za-z]/);
+    }
   });
 });
 

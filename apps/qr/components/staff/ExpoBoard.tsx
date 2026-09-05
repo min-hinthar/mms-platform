@@ -142,8 +142,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         >
           Takeaway bags
         </h2>
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={!err && degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
