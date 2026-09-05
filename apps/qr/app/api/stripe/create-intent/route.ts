@@ -18,13 +18,23 @@ import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
-import { acquireCartLock, releaseCartLockFor, releasePromoGrantFor } from "@/lib/lock";
+import {
+  acquireCartLock,
+  linkPaymentIntent,
+  releaseCartLockFor,
+  releasePromoGrantFor,
+} from "@/lib/lock";
+import { supersedeCartIntent } from "@/lib/supersede";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // Creates a PaymentIntent for the SERVER-COMPUTED total. The client sends only the
 // cartId + tip choice — never an amount. (Fixes client-authoritative pricing.)
 export async function POST(req: NextRequest) {
   let acquired: { cartId: string; uid: string; era: string } | null = null;
+  // M151 — an intent this request minted but has not yet LINKED. If the request throws between the
+  // mint and the link write, the outer catch cancels it: an unlinked live intent is exactly the
+  // "older intent still chargeable" shape this slice exists to close.
+  let minted: string | null = null;
   try {
     const { cartId, tipRate, firstName, phone } = createIntentInput.parse(await req.json());
 
@@ -87,6 +97,42 @@ export async function POST(req: NextRequest) {
       const err = await releaseCartLockFor(cartId, uid, attemptEra);
       if (err) console.error("[create-intent] lock not released", { cartId, error: err.message });
     };
+
+    // M151 · M152 (b) — MAKE THE PREDECESSOR UNUSABLE BEFORE ANYTHING ELSE. If the cart still names
+    // an intent, cancel it at Stripe and drop the link; refuse if it captured; refuse without
+    // touching anything if Stripe could not say. This runs ABOVE the pickup/sold-out gates so a
+    // refusal here never consumes a slot, and ABOVE the stale-grant release so that release can
+    // only ever clear a pin nothing depends on — `mms_release_promo_grant` now carries
+    // `and live_payment_intent_id is null`, and this is the step that makes that predicate true.
+    //
+    // Sequencing is guarded by `scripts/check-promo-grant-pin.mjs` rule 3: awaited, in a statement
+    // that finishes before the release statement begins — never lexical order.
+    //
+    // ⚠️ NEITHER REFUSAL BELOW RELEASES THE LOCK (blind adversarial pass on #257, CRITICAL 1). The
+    // first draft called `freeLock()` on both, mirroring every other refusal exit — and that
+    // unlocked the cart UNDER a captured charge: `acquireCartLock` re-admits the same diner on a
+    // fresh lock, so a double-tap or reload inside the window before the webhook lands stamped a
+    // new era, read the predecessor as `captured`, and then freed the lock the charge still
+    // depends on. A tablemate's edit in that window makes `mms_fulfill_order`'s sum re-check fail:
+    // charged card, no order — on the interleaving the pre-fix code kept locked. So the lock
+    // STAYS, under this request's era: the pin and link are the predecessor's and untouched (the
+    // supersede returned before the stale-grant release), fulfilment flips the cart on its own,
+    // and the TTL is the backstop if the webhook never comes. The same holds for `unknown` — a
+    // transport failure is not a verdict, and a cart that MAY be charged stays frozen (M119's
+    // rule, applied to the lock this time). The diner's own retry re-acquires under their uid.
+    const superseded = await supersedeCartIntent(cartId);
+    if (superseded === "captured") {
+      return NextResponse.json(
+        { error: "That payment is already going through — give it a moment." },
+        { status: 409 },
+      );
+    }
+    if (superseded === "unknown") {
+      return NextResponse.json(
+        { error: "We’re having trouble on our end — try again in a moment." },
+        { status: 503 },
+      );
+    }
 
     // Pickup honesty (P2.2 · W5e): a pickup order is EITHER scheduled (a slot the diner picked) OR ASAP
     // (no slot yet — "make it now"). Both are gated HERE, at the charge boundary, so a client can't dodge
@@ -364,11 +410,12 @@ export async function POST(req: NextRequest) {
       // PR collapsing the pair into `releasePayAttempt` and calling the narrowing "safer". It is not.
       // `mms_release_promo_grant` matches `locked_at is null OR locked_at is not distinct from
       // p_attempt`, and that FIRST disjunct is load-bearing HERE in a way it is not for a client
-      // exit: this pin is OURS, installed a few statements up by `mms_pin_promo_grant`. A
-      // predecessor's DELAYED `payment_failed` webhook calls `releaseCartLock(cartId, null)` —
-      // cart-wide, nulling `locked_at` (webhook/route.ts §payment_failed) — and if that lands
-      // between our pin and this abandon, an era-only predicate matches ZERO rows and leaves OUR pin
-      // on an unlocked cart with no hold behind it. `acquireSettlement` gates on the raw `locked`
+      // exit: this pin is OURS, installed a few statements up by `mms_pin_promo_grant`. A release
+      // from OUTSIDE this request can null `locked_at` between our pin and this abandon — the
+      // reachable one since M152 c′ retired the decline webhook's cart-wide release is the capture
+      // cron's uid-scoped `releaseOurLock` after a `nothing_left`/`cart_not_open` verdict on this
+      // same diner's earlier hold — and then an era-only predicate matches ZERO rows and leaves OUR
+      // pin on an unlocked cart with no hold behind it. `acquireSettlement` gates on the raw `locked`
       // column, so cash / Terminal / split then read that pin through `getCartTotals`' authorized
       // default and charge a discount this basket never earned: OPEN-ITEMS M123 (a′), manufactured
       // by the very change that was meant to be more conservative.
@@ -481,7 +528,12 @@ export async function POST(req: NextRequest) {
       // for a reused key, so without this a diner retrying across a flag flip would get an
       // automatic-capture intent back and be charged on the spot.
       {
-        idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}${manualCapture ? `_m${attemptStamp}` : ""}`,
+        // M151 — the ERA is in the key for every capture mode now (manual capture already carried
+        // it). Without it a re-checkout at the same amount would replay the FIRST intent from
+        // Stripe's idempotency cache — the very intent the supersede step just cancelled — and hand
+        // the client a dead clientSecret. One attempt, one intent; the predecessor is cancelled,
+        // never reused.
+        idempotencyKey: `pi_${cartId}_${amount}_t${tipRate}_${uid}_e${attemptEra}${manualCapture ? `_m${attemptStamp}` : ""}`,
       },
     );
 
@@ -509,8 +561,43 @@ export async function POST(req: NextRequest) {
     // cart for the full `CART_LOCK_TTL_MS` with nothing in the logs. `check-pay-attempt.mjs` parses
     // this file and fails if the 200 body stops carrying it — a test cannot see a route this repo
     // has no runner for.
+    // M151 — NAME THE INTENT ON THE CART, scoped to the era that minted it. Zero rows means the
+    // lock moved between the mint and this write (a same-uid overlap: the other request
+    // re-acquired with a fresh era). That other request owns the cart now and will link its own
+    // intent; ours must not stay chargeable, so cancel it before refusing. `minted` is cleared only
+    // after the link lands, so a throw anywhere in between still reaches the catch's cancel.
+    minted = intent.id;
+    const { linked, error: linkErr } = await linkPaymentIntent(cartId, uid, attemptEra, intent.id);
+    if (linkErr || !linked) {
+      if (linkErr)
+        console.error("[create-intent] intent not linked", { cartId, error: linkErr.message });
+      await getStripe()
+        .paymentIntents.cancel(intent.id)
+        .catch((e) =>
+          console.error("[create-intent] unlinked intent not cancelled", { cartId, error: e }),
+        );
+      minted = null;
+      await abandonAttempt(cartId, uid);
+      return NextResponse.json(
+        { error: "Someone at your table is checking out — try again in a moment." },
+        { status: 409 },
+      );
+    }
+    minted = null;
+
     return NextResponse.json({ clientSecret: intent.client_secret, totals, attempt: attemptEra });
   } catch (e) {
+    // M151 — an intent minted but never linked is cancelled FIRST, so the release below clears a pin
+    // nothing depends on. Best-effort: a failed cancel leaves the link null and the pin in place
+    // (the RPC's `is null` gate admits the release), which the next attempt's supersede step
+    // re-examines at Stripe before touching anything.
+    if (minted) {
+      await getStripe()
+        .paymentIntents.cancel(minted)
+        .catch((err) =>
+          console.error("[create-intent] minted intent not cancelled in catch", { error: err }),
+        );
+    }
     // A post-acquire failure (totals / Stripe / etc.) must not strand the lock — release now so the
     // table isn't frozen on a transient error (the TTL is the backstop). Best-effort; never mask `e`.
     //

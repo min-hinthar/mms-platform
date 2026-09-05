@@ -98,11 +98,20 @@ function term(r: Row, expr: string): boolean {
   }
 }
 
-type Filter = { kind: "eq"; col: string; val: unknown } | { kind: "or"; expr: string };
+type Filter =
+  | { kind: "eq"; col: string; val: unknown }
+  | { kind: "is"; col: string; val: unknown }
+  | { kind: "or"; expr: string };
 
 const matches = (r: Row, filters: Filter[]) =>
   filters.every((f) =>
-    f.kind === "eq" ? r[f.col] === f.val : f.expr.split(",").some((t) => term(r, t)),
+    f.kind === "eq"
+      ? r[f.col] === f.val
+      : f.kind === "is"
+        ? f.val === null
+          ? r[f.col] === null || r[f.col] === undefined
+          : r[f.col] === f.val
+        : f.expr.split(",").some((t) => term(r, t)),
   );
 
 function builder(mode: "update" | "select", values: Row | null) {
@@ -114,6 +123,12 @@ function builder(mode: "update" | "select", values: Row | null) {
     },
     or(expr: string) {
       filters.push({ kind: "or", expr });
+      return api;
+    },
+    // M151 — `.is("live_payment_intent_id", null)` is the link gate; a fake that lacked it would
+    // throw on the chain and read as a broken suite rather than a tested predicate.
+    is(col: string, val: unknown) {
+      filters.push({ kind: "is", col, val });
       return api;
     },
     maybeSingle() {
@@ -159,6 +174,7 @@ const openCart = (over: Row = {}): Row => ({
   promo_code: null,
   // A LIVE attempt's pin. Whether this survives is the whole money question.
   promo_granted_cents: 1000,
+  live_payment_intent_id: null,
   ...over,
 });
 
@@ -189,6 +205,32 @@ describe("applyPromo — the write is atomic against the pay freeze", () => {
     const res = await applyPromo("c-1", "save10");
     expect(res).toEqual({ ok: false, reason: "locked" });
     expect(row?.promo_granted_cents).toBe(1000);
+  });
+
+  it("REFUSES while a LIVE intent names this cart — even past the lock TTL — and leaves the grant alone", async () => {
+    // M152 (a). The lock expired five minutes ago; the intent it minted captured and its webhook is
+    // late. Before this term the TTL-aware predicate let the code through and nulled the pin that
+    // capture reconciles against: a charged card and no order. "locked" is the honest reason — a
+    // payment for this order is still open.
+    row = openCart({
+      locked: false,
+      locked_at: iso(CART_LOCK_TTL_MS + 60_000),
+      live_payment_intent_id: "pi_captured_late",
+    });
+    const res = await applyPromo("c-1", "save10");
+    expect(res).toEqual({ ok: false, reason: "locked" });
+    expect(row?.promo_granted_cents).toBe(1000);
+    expect(row?.promo_code).toBeNull();
+  });
+
+  it("still APPLIES when the link is null — the gate is the LINK, not the lock's history", async () => {
+    row = openCart({
+      locked: false,
+      locked_at: iso(CART_LOCK_TTL_MS + 60_000),
+      live_payment_intent_id: null,
+    });
+    const res = await applyPromo("c-1", "save10");
+    expect(res).toEqual({ ok: true, discountCents: 1000 });
   });
 
   it("still APPLIES when the lock is stale — an abandoned pay screen must not freeze the promo", async () => {

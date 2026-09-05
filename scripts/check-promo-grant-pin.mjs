@@ -94,8 +94,74 @@ const isNamedCall = (n, name) =>
   (ts.isIdentifier(n.expression) && n.expression.text === name) ||
   (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name);
 
-const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
-const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
+/**
+ * LIVE calls only, and exactly one of each (blind pass on #257, GUARD INTEGRITY 4 — the header of
+ * this file names "uniqueness ≠ liveness" and then picked every call by FIRST LEXICAL MATCH).
+ * `if (false) await supersedeCartIntent(cartId);` parked above the release satisfied all of rule
+ * 3's checks — awaited, its own statement, finishing first — while shipping no supersede at all.
+ *
+ * So: a call inside one of the enumerated literal-dead shapes (`if (false)`, `false && …`,
+ * `{false && …}`, `0 && …`) is not a candidate — that is liveness against PARKED copies, not a
+ * reachability proof (LEARNINGS #60) — and more than one live candidate is AMBIGUITY, refused
+ * rather than resolved by position. One call per fact is what the route actually has.
+ */
+const isLiterallyDead = (node) => {
+  for (let n = node; n && n.parent; n = n.parent) {
+    if (ts.isIfStatement(n.parent) && n.parent.thenStatement === n) {
+      const c = n.parent.expression;
+      if (c.kind === ts.SyntaxKind.FalseKeyword) return true;
+      if (ts.isNumericLiteral(c) && Number(c.text) === 0) return true;
+    }
+    if (
+      ts.isBinaryExpression(n.parent) &&
+      n.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      n.parent.right === n
+    ) {
+      const l = n.parent.left;
+      if (l.kind === ts.SyntaxKind.FalseKeyword) return true;
+      if (ts.isNumericLiteral(l) && Number(l.text) === 0) return true;
+    }
+  }
+  return false;
+};
+const theOneLive = (label, pred) => {
+  const live = calls.filter((n) => pred(n) && !isLiterallyDead(n));
+  if (live.length > 1) {
+    const lines = live.map((n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1);
+    process.stdout.write(
+      `promo grant pin — taken, and taken before the amount … ${c.red("✗")}\n\n  ` +
+        `${FILE} calls \`${label}\` ${live.length} times (lines ${lines.join(", ")}).\n  ` +
+        "This guard asserts ONE sequence, and two live call sites is ambiguity it refuses to\n  " +
+        "resolve by position: which one runs, and in what order relative to the others, is not a\n  " +
+        "question a parser can answer. Collapse them to one, or teach the guard the new shape.\n\n",
+    );
+    process.exit(1);
+  }
+  return live[0];
+};
+const pinCall = theOneLive("mms_pin_promo_grant", (n) => isRpcCall(n, "mms_pin_promo_grant"));
+const totalsCall = theOneLive("getCartTotals", (n) => isNamedCall(n, "getCartTotals"));
+/**
+ * M151 — rule 3: the predecessor is made UNUSABLE before the stale-grant release runs.
+ *
+ * `mms_release_promo_grant` now carries `and live_payment_intent_id is null`, so the release can
+ * only clear a pin nothing depends on — but only if the link has been DROPPED first, and the link
+ * may be dropped only after the intent it names is cancelled at Stripe (or found dead). That is
+ * `supersedeCartIntent`. Run it after the release and the release no-ops on every re-checkout: the
+ * successor pins nothing new, `mms_pin_promo_grant` keeps the predecessor's grant, and a $30
+ * basket's discount prices the $20 basket the diner re-checks-out with — M70's original charge,
+ * reintroduced by the fix for M152.
+ *
+ * Same discipline as rules 1–2: awaited, in a statement that FINISHES before the statement that
+ * releases begins. `Promise.all([supersedeCartIntent(…), releasePromoGrantFor(…)])` is first in the
+ * AST and concurrent, so position alone would pass it.
+ */
+const supersedeCall = theOneLive("supersedeCartIntent", (n) =>
+  isNamedCall(n, "supersedeCartIntent"),
+);
+const releaseCall = theOneLive("releasePromoGrantFor", (n) =>
+  isNamedCall(n, "releasePromoGrantFor"),
+);
 /**
  * The rule is SEQUENCING, not lexical order — Codex P1 on #241 round 3.
  *
@@ -185,4 +251,46 @@ if (pinStmt && totalsStmt && pinStmt.end > totalsStmt.getStart(sf)) {
   );
 }
 
-process.stdout.write(`${c.green("clean")}${c.dim(" — pinned, and pinned first")}\n`);
+const supersedeStmt = supersedeCall ? stmtOf(supersedeCall) : undefined;
+const releaseStmt = releaseCall ? stmtOf(releaseCall) : undefined;
+if (!supersedeCall) {
+  fail(
+    `${FILE} no longer calls \`supersedeCartIntent\`.\n  ` +
+      "M151: without it the cart's live intent is never cancelled, the link is never dropped, and\n  " +
+      "`mms_release_promo_grant`'s `live_payment_intent_id is null` gate refuses EVERY re-checkout's\n  " +
+      "release — the successor then charges the predecessor's grant (M70's original defect).",
+  );
+}
+if (!releaseCall) {
+  fail(
+    `${FILE} no longer calls \`releasePromoGrantFor\`.\n  ` +
+      "This guard sequences the supersede step against it; if the stale-grant release moved, teach\n  " +
+      "the guard the new shape rather than deleting the rule.",
+  );
+}
+if (supersedeCall && !isAwaited(supersedeCall)) {
+  fail(
+    "`supersedeCartIntent` is not AWAITED.\n  " +
+      "M151: a fire-and-forget supersede carries no guarantee the predecessor is cancelled — or the\n  " +
+      "link dropped — before the release runs against it. Await it.",
+  );
+}
+if (supersedeStmt && releaseStmt && supersedeStmt === releaseStmt) {
+  fail(
+    "the supersede and the stale-grant release run in the SAME statement.\n  " +
+      "M151: `Promise.all([supersedeCartIntent(…), releasePromoGrantFor(…)])` puts the supersede first\n  " +
+      "in the AST and runs both CONCURRENTLY. Lexical order is not sequencing. Supersede in its own\n  " +
+      "statement, awaited, before the one that releases.",
+  );
+}
+if (supersedeStmt && releaseStmt && supersedeStmt.end > releaseStmt.getStart(sf)) {
+  fail(
+    "the stale-grant release runs BEFORE the predecessor is superseded.\n  " +
+      "M151: the release's `live_payment_intent_id is null` gate then refuses on every re-checkout,\n  " +
+      "and the successor charges the predecessor's grant. Move `supersedeCartIntent(` above\n  " +
+      "`releasePromoGrantFor(`.",
+  );
+}
+process.stdout.write(
+  `${c.green("clean")}${c.dim(" — pinned, and pinned first; predecessor superseded before the release")}\n`,
+);

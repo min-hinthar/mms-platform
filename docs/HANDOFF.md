@@ -1,9 +1,111 @@
-# Session Handoff — MMS Platform (2026-08-29)
+# Session Handoff — MMS Platform (2026-09-05)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #256 — the one live region is ARBITRATED, and T33 is closed)
+>
+> **`main` is at `9ed8029`** (#256). The block below is #254's, and **its row 1 is now DONE** — T33 was
+> the thing it said everything else was invisible behind. Its rows 2 onward still stand; read this one
+> first, then that one for the `unknown`-opener rule, which is unchanged.
+>
+> ### What shipped
+>
+> `flash` is a single slot. `publishRefusal` writes it synchronously; the lock/settle banners defer
+> into it through `void Promise.resolve().then(...)`, so the banner landed LAST on exactly the taps
+> that produce a refusal — they collide because the re-read that DIAGNOSES the refusal is the read
+> that flips `locked` through `applyView`. Measured with a jsdom probe against HEAD before anything
+> was designed: the region held `"Someone is checking out — the order’s locked"` where the diner
+> needed `"That didn’t go through — the order’s locked while someone checks out."`
+>
+> `apps/qr/lib/live-region.ts` now decides it, and **the rule is REDUNDANCY, not priority** — a ladder
+> would ask which sentence matters more, and the banner is not less important, it is what a diner who
+> did NOTHING needs (W9b). It is redundant only for a diner who just tried to write and was told why.
+> So: a **release speaks whenever the diner's ability to act CHANGED** (or they hold no live
+> explanation); **entering a freeze is silent only when a freeze at least as WIDE was explained**,
+> ranked to mirror `inertReason`'s precedence; **`unknown` explains nothing**.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: four rounds, one shape — a check that answers about the wrong MOMENT
+>
+> Every finding across the blind pass and both Codex rounds reduced to the same error, at descending
+> altitudes. Read this before adding any latch, flag, or "is it still true" test anywhere:
+>
+> - **The blind pass (CRITICAL):** the latch was set from a recovery read that LOST the screen.
+>   `explainCaught` classifies from what its read observed even when `applyView` rejects the view —
+>   deliberately, since a refusal is a fact about the moment it LOOKED. But a latch is a claim about
+>   what the diner can SEE. Those are different questions about different moments.
+> - **Codex round 1 (P1):** the first fix passed `applyView`'s return value down. That is a SNAPSHOT
+>   ("did my read win when it landed"), and another mutation's view can apply between then and the
+>   caller resuming from `await`. Currency is now asked AT PUBLISH TIME against the refs `applyView`
+>   writes synchronously from the very view it applies.
+> - **Codex round 2 (P2):** the latch recorded only the AXIS — but the lock SENTENCE names a holder
+>   (`refusedWriteClause` → `inertReason({ lockedByYou: refusal.freeze === "self" })`), and `locked`
+>   never goes false across a handoff, so no release edge retires it. `ExplainedFreeze` now carries
+>   `self` on the lock arm, read from the **same `refusal.freeze` field the clause forks on**, and
+>   BOTH edges route through `explanationHolds` rather than only the release.
+>
+> The generalisation: **a currency check and a snapshot look identical at the call site and answer
+> different questions**, and **an identity a sentence NAMES is part of the fact, not a detail of it**.
+>
+> ### ⚠️ A NEAR-MISS WORTH MORE THAN THE SLICE: `pnpm format` DURING a live `verify:slice`
+>
+> `CLAUDE.md` warns never to COMMIT while a run is live. The real hazard is wider — **any write to the
+> 67 target modules**. Running `pnpm format` mid-run left `view-seq.ts` on disk as a mutant
+> (`readReachedServer` returning `o === "applied"`). Caught by `git status`, killed, restored,
+> re-run clean; the reported 319 is from a watched run on a clean tree. If a doc edit or a formatter
+> is going to touch the tree, do it BEFORE starting the run — and `git status` after every run, not
+> just `pgrep`.
+>
+> ### ⚠️ THIS PR MERGED WITHOUT A THIRD CODEX ROUND — owner-authorized, and the gap is specific
+>
+> Codex hit its **account usage limit for code reviews** and answered `@codex review` with the limit
+> message three times, so `codex-review` stayed RED on `da9d0ad` and could not clear. I held; the
+> owner said "merge it, the two rounds are enough". Rounds 1 and 2 were full and are triaged, so the
+> uncovered surface is exactly **`b8f0d6f` (the round-2 attribution fix) + `da9d0ad` (docs)** — they
+> have `verify:slice` 319 / `check:docs` / `turbo` 8/8 / a hand-read, and no independent reviewer.
+> **If the arbitration misbehaves, start there.** The quota is owner-only to restore
+> (`chatgpt.com/codex/cloud/settings/code-review`); if it is still exhausted next session, the merge
+> ritual cannot complete as written and that is a decision to put to the owner, not to route around.
+>
+> ### Also worth knowing
+>
+> - **`freezeRank` must not drift from `inertReason`'s precedence** (settling outranks locked). If
+>   they disagreed, one cart would get its sentence from one ranking and its silence from another.
+>   Tied together in-file; there is NO mechanical guard on the pairing.
+> - **The provider's lock banner is edge-triggered on the `locked` BOOLEAN** (`if (locked ===
+prevLocked.current) return;`). So an ownership change with `locked` staying true announces
+>   nothing at all — pre-existing (W9b/T20), and the reason round 2's defect needed a single applied
+>   view carrying the handoff rather than two.
+> - **Mutant anchors went STALE four times in one slice** — a `pnpm format` reflow, an added comment,
+>   and a signature change (twice, in both directions). Anchor on the formatted text, and re-probe
+>   after every refactor; a STALE mutant is a failure, not a skip.
+> - Counts on this head, measured not transcribed: **319 mutants** (16 of them `t33/*`), **1335 qr +
+>   138 ui tests**, 67 target modules.
+>
+> ### The rows this arc leaves, in the order they are worth doing
+>
+> 1. **T41 · T43** (med) — the unsound non-landing verdict, on `setItemQty` and on `add`. T43 is the
+>    sharper (it ends in a re-added dish, not just a wrong sentence). The "this regresses #251"
+>    blocker both rows used to carry is FALSE and retracted, so they are cheaper than they look.
+> 2. **T42** (med) — the refusal latch is provider-global and `track` does not serialize, so a
+>    concurrent write's clause can be read by another write's continuation. Note this slice added a
+>    SECOND provider-global latch (`explainedFreezeRef`) with the same exposure; fix them together.
+> 3. **T28** (med) — `check-child-freeze` has no component-side expected set while its sibling
+>    `check-freeze-parity` does. Any audited component can leave the subject set silently.
+> 4. **T29** (med) — `AddButton` (four propositions, owes the framer stub), then `ItemSheet`. Do
+>    `AddButton` alone.
+> 5. **T34–T40** — filed by the #254 scout; T38 (the hand-written freeze literals and their
+>    near-duplicate pairs) is T32's rule applied to the rest of the vocabulary.
+> 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
+>
+> Still owner-gated and untouched (the cart→intent link is no longer on this list — #257 builds it;
+> see that PR's own top block once it merges): **C16** (make `codex-review` a REQUIRED check — this PR is the second time in a week that gate has been the only
+> thing between an unreviewed head and `main`, and the first time it was overruled deliberately), the
+> Codex review quota, and the prod-migration items on the divergent history. Sweep
+> [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) — it is the single registry — rather than trusting any count
+> written here.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #254 — the refusal sentence is composed once, and the hedge is per cause)
 >
@@ -772,7 +874,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 319 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1335 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 334 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1372 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1494,7 +1596,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (319 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (334 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

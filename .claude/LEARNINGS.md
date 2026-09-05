@@ -1418,3 +1418,144 @@ Two things follow, and only the second is the real lesson:
 
 The near-miss is worth naming: had the anchor stayed loosely matched (a substring that survived the
 wrap), the mutant would have gone green while testing nothing, and no gate would have said a word.
+
+## #80 — a currency check and a SNAPSHOT look identical at the call site and answer different questions (#256, 2026-09-05)
+
+Four review rounds on one slice — a blind adversarial pass and two Codex rounds — produced four
+findings, and **every one was the same error at a lower altitude**: a check that was true, about the
+wrong MOMENT.
+
+T33 latches "which freeze a refusal just explained" so the generic banner does not overwrite the
+specific sentence a microtask later. Each round moved the same question one hop:
+
+1. **Blind pass, CRITICAL.** The latch was set from a recovery read that LOST the screen.
+   `explainCaught` classifies from what its read observed even when `applyView` rejects the view —
+   deliberately, because a refusal is a fact about the moment it LOOKED. A latch is a claim about
+   what the diner can SEE. Two different questions about two different moments, and the code asked
+   the first while the consumer needed the second.
+2. **Codex round 1, P1.** The fix passed `applyView`'s return value down to `publishRefusal`. That
+   is a **snapshot** — "did my read win when it landed" — and another mutation's view can apply
+   between then and the caller resuming from `await`. The flag still reads `true`, the rendered cart
+   is editable, and the latch claims a freeze nobody can see: the same silence, one microtask out.
+3. **Codex round 2, P2.** The latch recorded the freeze AXIS, but the lock SENTENCE names a holder
+   (`refusedWriteClause` renders `inertReason({ lockedByYou: refusal.freeze === "self" })`). `locked`
+   never goes false across a handoff, so no release edge retires the latch — an ownership change left
+   it silencing the banner for the OTHER holder while the region still named the first.
+
+Three rules fall out, and they generalise past this file:
+
+- **Ask currency where the CLAIM is made, from a source written by the thing that changed the
+  screen.** Not from a value carried in across an `await`. `freezeRef`/`settlingRef` are written
+  synchronously by `applyView` from the very view it applies, so reading them at publish time is the
+  only honest answer to "what does the diner see now".
+- **A boolean is not the fact when the sentence names an identity.** If copy forks on `X === "self"`,
+  the latch must carry that fork and revalidate it — and must read it from the **same field** the
+  copy reads (`refusal.freeze`), or you have the W17 drift shape: one fact computed twice.
+- **Whatever gate you put at the write, ask it again at the READ** if the state can move in between.
+  The entering edge here trusted a latch that publish time had checked and no release edge had
+  retired. Both edges now run `explanationHolds`.
+
+## #81 — the `verify:slice` hazard is ANY write to a target module, not just a commit (#256, 2026-09-05)
+
+`CLAUDE.md` says never COMMIT while a run is live, because at every instant one tracked module on
+disk is a deliberately-broken version of itself (LEARNINGS #74, where a mutant rode into a docs-only
+commit). That framing is too narrow and it cost a run here: **`pnpm format` was run mid-run** to
+format doc edits, and prettier reads and rewrites every matched file — including the mutated one.
+
+The run was killed and `git status` showed the tell: `apps/qr/lib/view-seq.ts` dirty, with
+`readReachedServer` returning `o === "applied"` instead of `o !== "failed"` — a live mutant parked on
+disk. Restored, tree confirmed clean, exactly one run started and watched to completion.
+
+- The dirty-tree abort protects the RUN from your edits. **Nothing protects the TREE from the run.**
+- So the rule is: no formatter, no codegen, no editor-on-save, no commit — **no writes at all** to
+  the tree — while a run is live. Do the doc pass and the `pnpm format` BEFORE you start it.
+- `pgrep -f "[v]erify-slice"` before committing is necessary and not sufficient. **`git status` after
+  every run**, and never report a number from a run whose tree you did not check afterwards.
+
+## #82 — a cross-implementation hash is not a diff; validate the normalizer on bodies you KNOW are identical (pilot D0, 2026-09-05)
+
+Comparing prod's 69 `mms_*` function bodies to the repo's latest definitions, the first
+comment-stripped comparison said **68 of 69 differ**. The truth was **0 of 69**. The 68 was the
+NORMALIZER disagreeing with itself across two runtimes: Postgres `btrim()` trims spaces only, so a
+body's leading newline survived there and collapsed to a leading space, while Python `.strip()` ate
+it. Every function got a different hash for a byte nobody wrote.
+
+What made it catchable: an EARLIER raw-md5 pass had shown 39 bodies byte-identical. A normalizer
+that then reports those same 39 as different cannot be measuring the code — it is measuring itself.
+That is the check to run before trusting any drift count: **normalize on both sides with the same
+regex chain in the same order (strip block comments → strip `--` comments → collapse `\s+` → trim
+ends with a regex, never `btrim`), and confirm the known-identical set still matches.** Then, and
+only then, read the count.
+
+The wider lesson is the one this repo already has for guards: a measurement that can be satisfied
+by something other than the fact (here, a trimming rule) needs to be falsified against a known
+answer first. Three files were read by eye to confirm (`mms_taxable`, `mms_open_tab`,
+`mms_pickup_slots`) — all identical modulo comments — before the 69/69 was believed.
+
+## #83 — a guard that greps for a marker is satisfied by PROSE that mentions the marker (pilot P0, 2026-09-05)
+
+`check-money-coverage` exempts a money-path file when it contains `verify:slice-exempt — <reason>`.
+`live-intent.ts` — the pure verdict module built specifically SO IT COULD BE MUTATED — came back
+`exempt=1` on the first coverage check. It carried no exemption. Its docblock said "`create-intent`
+sits under a `verify:slice-exempt` line", and the regex does not know a docblock from a directive.
+
+Nothing shipped: the count was read before the mutants were written, so the false exemption showed
+up as a number that was wrong. But the shape is exactly LEARNINGS #60 — a matcher satisfied by text
+that does not ship the behaviour — pointed at the coverage guard itself, and this time the evasion
+was authored by the same hand that knew the rule, while EXPLAINING the rule. Two consequences:
+
+- **Never name a directive inside prose in a file the directive's guard scans.** Say "carries a
+  coverage exemption" and let the reader find the marker in the file that actually has it.
+- **The coverage guard should parse, not scan**: an exemption is a line-leading comment whose
+  first token is the marker, and a mention inside a `/** … */` block is not one. Filed as a
+  follow-up rather than widened into P0 — but the next time this guard is touched, that is the fix.
+
+## #84 — a LINK without its LOCK is a freeze the client cannot see (pilot P0 blind pass, 2026-09-05)
+
+`qr_carts.live_payment_intent_id` made "a live intent still prices this cart" a fact the pin-clearers
+could test. The decline webhook had been releasing the pay-window lock cart-wide since P3.2, on the
+grounds that "the charge failed, so free the cart for everyone" — while the M70 paragraph two lines
+below it explained that the same PaymentIntent stays confirmable from the mounted Element. Both
+sentences were true; together they meant a cart the intent priced was editable. Before the link,
+that was the M151 overlap through the decline door (edit, re-confirm, fulfilment's sum re-check
+refuses a charged card). After the link, it was a NEW and visible shape: the link survived the
+release, `applyPromo`'s `is null` gate refused every promo at the table as "locked", and
+`cartFreeze` — which reads `locked` — showed an editable cart. The refusal word was false and
+nothing but the next create-intent could clear it.
+
+The fix was to stop releasing the lock on a decline, not to loosen the promo gate: the gate was
+right, the lock was wrong. **When a new fact (the link) starts refusing on a surface the old fact
+(the lock) still admits, the old fact is what needs to move.** Loosening the new predicate to match
+the old surface would have reopened M151 exactly where the link was built to close it.
+
+Two related findings from the same pass, same shape: `create-intent`'s `captured` refusal called
+the shared `freeLock()` like every other refusal exit — and unlocked the cart under a charge whose
+webhook was late; and `releaseByIntent`'s "release lock, pin and link in ONE statement" was a
+statement about the LINK column's key that the LOCK column never shared, so the `canceled` webhook
+could null a successor's lock in the window before its unlink. Every one of the three is "a release
+written by analogy to the releases beside it". A lock release is not a default; each one needs to
+name the fact that makes the cart safe to edit.
+
+## #85 — a guard's REACH is a number, and a wrapper hop changes it silently (pilot P0, 2026-09-05)
+
+`check-freeze-parity` derives its write helpers as "every function whose OWN body performs a
+direct write" — one hop. `releasePayLock` called `releasePayAttempt` (a direct `.update`) and was a
+subject through the authorizes-and-writes arm. M151 put `releasePayAttemptSafely` in between (cancel
+the intent at Stripe, THEN release), and `releasePayLock` left the subject set with no symptom
+except its exemption going dead — the dead-exemption rule is the ONLY reason CI went red. A
+lock-bearing mutation that was not exempt would have stopped being checked with everything green.
+
+The obvious fix, closing `WRITERS` under routing to a fixpoint, was applied and measured before it
+was trusted — and it was wrong in two ways nobody would have predicted from the code: the authz
+helper itself became a "writer" (`assertCartMember` → `maybeRenewSession` → an UPDATE), so
+"authorizes and writes" collapsed into "authorizes" and four reads owed refusals; and the rate
+limiter became one (`assertMutationRate` → `withinRate` → rpc), so the ordering rule placed the
+"first write" on the rate-limit call every mutation makes BEFORE its lock refusal — all twelve
+subjects red on a change with no behavioural content. The guard's notion of "write" (any
+`.update/.insert/.upsert/.delete/.rpc`) is too coarse to close transitively; it needs to know WHICH
+table. That is T44. The entry was deleted, with the arc written beside the exemption map.
+
+Two rules from this. **Measure a guard change against the subject set before trusting it** — print
+the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
+load-bearing, not tidy**: it is the only mechanism here that turns "the selector stopped reaching a
+function" into a failure instead of a silence.

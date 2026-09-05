@@ -10,7 +10,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-type Q = { table: string; payload: Record<string, unknown>; eq: [string, unknown][] };
+type Q = {
+  table: string;
+  payload: Record<string, unknown>;
+  eq: [string, unknown][];
+  or: string[];
+};
 let queries: Q[] = [];
 function chain(q: Q) {
   const api = {
@@ -48,7 +53,7 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
-        const q: Q = { table, payload, eq: [] };
+        const q: Q = { table, payload, eq: [], or: [] };
         queries.push(q);
         return opts?.count ? countChain(q) : chain(q);
       },
@@ -72,7 +77,13 @@ function countChain(q?: Q) {
       q?.eq.push([col, val]);
       return api;
     },
-    or: () => api,
+    // M151 (blind pass on #257, GUARD INTEGRITY 1) — `.or` terms are RECORDED too. `linkPaymentIntent`'s
+    // `.or(live_payment_intent_id.is.null,…)` is the last refusal between a stale link and an
+    // overwritten one, and a fake that swallowed it left that term with no assertion at all.
+    or: (expr: string) => {
+      q?.or.push(expr);
+      return api;
+    },
     then: (r: (v: { count: number | null; error: unknown }) => unknown) =>
       Promise.resolve({ count: updateCount, error: updateError }).then(r),
   };
@@ -87,6 +98,9 @@ const {
   releasePayAttempt,
   releaseCartLockFor,
   releaseCartLock,
+  linkPaymentIntent,
+  unlinkPaymentIntent,
+  releaseByIntent,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -242,6 +256,8 @@ describe("releasePayAttempt — M124: one statement, and it names the ATTEMPT", 
     // charge (M123 a′).
     expect(q.payload).toEqual({
       promo_granted_cents: null,
+      // M151 — the link goes in the SAME payload: "pin cleared, link still set" must be unreachable.
+      live_payment_intent_id: null,
       locked: false,
       locked_at: null,
       locked_by: null,
@@ -346,13 +362,77 @@ describe("releaseCartLockFor — M153: the refusal paths name their attempt", ()
     });
   });
 
-  it("the CART-WIDE release stays cart-wide — the webhook's decline path is untouched", async () => {
-    // `releaseCartLock(cartId, null)` is the decline arm: the charge failed, so free the cart for
-    // everyone. Era-scoping that would strand a table whose payer has gone.
+  it("the CART-WIDE form (uid null) stays cart-wide — a primitive no product path calls since M152 c′", async () => {
+    // `releaseCartLock(cartId, null)` WAS the decline arm. A declined intent is still confirmable,
+    // so that arm no longer releases the lock (#257); the null form is kept as the ops primitive
+    // and must not quietly grow a predicate that makes it something else.
     await releaseCartLock("cart-1", null);
     const q = queries[0]!;
     expect(q.eq).toContainEqual(["id", "cart-1"]);
     expect(q.eq.some(([col]) => col === "locked_by")).toBe(false);
     expect(q.eq.some(([col]) => col === "locked_at")).toBe(false);
+  });
+});
+
+describe("M151 — the cart→intent link, as query SHAPES", () => {
+  it("linkPaymentIntent names the intent under THIS seat and THIS era, and only onto a null or same link", async () => {
+    updateCount = 1;
+    const res = await linkPaymentIntent("cart-1", "uid-1", "2026-09-05T10:00:00.000Z", "pi_A");
+    expect(res).toEqual({ linked: true, error: null });
+    const q = queries[0]!;
+    expect(q.table).toBe("qr_carts");
+    expect(q.payload).toEqual({ live_payment_intent_id: "pi_A" });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["locked_by", "uid-1"]);
+    expect(q.eq).toContainEqual(["locked_at", "2026-09-05T10:00:00.000Z"]);
+    // THE TERM WITH NO OTHER GUARD (blind pass on #257). When the predecessor's link survived the
+    // supersede (an unlink that errored, the `canceled` webhook racing it), the stale-grant
+    // release has already been refused by `live_payment_intent_id is null`, so the row still
+    // carries the PREDECESSOR's grant and this mint's amount was derived from it. Without this
+    // term the link is simply overwritten and that stale grant is what fulfilment reconciles —
+    // M70's original charge. With it, zero rows: the caller cancels its own mint and refuses.
+    // MUTATION: drop the `.or(…)` → `q.or` is empty and this fails.
+    expect(q.or).toEqual(["live_payment_intent_id.is.null,live_payment_intent_id.eq.pi_A"]);
+  });
+
+  it("linkPaymentIntent reports the lock MOVED when zero rows match — the caller cancels its own mint", async () => {
+    updateCount = 0;
+    const res = await linkPaymentIntent("cart-1", "uid-1", "era-old", "pi_A");
+    expect(res.linked).toBe(false);
+    expect(res.error).toBeNull();
+  });
+
+  it("unlinkPaymentIntent is keyed on the INTENT, never on the era", async () => {
+    // M124's discriminator: a late caller naming an intent the cart no longer holds matches nothing.
+    await unlinkPaymentIntent("cart-1", "pi_A");
+    const q = queries[0]!;
+    expect(q.payload).toEqual({ live_payment_intent_id: null });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["live_payment_intent_id", "pi_A"]);
+    expect(q.eq.some(([col]) => col === "locked_at" || col === "locked_by")).toBe(false);
+  });
+
+  it("releaseByIntent clears pin AND link in one statement keyed on the intent — and NOT the lock", async () => {
+    updateCount = 1;
+    const res = await releaseByIntent("cart-1", "pi_A");
+    expect(res).toEqual({ released: true, error: null });
+    const q = queries[0]!;
+    // ⚠️ `toEqual`, so the payload is EXACT (blind pass on #257, CRITICAL 4). The `canceled` webhook
+    // can land between a successor's Stripe cancel of the predecessor and its unlink — the row
+    // still names the predecessor, so this matches — while the LOCK on that row is already the
+    // successor's. A payload that also nulled the lock unfroze the successor's cart under its own
+    // mint and made its era-scoped link write match zero rows: a false "someone at your table is
+    // checking out" for the only diner checking out. MUTATION: add the three lock columns back →
+    // this fails.
+    expect(q.payload).toEqual({ promo_granted_cents: null, live_payment_intent_id: null });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["live_payment_intent_id", "pi_A"]);
+    // A successor's row names a different intent and is untouched by construction.
+    expect(q.eq.some(([col]) => col === "locked_at" || col === "locked_by")).toBe(false);
+  });
+
+  it("releaseByIntent is a normal zero-row no-op for a late delivery", async () => {
+    updateCount = 0;
+    expect(await releaseByIntent("cart-1", "pi_gone")).toEqual({ released: false, error: null });
   });
 });

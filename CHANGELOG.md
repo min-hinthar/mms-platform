@@ -4,6 +4,77 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A pin is cleared only while no live intent depends on it (2026-09-05 · pilot P0)
+
+**M151 · M152 · M124 — the cart→intent link.** Every pin-clearer in this codebase decided "is the
+attempt that took this lock still the one that owns it?" from `locked_at`, a wall-clock era. Nothing
+on the cart said which PaymentIntent, if any, still DEPENDED on the pin — so a captured intent whose
+webhook was merely late could have its pin nulled by a tablemate's promo code, by a successor's
+stale-grant release, or by `create-intent`'s own catch; two overlapping attempts could hold different
+pins with the older intent still chargeable; and two same-uid requests inside one millisecond shared
+an era. One missing fact.
+
+`qr_carts.live_payment_intent_id` is that fact. **The rule:** a pin may be cleared only while no live
+intent names it, so every clearer carries `and live_payment_intent_id is null` — `applyPromo`'s
+write, `mms_release_promo_grant` (both of `create-intent`'s mouths), `mms_mark_settle_canceled` (the
+cron). The client exits clear the link in the SAME statement as the lock and pin
+(`releasePayAttempt`), and are safe by ORDER, not by predicate: `releasePayAttemptSafely` cancels
+the attempt's own intent first and refuses with `paying` if it captured. **The sequence:** a successor makes the predecessor UNUSABLE before it may touch the pin —
+`supersedeCartIntent` retrieves, cancels what is cancelable, refuses on `succeeded`/`processing`
+("that payment is already going through"), and refuses without touching the row when Stripe cannot
+say. The verdict is a pure module (`live-intent.ts`) that fails CLOSED on any status it has never
+seen, because the two mistakes are not symmetric: cancelling a real charge is money and no order;
+refusing a mint is a retry. The era now rides in the Stripe idempotency key for every capture mode,
+so a cancelled predecessor is never replayed from Stripe's cache as a dead `clientSecret`.
+
+**Why this is narrower than it looks.** Pickup holds already had a lazy supersede — the capture cron
+refuses a hold whose era moved and cancels it as `superseded` — so era-gated capture protected
+manual-capture all along. The unguarded surface was auto-capture, where the Payment Element captures
+client-side and only the webhook reconciles. The link covers both (a tablemate's code five minutes
+after a hold was authorized nulled the pin `planCapture` needs, M70's original harm), and the cron
+keeps its role as belt.
+
+**What the blind pass changed, the same day (REJECT, four CRITICALs — every one verified against
+source and real).** (1) `create-intent`'s `captured`/`unknown` refusals no longer release the lock:
+they had unlocked the cart UNDER a captured charge whose webhook was merely late (the same-uid
+re-acquire stamps a fresh era, so `freeLock()` matched), which is the peer-edit-then-mismatch
+strand on the exact interleaving the pre-fix code kept locked. (2) **The decline webhook no longer
+releases the pay-window lock (M152 c′).** A declined intent is still confirmable from the mounted
+Element, so the cart it prices stays frozen until the diner ends the attempt ("Edit order" now
+cancels it at Stripe and releases lock, pin and link together) or the TTL lets a successor
+supersede it. Before, the cart-wide release left a link with no lock — every promo at the table
+refused as "locked" on a cart everyone could edit, with only the next checkout able to clear it —
+and, before the link existed, the M151 overlap through the decline door. The settle-freeze release
+for the off-session secure-tab decline is unchanged. (3) `releaseByIntent` (the `canceled` webhook)
+clears the pin and the link only, never the lock: it can land between a successor's Stripe cancel
+and its unlink, when the row still names the predecessor but the lock is already the successor's
+— nulling it there turned the successor's own link write into a false "someone at your table is
+checking out". (4) A pickup hold cancelled eagerly by a successor now gets the `superseded` ledger
+row the cron used to write lazily, or `/track` polls "authorized" forever over a hold Stripe
+released. Plus: `linkPaymentIntent`'s `.or(link is null | same)` term — the last refusal between a
+stale link and an overwritten one — had no assertion and no mutant (both added); the docblock that
+justified `requires_capture → cancelable` by "the re-acquire is same-uid only" was false
+(`acquireCartLock`'s TTL disjunct admits any member — the rule holds, the reason was wrong); rule 3
+of `check-promo-grant-pin` picked its calls by first lexical match, so a parked `if (false) await
+supersedeCartIntent(…)` satisfied it — every named call is now LIVE-only and refuses two live
+candidates as ambiguity, red on three evasions; and `check-freeze-parity`'s `releasePayLock`
+exemption went dead because the writer derivation reaches ONE hop and M151 put a wrapper in between
+— a naive closure was measured to collapse "authorizes and writes" into "authorizes" (T44), so the
+entry is deleted with the arc recorded beside it.
+
+**The gate itself flaked once on this PR, and the flake was a race, not luck running out:** turbo ran
+`@mms/qr#typecheck` and `@mms/qr#build` concurrently, `next build` regenerates `.next/types/` (which
+`tsconfig.json` includes), and `tsc` read `validator.ts` before `routes.d.ts` existed —
+`TS2307: Cannot find module './routes.js'`, standalone typecheck green. `typecheck` now depends on
+the package's own `build` (`turbo.json`), so the directory is complete before it is read.
+
+Guards: 15 mutants (4 verdict · 4 sequence · 5 lock shapes · 2 promo write/diagnosis), a
+six-case SQL test asserting refusal AND the legitimate path AND the successor-untouched case, and
+rule 3 of `check-promo-grant-pin` — supersede before release as AWAITED sequencing, watched go red on
+the reorder and on the `Promise.all` shape. **D0 first:** prod's migration history was set-compared
+and every `mms_*` body hashed on both sides — 69/69 code-identical — before a 97th file was allowed
+onto it.
+
 ### The sentence that names the dish survives the banner that names nothing (2026-09-05)
 
 **T33 — the one live region is arbitrated.** Three merged PRs made the /menu refusal sentence
