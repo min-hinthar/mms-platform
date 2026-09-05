@@ -160,7 +160,15 @@ export function StaffPromoControl({
                 // `{m}` is preformatted money and stays Latin in both tongues (the fill.ts slot
                 // contract). The figure is the DELIVERED one, so this line and the settle button
                 // below can never quote different numbers.
-                <Chrome lang={lang} k="promo.worth" vars={{ m: fmt(promoCents) }} />
+                <Chrome
+                  lang={lang}
+                  k="promo.worth"
+                  vars={{ m: fmt(promoCents) }}
+                  // `echo="inline"` per Chrome's OWN policy — "money labels" take the echo, and
+                  // `promo.worth` is flagged K15-HIGH as the sentence a cashier reads before
+                  // taking cash. It is neither a 44px chip nor a live region, the two carve-outs.
+                  echo="inline"
+                />
               ) : (
                 // An applied code currently worth nothing — a void dropped the basket under the
                 // minimum, or a reward already covers it. Saying "off this order" here would be a

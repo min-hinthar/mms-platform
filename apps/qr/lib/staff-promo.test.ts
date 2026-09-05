@@ -255,9 +255,33 @@ describe("applyPromoForTable — the staff write is atomic against the pay freez
     expect(row?.promo_code).toBe("PILOT15");
   });
 
-  it("still APPLIES when the settlement freeze is stale", async () => {
-    row = openCart({ settle_at: iso(SETTLE_TTL_MS + 60_000) });
+  it("REFUSES on a STALE settlement freeze — the Stripe Terminal window (blind pass, CRITICAL)", async () => {
+    // The reader PI is invisible to every other gate: `lib/terminal.ts` writes no `qr_carts` column
+    // (`linkPaymentIntent` has exactly one caller, `create-intent`), never takes the single-pay
+    // lock, and creates no share row — so `paymentInFlightReason` counts zero. Its only guard is
+    // this freeze, kept alive by the register's CLIENT poll. Close the panel for ten minutes and a
+    // TTL-aware predicate would let the promo move under a capturable charge: the capture then
+    // reconciles to a different total and the guest is charged with no order.
+    row = openCart({
+      settle_at: iso(SETTLE_TTL_MS + 60_000),
+      locked: false,
+      locked_at: null,
+      live_payment_intent_id: null,
+    });
+    expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(row?.promo_code).toBeNull();
+    expect(row?.promo_granted_cents).toBe(900);
+  });
+
+  it("APPLIES when no settlement has been started at all — the pilot's own happy path", async () => {
+    // The other direction: Dad applies the code BEFORE settling, which is the flow PILOT_PLAN §5
+    // describes. Nothing here may block that.
+    row = openCart({ settle_at: null });
     expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({ ok: true });
+    expect(row?.promo_code).toBe("PILOT15");
   });
 
   it("still APPLIES when `locked` is true but `locked_at` is null — that is not a lock", async () => {
@@ -281,6 +305,16 @@ describe("applyPromoForTable — the staff write is atomic against the pay freez
       reason: "error",
     });
     expect(row?.promo_granted_cents).toBe(900);
+  });
+
+  it("diagnoses the stale-settle refusal as LOCKED, never a fabricated cart_closed", async () => {
+    // The write and the diagnosis have to agree. Without `anySettleStarted` the diagnosis falls
+    // through every branch and answers `cart_closed` on a cart that is demonstrably open — the
+    // M116/M119 fabricated-verdict shape, on the one refusal that prevents a charged card with no
+    // order. This asserts the REASON, which is the only thing that distinguishes the two.
+    row = openCart({ settle_at: iso(SETTLE_TTL_MS + 60_000), status: "open" });
+    const res = await applyPromoForTable({ sessionId: SESSION, code: "pilot15" });
+    expect(res).toEqual({ ok: false, reason: "locked" });
   });
 
   it("answers error when the UPDATE itself fails — a transport failure is not a refusal", async () => {
@@ -328,14 +362,18 @@ describe("applyPromoForTable — the gates before the write", () => {
     expect(row?.promo_code).toBeNull();
   });
 
-  it("refuses a malformed request as invalid, and writes NOTHING", async () => {
-    expect(await applyPromoForTable({ sessionId: "not-a-uuid", code: "pilot15" })).toEqual({
-      ok: false,
-      reason: "invalid",
-    });
+  it("refuses a malformed request, naming the field that failed, and writes NOTHING", async () => {
+    // The two halves get DIFFERENT verdicts, and that is the point (blind pass). A bad CODE is
+    // honestly `invalid`. A bad session id is not a verdict about the code at all — answering
+    // "that code isn't valid" because the page passed a bad id is the fabricated-diagnosis shape
+    // this repo spent M116/M119 removing, and a test asserting it would PROTECT the wrong sentence.
     expect(await applyPromoForTable({ sessionId: SESSION, code: "   " })).toEqual({
       ok: false,
       reason: "invalid",
+    });
+    expect(await applyPromoForTable({ sessionId: "not-a-uuid", code: "pilot15" })).toEqual({
+      ok: false,
+      reason: "error",
     });
     expect(row?.promo_code).toBeNull();
   });
@@ -473,8 +511,25 @@ describe("clearPromoForTable — the remove carries the SAME five predicates (OP
     expect(row?.promo_code).toBeNull();
   });
 
-  it("still REMOVES when the settlement freeze is STALE", async () => {
-    row = openCart({ promo_code: "PILOT15", settle_at: iso(SETTLE_TTL_MS + 60_000) });
+  it("REFUSES on a STALE settlement freeze — and this is the deterministic half", async () => {
+    // A remove RAISES the total the webhook re-derives, so a captured reader charge can never
+    // reconcile again. Same Terminal window as the apply; strictly worse outcome.
+    row = openCart({
+      promo_code: "PILOT15",
+      settle_at: iso(SETTLE_TTL_MS + 60_000),
+      locked: false,
+      locked_at: null,
+      live_payment_intent_id: null,
+    });
+    expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({
+      ok: false,
+      reason: "locked",
+    });
+    expect(row?.promo_code).toBe("PILOT15");
+  });
+
+  it("REMOVES when no settlement has been started — the merge-refusal recovery path stays open", async () => {
+    row = openCart({ promo_code: "PILOT15", settle_at: null });
     expect(await clearPromoForTable({ sessionId: SESSION })).toEqual({ ok: true });
     expect(row?.promo_code).toBeNull();
   });

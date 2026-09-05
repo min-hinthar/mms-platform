@@ -133,7 +133,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (384 today)**, **1372 qr + 138 ui tests at the time (1554 + 140 today)**, 69 target modules at the time (72 under `apps/qr/lib` today, 79 in all), 97 local
+> **334 mutants at the time (384 today)**, **1372 qr + 138 ui tests at the time (1557 + 140 today)**, 69 target modules at the time (72 under `apps/qr/lib` today, 79 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1012,7 +1012,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 384 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1554 qr tests + 140 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 384 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1557 qr tests + 140 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

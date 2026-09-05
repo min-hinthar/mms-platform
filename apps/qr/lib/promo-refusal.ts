@@ -26,7 +26,24 @@ import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
  */
 export type PromoRefusal = "error" | "cart_closed" | "locked";
 
-export async function refusedPromoReason(cartId: string): Promise<PromoRefusal> {
+/**
+ * `anySettleStarted` — the STAFF doors' stricter settle axis, in the diagnosis as well as the write.
+ *
+ * `lib/staff-promo.ts` refuses on a NON-NULL `settle_at` rather than a fresh one (see its docblock:
+ * a Stripe Terminal reader charge writes neither the pin nor `live_payment_intent_id` and creates no
+ * share row, so a freeze that went stale because the collect panel stopped polling is the ONLY thing
+ * left standing between a capturable reader PI and a promo write). Without telling the diagnosis
+ * that, a staff refusal in exactly that window would fall through every branch below and answer
+ * `cart_closed` on a cart that is open — a fabricated verdict of the M116/M119 shape, on the one
+ * refusal that exists to prevent a charged card with no order.
+ *
+ * The DINER caller passes nothing and is unchanged: its write is TTL-aware on this axis, so a stale
+ * `settle_at` is not a reason it was refused and must not be reported as one.
+ */
+export async function refusedPromoReason(
+  cartId: string,
+  { anySettleStarted = false }: { anySettleStarted?: boolean } = {},
+): Promise<PromoRefusal> {
   const { data: cart, error } = await serviceClient()
     .from("qr_carts")
     .select("status,locked,locked_at,settle_at,live_payment_intent_id")
@@ -45,6 +62,9 @@ export async function refusedPromoReason(cartId: string): Promise<PromoRefusal> 
   // "locked" is the shared frozen-order copy — the same reason the pre-check above returns for a
   // settling cart, so the diner sees one consistent explanation for one consistent situation.
   if (lockedFresh || settlingFresh) return "locked";
+  // The staff axis: a settlement was STARTED on this open cart and never cleanly ended. "Locked" is
+  // the honest word — a payment for this order may still be collectable on the reader.
+  if (anySettleStarted && cart.settle_at !== null) return "locked";
   // M152 (a) — a live single-pay intent past the lock TTL. "Locked" is the honest word: a payment
   // for this order is still open on someone's phone, which is exactly what the lock sentence says.
   if (cart.live_payment_intent_id) return "locked";

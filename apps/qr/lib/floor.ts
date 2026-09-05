@@ -692,7 +692,10 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
   // Deliberately NOT an auto-clear: silently dropping a discount a guest was quoted is the exact
   // "silently change what a guest pays" outcome the paragraph above refuses. The sentence now says
   // WHICH side carries the code, because with two tables in play "one of these" is not something a
-  // server can act on without opening both.
+  // server can act on without opening both — and what removing COSTS, because the blind pass on P3
+  // is right that "remove it, then merge" otherwise instructs a server to drop a discount a guest
+  // was quoted with no warning. Naming the cost is the honest middle between an unactionable
+  // refusal and an auto-clear.
   if (src.cart.promo_code || tgt.cart.promo_code) {
     const tgtName = tableDisplay({
       tableNumber: tgt.session.table_number,
@@ -702,12 +705,12 @@ export async function mergeTables(raw: unknown): Promise<MergeResult> {
       ok: false,
       error:
         src.cart.promo_code && tgt.cart.promo_code
-          ? "Both tables have a promo code applied — remove them on each table, then merge."
+          ? "Both tables have a promo code applied — remove them first, then merge. The discounts go with them, so re-apply on the merged table if a guest was quoted one."
           : src.cart.promo_code
-            ? "This table has a promo code applied — remove it here, then merge."
+            ? "This table has a promo code applied — remove it here first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it."
             : // An unregistered sticker or a counter session has no tent number to name, so it gets the
               // phrase the picker itself used rather than a raw `reg-…` token dressed up as a table.
-              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there, then merge.`,
+              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it.`,
     };
   }
 

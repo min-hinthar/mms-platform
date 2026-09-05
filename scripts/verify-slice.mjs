@@ -3071,7 +3071,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "P3 — the staff apply re-tests the freeze in the statement that WRITES, for the same reason applyPromo does (M70): the pre-check is read before awaited round trips, long enough for a diner to reach the pay screen and pin the grant. Gated on status alone this clears a LIVE attempt's pin, and the webhook then re-derives an amount the capture cannot match",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n',
     replace:
       '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
   },
@@ -3080,18 +3080,18 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "P3 — the split-tender freeze is the other half of the same window and it is TABLE-WIDE: every member's cart is frozen while the table pays in turn. Without this term a staff apply lands mid-settlement, against holds already authorized under the old amount",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n',
     replace:
-      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n',
   },
   {
     id: "staff-promo/apply-ignores-the-live-intent",
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "M152 (a) through the staff door — the freeze predicates are deliberately TTL-aware, so five minutes after a captured intent whose webhook is merely late they pass. Without the link gate a staff apply then moves the pin that capture reconciles against: a charged card and no order. For the REMOVE it is worse, because dropping the code RAISES the total the webhook re-derives",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n',
     replace:
-      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("id", cart.id);\n',
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .eq("id", cart.id);\n',
   },
   {
     id: "staff-promo/apply-not-status-guarded",
@@ -3107,7 +3107,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "OVER-blocking is as expensive as under-blocking (the tip-cap lesson). A lock is only real while `locked_at` is inside CART_LOCK_TTL — `locked = true` with a stale or null timestamp is an abandoned pay screen. Reading the raw column refuses a legitimate apply for five minutes at the counter, on the table the pilot script has Dad applying a code at",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n',
     replace:
       '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false`)\n',
   },
@@ -3116,25 +3116,25 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "`.update()` returns no row count, so a write the predicates BLOCKED still answers ok (the W17 lesson). Without the count check the apply reports success to a server standing at the table while the cart never moved — and the money it implies changed did not",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id));\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0)\n    return no(await refusedPromoReason(cart.id, { anySettleStarted: true }));\n',
     replace:
-      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
   },
   {
     id: "staff-promo/apply-transport-error-reads-as-a-refusal",
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "a dropped socket is not a verdict about the cart. Swallowing `updErr` sends the apply on to the diagnosis read, which finds an open, unfrozen cart and answers `cart_closed` — a fabricated diagnosis of exactly the M116/M119 shape, told to a server whose tap actually hit a network failure",
-    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
+    find: '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
     replace:
-      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
+      '    .update({ promo_code: normalized, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
   },
   {
     id: "staff-promo/clear-ignores-the-pay-lock",
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "P3 — the staff remove re-tests the freeze in the statement that WRITES, for the same reason applyPromo does (M70): the pre-check is read before awaited round trips, long enough for a diner to reach the pay screen and pin the grant. Gated on status alone this clears a LIVE attempt's pin, and the webhook then re-derives an amount the capture cannot match",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n',
     replace:
       '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n',
   },
@@ -3143,18 +3143,18 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "P3 — the split-tender freeze is the other half of the same window and it is TABLE-WIDE: every member's cart is frozen while the table pays in turn. Without this term a staff remove lands mid-settlement, against holds already authorized under the old amount",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n',
     replace:
-      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n',
   },
   {
     id: "staff-promo/clear-ignores-the-live-intent",
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "M152 (a) through the staff door — the freeze predicates are deliberately TTL-aware, so five minutes after a captured intent whose webhook is merely late they pass. Without the link gate a staff remove then moves the pin that capture reconciles against: a charged card and no order. For the REMOVE it is worse, because dropping the code RAISES the total the webhook re-derives",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n',
     replace:
-      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("id", cart.id);\n',
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .eq("id", cart.id);\n',
   },
   {
     id: "staff-promo/clear-not-status-guarded",
@@ -3170,7 +3170,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "OVER-blocking is as expensive as under-blocking (the tip-cap lesson). A lock is only real while `locked_at` is inside CART_LOCK_TTL — `locked = true` with a stale or null timestamp is an abandoned pay screen. Reading the raw column refuses a legitimate remove for five minutes at the counter, on the table the pilot script has Dad applying a code at",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n',
     replace:
       '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false`)\n',
   },
@@ -3179,18 +3179,18 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "`.update()` returns no row count, so a write the predicates BLOCKED still answers ok (the W17 lesson). Without the count check the remove reports success to a server standing at the table while the cart never moved — and the money it implies changed did not",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0) return no(await refusedPromoReason(cart.id));\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  if ((count ?? 0) === 0)\n    return no(await refusedPromoReason(cart.id, { anySettleStarted: true }));\n',
     replace:
-      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n  void count;\n',
   },
   {
     id: "staff-promo/clear-transport-error-reads-as-a-refusal",
     file: "apps/qr/lib/staff-promo.ts",
     suite: "lib/staff-promo.test.ts",
     why: "a dropped socket is not a verdict about the cart. Swallowing `updErr` sends the remove on to the diagnosis read, which finds an open, unfrozen cart and answers `cart_closed` — a fabricated diagnosis of exactly the M116/M119 shape, told to a server whose tap actually hit a network failure",
-    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
+    find: '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  if (updErr) return no("error");\n',
     replace:
-      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)\n    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
+      '    .update({ promo_code: null, promo_granted_cents: null }, { count: "exact" })\n    .eq("id", cart.id)\n    .eq("status", "open")\n    .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockAt}`)\n    // NOT `settle_at.lte.<cutoff>` — a Terminal reader PI is guarded by this freeze alone, and the\n    // freeze goes stale when the register\'s client poll stops. See the docblock.\n    .is("settle_at", null)\n    .is("live_payment_intent_id", null);\n  void updErr;\n',
   },
   {
     id: "staff-promo/apply-keeps-the-old-grant",

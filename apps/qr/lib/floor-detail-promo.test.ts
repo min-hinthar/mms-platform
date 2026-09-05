@@ -162,7 +162,7 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
   it("carries the applied CODE, so a cashier sees a discount before taking cash", async () => {
     const res = await getTableDetail(SESSION);
     expect(res.kind).toBe("detail");
-    if (res.kind !== "detail") return;
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.promoCode).toBe("PILOT15");
   });
 
@@ -170,7 +170,11 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     // 900 (promo) vs 1400 (promo + a 500 reward). Reading `discountCents` here would tell the
     // cashier the code is worth $14.00 when it delivered $9.00.
     const res = await getTableDetail(SESSION);
-    if (res.kind !== "detail") return;
+    // ASSERT, never an early `return`: vitest does not fail a test that asserted
+    // nothing, so this guard left the case green under any mutation making the read
+    // answer `outage` — including the one that matters most here (blind pass).
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.settlePromoCents).toBe(900);
     expect(res.detail.settleTotalCents).toBe(3930);
   });
@@ -178,7 +182,11 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
   it("reports NO code when the cart has none", async () => {
     cartRow = { ...(cartRow as Row), promo_code: null };
     const res = await getTableDetail(SESSION);
-    if (res.kind !== "detail") return;
+    // ASSERT, never an early `return`: vitest does not fail a test that asserted
+    // nothing, so this guard left the case green under any mutation making the read
+    // answer `outage` — including the one that matters most here (blind pass).
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.promoCode).toBeNull();
   });
 
@@ -187,7 +195,11 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     // Rendering `0` here would read as "the code is worth nothing", which is a different claim.
     itemRows = [];
     const res = await getTableDetail(SESSION);
-    if (res.kind !== "detail") return;
+    // ASSERT, never an early `return`: vitest does not fail a test that asserted
+    // nothing, so this guard left the case green under any mutation making the read
+    // answer `outage` — including the one that matters most here (blind pass).
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.promoCode).toBe("PILOT15");
     expect(res.detail.settlePromoCents).toBeNull();
     expect(res.detail.settleTotalCents).toBeNull();

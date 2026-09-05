@@ -122,7 +122,8 @@ describe("mergeTables — a promo on either side refuses the merge", () => {
     const res = await merge();
     expect(res).toEqual({
       ok: false,
-      error: "This table has a promo code applied — remove it here, then merge.",
+      error:
+        "This table has a promo code applied — remove it here first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it.",
     });
     // The money assertion: the lines never move, so no cart's discount is re-derived off a subtotal
     // it was not priced against.
@@ -134,7 +135,8 @@ describe("mergeTables — a promo on either side refuses the merge", () => {
     const res = await merge();
     expect(res).toEqual({
       ok: false,
-      error: "Table 7 has a promo code applied — remove it there, then merge.",
+      error:
+        "Table 7 has a promo code applied — remove it there first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it.",
     });
     expect(mergeCalled).toBe(0);
   });
@@ -153,7 +155,8 @@ describe("mergeTables — a promo on either side refuses the merge", () => {
     const res = await merge();
     expect(res).toEqual({
       ok: false,
-      error: "The table you picked has a promo code applied — remove it there, then merge.",
+      error:
+        "The table you picked has a promo code applied — remove it there first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it.",
     });
   });
 
@@ -163,7 +166,8 @@ describe("mergeTables — a promo on either side refuses the merge", () => {
     const res = await merge();
     expect(res).toEqual({
       ok: false,
-      error: "Both tables have a promo code applied — remove them on each table, then merge.",
+      error:
+        "Both tables have a promo code applied — remove them first, then merge. The discounts go with them, so re-apply on the merged table if a guest was quoted one.",
     });
     expect(mergeCalled).toBe(0);
   });
