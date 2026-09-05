@@ -50,9 +50,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **So the honest statement is: the non-landing verdict is unsound on BOTH paths and under EVERY cause;
 > the per-cause hedge narrows the exposure, it does not close it.** Keep the hedge — it is strictly
 > better than asserting everywhere — and do not read it as a proof. `YourUsual` asserting the verdict
-> on every cause is a residual of the same family, not a justified exception. The fix is not free:
-> `unconfirmed` carries no view by construction, so routing these to it hands `AddButton`'s queue back
-> to its own snapshot — the stale-absolute-quantity P1 from #251. T41 · T43 carry that trade-off.
+> on every cause is a residual of the same family, not a justified exception. The source docblocks in
+> `cart-freeze.ts` and `TableCartProvider.tsx` that asserted the retracted versions are corrected in
+> this PR, so the code and this file now say the same thing.
+>
+> ⚠️ **AND THE BLOCKER THAT KEPT T41/T43 FILED RATHER THAN FIXED WAS FALSE** (Codex round 2 on #255).
+> Both rows, and the first draft of this block, said routing these to `unconfirmed` hands `AddButton`'s
+> queue back to its own snapshot and re-creates #251's stale-absolute-quantity P1. It cannot:
+> `AddButton` reads `threaded ?? refreshed ?? (prior === null ? itemsRef.current : null)` and **sends
+> nothing** when a following op has no view — Codex round 6 on #251 closed exactly that. The claim was
+> inherited from #254's docblock and re-stated three times without being checked against the queue.
+> So the fix is cheaper than filed. ⚠️ Note also that the obvious third arm ("the line at the PRE-write
+> value → refused") is ITSELF unsound under a RESTORING host — the same ordering as T43. Only "the line
+> sits at our target" establishes anything.
 >
 > ### ⚠️ TWO GUARD RULES THIS SLICE PAID FOR
 >
@@ -93,7 +103,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    make it readable. Everything above is invisible until this is fixed.
 > 2. **T41 · T43** (med) — the unsound non-landing verdict, on `setItemQty` and on `add` respectively.
 >    T43 is the sharper of the two (it ends in a re-added dish, not just a wrong sentence). Read both
->    rows for the trade-off before starting; the naive fix regresses #251.
+>    rows before starting — but note the "this regresses #251" blocker they used to carry is FALSE and
+>    now retracted in both, so these are cheaper than they look.
 > 3. **T42** (med) — the refusal latch is provider-global and `track` does not serialize, so a
 >    concurrent write's clause can be read by another write's continuation.
 > 4. **T28** (med) — `check-child-freeze` has NO component-side expected set while its sibling

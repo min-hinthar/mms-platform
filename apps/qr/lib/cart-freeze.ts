@@ -474,9 +474,14 @@ export function refusedWriteClause(refusal: PublishableRefusal): string {
  *     comparison answers false for a write that landed. Nothing on that path can tell the two apart,
  *     and the cart carries no lock or settle to explain it — so it arrives here as `unknown`.
  *
- * `frozen` and `settling` keep the assertive opener: they are causes the server states, reached
- * through a cart that is demonstrably inert. `unknown` is the arm with no such witness, so it keeps
- * the hedge — which is also the only sentence that is true on BOTH readings of it.
+ * `frozen` and `settling` keep the assertive opener, and ⚠️ THAT IS A NARROWING, NOT A PROOF (Codex
+ * round 2 on #255). An earlier draft of this docblock called the inert cart a WITNESS for the
+ * verdict; it is not. A freeze describes the cart at RE-READ time and says nothing about whether our
+ * write landed before it — host overwrites our line, THEN starts checkout, and `line?.qty === qty`
+ * is false while this function answers `frozen`, so the assertive opener fires on a committed write.
+ * The verdict is unsound under every cause on the `setItemQty` path; the hedge on `unknown` shrinks
+ * the exposure and does not close it (OPEN-ITEMS T41). Keep the per-cause opener — it is strictly
+ * better than asserting everywhere — and do not reason from it as though it were established.
  *
  * That leaves the opener shared with `unconfirmedWriteNotice()`, and deliberately: the two are no
  * longer opposite claims, they are two degrees of the same uncertainty, and the CLAUSES separate
