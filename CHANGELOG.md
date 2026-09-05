@@ -4,6 +4,63 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The rest of the staff console, and a name that says what the screen shows (2026-09-05 · pilot P2, PR B)
+
+**PR A gave the console a language; this gives it to every screen.** Thirteen staff pages had no
+language control at all — a Burmese-first person could reach `/staff/tips` and have no way to change
+what it said. Nineteen files still built their accessible names as English template literals, which
+is fine while the visible label is also English and stops being fine the moment the button reads
+ပြီးပြီ. Both ratchets in `check-staff-lang.mjs` are now **empty**: 15/15 pages reach the control,
+63 staff files are aria-clean, 0 left to convert.
+
+**A table card announced a word the screen never showed, in ENGLISH, and had since S1.2.**
+`TableCard` built its accessible name in a local `const` and interpolated `table.status` raw, so a
+splitting table announced _"settling"_ while the chip beside it read _"Splitting"_ — a WCAG 2.5.3
+mismatch nothing could see, because a name assembled in a local variable is a string no guard was
+looking at. Both halves now read one `FLOOR_STATUS_KEY`. The fixture that pins it is `settling`
+specifically: it is the only status whose database value and displayed word differ, so it is the only
+one that separates the two code paths — and the suite's generic containment loop stays green under
+the mutant, which is exactly why the dedicated assertions exist beside it.
+
+**The outage screen now speaks the device's language, and mounts the control.** `StaffOutageShell`
+is a full-page takeover: it REPLACES the page, so it takes that page's control with it, on the
+fourteen pages that render it, during the outage it exists to explain. It has the strongest claim on
+the switch of any surface in the console — `setStaffLang` is ungated precisely so it keeps working
+when `getStaffAuth()` answers `unavailable`, and there nothing else on the screen does. Its `what`
+prop became a dictionary KEY rather than a free English string; all 21 call sites already passed a
+sentence that had an exact twin.
+
+**Five guard changes, each watched failing first — and four of them found live defects on the way
+in.** Rule 3 now demands a dictionary or label CALL rather than merely the absence of a literal, and
+it also matches the camelCase `ariaLabel=` **prop**: between them they surfaced seven hand-written
+English names the old matcher structurally could not see, including `TableCard`'s own. That prop
+match is load-bearing rather than tidy — `StaggerList` takes `ariaLabel` and writes it straight onto
+its `<ul>`, so the CALLER is the only place the rule can apply, and converting a file's one
+hyphenated site would have emptied its findings, forced its ratchet entry out, and let the literal
+leave the guard's reach permanently. Rule 3b now reads the SAME predicate as rule 3, so a file
+cannot be clean for the ratchet and dirty for the rule at once. **Rule 3c** is new and mechanises
+WCAG 2.5.3 at the call site, which the value test structurally cannot reach: a control whose name
+comes from a `verb` control must render that same key in its children — falsified against an English
+label, the right key, a DIFFERENT key, and a computed key. And rule 4 now excludes the outage shell
+from its reachability walk, because every staff page imports it: without that, the shell's new mount
+declared all thirteen un-converted pages "converted" (measured — thirteen false greens).
+
+**A Burmese string may not carry a bare Latin run.** `<Chrome>` marks interpolated slot VALUES —
+that is what keeps `$42.10` in the body face and stops it breaking mid-amount — but Latin written
+literally inside a template is not a slot, so nothing wraps it and it renders in Padauk, announced as
+Burmese. Exactly one value had it (`"LA"` for the timezone) and every other guard was green on it;
+`strings.test.ts` now refuses the shape. `lib/i18n/fill.ts` also states the slot rule it had only
+implied: `{n}`/`{total}` localize and every other name passes through verbatim, so a sentence needing
+two amounts names the second for what it IS (`{tip}`, `{into}`, `{old}`) instead of reaching for
+`{x}` again — the printed K15 glossary shows those braces to the people correcting the Burmese.
+
+**What is deliberately NOT here.** No `error: "…"` string in a staff SERVER module was converted:
+the 97 of them ride the same plain-string contract as the outage arms, and changing it means either
+threading `lang` through an auth path or designing a key-based error protocol. `<OutageText>` at the
+render site is the answer instead, and it reaches further than OPEN-ITEMS P2c assumed — **46** arms,
+not 27, because 19 `error: gate.error` returns inherit `staffGate`'s default copy. The server
+population is filed as **P2i**, with the counts measured rather than carried over.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese
