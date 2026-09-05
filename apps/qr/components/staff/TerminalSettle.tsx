@@ -245,9 +245,15 @@ export function TerminalCollectPanel({
           : "Nothing was charged.";
 
   return (
+    // `role="group"` is load-bearing, not decoration: a bare <div> maps to the `generic` role, which
+    // PROHIBITS an author-supplied name — so the `aria-label` below was being discarded, and the
+    // cashier's focus (carried here by the effect above, as the settle section unmounts under them)
+    // landed on an unnamed container at the moment the reader took the transaction. A blind audit
+    // found it; `check-staff-lang.mjs` rule 3d now holds the shape.
     <div
       ref={panelRef}
       tabIndex={-1}
+      role="group"
       aria-label={sx(lang, "settle.a11y.readerPanel")}
       className="card"
       style={{ ...panel, outline: "none" }}

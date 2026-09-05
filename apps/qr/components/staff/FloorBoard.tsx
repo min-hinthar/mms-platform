@@ -10,6 +10,7 @@ import { StaggerList } from "./StaggerList";
 import { isRealTransition, type PulseMeta } from "@/lib/floor-pulse";
 import { useStaffLang } from "./StaffLangProvider";
 import { sx } from "@/lib/staff-labels";
+import { Chrome } from "./Chrome";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -163,11 +164,15 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     <section aria-labelledby="floor-h">
       <div style={headRow}>
         <h2 id="floor-h" style={{ fontSize: "var(--fs-body)", margin: 0 }}>
-          Tables
+          {/* `echo={false}`: this heading is the `aria-labelledby` target for the whole section, and
+              a `chrome-pair` echo would name it "စားပွဲများTables". */}
+          <Chrome lang={lang} k="floor.tables.title" />
         </h2>
-        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
-              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
-              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
+        {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
+              returns a flat STRING, so the freeze branch has nowhere else to carry its mark. Every
+              other branch renders <Chrome>, which marks itself, and an unconditional `lang={lang}`
+              on the <p> would then double-mark them. (It used to be conditional because the other
+              branches were English literals "until PR B converts them" — this is PR B.) */}
         <p
           role="status"
           lang={degraded ? lang : undefined}
@@ -177,28 +182,42 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
             color: degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
-          {degraded
-            ? frozenBoardCopy(
-                lang,
-                snap.serverNow,
-                nowMs - degraded.since,
-                "what.room",
-                degraded.cause,
-              )
-            : count === 0
-              ? "No active tables"
-              : `${count} active ${count === 1 ? "table" : "tables"}`}
+          {degraded ? (
+            frozenBoardCopy(
+              lang,
+              snap.serverNow,
+              nowMs - degraded.since,
+              "what.room",
+              degraded.cause,
+            )
+          ) : count === 0 ? (
+            <Chrome lang={lang} k="floor.tables.none" />
+          ) : (
+            <Chrome
+              lang={lang}
+              k={count === 1 ? "floor.tables.count.one" : "floor.tables.count.many"}
+              vars={{ n: count }}
+            />
+          )}
         </p>
       </div>
 
       {count === 0 ? (
         // W10b — mid-freeze "the floor is quiet" would be an authoritative lie about a full room.
         <EmptyState
-          title={degraded ? "No tables as of the last update" : "The floor is quiet"}
+          title={
+            <Chrome
+              lang={lang}
+              k={degraded ? "floor.tables.emptyFrozen" : "floor.tables.empty"}
+              echo="stack"
+            />
+          }
           subtitle={
-            degraded
-              ? "New tables won’t appear here until this board is updating again. Nothing already open is lost."
-              : "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated."
+            <Chrome
+              lang={lang}
+              k={degraded ? "floor.tables.emptyFrozenSub" : "floor.tables.emptySub"}
+              echo="stack"
+            />
           }
         />
       ) : (

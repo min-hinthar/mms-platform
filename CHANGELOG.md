@@ -6,12 +6,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### The rest of the staff console, and a name that says what the screen shows (2026-09-05 · pilot P2, PR B)
 
-**PR A gave the console a language; this gives it to every screen.** Thirteen staff pages had no
-language control at all — a Burmese-first person could reach `/staff/tips` and have no way to change
-what it said. Nineteen files still built their accessible names as English template literals, which
-is fine while the visible label is also English and stops being fine the moment the button reads
-ပြီးပြီ. Both ratchets in `check-staff-lang.mjs` are now **empty**: 15/15 pages reach the control,
-63 staff files are aria-clean, 0 left to convert.
+**PR A gave the console a language; this puts the control on every screen and the names in both.**
+Thirteen staff pages had no language control at all — a Burmese-first person could reach
+`/staff/tips` and have no way to change what it said. Nineteen files still built their accessible
+names as English template literals, which is fine while the visible label is also English and stops
+being fine the moment the button reads ပြီးပြီ. Both ratchets in `check-staff-lang.mjs` are now
+**empty**: 15/15 pages reach the control, 63 staff files are aria-clean, 0 left to convert.
+
+**What that sentence does NOT claim, because a blind audit caught the version that did.** It first
+read "this gives it to every screen", and the console's own landing board was still saying "The
+floor is quiet" in English under a Burmese greeting — beneath a comment reading "until PR B converts
+them", in PR B. `FloorBoard` and the expo head row are converted now; what is still English is
+enumerated and filed, not implied away: the expo ticket CARD (**P2q**), the bump's two `catch`
+sentences and why the one-line conversion of them is wrong (**P2p**), `TeamManager`'s add-staff
+form, `PinUnlock`, `RoleBadge` and `RelativeTime` (**P2m**), and the 97 server-module `error:`
+strings that were out of scope by owner direction (**P2i**).
 
 **A table card announced a word the screen never showed, in ENGLISH, and had since S1.2.**
 `TableCard` built its accessible name in a local `const` and interpolated `table.status` raw, so a

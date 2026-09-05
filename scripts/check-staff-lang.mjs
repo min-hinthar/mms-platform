@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 /**
- * P2 — the staff-locale isolation guard. Two rules, both PARSED (LEARNINGS #60), both in the CI
- * fast lane: file-read-only, seconds, no build and no DB.
+ * P2 — the staff-locale guard. EIGHT rules now — 1 and 2 (cookie isolation), 3 · 3b · 3c · 3d (the
+ * accessible names), 4 (every page reaches the language control) and 5 (a dictionary string reaches
+ * the DOM marked) — all PARSED (LEARNINGS #60), all in the CI fast lane: file-read-only, seconds,
+ * no build and no DB.
+ *
+ * ⚠️ THE COUNT IN THIS SENTENCE IS PART OF THE GUARD. It read "Two rules" while the file implemented
+ * seven, because each rule was added without re-reading the header — and a blind audit reported the
+ * header as a defect before it reported anything in the rules. If you add a rule, the number here
+ * moves in the same commit.
  *
  * The claim being defended is in `lib/staff-lang.ts`'s docblock: the staff device cookie is read on
  * `/staff/*` and `/board` ONLY, never by a diner route. W16b retired the app-wide locale toggle by
@@ -273,9 +280,14 @@ const ARIA_DIRS = [join(QR, "components/staff"), join(APP, "staff"), join(APP, "
  *
  * So if rule 3 fails on your file, the answer is `al()` or `sx()` — never a new entry here. A name
  * added back to this list is not a TODO, it is a REGRESSION with a comment on it, and nothing in
- * this script can tell the two apart. The one-way contract that emptied it (rule 3b: a listed file
- * with no findings left MUST leave) still runs, so an entry that arrived by mistake and was then
- * cleaned would at least be noticed on its way out.
+ * this script can tell the two apart.
+ *
+ * ⚠️ AND BE PRECISE ABOUT WHAT STILL PROTECTS IT, because the first draft of this docblock was not.
+ * It said the one-way contract "still runs". Rule 3b iterates THIS SET, so at zero entries it runs
+ * over nothing — it is armed, not active. What actually holds the drained state is rule 3 itself,
+ * over every file under `ARIA_DIRS`; rule 3b only stops a re-added entry from becoming a permanent
+ * exemption once someone also cleans the file. A blind audit called the first wording dead code and
+ * was right about the mechanism.
  */
 const ARIA_TODO = new Set([].map((f) => join(QR, f)));
 
@@ -400,36 +412,198 @@ function isEnclosingParam(id) {
 }
 
 /**
- * Authored text spliced into a name OUTSIDE any dictionary call: `` `${label} — bag for ${callOut}` ``,
- * `x ? "Deactivate" : "Reactivate"`, `ts(lang, k) + " request"`. Subtrees rooted at a NAME_CALLS call
- * are skipped, so a dictionary KEY (`sx(lang, "reg.a11y.open")`) is never mistaken for copy. Joiner
- * punctuation (`" — "`, `", "`) carries no letter or digit and is left alone in any script.
+ * The nearest enclosing `const`/`let` initializer this identifier binds to, or null.
+ *
+ * Module-level because TWO rules need it and they need the SAME answer: rule 3 follows a value into
+ * its declaration to see what text it carries (`callOut` → `` `Table ${n}` ``), and rule 3c follows
+ * a hoisted `al()` call into the declaration that made it. Scope-walked outward, so the nearest
+ * declaration wins — the one the browser would see.
+ */
+function declarationInitializerOf(id) {
+  for (let n = id.parent; n; n = n.parent) {
+    const stmts = n.statements;
+    if (!stmts) continue;
+    for (const st of stmts) {
+      if (!ts.isVariableStatement(st)) continue;
+      for (const d of st.declarationList.declarations)
+        if (d.initializer && bindsName(d.name, id.text)) return d.initializer;
+    }
+  }
+  return null;
+}
+
+/**
+ * Authored text spliced into a name — OUTSIDE a dictionary call (`` `${label} — bag for ${callOut}` ``,
+ * `x ? "Deactivate" : "Reactivate"`, `ts(lang, k) + " request"`) and, since the audit below, INSIDE
+ * one, in the slot values it fills. Joiner punctuation (`" — "`, `", "`) carries no letter or digit
+ * and is left alone in any script.
+ *
+ * ⚠️ THE FIRST CUT RETURNED AT A NAME_CALLS NODE, and its comment said why: "its arguments are keys
+ * and values, not copy". The second half of that sentence was false, and an audit of this guard
+ * falsified it red-first — `tf(lang, "expo.a11y.cardBag", { x: callOut })` with
+ * `` const callOut = `Table ${ticket.tableNumber}` `` ships the accessible name
+ * "Table 7 အတွက် ပါဆယ်ထုပ်": an English word the console already owns as `floor.table`, spoken inside
+ * a Burmese sentence, with the guard green. A slot VALUE is copy whenever a person hears a word in it.
+ *
+ * So a name call is descended into, minus the two positions that are deliberately not copy:
+ *
+ *   - a **direct string argument** — the dictionary KEY (`sx(lang, "reg.a11y.open")`);
+ *   - a property named `kind` / `verb` / `status` — `al()`'s arm selector, its verb KEY, and the raw
+ *     `FloorStatus` the label module maps through `FLOOR_STATUS_KEY` itself.
+ *
+ * and inside those value positions only a **Latin word** (two or more letters) counts, not any
+ * speakable character: a name legitimately composes with `"#"`, `"·"`, a tent-card number and a
+ * diner's own name. Values reached through a local `const` are followed to their declaration —
+ * transitively, because the defect that motivated this was two hops
+ * (`verifyWho` → `callOut` → `` `Table ${…}` ``) and a one-hop walk would have declared it clean.
+ *
+ * ⚠️ AND ONLY A STRING-SHAPED VALUE IS FOLLOWED — see `stringish`. The first cut followed every
+ * identifier and reported four literals that nobody hears: `"comp"`, `"grocery"` and `"fired"`
+ * (discriminants in `===` tests) and `"kds.channel.dinein"` (a key reached through a key map).
+ * A guard whose findings must be hand-sorted into real and spurious teaches the next reader to
+ * skim them.
  */
 function splicedText(node, sf) {
   const speakable = /[\p{L}\p{N}]/u;
+  const latinWord = /[A-Za-z]{2,}/;
+  // `ts`/`tf`/`sx` take the KEY at index 1 — a literal, a ternary of literals, or a lookup into a
+  // key map (`CHANNEL_KEY[ticket.channel]`). Skipping the POSITION rather than the shape is what
+  // keeps a computed key from reading as copy. `al`'s second argument is the control OBJECT, whose
+  // own key-ish fields are named below; `frozenBoardCopy` takes no key at all.
+  const KEY_ARG = { ts: 1, tf: 1, sx: 1 };
+  const KEYISH_PROPS = ["kind", "verb", "status"];
   let hit = null;
+  const seenDecls = new Set();
+  const isChunk = (n) =>
+    ts.isStringLiteral(n) ||
+    ts.isNoSubstitutionTemplateLiteral(n) ||
+    n.kind === ts.SyntaxKind.TemplateHead ||
+    n.kind === ts.SyntaxKind.TemplateMiddle ||
+    n.kind === ts.SyntaxKind.TemplateTail;
+
+  /**
+   * Could this expression CARRY authored text into the slot? Only a string-shaped one can, and the
+   * distinction is load-bearing: `done: line.state !== "fired"` and
+   * `` const grocery = ticket.lines.every((l) => l.fulfillment === "grocery") `` both hold a string
+   * literal that is a DISCRIMINANT, never a word anybody hears. A property read (`request.lineName`,
+   * `ticket.customerName`) is data the diner supplied, not copy this file wrote.
+   */
+  const isNameCall = (n) =>
+    ts.isCallExpression(n) &&
+    ts.isIdentifier(n.expression) &&
+    NAME_CALLS.includes(n.expression.text);
+
+  function stringish(n) {
+    if (isChunk(n) || ts.isTemplateExpression(n)) return true;
+    if (isNameCall(n)) return true; // a dictionary call produces a string — and a localized one
+    if (ts.isParenthesizedExpression(n)) return stringish(n.expression);
+    if (ts.isConditionalExpression(n)) return stringish(n.whenTrue) || stringish(n.whenFalse);
+    // `+` concatenates; `??` and `||` CHOOSE between two candidate strings. All three can put a word
+    // in the slot, so all three are followed.
+    if (
+      ts.isBinaryExpression(n) &&
+      [
+        ts.SyntaxKind.PlusToken,
+        ts.SyntaxKind.QuestionQuestionToken,
+        ts.SyntaxKind.BarBarToken,
+      ].includes(n.operatorToken.kind)
+    )
+      return stringish(n.left) || stringish(n.right);
+    if (ts.isIdentifier(n)) {
+      const d = declarationInitializerOf(n);
+      return d ? stringish(d) : false;
+    }
+    return false;
+  }
+
+  /** Walk a slot VALUE for authored Latin words, following local bindings to their declarations. */
+  function scanValue(n) {
+    if (hit !== null || !stringish(n)) return;
+    function walk(x) {
+      if (hit !== null) return;
+      // A dictionary call NESTED inside a value (`` `${tf(lang, "floor.table", { id })} · #${code}` ``)
+      // is the correct shape, not a splice — but its OWN slots are governed by the same rule, so it
+      // goes back through `visit` rather than being skipped. Walking it as plain text would report
+      // its key ("floor.table" is two Latin words to a regex) as the authored copy.
+      if (isNameCall(x)) {
+        visit(x);
+        return;
+      }
+      if (isChunk(x)) {
+        if (latinWord.test(x.text)) hit = x.text;
+        return;
+      }
+      if (ts.isIdentifier(x)) {
+        const decl = declarationInitializerOf(x);
+        if (decl && !seenDecls.has(decl) && stringish(decl)) {
+          seenDecls.add(decl);
+          walk(decl);
+        }
+        return;
+      }
+      ts.forEachChild(x, (c) => {
+        walk(c);
+      });
+    }
+    walk(n);
+  }
+
   function visit(n) {
+    if (hit !== null) return;
     if (
       ts.isCallExpression(n) &&
       ts.isIdentifier(n.expression) &&
       NAME_CALLS.includes(n.expression.text)
-    )
-      return; // a localized name — its arguments are keys and values, not copy
-    if (
-      (ts.isStringLiteral(n) ||
-        ts.isNoSubstitutionTemplateLiteral(n) ||
-        n.kind === ts.SyntaxKind.TemplateHead ||
-        n.kind === ts.SyntaxKind.TemplateMiddle ||
-        n.kind === ts.SyntaxKind.TemplateTail) &&
-      speakable.test(n.text) &&
-      hit === null
-    )
+    ) {
+      const keyArg = KEY_ARG[n.expression.text];
+      n.arguments.forEach((arg, i) => {
+        if (i === 0 || i === keyArg) return; // the lang, and the dictionary key
+        if (ts.isObjectLiteralExpression(arg)) {
+          for (const prop of arg.properties) {
+            if (!ts.isPropertyAssignment(prop)) continue;
+            if (KEYISH_PROPS.includes(prop.name.getText(sf))) continue;
+            scanValue(prop.initializer);
+          }
+        } else scanValue(arg);
+      });
+      return;
+    }
+    if (isChunk(n) && speakable.test(n.text)) {
       hit = n.text;
+      return;
+    }
     ts.forEachChild(n, (c) => {
       visit(c);
     });
   }
   visit(node);
+  return hit;
+}
+
+/**
+ * A dictionary call reaching a ReactNode prop UNWRAPPED — `body={ts(lang, k)}`. JSX subtrees are
+ * skipped, because an element marks itself: `body={<Chrome k="…" vars={{ what: ts(lang, what) }} />}`
+ * is the CORRECT shape and a plain `callsAny` over the whole initializer reported it as the defect
+ * (measured — it was rule 5's first finding the moment the prop list grew).
+ */
+function bareDictCall(expr) {
+  let hit = false;
+  function visit(n) {
+    if (hit) return;
+    if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n) || ts.isJsxFragment(n)) return;
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      DICT_CALLS.includes(n.expression.text)
+    ) {
+      hit = true;
+      return;
+    }
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  }
+  visit(expr);
   return hit;
 }
 
@@ -478,7 +652,22 @@ function ariaFindings(file) {
       } else if (ts.isIdentifier(expr) && isEnclosingParam(expr)) {
         // A name passed in as a prop. The CALLER is where the rule applies.
       } else if (ts.isIdentifier(expr) && localBindingIsLocalized(expr) === true) {
-        // `const { aria } = al(lang, …)` one line up — localized, just not inlined.
+        // `const { aria } = al(lang, …)` one line up — localized, just not inlined. But the SPLICE
+        // rule still applies to what that declaration BUILDS.
+        //
+        // ⚠️ THIS BRANCH USED TO BE EMPTY, AND THAT WAS THE HOLE. `localBindingIsLocalized` answers
+        // "does the initializer call the dictionary ANYWHERE", so
+        // `` const aria = `${ts(lang, "kds.bump")} — bag for ${callOut}` `` answered yes and skipped
+        // the splice check entirely — the same string is caught INLINE (it is the example in
+        // `splicedText`'s own docblock) and passed hoisted. A blind audit found it latent: the two
+        // hoisted call sites in the tree are pure `al()` calls, and `verbLabelFindings` exists
+        // precisely because call sites are expected to hoist.
+        const decl = declarationInitializerOf(expr);
+        const splicedHoisted = decl ? splicedText(decl, sf) : null;
+        if (splicedHoisted !== null)
+          out.push(
+            `rule 3: ${rel}:${line} — authored text "${splicedHoisted.trim()}" spliced into a localized name, one declaration up. Every word a person hears comes from the dictionary; only punctuation joins them.`,
+          );
       } else if (!callsAny(expr, NAME_CALLS)) {
         out.push(
           `rule 3: ${rel}:${line} — a hand-built aria-label (${expr.getText(sf).replace(/\s+/g, " ").slice(0, 70)}). Names come from lib/staff-labels.ts — al() for a control with a visible label, sx() for one without.`,
@@ -565,25 +754,39 @@ function verbLabelFindings(file) {
   }
 
   /**
-   * The initializer of the nearest enclosing declaration of this identifier, or null. Same scope
-   * walk `localBindingIsLocalized` uses for rule 3 — the nearest enclosing declaration is the one
-   * the browser would see, and two functions in one file may each declare `aria`.
+   * The ternary arms an expression sits under, innermost last, as `condition@true|false` strings.
+   * Two paths CONTRADICT when they share a condition and disagree on its branch — which is the
+   * crossed-pairing defect: a button that announces `deactivate` while `row.active` and renders
+   * `reactivate` on that same branch.
+   *
+   * ⚠️ STATED LIMIT. Conditions are compared as normalized SOURCE TEXT, so `firstStage` and
+   * `!firstStage` read as two different conditions and a pairing crossed that way is not caught —
+   * it can only ever miss a defect, never invent one. What it does catch is the shape every call
+   * site in this repo actually writes: one condition, two arms, both halves keyed off it.
    */
-  function declarationInitializerOf(id) {
-    for (let n = id.parent; n; n = n.parent) {
-      const stmts = n.statements;
-      if (!stmts) continue;
-      for (const st of stmts) {
-        if (!ts.isVariableStatement(st)) continue;
-        for (const d of st.declarationList.declarations)
-          if (d.initializer && bindsName(d.name, id.text)) return d.initializer;
-      }
+  function armPath(node, stopAt) {
+    const path = [];
+    for (let n = node; n && n !== stopAt; n = n.parent) {
+      const par = n.parent;
+      if (par && ts.isConditionalExpression(par) && (par.whenTrue === n || par.whenFalse === n))
+        path.push(`${par.condition.getText(sf).replace(/\s+/g, " ")}@${par.whenTrue === n}`);
     }
-    return null;
+    return path;
   }
 
-  /** Does this subtree RENDER `key` — `<Chrome … k="key">` or `ts(_, "key")`? */
-  function rendersKey(node, key) {
+  function contradicts(a, b) {
+    for (const step of a) {
+      const [cond, branch] = step.split("@");
+      if (b.some((o) => o.startsWith(`${cond}@`) && o !== `${cond}@${branch}`)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Does this subtree RENDER `key` — `<Chrome … k="key">` or `ts(_, "key")` — on a branch that does
+   * not contradict `namePath`, the ternary arms the name announcing it sits under?
+   */
+  function rendersKey(node, key, namePath = []) {
     let hit = false;
     function visit(n) {
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
@@ -601,7 +804,7 @@ function verbLabelFindings(file) {
                   ts.isStringLiteral(init.expression)
                 ? init.expression
                 : null;
-          if (lit && lit.text === key) hit = true;
+          if (lit && lit.text === key && !contradicts(namePath, armPath(n, node))) hit = true;
         }
       }
       if (
@@ -610,7 +813,13 @@ function verbLabelFindings(file) {
         DICT_CALLS.includes(n.expression.text)
       ) {
         const a = n.arguments[1];
-        if (a && ts.isStringLiteral(a) && a.text === key) hit = true;
+        if (
+          a &&
+          ts.isStringLiteral(a) &&
+          a.text === key &&
+          !contradicts(namePath, armPath(n, node))
+        )
+          hit = true;
       }
       ts.forEachChild(n, (c) => {
         visit(c);
@@ -627,10 +836,17 @@ function verbLabelFindings(file) {
       node.initializer
     ) {
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-      let found = null;
+      // ⚠️ EVERY verb key in the name, not the FIRST. The first cut kept one
+      // (`if (v && found === null) found = v`) and a probe against the expo board's four-branch bump
+      // button showed what that bought: breaking the `<Chrome>` key of branch one reddened, breaking
+      // any of the other three left the guard green — three of four pairings unguarded by a matcher
+      // satisfied by POSITION, which is LEARNINGS #60 for the second time in this file. A name that
+      // announces N verbs must render all N.
+      const found = [];
       function findAl(n) {
         const v = verbKeyOf(n);
-        if (v && found === null) found = v;
+        if (v && !found.some((f) => f.key === v.key))
+          found.push({ ...v, path: armPath(n, node.initializer) });
         // ⚠️ FOLLOW A HOISTED CALL. `const { aria } = al(lang, { kind: "verb", … })` one line above
         // and `aria-label={aria}` below is the shape a call site naturally takes when the control
         // has several fields — and the first cut of this rule searched only the attribute's own
@@ -650,19 +866,19 @@ function verbLabelFindings(file) {
       }
       const seenDecls = new Set();
       findAl(node.initializer);
-      if (found) {
-        if (found.key === null) {
+      // The element this name sits on: attribute → JsxAttributes → opening element.
+      const owner = node.parent?.parent;
+      const el = owner && ts.isJsxOpeningElement(owner) ? owner.parent : owner;
+      for (const f of found) {
+        if (f.key === null) {
           out.push(
             `rule 3c: ${rel}:${line} — a \`verb\` control whose \`verb:\` is not a string literal. The guard cannot then find the label it must contain; pick the key with a ternary over two al() calls instead.`,
           );
-        } else {
-          // The element this name sits on: attribute → JsxAttributes → opening element.
-          const owner = node.parent?.parent;
-          const el = owner && ts.isJsxOpeningElement(owner) ? owner.parent : owner;
-          if (!el || !rendersKey(el, found.key))
-            out.push(
-              `rule 3c: ${rel}:${line} — the control announces \`${found.key}\` but never renders it. WCAG 2.5.3 asks the NAME to contain the VISIBLE label; render the same key in this element's children, through <Chrome k="${found.key}" /> or ts(lang, "${found.key}").`,
-            );
+        } else if (!el || !rendersKey(el, f.key, f.path)) {
+          const where = f.path.length ? ` on the branch \`${f.path.join(" / ")}\`` : "";
+          out.push(
+            `rule 3c: ${rel}:${line} — the control announces \`${f.key}\`${where} but never renders it there. WCAG 2.5.3 asks the NAME to contain the VISIBLE label; render the same key in this element's children, on the same branch, through <Chrome k="${f.key}" /> or ts(lang, "${f.key}").`,
+          );
         }
       }
     }
@@ -675,6 +891,56 @@ function verbLabelFindings(file) {
 }
 
 for (const file of ARIA_ALL) failures.push(...verbLabelFindings(file));
+
+// ── Rule 3d — a name has to land on an element that can BEAR one ────────────────────────────────
+// `<div aria-label={sx(lang, "settle.a11y.readerPanel")}>` type-checks, reads as localized, counts
+// toward "aria-clean", and ships NOTHING: a bare div maps to the ARIA `generic` role and a bare `p`
+// to `paragraph`, and neither takes an author-supplied name — the browser discards it. Found by a
+// blind audit on the reader-settle panel, which is `tabIndex={-1}` and is the element the cashier's
+// focus is deliberately moved to as the settle section unmounts under them: they landed on an
+// unnamed container at the moment the terminal took the transaction. A second live instance was in
+// the KDS stat strip, from the PR before.
+//
+// The fix at both sites is one attribute (`role="group"`), which is why this is a rule and not a
+// backlog row. Scoped to the three generic tags: every other element the console names is a
+// `<button>`, `<a>`, `<nav>`, `<section>`, `<ul>` or a div that already declares its role.
+function nameableFindings(file) {
+  const out = [];
+  let sf;
+  try {
+    sf = parse(file);
+  } catch {
+    return out;
+  }
+  const rel = relative(ROOT, file);
+  const GENERIC_TAGS = ["div", "span", "p"];
+  const NAME_ATTRS = ["aria-label", "ariaLabel", "aria-labelledby"];
+  function visit(node) {
+    if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
+      const tag = node.tagName.getText(sf);
+      if (GENERIC_TAGS.includes(tag)) {
+        const props = node.attributes.properties;
+        const named = props.find(
+          (a) => ts.isJsxAttribute(a) && NAME_ATTRS.includes(a.name.getText(sf)),
+        );
+        const hasRole = props.some((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "role");
+        if (named && !hasRole) {
+          const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+          out.push(
+            `rule 3d: ${rel}:${line} — a name on a bare <${tag}>. That element's implicit role (${tag === "p" ? "paragraph" : "generic"}) does not accept an author-supplied name, so the browser DISCARDS it. Give it a role that does — role="group" for a named container, role="status" for a live one, role="list" for a list.`,
+          );
+        }
+      }
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return out;
+}
+
+for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 
 // ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
 // A staff surface that cannot switch language is a surface one of the two readers is locked out of.
@@ -944,15 +1210,31 @@ for (const file of MARK_FILES) {
           `rule 5: ${rel}:${line} — a dictionary string reaches the DOM with no lang mark on any enclosing element. Under Burmese it renders in the Latin face, tracked and uppercased. Add lang={lang}, or render it through <Chrome>.`,
         );
     }
-    // …and the same call handed to a component PROP that renders as text. Only the two EmptyState
-    // slots exist today; both take a ReactNode, so both must carry <Chrome>, not a bare string.
+    // …and the same call handed to a component PROP that renders as text. Each of these takes a
+    // ReactNode and renders it as a text node, so each must carry <Chrome>, not a bare string.
+    //
+    // ⚠️ THIS LIST IS THE RULE'S BLIND SPOT AND IT MUST GROW WITH THE PROPS. It read
+    // `["title", "subtitle"]` under a comment saying "Only the two EmptyState slots exist today" —
+    // written in the same PR that widened `OutageState`'s `body`, `escalatedBody` and (a round
+    // later) `retryLabel`/`retryBusyLabel` to ReactNode and passed copy through them. A blind audit
+    // found the comment falsified by its own diff. When you widen a copy prop to ReactNode, add it
+    // here in the same commit.
     if (
       ts.isJsxAttribute(node) &&
-      ["title", "subtitle"].includes(node.name.getText(sf)) &&
+      [
+        "title",
+        "subtitle",
+        "body",
+        "escalatedBody",
+        "retryLabel",
+        "retryBusyLabel",
+        "label",
+        "busyLabel",
+      ].includes(node.name.getText(sf)) &&
       node.initializer &&
       ts.isJsxExpression(node.initializer) &&
       node.initializer.expression &&
-      callsAny(node.initializer.expression, DICT_CALLS)
+      bareDictCall(node.initializer.expression)
     ) {
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
       failures.push(

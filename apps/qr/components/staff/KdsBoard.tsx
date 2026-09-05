@@ -460,7 +460,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           <Chrome lang={lang} k="kds.back" />
         </a>
 
-        <div className="kds-stats" aria-label={sx(lang, "kds.a11y.stats")}>
+        {/* `role="group"`: a bare <div> is the `generic` role, which prohibits an author name — the
+            `aria-label` below was silently discarded until rule 3d went in. */}
+        <div className="kds-stats" role="group" aria-label={sx(lang, "kds.a11y.stats")}>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count}</b>
             <span lang={lang}>{ts(lang, "kds.stat.open")}</span>

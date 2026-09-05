@@ -82,6 +82,16 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
 
 const LANGS: readonly StaffLang[] = ["en", "my"];
 
+/**
+ * ⚠️ READ THIS BEFORE TRUSTING THE LOOP BELOW. `al()` interpolates `visible` into `aria` by
+ * construction in EVERY arm (`staff-labels.ts` — `line`, `bump`, `eighty6`, `recall`, `undo`,
+ * `verb`, `subject`, `table`), so `expect(aria).toContain(visible)` cannot fail for any of them: it
+ * proves the SHAPE holds across 2 languages × N controls, and nothing about the words. A blind audit
+ * named it tautological and was right. Every defect this file has actually caught was caught by a
+ * NAMED assertion further down — the `settling` status word, the Burmese line quantity, the
+ * subject/verb inversion, the conditional fragments — and every `verify:slice` mutant on this module
+ * carries a note saying the loop stays green under it. Add rules to the named blocks, not here.
+ */
 describe("every labelled control satisfies 2.5.3 in BOTH languages", () => {
   for (const lang of LANGS) {
     for (const [what, control] of CONTROLS) {
@@ -109,6 +119,12 @@ describe("the visible label is what the screen actually shows", () => {
     // which is exactly what P1 shipped as a deliberate placeholder, and what this slice fixes.
     expect(aria).toContain(MOHINGA_MY);
     expect(aria).not.toContain(MOHINGA);
+    // …and the QUANTITY is a prose count, so it takes Burmese numerals like every other count this
+    // module builds. It shipped Latin. Asserted on the exact codepoint, and negatively on the Latin
+    // digit, because the containment assertions above stay green either way — the name contains the
+    // dish whichever numeral system the qty uses.
+    expect(aria).toContain("၂");
+    expect(aria).not.toContain("2");
   });
 
   it("under Burmese, a dish with no catalog Burmese falls back to English in BOTH halves", () => {
@@ -304,8 +320,13 @@ describe("a table's name renders each fragment in the right script", () => {
   });
 
   it("the singular is used at one item and the plural above it", () => {
+    // Both anchored on the trailing separator. `toContain("2 items")` alone is ALSO satisfied by
+    // "12 items", so at itemCount 12 the assertion could not tell the two keys apart — and these
+    // two assertions are the only thing that does. (Blind audit, 2026-09-05.)
     expect(al("en", { ...busy, itemCount: 1 }).aria).toContain("1 item,");
-    expect(al("en", { ...busy, itemCount: 2 }).aria).toContain("2 items");
+    expect(al("en", { ...busy, itemCount: 2 }).aria).toContain("2 items,");
+    expect(al("en", { ...busy, itemCount: 12 }).aria).toContain("12 items,");
+    expect(al("en", { ...busy, itemCount: 12 }).aria).not.toContain("12 item,");
   });
 });
 

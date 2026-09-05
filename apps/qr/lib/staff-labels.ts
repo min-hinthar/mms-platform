@@ -1,5 +1,5 @@
 import { STAFF, ts, type StaffKey } from "./i18n/staff";
-import { plural, tf } from "./i18n/fill";
+import { localizeCount, plural, tf } from "./i18n/fill";
 import type { FloorStatus } from "./floor-types";
 import type { StaffLang } from "./staff-lang";
 
@@ -119,7 +119,16 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       const dish = dishVisible(lang, control.name, control.nameMy);
       const verb = ts(lang, control.done ? "kds.line.done" : "kds.line.start");
       const mods = control.modifiers.length ? `, ${control.modifiers.join(", ")}` : "";
-      return { visible: dish, aria: `${verb} — ${control.qty} ${dish}${mods}` };
+      // The quantity is a PROSE COUNT, so it takes the device's numerals — the owner's rule
+      // (`i18n/fill.ts`: Burmese numerals in prose counts; Latin for money, clocks, table numbers
+      // and pickup codes). It shipped Latin while every other count in this module went Burmese,
+      // so one KDS line announced "ပြီး — 2 မုန့်ဟင်းခါး" beside a floor card saying "ပစ္စည်း ၉ ခု".
+      // Found by a blind audit; the dictionary's own `kds.bump.what` puts an item count on an `{n}`
+      // slot, which is what settles it as prose rather than an identifier.
+      return {
+        visible: dish,
+        aria: `${verb} — ${localizeCount(control.qty, lang)} ${dish}${mods}`,
+      };
     }
     case "bump": {
       const visible = ts(lang, "kds.bump");

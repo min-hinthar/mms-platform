@@ -16,10 +16,14 @@ import { al, sx } from "@/lib/staff-labels";
  *
  * P2 SCOPE, stated so the next reader does not mistake it for a finished conversion: this file's
  * ARIA and its ONE live region are localized; the form's own visible copy (the heading, three field
- * labels, the role options, the submit button, the "(you)" / "Inactive" tags) is still English and
- * is tracked under OPEN-ITEMS P2c. The two are separable because a hand-written English aria-label
- * is the thing that BREAKS when the visible label turns Burmese — an English label beside an English
- * name is merely unconverted.
+ * labels, the role options, the submit button, the "(you)" / "Inactive" tags) and the per-row
+ * `<RoleBadge>` label are still English, and are tracked under OPEN-ITEMS **P2m**. The two halves
+ * are separable because a hand-written English aria-label is the thing that BREAKS when the visible
+ * label turns Burmese — an English label beside an English name is merely unconverted.
+ *
+ * ⚠️ THAT ROW NUMBER IS LOAD-BEARING. It read P2c until an audit followed it: P2c CLOSED with this
+ * slice, and its closure names `FloorDetailLive`, `StaffModSheet` and the thirteen pages — never
+ * this file. A deferral that points at a closed row is a deferral tracked nowhere.
  */
 export function TeamManager({
   initial,

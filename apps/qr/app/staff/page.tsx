@@ -76,9 +76,11 @@ export default async function StaffHome() {
         aria-label={sx(lang, "floor.a11y.tools")}
         style={{ marginTop: "var(--s6)", display: "flex", gap: "var(--s3)", flexWrap: "wrap" }}
       >
-        {/* Every pill is a 44px chip, so every one is `echo={false}` — two scripts cannot legibly
-            stack in a chip (Chrome.tsx's echo policy). The `→` lives inside the dictionary value,
-            the way `floor.back` carries its `←`: it is part of the label, not a glyph beside it. */}
+        {/* Every pill is a 44px chip, so every one takes NO echo — two scripts cannot legibly stack
+            in a chip (Chrome.tsx's echo policy, whose default is `echo={false}`; the prop is omitted
+            here as it is at the other ~118 call sites, so this reads as "the default", not as an
+            explicit choice). The `→` lives inside the dictionary value, the way `floor.back` carries
+            its `←`: it is part of the label, not a glyph beside it. */}
         <Link href="/staff/register" style={ownerLink}>
           <Chrome lang={lang} k="floor.nav.register" />
         </Link>

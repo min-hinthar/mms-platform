@@ -29,10 +29,16 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
  * only form the Burmese sentence can interpolate.
  *
  * The copy goes through `<Chrome>` rather than as plain strings, which is why `OutageState`'s three
- * copy props widened to `ReactNode`: a Burmese heading passed as a bare string would land in a `<p>`
+ * copy props — and, after a blind audit read the card as a whole, its RETRY LABEL too — widened to
+ * `ReactNode`: a Burmese heading passed as a bare string would land in a `<p>`
  * with no `lang`, i.e. in the Latin face, tracked, at Latin leading, and announced as English — the
  * exact defect `check-staff-lang.mjs` rule 5 exists for. `titleMy` stays null: that prop is the
  * pre-P2 "English title + Padauk companion" shape, and `<Chrome>` already emits the pair, MY first.
+ *
+ * ⚠️ THE RETRY BUTTON IS PART OF THE SCREEN. The first cut localized the heading and both bodies and
+ * left `RetryButton`'s hardcoded `label="Try again"` — a Burmese card with an English button, and
+ * the button is the only thing on it that DOES anything. Passing three of four props reads as
+ * finished at every review that looks at the props rather than at the rendered card.
  */
 export async function StaffOutageShell({ what = "what.console" }: { what?: WhatKey }) {
   const lang = await readStaffLang();
@@ -50,6 +56,8 @@ export async function StaffOutageShell({ what = "what.console" }: { what?: WhatK
           <Chrome lang={lang} k="out.shell.body" vars={{ what: ts(lang, what) }} echo="stack" />
         }
         escalatedBody={<Chrome lang={lang} k="out.shell.escalated" echo="stack" />}
+        retryLabel={<Chrome lang={lang} k="out.shell.retry" echo="stack" />}
+        retryBusyLabel={<Chrome lang={lang} k="out.shell.retrying" echo="stack" />}
       />
     </main>
   );

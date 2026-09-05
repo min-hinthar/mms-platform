@@ -2785,6 +2785,14 @@ const MUTANTS = [
     replace: "      parts.push(control.status);",
   },
   {
+    id: "staff-labels/line-qty-stays-latin",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "lib/staff-labels.test.ts",
+    why: 'P2 PR B — a KDS line\'s quantity is a PROSE COUNT and takes the device\'s numerals; it shipped Latin while every other count in this module went Burmese, so one line announced "\u1015\u103c\u102e\u1038 \u2014 2 \u1019\u102f\u1014\u1037\u103a\u101f\u1004\u103a\u1038\u1001\u102b\u1038" beside a floor card saying "\u1015\u1005\u1039\u1005\u100a\u103a\u1038 \u1049 \u1001\u102f". Found by a blind audit. \u26a0\ufe0f The containment loop stays GREEN under this mutation \u2014 the name still contains the visible dish \u2014 so the numeral assertion beside it is the only thing that separates the two code paths',
+    find: "        aria: `${verb} \u2014 ${localizeCount(control.qty, lang)} ${dish}${mods}`,",
+    replace: "        aria: `${verb} \u2014 ${control.qty} ${dish}${mods}`,",
+  },
+  {
     id: "staff-labels/subject-collapses-into-verb",
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",

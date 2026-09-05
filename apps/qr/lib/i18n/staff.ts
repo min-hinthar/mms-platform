@@ -93,6 +93,12 @@ export const STAFF = {
     en: "Still down — keep running on paper. Nothing recorded is lost; this screen comes back the moment the system does.",
     my: "အခုထိ မရသေးပါ — စာရွက်နဲ့ ဆက်သွားပါ။ မှတ်ထားပြီးသားတွေ မပျောက်ပါ။ စနစ်ပြန်ကောင်းတာနဲ့ ဒီစခရင် ပြန်တက်ပါမယ်။",
   },
+  // The ONE action on that screen. It was `RetryButton`'s hardcoded English default until a blind
+  // audit read the card top to bottom: a Burmese heading, a Burmese body, and a button saying "Try
+  // again" — the tap that gets the shift back. `packages/ui` now takes both as ReactNodes so the
+  // shell can pass <Chrome>.
+  "out.shell.retry": { en: "Try again", my: "ထပ်စမ်းပါ" },
+  "out.shell.retrying": { en: "Trying…", my: "စမ်းနေပါတယ်…" },
 
   // ── KDS: identity ──────────────────────────────────────────────────────────
   "kds.title": { en: "Kitchen", my: "မီးဖိုချောင်" }, // OWNER-VERIFIED (W21) — do not re-ask on K15
@@ -332,7 +338,13 @@ export const STAFF = {
   "table.appr.card.comp": { en: "Comp request for {x}", my: "{x} အတွက် အခမဲ့ပေးရန် တောင်းဆိုချက်" },
   "table.appr.card.void": { en: "Void request for {x}", my: "{x} အတွက် ဖျက်ရန် တောင်းဆိုချက်" },
   "table.appr.cooked": { en: "cooked", my: "ချက်ပြီးသား" }, // K15-HIGH — the food is already gone; comping it costs the kitchen twice
-  // The six reason codes the loss sheet can send, as words rather than as `service_recovery`.
+  // The SEVEN reason codes the loss sheet can send, as words rather than as `service_recovery`.
+  // Seven, not six: the void arm offers `sold_out` (W23a's dine-in 86) on top of the five the
+  // comp arm shares or forks. Measured from `LossActionSheet.tsx`'s `REASONS` map, not counted by
+  // eye — the figure read six here while `ApprovalsBoard.tsx:35` already said seven, and a blind
+  // audit caught the two disagreeing inside one diff. Eight KEYS cover them: `quality`,
+  // `other` and `mistake` are shared, and `guest_request` forks into `guestChanged`/`guestCourtesy`
+  // because the same DB value means two different things to the guest.
   // The approvals queue reads `table.loss.reason.*` — the SHEET's keys. It had its own family until
   // the merge showed the two forking the Burmese for identical English on one audited record; see
   // ApprovalsBoard's REASON_KEY docblock.
@@ -550,6 +562,31 @@ export const STAFF = {
   // {x} is a call-out token rendered VERBATIM — "Table 7", a first name, or "#A12" — so it stays in
   // whatever script it arrives in and never becomes a count.
   "expo.a11y.bags": { en: "Bags waiting", my: "စောင့်နေတဲ့ ပါဆယ်ထုပ်များ" },
+
+  // ── expo: the board's OWN chrome (ExpoBoard.tsx head row + empty state) ────
+  // Same story as `floor.tables.*`: converted after a blind audit read the "until PR B converts
+  // them" comment against the file. Grounded in `what.bags` (ပါဆယ်ထုပ်) and in the two verbs the
+  // bump button already speaks — `စစ်ဆေးရန်` from `expo.a11y.cardVerify`, `လွှဲပေးရန်` from
+  // `expo.a11y.cardHandOver` — so the count line and the button say one word for one action.
+  "expo.title": { en: "Takeaway bags", my: "ပါဆယ်ထုပ်များ" },
+  "expo.none": { en: "No bags waiting", my: "စောင့်နေတဲ့ ပါဆယ်ထုပ် မရှိပါ" },
+  "expo.count.one": { en: "{n} bag waiting", my: "စောင့်နေတဲ့ ပါဆယ်ထုပ် {n} ခု" },
+  "expo.count.many": { en: "{n} bags waiting", my: "စောင့်နေတဲ့ ပါဆယ်ထုပ် {n} ခု" },
+  "expo.count.verify": { en: "{n} to verify", my: "စစ်ဆေးရန် {n} ခု" },
+  "expo.count.handOver": { en: "{n} to hand over", my: "လွှဲပေးရန် {n} ခု" },
+  "expo.empty": { en: "Nothing to bag", my: "ထုပ်စရာ မရှိပါ" },
+  "expo.emptyFrozen": {
+    en: "Nothing to bag as of the last update",
+    my: "နောက်ဆုံး အသစ်တက်ချိန်အထိ ထုပ်စရာ မရှိပါ",
+  },
+  "expo.emptySub": {
+    en: "Bags appear here once a to-go or grocery order is paid.",
+    my: "ပါဆယ် ဒါမှမဟုတ် ကုန်စုံ အော်ဒါ ငွေရှင်းပြီးတာနဲ့ ပါဆယ်ထုပ်က ဒီမှာ ပေါ်ပါမယ်။",
+  },
+  "expo.emptyFrozenSub": {
+    en: "New bags won’t land here until this board is updating again. Nothing already paid for is lost.",
+    my: "ဒီဘုတ် ပြန်အသစ်မတက်မချင်း ပါဆယ်ထုပ်အသစ်တွေ ဒီမှာ ရောက်မှာ မဟုတ်ပါ။ ငွေရှင်းပြီးသားတွေ မပျောက်ပါ။",
+  },
   "expo.a11y.lines": { en: "Items in this order", my: "ဒီအော်ဒါထဲက ပစ္စည်းများ" }, // glossary: အော်ဒါ
   // The CARD's name tracks the stage the ticket is at NOW, not the one it just left: a ready grocery
   // ticket has already been verified, so it names the hand-over. Three keys rather than one with an
@@ -601,6 +638,37 @@ export const STAFF = {
 
   // ── the floor board: a region name with no visible label to pair with ─────
   "floor.a11y.tables": { en: "Active tables", my: "အသုံးပြုနေတဲ့ စားပွဲများ" },
+
+  // ── the floor: the tables board's OWN chrome (FloorBoard.tsx) ─────────────
+  // The console's landing copy. It stayed English through the first cut of this slice under a
+  // comment reading "until PR B converts them" — and this IS PR B; a blind audit read the comment
+  // against the file and found the console home still saying "The floor is quiet" in English under
+  // a Burmese greeting. Vocabulary is reused, never re-invented: `စားပွဲ` from `floor.table`,
+  // `အသုံးပြုနေတဲ့ စားပွဲများ` verbatim from `floor.a11y.tables` one line up, `ခန်းမ` from `what.room`.
+  "floor.tables.title": { en: "Tables", my: "စားပွဲများ" },
+  "floor.tables.none": { en: "No active tables", my: "အသုံးပြုနေတဲ့ စားပွဲ မရှိပါ" },
+  "floor.tables.count.one": {
+    en: "{n} active table",
+    my: "အသုံးပြုနေတဲ့ စားပွဲ {n} ခု",
+  },
+  "floor.tables.count.many": {
+    en: "{n} active tables",
+    my: "အသုံးပြုနေတဲ့ စားပွဲ {n} ခု",
+  },
+  "floor.tables.empty": { en: "The floor is quiet", my: "ခန်းမ တိတ်ဆိတ်နေပါတယ်" },
+  // Mid-freeze the empty state must not read as an all-clear about a room we cannot hear from.
+  "floor.tables.emptyFrozen": {
+    en: "No tables as of the last update",
+    my: "နောက်ဆုံး အသစ်တက်ချိန်အထိ စားပွဲ မရှိပါ",
+  },
+  "floor.tables.emptySub": {
+    en: "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated.",
+    my: "ဧည့်သည် စကန်ဖတ်တာနဲ့ စားပွဲက ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ ဘာမှာထားလဲ၊ ထိုင်နေတာ ဘယ်လောက်ကြာပြီလဲ။",
+  },
+  "floor.tables.emptyFrozenSub": {
+    en: "New tables won’t appear here until this board is updating again. Nothing already open is lost.",
+    my: "ဒီဘုတ် ပြန်အသစ်မတက်မချင်း စားပွဲအသစ်တွေ ဒီမှာ ပေါ်မှာ မဟုတ်ပါ။ ဖွင့်ထားပြီးသားတွေ မပျောက်ပါ။",
+  },
 
   // ── /staff/orders — the manager refund surface ────────────────────────────
   "floor.orders.title": { en: "Orders & refunds", my: "အော်ဒါနဲ့ ပြန်အမ်းငွေ" },
@@ -809,20 +877,26 @@ export const STAFF = {
     my: "မှတ်ချက် မရှိသေးပါ။ အော်ဒါတိုင်း ပြီးတိုင်း ဧည့်သည်တွေကို အဆင့်ပေးဖို့ တောင်းပါတယ်။",
   },
   // The EN pair fixes a live agreement bug: the one-arm read "1 recent rating need follow-up".
+  // ⚠️ "recent" is `မကြာသေးမီက` — the RETROSPECTIVE form — in all six keys that carry it, here and at
+  // `floor.orders.*`. The first cut of this block wrote `မကြာမီက` on four of them, which is the
+  // PROSPECTIVE word ("before long"), on screens that are entirely about the past; two independent
+  // audits found it as a fork before either noticed the meaning. No guard catches it: the collision
+  // test fires on two keys SHARING a Burmese value, not on one English word wearing two Burmese
+  // coats. Reuse this form; do not invent a third.
   "floor.fb.low.one": {
     en: "{n} recent rating needs follow-up.",
-    my: "မကြာမီက အဆင့် {n} ခု ပြန်လိုက်ဖို့ လိုပါတယ်။",
+    my: "မကြာသေးမီက အဆင့် {n} ခု ပြန်လိုက်ဖို့ လိုပါတယ်။",
   },
   "floor.fb.low.many": {
     en: "{n} recent ratings need follow-up.",
-    my: "မကြာမီက အဆင့် {n} ခု ပြန်လိုက်ဖို့ လိုပါတယ်။",
+    my: "မကြာသေးမီက အဆင့် {n} ခု ပြန်လိုက်ဖို့ လိုပါတယ်။",
   },
   "floor.fb.allGood": {
     en: "All recent ratings look good.",
-    my: "မကြာမီက အဆင့်တွေ အားလုံး ကောင်းပါတယ်။",
+    my: "မကြာသေးမီက အဆင့်တွေ အားလုံး ကောင်းပါတယ်။",
   },
   "floor.fb.followUp": { en: "Needs follow-up", my: "ပြန်လိုက်ရန်" },
-  "floor.fb.a11y.list": { en: "Recent guest feedback", my: "မကြာမီက ဧည့်သည် မှတ်ချက်များ" },
+  "floor.fb.a11y.list": { en: "Recent guest feedback", my: "မကြာသေးမီက ဧည့်သည် မှတ်ချက်များ" },
   "floor.fb.a11y.stars": { en: "{n} of {total} stars", my: "ကြယ် {total} ထဲမှ {n} ကြယ်" },
 
   // ── the floor: tips today (/staff/tips) ───────────────────────────────────
@@ -1197,6 +1271,8 @@ export type StaffKey = keyof typeof STAFF;
  * `countItem`/`countItems`.
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
+  ["floor.tables.count.one", "floor.tables.count.many"],
+  ["expo.count.one", "expo.count.many"],
   ["kds.open.one", "kds.open.many"],
   ["floor.card.item.one", "floor.card.item.many"],
   ["table.appr.refunds.one", "table.appr.refunds.many"],

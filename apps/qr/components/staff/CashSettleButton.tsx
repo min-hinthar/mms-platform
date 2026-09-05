@@ -345,8 +345,15 @@ export function CashSettleButton({
         </button>
       )}
       {/* Static helper text (a description, not a status) — linked to the button, never a live region.
-          The detail view's one polite live region is the line-edit status in FloorDetailLive; a settle
-          FAILURE is an assertive role="alert" instead (different concern, mutually exclusive action). */}
+          A settle FAILURE is an assertive role="alert" instead (different concern, mutually
+          exclusive action).
+
+          ⚠️ THIS USED TO CLAIM "the detail view's ONE polite live region", and that was false when it
+          was written: `FloorDetailLive`'s line-edit status, `TerminalSettle`'s reader status and the
+          paid-handoff card are three `role="status"` regions under one `<main>` during a reader
+          settle. All three predate this slice; the false claim is what a blind audit caught, and the
+          arbitration is filed as OPEN-ITEMS P2r. What this comment can honestly say is what it now
+          says: this element is not one of them. */}
       <p id="settle-hint" style={hint}>
         <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
       </p>

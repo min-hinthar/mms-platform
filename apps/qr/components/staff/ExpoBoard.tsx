@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useTransition,
+  type CSSProperties,
+} from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
@@ -144,11 +152,15 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
           tabIndex={-1}
           style={{ fontSize: "var(--fs-body)", margin: 0 }}
         >
-          Takeaway bags
+          {/* `echo={false}`: this heading is the `aria-labelledby` target for the whole section, and
+              a `chrome-pair` echo would name it "ပါဆယ်ထုပ်များTakeaway bags". */}
+          <Chrome lang={lang} k="expo.title" />
         </h2>
-        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
-              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
-              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
+        {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
+              returns a flat STRING and `<OutageText>`'s passthrough arm returns a bare text node, so
+              those two branches have nowhere else to carry a mark. Every other branch renders
+              <Chrome>, which marks itself. (It used to be conditional because the other branches
+              were English literals "until PR B converts them" — this is PR B.) */}
         <p
           role="status"
           lang={!err && degraded ? lang : undefined}
@@ -172,15 +184,39 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
               degraded.cause,
             )
           ) : count === 0 ? (
-            "No bags waiting"
+            <Chrome lang={lang} k="expo.none" />
           ) : (
+            // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
+            // line: the middot is rendered between the surviving segments instead. Same output,
+            // same order, and each segment carries its own `lang` mark.
             [
-              bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
-              verifyCount > 0 ? `${verifyCount} to verify` : null,
-              handOverCount > 0 ? `${handOverCount} to hand over` : null,
+              bagCount > 0 ? (
+                <Chrome
+                  key="bags"
+                  lang={lang}
+                  k={bagCount === 1 ? "expo.count.one" : "expo.count.many"}
+                  vars={{ n: bagCount }}
+                />
+              ) : null,
+              verifyCount > 0 ? (
+                <Chrome key="verify" lang={lang} k="expo.count.verify" vars={{ n: verifyCount }} />
+              ) : null,
+              handOverCount > 0 ? (
+                <Chrome
+                  key="hand"
+                  lang={lang}
+                  k="expo.count.handOver"
+                  vars={{ n: handOverCount }}
+                />
+              ) : null,
             ]
               .filter(Boolean)
-              .join(" · ")
+              .map((seg, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? " · " : null}
+                  {seg}
+                </Fragment>
+              ))
           )}
         </p>
         {/* P2 — mounted per SURFACE, never by app/staff/layout.tsx: a layout-owned strip would add
@@ -193,11 +229,15 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
       {count === 0 ? (
         // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
         <EmptyState
-          title={degraded ? "Nothing to bag as of the last update" : "Nothing to bag"}
+          title={
+            <Chrome lang={lang} k={degraded ? "expo.emptyFrozen" : "expo.empty"} echo="stack" />
+          }
           subtitle={
-            degraded
-              ? "New bags won’t land here until this board is updating again. Nothing already paid for is lost."
-              : "Bags appear here once a to-go or grocery order is paid."
+            <Chrome
+              lang={lang}
+              k={degraded ? "expo.emptyFrozenSub" : "expo.emptySub"}
+              echo="stack"
+            />
           }
           icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
         />
@@ -246,17 +286,27 @@ function ExpoCard({
   // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
   // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
   // back to the short code alone when the diner skipped the name — expo always has something to call.
-  const callOut =
+  // The identifier half of the call-out — the diner's own name, else the short code. Neither is a
+  // WORD, so it is the same string in both tongues and is derived once for both call-outs below.
+  const whoElse = ticket.customerName ?? `#${ticket.shortCode}`;
+  const callOut = ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : whoElse;
+  // The same call-out for the EAR, with the one word in it taken from the dictionary. `callOut`
+  // above is the visible header and stays as authored — the expo board's chips are still English
+  // and converting one word of it alone would read as a half-translated line (OPEN-ITEMS P2q). A
+  // NAME is different: it is the whole sentence a Burmese staffer hears, and splicing an English
+  // word the console already owns into it ("Table 7 အတွက် ပါဆယ်ထုပ်") is the defect the ARIA ratchet
+  // exists for. `floor.table`'s `{id}` is a Latin-always slot, so the tent-card number stays Latin,
+  // which is what is printed on the card. A diner's own name and a short code are identifiers, not
+  // words, and pass through as given.
+  const callOutAria =
     ticket.tableNumber != null
-      ? `Table ${ticket.tableNumber}`
-      : ticket.customerName
-        ? ticket.customerName
-        : `#${ticket.shortCode}`;
+      ? tf(lang, "floor.table", { id: String(ticket.tableNumber) })
+      : whoElse;
   // Who to verify (grocery accessible names): keep the NAME when we have one — an SR staffer needs
   // WHOSE exit pass to match, not just a code — with the code as the collision-safe suffix,
   // mirroring the visible header (callOut + codeSuffix).
   const verifyWho = ticket.customerName
-    ? `${callOut} · #${ticket.shortCode}`
+    ? `${callOutAria} · #${ticket.shortCode}`
     : `#${ticket.shortCode}`;
   // The card's name, as a KEY picked here rather than inside the attribute: a `=== "preparing"`
   // test sitting inside a localized name reads to check-staff-lang.mjs rule 3 as authored English
@@ -275,6 +325,13 @@ function ExpoCard({
         if (!res.ok) onError(res.error);
         else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
+        // ⚠️ STILL ENGLISH, DELIBERATELY — OPEN-ITEMS P2p, not an oversight. The obvious conversion
+        // (`tf(lang, "expo.err.bag", { x: callOutAria })`) is WRONG here twice over: this string is
+        // rendered through `<OutageText>`, whose passthrough arm returns a bare text node, so a
+        // Burmese sentence would land unmarked — Latin face, announced as English, the exact defect
+        // rule 5 exists for; and the slot value a bilingual sentence needs is ITSELF bilingual
+        // ("စားပွဲ 7"), which `<Chrome>`'s slot rule would wrap whole in `lang="en"`. Doing it right
+        // means a branched notice plus a table/non-table key per stage. Filed, not guessed.
         onError(
           grocery
             ? `Couldn’t update ${verifyWho} — try again.`
@@ -290,7 +347,7 @@ function ExpoCard({
       style={cardStyle}
       // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
       // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
-      aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOut })}
+      aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOutAria })}
     >
       <header style={cardHead}>
         <span style={tableLabel}>
@@ -360,8 +417,8 @@ function ExpoCard({
               ? al(lang, { kind: "verb", verb: "expo.verb.verified", subject: verifyWho }).aria
               : al(lang, { kind: "verb", verb: "expo.verb.handedOver", subject: verifyWho }).aria
             : firstStage
-              ? al(lang, { kind: "verb", verb: "expo.verb.bagged", subject: callOut }).aria
-              : al(lang, { kind: "verb", verb: "expo.verb.pickedUp", subject: callOut }).aria
+              ? al(lang, { kind: "verb", verb: "expo.verb.bagged", subject: callOutAria }).aria
+              : al(lang, { kind: "verb", verb: "expo.verb.pickedUp", subject: callOutAria }).aria
         }
         className="staff-btn"
         style={{ ...bumpBtn, ...(firstStage ? readyBtn : pickedBtn) }}
