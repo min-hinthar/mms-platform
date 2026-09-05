@@ -844,9 +844,13 @@ export function TableCartProvider({
       // between that and this line. `freezeRef`/`settlingRef` are written synchronously by
       // `applyView` from the very view it applies, so reading them here asks the question at the
       // only moment that matters.
-      explainedFreezeRef.current = explanationHolds(explainedByRefusal(refusal.cause), {
+      explainedFreezeRef.current = explanationHolds(explainedByRefusal(refusal), {
         locked: freezeRef.current.locked,
         settling: settlingRef.current,
+        // ⚠️ THROUGH `cartFreeze`, the same function that gave the refusal its attribution inside
+        // `classifyRefusedWrite` (Codex round 2, P2). Asking it of the applied view answers "whose
+        // lock is on screen now" with the one derivation both sides already share.
+        lockedByYou: cartFreeze(freezeRef.current) === "self",
       });
       flash(refusedWriteNotice(refusal), 2600);
     },
@@ -1298,7 +1302,7 @@ export function TableCartProvider({
     // this effect runs first. The settle-enter callback would then see null and overwrite the
     // detailed refusal with the generic banner: the exact collision this slice removes, rebuilt by
     // its own cleanup.
-    if (!locked && explainedFreezeRef.current === "locked") explainedFreezeRef.current = null;
+    if (!locked && explainedFreezeRef.current?.axis === "locked") explainedFreezeRef.current = null;
     const msg = !locked
       ? // ⚠️ THE RELEASE IS NOT ALWAYS AN INVITATION (blind pass on this PR). `locked` and `settling`
         // are independent columns, so a pay-lock can lift while the table is still splitting — and
@@ -1320,7 +1324,9 @@ export function TableCartProvider({
           axis: "locked",
           entering: locked,
           explained: explainedFreezeRef.current,
-          current: { locked, settling: settlingRef.current },
+          // `lockedByYou` is the RENDERED binding — the one `msg` above was composed from — so the
+          // suppression is asked about the very sentence that would otherwise take the slot.
+          current: { locked, settling: settlingRef.current, lockedByYou },
         })
       )
         return;
@@ -1341,7 +1347,8 @@ export function TableCartProvider({
     prevSettling.current = settling;
     // T33 — same release-clears-the-fact rule as the lock edge above, and SCOPED the same way: a
     // settle release must not discard a lock explanation that is still true.
-    if (!settling && explainedFreezeRef.current === "settling") explainedFreezeRef.current = null;
+    if (!settling && explainedFreezeRef.current?.axis === "settling")
+      explainedFreezeRef.current = null;
     const msg = settling
       ? "Your table is splitting the bill — the order’s locked while everyone pays"
       : "The split was called off — you can edit the order again";
@@ -1351,7 +1358,11 @@ export function TableCartProvider({
           axis: "settling",
           entering: settling,
           explained: explainedFreezeRef.current,
-          current: { locked: freezeRef.current.locked, settling },
+          current: {
+            locked: freezeRef.current.locked,
+            settling,
+            lockedByYou: cartFreeze(freezeRef.current) === "self",
+          },
         })
       )
         return;

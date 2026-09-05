@@ -147,6 +147,11 @@ const view = (over: Partial<CartView> = {}): CartView => ({
 /** The cart as a peer sees it while THEY are checking out — the T14 case that used to say
  *  "Reconnecting to your table…" and re-mint a session that was perfectly alive. */
 const LOCKED_BY_PEER = view({ locked: true, lockedBy: PEER_SEAT });
+/** The SAME cart with the lock held by this viewer's own seat — reachable with nothing wrong: a
+ *  second tab on one device shares the anon uid, so tab B's /menu sees `lockedBy === mySeat`
+ *  (`cart-freeze.ts`, route 1). It matters here because the refusal and the banner both NAME a
+ *  holder, so it is the fixture that separates an axis-only latch from an attributed one. */
+const LOCKED_BY_ME = view({ locked: true, lockedBy: MY_SEAT });
 
 /**
  * The sentences the provider can ACTUALLY publish, DERIVED from the module that produces them.
@@ -172,6 +177,11 @@ const REFUSAL = {
     freeze: { locked: true, lockedBy: PEER_SEAT, mySeat: MY_SEAT },
     settling: false,
   }),
+  selfLock: classifyRefusedWrite({
+    ok: true,
+    freeze: { locked: true, lockedBy: MY_SEAT, mySeat: MY_SEAT },
+    settling: false,
+  }),
   settling: classifyRefusedWrite({
     ok: true,
     freeze: { locked: false, lockedBy: null, mySeat: MY_SEAT },
@@ -182,11 +192,13 @@ const REFUSAL = {
 /** What the LATCH holds — a fragment, since T32. */
 const CLAUSE = {
   peerLock: refusedWriteClause(REFUSAL.peerLock),
+  selfLock: refusedWriteClause(REFUSAL.selfLock),
   settling: refusedWriteClause(REFUSAL.settling),
 };
 /** What the TOAST says — the same classification, rendered as a whole sentence. */
 const NOTICE = {
   peerLock: refusedWriteNotice(REFUSAL.peerLock),
+  selfLock: refusedWriteNotice(REFUSAL.selfLock),
   settling: refusedWriteNotice(REFUSAL.settling),
 };
 
@@ -308,6 +320,29 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
     await drainDeferredAnnounces();
     expect(spoken()).toBe(NOTICE.peerLock);
+  });
+
+  it("keeps it for a SELF-held lock too — the latch carries WHOSE lock it explained", async () => {
+    // ⚠️ CODEX ROUND 2 ON #256, P2, AT THE WIRING. Both sentences name a holder — the refusal
+    // through `refusedWriteClause`'s `refusal.freeze === "self"` fork, the banner through
+    // `lockedByYou` — so an arbitration that compared only the AXIS treated "you are checking out"
+    // and "someone is checking out" as one fact. The module test pins the rule; this pins that both
+    // call sites actually ASK it with the ownership on screen. Hardcode either `lockedByYou` to
+    // `false` and this goes red while the peer twin above stays green.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(LOCKED_BY_ME);
+    await ctl.add(ITEM);
+
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.selfLock));
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(NOTICE.selfLock);
+    // Derived, not transcribed: the banner this suppressed is the OTHER one, so a fixture that
+    // accidentally made the two sentences equal would prove nothing.
+    expect(NOTICE.selfLock).not.toBe(NOTICE.peerLock);
   });
 
   it("does NOT latch a freeze from a recovery read that LOST THE SCREEN", async () => {
