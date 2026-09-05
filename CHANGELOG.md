@@ -59,14 +59,15 @@ changed is that it is now actionable, and it names the side carrying the code ra
 these tables", which is not something a server can act on without opening both. Deliberately NOT an
 auto-clear: silently dropping a quoted discount is the outcome that paragraph exists to prevent.
 
-**`PILOT15` is authored as DATA and is NOT applied.** `value 0.15` — a FRACTION, because
+**`PILOT15` is DATA, and it is now LIVE on prod** (applied 2026-09-05 on the owner's explicit authorization, via the one-file MCP path; prod row `20260905220123`, every field verified after the write). `value 0.15` — a FRACTION, because
 `promo_pct_max_100` is `kind <> 'pct' or value <= 1` · `per_session_limit 1` · `min_subtotal_cents 0`
 · `max_uses 200`, the ceiling if the code leaks · `valid_until` bounded but generous, since Day 0 is
 still blocked on hardware and env · `valid_from` null, so the owner-gated apply is the only start
 gate. `on conflict do update` rather than the house `do nothing`, with `active` and `used` excluded:
 a policy row that re-applies green while changing nothing is green for the wrong reason, but a re-run
-must never resurrect a code the owner switched off or hand back a spent budget. Applying it is a
-separate, owner-authorized step (§O4).
+must never resurrect a code the owner switched off or hand back a spent budget. ⚠️ It is spendable by DINERS from the moment it was
+applied, through Checkout's existing promo field — the STAFF apply this PR builds lands only when
+the PR merges. `max_uses 200` is the bound on that window.
 
 ⚠️ **The code is not dine-in-only and the card says it is.** `promo_codes` has no mode-scope column,
 which PILOT_PLAN §3 P3 accepts outright — the pilot scopes it by who gets the card. Registered as

@@ -13,7 +13,15 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### The three things a next session must not re-derive
 >
-> 1. **`PILOT15` IS NOT APPLIED, and its numbers are the owner's call.** The file is
+> 1. **`PILOT15` IS LIVE ON PROD — applied 2026-09-05 on the owner's explicit authorization.**
+>    Prod row `20260905220123 pilot15_promo` (the MCP stamp; the repo filename is
+>    `20260905120000`, the usual M125 divergence). Verified after the apply: `pct 0.15` ·
+>    `max_uses 200` · `used 0` · `per_session_limit 1` · `min_subtotal_cents 0` ·
+>    `valid_from null` · `valid_until 2026-10-31 23:59:59 America/Los_Angeles`, active, pricing a
+>    $40 basket at $6.00; codes 2→3 with the other two untouched, 0 redemptions, 0 carts carrying
+>    it. ⚠️ **It is spendable by DINERS right now** through Checkout's existing promo field — the
+>    STAFF apply lands only when #261 merges. `used` is the participation counter the pilot
+>    measures; watch it. The file is
 >    `supabase/migrations/20260905120000_pilot15_promo.sql` — `value 0.15` (a FRACTION;
 >    `promo_pct_max_100` is `kind <> 'pct' or value <= 1`) · `per_session_limit 1` ·
 >    `min_subtotal_cents 0` · `max_uses 200` · `valid_until` 2026-10-31 America/Los_Angeles ·
