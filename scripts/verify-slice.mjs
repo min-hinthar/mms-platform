@@ -3271,7 +3271,7 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-merge-promo.test.ts",
     why: "OPEN-ITEMS P2e / S1.4 — a merge re-parents server-priced lines into the TARGET cart, and the discount and per-line tax are re-derived per cart at settle. The source's code is tied to the closing session and its per-session redemption cap so it cannot follow, and recomputing the target's discount off the larger subtotal swings what a guest pays in either direction. Dropping the refusal is not a UX regression, it is a wrong charge — and floor.ts carried NO mutants at all before P3 while matching three money markers",
-    find: '  if (src.cart.promo_code || tgt.cart.promo_code) {\n    const tgtName = tableDisplay({\n      tableNumber: tgt.session.table_number,\n      label: tgt.session.qr_code,\n    });\n    return {\n      ok: false,\n      error:\n        src.cart.promo_code && tgt.cart.promo_code\n          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : src.cart.promo_code\n            ? "This table has a promo code applied — remove it here, then merge."\n            : // An unregistered sticker or a counter session has no tent number to name, so it gets the\n              // phrase the picker itself used rather than a raw `reg-…` token dressed up as a table.\n              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there, then merge.`,\n    };\n  }\n',
+    find: '  if (src.cart.promo_code || tgt.cart.promo_code) {\n    const tgtName = tableDisplay({\n      tableNumber: tgt.session.table_number,\n      label: tgt.session.qr_code,\n    });\n    return {\n      ok: false,\n      error:\n        src.cart.promo_code && tgt.cart.promo_code\n          ? "Both tables have a promo code applied — remove them first, then merge. The discounts go with them, so re-apply on the merged table if a guest was quoted one."\n          : src.cart.promo_code\n            ? "This table has a promo code applied — remove it here first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it."\n            : // An unregistered sticker or a counter session has no tent number to name, so it gets the\n              // phrase the picker itself used rather than a raw `reg-…` token dressed up as a table.\n              `${tgtName.unregistered ? "The table you picked" : `Table ${tgtName.text}`} has a promo code applied — remove it there first, then merge. The discount goes with it, so re-apply on the merged table if the guest was quoted it.`,\n    };\n  }\n',
     replace: "",
   },
   {
@@ -3279,9 +3279,9 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-merge-promo.test.ts",
     why: "the two arms are one keystroke apart and the refusal is the only thing telling a server where to go. Swapping them sends someone to the target table to remove a code the SOURCE carries — a dead end that reads like a working instruction, which is the shape P2e was filed for in the first place",
-    find: '          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : src.cart.promo_code\n',
+    find: '\n          ? "Both tables have a promo code applied — remove them first, then merge. The discounts go with them, so re-apply on the merged table if a guest was quoted one."\n          : src.cart.promo_code\n',
     replace:
-      '          ? "Both tables have a promo code applied — remove them on each table, then merge."\n          : tgt.cart.promo_code\n',
+      '\n          ? "Both tables have a promo code applied — remove them first, then merge. The discounts go with them, so re-apply on the merged table if a guest was quoted one."\n          : tgt.cart.promo_code\n',
   },
   {
     id: "floor/detail-drops-the-promo-code",
