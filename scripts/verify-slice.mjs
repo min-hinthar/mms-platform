@@ -3366,7 +3366,7 @@ const MUTANTS = [
     file: "apps/qr/lib/promo-refusal.ts",
     suite: "lib/staff-promo.test.ts",
     why: "the OTHER half of the non-replacement rule, and the half a reader trusts: with the write correctly refused, a diagnosis that cannot see the existing code falls through to `cart_closed` on an open, unfrozen cart. That is the M116/M119 fabricated verdict, and it is worse than usual here because the true answer names a recovery (Remove) the false one hides",
-    find: '  if (opts?.attempted && cart.promo_code && cart.promo_code !== opts.attempted) return "code_applied";\n',
+    find: '  if (opts?.attempted && cart.promo_code && cart.promo_code !== opts.attempted)\n    return "code_applied";\n',
     replace: "",
   },
   {
