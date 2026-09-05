@@ -4,7 +4,11 @@ import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
 import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
 import { Stepper } from "@mms/ui";
+import { ts } from "@/lib/i18n/staff";
+import { al } from "@/lib/staff-labels";
 import { LossActionSheet } from "./LossActionSheet";
+import { Chrome } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -27,6 +31,12 @@ export function StaffLineEditor({
   disabled: boolean;
   onError: (msg: string) => void;
 }) {
+  // P2 — the staff device's language, from app/staff/layout.tsx. `onError` is deliberately NOT
+  // localized: it lands in FloorDetailLive's shared `role="status"`, which marks `lang` only while
+  // the FROZEN copy renders — a Burmese sentence handed out through this callback would arrive in
+  // that region unmarked, in the Latin face at Latin leading. That region's other branches convert
+  // together, under OPEN-ITEMS P2c.
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
   const [seenServerQty, setSeenServerQty] = useState(line.qty);
@@ -82,7 +92,9 @@ export function StaffLineEditor({
         <span style={{ minWidth: 0, flex: 1, textDecoration: "line-through" }}>
           {line.qty}× {line.name}
         </span>
-        <span style={badge}>Voided</span>
+        <span style={badge}>
+          <Chrome lang={lang} k="table.line.voided" />
+        </span>
       </li>
     );
   }
@@ -98,7 +110,9 @@ export function StaffLineEditor({
             </span>
           )}
         </span>
-        <span style={{ ...badge, color: "var(--ac-strong)" }}>Comped · free</span>
+        <span style={{ ...badge, color: "var(--ac-strong)" }}>
+          <Chrome lang={lang} k="table.line.comped" />
+        </span>
       </li>
     );
   }
@@ -118,8 +132,13 @@ export function StaffLineEditor({
           {line.pendingApproval ? (
             // S2.4: a void/comp request is open for this line — a manager resolves it from the queue; don't
             // offer a second request.
-            <span style={badge} aria-label={`Approval requested for ${line.name}`}>
-              Approval requested
+            // The aria-label this carried ("Approval requested for {dish}") is DELETED rather than
+            // localized: it sat on a roleless <span>, where a name is not reliably exposed at all
+            // (the same reason `Stepper`'s count uses real `.sr-only` text), and the dish name it
+            // added is already the first thing in this <li>. A redundant name is one more string to
+            // keep in sync; the visible text is the name.
+            <span style={badge}>
+              <Chrome lang={lang} k="table.line.approvalRequested" />
             </span>
           ) : (
             <button
@@ -127,10 +146,19 @@ export function StaffLineEditor({
               type="button"
               onClick={() => setSheetOpen(true)}
               disabled={disabled}
-              aria-label={`Void or comp ${line.name}`}
+              aria-label={
+                al(lang, {
+                  kind: "verb",
+                  verb: "table.line.verb.voidComp",
+                  subject: line.name,
+                }).aria
+              }
               style={{ ...lossBtn, opacity: disabled ? 0.5 : 1 }}
             >
-              Void / Comp
+              {/* No echo: a 44px pill in a dense per-line row, `whiteSpace: nowrap`. Stacked, it
+                  grows every line; inline, it doubles the button's width and squeezes the dish
+                  name. The sheet it opens carries the bilingual pair instead. */}
+              <Chrome lang={lang} k="table.line.verb.voidComp" />
             </button>
           )}
         </span>
@@ -157,8 +185,8 @@ export function StaffLineEditor({
         <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
         {line.soldOut && (
           <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 400 }}>
-            {" "}
-            · Sold out
+            {" · "}
+            <Chrome lang={lang} k="table.line.soldOut" />
           </span>
         )}
         {line.bySeatName && (
@@ -174,10 +202,29 @@ export function StaffLineEditor({
           onClick={() => setNoteDraft((d) => (d === null ? (line.notes ?? "") : null))}
           disabled={busy}
           aria-expanded={noteDraft !== null}
-          aria-label={`${line.notes ? "Edit" : "Add"} kitchen note for ${line.name}`}
+          // Two whole al() calls rather than one over a computed key: `check-staff-lang.mjs` rule 3c
+          // needs the verb key as a string LITERAL to find the label the name must contain, and the
+          // button's visible word genuinely changes with the line's state.
+          aria-label={
+            line.notes
+              ? al(lang, {
+                  kind: "verb",
+                  verb: "table.line.verb.editNote",
+                  subject: line.name,
+                }).aria
+              : al(lang, {
+                  kind: "verb",
+                  verb: "table.line.verb.addNote",
+                  subject: line.name,
+                }).aria
+          }
           style={{ ...noteBtn, opacity: busy ? 0.5 : 1 }}
         >
-          {line.notes ? "Edit note" : "Note"}
+          {line.notes ? (
+            <Chrome lang={lang} k="table.line.verb.editNote" />
+          ) : (
+            <Chrome lang={lang} k="table.line.verb.addNote" />
+          )}
         </button>
         <Stepper
           qty={qty}
@@ -185,21 +232,26 @@ export function StaffLineEditor({
           name={line.name}
           disabled={busy}
           soldOut={line.soldOut}
+          // STILL ENGLISH, deliberately. `Stepper` hardcodes its other two names ("Remove {name}",
+          // "Decrease {name} quantity") inside packages/ui, which this slice does not touch — so
+          // localizing only the one name a caller can reach would ship a control that announces two
+          // English names and one Burmese one. The primitive converts as a unit, or not at all.
           soldOutLabel={`${line.name} is sold out — can’t add more`}
           removeTone="var(--warn)"
         />
       </span>
       {noteDraft !== null && (
         <span style={noteEditor}>
+          {/* No echo: this label is `sr-only`, so a pair would announce the field twice. */}
           <label className="sr-only" htmlFor={`note-${line.id}`}>
-            Kitchen note for {line.name}
+            <Chrome lang={lang} k="table.line.noteLabel" vars={{ x: line.name }} />
           </label>
           <input
             id={`note-${line.id}`}
             type="text"
             value={noteDraft}
             maxLength={160}
-            placeholder="e.g. No peanuts — allergy"
+            placeholder={ts(lang, "table.line.notePlaceholder")}
             onChange={(e) => setNoteDraft(e.target.value)}
             style={noteInput}
           />
@@ -210,7 +262,7 @@ export function StaffLineEditor({
             disabled={notePending}
             style={noteSave}
           >
-            {notePending ? "…" : "Save"}
+            {notePending ? "…" : <Chrome lang={lang} k="table.line.save" />}
           </button>
         </span>
       )}

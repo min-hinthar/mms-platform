@@ -16,15 +16,27 @@ import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
+import { Chrome } from "./Chrome";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { tf } from "@/lib/i18n/fill";
+import { al, sx } from "@/lib/staff-labels";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-const REASON_LABEL: Record<string, string> = {
-  mistake: "Ordered by mistake",
-  kitchen_error: "Kitchen made it wrong",
-  quality: "Quality / guest unhappy",
-  guest_request: "Guest request",
-  service_recovery: "Making it right",
-  other: "Other",
+/**
+ * P2 — the reason a server gave, as a dictionary KEY per code rather than an English label.
+ *
+ * The map covers the six codes the loss sheet can send. An UNKNOWN code still falls through to the
+ * raw column value at the render site: that is a database status key on a manager’s screen (the
+ * OPEN-ITEMS P2g shape), and inventing a Burmese word for a code nobody has declared would be a
+ * worse answer than showing what the row actually says. Reported rather than papered over.
+ */
+const REASON_KEY: Record<string, StaffKey> = {
+  mistake: "table.appr.reason.mistake",
+  kitchen_error: "table.appr.reason.kitchenError",
+  quality: "table.appr.reason.quality",
+  guest_request: "table.appr.reason.guestRequest",
+  service_recovery: "table.appr.reason.serviceRecovery",
+  other: "table.appr.reason.other",
 };
 
 /**
@@ -115,14 +127,18 @@ export function ApprovalsBoard({
           tabIndex={-1}
           style={{ fontSize: "var(--fs-body)", margin: 0 }}
         >
-          Open requests
+          {/* echo={false} is REQUIRED here, not a style choice: this heading is the
+              `aria-labelledby` target of the section above, and the computed name is the
+              element’s full text — an English echo would name the region twice, once per script. */}
+          <Chrome lang={lang} k="table.appr.open" echo={false} />
         </h2>
-        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
-              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
-              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
+        {/* P2 — every branch of this region is now dictionary content, so the mark is
+              unconditional. It was conditional while the other two branches were English literals:
+              a `lang={lang}` over an English string announces it as Burmese and typesets it in
+              Padauk. No echo — one live region saying everything twice is worse than not at all. */}
         <p
           role="status"
-          lang={degraded ? lang : undefined}
+          lang={lang}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
@@ -132,8 +148,8 @@ export function ApprovalsBoard({
           {degraded
             ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", "unknown")
             : count === 0
-              ? "All clear"
-              : `${count} waiting`}
+              ? ts(lang, "table.appr.allclear")
+              : tf(lang, "table.appr.waiting", { n: count })}
         </p>
       </div>
 
@@ -141,18 +157,26 @@ export function ApprovalsBoard({
         // W10b — mid-freeze this must not read as an authoritative "queue clear", nor promise
         // arrivals this board can't currently hear about.
         <EmptyState
-          title={degraded ? "Nothing to approve as of the last update" : "Nothing to approve"}
+          title={
+            <Chrome
+              lang={lang}
+              k={degraded ? "table.appr.empty.degraded" : "table.appr.empty"}
+              echo="stack"
+            />
+          }
           subtitle={
-            degraded
-              ? "New requests won’t appear here until this list is updating again. Anything already requested is still pending."
-              : "When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first."
+            <Chrome
+              lang={lang}
+              k={degraded ? "table.appr.empty.outage" : "table.appr.empty.hint"}
+              echo="stack"
+            />
           }
         />
       ) : (
         <StaggerList
           items={snap}
           getKey={(a) => a.id}
-          ariaLabel="Pending approval requests"
+          ariaLabel={sx(lang, "table.appr.a11y.queue")}
           style={grid}
           renderItem={(a) => (
             <RequestCard
@@ -179,6 +203,7 @@ function RequestCard({
   serverNow: string;
   onResolved: () => void | Promise<void>;
 }) {
+  const lang = useStaffLang();
   const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
@@ -186,7 +211,17 @@ function RequestCard({
   const { setLockLeft, locked, lockCopy } = useLockout();
   const [pending, startTransition] = useTransition();
 
-  const verb = request.kind === "comp" ? "Comp" : "Void";
+  // `comp` / `void` are DB values, so each gets its own key rather than riding a slot: an English
+  // status word interpolated into a Burmese sentence is the OPEN-ITEMS P2g shape one file over.
+  const kindKey = request.kind === "comp" ? "table.appr.kind.comp" : "table.appr.kind.void";
+  const cardKey = request.kind === "comp" ? "table.appr.card.comp" : "table.appr.card.void";
+  const reasonKey = REASON_KEY[request.reasonCode];
+  const confirmKey =
+    decision === "approve"
+      ? request.kind === "comp"
+        ? "table.appr.confirm.approveComp"
+        : "table.appr.confirm.approveVoid"
+      : "table.appr.confirm.deny";
   const pinOk = pin.length >= 4 && pin.length <= 8;
   const canConfirm = !!decision && !!approverStaffId && pinOk && !pending && !locked;
 
@@ -258,11 +293,16 @@ function RequestCard({
     <article
       className="card card-textured"
       style={cardStyle}
-      aria-label={`${verb} request for ${request.lineName}`}
+      aria-label={tf(lang, cardKey, { x: request.lineName })}
     >
       <header style={cardHead}>
         <span style={{ fontWeight: 700, fontSize: "var(--fs-body)" }}>
-          {request.tableLabel ? `Table ${request.tableLabel}` : "Table"}
+          {/* A counter/kiosk request carries no tent card, so the fallback is the bare noun. */}
+          {request.tableLabel ? (
+            <Chrome lang={lang} k="floor.table" vars={{ id: request.tableLabel }} />
+          ) : (
+            <Chrome lang={lang} k="table.appr.table" />
+          )}
         </span>
         <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
           <RelativeTime iso={request.createdAt} serverNow={serverNow} />
@@ -270,38 +310,67 @@ function RequestCard({
       </header>
 
       <p style={{ margin: 0, fontSize: "var(--fs-body)" }}>
-        <span style={kindBadge}>{verb}</span> {request.qty}× {request.lineName}
+        {/* No echo on the kind badge — it is chip-sized, and two scripts cannot legibly stack in a
+            chip. `.chrome-my` restores the face and resets the badge’s tracking; the badge’s
+            uppercase is a no-op on Myanmar, which has no case. */}
+        <span style={kindBadge}>
+          <Chrome lang={lang} k={kindKey} />
+        </span>{" "}
+        {request.qty}× {request.lineName}
         <span style={{ color: "var(--t2)" }}> · {fmt(request.amountCents)}</span>
-        {request.cooked && <span style={{ color: "var(--warn)", fontWeight: 700 }}> · cooked</span>}
+        {request.cooked && (
+          <span style={{ color: "var(--warn)", fontWeight: 700 }}>
+            {" · "}
+            <Chrome lang={lang} k="table.appr.cooked" />
+          </span>
+        )}
       </p>
       <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-        {REASON_LABEL[request.reasonCode] ?? request.reasonCode} · from {request.initiatorName}
+        {/* An UNDECLARED reason code still prints raw — see REASON_KEY’s docblock. */}
+        {reasonKey ? <Chrome lang={lang} k={reasonKey} /> : request.reasonCode} ·{" "}
+        <Chrome lang={lang} k="table.appr.from" vars={{ x: request.initiatorName }} />
       </p>
 
       {decision === null ? (
         <div style={btnRow}>
+          {/* Every card in the grid shows these same two words, so the name carries the dish the
+              decision lands on. The SAME key renders as the button’s visible label, so WCAG 2.5.3
+              containment holds by construction (guard rule 3c). */}
           <button
             type="button"
             onClick={() => open("approve")}
             className="staff-btn"
             style={{ ...actionBtn, ...approveBtn }}
+            aria-label={
+              al(lang, {
+                kind: "verb",
+                verb: "table.appr.verb.approve",
+                subject: request.lineName,
+              }).aria
+            }
           >
-            Approve
+            <Chrome lang={lang} k="table.appr.verb.approve" echo="stack" />
           </button>
           <button
             type="button"
             onClick={() => open("deny")}
             className="staff-btn"
             style={{ ...actionBtn, ...denyBtn }}
+            aria-label={
+              al(lang, {
+                kind: "verb",
+                verb: "table.appr.verb.deny",
+                subject: request.lineName,
+              }).aria
+            }
           >
-            Deny
+            <Chrome lang={lang} k="table.appr.verb.deny" echo="stack" />
           </button>
         </div>
       ) : (
         <form onSubmit={confirm} style={{ marginTop: 4 }} noValidate>
           <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", fontWeight: 600 }}>
-            {decision === "approve" ? `Approve this ${request.kind}` : "Deny this request"} —
-            confirm with your PIN
+            <Chrome lang={lang} k={confirmKey} echo="stack" />
           </p>
           <ManagerPinFields
             idPrefix={`appr-${request.id}`}
@@ -323,7 +392,16 @@ function RequestCard({
                 opacity: canConfirm ? 1 : 0.6,
               }}
             >
-              {pending ? "Working…" : decision === "approve" ? "Confirm approve" : "Confirm deny"}
+              {/* No aria-label on this one, deliberately: its visible label SWAPS to "Working…"
+                  mid-submit, and a fixed name would then no longer contain the visible text. The
+                  label alone is the honest name. */}
+              {pending ? (
+                <Chrome lang={lang} k="table.appr.working" />
+              ) : decision === "approve" ? (
+                <Chrome lang={lang} k="table.appr.verb.confirmApprove" echo="stack" />
+              ) : (
+                <Chrome lang={lang} k="table.appr.verb.confirmDeny" echo="stack" />
+              )}
             </button>
             <button
               type="button"
@@ -332,7 +410,7 @@ function RequestCard({
               className="staff-btn"
               style={{ ...actionBtn, ...cancelBtn }}
             >
-              Cancel
+              <Chrome lang={lang} k="table.appr.verb.cancel" echo="stack" />
             </button>
           </div>
         </form>

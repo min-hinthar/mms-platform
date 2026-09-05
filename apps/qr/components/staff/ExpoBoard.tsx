@@ -5,12 +5,16 @@ import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
+import { tf } from "@/lib/i18n/fill";
+import { al, sx } from "@/lib/staff-labels";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { ExpoLineMy } from "./TicketText";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
+import { StaffLangSwitch } from "./StaffLangSwitch";
+import { Chrome, OutageText } from "./Chrome";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -154,25 +158,36 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
             color: err || degraded ? "var(--warn)" : "var(--t2)",
           }}
         >
-          {err ??
-            (degraded
-              ? frozenBoardCopy(
-                  lang,
-                  snap.serverNow,
-                  nowMs - degraded.since,
-                  "what.bags",
-                  degraded.cause,
-                )
-              : count === 0
-                ? "No bags waiting"
-                : [
-                    bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
-                    verifyCount > 0 ? `${verifyCount} to verify` : null,
-                    handOverCount > 0 ? `${handOverCount} to hand over` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · "))}
+          {err !== null ? (
+            // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
+            // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
+            // counter reads when a bump did not save) and passes every other error through verbatim.
+            <OutageText lang={lang} error={err} />
+          ) : degraded ? (
+            frozenBoardCopy(
+              lang,
+              snap.serverNow,
+              nowMs - degraded.since,
+              "what.bags",
+              degraded.cause,
+            )
+          ) : count === 0 ? (
+            "No bags waiting"
+          ) : (
+            [
+              bagCount > 0 ? `${bagCount} bag${bagCount === 1 ? "" : "s"} waiting` : null,
+              verifyCount > 0 ? `${verifyCount} to verify` : null,
+              handOverCount > 0 ? `${handOverCount} to hand over` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          )}
         </p>
+        {/* P2 — mounted per SURFACE, never by app/staff/layout.tsx: a layout-owned strip would add
+            height to every staff board, including the measured ones. Last in the head row so it
+            never precedes the live region in the reading order. `check-staff-lang.mjs` rule 4 holds
+            this mount and reddens if the expo ever loses it. */}
+        <StaffLangSwitch lang={lang} />
       </div>
 
       {count === 0 ? (
@@ -190,7 +205,7 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         <StaggerList
           items={tickets}
           getKey={(t) => t.orderId}
-          ariaLabel="Bags waiting"
+          ariaLabel={sx(lang, "expo.a11y.bags")}
           style={grid}
           renderItem={(t) => (
             <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
@@ -212,23 +227,21 @@ function ExpoCard({
   onBumped: () => void | Promise<void>;
   onError: (msg: string | null) => void;
 }) {
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
-  const to = ticket.status === "preparing" ? "ready" : "picked_up";
+  // The stage this card is AT, named once: it decides the next status, the button's word, the
+  // button's tint and the card's own name. Four separate `=== "preparing"` tests were four chances
+  // for one of them to drift.
+  const firstStage = ticket.status === "preparing";
+  const to = firstStage ? "ready" : "picked_up";
   // W9d — a pure-grocery (scan-&-go) order: the shopper already HOLDS the goods, so "Bagged & ready"
   // is fiction. Same two-stage status machine (untouched), mapped to the counter's two real moments:
   // check the exit pass ("Verified", preparing→ready) then record the walk-out ("Handed over",
   // ready→picked_up, drops the card). The first cut of this put "Handed over" on the FIRST bump,
-  // which left a zombie second stage still counted as unverified (Codex) — each label now names the
-  // action its own tap performs.
+  // which left a zombie second stage still counted as unverified (Codex) — each label names the
+  // action its OWN tap performs. P2 — those four words are now `expo.verb.*`, rendered on the button
+  // and led with by its accessible name from the SAME key, so WCAG 2.5.3 holds by construction.
   const grocery = ticket.lines.every((l) => l.fulfillment === "grocery");
-  const label =
-    ticket.status === "preparing"
-      ? grocery
-        ? "Verified"
-        : "Bagged & ready"
-      : grocery
-        ? "Handed over"
-        : "Picked up";
 
   // K2 + W3e call-out identity: a dine-in to-go bag calls out its real table; a pickup/scango bag
   // headlines the first name captured at checkout (short code as the collision-safe suffix), falling
@@ -245,6 +258,14 @@ function ExpoCard({
   const verifyWho = ticket.customerName
     ? `${callOut} · #${ticket.shortCode}`
     : `#${ticket.shortCode}`;
+  // The card's name, as a KEY picked here rather than inside the attribute: a `=== "preparing"`
+  // test sitting inside a localized name reads to check-staff-lang.mjs rule 3 as authored English
+  // spliced into it, which is the very defect that rule exists to catch.
+  const cardNameKey = grocery
+    ? firstStage
+      ? "expo.a11y.cardVerify"
+      : "expo.a11y.cardHandOver"
+    : "expo.a11y.cardBag";
 
   const bump = () => {
     onError(null);
@@ -269,11 +290,7 @@ function ExpoCard({
       style={cardStyle}
       // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
       // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
-      aria-label={
-        grocery
-          ? `${ticket.status === "preparing" ? "Verify" : "Hand over"} · ${verifyWho}`
-          : `Bag for ${callOut}`
-      }
+      aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOut })}
     >
       <header style={cardHead}>
         <span style={tableLabel}>
@@ -320,20 +337,48 @@ function ExpoCard({
           Scan &amp; Go — verify the exit pass; nothing to bag.
         </p>
       )}
-      <ul role="list" style={lineList}>
+      {/* `listStyle: none` strips the list semantics a screen reader would otherwise announce, so
+          the role is restored explicitly — and a restored list still needs a name to be worth
+          landing on. */}
+      <ul role="list" aria-label={sx(lang, "expo.a11y.lines")} style={lineList}>
         {ticket.lines.map((l) => (
           <ExpoLineRow key={l.id} line={l} />
         ))}
       </ul>
+      {/* P2 — the four (grocery × stage) labels are spelled out as WHOLE al() calls with LITERAL
+          verb keys, and the same four keys render below through <Chrome>. That pairing is what
+          `check-staff-lang.mjs` rule 3c proves mechanically: this button announces the word it
+          shows, in whichever language is on screen (WCAG 2.5.3). A computed key would read as one
+          call site to the guard and as four to the counter. */}
       <button
         type="button"
         onClick={bump}
         disabled={pending}
-        aria-label={grocery ? `${label} — ${verifyWho}` : `${label} — bag for ${callOut}`}
+        aria-label={
+          grocery
+            ? firstStage
+              ? al(lang, { kind: "verb", verb: "expo.verb.verified", subject: verifyWho }).aria
+              : al(lang, { kind: "verb", verb: "expo.verb.handedOver", subject: verifyWho }).aria
+            : firstStage
+              ? al(lang, { kind: "verb", verb: "expo.verb.bagged", subject: callOut }).aria
+              : al(lang, { kind: "verb", verb: "expo.verb.pickedUp", subject: callOut }).aria
+        }
         className="staff-btn"
-        style={{ ...bumpBtn, ...(ticket.status === "preparing" ? readyBtn : pickedBtn) }}
+        style={{ ...bumpBtn, ...(firstStage ? readyBtn : pickedBtn) }}
       >
-        {pending ? "…" : label}
+        {pending ? (
+          "…"
+        ) : grocery ? (
+          firstStage ? (
+            <Chrome lang={lang} k="expo.verb.verified" echo="stack" />
+          ) : (
+            <Chrome lang={lang} k="expo.verb.handedOver" echo="stack" />
+          )
+        ) : firstStage ? (
+          <Chrome lang={lang} k="expo.verb.bagged" echo="stack" />
+        ) : (
+          <Chrome lang={lang} k="expo.verb.pickedUp" echo="stack" />
+        )}
       </button>
     </article>
   );
@@ -367,6 +412,9 @@ const headRow: CSSProperties = {
   justifyContent: "space-between",
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
+  // P2 — three children now (heading · live region · language control); wrap rather than crush
+  // the 44px switch on a narrow counter tablet.
+  flexWrap: "wrap",
 };
 const grid: CSSProperties = {
   listStyle: "none",

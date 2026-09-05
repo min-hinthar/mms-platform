@@ -265,35 +265,19 @@ if (literalHomes.length !== 1 || literalHomes[0] !== COOKIE_HOME) {
 // every call site. So `sx()` is permitted ONLY on an element with no visible text of its own.
 const ARIA_DIRS = [join(QR, "components/staff"), join(APP, "staff"), join(APP, "board")];
 /**
- * ⚠️ A RATCHET, not a whitelist. These staff surfaces still carry hand-written English names; P2
- * PR A converts the KDS, `/board` and the shared shell, and PR B takes the rest (OPEN-ITEMS P2c).
- * A file may only ever LEAVE this list. The self-check below fails if a listed file has no literal
- * left — meaning it was cleaned and the entry must be deleted, so the list cannot quietly become a
- * permanent exemption for work that was actually finished.
+ * ⚠️ EMPTY, AND THAT IS THE FINISHED STATE — NOT AN INVITATION.
+ *
+ * This was a RATCHET over the staff surfaces that still carried hand-written English accessible
+ * names: PR A converted the KDS, `/board` and the shared shell and listed the rest; PR B converted
+ * all nineteen and the list drained to nothing. Rule 3 now holds EVERY file under `ARIA_DIRS`.
+ *
+ * So if rule 3 fails on your file, the answer is `al()` or `sx()` — never a new entry here. A name
+ * added back to this list is not a TODO, it is a REGRESSION with a comment on it, and nothing in
+ * this script can tell the two apart. The one-way contract that emptied it (rule 3b: a listed file
+ * with no findings left MUST leave) still runs, so an entry that arrived by mistake and was then
+ * cleaned would at least be noticed on its way out.
  */
-const ARIA_TODO = new Set(
-  [
-    "app/staff/approvals/page.tsx",
-    "app/staff/feedback/page.tsx",
-    "app/staff/page.tsx",
-    "app/staff/register/page.tsx",
-    "app/staff/tips/page.tsx",
-    "components/staff/ApprovalsBoard.tsx",
-    "components/staff/CashSettleButton.tsx",
-    "components/staff/ClearTableButton.tsx",
-    "components/staff/CloseSecureTabButton.tsx",
-    "components/staff/FloorDetailLive.tsx",
-    "components/staff/LossActionSheet.tsx",
-    "components/staff/MenuPriceEditor.tsx",
-    "components/staff/MergeTableButton.tsx",
-    "components/staff/RegisterStart.tsx",
-    "components/staff/StaffLineEditor.tsx",
-    "components/staff/StaffMenuBrowser.tsx",
-    "components/staff/StaffModSheet.tsx",
-    "components/staff/TeamManager.tsx",
-    "components/staff/TerminalSettle.tsx",
-  ].map((f) => join(QR, f)),
-);
+const ARIA_TODO = new Set([].map((f) => join(QR, f)));
 
 const ARIA_ALL = [
   ...ARIA_DIRS.flatMap((d) => {
@@ -687,28 +671,18 @@ if (staffPages.length < 10)
   );
 
 /**
- * ⚠️ A RATCHET, not a whitelist — same contract as ARIA_TODO. P2 PR A converts `/staff/login` and
- * the KDS; PR B takes the rest (OPEN-ITEMS P2c). A page may only ever LEAVE this list, and the
- * self-check below fails if a listed page HAS a switch — so a finished conversion cannot sit here
- * as a permanent exemption.
+ * ⚠️ EMPTY, AND THAT IS THE FINISHED STATE — same contract, same warning as ARIA_TODO above.
+ *
+ * PR A converted `/staff/login` and the KDS and listed the thirteen pages with no language control
+ * at all; PR B mounted every one, and rule 4 now holds all fifteen. A page added back here is a
+ * person who cannot read English arriving on a staff screen with no way to change it — which is the
+ * exact failure the rule was written for, so it does not get to be a TODO.
+ *
+ * `SWITCH_WALK_EXCLUDED` above is the one thing that still needs care: `StaffOutageShell` mounts the
+ * control and every page imports it, so the walk must not follow that import or all fifteen pages
+ * would answer "reachable" on the strength of a screen that only exists during an outage.
  */
-const SWITCH_TODO = new Set(
-  [
-    "app/staff/approvals/page.tsx",
-    "app/staff/expo/page.tsx",
-    "app/staff/feedback/page.tsx",
-    "app/staff/lock/page.tsx",
-    "app/staff/menu/page.tsx",
-    "app/staff/orders/page.tsx",
-    "app/staff/page.tsx",
-    "app/staff/profile/page.tsx",
-    "app/staff/register/page.tsx",
-    "app/staff/table/[id]/add/page.tsx",
-    "app/staff/table/[id]/page.tsx",
-    "app/staff/team/page.tsx",
-    "app/staff/tips/page.tsx",
-  ].map((f) => join(QR, f)),
-);
+const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
 
 /** Does this module's own JSX mount a live `<StaffLangSwitch>`? */
 function mountsSwitchHere(file) {

@@ -9,6 +9,7 @@ import { TableCard } from "./TableCard";
 import { StaggerList } from "./StaggerList";
 import { isRealTransition, type PulseMeta } from "@/lib/floor-pulse";
 import { useStaffLang } from "./StaffLangProvider";
+import { sx } from "@/lib/staff-labels";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -23,8 +24,9 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
  * table count so a screen-reader user hears the room fill/empty without it chattering per card.
  */
 export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
-  // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
-  // thing on this board to speak it; the rest of the chrome follows in its own commit.
+  // P2 — the device language, from app/staff/layout.tsx. The outage banner below and the grid's
+  // accessible name are what speak it today; the rest of this board's copy follows in its own
+  // commit (OPEN-ITEMS P2c).
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   // W10b — outage parity with the KDS/expo boards (the floor previously had NO degraded state: a
@@ -205,7 +207,9 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         <StaggerList
           items={tables}
           getKey={(t) => t.sessionId}
-          ariaLabel="Active tables"
+          // The grid is a `role="list"` with no visible label of its own, so the name is aria-only
+          // (`sx`) rather than an al() pair — there is no visible text for WCAG 2.5.3 to contain.
+          ariaLabel={sx(lang, "floor.a11y.tables")}
           style={grid}
           renderItem={(t) => (
             <TableCard

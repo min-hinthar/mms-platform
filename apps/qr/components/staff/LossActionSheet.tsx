@@ -5,8 +5,10 @@ import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/l
 import { requestApproval } from "@/lib/approvals";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
+import type { StaffKey } from "@/lib/i18n/staff";
+import { sx } from "@/lib/staff-labels";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
-import { OutageText } from "./Chrome";
+import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -22,24 +24,52 @@ type Reason =
   | "other";
 
 // Reason codes per action (the SQL audit only length-bounds the code; these are the offered set).
-const REASONS: Record<Action, { value: Reason; label: string }[]> = {
+// P2 — the DB `value` is the audit record and never moves; only `k` (what the button says) is
+// localized. `quality` and `other` share one key across both actions because they share one label;
+// `guest_request` does NOT — void reads "Guest changed their mind", comp reads "Guest courtesy" —
+// so the two arms deliberately name different keys for the same code.
+const REASONS: Record<Action, { value: Reason; k: StaffKey }[]> = {
   void: [
-    { value: "mistake", label: "Ordered by mistake" },
-    { value: "kitchen_error", label: "Kitchen made it wrong" },
+    { value: "mistake", k: "table.loss.reason.mistake" },
+    { value: "kitchen_error", k: "table.loss.reason.kitchenError" },
     // W23a — the dine-in twin of the refund's "We ran out". A dine-in 86 costs nothing (the line is
     // voided before settle, no money moved), which is exactly why it has to be COUNTED — otherwise
     // the cheapest recovery is also the most invisible one.
-    { value: "sold_out", label: "We ran out" },
-    { value: "quality", label: "Quality / guest unhappy" },
-    { value: "guest_request", label: "Guest changed their mind" },
-    { value: "other", label: "Other" },
+    { value: "sold_out", k: "table.loss.reason.soldOut" },
+    { value: "quality", k: "table.loss.reason.quality" },
+    { value: "guest_request", k: "table.loss.reason.guestChanged" },
+    { value: "other", k: "table.loss.reason.other" },
   ],
   comp: [
-    { value: "service_recovery", label: "Making it right" },
-    { value: "quality", label: "Quality / guest unhappy" },
-    { value: "guest_request", label: "Guest courtesy" },
-    { value: "other", label: "Other" },
+    { value: "service_recovery", k: "table.loss.reason.serviceRecovery" },
+    { value: "quality", k: "table.loss.reason.quality" },
+    { value: "guest_request", k: "table.loss.reason.guestCourtesy" },
+    { value: "other", k: "table.loss.reason.other" },
   ],
+};
+
+// The per-action chrome, keyed off the SAME `Action` union the write uses — so a third action could
+// never render a label the server does not know about. Separate keys per tongue-order reason: the
+// verb sits in a different place in Burmese (SOV), which one shared `{x}` template cannot express.
+const SEG_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.seg.void",
+  comp: "table.loss.seg.comp",
+};
+const HINT_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.hint.void",
+  comp: "table.loss.hint.comp",
+};
+const CONFIRM_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.confirm.void",
+  comp: "table.loss.confirm.comp",
+};
+const CONFIRM_APPROVAL_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.confirmApproval.void",
+  comp: "table.loss.confirmApproval.comp",
+};
+const REQUEST_KEY: Record<Action, StaffKey> = {
+  void: "table.loss.requestApproval.void",
+  comp: "table.loss.requestApproval.comp",
 };
 
 /**
@@ -245,7 +275,12 @@ export function LossActionSheet({
     });
   }
 
-  const verb = action === "comp" ? "Comp" : "Void";
+  // STILL ENGLISH, deliberately: `Sheet`'s `title` is typed `string` (packages/ui/src/sheet.tsx),
+  // so a dictionary value would reach `Dialog.Title` as an unmarked Burmese run — rendered in the
+  // Latin face at Latin leading, which is exactly the defect `check-staff-lang.mjs` rule 5 exists
+  // for, and which that rule reddens on a bare `title` prop. Widening the primitive to a ReactNode
+  // is a `packages/ui` change this slice does not make. Everything INSIDE the sheet is converted.
+  const titleVerb = action === "comp" ? "Comp" : "Void";
 
   return (
     // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
@@ -254,16 +289,26 @@ export function LossActionSheet({
     // attempts. A dismissal mid-flight therefore loses the verdict AND the attempt — and the natural
     // response, trying again, walks a manager toward a floor-wide lockout with nothing on screen
     // ever having said why. `pending` is `useTransition`'s flag, so it settles on the failure path.
-    <Sheet open={open} onOpenChange={onOpenChange} busy={pending} title={`${verb} “${line.name}”`}>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={pending}
+      title={`${titleVerb} “${line.name}”`}
+    >
       <form onSubmit={submit} style={{ marginTop: 8 }} noValidate>
         <p style={lineSummary}>
           {line.qty}× {line.name} · {fmt(line.unitPriceCents * line.qty)}
-          {cooked && <span style={{ color: "var(--t2)" }}> · already cooking</span>}
+          {cooked && (
+            <span style={{ color: "var(--t2)" }}>
+              {" · "}
+              <Chrome lang={lang} k="table.loss.cooking" />
+            </span>
+          )}
         </p>
 
         {/* Action: void vs comp. role="group" + aria-pressed toggle buttons (the app's segmented-control
             convention — not role="radio", which would promise arrow-key roving this doesn't implement). */}
-        <div role="group" aria-label="Action" style={seg}>
+        <div role="group" aria-label={sx(lang, "table.loss.a11y.action")} style={seg}>
           {(["void", "comp"] as Action[]).map((a) => {
             const on = action === a;
             return (
@@ -275,29 +320,33 @@ export function LossActionSheet({
                 onClick={() => setAction(a)}
                 style={{ ...segBtn, ...(on ? segBtnOn : null) }}
               >
-                {a === "void" ? "Void (remove)" : "Comp (free)"}
+                {/* No echo: two 44px aria-pressed pills sharing one row, the same shape as the KDS
+                    station chips. The hint below states the chosen action in full, bilingually. */}
+                <Chrome lang={lang} k={SEG_KEY[a]} />
               </button>
             );
           })}
         </div>
         <p style={hint}>
-          {action === "void"
-            ? "Cancels the item and removes it from the bill. The kitchen won’t make it."
-            : "The guest isn’t charged, but the kitchen still makes it."}
+          <Chrome lang={lang} k={HINT_KEY[action]} echo="stack" />
         </p>
 
         {/* Reason — required, server-audited. Inline-validated on submit (S14): aria-invalid + a visible
             note when they try to confirm without picking one, rather than a silently-dimmed CTA. */}
         <fieldset style={fieldset}>
-          <legend style={legend}>Reason</legend>
+          <legend style={legend}>
+            <Chrome lang={lang} k="table.loss.reasonLegend" echo="stack" />
+          </legend>
           <div
             role="group"
-            aria-label="Reason"
+            aria-label={sx(lang, "table.loss.a11y.reason")}
             aria-describedby={reasonInvalid ? "loss-reason-err" : undefined}
             style={{ display: "grid", gap: 6 }}
           >
             {reasonOptions.map((r) => {
               const on = effectiveReason === r.value;
+              // Inline echo, not stacked: six full-width rows, and a stacked pair would roughly
+              // double the height of the list a cook scans with both hands full.
               return (
                 <button
                   className="staff-btn"
@@ -311,7 +360,7 @@ export function LossActionSheet({
                     ...(reasonInvalid ? { borderColor: "var(--warn)" } : null),
                   }}
                 >
-                  {r.label}
+                  <Chrome lang={lang} k={r.k} echo="inline" />
                 </button>
               );
             })}
@@ -321,7 +370,10 @@ export function LossActionSheet({
               id="loss-reason-err"
               style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}
             >
-              Pick a reason to continue.
+              {/* No echo: this element is the `aria-describedby` target of the reason group, and a
+                  computed description is its full text — a pair would say everything twice, the
+                  same reason live regions take no echo. */}
+              <Chrome lang={lang} k="table.loss.reasonRequired" />
             </p>
           )}
         </fieldset>
@@ -330,7 +382,9 @@ export function LossActionSheet({
             The select/PIN + the empty-roster note live in the shared <ManagerPinFields> (S13). */}
         {showStepUp && (
           <fieldset style={fieldset}>
-            <legend style={legend}>Manager approval</legend>
+            <legend style={legend}>
+              <Chrome lang={lang} k="table.loss.managerLegend" echo="stack" />
+            </legend>
             <ManagerPinFields
               idPrefix="loss"
               approvers={approvers}
@@ -353,7 +407,11 @@ export function LossActionSheet({
             disabled={pending || locked}
             style={{ ...primaryBtn, opacity: pending || locked ? 0.6 : 1 }}
           >
-            {pending ? "Sending…" : `Request a manager’s approval to ${action}`}
+            {pending ? (
+              <Chrome lang={lang} k="table.loss.sending" echo="stack" />
+            ) : (
+              <Chrome lang={lang} k={REQUEST_KEY[action]} echo="stack" />
+            )}
           </button>
         ) : (
           <>
@@ -363,7 +421,13 @@ export function LossActionSheet({
               disabled={!canSubmit}
               style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
             >
-              {pending ? "Working…" : showStepUp ? `${verb} with approval` : `${verb} item`}
+              {pending ? (
+                <Chrome lang={lang} k="table.loss.working" echo="stack" />
+              ) : showStepUp ? (
+                <Chrome lang={lang} k={CONFIRM_APPROVAL_KEY[action]} echo="stack" />
+              ) : (
+                <Chrome lang={lang} k={CONFIRM_KEY[action]} echo="stack" />
+              )}
             </button>
 
             {/* Deferred path (S2.4): for gated actions — request a manager's approval without a PIN now.
@@ -376,7 +440,7 @@ export function LossActionSheet({
                 disabled={pending || locked}
                 style={{ ...secondaryBtn, opacity: pending || locked ? 0.6 : 1 }}
               >
-                No manager here? Request approval
+                <Chrome lang={lang} k="table.loss.noManager" echo="stack" />
               </button>
             )}
           </>

@@ -145,7 +145,7 @@ export function CashSettleButton({
                 <Chrome
                   lang={lang}
                   k="settle.cash.tipBreakdown"
-                  vars={{ m: fmt(totalCents), x: fmt(tipCents) }}
+                  vars={{ m: fmt(totalCents), tip: fmt(tipCents) }}
                   echo={false}
                 />{" "}
               </>

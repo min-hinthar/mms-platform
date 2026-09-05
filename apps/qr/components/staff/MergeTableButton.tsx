@@ -190,11 +190,12 @@ export function MergeTableButton({
           style={{ ...panel, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-            {/* {id} is the SOURCE table and {x} the TARGET — two Latin tokens, so two slots. */}
+            {/* {id} is the SOURCE table and {into} the TARGET — two Latin tokens, so two slots, each
+                named for its role: `fill` substitutes by NAME, and one slot cannot carry two values. */}
             <Chrome
               lang={lang}
               k={plural(sourceItemCount, "settle.merge.move.one", "settle.merge.move.many")}
-              vars={{ n: sourceItemCount, id: sourceLabel, x: tableDisplay(target).text }}
+              vars={{ n: sourceItemCount, id: sourceLabel, into: tableDisplay(target).text }}
               echo="stack"
             />{" "}
             <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />
