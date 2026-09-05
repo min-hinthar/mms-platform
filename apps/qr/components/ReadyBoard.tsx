@@ -2,7 +2,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { raceTimeout } from "@/lib/staff-outage";
-import { nextBoardStateOnFailure, readBoardRefusal } from "@/lib/board-poll";
+import {
+  nextBoardStateOnFailure,
+  readBoardRefusal,
+  type BoardVerdictReason,
+} from "@/lib/board-poll";
+import { STAFF, ts } from "@/lib/i18n/staff";
+import { tf } from "@/lib/i18n/fill";
+import type { StaffLang } from "@/lib/staff-lang";
 import { KdsChime } from "@/lib/kds-sound";
 
 /**
@@ -31,7 +38,7 @@ type BoardState =
    * its operator must sign in instead. Rendering one hardcoded "open the board with its device link"
    * for both told a staff-signed-in TV to go find a link that does not exist.
    */
-  | { kind: "unlinked"; message: string | null }
+  | { kind: "unlinked"; reason: BoardVerdictReason; message: string | null }
   /**
    * We could not reach the server AT ALL and have no snapshot to fall back on — a board that booted
    * into an outage. Distinct from `loading`, which claims we are still connecting, and distinct from
@@ -45,7 +52,7 @@ type BoardState =
   | { kind: "offline"; since: number; fails: number; escalated: boolean }
   | { kind: "live"; orders: BoardOrder[]; stale: boolean };
 
-export function ReadyBoard({ token }: { token: string }) {
+export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) {
   // A tokenless board is no longer knowably unlinked at mount: a staff sign-in on the device is now
   // a credential too (`authorizeDevice`), and that lives in a cookie the client can't read. So it
   // starts LOADING and lets the server answer — the old initializer short-circuited to "unlinked"
@@ -101,7 +108,9 @@ export function ReadyBoard({ token }: { token: string }) {
         } | null;
         const refusal = readBoardRefusal(res.status, body);
         if (refusal.kind === "verdict") {
-          setState({ kind: "unlinked", message: refusal.message });
+          // P2 — carry the REASON, not just the server's English sentence: a Burmese board renders
+          // its own copy per reason, and falls back to `message` for a reason it has not learned.
+          setState({ kind: "unlinked", reason: refusal.reason, message: refusal.message });
           return;
         }
         throw new Error("board poll: no verdict available");
@@ -165,11 +174,14 @@ export function ReadyBoard({ token }: { token: string }) {
         <header className="orb-head">
           <h1 className="orb-title">Mandalay Morning Star</h1>
         </header>
-        {/* The server already worked out WHICH verdict this is and wrote the sentence for it; render
-            that rather than a guess. The fallback only covers a body that carried a reason but no
-            message. */}
-        <p className="orb-empty">
-          {state.message ?? "This screen isn’t linked yet — ask a manager to set it up."}
+        {/* P2 — the server's sentence is ENGLISH and this screen may be Burmese, so render OUR copy
+            keyed on the reason. There are exactly two: `readBoardRefusal` returns a verdict only
+            when the (status, reason) pair is one this client knows, so there is no third branch to
+            write and no `message` fallback to reach — a reason the server invents later is a
+            `retry`, not an unlinked board. `state.message` stays on the type as the server's own
+            words for a future surface that wants them. */}
+        <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
+          {state.reason === "denied" ? ts(lang, "board.denied") : ts(lang, "board.notConfigured")}
         </p>
         <p className="orb-empty">
           A manager can sign in on this screen at <strong>/staff/login?next=/board</strong>.
@@ -188,10 +200,8 @@ export function ReadyBoard({ token }: { token: string }) {
         <header className="orb-head">
           <h1 className="orb-title">Mandalay Morning Star</h1>
         </header>
-        <p className="orb-empty" role="status">
-          {state.escalated
-            ? "Still can’t reach the ordering system — this screen isn’t updating. Call orders out from the kitchen for now."
-            : "Can’t reach the ordering system — this screen isn’t updating. Trying again…"}
+        <p className="orb-empty" role="status" lang={lang === "my" ? "my" : undefined}>
+          {ts(lang, state.escalated ? "board.offline.still" : "board.offline")}
         </p>
       </div>
     );
@@ -212,25 +222,36 @@ export function ReadyBoard({ token }: { token: string }) {
         </h1>
         {/* ONE polite region: poll state only (card moves are visual + chime; a TV isn't an SR surface,
             but the region keeps the page honest for anyone on a browser). */}
-        <p className="orb-status" role="status">
+        {/* ONE polite region, single-voice: a bilingual live region would announce everything twice. */}
+        <p className="orb-status" role="status" lang={lang === "my" ? "my" : undefined}>
           {state.kind === "loading"
-            ? "Connecting…"
+            ? ts(lang, "board.connecting")
             : state.kind === "live" && state.stale
-              ? "Reconnecting — showing the last update"
-              : `${ready.length} ready · ${preparing.length} preparing`}
+              ? ts(lang, "board.reconnecting")
+              : tf(lang, "board.status", { n: ready.length, total: preparing.length })}
         </p>
         {!soundOn && (
-          <button type="button" className="kds-chip" onClick={enableSound}>
-            Enable sound
+          <button
+            type="button"
+            className="kds-chip"
+            onClick={enableSound}
+            lang={lang === "my" ? "my" : undefined}
+          >
+            {ts(lang, "board.sound")}
           </button>
         )}
       </header>
 
       <div className="orb-cols">
-        <section className="orb-col" aria-label="Preparing">
-          <h2>
-            Preparing
-            <small lang="my">ပြင်ဆင်နေသည်</small>
+        <section className="orb-col" aria-label={ts(lang, "board.col.preparing")}>
+          {/* Both tongues ALWAYS render — the wall serves a mixed room and cannot choose for it.
+              `lang` decides only which one leads. The Burmese is verbatim from W3e; this slice does
+              not reword what has been on the wall since then. */}
+          <h2 lang={lang === "my" ? "my" : undefined}>
+            {ts(lang, "board.col.preparing")}
+            <small lang={lang === "my" ? undefined : "my"}>
+              {lang === "my" ? STAFF["board.col.preparing"].en : STAFF["board.col.preparing"].my}
+            </small>
           </h2>
           {preparing.length === 0 ? (
             <p className="orb-empty">—</p>
@@ -243,13 +264,17 @@ export function ReadyBoard({ token }: { token: string }) {
           )}
         </section>
 
-        <section className="orb-col orb-col-ready" aria-label="Ready for pickup">
-          <h2>
-            Ready
-            <small lang="my">ယူသွားနိုင်ပါပြီ</small>
+        <section className="orb-col orb-col-ready" aria-label={ts(lang, "board.col.ready")}>
+          <h2 lang={lang === "my" ? "my" : undefined}>
+            {ts(lang, "board.col.ready")}
+            <small lang={lang === "my" ? undefined : "my"}>
+              {lang === "my" ? STAFF["board.col.ready"].en : STAFF["board.col.ready"].my}
+            </small>
           </h2>
           {ready.length === 0 ? (
-            <p className="orb-empty">Ready orders light up here.</p>
+            <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
+              {ts(lang, "board.empty")}
+            </p>
           ) : (
             <ul role="list">
               {ready.map((o) => (

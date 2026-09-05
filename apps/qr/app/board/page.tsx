@@ -1,4 +1,5 @@
 import { ReadyBoard } from "@/components/ReadyBoard";
+import { readBoardLang } from "@/lib/staff-lang-server";
 
 export const metadata = {
   title: "Order ready board — Mandalay Morning Star",
@@ -16,12 +17,18 @@ export const dynamic = "force-dynamic";
 export default async function BoardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ k?: string }>;
+  searchParams: Promise<{ k?: string; lang?: string }>;
 }) {
-  const { k } = await searchParams;
+  const { k, lang } = await searchParams;
+  // P2 — the TV's language: `?lang=` on the bookmark first, then the device cookie, then Burmese.
+  // The bookmark already carries `?k=<device token>`, so it is where this screen's configuration
+  // lives; a smart-TV browser is also the device most likely to lose a cookie between shifts. A
+  // GARBAGE `?lang=` falls through to the cookie rather than to the default, so a typo in the URL
+  // cannot silently override a screen that was set up correctly.
+  const boardLang = await readBoardLang(lang);
   return (
     <main>
-      <ReadyBoard token={k ?? ""} />
+      <ReadyBoard token={k ?? ""} lang={boardLang} />
     </main>
   );
 }

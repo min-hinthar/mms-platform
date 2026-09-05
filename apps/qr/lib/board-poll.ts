@@ -15,9 +15,22 @@
  */
 
 /** What a 401/503 from `/api/board` actually licenses the board to conclude. */
+/**
+ * The reasons `/api/board` sends that ARE a verdict about this device. Exactly the two below: a
+ * `503 unavailable` is "we can't tell", not a verdict, and never reaches here.
+ */
+export type BoardVerdictReason = "denied" | "not_configured";
+
 export type BoardRefusal =
-  /** A verdict about THIS DEVICE. `message` is the server's own sentence, when it sent one. */
-  | { kind: "verdict"; message: string | null }
+  /**
+   * A verdict about THIS DEVICE.
+   *
+   * `reason` (P2) is the discriminator the Burmese board needs: `message` is the SERVER's English
+   * sentence, and a TV that speaks Burmese cannot translate a string — it needs to know WHICH
+   * refusal this is so it can render its own. `message` stays as the fallback for a reason a future
+   * server sends that this client has not learned yet.
+   */
+  | { kind: "verdict"; reason: BoardVerdictReason; message: string | null }
   /** No verdict available — retry and keep whatever we already have on screen. */
   | { kind: "retry" };
 
@@ -61,7 +74,7 @@ export type BoardRefusal =
  * emitting either would still have blanked the board — and the suite carried a test named "only
  * `not_configured` makes a 503 a verdict" asserting a guarantee the code did not make (Codex round 3).
  */
-const DEVICE_REFUSALS = new Map<number, string>([
+const DEVICE_REFUSALS = new Map<number, BoardVerdictReason>([
   [401, "denied"],
   [503, "not_configured"],
 ]);
@@ -78,14 +91,21 @@ export function readBoardRefusal(
   //
   // Deploy skew runs the safe way: a new client against an older server that omits `reason` on its
   // 401 retries instead of unlinking, so the board stays up and self-heals once the deploy lands.
-  if (body && DEVICE_REFUSALS.get(status) === body.reason) return { kind: "verdict", message };
+  const expected = DEVICE_REFUSALS.get(status);
+  if (body && expected !== undefined && expected === body.reason)
+    // `expected` is the value from DEVICE_REFUSALS, not `body.reason` — so the reason carried
+    // forward is one this client has actually matched, never an arbitrary string off the wire.
+    return { kind: "verdict", reason: expected, message };
   return { kind: "retry" };
 }
 
 /** The board's screen state, mirrored from `ReadyBoard` so this module stays free of React. */
 export type BoardPollState =
   | { kind: "loading" }
-  | { kind: "unlinked"; message: string | null }
+  /** P2 — `reason` rides through so the screen can speak its own language; see `BoardRefusal`.
+   *  NOT nullable: `readBoardRefusal` only ever returns a verdict when the (status, reason) pair
+   *  matched one this client knows, so every unlinked state carries a reason it can render. */
+  | { kind: "unlinked"; reason: BoardVerdictReason; message: string | null }
   /**
    * `escalated` is computed HERE, not at render. The screen needs to know whether the outage has
    * outlived the shared two-minute window, and deriving that in the component would mean calling

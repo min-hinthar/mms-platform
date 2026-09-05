@@ -1,6 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { STAFF_LANG_COOKIE, parseStaffLang, type StaffLang } from "./staff-lang";
+import { STAFF_LANG_COOKIE, parseStaffLang, resolveBoardLang, type StaffLang } from "./staff-lang";
 
 /**
  * P2 — the ONLY `cookies().get(STAFF_LANG_COOKIE)` in the app.
@@ -17,4 +17,16 @@ import { STAFF_LANG_COOKIE, parseStaffLang, type StaffLang } from "./staff-lang"
  */
 export async function readStaffLang(): Promise<StaffLang> {
   return parseStaffLang((await cookies()).get(STAFF_LANG_COOKIE)?.value);
+}
+
+/**
+ * `/board`'s language: the TV's bookmark (`?lang=`) first, then this device's cookie, then Burmese.
+ *
+ * It lives HERE, beside `readStaffLang`, so the claim in this module's docblock stays literally
+ * true — one `cookies().get` of this name in the whole app. Putting the read inline in
+ * `app/board/page.tsx` would have worked and would have quietly made that sentence false, which is
+ * how a one-reader invariant stops being one.
+ */
+export async function readBoardLang(query: string | undefined): Promise<StaffLang> {
+  return resolveBoardLang(query, (await cookies()).get(STAFF_LANG_COOKIE)?.value);
 }
