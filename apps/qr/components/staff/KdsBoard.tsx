@@ -6,6 +6,8 @@ import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
+import { allDayRows } from "@/lib/ticket-names";
+import { RailRowText, TicketLineText } from "./TicketText";
 import type {
   KdsThresholds,
   KitchenLine,
@@ -316,18 +318,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
   // All-Day rail: pure client-side reduce over the LIVE lines (station-filtered — the rail answers
   // "how many mohinga does THIS screen owe right now"), grouped item+modifiers, largest first.
-  const allDay = useMemo(() => {
-    const counts = new Map<string, { label: string; qty: number }>();
-    for (const t of live) {
-      for (const l of t.lines) {
-        const label = l.modifiers.length ? `${l.name} · ${l.modifiers.join(", ")}` : l.name;
-        const cur = counts.get(label);
-        if (cur) cur.qty += l.qty;
-        else counts.set(label, { label, qty: l.qty });
-      }
-    }
-    return [...counts.values()].sort((a, b) => b.qty - a.qty);
-  }, [live]);
+  // P1 moved the reduce into lib/ticket-names.ts (`allDayRows`) so its two rules — the key is the
+  // English label, and a row carries the most Burmese known for it — are falsified by a value.
+  const allDay = useMemo(() => allDayRows(live.flatMap((t) => t.lines)), [live]);
 
   // ── Control handlers ───────────────────────────────────────────────────────────────────────────
   const pickStation = (key: "all" | KitchenStation) => {
@@ -561,7 +554,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               <ul role="list">
                 {allDay.map((row) => (
                   <li key={row.label}>
-                    <span style={{ minWidth: 0 }}>{row.label}</span>
+                    <span style={{ minWidth: 0 }}>
+                      <RailRowText row={row} />
+                    </span>
                     <b>×{row.qty}</b>
                   </li>
                 ))}
@@ -867,10 +862,12 @@ function KdsLineRow({
           {line.qty}
         </span>
         <span className="kds-line-main">
-          <p className="kds-line-name">{line.name}</p>
-          {line.modifiers.length > 0 && (
-            <p className="kds-line-mods">{line.modifiers.join(" · ")}</p>
-          )}
+          {/* P1 — the line Mom reads a hundred times a night: Burmese first when the catalog has it,
+              English beneath (`TicketText.tsx`, pinned by its own jsdom suite). The aria-label above
+              stays English on purpose: a flat string carries no lang, and an English TTS voice
+              garbles Myanmar codepoints — P2 owns the moment the chrome speaks Burmese; the visible
+              English echo keeps WCAG 2.5.3 meanwhile. */}
+          <TicketLineText line={line} />
           {(line.fulfillment === "togo" || line.state === "in_progress") && (
             <p className="kds-line-tag">
               {line.fulfillment === "togo" ? "Bag it" : ""}

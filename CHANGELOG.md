@@ -4,7 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The kitchen ticket reads Burmese first (2026-09-05 · pilot P1)
+
+**The line Mom reads a hundred times a night.** Every KDS and expo line now carries the catalog's
+Burmese beside the English snapshot — `menu_items.name_my` for the dish, `modifier_options.name_my`
+per option through the M3 `modifier_option_ids`, `grocery_items.name_my` for a bag's barcode lines —
+and the board renders **Burmese as the primary line** (Padauk 700, a new `--kfs-item-my` tier at
+30px: measured body parity with the 28px Hanken line it replaces, since Padauk's consonant body is
+~8% shorter than Hanken's x-height) with the **English beneath at the modifier size, full contrast**
+(Dad's line, and the audit trail when K15 corrects the Burmese above it). Modifiers stack the same
+way: a Burmese line above the English one. Notes, aria-labels and the 86 control are untouched —
+P2 owns the moment the chrome speaks Burmese.
+
+**The rules live in ONE pure module (`lib/ticket-names.ts`, 19 tests, six `verify:slice` mutants —
+plus three on `components/staff/TicketText.tsx`, the render sites),
+because a design panel of three independent drafts got the same thing wrong twice:** a Burmese slot
+with no `name_my` must stay **null** — the renderer wraps the English fallback in `lang="en"` and
+restores the body face — never pre-substituted, or English is typeset in Padauk and announced as
+Burmese. A count mismatch between labels and option ids is not a mapping (every slot null, never a
+prefix pairing); a `name_my` with no Myanmar-script codepoint is not Burmese, and one equal to its
+snapshot name adds no second tongue (the case the script rule leaves it: a Burmese-only row stored
+twice); the All-Day rail's key stays
+the English label so a legacy row beside a fresh one is one count, and a row carries the most Burmese
+known for its key. An English-only KDS line mounts exactly the elements it mounted before: every
+Burmese rule is gated on the `lang` attribute (a `(0,2,0)` compound, because the global `[lang="my"]`
+leading would otherwise lose to `.kds-line-name`'s later `--lh-snug` — the W16e override again), and
+the echo and rail classes are emitted only in the Burmese BRANCH — which is a claim about JSX, not
+CSS, so `components/staff/TicketText.tsx` owns the three render sites and its jsdom suite pins the
+branch. The one change every row sees: the expo bag row aligns on the baseline now, so a two-line
+label keeps its qty badge on the first line.
+
+**Two things the hex audit could not see are now pinned.** The held card's two STACKED fades
+(`.kds-ticket-held` × `.kds-line:disabled`, a held line is always disabled) became tokens, and
+`composite-contrast.test.ts` composites the English echo through both: `--tx` clears the 3:1
+large-text floor (4.02:1), `--t2` does not (2.71:1) — which is why the echo is full contrast, and
+the test that says so went red at a weakened fade before it went green. `font-synthesis: none` on
+every Padauk rule, so a swap-window fallback face is never faux-bolded into closed counters.
+
+**Reads are advisory, and say so.** The new `modifier_options` read on the KDS and all three name
+reads on the expo are logged degrades to English — never `outage`: a name cannot misidentify a
+ticket, and a frozen board hides new tickets. `name_my` on the dish rides the menu read that already
+gates on `outage`. Ids are partitioned to uuid shape BEFORE any IN-list (a barcode in a uuid list
+fails the whole query), and `kitchen.ts` now imports the one `UUID_RE` instead of keeping a copy.
+Prod coverage measured at build time: 97/97 active dishes, 30/30 options and 404/404 grocery items
+carry a `name_my`, so nothing on the pilot's tickets falls back on day one.
+
+**To verify on the real 15.6" (the brief's own condition, and the first thing P4 counts):** the 30px
+dial (`--kfs-item-my`; 28 tightens, 32 loosens — count two-line wraps before moving it), ticket
+height at a Friday load (a fully bilingual line is roughly double today's; the span-2 lever is
+`lines.length > 5` in `KdsBoard`, never the type size), the rail's Burmese wrapping in its 232px
+column, and that Padauk actually arrives on the pass tablet rather than a system Myanmar face.
+
 ### A pin is cleared only while no live intent depends on it (2026-09-05 · pilot P0)
+
+**Merged as `dfcda72` (#257); prod migration `20260905103039 m151_live_payment_intent` applied via the MCP one-file path and verified BEFORE the merge, so the app never deployed ahead of its column.** Merged on the owner's per-PR authorization with the Codex quota exhausted — no Codex round exists for any head of this PR; the blind adversarial pass (below) is the independent review it had.
 
 **M151 · M152 · M124 — the cart→intent link.** Every pin-clearer in this codebase decided "is the
 attempt that took this lock still the one that owns it?" from `locked_at`, a wall-clock era. Nothing

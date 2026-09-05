@@ -6,6 +6,7 @@ import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { formatSlotLong } from "@/lib/pickupTime";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import { ExpoLineMy } from "./TicketText";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
@@ -331,6 +332,9 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
         {line.qty}×
       </span>
       <span style={{ flex: 1, minWidth: 0 }}>
+        {/* P1 — the Burmese half of the bag line, above the English the counter already showed
+            (`TicketText.tsx`, pinned by its own jsdom suite). */}
+        <ExpoLineMy line={line} />
         {line.name}
         {line.modifiers.length > 0 && (
           <span style={{ color: "var(--t2)" }}> · {line.modifiers.join(" · ")}</span>
@@ -393,7 +397,9 @@ const lineList: CSSProperties = {
 };
 const lineRow: CSSProperties = {
   display: "flex",
-  alignItems: "center",
+  // P1 — baseline, not center: with a Burmese line above the English one the label is two lines
+  // tall, and the 2× badge and the destination tag belong on the FIRST line's baseline.
+  alignItems: "baseline",
   gap: "var(--s2)",
   fontSize: "var(--fs-sm)",
 };

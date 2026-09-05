@@ -24,6 +24,11 @@
   --lh-snug: 1.22; /* headings */
   --lh-normal: 1.5; /* body */
   --lh-my: 1.6; /* Burmese (Padauk) wants more leading than Latin at the same size */
+  /* P1 — the KDS held card's two STACKED fades: `.kds-ticket-held` on the card and `.kds-line:disabled`
+     on its lines (a held line is always disabled). Tokenized so composite-contrast.test.ts reads the
+     shipped values rather than a transcription — the hex audit sees neither layer. Theme-independent. */
+  --kds-held-op: 0.68;
+  --kds-line-off-op: 0.7;
   --fs-display: clamp(2.25rem, 7vw, 2.75rem); /* the wordmark lockup */
   --fs-h1: 1.625rem; /* 26 */
   --fs-h2: 1.3125rem; /* 21 */

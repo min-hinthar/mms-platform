@@ -5,6 +5,99 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
+>
+> **`main` is at `dfcda72`** (#257, squash of `c166d43`). **Prod has the migration:**
+> `supabase_migrations.schema_migrations` row `20260905103039 m151_live_payment_intent`, applied via
+> the MCP one-file path BEFORE the merge (so the app never deployed ahead of its column) and verified
+> object by object — `qr_carts.live_payment_intent_id text null` with its comment; `mms_release_promo_grant`
+> and `mms_mark_settle_canceled` each a single overload, `security definer`, `search_path=''`, the link
+> gate present in the body, `service_role` the only executor (anon/authenticated/public false); 185
+> carts, 0 linked at apply time. The production deploy of `dfcda72` is **READY** (Vercel
+> `dpl_99YNzmgBPfdoQq4RtL1j89YbfSSs`, aliases incl. `qr.mandalaymorningstar.com`; `/` and `/menu`
+> answered 200 after it). **Not yet observed: a real checkout linking** — the count of
+> `live_payment_intent_id` on `qr_carts` goes non-zero on the first Pay tap; check it before
+> trusting the link in the pilot.
+>
+> The block below is #256's; its "still owner-gated" list no longer includes this link. Read this one,
+> then `docs/PILOT_PLAN.md` §3 for what P0 unblocked, then the #256 block for the live-region rules.
+>
+> ### What shipped
+>
+> **The rule:** a pin may be cleared only while NO live intent depends on it. `qr_carts.live_payment_intent_id`
+> is the fact; `mms_release_promo_grant`, `mms_mark_settle_canceled` and `applyPromo`'s write carry
+> `live_payment_intent_id is null`; the client exits clear the link in the same statement as the lock
+> and pin and are safe by ORDER (`releasePayAttemptSafely` cancels the attempt's own intent first,
+> refuses with `paying` if it captured). A successor makes the predecessor UNUSABLE before it may touch
+> the pin — `supersedeCartIntent`: retrieve → classify (`live-intent.ts`, pure, fails CLOSED) → cancel
+> if cancelable → record if it was a pickup hold → unlink. Closed: **M151 · M152 a/b/c/c′ · M124**;
+> narrowed: **M123** (the counter rails still quote the pin — file the counter half).
+>
+> ### ⚠️ THE BLIND PASS RETURNED REJECT WITH FOUR CRITICALS — every one real, and one shape
+>
+> Each was a lock release written BY ANALOGY to the releases beside it, without naming the fact that
+> makes the cart safe to edit (LEARNINGS #84). The one to carry forward:
+>
+> - **The decline webhook no longer releases the pay-window lock (M152 c′).** A declined intent is still
+>   confirmable from the mounted Element, so the cart it prices stays FROZEN until the diner ends the
+>   attempt ("Edit order" cancels it at Stripe, then releases lock+pin+link) or the 5-minute TTL lets a
+>   successor supersede. Before: a link with no lock — every promo at the table refused as "locked" on
+>   a cart everyone could edit. Cost: a 3DS-decline diner who lost the attempt token waits ≤5 min to
+>   EDIT; Pay stays live. If the pilot surfaces "why can't I edit after my card declined", this is why,
+>   and the answer is persisting the attempt token across the redirect, not loosening the lock.
+> - `create-intent`'s `captured`/`unknown` refusals keep the lock (a same-uid re-acquire stamps a fresh
+>   era, so the shared `freeLock()` had unlocked a cart UNDER a captured charge).
+> - `releaseByIntent` (the `canceled` webhook) clears pin + link only — the lock belongs to whoever
+>   holds it; the event can land between a successor's Stripe cancel and its unlink.
+> - An eagerly-superseded pickup hold writes the `superseded` ledger row the cron used to write lazily,
+>   or `/track` polls "authorized" forever.
+>
+> ### ⚠️ Two guards changed shape — read before touching either
+>
+> - **`check-freeze-parity`'s writer derivation reaches ONE hop.** `releasePayLock` left the subject
+>   set when M151 put `releasePayAttemptSafely` between it and the `.update`; the only symptom was its
+>   exemption going dead. A routing closure was tried and MEASURED wrong (`assertCartMember` became a
+>   writer through `maybeRenewSession`, `assertMutationRate` through `withinRate` — "authorizes and
+>   writes" collapsed into "authorizes"; all twelve subjects red). Entry deleted, arc beside the map,
+>   real fix filed as **T44** (a table-aware write predicate). LEARNINGS #85.
+> - **`check-promo-grant-pin` selects LIVE calls only and refuses two live candidates as ambiguity** —
+>   rule 3 had picked by first lexical match, so a parked `if (false) await supersedeCartIntent(…)`
+>   satisfied it. Red on three evasions before it went green on the route.
+> - `turbo.json`: `typecheck` now depends on the package's own `build` — the gate raced `next build`'s
+>   `.next/types` regeneration once (`TS2307 './routes.js'`, standalone typecheck green).
+>
+> ### ⚠️ MERGED WITHOUT ANY CODEX ROUND — owner-authorized ("merge and proceed"), and the gap is the whole PR
+>
+> Codex's account quota was exhausted for the entire life of this PR: every ask returned the limit
+> message, so `codex-review` never had a verdict on any head. The independent reviewer this PR HAD
+> is the blind adversarial pass (REJECT → fixed → the fix diff hand-read + mechanical gates only, per
+> the HARD CAP) plus `verify:slice` 334/334, the six-case SQL test executed in CI, and the full
+> fast lane. **This is the largest money-path change to reach `main` without Codex.** If anything
+> in checkout misbehaves, the surface is `apps/qr/lib/{lock,supersede,live-intent,cart}.ts`, the
+> two Stripe routes, and the migration's two functions. The quota is owner-only to restore
+> (`chatgpt.com/codex/cloud/settings/code-review`) and is still exhausted at the time of writing.
+>
+> ### Filed this arc
+>
+> - **M155** (med) — `processing` is refused as captured for the life of the link; right for cards,
+>   days-long for a bank debit under `automatic_payment_methods`. Owner checks the Dashboard's enabled
+>   methods (the Stripe MCP is not authorized in this environment).
+> - **T44** (med) — the freeze-parity one-hop reach, above.
+> - Follow-ups noted, not filed: M123's counter half; the coverage guard should parse a line-leading
+>   `verify:slice-exempt` directive rather than grep for it (LEARNINGS #83).
+>
+> ### Counts on this head, measured not transcribed
+>
+> **334 mutants at the time (343 today)**, **1372 qr + 138 ui tests at the time (1402 + 140 today)**, 69 target modules at the time (65 under `apps/qr/lib` today, 71 in all), 97 local
+> migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
+>
+> ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
+>
+> **P1 the Burmese-first kitchen ticket** (`name_my` through `kitchen.ts`/`expo.ts` onto `KitchenLine`,
+> MY as the ≥28px line with EN beneath) → **P2** the staff-device locale (build, not reuse — W16b
+> retired the app-wide toggle; S2 is stale) → **P3** PILOT15 → **P6** the dual-audience board →
+> **P4/P5**. O1–O3 (hardware · `BOARD_DEVICE_TOKEN` · C1 auth) are owner actions running alongside.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #256 — the one live region is ARBITRATED, and T33 is closed)
 >
 > **`main` is at `9ed8029`** (#256). The block below is #254's, and **its row 1 is now DONE** — T33 was
@@ -82,7 +175,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 >   and a signature change (twice, in both directions). Anchor on the formatted text, and re-probe
 >   after every refactor; a STALE mutant is a failure, not a skip.
 > - Counts on this head, measured not transcribed: **319 mutants** (16 of them `t33/*`), **1335 qr +
->   138 ui tests**, 67 target modules.
+>   138 ui tests at the time**, 67 target modules at the time.
 >
 > ### The rows this arc leaves, in the order they are worth doing
 >
@@ -100,8 +193,8 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 >    near-duplicate pairs) is T32's rule applied to the rest of the vocabulary.
 > 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
 >
-> Still owner-gated and untouched (the cart→intent link is no longer on this list — #257 builds it;
-> see that PR's own top block once it merges): **C16** (make `codex-review` a REQUIRED check — this PR is the second time in a week that gate has been the only
+> Still owner-gated and untouched (the cart→intent link is no longer on this list — #257 shipped it;
+> see the block above): **C16** (make `codex-review` a REQUIRED check — this PR is the second time in a week that gate has been the only
 > thing between an unreviewed head and `main`, and the first time it was overruled deliberately), the
 > Codex review quota, and the prod-migration items on the divergent history. Sweep
 > [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) — it is the single registry — rather than trusting any count
@@ -874,7 +967,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 334 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1372 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 343 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1403 qr tests + 140 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1596,7 +1689,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (334 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (343 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

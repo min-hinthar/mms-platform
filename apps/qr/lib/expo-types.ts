@@ -11,8 +11,14 @@
 export type ExpoLine = {
   id: string;
   name: string;
+  /** P1 — the LIVE catalog Burmese name (`menu_items.name_my` by uuid, `grocery_items.name_my` by
+   *  barcode), or null. Same rules and same derivation as `KitchenLine.nameMy`. */
+  nameMy: string | null;
   qty: number;
   modifiers: string[];
+  /** P1 — per-slot Burmese option labels parallel to `modifiers`, null where none. See
+   *  `KitchenLine.modifiersMy`. */
+  modifiersMy: (string | null)[];
   fulfillment: "togo" | "grocery";
   notes: string | null;
 };

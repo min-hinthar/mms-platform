@@ -585,3 +585,62 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
     expect(withShine).toBeGreaterThan(withSheen);
   });
 });
+
+describe("the KDS held card — two stacked fades the hex audit cannot see (P1)", () => {
+  /**
+   * `.kds-ticket-held` fades the CARD and `.kds-line:disabled` fades the LINE, and a held line is
+   * always disabled (`disabled={pending || held}`, KdsBoard). So the English echo under a Burmese
+   * dish name (`.kds-line-en`, 21px/800) composites through BOTH: the line group over the card
+   * face, then the card over the page. The design panel on P1 shipped one draft that set the echo in
+   * --t2 and quoted the single-fade number (4.15:1) — the stacked one is 2.71:1, under the 3:1
+   * large-text floor; --tx composites to 4.02:1.
+   *
+   * ⚠️ BOUND TO THE CSS THAT CONSUMES THE TOKENS (blind pass on #258): the first draft read only
+   * tokens.css, so switching `.kds-line-en` back to --t2, or replacing either `opacity:
+   * var(--kds-…-op)` with a literal, left it green. Now the echo's declared colour token and both
+   * opacity declarations are parsed out of globals.css and the composite is computed for the colour
+   * the rule actually ships. The --t2 number stays in this comment as the reason, not as an
+   * assertion that would go red on a SAFE change (raising the fades until --t2 clears).
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  );
+  const block = (selector: string) => {
+    const re = new RegExp(selector.replace(/[.:[\]()]/g, "\\$&") + "\\s*\\{([^}]*)\\}");
+    const m = re.exec(globals);
+    if (!m) throw new Error(`globals.css: no \`${selector}\` block`);
+    return m[1] as string;
+  };
+  const declared = (selector: string, prop: string) => {
+    const m = new RegExp(`(?:^|;|\\n)\\s*${prop}\\s*:\\s*([^;]+)`).exec(block(selector));
+    if (!m) throw new Error(`globals.css: \`${selector}\` declares no \`${prop}\``);
+    return (m[1] as string).trim();
+  };
+  const tokenOf = (value: string) => {
+    const m = /^var\((--[\w-]+)\)$/.exec(value);
+    if (!m) throw new Error(`expected a token, got \`${value}\``);
+    return m[1] as string;
+  };
+  const held = Number(raw(dark, tokenOf(declared(".kds-ticket-held", "opacity"))));
+  const off = Number(raw(dark, tokenOf(declared(".kds-line:disabled", "opacity"))));
+  const echoToken = tokenOf(declared(".kds-line-en", "color"));
+  const LARGE = 3; // WCAG 1.4.3 large text (≥18.66px bold) floor — 21px/800 qualifies
+  const stacked = (ink: Rgba) => {
+    const cd = t(dark, "--cd");
+    const pg = t(dark, "--pg");
+    const line = over({ ...ink, a: off }, cd); // the disabled line group over the card face
+    const text = over({ ...line, a: held }, pg); // the held card over the page
+    const ground = over({ ...cd, a: held }, pg); // the same card, where there is no ink
+    return ratio(text, ground);
+  };
+  it("both fades are tokens, not literals — or this guard reads a number the CSS does not ship", () => {
+    expect(held).toBeGreaterThan(0);
+    expect(held).toBeLessThanOrEqual(1);
+    expect(off).toBeGreaterThan(0);
+    expect(off).toBeLessThanOrEqual(1);
+  });
+  it("Night · the colour .kds-line-en actually declares clears the large-text floor through both fades", () => {
+    expect(stacked(t(dark, echoToken))).toBeGreaterThanOrEqual(LARGE);
+  });
+});

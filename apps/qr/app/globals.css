@@ -7210,6 +7210,12 @@ html[data-seen-surface] .mms-stagger {
 .kds-root {
   --kfs-id: 2rem; /* 32px ticket identity (table # / first name) */
   --kfs-item: 1.75rem; /* 28px item lines, weight 800 — the signage rule */
+  /* P1 — the Burmese primary line. Padauk Bold's consonant body (464/1024 = 0.453em) is ~8% shorter
+     than Hanken's x-height (0.493em), so 28px Burmese reads smaller than the 28px English it
+     replaces; 30px is the first integer at body parity (13.6px vs 13.8px) and still under the 32px
+     identity tier, so a dish never outranks the table number. THE arm's-length dial for the real
+     15.6" (the P1 brief): raise it and count the two-line wraps on the tablet before keeping it. */
+  --kfs-item-my: 1.875rem; /* 30px Burmese item lines, weight 700 (the heaviest Padauk cut) */
   --kfs-mod: 1.3125rem; /* 21px modifiers, FULL contrast (allergy-critical) */
   --kfs-clock: 1.5rem; /* 24px mm:ss elapsed + header numbers */
   --kfs-meta: 0.9375rem; /* 15px chrome/badges/buttons */
@@ -7326,7 +7332,7 @@ html[data-seen-surface] .mms-stagger {
 /* HELD (scheduled, not yet due): visibly parked, not urgent — dashed + dimmed, slot time on the strip.
    Dimming is deliberate sub-emphasis; the card's text starts near-max contrast so it stays readable. */
 .kds-ticket-held {
-  opacity: 0.68;
+  opacity: var(--kds-held-op);
   border-style: dashed;
 }
 .kds-strip {
@@ -7425,7 +7431,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .kds-line:disabled {
   cursor: default;
-  opacity: 0.7;
+  opacity: var(--kds-line-off-op);
 }
 .kds-qty {
   flex: none;
@@ -7466,6 +7472,87 @@ html[data-seen-surface] .mms-stagger {
   text-transform: uppercase;
   letter-spacing: 0.07em;
   color: var(--ac);
+}
+/* P1 — the Burmese-first line. The catalog's name_my takes the primary slot (lang="my") and the
+   English snapshot echoes beneath (.kds-line-en); an English-only line is BYTE-IDENTICAL to pre-P1
+   because every rule here is gated on the lang attribute. The numbers, from the served Padauk Bold
+   (fonts.gstatic v17, upm 1024, ascender 1010 / descender −500, USE_TYPO_METRICS set): the content
+   area is 1.475em, so under .kds-line-name's --lh-snug (1.22) a 30px line box (36.6px) clips stacked
+   marks by ~7px — --lh-my (1.6 → 48px) is required, and it must be declared HERE: the global
+   [lang="my"] rule (0,1,0) sits EARLIER in the sheet than .kds-line-name (0,1,0), so the snug value
+   would win (the W16e /grocery override, again); the compound (0,2,0) settles it. 700 is the heaviest
+   cut Padauk ships (400/700, layout.tsx) — a declared 800 resolves to the same face through the CSS
+   matcher, so declare what exists. font-synthesis: none so a swap-window fallback face (a
+   Regular-only system Myanmar font) is never faux-bolded: smeared strokes close Burmese counters
+   (ဂ ဝ စ), which is worse than thin. Family is set here because the global [lang="my"] rule
+   deliberately sets none. */
+.kds-line-name[lang="my"] {
+  font-family: var(--font-my);
+  font-size: var(--kfs-item-my);
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+.kds-line-mods[lang="my"] {
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+/* The English twin sits snug under its Burmese line: two thoughts (name pair, modifier pair), not four
+   lines. */
+.kds-line-mods[lang="my"] + .kds-line-mods {
+  margin-top: 0;
+}
+/* Interleaved English inside a Burmese run (an option with no name_my yet) keeps the body face —
+   Padauk's Latin glyphs read as "Burmese-styled English". lang="en" is what QA §A asks for. (No
+   `.kds-line-name[lang="my"]` entry: that element carries lang="my" only when the name IS Burmese,
+   so it never holds an English child — a selector for it would be dead.) */
+.kds-line-mods[lang="my"] [lang="en"],
+.kds-rail-my [lang="en"],
+.expo-line-my [lang="en"] {
+  font-family: var(--font-body);
+}
+/* P1 — the expo bag row's Burmese line: its own block above the English row, at the body size
+   (Padauk's consonant body is ~8% shorter than Hanken's x-height and the 13px row is already at the
+   Burmese floor), 700 = the heaviest cut Padauk ships, the Burmese leading, never a synthesized bold. */
+.expo-line-my {
+  display: block;
+  font-family: var(--font-my);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+.expo-line-my-mods {
+  color: var(--t2);
+}
+/* The English echo under a Burmese name — Dad's line, and the K15 safety net. The modifier size (the
+   smallest thing a cook is asked to READ on this board), weight 800, FULL contrast: a held card
+   composites at 0.68 (card) × 0.7 (disabled line) over --cd over --pg, where --t2 lands near 2.7:1
+   and --tx near 4:1 — only the latter clears the 3:1 large-text floor (pinned by
+   packages/ui/src/__tests__/composite-contrast.test.ts). */
+.kds-line-en {
+  margin: 0;
+  font-size: var(--kfs-mod);
+  font-weight: 800; /* the dish name it still is — the 600-weight EN modifiers sit under it */
+  line-height: var(--lh-snug);
+  color: var(--tx);
+  overflow-wrap: anywhere;
+}
+/* The All-Day rail's Burmese row and its English echo (chrome size — a count list, not the ticket). */
+.kds-rail-my {
+  display: block;
+  font-family: var(--font-my);
+  font-weight: 700;
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+.kds-rail-en {
+  display: block;
+  font-size: var(--kfs-meta);
+  font-weight: 600;
 }
 /* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b). */
 /* W23a — the per-line 86 control. A quiet SECONDARY next to the full-width bump target: taking a
