@@ -86,9 +86,12 @@ begin
     format('M151.3 the `locked_at is null` arm cleared a pin under a live intent, got %s', pin);
 
   -- ══ 4. THE CRON CANCELS THE LINKED INTENT — pin and link go together ═════════════════════════
+  -- `nothing_left` is the reason the cron's plan carries when every line was 86'd; the column's
+  -- CHECK admits only ('nothing_left','over_authorized','cart_not_open','superseded','no_cart'),
+  -- and this file's first CI run failed on a reason outside that set.
   update public.qr_carts set locked = true, locked_at = era, locked_by = ana,
                              live_payment_intent_id = 'pi_hold_4' where id = cart;
-  n := public.mms_mark_settle_canceled('pi_hold_4', cart, 'sold_out', ana, era);
+  n := public.mms_mark_settle_canceled('pi_hold_4', cart, 'nothing_left', ana, era);
   assert n = 1, format('M151.4 fixture drift: first cancellation should insert 1 row, got %s', n);
   select promo_granted_cents, live_payment_intent_id into pin, link from public.qr_carts where id = cart;
   assert pin is null, format('M151.4 the cancelled hold''s pin must be released, got %s', pin);
@@ -107,7 +110,7 @@ begin
     format('M151.5 cancelling the predecessor dropped the successor''s link, got %s', link);
 
   -- ══ 6. REDELIVERY of 4 — a no-op that moves nothing ══════════════════════════════════════════
-  n := public.mms_mark_settle_canceled('pi_hold_4', cart, 'sold_out', ana, era);
+  n := public.mms_mark_settle_canceled('pi_hold_4', cart, 'nothing_left', ana, era);
   assert n = 0, format('M151.6 a redelivered cancellation must insert nothing, got %s', n);
   select promo_granted_cents, live_payment_intent_id into pin, link from public.qr_carts where id = cart;
   assert pin = 1000 and link = 'pi_successor_5',

@@ -2516,6 +2516,23 @@ const MUTANTS = [
     replace: "    .or(`live_payment_intent_id.is.null,live_payment_intent_id.eq.${intentId}`);",
   },
   {
+    id: "lock/link-write-overwrites-a-live-link",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M151 (blind pass on #257, guard integrity) — the link write must refuse when the row still names a DIFFERENT intent. That state is reachable (an unlink that errored; the `canceled` webhook racing the successor's unlink), and in it the stale-grant release was already refused, so the row carries the PREDECESSOR's grant and this mint's amount was derived from it. Overwrite the link and fulfilment reconciles that stale grant — M70's original charge; refuse and the caller cancels its own mint",
+    find: '    .eq("locked_at", era)\n    .or(`live_payment_intent_id.is.null,live_payment_intent_id.eq.${intentId}`);',
+    replace: '    .eq("locked_at", era);',
+  },
+  {
+    id: "lock/intent-release-frees-the-successor-lock",
+    file: "apps/qr/lib/lock.ts",
+    suite: "lib/lock.test.ts",
+    why: "M151 (blind pass on #257, CRITICAL 4) — the `canceled` webhook's release clears the pin and the link, NEVER the lock: it can land between a successor's Stripe cancel of the predecessor and its unlink, when the row still names the predecessor but the lock is the successor's. Null the lock there and the successor's era-scoped link write matches zero rows, it cancels the intent it just minted, and the only diner checking out is told someone else is",
+    find: '      {\n        promo_granted_cents: null,\n        live_payment_intent_id: null,\n      },\n      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("live_payment_intent_id", intentId);',
+    replace:
+      '      {\n        promo_granted_cents: null,\n        live_payment_intent_id: null,\n        locked: false,\n        locked_at: null,\n        locked_by: null,\n      },\n      { count: "exact" },\n    )\n    .eq("id", cartId)\n    .eq("live_payment_intent_id", intentId);',
+  },
+  {
     id: "lock/release-by-intent-not-intent-keyed",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
@@ -2539,6 +2556,15 @@ const MUTANTS = [
     why: "M152(b) — the link may be dropped ONLY after the intent it names is dead at Stripe. Drop it on `captured` too and the very next statement in create-intent releases the pin under a charge whose webhook is merely late: charged card, no order — the defect, restored by the step meant to close it",
     find: '  if (outcome !== "cleared") return outcome;',
     replace: "",
+  },
+  {
+    id: "supersede/superseded-hold-leaves-no-record",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/supersede.test.ts",
+    why: "M151 (blind pass on #257, CRITICAL 3) — a pickup hold cancelled EAGERLY by a successor owes the `superseded` ledger row the capture cron used to write lazily. Skip it and the cron meets a dead intent, answers `already`, writes nothing, and the diner's /track polls 'authorized' forever over a hold Stripe released minutes ago — W23d's strand, reopened by the fix that made supersession eager",
+    find: "  if (cancelledHold) await recordSupersededHold(live, cartId, cancelledHold);\n",
+    replace:
+      "  if (cancelledHold && Math.random() > 2) await recordSupersededHold(live, cartId, cancelledHold);\n",
   },
   {
     id: "supersede/client-exit-releases-a-captured-intent",

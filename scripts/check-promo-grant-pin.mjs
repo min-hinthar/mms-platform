@@ -94,8 +94,53 @@ const isNamedCall = (n, name) =>
   (ts.isIdentifier(n.expression) && n.expression.text === name) ||
   (ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === name);
 
-const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
-const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
+/**
+ * LIVE calls only, and exactly one of each (blind pass on #257, GUARD INTEGRITY 4 — the header of
+ * this file names "uniqueness ≠ liveness" and then picked every call by FIRST LEXICAL MATCH).
+ * `if (false) await supersedeCartIntent(cartId);` parked above the release satisfied all of rule
+ * 3's checks — awaited, its own statement, finishing first — while shipping no supersede at all.
+ *
+ * So: a call inside one of the enumerated literal-dead shapes (`if (false)`, `false && …`,
+ * `{false && …}`, `0 && …`) is not a candidate — that is liveness against PARKED copies, not a
+ * reachability proof (LEARNINGS #60) — and more than one live candidate is AMBIGUITY, refused
+ * rather than resolved by position. One call per fact is what the route actually has.
+ */
+const isLiterallyDead = (node) => {
+  for (let n = node; n && n.parent; n = n.parent) {
+    if (ts.isIfStatement(n.parent) && n.parent.thenStatement === n) {
+      const c = n.parent.expression;
+      if (c.kind === ts.SyntaxKind.FalseKeyword) return true;
+      if (ts.isNumericLiteral(c) && Number(c.text) === 0) return true;
+    }
+    if (
+      ts.isBinaryExpression(n.parent) &&
+      n.parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      n.parent.right === n
+    ) {
+      const l = n.parent.left;
+      if (l.kind === ts.SyntaxKind.FalseKeyword) return true;
+      if (ts.isNumericLiteral(l) && Number(l.text) === 0) return true;
+    }
+  }
+  return false;
+};
+const theOneLive = (label, pred) => {
+  const live = calls.filter((n) => pred(n) && !isLiterallyDead(n));
+  if (live.length > 1) {
+    const lines = live.map((n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1);
+    process.stdout.write(
+      `promo grant pin — taken, and taken before the amount … ${c.red("✗")}\n\n  ` +
+        `${FILE} calls \`${label}\` ${live.length} times (lines ${lines.join(", ")}).\n  ` +
+        "This guard asserts ONE sequence, and two live call sites is ambiguity it refuses to\n  " +
+        "resolve by position: which one runs, and in what order relative to the others, is not a\n  " +
+        "question a parser can answer. Collapse them to one, or teach the guard the new shape.\n\n",
+    );
+    process.exit(1);
+  }
+  return live[0];
+};
+const pinCall = theOneLive("mms_pin_promo_grant", (n) => isRpcCall(n, "mms_pin_promo_grant"));
+const totalsCall = theOneLive("getCartTotals", (n) => isNamedCall(n, "getCartTotals"));
 /**
  * M151 — rule 3: the predecessor is made UNUSABLE before the stale-grant release runs.
  *
@@ -111,8 +156,12 @@ const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
  * releases begins. `Promise.all([supersedeCartIntent(…), releasePromoGrantFor(…)])` is first in the
  * AST and concurrent, so position alone would pass it.
  */
-const supersedeCall = calls.find((n) => isNamedCall(n, "supersedeCartIntent"));
-const releaseCall = calls.find((n) => isNamedCall(n, "releasePromoGrantFor"));
+const supersedeCall = theOneLive("supersedeCartIntent", (n) =>
+  isNamedCall(n, "supersedeCartIntent"),
+);
+const releaseCall = theOneLive("releasePromoGrantFor", (n) =>
+  isNamedCall(n, "releasePromoGrantFor"),
+);
 /**
  * The rule is SEQUENCING, not lexical order — Codex P1 on #241 round 3.
  *

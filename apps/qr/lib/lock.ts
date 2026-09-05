@@ -419,10 +419,13 @@ export async function releaseCartLockFor(
 }
 
 /**
- * Release the lock. `uid` scopes it to the locker (the "Edit order" path — a member can only release
- * THEIR OWN lock, never unlock another payer mid-checkout). Pass `null` for an unconditional release
- * (the webhook on a declined payment — the charge failed, so free the cart for everyone). Idempotent.
- * Returns the write error, or null on success (see the `ReleaseError` note above).
+ * Release the lock. `uid` scopes it to the locker (the capture cron's `releaseOurLock` — a caller can
+ * only release the lock it owns, never unlock another payer mid-checkout). `null` is the
+ * unconditional, cart-wide form. ⚠️ NO PRODUCT PATH PASSES `null` ANY MORE: the decline webhook did,
+ * and stopped (M152 c′, #257) — a declined PaymentIntent is still confirmable from the mounted
+ * Element, so the cart it prices must stay frozen until the diner ends the attempt or the TTL does.
+ * The arm is kept as the primitive (an ops release, a future staff control), not as a live rule.
+ * Idempotent. Returns the write error, or null on success (see the `ReleaseError` note above).
  */
 export async function releaseCartLock(cartId: string, uid: string | null): Promise<ReleaseError> {
   const db = serviceClient();
@@ -521,11 +524,23 @@ export async function unlinkPaymentIntent(cartId: string, intentId: string): Pro
 }
 
 /**
- * The intent is TERMINAL (Stripe said `payment_intent.canceled`): release lock, pin and link in
- * ONE statement, keyed on the intent. Unlike the decline webhook's cart-wide lock release, this
- * cannot touch a successor — a successor has its own intent id on the row, and this predicate
- * matches none of it. Best-effort at the call site (a late delivery matching zero rows is the
- * normal case, not an error).
+ * The intent is TERMINAL (Stripe said `payment_intent.canceled`): clear the pin AND the link in ONE
+ * statement, keyed on the intent — and NOTHING ELSE.
+ *
+ * ⚠️ THE LOCK IS DELIBERATELY NOT IN THIS PAYLOAD (blind adversarial pass on #257, CRITICAL 4). A
+ * successor cancels its predecessor at Stripe and only THEN drops the link (`supersedeCartIntent`,
+ * in that order, because the cancel can refuse). Stripe dispatches `payment_intent.canceled` the
+ * moment the cancel lands, so this handler can run in the window before the successor's unlink —
+ * the row still names the predecessor, this predicate matches, and a payload that also nulled the
+ * lock would null the SUCCESSOR's lock: its `linkPaymentIntent` (scoped to its era) then matches
+ * zero rows, it cancels the intent it just minted, and the only diner checking out is told
+ * "Someone at your table is checking out". The first draft's docblock claimed the intent key made
+ * a successor unreachable; the key protects the successor's LINK, not its lock, which the row
+ * carries under a different column. So the lock is left to whoever holds it — the era-scoped
+ * client exits and the 5-minute TTL — and only the two intent-bound facts are cleared here.
+ *
+ * Best-effort at the call site (a late delivery matching zero rows is the normal case, not an
+ * error).
  */
 export async function releaseByIntent(
   cartId: string,
@@ -538,9 +553,6 @@ export async function releaseByIntent(
       {
         promo_granted_cents: null,
         live_payment_intent_id: null,
-        locked: false,
-        locked_at: null,
-        locked_by: null,
       },
       { count: "exact" },
     )

@@ -52,11 +52,16 @@ export type LiveIntentVerdict =
 /**
  * Classify a Stripe PaymentIntent status for supersession.
  *
- * `requires_capture` is CANCELABLE on purpose: it is an authorized pickup hold the SAME diner is
- * re-checking-out past (the lock re-acquire is same-uid only), and the capture cron already refuses
- * to capture a hold whose era was superseded (`mms_settle_precheck_and_void` → -2). Cancelling it
- * here turns "two holds on the guest's card until fire time" into one, and loses nothing the era
- * gate had not already lost.
+ * `requires_capture` is CANCELABLE on purpose: it is an authorized pickup hold a LATER attempt is
+ * checking out past, and the capture cron already refuses to capture a hold whose era was
+ * superseded (`mms_settle_precheck_and_void` → -2). Cancelling it here turns "two holds on the
+ * guest's card until fire time" into one, and loses nothing the era gate had not already lost —
+ * PROVIDED the cancellation is recorded, which `supersedeCartIntent` does for exactly this kind.
+ *
+ * ⚠️ "A later attempt" is NOT "the same diner" (blind pass on #257, SECURITY 1 — an earlier draft
+ * of this sentence said same-uid, and `acquireCartLock`'s `locked_at.lte.<cutoff>` disjunct says
+ * otherwise: any member may take the lock once the holder's era is older than the TTL). The
+ * verdict does not depend on who: one live intent per cart, and the lock decides whose.
  */
 export function classifyLiveIntent(status: string): LiveIntentVerdict {
   switch (status) {

@@ -100,8 +100,8 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 >    near-duplicate pairs) is T32's rule applied to the rest of the vocabulary.
 > 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
 >
-> Still owner-gated and untouched: the cart→intent link (**M123 · M124 · M151 · M152**), **C16** (make
-> `codex-review` a REQUIRED check — this PR is the second time in a week that gate has been the only
+> Still owner-gated and untouched (the cart→intent link is no longer on this list — #257 builds it;
+> see that PR's own top block once it merges): **C16** (make `codex-review` a REQUIRED check — this PR is the second time in a week that gate has been the only
 > thing between an unreviewed head and `main`, and the first time it was overruled deliberately), the
 > Codex review quota, and the prod-migration items on the divergent history. Sweep
 > [`docs/OPEN-ITEMS.md`](OPEN-ITEMS.md) — it is the single registry — rather than trusting any count
@@ -874,7 +874,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 331 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1367 qr tests + 138 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 334 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1372 qr tests + 138 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1596,7 +1596,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (331 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (334 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

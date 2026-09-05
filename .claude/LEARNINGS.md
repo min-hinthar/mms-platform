@@ -1509,3 +1509,53 @@ was authored by the same hand that knew the rule, while EXPLAINING the rule. Two
 - **The coverage guard should parse, not scan**: an exemption is a line-leading comment whose
   first token is the marker, and a mention inside a `/** … */` block is not one. Filed as a
   follow-up rather than widened into P0 — but the next time this guard is touched, that is the fix.
+
+## #84 — a LINK without its LOCK is a freeze the client cannot see (pilot P0 blind pass, 2026-09-05)
+
+`qr_carts.live_payment_intent_id` made "a live intent still prices this cart" a fact the pin-clearers
+could test. The decline webhook had been releasing the pay-window lock cart-wide since P3.2, on the
+grounds that "the charge failed, so free the cart for everyone" — while the M70 paragraph two lines
+below it explained that the same PaymentIntent stays confirmable from the mounted Element. Both
+sentences were true; together they meant a cart the intent priced was editable. Before the link,
+that was the M151 overlap through the decline door (edit, re-confirm, fulfilment's sum re-check
+refuses a charged card). After the link, it was a NEW and visible shape: the link survived the
+release, `applyPromo`'s `is null` gate refused every promo at the table as "locked", and
+`cartFreeze` — which reads `locked` — showed an editable cart. The refusal word was false and
+nothing but the next create-intent could clear it.
+
+The fix was to stop releasing the lock on a decline, not to loosen the promo gate: the gate was
+right, the lock was wrong. **When a new fact (the link) starts refusing on a surface the old fact
+(the lock) still admits, the old fact is what needs to move.** Loosening the new predicate to match
+the old surface would have reopened M151 exactly where the link was built to close it.
+
+Two related findings from the same pass, same shape: `create-intent`'s `captured` refusal called
+the shared `freeLock()` like every other refusal exit — and unlocked the cart under a charge whose
+webhook was late; and `releaseByIntent`'s "release lock, pin and link in ONE statement" was a
+statement about the LINK column's key that the LOCK column never shared, so the `canceled` webhook
+could null a successor's lock in the window before its unlink. Every one of the three is "a release
+written by analogy to the releases beside it". A lock release is not a default; each one needs to
+name the fact that makes the cart safe to edit.
+
+## #85 — a guard's REACH is a number, and a wrapper hop changes it silently (pilot P0, 2026-09-05)
+
+`check-freeze-parity` derives its write helpers as "every function whose OWN body performs a
+direct write" — one hop. `releasePayLock` called `releasePayAttempt` (a direct `.update`) and was a
+subject through the authorizes-and-writes arm. M151 put `releasePayAttemptSafely` in between (cancel
+the intent at Stripe, THEN release), and `releasePayLock` left the subject set with no symptom
+except its exemption going dead — the dead-exemption rule is the ONLY reason CI went red. A
+lock-bearing mutation that was not exempt would have stopped being checked with everything green.
+
+The obvious fix, closing `WRITERS` under routing to a fixpoint, was applied and measured before it
+was trusted — and it was wrong in two ways nobody would have predicted from the code: the authz
+helper itself became a "writer" (`assertCartMember` → `maybeRenewSession` → an UPDATE), so
+"authorizes and writes" collapsed into "authorizes" and four reads owed refusals; and the rate
+limiter became one (`assertMutationRate` → `withinRate` → rpc), so the ordering rule placed the
+"first write" on the rate-limit call every mutation makes BEFORE its lock refusal — all twelve
+subjects red on a change with no behavioural content. The guard's notion of "write" (any
+`.update/.insert/.upsert/.delete/.rpc`) is too coarse to close transitively; it needs to know WHICH
+table. That is T44. The entry was deleted, with the arc written beside the exemption map.
+
+Two rules from this. **Measure a guard change against the subject set before trusting it** — print
+the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
+load-bearing, not tidy**: it is the only mechanism here that turns "the selector stopped reaching a
+function" into a failure instead of a silence.

@@ -3,12 +3,7 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import {
-  releaseByIntent,
-  releaseCartLock,
-  releaseSettlement,
-  releaseSettlementFor,
-} from "@/lib/lock";
+import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
@@ -669,19 +664,35 @@ export async function POST(req: NextRequest) {
         });
       }
     } else if (cartId) {
-      // Single-pay: free the pay-window lock (P3.2-lock) so the cart returns to editable for the table.
-      // Unconditional release by cart; idempotent + best-effort; the TTL is the backstop. ALSO release the
-      // settle freeze: a secure-tab off-session close (S3.2) holds settle_at (not the single-pay lock), so
-      // an async processing→failed decline would otherwise strand the table frozen for the full SETTLE_TTL.
+      // Single-pay. ⚠️ THE PAY-WINDOW LOCK IS DELIBERATELY NOT RELEASED HERE ANY MORE (M152 c′ —
+      // blind adversarial pass on #257, CRITICAL 2). This arm used to call
+      // `releaseCartLock(cartId, null)` — cart-wide — so a decline handed the table its cart back.
+      // But a decline is not the end of the attempt (the M70 paragraph below): the SAME
+      // PaymentIntent stays confirmable from the still-mounted Element at its original amount, and
+      // now `live_payment_intent_id` says so. Unlocking the cart under that intent was the M151
+      // overlap through the decline door — lines edited, the same intent re-confirmed, fulfilment's
+      // sum re-check failing on a charged card — and, once the link existed, it also left a link
+      // with no lock: every promo at the table refused as "locked" on a cart everyone could edit,
+      // with nothing but the next create-intent able to clear it. The cart a live intent prices
+      // stays frozen until the diner ENDS the attempt ("Edit order" cancels it at Stripe and
+      // releases lock, pin and link together — `releasePayAttemptSafely`) or the 5-minute TTL
+      // lets a successor supersede it. The one cost is a diner who lost the attempt token (a 3DS
+      // decline returns through a full redirect) waiting for the TTL before editing; Pay stays
+      // live for them throughout, because `acquireCartLock` re-admits the same seat.
       //
-      // W10c (M31 sweep) — these two stay BEST-EFFORT, and that is now a decision rather than an
-      // oversight. Unlike the split marks above, BOTH releases are UNCONDITIONAL by cart (no status
-      // predicate scopes them to the era this event belongs to), so opting into redelivery would let a
-      // late retry clear a live `settle_at` and unfreeze a settlement the table has since opened —
-      // the same hazard the `onShareFailed` guard exists to prevent, but with no equivalent predicate
-      // available here (a release is not a state transition). The 5-minute lock TTL and 10-minute
-      // settle TTL are the designed backstop and heal the rows on their own. So: surface the failure
-      // to the logs (an outage here must not be invisible) and let the TTLs do their job.
+      // What IS released is the SETTLE freeze: a secure-tab off-session close (S3.2) holds
+      // `settle_at` (not the single-pay lock), nobody has an Element mounted for that intent, and
+      // an async processing→failed decline would otherwise strand the table frozen for the full
+      // SETTLE_TTL.
+      //
+      // W10c (M31 sweep) — best-effort, and that is a decision rather than an oversight. The
+      // release is UNCONDITIONAL by cart (no status predicate scopes it to the era this event
+      // belongs to), so opting into redelivery would let a late retry clear a live `settle_at`
+      // and unfreeze a settlement the table has since opened — the same hazard the `onShareFailed`
+      // guard exists to prevent, but with no equivalent predicate available here (a release is not
+      // a state transition). The 10-minute settle TTL is the designed backstop and heals the row on
+      // its own. So: surface the failure to the logs (an outage here must not be invisible) and let
+      // the TTL do its job.
       //
       // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
       // Dropping the old `.catch(() => {})` when these started returning their error left a throw
@@ -703,14 +714,12 @@ export async function POST(req: NextRequest) {
         // from the basket as it now stands. That is the only point where "this discount is stale"
         // is knowable: here we would be guessing from `intent.metadata.attempt`, which a reused
         // automatic-capture idempotency key can leave naming an era the cart no longer has.
-        const lockErr = await releaseCartLock(cartId, null);
         const settleErr = await releaseSettlement(cartId);
-        if (lockErr || settleErr)
-          console.error("[stripe webhook] payment_failed release(s) failed", {
+        if (settleErr)
+          console.error("[stripe webhook] payment_failed settle release failed", {
             cartId,
             paymentIntent: intent.id,
-            lockError: lockErr?.message,
-            settleError: settleErr?.message,
+            settleError: settleErr.message,
           });
       } catch (e) {
         console.error("[stripe webhook] payment_failed release threw", {
@@ -780,11 +789,13 @@ export async function POST(req: NextRequest) {
         });
       }
     } else if (intent.metadata?.cartId) {
-      // M151 — a SINGLE-PAY intent (auto-capture, or a `pickup_manual` hold) is terminal. Release
-      // lock, pin and link in ONE statement keyed on the intent id, so a late delivery can never
-      // reach a successor: a successor has its own id on the row and this matches none of it.
-      // Zero rows is the ordinary case (the successor or the capture cron already cleared it) —
-      // best-effort, 200-ack, the TTL stays the backstop for the lock alone.
+      // M151 — a SINGLE-PAY intent (auto-capture, or a `pickup_manual` hold) is terminal. Clear the
+      // pin and the link in ONE statement keyed on the intent id, so a late delivery can never reach
+      // a successor's link. ⚠️ NOT the lock: this event can land between a successor's Stripe
+      // cancel and its unlink, while the row still names the predecessor but the LOCK is already
+      // the successor's — see `releaseByIntent`'s docblock. The lock is left to its holder and the
+      // TTL. Zero rows is the ordinary case (the successor or the capture cron already cleared it)
+      // — best-effort, 200-ack.
       try {
         const { error: relErr } = await releaseByIntent(intent.metadata.cartId, intent.id);
         if (relErr)

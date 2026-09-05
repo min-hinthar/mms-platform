@@ -297,8 +297,8 @@ async function cancelHold(intentId: string, reason: string): Promise<boolean> {
  * `releaseCartLock` is uid-scoped precisely so one settlement cannot clear another's.
  *
  * Without this the cart stays frozen for the rest of the five-minute TTL after a settlement that has
- * definitively ended — and `payment_intent.canceled` only handles split and Terminal intents, so no
- * later event would have released it.
+ * definitively ended — and `payment_intent.canceled`'s single-pay arm (M151) clears only the pin and
+ * the link, never the lock, so no later event would release it.
  */
 async function releaseOurLock(cartId: string, payerUid: string): Promise<void> {
   const err = await releaseCartLock(cartId, payerUid);

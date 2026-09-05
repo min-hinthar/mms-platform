@@ -176,11 +176,11 @@ export function visibleFreeze({
  * The sentence for a freeze — and the vocabulary it may NOT borrow.
  *
  * ⚠️ `self` MUST NOT SAY "another tab took over". That is `superseded`, a DIFFERENT fact, and
- * `classifyZeroRow` exists precisely to keep the two apart: a zero-row release is reachable from an
- * ordinary declined card (the webhook calls `releaseCartLock(cartId, null)` cart-wide while the
- * Element stays mounted), so claiming supersession there tells the diner something false AND blocks
- * them from editing a cart that is genuinely editable. That is the fabricated-diagnosis class M116
- * and M119 spent four PRs removing.
+ * `classifyZeroRow` exists precisely to keep the two apart: a zero-row release is reachable from a
+ * release this tab did not make (the capture cron's uid-scoped one; until M152 c′ the decline
+ * webhook's cart-wide one, while the Element stayed mounted), so claiming supersession there tells
+ * the diner something false AND blocks them from editing a cart that is genuinely editable. That
+ * is the fabricated-diagnosis class M116 and M119 spent four PRs removing.
  *
  * These three fields prove exactly one thing about a self lock: this order is held, and the holder
  * is this seat. They cannot prove which tab, whether a payment is in flight, or that anything was

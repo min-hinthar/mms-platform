@@ -107,16 +107,27 @@ export async function POST(req: NextRequest) {
     //
     // Sequencing is guarded by `scripts/check-promo-grant-pin.mjs` rule 3: awaited, in a statement
     // that finishes before the release statement begins — never lexical order.
+    //
+    // ⚠️ NEITHER REFUSAL BELOW RELEASES THE LOCK (blind adversarial pass on #257, CRITICAL 1). The
+    // first draft called `freeLock()` on both, mirroring every other refusal exit — and that
+    // unlocked the cart UNDER a captured charge: `acquireCartLock` re-admits the same diner on a
+    // fresh lock, so a double-tap or reload inside the window before the webhook lands stamped a
+    // new era, read the predecessor as `captured`, and then freed the lock the charge still
+    // depends on. A tablemate's edit in that window makes `mms_fulfill_order`'s sum re-check fail:
+    // charged card, no order — on the interleaving the pre-fix code kept locked. So the lock
+    // STAYS, under this request's era: the pin and link are the predecessor's and untouched (the
+    // supersede returned before the stale-grant release), fulfilment flips the cart on its own,
+    // and the TTL is the backstop if the webhook never comes. The same holds for `unknown` — a
+    // transport failure is not a verdict, and a cart that MAY be charged stays frozen (M119's
+    // rule, applied to the lock this time). The diner's own retry re-acquires under their uid.
     const superseded = await supersedeCartIntent(cartId);
     if (superseded === "captured") {
-      await freeLock();
       return NextResponse.json(
         { error: "That payment is already going through — give it a moment." },
         { status: 409 },
       );
     }
     if (superseded === "unknown") {
-      await freeLock();
       return NextResponse.json(
         { error: "We’re having trouble on our end — try again in a moment." },
         { status: 503 },
@@ -399,11 +410,12 @@ export async function POST(req: NextRequest) {
       // PR collapsing the pair into `releasePayAttempt` and calling the narrowing "safer". It is not.
       // `mms_release_promo_grant` matches `locked_at is null OR locked_at is not distinct from
       // p_attempt`, and that FIRST disjunct is load-bearing HERE in a way it is not for a client
-      // exit: this pin is OURS, installed a few statements up by `mms_pin_promo_grant`. A
-      // predecessor's DELAYED `payment_failed` webhook calls `releaseCartLock(cartId, null)` —
-      // cart-wide, nulling `locked_at` (webhook/route.ts §payment_failed) — and if that lands
-      // between our pin and this abandon, an era-only predicate matches ZERO rows and leaves OUR pin
-      // on an unlocked cart with no hold behind it. `acquireSettlement` gates on the raw `locked`
+      // exit: this pin is OURS, installed a few statements up by `mms_pin_promo_grant`. A release
+      // from OUTSIDE this request can null `locked_at` between our pin and this abandon — the
+      // reachable one since M152 c′ retired the decline webhook's cart-wide release is the capture
+      // cron's uid-scoped `releaseOurLock` after a `nothing_left`/`cart_not_open` verdict on this
+      // same diner's earlier hold — and then an era-only predicate matches ZERO rows and leaves OUR
+      // pin on an unlocked cart with no hold behind it. `acquireSettlement` gates on the raw `locked`
       // column, so cash / Terminal / split then read that pin through `getCartTotals`' authorized
       // default and charge a discount this basket never earned: OPEN-ITEMS M123 (a′), manufactured
       // by the very change that was meant to be more conservative.

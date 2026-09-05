@@ -154,10 +154,12 @@ describe("classifyZeroRow — supersession must be READ, never inferred", () => 
   const NOW = Date.parse("2026-09-01T10:00:00.000Z");
   const ours = "2026-09-01T09:59:00.000Z";
 
-  it("THE DECLINED-CARD CASE: the webhook nulled the lock, so nothing of ours is held", () => {
-    // `payment_intent.payment_failed` calls `releaseCartLock(cartId, null)` cart-wide while the
-    // Element stays mounted. Calling this "superseded" tells the diner something false AND blocks
-    // them from editing an order that is genuinely editable.
+  it("THE RELEASED-ELSEWHERE CASE: something nulled the lock, so nothing of ours is held", () => {
+    // Shipped as the declined-card case: until M152 c′ `payment_intent.payment_failed` called
+    // `releaseCartLock(cartId, null)` cart-wide while the Element stayed mounted. The arm no longer
+    // touches the lock, but the row shape is still reachable (the capture cron's uid-scoped
+    // release). Calling this "superseded" tells the diner something false AND blocks them from
+    // editing an order that is genuinely editable.
     expect(classifyZeroRow(ours, { locked: false, locked_at: null }, NOW, TTL)).toBe("not_held");
   });
 

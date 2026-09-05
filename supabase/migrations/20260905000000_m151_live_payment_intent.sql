@@ -35,9 +35,11 @@
 --   NOT changed: `mms_pin_promo_grant` (it pins only when null, unchanged), `mms_promo_discount`
 --   (reads the pin), `mms_release_promo_grant_for_holder` (unreachable from code since #244 —
 --   `check:pay-attempt` asserts the absence; left as-is rather than widening this file).
---   `applyPromo`'s freeze predicate and `releasePayAttempt` are PostgREST statements in TypeScript
---   and gain the same gate there (`lib/cart.ts`, `lib/lock.ts`), pinned by their own suites and
---   `verify:slice` mutants.
+--   `applyPromo`'s freeze predicate is a PostgREST statement in TypeScript and gains the same gate
+--   there (`lib/cart.ts`). `releasePayAttempt` (the client exits, `lib/lock.ts`) does NOT: it
+--   clears the link in the same payload as the lock and pin, and is made safe by ORDER —
+--   `releasePayAttemptSafely` cancels the attempt's own intent at Stripe first and refuses if it
+--   captured. Both pinned by their own suites and `verify:slice` mutants.
 --
 -- ── Deploy order ──────────────────────────────────────────────────────────────────────────────
 -- Migration first, app second. Until the app writes the link the column is null everywhere, so the

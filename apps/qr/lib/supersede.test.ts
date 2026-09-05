@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 let status = "requires_payment_method";
+let metadata: Record<string, string> = {};
 let retrieveThrows: { code?: string } | null = null;
 let cancelThrows: { code?: string } | null = null;
 let statusAfterCancel: string | null = null;
@@ -20,7 +21,10 @@ vi.mock("./stripe", () => ({
         if (retrieveThrows) throw retrieveThrows;
         // A second retrieve (after a refused cancel) reads the moved status.
         const seen = calls.filter((c) => c.startsWith("retrieve:")).length;
-        return { status: seen > 1 && statusAfterCancel !== null ? statusAfterCancel : status };
+        return {
+          status: seen > 1 && statusAfterCancel !== null ? statusAfterCancel : status,
+          metadata,
+        };
       },
       cancel: async (id: string) => {
         calls.push(`cancel:${id}`);
@@ -58,11 +62,27 @@ vi.mock("./lock", () => ({
   },
 }));
 
+// M151 — the ledger write a superseded PICKUP HOLD owes (`mms_mark_settle_canceled`), recorded as
+// the RPC name + args so the reason and the payer are asserted, not just "an rpc ran".
+let rpcError: { message: string } | null = null;
+const rpcCalls: [string, Record<string, unknown>][] = [];
+vi.mock("@mms/db/server", () => ({
+  serviceClient: () => ({
+    rpc: async (name: string, args: Record<string, unknown>) => {
+      rpcCalls.push([name, args]);
+      return { data: null, error: rpcError };
+    },
+  }),
+}));
+
 const { supersedeLiveIntent, supersedeCartIntent, releasePayAttemptSafely } =
   await import("./supersede");
 
 beforeEach(() => {
   status = "requires_payment_method";
+  metadata = {};
+  rpcError = null;
+  rpcCalls.length = 0;
   retrieveThrows = null;
   cancelThrows = null;
   statusAfterCancel = null;
@@ -131,6 +151,93 @@ describe("supersedeCartIntent — create-intent's step", () => {
     expect(await supersedeCartIntent("cart-1")).toBe("cleared");
     expect(calls).toEqual(["retrieve:pi_old", "cancel:pi_old"]);
     expect(lockCalls).toEqual(["readLiveIntent:cart-1", "unlink:cart-1:pi_old"]);
+  });
+
+  it("still reports cleared when the unlink itself fails — the intent is dead, the row heals next time", async () => {
+    // The bookkeeping write is best-effort by design (a refusal here would strand a diner over a
+    // row the next attempt heals anyway) — but it must be LOUD, never a silent swallow (W10c).
+    live = "pi_old";
+    unlinkError = { message: "boom" };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await supersedeCartIntent("cart-1")).toBe("cleared");
+      expect(calls).toEqual(["retrieve:pi_old", "cancel:pi_old"]);
+      expect(lockCalls).toEqual(["readLiveIntent:cart-1", "unlink:cart-1:pi_old"]);
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy.mock.calls[0]![0]).toBe("[supersede] link not dropped after cancel");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("RECORDS a superseded pickup hold before dropping the link, with the hold's own payer and era", async () => {
+    // THE /track CASE (blind pass on #257, CRITICAL 3). Before the link the cron superseded a hold
+    // LAZILY at fire time and wrote this exact row; cancelling it eagerly here meant the cron met a
+    // dead intent, answered `already`, and `/track` polled "authorized" over a hold Stripe had
+    // released. The row is what the dropped view renders as "This payment was replaced".
+    live = "pi_hold";
+    status = "requires_capture";
+    metadata = { kind: "pickup_manual", cartId: "cart-1", earnerUid: "u-hold", attempt: "era-h" };
+    expect(await supersedeCartIntent("cart-1")).toBe("cleared");
+    expect(calls).toEqual(["retrieve:pi_hold", "cancel:pi_hold"]);
+    expect(rpcCalls).toEqual([
+      [
+        "mms_mark_settle_canceled",
+        {
+          p_intent: "pi_hold",
+          p_cart: "cart-1",
+          p_reason: "superseded",
+          p_payer: "u-hold",
+          p_attempt: "era-h",
+        },
+      ],
+    ]);
+    // The row lands BEFORE the unlink: a successor's link write after this must never find the
+    // hold un-recorded.
+    expect(lockCalls).toEqual(["readLiveIntent:cart-1", "unlink:cart-1:pi_hold"]);
+  });
+
+  it("a hold with empty attempt metadata records a NULL era, never an empty string", async () => {
+    live = "pi_hold";
+    status = "requires_capture";
+    metadata = { kind: "pickup_manual", cartId: "cart-1", earnerUid: "u-hold", attempt: "" };
+    await supersedeCartIntent("cart-1");
+    expect(rpcCalls[0]![1]).toMatchObject({ p_attempt: null });
+  });
+
+  it("writes NO ledger row for an auto-capture intent, an already-dead hold, or a refused cancel", async () => {
+    // Only a cancel WE issued and Stripe accepted is a cancellation we may record as ours.
+    live = "pi_auto";
+    metadata = { cartId: "cart-1", earnerUid: "u1" };
+    await supersedeCartIntent("cart-1");
+    expect(rpcCalls).toEqual([]);
+    // Dead hold: the cron (or a dashboard cancel) already ended it; its own row stands or does not.
+    calls.length = 0;
+    live = "pi_hold";
+    status = "canceled";
+    metadata = { kind: "pickup_manual", cartId: "cart-1", earnerUid: "u1", attempt: "e" };
+    await supersedeCartIntent("cart-1");
+    expect(rpcCalls).toEqual([]);
+    // Refused cancel: nothing was cancelled by this call.
+    status = "requires_capture";
+    cancelThrows = { code: "rate_limit" };
+    await supersedeCartIntent("cart-1");
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("a failed ledger write is logged and does NOT refuse the successor — the hold is already gone", async () => {
+    live = "pi_hold";
+    status = "requires_capture";
+    metadata = { kind: "pickup_manual", cartId: "cart-1", earnerUid: "u1", attempt: "e" };
+    rpcError = { message: "boom" };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await supersedeCartIntent("cart-1")).toBe("cleared");
+      expect(lockCalls).toEqual(["readLiveIntent:cart-1", "unlink:cart-1:pi_hold"]);
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("touches NOTHING on the row when the predecessor captured or Stripe could not say", async () => {

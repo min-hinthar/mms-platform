@@ -638,9 +638,24 @@ process.stdout.write("freeze parity — the client mirrors the server's lock gua
 // The cost of this definition is that deleting the `locked` binding drops a function OUT of the set
 // rather than failing it — so EXPECTED_SUBJECTS below names the set and fails on any disappearance,
 // which a count could not do.
-// (`releasePayLock` needs no entry: it destructures only `uid`, never `locked`, so it is not a
-// subject in the first place. An exemption for it was written, never fired, and the dead-exemption
-// rule below caught it on the first run — which is the rule earning its keep immediately.)
+// (`releasePayLock` has no entry, for the SECOND time, and the arc is worth keeping. It destructures
+// only `uid`, never `locked`, so it is not a subject through the first arm; it entered through the
+// second — authorizes-and-writes — only as far as the writer derivation reaches, which is ONE hop:
+// a function whose own body writes. It called `releasePayAttempt` (a direct `.update`) and was a
+// subject; M151 (#257) put `releasePayAttemptSafely` in between — a wrapper that cancels the live
+// intent at Stripe and THEN calls `releasePayAttempt` — and it silently left the set. The
+// dead-exemption rule below is the only reason anyone noticed, on the first CI run.
+//
+// The obvious fix — close `WRITERS` under routing to a fixpoint — was tried and MEASURED wrong:
+// `assertCartMember` became a writer through `maybeRenewSession`'s session-renew UPDATE and
+// `assertMutationRate` through `withinRate`'s rpc, so "authorizes and writes" collapsed into
+// "authorizes", four READS entered the subject set owing refusals, and the ordering rule then
+// placed `writeAt` on the rate-limit call every mutation makes before its `if (locked)` — all
+// twelve subjects red on a change with no behavioural content. A closure needs a write predicate
+// that knows WHICH table is written (`qr_carts`/`qr_cart_items`, not a session or a counter),
+// which this file does not have: OPEN-ITEMS T44. Until then the reach is one hop, `releasePayLock`
+// is outside it, and an exemption for a function the selector cannot see is exactly the dead entry
+// the rule below forbids.)
 const EXEMPT = new Map([
   [
     "getCartView",
@@ -650,13 +665,6 @@ const EXEMPT = new Map([
   // ── The four below joined when discovery widened to authorize-and-write modules (Codex on #247).
   // Each was READ before it was excused; none is a missing refusal, and each refuses in a shape this
   // guard's three rules cannot express. The dead-exemption rule keeps every one of them honest.
-  [
-    "releasePayLock",
-    "it RELEASES the lock. Demanding `if (locked) throw` here would refuse the one operation whose " +
-      "job is to clear the freeze, and would strand every diner whose attempt was superseded. This " +
-      "exemption was written once before, never fired because the function was outside the file " +
-      "set, and was deleted by the dead-exemption rule — it is back now that discovery reaches it.",
-  ],
   [
     "openSettlement",
     "refuses on the lock through `acquireSettlement`, which answers a discriminated string: " +

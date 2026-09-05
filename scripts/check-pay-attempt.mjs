@@ -253,8 +253,11 @@ if (offenders.length) {
 // written for: a `pagehide` beacon cannot show the pin is its own, and M70's invariant says the pin
 // must outlive the lock so a delayed capture can still reconcile. `create-intent` is the opposite
 // case — it HOLDS the lock it pinned under, so `mms_release_promo_grant`'s `locked_at is null`
-// disjunct is what lets it clean up its own pin after a predecessor's delayed `payment_failed`
-// webhook has nulled the era cart-wide (`releaseCartLock(cartId, null)`).
+// disjunct is what lets it clean up its own pin after a release from OUTSIDE the request has
+// nulled the era. (Until M152 c′ that was a predecessor's delayed `payment_failed` webhook calling
+// `releaseCartLock(cartId, null)` cart-wide; that arm no longer touches the lock, and the reachable
+// case is now the capture cron's uid-scoped `releaseOurLock` after a verdict on this same diner's
+// earlier hold. The disjunct's job is unchanged.)
 //
 // Swap one for the other and the abandon matches zero rows: OUR pin survives on an unlocked cart
 // with no hold behind it, and `acquireSettlement` gates on the raw `locked` column — so cash,
@@ -274,8 +277,8 @@ if (attemptReleaseCalls.length) {
       `${attemptReleaseCalls.join(", ")}).\n  ` +
       "It is the CLIENT-exit primitive and fails closed on a nulled era, by design. This route holds\n  " +
       "the lock it pinned under, so it must release its own pin through `mms_release_promo_grant`,\n  " +
-      "whose `locked_at is null` disjunct survives a predecessor's delayed payment_failed webhook\n  " +
-      "nulling the era cart-wide. With the era-only predicate the abandon matches zero rows and\n  " +
+      "whose `locked_at is null` disjunct survives an outside release nulling the era (the capture\n  " +
+      "cron's uid-scoped one). With the era-only predicate the abandon matches zero rows and\n  " +
       "leaves THIS attempt's pin on an unlocked cart — the M123 (a′) state cash/Terminal/split\n  " +
       "charge. Use `releaseCartLockFor` for the lock and `mms_release_promo_grant` for the pin.",
   );

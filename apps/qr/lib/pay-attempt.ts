@@ -121,13 +121,16 @@ export type LockRow = { locked: boolean; locked_at: string | null } | null;
  * ⚠️ A ZERO-ROW MATCH IS NOT PROOF OF SUPERSESSION (Codex P2 on #244 round 2 — a defect this
  * module's previous version introduced, so it is worth spelling out). The predicate is
  * `locked_by = uid AND locked_at = era`; it fails whenever ANY of its terms stopped holding, and
- * supersession is only one of the ways that happens. The reachable counter-example is an ordinary
- * declined card: the webhook's `payment_intent.payment_failed` arm calls `releaseCartLock(cartId,
- * null)` — cart-wide, nulling `locked_at` — while `PaymentSection.confirm()` deliberately keeps the
- * same Element and client secret mounted. The diner then taps "Edit order", this matches nothing,
- * and inferring "another tab took over" tells them something false AND blocks them from editing a
- * cart that is now genuinely editable. That is the fabricated-diagnosis class (M116 · M119), and a
- * refusal on a money surface has to name a reason it actually established.
+ * supersession is only one of the ways that happens. The counter-example that shipped was an
+ * ordinary declined card: until M152 c′ (#257) the webhook's `payment_intent.payment_failed` arm
+ * called `releaseCartLock(cartId, null)` — cart-wide, nulling `locked_at` — while
+ * `PaymentSection.confirm()` deliberately keeps the same Element and client secret mounted. The
+ * diner then tapped "Edit order", this matched nothing, and inferring "another tab took over" told
+ * them something false AND blocked them from editing a cart that was genuinely editable. That arm
+ * no longer releases the lock (a declined intent is still confirmable, so its cart stays frozen),
+ * but the SHAPE remains reachable — the capture cron's uid-scoped release, a TTL expiry followed
+ * by no re-acquire — and the rule is the same: the fabricated-diagnosis class (M116 · M119), and
+ * a refusal on a money surface has to name a reason it actually established.
  *
  * So the reason is READ, not assumed — the same move `acquireCartLock` makes when its own UPDATE
  * matches nothing. Supersession requires a lock that is still FRESH and stamped with a DIFFERENT
