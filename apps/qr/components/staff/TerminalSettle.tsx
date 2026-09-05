@@ -2,6 +2,20 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { sx } from "@/lib/staff-labels";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
+
+/**
+ * P2 — the two error sources on this surface, kept APART.
+ *
+ * `kind: "server"` is a sentence the Server Action returned, so it goes through `<OutageText>`
+ * (which swaps the one write-outage twin and passes everything else through verbatim).
+ * `kind: "local"` is copy THIS file authors for a thrown/rejected action — routing that through
+ * `<OutageText>` would pass it through as English forever while looking converted, so it branches
+ * to its own dictionary key instead.
+ */
+type SettleError = { kind: "server"; text: string } | { kind: "local" };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -35,8 +49,9 @@ export function TerminalSettleButton({
   totalCents: number;
   onStarted: (c: TerminalCollect) => void;
 }) {
+  const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<SettleError | null>(null);
 
   async function start() {
     setBusy(true);
@@ -45,7 +60,7 @@ export function TerminalSettleButton({
       const res = await settleCard({ sessionId });
       setBusy(false);
       if (!res.ok) {
-        setError(res.error);
+        setError({ kind: "server", text: res.error });
         return;
       }
       onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
@@ -53,7 +68,7 @@ export function TerminalSettleButton({
       // A rejected action (Next redacts the message in prod) must never latch the button on
       // "Starting…" — the W10c bug class.
       setBusy(false);
-      setError("Couldn’t start the card payment — try again, or settle by cash.");
+      setError({ kind: "local" });
     }
   }
 
@@ -67,14 +82,27 @@ export function TerminalSettleButton({
         aria-describedby="terminal-hint"
         style={{ ...payBtn, width: "100%" }}
       >
-        {busy ? "Starting the reader…" : `Card on the reader · ${fmt(totalCents)}`}
+        {busy ? (
+          <Chrome lang={lang} k="settle.reader.starting" echo={false} />
+        ) : (
+          <Chrome
+            lang={lang}
+            k="settle.reader.trigger"
+            vars={{ m: fmt(totalCents) }}
+            echo="stack"
+          />
+        )}
       </button>
       <p id="terminal-hint" style={hint}>
-        Sends the charge to the card reader — the guest taps or inserts there.
+        <Chrome lang={lang} k="settle.reader.hint" echo="stack" />
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error}
+          {error.kind === "server" ? (
+            <OutageText lang={lang} error={error.text} />
+          ) : (
+            <Chrome lang={lang} k="settle.reader.startFailed" />
+          )}
         </p>
       )}
     </div>
@@ -99,6 +127,7 @@ export function TerminalCollectPanel({
   isCounter: boolean;
   onDone: (h: { orderId: string; totalCents: number; changeCents: number | null } | null) => void;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
   const [failCopy, setFailCopy] = useState<string | null>(null);
@@ -110,7 +139,7 @@ export function TerminalCollectPanel({
   const [recordingSince, setRecordingSince] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [cancelBusy, setCancelBusy] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelError, setCancelError] = useState<SettleError | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // The settle section unmounts under the cashier as the freeze lands — carry focus here.
@@ -170,13 +199,13 @@ export function TerminalCollectPanel({
       setCancelBusy(false);
       if (!res.ok) {
         // "Too late" (the tap won) or a transport miss — the poll keeps reporting the truth.
-        setCancelError(res.error);
+        setCancelError({ kind: "server", text: res.error });
         return;
       }
       setPhase("canceled");
     } catch {
       setCancelBusy(false);
-      setCancelError("Couldn’t cancel just now — try again.");
+      setCancelError({ kind: "local" });
     }
   }
 
@@ -186,6 +215,14 @@ export function TerminalCollectPanel({
   // ONE live region: the status line below carries every phase/degradation change. The panel root
   // and its buttons stay OUTSIDE it (a status region wrapping interactive content re-announces the
   // buttons on every tick; a nested alert inside a status double-fires — review finding).
+  //
+  // ⚠️ P2 — STILL ENGLISH, deliberately and reported rather than half-done. `statusText` is a plain
+  // `string`, and a Burmese run has to reach the DOM inside a marked element (`<Chrome>`, or a
+  // `lang=` host) or it renders in the Latin face at Latin leading. Marking the `<p>` itself is what
+  // the KDS does — but the KDS region holds ONLY dictionary text, while this one also carries the
+  // cancel error beside it, so a `lang="my"` host would re-lead an English sentence. Making these
+  // five sentences bilingual means turning this binding into a ReactNode (a `<Chrome>` per arm),
+  // which is a refactor of the panel's one live region and is left for the owner of that change.
   const statusText =
     phase === "collecting"
       ? blind
@@ -203,27 +240,46 @@ export function TerminalCollectPanel({
     <div
       ref={panelRef}
       tabIndex={-1}
-      aria-label="Card reader payment"
+      aria-label={sx(lang, "settle.a11y.readerPanel")}
       className="card"
       style={{ ...panel, outline: "none" }}
     >
       <p style={{ ...panelTitle, color: phase === "failed" ? "var(--warn)" : "var(--tx)" }}>
+        {/* The amount stays OUTSIDE the dictionary sentence here — it trails the middot in both
+            tongues — so it keeps its <strong> and its Latin figure untouched. */}
         {phase === "collecting" && (
           <>
-            On the reader · <strong>{fmt(collect.totalCents)}</strong>
+            <Chrome lang={lang} k="settle.reader.onReader" echo="inline" />
+            {" · "}
+            <strong>{fmt(collect.totalCents)}</strong>
           </>
         )}
         {phase === "recording" && (
           <>
-            Paid · <strong>{fmt(collect.totalCents)}</strong>
+            <Chrome lang={lang} k="settle.reader.paid" echo="inline" />
+            {" · "}
+            <strong>{fmt(collect.totalCents)}</strong>
           </>
         )}
-        {phase === "failed" && "Payment didn’t go through"}
-        {phase === "canceled" && "Canceled"}
+        {phase === "failed" && <Chrome lang={lang} k="settle.reader.failedTitle" echo="stack" />}
+        {phase === "canceled" && (
+          <Chrome lang={lang} k="settle.reader.canceledTitle" echo="stack" />
+        )}
       </p>
       <p role="status" style={{ ...panelSub, color: blind ? "var(--warn)" : "var(--t2)" }}>
         {statusText}
-        {cancelError ? ` ${cancelError}` : ""}
+        {/* Lifted out of the template literal it used to be spliced into: `<OutageText>` returns
+            JSX and cannot live inside a string. */}
+        {cancelError !== null && (
+          <>
+            {" "}
+            {cancelError.kind === "server" ? (
+              <OutageText lang={lang} error={cancelError.text} />
+            ) : (
+              <Chrome lang={lang} k="settle.reader.cancelFailed" />
+            )}
+          </>
+        )}
       </p>
       {phase === "collecting" && (
         <button
@@ -233,12 +289,16 @@ export function TerminalCollectPanel({
           disabled={cancelBusy}
           style={cancelBtn}
         >
-          {cancelBusy ? "Canceling…" : "Cancel the reader"}
+          {cancelBusy ? (
+            <Chrome lang={lang} k="settle.reader.canceling" echo={false} />
+          ) : (
+            <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
+          )}
         </button>
       )}
       {(phase === "failed" || phase === "canceled" || recordingLong) && (
         <button className="staff-btn" type="button" onClick={() => onDone(null)} style={cancelBtn}>
-          Back to settle
+          <Chrome lang={lang} k="settle.reader.backToSettle" echo="stack" />
         </button>
       )}
     </div>

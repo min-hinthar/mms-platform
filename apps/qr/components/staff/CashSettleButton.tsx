@@ -5,6 +5,10 @@ import { settleCash } from "@/lib/staff-cart";
 import { changeDue } from "@/lib/register-math";
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { Card } from "@mms/ui";
+import { tf } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -46,6 +50,7 @@ export function CashSettleButton({
   handoff?: boolean;
   onHandoff?: (h: { orderId: string; totalCents: number; changeCents: number | null }) => void;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -130,17 +135,26 @@ export function CashSettleButton({
           ref={confirmRef}
           tabIndex={-1}
           role="group"
-          aria-label="Confirm cash settlement"
+          aria-label={sx(lang, "settle.a11y.confirmCash")}
           style={{ ...confirmCard, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-            Take <strong>{fmt(dueCents)}</strong> in cash?{" "}
+            <Chrome lang={lang} k="settle.cash.take" vars={{ m: fmt(dueCents) }} echo="stack" />{" "}
             {tipCents > 0 && (
               <>
-                ({fmt(totalCents)} + {fmt(tipCents)} tip){" "}
+                <Chrome
+                  lang={lang}
+                  k="settle.cash.tipBreakdown"
+                  vars={{ m: fmt(totalCents), x: fmt(tipCents) }}
+                  echo={false}
+                />{" "}
               </>
             )}
-            {isTab ? "This closes the tab." : "This closes the order."}
+            <Chrome
+              lang={lang}
+              k={isTab ? "settle.cash.closesTab" : "settle.cash.closesOrder"}
+              echo="stack"
+            />
           </p>
           {/* W17c-2 — the tip is asked for BEFORE the tendered amount, because the change is owed
               against the tipped total; asking after would invite entering change from the wrong
@@ -148,12 +162,12 @@ export function CashSettleButton({
               too, and its tip was equally unrecorded until now. */}
           <div style={{ display: "grid", gap: 4 }}>
             <label htmlFor="cash-tip" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
-              Cash tip (optional)
+              <Chrome lang={lang} k="settle.cash.tipLabel" echo="stack" />
             </label>
             {/* W17c-3 — the house ladder as one-tap chips, so a cashier is not doing percentage
                 arithmetic at the counter. They fill the field (they do not settle), so the amount
                 stays visible and adjustable before anything is recorded. */}
-            <div role="group" aria-label="Quick tip amounts" style={tipChipRow}>
+            <div role="group" aria-label={sx(lang, "settle.a11y.tipQuick")} style={tipChipRow}>
               {tipPresets(tipBaseCents ?? 0)
                 .filter((p) => tipWithinAmountCap(Math.round((tipBaseCents ?? 0) * p.rate)))
                 .map((p) => {
@@ -194,14 +208,14 @@ export function CashSettleButton({
                   setTip("");
                 }}
               >
-                None
+                <Chrome lang={lang} k="settle.cash.tipNone" echo={false} />
               </button>
             </div>
             <input
               id="cash-tip"
               inputMode="decimal"
               autoComplete="off"
-              placeholder="e.g. 5"
+              placeholder={tf(lang, "settle.cash.example", { x: "5" })}
               value={tip}
               onChange={(e) => {
                 tipTouched.current = true;
@@ -220,9 +234,16 @@ export function CashSettleButton({
                 id="cash-tip-kiosk"
                 style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}
               >
-                {intendedTipCents > 0
-                  ? `The guest chose ${fmt(intendedTipCents)} at the kiosk — confirm or change it.`
-                  : "The guest chose no tip at the kiosk."}
+                {intendedTipCents > 0 ? (
+                  <Chrome
+                    lang={lang}
+                    k="settle.cash.kioskChose"
+                    vars={{ m: fmt(intendedTipCents) }}
+                    echo="stack"
+                  />
+                ) : (
+                  <Chrome lang={lang} k="settle.cash.kioskNoTip" echo="stack" />
+                )}
               </p>
             )}
             {!tipValid && (
@@ -230,30 +251,47 @@ export function CashSettleButton({
                 id="cash-tip-cap"
                 style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--warn)" }}
               >
-                That’s over the $1,000.00 cap — check the amount.
+                {/* The cap FIGURE is the same literal this sentence always carried — it is quoted,
+                    never derived, so no money value moves. It rides an {m} slot only so the
+                    dictionary value can stay free of digits. */}
+                <Chrome
+                  lang={lang}
+                  k="settle.cash.overCap"
+                  vars={{ m: "$1,000.00" }}
+                  echo="stack"
+                />
               </p>
             )}
           </div>
           {handoff && (
             <div style={{ display: "grid", gap: 4 }}>
               <label htmlFor="cash-tendered" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
-                Cash tendered (optional)
+                <Chrome lang={lang} k="settle.cash.tenderedLabel" echo="stack" />
               </label>
               <input
                 id="cash-tendered"
                 inputMode="decimal"
                 autoComplete="off"
-                placeholder="e.g. 40"
+                placeholder={tf(lang, "settle.cash.example", { x: "40" })}
                 value={tendered}
                 onChange={(e) => setTendered(sanitizeMoney(e.target.value))}
                 style={tenderInput}
               />
               <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)", minHeight: 18 }}>
-                {tenderedCents > 0
-                  ? tenderedCents >= dueCents
-                    ? `Change: ${fmt(changeDue(dueCents, tenderedCents))}`
-                    : "Not enough yet."
-                  : ""}
+                {tenderedCents > 0 ? (
+                  tenderedCents >= dueCents ? (
+                    <Chrome
+                      lang={lang}
+                      k="settle.cash.change"
+                      vars={{ m: fmt(changeDue(dueCents, tenderedCents)) }}
+                      echo="inline"
+                    />
+                  ) : (
+                    <Chrome lang={lang} k="settle.cash.notEnough" echo="inline" />
+                  )
+                ) : (
+                  ""
+                )}
               </p>
             </div>
           )}
@@ -265,7 +303,7 @@ export function CashSettleButton({
               disabled={busy}
               style={cancelBtn}
             >
-              Cancel
+              <Chrome lang={lang} k="settle.cancel" echo={false} />
             </button>
             <button
               className="staff-btn"
@@ -274,7 +312,16 @@ export function CashSettleButton({
               disabled={busy || !tipValid}
               style={busy || !tipValid ? { ...payBtn, opacity: 0.5 } : payBtn}
             >
-              {busy ? "Settling…" : `Settle ${fmt(dueCents)}`}
+              {busy ? (
+                <Chrome lang={lang} k="settle.cash.settling" echo={false} />
+              ) : (
+                <Chrome
+                  lang={lang}
+                  k="settle.cash.settleAmount"
+                  vars={{ m: fmt(dueCents) }}
+                  echo="stack"
+                />
+              )}
             </button>
           </div>
         </Card>
@@ -287,18 +334,23 @@ export function CashSettleButton({
           aria-describedby="settle-hint"
           style={{ ...payBtn, width: "100%" }}
         >
-          {isTab ? "Close tab · cash" : "Settle in cash"} · {fmt(totalCents)}
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
+            vars={{ m: fmt(totalCents) }}
+            echo="stack"
+          />
         </button>
       )}
       {/* Static helper text (a description, not a status) — linked to the button, never a live region.
           The detail view's one polite live region is the line-edit status in FloorDetailLive; a settle
           FAILURE is an assertive role="alert" instead (different concern, mutually exclusive action). */}
       <p id="settle-hint" style={hint}>
-        Includes sales tax. A cash tip is handled separately.
+        <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error}
+          <OutageText lang={lang} error={error} />
         </p>
       )}
     </div>
