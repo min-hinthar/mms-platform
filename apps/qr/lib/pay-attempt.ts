@@ -105,7 +105,12 @@ export function attemptReleaseBody(
 /** The outcomes of releasing a pay attempt — each one a fact we can actually establish. */
 export type PayLockRelease =
   | { released: true }
-  | { released: false; reason: "rate_limited" | "error" | "unknown" | "not_held" | "superseded" };
+  | {
+      released: false;
+      // M151 — `paying`: this attempt's intent is captured or capturing; the release is refused so
+      // the cart stays frozen under a charge the webhook is about to fulfil.
+      reason: "rate_limited" | "error" | "unknown" | "not_held" | "superseded" | "paying";
+    };
 
 /** The cart lock state, as read back when a release matched nothing. */
 export type LockRow = { locked: boolean; locked_at: string | null } | null;

@@ -3,7 +3,12 @@ import { getStripe } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import { releaseCartLock, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
+import {
+  releaseByIntent,
+  releaseCartLock,
+  releaseSettlement,
+  releaseSettlementFor,
+} from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
@@ -770,6 +775,26 @@ export async function POST(req: NextRequest) {
           });
       } catch (e) {
         console.error("[stripe webhook] terminal cancel release threw", {
+          paymentIntent: intent.id,
+          error: e,
+        });
+      }
+    } else if (intent.metadata?.cartId) {
+      // M151 — a SINGLE-PAY intent (auto-capture, or a `pickup_manual` hold) is terminal. Release
+      // lock, pin and link in ONE statement keyed on the intent id, so a late delivery can never
+      // reach a successor: a successor has its own id on the row and this matches none of it.
+      // Zero rows is the ordinary case (the successor or the capture cron already cleared it) —
+      // best-effort, 200-ack, the TTL stays the backstop for the lock alone.
+      try {
+        const { error: relErr } = await releaseByIntent(intent.metadata.cartId, intent.id);
+        if (relErr)
+          console.error("[stripe webhook] canceled intent release failed", {
+            cartId: intent.metadata.cartId,
+            paymentIntent: intent.id,
+            message: relErr.message,
+          });
+      } catch (e) {
+        console.error("[stripe webhook] canceled intent release threw", {
           paymentIntent: intent.id,
           error: e,
         });

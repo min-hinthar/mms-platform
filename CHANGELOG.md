@@ -4,6 +4,41 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A pin is cleared only while no live intent depends on it (2026-09-05 · pilot P0)
+
+**M151 · M152 · M124 — the cart→intent link.** Every pin-clearer in this codebase decided "is the
+attempt that took this lock still the one that owns it?" from `locked_at`, a wall-clock era. Nothing
+on the cart said which PaymentIntent, if any, still DEPENDED on the pin — so a captured intent whose
+webhook was merely late could have its pin nulled by a tablemate's promo code, by a successor's
+stale-grant release, or by `create-intent`'s own catch; two overlapping attempts could hold different
+pins with the older intent still chargeable; and two same-uid requests inside one millisecond shared
+an era. One missing fact.
+
+`qr_carts.live_payment_intent_id` is that fact. **The rule:** a pin may be cleared only while no live
+intent names it, so every clearer carries `and live_payment_intent_id is null` — `applyPromo`'s
+write, `mms_release_promo_grant` (both of `create-intent`'s mouths), `releasePayAttempt` (the client
+exits). **The sequence:** a successor makes the predecessor UNUSABLE before it may touch the pin —
+`supersedeCartIntent` retrieves, cancels what is cancelable, refuses on `succeeded`/`processing`
+("that payment is already going through"), and refuses without touching the row when Stripe cannot
+say. The verdict is a pure module (`live-intent.ts`) that fails CLOSED on any status it has never
+seen, because the two mistakes are not symmetric: cancelling a real charge is money and no order;
+refusing a mint is a retry. The era now rides in the Stripe idempotency key for every capture mode,
+so a cancelled predecessor is never replayed from Stripe's cache as a dead `clientSecret`.
+
+**Why this is narrower than it looks.** Pickup holds already had a lazy supersede — the capture cron
+refuses a hold whose era moved and cancels it as `superseded` — so era-gated capture protected
+manual-capture all along. The unguarded surface was auto-capture, where the Payment Element captures
+client-side and only the webhook reconciles. The link covers both (a tablemate's code five minutes
+after a hold was authorized nulled the pin `planCapture` needs, M70's original harm), and the cron
+keeps its role as belt.
+
+Guards: 12 mutants (4 verdict · 3 sequence · 3 lock shapes · 2 promo write/diagnosis), a
+six-case SQL test asserting refusal AND the legitimate path AND the successor-untouched case, and
+rule 3 of `check-promo-grant-pin` — supersede before release as AWAITED sequencing, watched go red on
+the reorder and on the `Promise.all` shape. **D0 first:** prod's migration history was set-compared
+and every `mms_*` body hashed on both sides — 69/69 code-identical — before a 97th file was allowed
+onto it.
+
 ### The sentence that names the dish survives the banner that names nothing (2026-09-05)
 
 **T33 — the one live region is arbitrated.** Three merged PRs made the /menu refusal sentence

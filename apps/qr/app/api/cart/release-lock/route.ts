@@ -1,7 +1,10 @@
+// verify:slice-exempt — W9b/M151: this route is GLUE for the pagehide beacon over pinned halves —
+// `releasePayAttemptSafely` (lib/supersede.ts, mutated) and `releasePayAttempt` (lib/lock.ts,
+// mutated). It parses, authorizes, rate-limits and forwards; the money rule lives in neither line here.
 import { NextRequest, NextResponse } from "next/server";
 import { releaseAttemptInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError } from "@/lib/authz";
-import { releasePayAttempt } from "@/lib/lock";
+import { releasePayAttemptSafely } from "@/lib/supersede";
 import { normalizeEra } from "@/lib/pay-attempt";
 import { withinMutationRate } from "@/lib/rate";
 
@@ -59,7 +62,10 @@ export async function POST(req: NextRequest) {
       // used to clear the LIVE tab's pin and unfreeze its cart mid-checkout. Naming the attempt is
       // what separates them; `normalizeEra` re-emits it server-side so the value reaching the
       // filter is ours, and an absent or unparseable token releases NOTHING (fail-closed).
-      const { error: relErr } = await releasePayAttempt(cartId, uid, normalizeEra(attempt));
+      // M151 — the beacon cancels the intent this attempt minted before releasing. The pagehide
+      // listener already skips a confirm in flight (`paying`), so the intent here is an unconfirmed
+      // one the diner walked away from; a captured one is refused inside and left alone.
+      const { error: relErr } = await releasePayAttemptSafely(cartId, uid, normalizeEra(attempt));
       // Logged, never thrown: this page is unloading and `sendBeacon` discards the response.
       if (relErr)
         console.error("[cart] pay attempt not released", { cartId, error: relErr.message });

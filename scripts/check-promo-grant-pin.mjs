@@ -97,6 +97,23 @@ const isNamedCall = (n, name) =>
 const pinCall = calls.find((n) => isRpcCall(n, "mms_pin_promo_grant"));
 const totalsCall = calls.find((n) => isNamedCall(n, "getCartTotals"));
 /**
+ * M151 — rule 3: the predecessor is made UNUSABLE before the stale-grant release runs.
+ *
+ * `mms_release_promo_grant` now carries `and live_payment_intent_id is null`, so the release can
+ * only clear a pin nothing depends on — but only if the link has been DROPPED first, and the link
+ * may be dropped only after the intent it names is cancelled at Stripe (or found dead). That is
+ * `supersedeCartIntent`. Run it after the release and the release no-ops on every re-checkout: the
+ * successor pins nothing new, `mms_pin_promo_grant` keeps the predecessor's grant, and a $30
+ * basket's discount prices the $20 basket the diner re-checks-out with — M70's original charge,
+ * reintroduced by the fix for M152.
+ *
+ * Same discipline as rules 1–2: awaited, in a statement that FINISHES before the statement that
+ * releases begins. `Promise.all([supersedeCartIntent(…), releasePromoGrantFor(…)])` is first in the
+ * AST and concurrent, so position alone would pass it.
+ */
+const supersedeCall = calls.find((n) => isNamedCall(n, "supersedeCartIntent"));
+const releaseCall = calls.find((n) => isNamedCall(n, "releasePromoGrantFor"));
+/**
  * The rule is SEQUENCING, not lexical order — Codex P1 on #241 round 3.
  *
  * Comparing `getStart()` positions proves only that the pin is written above the derivation, and
@@ -185,4 +202,46 @@ if (pinStmt && totalsStmt && pinStmt.end > totalsStmt.getStart(sf)) {
   );
 }
 
-process.stdout.write(`${c.green("clean")}${c.dim(" — pinned, and pinned first")}\n`);
+const supersedeStmt = supersedeCall ? stmtOf(supersedeCall) : undefined;
+const releaseStmt = releaseCall ? stmtOf(releaseCall) : undefined;
+if (!supersedeCall) {
+  fail(
+    `${FILE} no longer calls \`supersedeCartIntent\`.\n  ` +
+      "M151: without it the cart's live intent is never cancelled, the link is never dropped, and\n  " +
+      "`mms_release_promo_grant`'s `live_payment_intent_id is null` gate refuses EVERY re-checkout's\n  " +
+      "release — the successor then charges the predecessor's grant (M70's original defect).",
+  );
+}
+if (!releaseCall) {
+  fail(
+    `${FILE} no longer calls \`releasePromoGrantFor\`.\n  ` +
+      "This guard sequences the supersede step against it; if the stale-grant release moved, teach\n  " +
+      "the guard the new shape rather than deleting the rule.",
+  );
+}
+if (supersedeCall && !isAwaited(supersedeCall)) {
+  fail(
+    "`supersedeCartIntent` is not AWAITED.\n  " +
+      "M151: a fire-and-forget supersede carries no guarantee the predecessor is cancelled — or the\n  " +
+      "link dropped — before the release runs against it. Await it.",
+  );
+}
+if (supersedeStmt && releaseStmt && supersedeStmt === releaseStmt) {
+  fail(
+    "the supersede and the stale-grant release run in the SAME statement.\n  " +
+      "M151: `Promise.all([supersedeCartIntent(…), releasePromoGrantFor(…)])` puts the supersede first\n  " +
+      "in the AST and runs both CONCURRENTLY. Lexical order is not sequencing. Supersede in its own\n  " +
+      "statement, awaited, before the one that releases.",
+  );
+}
+if (supersedeStmt && releaseStmt && supersedeStmt.end > releaseStmt.getStart(sf)) {
+  fail(
+    "the stale-grant release runs BEFORE the predecessor is superseded.\n  " +
+      "M151: the release's `live_payment_intent_id is null` gate then refuses on every re-checkout,\n  " +
+      "and the successor charges the predecessor's grant. Move `supersedeCartIntent(` above\n  " +
+      "`releasePromoGrantFor(`.",
+  );
+}
+process.stdout.write(
+  `${c.green("clean")}${c.dim(" — pinned, and pinned first; predecessor superseded before the release")}\n`,
+);

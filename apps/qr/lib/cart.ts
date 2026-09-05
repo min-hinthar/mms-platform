@@ -21,7 +21,7 @@ import { getCartTotals } from "./totals";
 import { assertCartItemMember, assertCartMember, AuthzError, UNAVAILABLE } from "./authz";
 import { assertMutationRate, withinMutationRate } from "./rate";
 import { canMutateLine } from "./permissions";
-import { releasePayAttempt } from "./lock";
+import { releasePayAttemptSafely } from "./supersede";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } from "./pay-attempt";
 import { getPostHogClient } from "./posthog-server";
@@ -372,7 +372,7 @@ export type ApplyPromoResult =
 async function refusedPromoReason(cartId: string): Promise<PromoReason> {
   const { data: cart, error } = await serviceClient()
     .from("qr_carts")
-    .select("status,locked,locked_at,settle_at")
+    .select("status,locked,locked_at,settle_at,live_payment_intent_id")
     .eq("id", cartId)
     .maybeSingle();
   // `maybeSingle` so a genuinely missing cart is `{ data: null, error: null }` and not an error —
@@ -388,6 +388,9 @@ async function refusedPromoReason(cartId: string): Promise<PromoReason> {
   // "locked" is the shared frozen-order copy — the same reason the pre-check above returns for a
   // settling cart, so the diner sees one consistent explanation for one consistent situation.
   if (lockedFresh || settlingFresh) return "locked";
+  // M152 (a) — a live single-pay intent past the lock TTL. "Locked" is the honest word: a payment
+  // for this order is still open on someone's phone, which is exactly what the lock sentence says.
+  if (cart.live_payment_intent_id) return "locked";
   // Open, unfrozen, and still no row: the cart vanished between the two statements. `cart_closed` is
   // the honest floor here — we read the cart and it does not justify a freeze answer.
   return "cart_closed";
@@ -448,7 +451,12 @@ export async function applyPromo(cartId: string, code: string): Promise<ApplyPro
     .eq("id", input.cartId)
     .eq("status", "open")
     .or(`locked.eq.false,locked_at.is.null,locked_at.lte.${lockCutoff}`)
-    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`)
+    // M152 (a) — and NO LIVE INTENT. The freeze predicate above is deliberately TTL-aware, so five
+    // minutes after a captured intent whose webhook is merely late, a tablemate's code passed it
+    // and nulled the pin that capture reconciles against: a charged card and no order. The pin
+    // outlives the lock (M70); this is the term that makes that true for THIS writer.
+    .is("live_payment_intent_id", null);
   if (updErr) return { ok: false, reason: "error" };
   if ((count ?? 0) === 0) return { ok: false, reason: await refusedPromoReason(input.cartId) };
 
@@ -802,9 +810,14 @@ export async function releasePayLock(cartId: string, attempt?: string): Promise<
   // the one checking out" is a fabricated diagnosis on a money surface: the exact class M116/M119
   // spent four PRs removing. Only a write that SUCCEEDED and matched nothing proves supersession.
   const ourEra = normalizeEra(era);
-  const res = await releasePayAttempt(id, uid, ourEra);
+  // M151 — the intent this attempt minted is cancelled at Stripe BEFORE the one-statement release
+  // drops lock, pin and link. A captured intent refuses with `paying` instead: the card is charged
+  // or charging and the webhook is about to fulfil, so the cart must stay frozen under it.
+  const res = await releasePayAttemptSafely(id, uid, ourEra);
   if (res.error)
     console.error("[cart] pay attempt not released", { cartId: id, error: res.error.message });
+  if (!res.released && res.reason === "paying") return { released: false, reason: "paying" };
+  if (!res.released && res.reason === "unknown") return { released: false, reason: "unknown" };
   // The zero-row read is LAZY — a second query only on the cold path where the release matched
   // nothing (an "Edit order" tap that did not own the lock), never on the ordinary success.
   return await classifyRelease(res, async () => {

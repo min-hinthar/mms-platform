@@ -342,7 +342,17 @@ export async function releasePayAttempt(
     // predicate assertion green while releasing a lock over a live pin — the `verify:slice` mutant
     // `lock/grant-dropped-from-payload` exists for exactly that, because it is invisible otherwise.
     .update(
-      { promo_granted_cents: null, locked: false, locked_at: null, locked_by: null },
+      // M151 — and the LINK. `releasePayAttemptSafely` (lib/supersede.ts) has already cancelled the
+      // intent this attempt minted, or refused; by the time this statement runs there is nothing
+      // left that could reconcile against the pin, so dropping the link here is what makes
+      // "pin cleared, link still set" unreachable from the client exits.
+      {
+        promo_granted_cents: null,
+        live_payment_intent_id: null,
+        locked: false,
+        locked_at: null,
+        locked_by: null,
+      },
       { count: "exact" },
     )
     .eq("id", cartId)
@@ -423,4 +433,118 @@ export async function releaseCartLock(cartId: string, uid: string | null): Promi
   if (uid !== null) q = q.eq("locked_by", uid);
   const { error } = await q;
   return error;
+}
+
+/**
+ * M151 — the cart→intent LINK, the DB half. The Stripe half (cancel the predecessor, refuse if it
+ * captured) is `lib/supersede.ts`; the verdict is `lib/live-intent.ts`. Read the migration header
+ * (`20260905000000_m151_live_payment_intent.sql`) for why the fact exists at all.
+ *
+ * Every helper here is a query SHAPE — one predicate, one payload — and each is pinned by
+ * `lock.test.ts` and a `verify:slice` mutant, because the predicate IS the rule.
+ */
+
+/** The intent the cart currently names, or null. Read under the caller's own lock. */
+export async function readLiveIntent(cartId: string): Promise<string | null> {
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("live_payment_intent_id")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.live_payment_intent_id ?? null;
+}
+
+/**
+ * The intent THIS attempt minted, or null — scoped to the seat and era, so a client exit from a
+ * superseded tab reads nothing and cancels nothing that is not its own (M124's discriminator is
+ * the intent id, but the way in is still the attempt that owns the lock).
+ */
+export async function readLiveIntentFor(
+  cartId: string,
+  uid: string,
+  era: string | null,
+): Promise<string | null> {
+  if (!era) return null;
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("live_payment_intent_id")
+    .eq("id", cartId)
+    .eq("locked_by", uid)
+    .eq("locked_at", era)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.live_payment_intent_id ?? null;
+}
+
+/**
+ * Name the intent this attempt just minted. Scoped to the seat AND the era that minted it, and
+ * only where the link is null or ALREADY this intent — Stripe idempotency can hand two same-era
+ * requests one intent, and the second must not read as a conflict. Zero rows means the lock moved
+ * between the mint and this write: the caller cancels the intent it minted and refuses.
+ *
+ * `intentId` is Stripe-generated and server-side — never a client string — so the interpolated
+ * `.or()` carries no injection surface (the same argument `acquireCartLock` makes for `uid`).
+ */
+export async function linkPaymentIntent(
+  cartId: string,
+  uid: string,
+  era: string,
+  intentId: string,
+): Promise<{ linked: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ live_payment_intent_id: intentId }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("locked_by", uid)
+    .eq("locked_at", era)
+    .or(`live_payment_intent_id.is.null,live_payment_intent_id.eq.${intentId}`);
+  return { linked: (count ?? 0) > 0, error };
+}
+
+/**
+ * Drop the link to ONE intent — after the successor has made it unusable at Stripe. Keyed on the
+ * intent id and nothing else: a late caller naming an intent the cart no longer holds matches
+ * zero rows, which is the whole point of keying on a distinct token rather than an era.
+ */
+export async function unlinkPaymentIntent(cartId: string, intentId: string): Promise<ReleaseError> {
+  const db = serviceClient();
+  const { error } = await db
+    .from("qr_carts")
+    .update({ live_payment_intent_id: null })
+    .eq("id", cartId)
+    .eq("live_payment_intent_id", intentId);
+  return error;
+}
+
+/**
+ * The intent is TERMINAL (Stripe said `payment_intent.canceled`): release lock, pin and link in
+ * ONE statement, keyed on the intent. Unlike the decline webhook's cart-wide lock release, this
+ * cannot touch a successor — a successor has its own intent id on the row, and this predicate
+ * matches none of it. Best-effort at the call site (a late delivery matching zero rows is the
+ * normal case, not an error).
+ */
+export async function releaseByIntent(
+  cartId: string,
+  intentId: string,
+): Promise<{ released: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update(
+      {
+        promo_granted_cents: null,
+        live_payment_intent_id: null,
+        locked: false,
+        locked_at: null,
+        locked_by: null,
+      },
+      { count: "exact" },
+    )
+    .eq("id", cartId)
+    .eq("live_payment_intent_id", intentId);
+  return { released: (count ?? 0) > 0, error };
 }

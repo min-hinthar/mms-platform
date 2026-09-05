@@ -265,6 +265,10 @@ export function reopenFailureNotice(
       return "Another tab took over this checkout — that one is paying. This order unlocks when it finishes.";
     case "not_held":
       return "That checkout is already over. If the order still shows as locked, it clears on its own in a moment.";
+    case "paying":
+      // M151 — the intent this tab minted is captured or capturing. Not a failure to reopen: the
+      // order is about to be paid, and the sentence must not invite an edit the webhook will beat.
+      return "Your payment is going through — hang on, the order updates in a moment.";
     case "rate_limited":
       return "That was a lot of changes at once — give it a moment, then try again.";
     default:

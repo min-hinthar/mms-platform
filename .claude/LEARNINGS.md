@@ -1491,3 +1491,21 @@ The wider lesson is the one this repo already has for guards: a measurement that
 by something other than the fact (here, a trimming rule) needs to be falsified against a known
 answer first. Three files were read by eye to confirm (`mms_taxable`, `mms_open_tab`,
 `mms_pickup_slots`) — all identical modulo comments — before the 69/69 was believed.
+
+## #83 — a guard that greps for a marker is satisfied by PROSE that mentions the marker (pilot P0, 2026-09-05)
+
+`check-money-coverage` exempts a money-path file when it contains `verify:slice-exempt — <reason>`.
+`live-intent.ts` — the pure verdict module built specifically SO IT COULD BE MUTATED — came back
+`exempt=1` on the first coverage check. It carried no exemption. Its docblock said "`create-intent`
+sits under a `verify:slice-exempt` line", and the regex does not know a docblock from a directive.
+
+Nothing shipped: the count was read before the mutants were written, so the false exemption showed
+up as a number that was wrong. But the shape is exactly LEARNINGS #60 — a matcher satisfied by text
+that does not ship the behaviour — pointed at the coverage guard itself, and this time the evasion
+was authored by the same hand that knew the rule, while EXPLAINING the rule. Two consequences:
+
+- **Never name a directive inside prose in a file the directive's guard scans.** Say "carries a
+  coverage exemption" and let the reader find the marker in the file that actually has it.
+- **The coverage guard should parse, not scan**: an exemption is a line-leading comment whose
+  first token is the marker, and a mention inside a `/** … */` block is not one. Filed as a
+  follow-up rather than widened into P0 — but the next time this guard is touched, that is the fix.

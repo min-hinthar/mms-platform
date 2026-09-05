@@ -87,6 +87,9 @@ const {
   releasePayAttempt,
   releaseCartLockFor,
   releaseCartLock,
+  linkPaymentIntent,
+  unlinkPaymentIntent,
+  releaseByIntent,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -242,6 +245,8 @@ describe("releasePayAttempt — M124: one statement, and it names the ATTEMPT", 
     // charge (M123 a′).
     expect(q.payload).toEqual({
       promo_granted_cents: null,
+      // M151 — the link goes in the SAME payload: "pin cleared, link still set" must be unreachable.
+      live_payment_intent_id: null,
       locked: false,
       locked_at: null,
       locked_by: null,
@@ -354,5 +359,59 @@ describe("releaseCartLockFor — M153: the refusal paths name their attempt", ()
     expect(q.eq).toContainEqual(["id", "cart-1"]);
     expect(q.eq.some(([col]) => col === "locked_by")).toBe(false);
     expect(q.eq.some(([col]) => col === "locked_at")).toBe(false);
+  });
+});
+
+describe("M151 — the cart→intent link, as query SHAPES", () => {
+  it("linkPaymentIntent names the intent under THIS seat and THIS era, and only onto a null or same link", async () => {
+    updateCount = 1;
+    const res = await linkPaymentIntent("cart-1", "uid-1", "2026-09-05T10:00:00.000Z", "pi_A");
+    expect(res).toEqual({ linked: true, error: null });
+    const q = queries[0]!;
+    expect(q.table).toBe("qr_carts");
+    expect(q.payload).toEqual({ live_payment_intent_id: "pi_A" });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["locked_by", "uid-1"]);
+    expect(q.eq).toContainEqual(["locked_at", "2026-09-05T10:00:00.000Z"]);
+  });
+
+  it("linkPaymentIntent reports the lock MOVED when zero rows match — the caller cancels its own mint", async () => {
+    updateCount = 0;
+    const res = await linkPaymentIntent("cart-1", "uid-1", "era-old", "pi_A");
+    expect(res.linked).toBe(false);
+    expect(res.error).toBeNull();
+  });
+
+  it("unlinkPaymentIntent is keyed on the INTENT, never on the era", async () => {
+    // M124's discriminator: a late caller naming an intent the cart no longer holds matches nothing.
+    await unlinkPaymentIntent("cart-1", "pi_A");
+    const q = queries[0]!;
+    expect(q.payload).toEqual({ live_payment_intent_id: null });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["live_payment_intent_id", "pi_A"]);
+    expect(q.eq.some(([col]) => col === "locked_at" || col === "locked_by")).toBe(false);
+  });
+
+  it("releaseByIntent drops lock, pin AND link in one statement keyed on the intent", async () => {
+    updateCount = 1;
+    const res = await releaseByIntent("cart-1", "pi_A");
+    expect(res).toEqual({ released: true, error: null });
+    const q = queries[0]!;
+    expect(q.payload).toEqual({
+      promo_granted_cents: null,
+      live_payment_intent_id: null,
+      locked: false,
+      locked_at: null,
+      locked_by: null,
+    });
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["live_payment_intent_id", "pi_A"]);
+    // A successor's row names a different intent and is untouched by construction.
+    expect(q.eq.some(([col]) => col === "locked_at" || col === "locked_by")).toBe(false);
+  });
+
+  it("releaseByIntent is a normal zero-row no-op for a late delivery", async () => {
+    updateCount = 0;
+    expect(await releaseByIntent("cart-1", "pi_gone")).toEqual({ released: false, error: null });
   });
 });
