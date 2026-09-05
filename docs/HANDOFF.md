@@ -16,33 +16,43 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `cart-freeze.ts` names the refusal CLAUSE once (`refusedWriteClause` — lowercase, period-free) and
 > both callers compose from it; `refusedWriteNotice` is a template over it. `/menu`'s partial-add
 > message no longer says the verdict twice. `forgetRefusal()` runs at the top of both writers, above
-> the `!cartId` guards, so a cause cannot outlive its write. The `unreachable` sentence is retired and
+> the `!cartId` guards, so a cause cannot outlive an EARLIER write — ⚠️ which is NOT the same as being
+> bound to one (Codex on #255, verified): `track` is a ledger, not a serializer (it adds the promise to
+> a Set and returns it unchanged), so two overlapping writes share one provider-global
+> `lastRefusalRef`. Write B can publish between A resolving and `YourUsual` reading the latch, and A's
+> dish then announces B's diagnosis. Filed as **T42**. The `unreachable` sentence is retired and
 > `PublishableRefusal` makes its absence a compile error rather than an emergent property of statement
 > order.
 >
 > ### ⚠️ THE ONE THING TO CARRY FORWARD: the opener is per cause, and the obvious simplification is WRONG
 >
 > A draft of this PR flipped `unknown` to the assertive "That didn't go through", on the reasoning that
-> #251 made `refused` mean "the re-read SUCCEEDED and the write was not in it". **That is true of the
-> STATE and false of one PATH**, and the distinction is worth re-reading before touching either:
+> #251 made `refused` mean "the re-read SUCCEEDED and the write was not in it". The flip was wrong and
+> the hedge shipped — but ⚠️ **the FIRST version of this block justified it too narrowly, and Codex
+> falsified two of its three claims on #255.** The corrected account, each part verified against
+> source:
 >
-> - `add` establishes a non-landing by ATTRIBUTED GROWTH. `classifyAddLanding` answers its own
->   `unknown` whenever two lines of the dish grew or one shrank, and the provider maps that to
->   `landed: null` → `unconfirmed`. A contested dish never reaches the sentence, so `none` really does
->   mean the dish did not move.
-> - `setItemQty` establishes it by comparing ONE ABSOLUTE VALUE, `line?.qty === qty`. `setQty` is
->   absolute, so no peer write can forge a LANDING — but an authorized host setting the same line
->   inside the round trip forges a NON-landing: our set to 3 commits, the re-read reads the host's 5,
->   and the comparison answers false for a write that landed. No lock, not settling, so it arrives as
->   `unknown`.
+> - `setItemQty` compares ONE ABSOLUTE VALUE, `line?.qty === qty`. `setQty` is absolute, so no peer
+>   write can forge a LANDING — but an authorized host setting the same line inside the round trip
+>   forges a NON-landing: our set to 3 commits, the re-read reads the host's 5, the comparison answers
+>   false for a write that landed. That much was right.
+> - ❌ **"`add` has no such hole" was FALSE.** `dishDeltas` tests `d > 0` and `d < 0` and does nothing
+>   at `d === 0`, so a host restoring the line to its PRE-ADD quantity (starts at 2, our add commits 3,
+>   host sets 2 back) yields no growth AND no shrink → `classifyAddLanding` answers `none`, not
+>   `unknown` → `refused`. Proven executably, not read: `mayRetry` is then TRUE, so `YourUsual` resumes
+>   at that dish and RE-ADDS one that landed. That is the double-charge direction `write-outcome.ts`'s
+>   own asymmetry argument calls the expensive one. Filed as **T43**.
+> - ❌ **"`frozen`/`settling` keep the assertion safely" was FALSE.** The freeze describes the cart at
+>   RE-READ time and says nothing about whether our write landed before it. Host overwrites our line,
+>   then starts checkout; `line?.qty === qty` is false AND `classifyRefusedWrite` answers `frozen`, so
+>   the assertive opener fires on a committed write. Folded into **T41**.
 >
-> So `frozen` and `settling` keep the assertion (the server states them and the cart is demonstrably
-> inert in the applied re-read); `unknown` keeps the hedge. Sharing an opener with
-> `unconfirmedWriteNotice()` is no longer a collision but two degrees of one uncertainty, and the
-> CLAUSES separate them. `YourUsual` still asserts the verdict on every cause and that is correct —
-> it only ever calls `add`. The residual STATE bug (`mayRetry` calls a landed write re-sendable) is
-> **T41**, and it is not free: `unconfirmed` carries no view by construction, so the source-level fix
-> hands `AddButton`'s queue back to its own snapshot — the stale-absolute-quantity P1 from #251.
+> **So the honest statement is: the non-landing verdict is unsound on BOTH paths and under EVERY cause;
+> the per-cause hedge narrows the exposure, it does not close it.** Keep the hedge — it is strictly
+> better than asserting everywhere — and do not read it as a proof. `YourUsual` asserting the verdict
+> on every cause is a residual of the same family, not a justified exception. The fix is not free:
+> `unconfirmed` carries no view by construction, so routing these to it hands `AddButton`'s queue back
+> to its own snapshot — the stale-absolute-quantity P1 from #251. T41 · T43 carry that trade-off.
 >
 > ### ⚠️ TWO GUARD RULES THIS SLICE PAID FOR
 >
@@ -81,15 +91,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    exactly the taps that produce it: the diagnosing re-read is the read that flips `locked`, and both
 >    transition effects defer into the same single slot. #254 made the sentence correct; it did not
 >    make it readable. Everything above is invisible until this is fixed.
-> 2. **T41** (med) — `setItemQty`'s missing `unknown` arm, above. Read T41's row for the trade-off
->    before starting; the naive fix regresses #251.
-> 3. **T28** (med) — `check-child-freeze` has NO component-side expected set while its sibling
+> 2. **T41 · T43** (med) — the unsound non-landing verdict, on `setItemQty` and on `add` respectively.
+>    T43 is the sharper of the two (it ends in a re-added dish, not just a wrong sentence). Read both
+>    rows for the trade-off before starting; the naive fix regresses #251.
+> 3. **T42** (med) — the refusal latch is provider-global and `track` does not serialize, so a
+>    concurrent write's clause can be read by another write's continuation.
+> 4. **T28** (med) — `check-child-freeze` has NO component-side expected set while its sibling
 >    `check-freeze-parity` has one. Any audited component can leave the subject set silently.
-> 4. **T29** (med) — `AddButton` (four propositions, owes the framer stub), then `ItemSheet`. Do
+> 5. **T29** (med) — `AddButton` (four propositions, owes the framer stub), then `ItemSheet`. Do
 >    `AddButton` alone.
-> 5. **T34–T40** — filed by the #254 scout; T38 (the nine hand-written freeze literals with five
->    near-duplicate PAIRS) is T32's rule applied to the rest of the vocabulary.
-> 6. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
+> 6. **T34–T40** — filed by the #254 scout; T38 (the hand-written freeze literals and their
+>    near-duplicate pairs — the inventory lives in T38's own row, deliberately not copied here) is
+>    T32's rule applied to the rest of the vocabulary.
+> 7. **T19** (low) — the triple cart read on solo-mode writes. Purely cost.
 >
 > Still owner-gated and untouched: the cart→intent link (**M123 · M124 · M151 · M152**), **C16** (make
 > `codex-review` a REQUIRED check — until then the merge ritual is all that stands between the gate and
