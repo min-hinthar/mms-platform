@@ -2356,8 +2356,14 @@ const MUTANTS = [
     file: "apps/qr/lib/board-poll.ts",
     suite: "lib/board-poll.test.ts",
     why: 'a refusal counts only when it NAMES a device reason we know. Trusting the STATUS alone de-authorizes a live board on any 401/503 that did not come from our route — Vercel deployment protection answers 401 with HTML on a protected preview, a platform throttle answers 503 with an error page, an upstream may send `{error:"Service unavailable"}`, and a transient reason the API gains later is the shape most likely to be new. W10b one layer out: the failure mode of an answer we do not recognise must be a board that stays up',
-    find: '  if (body && DEVICE_REFUSALS.get(status) === body.reason) return { kind: "verdict", message };',
-    replace: '  if (status === 401 || status === 503) return { kind: "verdict", message };',
+    find:
+      "  if (body && expected !== undefined && expected === body.reason)\n" +
+      "    // `expected` is the value from DEVICE_REFUSALS, not `body.reason` — so the reason carried\n" +
+      "    // forward is one this client has actually matched, never an arbitrary string off the wire.\n" +
+      '    return { kind: "verdict", reason: expected, message };',
+    replace:
+      "  if (status === 401 || status === 503)\n" +
+      '    return { kind: "verdict", reason: expected ?? "denied", message };',
   },
   {
     id: "board-poll/no-snapshot-board-claims-it-is-connecting",
@@ -2670,6 +2676,122 @@ const MUTANTS = [
     why: 'P1 — "an English-only line mounts exactly its pre-P1 elements" is a BRANCH, not CSS gating: the echo and the Burmese modifier line are emitted only when the name has Burmese. Take that branch unconditionally and every English dish gains an empty 30px Padauk line and a duplicate name',
     find: '      {line.nameMy !== null ? (\n        <>\n          <p className="kds-line-name" lang="my">\n',
     replace: '      {true ? (\n        <>\n          <p className="kds-line-name" lang="my">\n',
+  },
+  // ── P2 · the staff device locale ────────────────────────────────────────────────────────────────
+  {
+    id: "staff-lang/default-flips-to-english",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2 — an ABSENT cookie must be Burmese. The pilot's two primary readers are Burmese-first; defaulting to English means the console silently reverts for exactly the people it was built for, and nobody discovers it until someone finds the control",
+    find: '  return value === "en" ? "en" : STAFF_LANG_DEFAULT;',
+    replace: '  return value === "my" ? "my" : "en";',
+  },
+  {
+    id: "staff-lang/lax-parse-admits-any-value",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: 'P2 — a cookie jar is not a trusted input: it carries whatever a previous build or a hand-edit left behind, including the RETIRED `mms_locale` values. A prefix match reads as "a bit more forgiving" and admits "EU", "english" and a truncated chunk',
+    find: '  return value === "en" ? "en" : STAFF_LANG_DEFAULT;',
+    replace: '  return value?.toLowerCase().startsWith("e") ? "en" : STAFF_LANG_DEFAULT;',
+  },
+  {
+    id: "staff-lang/query-loses-to-cookie",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2 — the wall TV's bookmark carries `?lang=` beside its `?k=` device token, and that URL IS the screen's configuration surface: a smart-TV browser is the device most likely to lose a cookie between shifts. Drop the query and the TV cannot be configured at all",
+    find: '  if (query === "en" || query === "my") return query;',
+    replace: "",
+  },
+  {
+    id: "staff-lang/cookie-path-scoped-to-staff",
+    file: "apps/qr/lib/staff-lang.ts",
+    suite: "lib/staff-lang.test.ts",
+    why: "P2 — `/board` is NOT under `/staff`, and the lock cookie next door IS path-scoped, so copying that instinct is the natural mistake. It starves the wall TV while every `/staff` page keeps working — a failure with no symptom anywhere a `/staff` test would look",
+    find: '    path: "/",',
+    replace: '    path: "/staff",',
+  },
+  {
+    id: "fill/count-not-localized",
+    file: "apps/qr/lib/i18n/fill.ts",
+    suite: "lib/i18n/fill.test.ts",
+    why: "P2 — the owner chose Burmese numerals in prose counts (2026-09-05). The rule lives in ONE function precisely so it cannot drift; bypass it and every count on the console silently reverts to Latin while the sentence around it stays Burmese",
+    find: "    return COUNT_SLOTS.has(name) ? localizeCount(raw, lang) : String(raw);",
+    replace: "    return String(raw);",
+  },
+  {
+    id: "fill/identifier-localized-as-a-count",
+    file: "apps/qr/lib/i18n/fill.ts",
+    suite: "lib/i18n/fill.test.ts",
+    why: "P2 — the OTHER direction, and the one that misleads a person holding a physical object: a table number is read off a tent card and a pickup code off a printed slip, both Latin. Localize them and the screen stops matching the thing in the room",
+    find: 'const COUNT_SLOTS = new Set(["n", "total"]);',
+    replace: 'const COUNT_SLOTS = new Set(["n", "total", "id"]);',
+  },
+  {
+    id: "chrome/english-mode-mounts-a-pair",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: 'P2 — "an English console is byte-identical to before" is a BRANCH, not CSS gating. P1 shipped that exact claim described the wrong way. Take the pair branch unconditionally and every English staff screen grows an empty Padauk span',
+    find: '  if (lang === "en") return <>{en}</>;',
+    replace: "",
+  },
+  {
+    id: "chrome/echo-nested-under-my",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — the English echo is a SIBLING of the Burmese span, never a child. Nested, it is typeset in Padauk and announced as Burmese: P1's hole rule one tier up, at the chrome instead of the dish name. ⚠️ The first cut of this mutant DELETED `{my}` instead of nesting the echo, so it proved the Burmese half was rendered and said nothing at all about the rule it is named for — the exact `verify:slice` failure mode LEARNINGS #60 is about. It now performs the nesting",
+    find: `    <span className={echo === "stack" ? "chrome-pair" : "chrome-pair chrome-pair-inline"}>
+      {my}`,
+    replace: `    <span lang="my" className="chrome-my">
+      {renderMyTemplate(k, vars, lang)}`,
+  },
+  {
+    id: "chrome/burmese-half-dropped",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — an echoed pair that renders only its English half looks correct to the author testing in English and silently un-translates the surface for the reader it was written for",
+    find: '      {my}\n      {echo === "inline" && " · "}',
+    replace: '      {echo === "inline" && " · "}',
+  },
+  {
+    id: "chrome/outage-twin-never-reached",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — the ONE staff sentence with an authored Burmese twin, shown when a write fails mid-service. `staffGate` returns it as a plain English string from 27 arms, so the swap happens at the render site or nowhere; skip it and the tablet tells a Burmese-reading cook in English that nothing was saved",
+    find: '  if (lang === "my" && error === STAFF_WRITE_OUTAGE)',
+    replace: "  if (false)",
+  },
+  {
+    id: "chrome/param-typeset-as-burmese",
+    file: "apps/qr/components/staff/Chrome.tsx",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 — a Latin value interpolated into a Burmese sentence (a dish name, a table number, a money figure) must be marked lang=en, or it is typeset in Padauk AND loses the overflow-wrap reset that keeps `$42.10` from breaking mid-amount",
+    find: "    return HAS_LATIN.test(value) ? (",
+    replace: "    return false ? (",
+  },
+  {
+    id: "staff-labels/line-label-uses-english-name",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "lib/staff-labels.test.ts",
+    why: "P2 — WCAG 2.5.3 on the tap Mom makes most. The visible label is the catalog Burmese; build the accessible name from the English snapshot and the button reads ပြီးပြီ while announcing something the screen never showed. This is the deferral `KdsBoard.tsx` recorded in P1 and this slice closes",
+    find: '  return lang === "my" && nameMy !== null ? nameMy : name;',
+    replace: "  return name;",
+  },
+  {
+    id: "staff-outage/frozen-copy-ignores-lang",
+    file: "apps/qr/lib/staff-outage.ts",
+    suite: "lib/staff-outage.test.ts",
+    why: "P2 — the sentence five boards show when the ordering system is unreachable, and the one that tells the floor to fall back to paper. Ignore `lang` and it stays English on a Burmese tablet, in the middle of the outage it exists to explain",
+    find: '  const tail = escalated ? ts(lang, "out.tail.paper") : ts(lang, "out.tail.reconnecting");',
+    replace:
+      '  const tail = escalated ? ts("en", "out.tail.paper") : ts("en", "out.tail.reconnecting");',
+  },
+  {
+    id: "board-poll/reason-dropped",
+    file: "apps/qr/lib/board-poll.ts",
+    suite: "lib/board-poll.test.ts",
+    why: "P2 — `message` is the SERVER's English sentence and a Burmese wall TV cannot translate a string at runtime. The reason discriminator is what lets the screen render its own copy; drop it and the board is stuck showing English to a Burmese room, or inventing a sentence for a refusal it cannot name",
+    find: '    return { kind: "verdict", reason: expected, message };',
+    replace: '    return { kind: "verdict", reason: "denied", message };',
   },
   {
     id: "promo/decline-keeps-the-grant",

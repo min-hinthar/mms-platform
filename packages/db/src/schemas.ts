@@ -267,6 +267,16 @@ export const provisionStaffInput = z.object({
   displayName: z.string().trim().min(1).max(80),
 });
 
+/**
+ * setStaffLang (P2) — which language this DEVICE's staff console speaks. Deliberately the whole
+ * validation: the value carries no authority (it picks between two translations of the same words),
+ * so the action that writes it is ungated by design — see `lib/staff-lang-actions.ts` for why a
+ * `staffGate` here would kill the control on the login, lock, board and outage screens.
+ */
+export const staffLangInput = z.object({
+  lang: z.enum(["en", "my"]),
+});
+
 /** setStaffActive (S1.1a) — an owner offboards/reinstates a staff member (never deletes the audit
  *  trail; flips `active`, which is_staff/is_staff_at_least gate on). Owner-gated server-side. */
 export const setStaffActiveInput = z.object({
@@ -689,3 +699,4 @@ export type GrocerySearchInput = z.infer<typeof grocerySearchInput>;
 export type CartViewInput = z.infer<typeof cartViewInput>;
 export type ReleaseAttemptInput = z.infer<typeof releaseAttemptInput>;
 export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
+export type StaffLangInput = z.infer<typeof staffLangInput>;

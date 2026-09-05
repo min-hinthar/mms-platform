@@ -15,6 +15,7 @@ import { EmptyState } from "@mms/ui";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const REASON_LABEL: Record<string, string> = {
@@ -39,6 +40,8 @@ export function ApprovalsBoard({
   initial: PendingApproval[];
   approvers: Approver[];
 }) {
+  // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
+  const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   const [serverNow] = useState(() => new Date().toISOString());
   // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
@@ -114,8 +117,12 @@ export function ApprovalsBoard({
         >
           Open requests
         </h2>
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
@@ -123,7 +130,7 @@ export function ApprovalsBoard({
           }}
         >
           {degraded
-            ? frozenBoardCopy(asOfIso, nowMs - degraded.since, "this list", "unknown")
+            ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", "unknown")
             : count === 0
               ? "All clear"
               : `${count} waiting`}

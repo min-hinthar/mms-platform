@@ -6,6 +6,8 @@ import { requestApproval } from "@/lib/approvals";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
+import { OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -69,6 +71,7 @@ export function LossActionSheet({
   const [stepUp, setStepUp] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const { setLockLeft, locked, lockCopy } = useLockout();
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
@@ -383,7 +386,9 @@ export function LossActionSheet({
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
           {(lockCopy ?? msg) && (
             <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-              {lockCopy ?? msg}
+              {/* P2 — the ONE staff sentence with an authored Burmese twin. Everything else this
+                  region shows (a lockout countdown, a PIN failure) stays English until P2c. */}
+              <OutageText lang={lang} error={lockCopy ?? msg ?? ""} />
             </span>
           )}
         </p>

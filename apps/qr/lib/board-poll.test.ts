@@ -40,6 +40,7 @@ describe("readBoardRefusal — only a KNOWN device refusal is a verdict", () => 
   it("a 401 NAMING our denial is a verdict", () => {
     expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
       kind: "verdict",
+      reason: "denied",
       message: "Unauthorized",
     });
   });
@@ -58,7 +59,7 @@ describe("readBoardRefusal — only a KNOWN device refusal is a verdict", () => 
   it("only `not_configured` makes a 503 a verdict", () => {
     expect(
       readBoardRefusal(503, { reason: "not_configured", error: "set BOARD_DEVICE_TOKEN" }),
-    ).toEqual({ kind: "verdict", message: "set BOARD_DEVICE_TOKEN" });
+    ).toEqual({ kind: "verdict", reason: "not_configured", message: "set BOARD_DEVICE_TOKEN" });
   });
 });
 
@@ -87,16 +88,32 @@ describe("readBoardRefusal — a verdict must actually BE one", () => {
     // staff-signed-in install this slice exists to enable.
     expect(readBoardRefusal(status, { reason, error })).toEqual({
       kind: "verdict",
+      reason,
       message: error,
     });
+  });
+
+  it("P2 — the reason carried forward is the MATCHED one, so a Burmese board can key its own copy", () => {
+    // `message` is the SERVER's English sentence; a TV that speaks Burmese cannot translate a
+    // string, so it needs the discriminator. The value comes from DEVICE_REFUSALS, not from the
+    // wire, so a body cannot inject a reason this client never matched.
+    const denied = readBoardRefusal(401, { reason: "denied", error: "Unauthorized" });
+    expect(denied.kind === "verdict" && denied.reason).toBe("denied");
+    const unset = readBoardRefusal(503, { reason: "not_configured" });
+    expect(unset.kind === "verdict" && unset.reason).toBe("not_configured");
   });
 
   it("a verdict with no sentence still resolves — message is null, never undefined", () => {
     expect(readBoardRefusal(401, { reason: "denied", error: "Unauthorized" })).toEqual({
       kind: "verdict",
+      reason: "denied",
       message: "Unauthorized",
     });
-    expect(readBoardRefusal(401, { reason: "denied" })).toEqual({ kind: "verdict", message: null });
+    expect(readBoardRefusal(401, { reason: "denied" })).toEqual({
+      kind: "verdict",
+      reason: "denied",
+      message: null,
+    });
   });
 });
 

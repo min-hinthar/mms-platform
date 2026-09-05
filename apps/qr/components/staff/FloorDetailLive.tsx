@@ -17,6 +17,7 @@ import { TerminalSettleButton, TerminalCollectPanel, type TerminalCollect } from
 import { MergeTableButton } from "./MergeTableButton";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const MODE_LABEL: Record<TableDetail["mode"], string> = {
@@ -45,6 +46,8 @@ export function FloorDetailLive({
   terminalReady?: boolean;
 }) {
   const router = useRouter();
+  // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
+  const lang = useStaffLang();
   const [detail, setDetail] = useState<TableDetail>(initial);
   const [writeError, setWriteError] = useState<string | null>(null);
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard). Only a genuine
@@ -398,8 +401,12 @@ export function FloorDetailLive({
         </p>
         {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={!writeError && degraded ? lang : undefined}
           style={{
             ...muted,
             marginTop: 6,
@@ -411,9 +418,10 @@ export function FloorDetailLive({
           {writeError ??
             (degraded
               ? frozenBoardCopy(
+                  lang,
                   detail.serverNow,
                   nowMs - degraded.since,
-                  "this order",
+                  "what.order",
                   degraded.cause,
                 )
               : null)}

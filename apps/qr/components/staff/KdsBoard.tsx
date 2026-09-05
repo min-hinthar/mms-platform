@@ -1,5 +1,13 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
 import { bumpLine, bumpTicket, fireTicketNow, getKitchenQueue, recallTicket } from "@/lib/kitchen";
 import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
@@ -16,6 +24,13 @@ import type {
   KitchenTicket,
 } from "@/lib/kitchen-types";
 import { EmptyState, Icon } from "@mms/ui";
+import { useStaffLang } from "./StaffLangProvider";
+import { StaffLangSwitch } from "./StaffLangSwitch";
+import { Chrome } from "./Chrome";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { plural, tf } from "@/lib/i18n/fill";
+import { al, sx } from "@/lib/staff-labels";
+import type { StaffLang } from "@/lib/staff-lang";
 
 /**
  * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
@@ -37,24 +52,50 @@ const RECALL_MS = 120_000; // mirror of the SQL 2-minute recall window (the serv
 
 type RecallEntry = { cartId: string; label: string; lineIds: string[]; expiresAt: number };
 
-const STATIONS: { key: "all" | KitchenStation; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "wok", label: "Wok" },
-  { key: "cold", label: "Cold" },
-  { key: "drinks", label: "Drinks" },
+// P2 — keys, not labels. The four station names stay LATIN in both tongues by owner decision
+// (2026-09-05): they are set-once English kitchen jargon, and a wrong Burmese word here HIDES
+// TICKETS. The dictionary carries them as Latin-by-design with that reason attached.
+const STATIONS: { key: "all" | KitchenStation; k: StaffKey }[] = [
+  { key: "all", k: "kds.station.all" },
+  { key: "wok", k: "kds.station.wok" },
+  { key: "cold", k: "kds.station.cold" },
+  { key: "drinks", k: "kds.station.drinks" },
 ];
 
-/** The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code). */
-function ticketId(t: KitchenTicket): { main: string; sub: string | null } {
-  if (t.channel === "dinein") return { main: `Table ${t.tableNumber ?? t.label}`, sub: null };
+/**
+ * The ticket's call-out identity: dine-in = the table; pickup/scango = first name (+ short code).
+ *
+ * Returns BOTH forms from one derivation, because they are needed in two shapes and must never
+ * drift: `main` is the flat string an accessible name and a recall entry carry, `node` is what the
+ * strip renders. Only the dine-in arm is CHROME — "Table {id}" is our sentence and speaks the
+ * device's language, so its node goes through `Chrome` (which marks the Burmese and wraps the Latin
+ * table number `lang="en"`, per that module's rule 3). A guest's name and a `#CODE` are DATA: they
+ * are printed on a slip in Latin and are rendered unmarked in both tongues, because marking them
+ * `lang="my"` would claim a name is Burmese and let `overflow-wrap: anywhere` break a code.
+ *
+ * The table NUMBER stays Latin in both tongues either way — it is read off the physical tent.
+ */
+function ticketId(
+  lang: StaffLang,
+  t: KitchenTicket,
+): { main: string; node: ReactNode; sub: string | null } {
+  if (t.channel === "dinein") {
+    const vars = { id: t.tableNumber ?? t.label };
+    return {
+      main: tf(lang, "kds.table", vars),
+      node: <Chrome lang={lang} k="kds.table" vars={vars} />,
+      sub: null,
+    };
+  }
   const code = t.shortCode ? `#${t.shortCode}` : t.label;
-  return t.customerName ? { main: t.customerName, sub: code } : { main: code, sub: null };
+  const main = t.customerName ?? code;
+  return { main, node: main, sub: t.customerName ? code : null };
 }
 
-const CHANNEL_LABEL: Record<KitchenTicket["channel"], string> = {
-  dinein: "Dine-in",
-  pickup: "Pickup",
-  scango: "To-go",
+const CHANNEL_KEY: Record<KitchenTicket["channel"], StaffKey> = {
+  dinein: "kds.channel.dinein",
+  pickup: "kds.channel.pickup",
+  scango: "kds.channel.togo",
 };
 
 function fmtElapsed(ms: number): string {
@@ -78,6 +119,9 @@ function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "am
 }
 
 export function KdsBoard({ initial }: { initial: KitchenQueue }) {
+  // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
+  // thing on this board to speak it; the rest of the chrome follows in its own commit.
+  const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
   // W10b — ONE degraded state carrying WHEN it started and WHY. `outage` = the server told us it
@@ -362,10 +406,13 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     (entry: RecallEntry, label: string) => {
       setRecall((prev) => [entry, ...prev].slice(0, 5)); // last 5 (SPEC-KDS §4)
       setUndo({ ...entry, expiresAt: Date.now() + UNDO_MS });
-      setNotice(`${label} bumped — undo available.`);
+      setNotice(tf(lang, "kds.live.bumped", { x: label }));
       void refresh();
     },
-    [refresh],
+    // `lang` is a REAL dependency, not a lint appeasement: `refresh` is permanently stable, so a
+    // deps list of [refresh] freezes this closure at its first render and the live region keeps
+    // announcing the bump in whichever language the console started in, for the rest of the shift.
+    [lang, refresh],
   );
 
   const [recallPending, startRecall] = useTransition();
@@ -376,7 +423,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         const res = await recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds });
         if (!res.ok) setErr(res.error);
         else {
-          setNotice(`${entry.label} restored to the board.`);
+          setNotice(tf(lang, "kds.live.restored", { x: entry.label }));
           // Filter by CART, not object identity — the undo toast holds a spread COPY of the rail's
           // entry, so an identity filter would leave a dead rail button behind (adversarial LOW-1).
           setRecall((prev) => prev.filter((r) => r.cartId !== entry.cartId));
@@ -384,7 +431,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           await refresh();
         }
       } catch {
-        setErr(`Couldn’t recall ${entry.label} — try again.`);
+        setErr(tf(lang, "kds.err.recall", { x: entry.label }));
       }
     });
   };
@@ -396,7 +443,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     <section className="kds-root dark" aria-labelledby="kds-h" onFocusCapture={markFocus}>
       <header className="kds-head">
         <h1 id="kds-h" ref={headingRef} tabIndex={-1} className="kds-title">
-          Kitchen
+          <Chrome lang={lang} k="kds.title" echo="stack" />
         </h1>
         <a
           href="/staff"
@@ -410,25 +457,25 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             alignItems: "center",
           }}
         >
-          ← Floor
+          <Chrome lang={lang} k="kds.back" />
         </a>
 
-        <div className="kds-stats" aria-label="Service stats">
+        <div className="kds-stats" aria-label={sx(lang, "kds.a11y.stats")}>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count}</b>
-            <span>Open</span>
+            <span lang={lang}>{ts(lang, "kds.stat.open")}</span>
           </p>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{count === 0 ? "—" : fmtElapsed(oldestMs)}</b>
-            <span>Oldest</span>
+            <span lang={lang}>{ts(lang, "kds.stat.oldest")}</span>
           </p>
           <p className={`kds-stat${lateCount > 0 ? " kds-stat-late" : ""}`} style={{ margin: 0 }}>
             <b>{lateCount}</b>
-            <span>Late</span>
+            <span lang={lang}>{ts(lang, "kds.stat.late")}</span>
           </p>
           <p className="kds-stat" style={{ margin: 0 }}>
             <b>{snap.stats.servedToday === 0 ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
-            <span>Avg today</span>
+            <span lang={lang}>{ts(lang, "kds.stat.avg")}</span>
           </p>
         </div>
 
@@ -437,6 +484,9 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
             aria-live=polite (the codebase idiom). */}
         <p
           role="status"
+          // The region's whole content is chrome in the device language (never a pair — a bilingual
+          // live region announces everything twice), so the MARK belongs on the region itself.
+          lang={lang}
           style={{
             margin: 0,
             fontSize: "var(--kfs-meta)",
@@ -450,15 +500,26 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               been waiting that long — that's the truth, not fake liveness. */}
           {err ??
             (degraded
-              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the queue", degraded.cause)
+              ? frozenBoardCopy(
+                  lang,
+                  snap.serverNow,
+                  nowMs - degraded.since,
+                  "what.queue",
+                  degraded.cause,
+                )
               : (notice ??
                 (count === 0
-                  ? "All clear"
-                  : `${count} open ${count === 1 ? "ticket" : "tickets"}${heldCount > 0 ? ` · ${heldCount} held` : ""}`)))}
+                  ? ts(lang, "kds.allclear")
+                  : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
+                    (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : ""))))}
         </p>
 
         <div className="kds-controls">
-          <div role="group" aria-label="Station filter" style={{ display: "flex", gap: 8 }}>
+          <div
+            role="group"
+            aria-label={sx(lang, "kds.a11y.stationFilter")}
+            style={{ display: "flex", gap: 8 }}
+          >
             {STATIONS.map((s) => (
               <button
                 key={s.key}
@@ -467,12 +528,12 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                 aria-pressed={station === s.key}
                 onClick={() => pickStation(s.key)}
               >
-                {s.label}
+                <Chrome lang={lang} k={s.k} />
               </button>
             ))}
           </div>
           <button type="button" className="kds-chip" aria-pressed={railOpen} onClick={toggleRail}>
-            All-day
+            <Chrome lang={lang} k="kds.allday.chip" />
           </button>
           {soundOn ? (
             <label
@@ -484,7 +545,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               }}
             >
               <Icon name="volume" size={18} />
-              <span className="sr-only">Chime volume</span>
+              <span className="sr-only">{sx(lang, "kds.a11y.volume")}</span>
               <input
                 type="range"
                 className="kds-vol"
@@ -498,16 +559,23 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           ) : (
             // Browsers gate audio behind a gesture — this tap at shift start IS the arming (O-C).
             <button type="button" className="kds-chip" onClick={enableSound}>
-              Enable sound
+              <Chrome lang={lang} k="kds.sound.enable" />
             </button>
           )}
           {/* Offscreen-arrival pill: only when the live tail (where arrivals render) is NOT the page
               being watched — never for held-card overflow alone (MED-1). */}
           {newCount > 0 && safePage !== liveTailPage && (
             <button type="button" className="kds-new-pill" onClick={jumpToNew}>
-              {newCount} new →
+              <Chrome lang={lang} k="kds.new" vars={{ n: newCount }} />
             </button>
           )}
+          {/* P2 — last in the control row, after the station chips and the sound control. Mounted
+              per surface rather than by the layout: a layout-owned strip would steal height from
+              `.kds-root { min-height: 100dvh }`, which is exactly what P4 measures on the real
+              15.6" tablet ("count how many tickets scroll"). `check-staff-lang.mjs` rule 4 holds
+              THIS surface and `/staff/login` to that mount and reddens if either loses it; the
+              other 13 staff pages are on its ratchet, un-converted, and PR B takes them. */}
+          <StaffLangSwitch lang={lang} />
         </div>
       </header>
 
@@ -518,16 +586,12 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                 arrivals we can't deliver ("tickets appear the moment an order is sent" is false
                 while we can't hear about orders at all). */}
             <EmptyState
-              title={degraded ? "Nothing on the line as of the last update" : "Nothing on the line"}
-              subtitle={
-                degraded
-                  ? "New tickets won’t land here until this board is updating again. Take orders on paper — nothing already sent is lost."
-                  : "Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time."
-              }
+              title={<Chrome lang={lang} k={degraded ? "kds.empty.degraded" : "kds.empty"} />}
+              subtitle={<Chrome lang={lang} k={degraded ? "kds.empty.outage" : "kds.empty.hint"} />}
             />
           </div>
         ) : (
-          <ul className="kds-grid" role="list" aria-label="Open kitchen tickets">
+          <ul className="kds-grid" role="list" aria-label={sx(lang, "kds.a11y.tickets")}>
             {visible.map((t) => (
               <TicketCard
                 key={t.cartId}
@@ -544,11 +608,13 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         )}
 
         {railOpen && (
-          <aside className="kds-rail" aria-label="All-day counts">
-            <h3>All day</h3>
+          <aside className="kds-rail" aria-label={sx(lang, "kds.a11y.allDay")}>
+            <h3>
+              <Chrome lang={lang} k="kds.allday.title" echo="stack" />
+            </h3>
             {allDay.length === 0 ? (
               <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--t2)" }}>
-                Nothing live.
+                <Chrome lang={lang} k="kds.allday.empty" />
               </p>
             ) : (
               <ul role="list">
@@ -569,7 +635,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       {(pageCount > 1 || recall.length > 0) && (
         <footer style={{ display: "grid", gap: 8 }}>
           {pageCount > 1 && (
-            <nav className="kds-pager" aria-label="Ticket pages">
+            <nav className="kds-pager" aria-label={sx(lang, "kds.a11y.pager")}>
               <button
                 type="button"
                 className="kds-page-btn"
@@ -579,7 +645,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   if (p === liveTailPage) setNewCount(0); // stepping back onto the live tail counts too
                 }}
                 disabled={safePage === 0}
-                aria-label="Previous page"
+                aria-label={sx(lang, "kds.a11y.prevPage")}
               >
                 ‹
               </button>
@@ -588,8 +654,8 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   <span key={i} className="kds-dot" data-current={i === safePage} />
                 ))}
               </span>
-              <span className="sr-only">
-                Page {safePage + 1} of {pageCount}
+              <span className="sr-only" lang={lang}>
+                {tf(lang, "kds.page", { n: safePage + 1, total: pageCount })}
               </span>
               <button
                 type="button"
@@ -601,16 +667,20 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   if (p === liveTailPage) setNewCount(0);
                 }}
                 disabled={safePage >= pageCount - 1}
-                aria-label="Next page"
+                aria-label={sx(lang, "kds.a11y.nextPage")}
               >
                 ›
               </button>
-              {moreAfter > 0 && <span className="kds-more">+{moreAfter} more</span>}
+              {moreAfter > 0 && (
+                <span className="kds-more">
+                  <Chrome lang={lang} k="kds.more" vars={{ n: moreAfter }} />
+                </span>
+              )}
             </nav>
           )}
 
           {recall.length > 0 && (
-            <div className="kds-recall" role="group" aria-label="Recall a bumped ticket">
+            <div className="kds-recall" role="group" aria-label={sx(lang, "kds.a11y.recall")}>
               <span
                 style={{
                   fontSize: "var(--kfs-meta)",
@@ -621,7 +691,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   flex: "none",
                 }}
               >
-                Recall
+                <Chrome lang={lang} k="kds.recall" />
               </span>
               {recall.map((r) => (
                 <button
@@ -630,6 +700,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
                   className="kds-recall-btn"
                   onClick={() => doRecall(r)}
                   disabled={recallPending}
+                  aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
                   <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
                   {r.label}
@@ -642,9 +713,16 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
       {undo && (
         <div className="kds-undo">
-          <span>{undo.label} bumped</span>
-          <button type="button" onClick={() => doRecall(undo)} disabled={recallPending}>
-            Undo
+          <span>
+            <Chrome lang={lang} k="kds.undo.bumped" vars={{ x: undo.label }} />
+          </span>
+          <button
+            type="button"
+            onClick={() => doRecall(undo)}
+            disabled={recallPending}
+            aria-label={al(lang, { kind: "undo", label: undo.label }).aria}
+          >
+            <Chrome lang={lang} k="kds.undo" />
           </button>
         </div>
       )}
@@ -669,8 +747,9 @@ function TicketCard({
   onError: (msg: string | null) => void;
   onRefresh: () => Promise<void> | void;
 }) {
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
-  const id = ticketId(ticket);
+  const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
   const level = ticket.held ? "ok" : urgency(ticket, ageMs, thresholds);
   const stripClass =
@@ -693,7 +772,7 @@ function TicketCard({
             id.main,
           );
       } catch {
-        onError(`Couldn’t bump ${id.main} — try again.`);
+        onError(tf(lang, "kds.err.bump", { x: id.main }));
       }
     });
   };
@@ -706,7 +785,7 @@ function TicketCard({
         if (!res.ok) onError(res.error);
         else await onRefresh();
       } catch {
-        onError(`Couldn’t fire ${id.main} — try again.`);
+        onError(tf(lang, "kds.err.fire", { x: id.main }));
       }
     });
   };
@@ -716,13 +795,13 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${CHANNEL_LABEL[ticket.channel]}${ticket.held ? ", held" : ""}`}
+      aria-label={`${id.main} — ${ts(lang, CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
       <header className={stripClass}>
         <span className="kds-id">
-          {id.main}
+          {id.node}
           {id.sub && <small>{id.sub}</small>}
         </span>
         <span className="kds-strip-side">
@@ -734,15 +813,19 @@ function TicketCard({
               ? `fires at ${fmtSlot(ticket.firedAt)}`
               : `${Math.floor(ageMs / 60000)} minutes ${Math.floor((ageMs % 60000) / 1000)} seconds elapsed`}
           </span>
-          <span className="kds-badge">
-            {ticket.held ? "Held · " : ""}
-            {CHANNEL_LABEL[ticket.channel]}
+          {/* Class C — a badge this size cannot legibly stack two scripts, so it speaks the
+              device's language alone. */}
+          <span className="kds-badge" lang={lang}>
+            {ticket.held ? ts(lang, "kds.held") : ""}
+            {ts(lang, CHANNEL_KEY[ticket.channel])}
           </span>
         </span>
       </header>
 
       {ticket.held && ticket.pickupSlot && (
-        <p className="kds-slot">Pickup {fmtSlot(ticket.pickupSlot)} — fires automatically</p>
+        <p className="kds-slot">
+          <Chrome lang={lang} k="kds.slot" vars={{ t: fmtSlot(ticket.pickupSlot) }} echo="stack" />
+        </p>
       )}
 
       <ul className="kds-lines" role="list">
@@ -764,7 +847,7 @@ function TicketCard({
           onClick={fireNow}
           disabled={pending}
         >
-          {pending ? "…" : "Fire now"}
+          {pending ? "…" : <Chrome lang={lang} k="kds.fire" echo="stack" />}
         </button>
       ) : (
         <button
@@ -772,13 +855,13 @@ function TicketCard({
           className="kds-bump"
           onClick={bumpAll}
           disabled={pending}
-          aria-label={`Bump ${id.main} — all ${ticket.lines.length} items done`}
+          aria-label={al(lang, { kind: "bump", id: id.main, items: ticket.lines.length }).aria}
         >
           {pending ? (
             "…"
           ) : (
             <>
-              BUMP{" "}
+              <Chrome lang={lang} k="kds.bump" echo="stack" />{" "}
               <Icon name="check" size={22} strokeWidth={2.25} style={{ verticalAlign: "-3px" }} />
             </>
           )}
@@ -799,6 +882,7 @@ function KdsLineRow({
   onError: (msg: string | null) => void;
   onRefresh: () => Promise<void> | void;
 }) {
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
   const [eightySixing, setEightySixing] = useState(false);
   const to = line.state === "fired" ? "in_progress" : "served";
@@ -824,7 +908,7 @@ function KdsLineRow({
       if (!res.ok) onError(res.error);
       else await onRefresh();
     } catch {
-      onError(`Couldn’t take ${line.name} off the menu — try again.`);
+      onError(tf(lang, "kds.err.86", { x: line.name }));
     } finally {
       setEightySixing(false);
     }
@@ -841,7 +925,7 @@ function KdsLineRow({
         else await onRefresh();
       } catch {
         // S2-audit B3: a thrown action must not silently no-op the tap — surface it on the board region.
-        onError(`Couldn’t update ${line.name} — try again.`);
+        onError(tf(lang, "kds.err.line", { x: line.name }));
       }
     });
   };
@@ -856,23 +940,33 @@ function KdsLineRow({
         data-state={line.state}
         onClick={tap}
         disabled={pending || held}
-        aria-label={`${line.state === "fired" ? "Start" : "Done"} — ${line.qty} ${line.name}${line.modifiers.length ? `, ${line.modifiers.join(", ")}` : ""}`}
+        aria-label={
+          al(lang, {
+            kind: "line",
+            done: line.state !== "fired",
+            qty: line.qty,
+            name: line.name,
+            nameMy: line.nameMy,
+            modifiers: line.modifiers,
+          }).aria
+        }
       >
         <span className="kds-qty" aria-hidden="true">
           {line.qty}
         </span>
         <span className="kds-line-main">
           {/* P1 — the line Mom reads a hundred times a night: Burmese first when the catalog has it,
-              English beneath (`TicketText.tsx`, pinned by its own jsdom suite). The aria-label above
-              stays English on purpose: a flat string carries no lang, and an English TTS voice
-              garbles Myanmar codepoints — P2 owns the moment the chrome speaks Burmese; the visible
-              English echo keeps WCAG 2.5.3 meanwhile. */}
+              English beneath (`TicketText.tsx`, pinned by its own jsdom suite). P2 — the aria-label
+              above now follows it: `lib/staff-labels.ts` builds the name from the SAME string this
+              renders, so the accessible name contains the visible label in whichever language is on
+              screen (WCAG 2.5.3, the deferral this comment used to record). The name is flat and
+              therefore carries no lang; that trade is argued in `staff-labels.ts`. */}
           <TicketLineText line={line} />
           {(line.fulfillment === "togo" || line.state === "in_progress") && (
-            <p className="kds-line-tag">
-              {line.fulfillment === "togo" ? "Bag it" : ""}
+            <p className="kds-line-tag" lang={lang}>
+              {line.fulfillment === "togo" ? ts(lang, "kds.line.bagit") : ""}
               {line.fulfillment === "togo" && line.state === "in_progress" ? " · " : ""}
-              {line.state === "in_progress" ? "Cooking" : ""}
+              {line.state === "in_progress" ? ts(lang, "kds.line.cooking") : ""}
             </p>
           )}
         </span>
@@ -890,16 +984,18 @@ function KdsLineRow({
           // Already off. A STATEMENT, not a disabled button: there is no action left here, and the
           // put-back lives on /staff/menu where the manager can see the whole menu at once. Saying so
           // stops a second cook walking over to 86 a dish that is already 86'd.
-          <p className="kds-line-86-done">Off the menu</p>
+          <p className="kds-line-86-done">
+            <Chrome lang={lang} k="kds.86.done" echo="stack" />
+          </p>
         ) : (
           <button
             type="button"
             className="kds-line-86"
             disabled={eightySixing}
             onClick={() => void flip(line.menuItemId!)}
-            aria-label={`Mark ${line.name} sold out — it comes off the menu until someone puts it back`}
+            aria-label={al(lang, { kind: "eighty6", name: line.name, nameMy: line.nameMy }).aria}
           >
-            {eightySixing ? "…" : "86 this dish"}
+            {eightySixing ? "…" : <Chrome lang={lang} k="kds.86" echo="stack" />}
           </button>
         ))}
       {line.notes && <p className="kds-note">{line.notes}</p>}

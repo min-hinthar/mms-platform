@@ -4,6 +4,82 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
+
+**The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese
+first.** P1 gave them the ticket; this gives them the chrome around it. A staff-DEVICE locale
+(`mms_staff_lang`) decides which language the console speaks, set once per tablet and never asked
+again — absent means Burmese, so nobody has to find the control to be understood, only to leave it.
+
+**Three decisions carry their own guard, and each was watched failing first.**
+
+_The writer is UNGATED, deliberately._ `staffGate` makes a live auth round trip that answers
+`unavailable` mid-outage and refuses anonymous callers — so gating the language control would remove
+it from `/staff/login` (nobody signed in yet), `/staff/lock`, `/board` (a device token, no staff
+session) and the outage shell: every screen where it matters most. What is written carries no
+authority; a two-value Zod enum is the whole validation.
+
+_`path: "/"`, not `/staff`._ `/board` is not under `/staff`, and the lock cookie next door IS
+path-scoped — copying that instinct would have starved the wall TV while every `/staff` page kept
+working, a failure with no symptom anywhere a `/staff` test would look.
+
+_The staff root stamps `data-lang`, never `lang`._ The global `[lang="my"]` rule sets
+`overflow-wrap: anywhere` AND `line-height`, both INHERITING, while `[lang="en"]` resets only the
+wrap — so a Burmese root re-leads every Latin run beneath it and lets `$42.10` break mid-amount, with
+no opt-out. Burmese is marked per span instead. **WCAG 3.1.1 is therefore knowingly unsatisfied at
+`lang=my` and 3.1.2 holds at every span** — filed as P2d with an audit as its precondition, and the
+`data-` attribute exists to make the wrong "fix" inconvenient.
+
+**Owner decisions taken before any code was written** (2026-09-05): the station chips
+(All/Wok/Cold/Drinks) stay **Latin in both tongues** — a wrong Burmese word there hides tickets, and
+they are set-once jargon; **Burmese numerals in prose counts** ("အော်ဒါ ၃ ခု") with money, clock
+times, table numbers and pickup codes staying Latin; and the English echo on the important things
+only — headings, action buttons, outage sentences, the 86 control and money labels, but not 44px
+chips (two scripts cannot legibly stack in one) or live regions (a bilingual announcement says
+everything twice).
+
+**The dictionary is STANDALONE, not spread into `DICT`** — `lib/i18n/index.ts` is imported by CLIENT
+diner components and `DICT` is one dynamically-indexed literal, so nothing tree-shakes and a spread
+would ship every staff Burmese string in a guest's bundle. Coverage is paid for rather than given up.
+
+**`frozenBoardCopy` had no test at all before this.** It is the sentence five boards show when the
+ordering system is unreachable — the copy that tells the floor to fall back to paper — and its
+English is now pinned EXACTLY in all four head/tail combinations, so making it bilingual could not
+quietly reword what English-reading staff rely on. Its noun is a dictionary key rather than a free
+string, which is what had made all five call sites untranslatable. The Burmese arm is pinned
+structurally (Myanmar script, the right noun, a LATIN clock, the same threshold), never to a
+literal — every Burmese value is a K15 draft and a native-check correction must not redden a suite.
+
+`check:staff-lang` joins the CI fast lane with **five** parsed rules: the reader modules are
+unreachable from every non-staff route root **transitively** (a two-hop import through a shared
+component is the realistic break, and a membership check would pass it); the cookie NAME literal
+lives in exactly one file — which catches the inline `cookies().get("…")` that has no import to walk
+— **and so does the exported constant**, since `staff-lang.ts` is pure and must stay importable, so
+`import { STAFF_LANG_COOKIE }` plus a `cookies().get()` would have slipped past both; no hand-written
+literal `aria-label` survives on a staff surface; every staff page reaches a live `<StaffLangSwitch>`
+or is named on a shrink-only ratchet; and **every dictionary string reaching the DOM carries a `lang`
+mark**.
+
+**The translation shipped ahead of the typography, and the pre-merge audit is what caught it.** The
+console's chrome went through `ts(lang, …)` into bare JSX children, and those elements —
+`.kds-stat span`, `.kds-badge`, `.kds-line-tag`, the board's live region — declare
+`letter-spacing: 0.07em` and `text-transform: uppercase` and **no `font-family`**, so a Burmese
+console rendered Myanmar in Hanken, tracked apart from its own diacritics, at Latin leading. The same
+omission had been live on `/board` since W3e (P2f). One rule closes both —
+`.stx-root [lang="my"], .orb-root [lang="my"]`, at (0,2,0) because `.chrome-my` alone (0,1,0) LOSES
+to `.kds-badge` and to `.kds-stat span` — and **rule 5** is what keeps the marks it needs from being
+dropped again. Four more defects came out of the same pass: the `/board` heading nested its English
+echo INSIDE the `lang="my"` element (the exact rule `Chrome` exists to enforce, broken one file
+over); `onBumped` captured `lang` in a `useCallback` whose only dependency was permanently stable, so
+the live region announced the old language for the rest of the shift; the language buttons were
+`disabled` while pending, which drops focus in a real browser and which jsdom cannot reproduce — the
+suite's focus assertion had passed the whole time; and `strings.test.ts` never actually walked the
+`STAFF` dictionary, so 104 authored Burmese strings had no parity, script, glossary or numeral check
+while a docblock said they did. That last one is the shape worth remembering: **the coverage was
+asserted in prose and never wired.** It now walks every module, with four further rules — key
+namespace, `{slot}` parity across tongues, plural pairs both ways, and Latin-by-design entries that
+must name a real key AND still be Latin — each induced red before shipping.
+
 ### The kitchen ticket reads Burmese first (2026-09-05 · pilot P1)
 
 **The line Mom reads a hundred times a night.** Every KDS and expo line now carries the catalog's

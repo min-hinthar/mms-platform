@@ -7207,6 +7207,97 @@ html[data-seen-surface] .mms-stagger {
    default: glare + burn-in + the aging colors pop), so every color below reads its Night value.
    ONE color dimension = urgency on the header strip (green → amber → red, thresholds from
    mms_kds_config); ONE symbolic dimension = the channel badge. Body contrast never changes with age. */
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   P2 — the STAFF CHROME layer. Everything a staff surface renders in two tongues goes through
+   `components/staff/Chrome.tsx`, which emits exactly these three classes, plus the language control.
+
+   THE ROOT CARRIES `data-lang`, NOT `lang` — `StaffLangProvider` explains why at length, and the
+   short version is that the global `[lang="my"]` rule sets `overflow-wrap: anywhere` AND
+   `line-height`, both INHERITING, while `[lang="en"]` resets only the wrap. A Burmese root would
+   re-lead every Latin run on the console and let `$42.10` break mid-amount, with no way out. So the
+   root is a styling hook only, and Burmese is marked on the spans that actually hold Burmese.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+.stx-root {
+  display: contents; /* a pure provider wrapper — it must not become a layout box */
+}
+/* The Burmese half of a chrome pair. The face is set HERE because the global [lang="my"] rule
+   deliberately sets none, and `font-synthesis: none` for the same reason it is on every Padauk rule
+   in this sheet. Weight 700 is the heaviest cut Padauk ships — NEVER 800, which would silently match
+   the same 700 face. */
+.chrome-my {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  line-height: var(--lh-my);
+  letter-spacing: normal;
+}
+/* Interleaved English inside a Burmese run — a dish name, a table number, a money figure — goes back
+   to the body face so it reads as English rather than as Padauk's Latin pretending to be. */
+.chrome-my [lang="en"] {
+  font-family: var(--font-body);
+}
+/* The pair: Burmese leads, English follows. `stack` puts the echo on its own line; the inline
+   variant keeps both on one line with a middot between them (a TEXT node, never a flex gap). */
+.chrome-pair {
+  display: block;
+}
+.chrome-pair-inline {
+  display: inline;
+}
+.chrome-en {
+  display: block;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+}
+.chrome-pair-inline .chrome-en {
+  display: inline;
+  font-size: inherit;
+}
+/* ── the language control ────────────────────────────────────────────────────────────────────────
+   Two buttons reading as one object. The pressed state EXTENDS the console's existing selection
+   vocabulary — the declarations are lifted from `.kds-chip[aria-pressed="true"]` rather than a new
+   look invented beside it — and it animates nothing, so it joins no reduced-motion list. */
+.staff-lang {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  overflow: hidden;
+  background: var(--cd);
+}
+.staff-lang-btn {
+  min-height: 44px;
+  min-width: 76px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--tx);
+  font-size: var(--kfs-meta, var(--fs-sm));
+  font-weight: 600;
+  cursor: pointer;
+}
+.staff-lang-btn + .staff-lang-btn {
+  border-left: 1px solid var(--bd);
+}
+.staff-lang-btn[lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  letter-spacing: normal;
+}
+.staff-lang-btn[aria-pressed="true"] {
+  background: var(--ac);
+  color: var(--oa);
+}
+/* Never `:disabled` — see StaffLangSwitch's docblock: a disabled button drops focus. */
+.staff-lang-btn[aria-disabled="true"] {
+  cursor: default;
+}
+.staff-lang-err {
+  margin-left: 8px;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+}
+
 .kds-root {
   --kfs-id: 2rem; /* 32px ticket identity (table # / first name) */
   --kfs-item: 1.75rem; /* 28px item lines, weight 800 — the signage rule */
@@ -7919,6 +8010,45 @@ html[data-seen-surface] .mms-stagger {
   .orb-card-flash {
     animation: none;
   }
+}
+
+/* ── P2f — EVERY marked Burmese run on a staff surface gets the Burmese treatment ─────────────────
+   THE FIX FOR A LIVE DEFECT, not a new feature, and it is stated as ONE rule because it was three
+   separate omissions with one cause.
+
+   The app's convention is that each Burmese run's own class sets its face: the global `[lang="my"]`
+   rule (globals.css:55) deliberately declares no `font-family`, and 27 component rules in this sheet
+   declare one for their own span. The staff console never got those rules. So the KDS's chrome — the
+   stat labels, the channel badge, the bag/cooking tag, the board's live region, the all-day rail
+   heading, the bump — rendered Burmese in HANKEN, the Latin body face, under `text-transform:
+   uppercase` and `letter-spacing: 0.07em`; and the `/board` headings had done the same since W3e, on
+   the one staff screen guests read.
+
+   Three things are wrong for Myanmar in that treatment and all three are corrected here:
+   • no `font-family` leaves the run in the Latin face (and `font-synthesis: none` so a swap-window
+     fallback with no bold cut is never faux-bolded — smeared strokes close Burmese counters: ဂ ဝ စ);
+   • `letter-spacing` separates a cluster from its own diacritics;
+   • `text-transform: uppercase` is meaningless on a caseless script.
+   `--lh-my` is required for the same reason it is on `.kds-line-name`: Myanmar stacks marks above
+   AND below the base glyph, so a Latin leading clips them.
+
+   SPECIFICITY IS THE WHOLE POINT OF THE SELECTOR SHAPE. `.chrome-my` alone is (0,1,0) and LOSES to
+   `.kds-badge` (0,1,0, later in this sheet) and to `.kds-stat span` (0,1,1) outright — which is why
+   marking the runs was not enough on its own. Each arm here is (0,2,0), so it beats every one of
+   them, and `.stx-root` / `.orb-root` keep it off every diner surface. `.stx-root` is
+   `display: contents`, which removes its box but NOT its place in the DOM tree, so the descendant
+   combinator still matches. It covers the staff surfaces PR B converts, for free.
+
+   The two action sheets are the exception the arms cannot reach: `Sheet` renders through
+   `Dialog.Portal`, so `<OutageText>`'s span lands outside `.stx-root` and is styled by `.chrome-my`
+   alone — correct there, because nothing inside a sheet competes with it. */
+.stx-root [lang="my"],
+.orb-root [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  line-height: var(--lh-my);
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 /* ── W5b · Desktop rail affordances — mouse users can reach overflowing rails ─────────────────────

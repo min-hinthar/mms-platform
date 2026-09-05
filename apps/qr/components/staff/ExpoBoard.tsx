@@ -10,6 +10,7 @@ import { ExpoLineMy } from "./TicketText";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
+import { useStaffLang } from "./StaffLangProvider";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -22,6 +23,9 @@ import { EmptyState, Icon } from "@mms/ui";
  * locked console redirects honestly instead of wearing "Reconnecting…" forever.
  */
 export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
+  // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
+  // thing on this board to speak it; the rest of the chrome follows in its own commit.
+  const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   const [err, setErr] = useState<string | null>(null);
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
@@ -138,8 +142,12 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         >
           Takeaway bags
         </h2>
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={!err && degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
@@ -148,7 +156,13 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
         >
           {err ??
             (degraded
-              ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the bags", degraded.cause)
+              ? frozenBoardCopy(
+                  lang,
+                  snap.serverNow,
+                  nowMs - degraded.since,
+                  "what.bags",
+                  degraded.cause,
+                )
               : count === 0
                 ? "No bags waiting"
                 : [

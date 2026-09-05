@@ -3,6 +3,8 @@ import { useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
 import { refundLine, type StaffOrderLine } from "@/lib/refunds";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import { OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 const REASONS: [value: string, label: string][] = [
   ["unhappy", "Not happy with it"],
@@ -38,6 +40,7 @@ export function RefundActionSheet({
   const [reason, setReason] = useState<string>("unhappy");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
   // The server-derived refundable amount (discounted goods + the line's share of order tax) — computed in
   // getStaffOrders to mirror mms_refund_authorize, so the figure shown IS what the server will refund.
@@ -198,7 +201,7 @@ export function RefundActionSheet({
             color: "var(--warn)",
           }}
         >
-          {error}
+          {error === null ? null : <OutageText lang={lang} error={error} />}
         </p>
 
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>

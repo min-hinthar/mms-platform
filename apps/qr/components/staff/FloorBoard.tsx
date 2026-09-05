@@ -8,6 +8,7 @@ import { EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
 import { StaggerList } from "./StaggerList";
 import { isRealTransition, type PulseMeta } from "@/lib/floor-pulse";
+import { useStaffLang } from "./StaffLangProvider";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -22,6 +23,9 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
  * table count so a screen-reader user hears the room fill/empty without it chattering per card.
  */
 export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
+  // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
+  // thing on this board to speak it; the rest of the chrome follows in its own commit.
+  const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   // W10b — outage parity with the KDS/expo boards (the floor previously had NO degraded state: a
   // failing poll wore its live face forever). One state carrying WHEN it started and WHY: `outage`
@@ -159,8 +163,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
         <h2 id="floor-h" style={{ fontSize: "var(--fs-body)", margin: 0 }}>
           Tables
         </h2>
+        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
+              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
+              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
         <p
           role="status"
+          lang={degraded ? lang : undefined}
           style={{
             margin: 0,
             fontSize: "var(--fs-sm)",
@@ -168,7 +176,13 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           }}
         >
           {degraded
-            ? frozenBoardCopy(snap.serverNow, nowMs - degraded.since, "the room", degraded.cause)
+            ? frozenBoardCopy(
+                lang,
+                snap.serverNow,
+                nowMs - degraded.since,
+                "what.room",
+                degraded.cause,
+              )
             : count === 0
               ? "No active tables"
               : `${count} active ${count === 1 ? "table" : "tables"}`}
