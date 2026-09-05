@@ -1559,3 +1559,81 @@ Two rules from this. **Measure a guard change against the subject set before tru
 the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
 load-bearing, not tidy**: it is the only mechanism here that turns "the selector stopped reaching a
 function" into a failure instead of a silence.
+
+## #86 — a name-check that stops at the dictionary call is checking the wrong half (pilot P2 PR B blind pass, 2026-09-05)
+
+`check-staff-lang.mjs`'s rule 3 asks "is this accessible name built from the dictionary?" — and its
+splice check returned the moment it reached a `ts`/`tf`/`al`/`sx` call, under a comment stating the
+reason: _"its arguments are keys and values, not copy"_. Half of that sentence is false. A KEY is not
+copy; a **slot VALUE is copy whenever a person hears a word in it**. So this passed, green:
+
+```ts
+const callOut = ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : …;
+aria-label={tf(lang, "expo.a11y.cardBag", { x: callOut })}   // → "Table 7 အတွက် ပါဆယ်ထုပ်"
+```
+
+An English word the console **already owns** (`floor.table` = `"စားပွဲ {id}"`) spoken inside a Burmese
+sentence, at a call site the guard certified as converted. Three things generalize:
+
+- **A guard that skips a subtree is making a claim about that subtree.** Write the claim down and then
+  falsify it. This one was written down — and nobody re-asked _values of WHAT?_ (the #223 shape:
+  "idempotent, therefore safe", safe against WHAT?).
+- **Resolution must be TRANSITIVE or it is theatre.** The defect was two hops
+  (`verifyWho` → `callOut` → `` `Table ${n}` ``). A one-hop walk would have reported clean and felt
+  thorough.
+- **A guard whose findings need hand-sorting teaches people to skim it.** The first cut followed every
+  identifier and reported four literals nobody hears: `"comp"`, `"grocery"`, `"fired"` (discriminants
+  in `===` tests) and `"kds.channel.dinein"` (a key reached through a key map). The fix is to follow
+  only **string-shaped** expressions (`stringish()`: literal · template · `+`/`??`/`||` · ternary ·
+  identifier-thereof — never a call, never a property read) and to skip key positions by **argument
+  index**, not by shape. Precision is what makes the true positive believable.
+
+## #87 — "the first match" and "somewhere in the subtree" are two different ways to guard nothing (pilot P2 PR B blind pass, 2026-09-05)
+
+The same file's rule 3c mechanizes WCAG 2.5.3: a control named from a `verb` must RENDER that verb.
+It did two things, each defensible alone and fatal together:
+
+```js
+if (v && found === null) found = v;   // keep the FIRST verb key
+…
+if (!rendersKey(el, found.key))       // search the WHOLE element subtree
+```
+
+On a four-branch button (`grocery × firstStage`), only branch one was ever checked — and because the
+search was subtree-wide, a **crossed** pairing (announce `deactivate` while `row.active`, render
+`reactivate` on that same branch) passed with both keys present. Measured, not reasoned: breaking
+branch one's `<Chrome>` reddened; breaking any of the other three did not.
+
+The rule now collects **every** verb key and compares BRANCH PATHS (`armPath` records the ternary arms
+an expression sits under; `contradicts` refuses a render that disagrees on a shared condition). Two
+things to keep:
+
+- **`uniqueness ≠ liveness` has a sibling: `presence ≠ correspondence`.** "The key appears under this
+  element" is not "this branch shows the word this branch announces". When a rule is about a PAIRING,
+  the matcher has to name both halves and the condition that selects them.
+- **State the limit in the code.** Conditions compare as normalized source text, so `firstStage` and
+  `!firstStage` read as two conditions and a pairing crossed that way still passes. Writing that down
+  is what stops the next reader from trusting it further than it goes — the failure mode that produced
+  the paragraph in #86.
+
+## #88 — three props localized out of four reads as finished at every review that looks at props (pilot P2 PR B blind pass, 2026-09-05)
+
+`StaffOutageShell` passes `title`, `body` and `escalatedBody` through `<Chrome>`; `packages/ui`'s
+`OutageState` widened all three to `ReactNode` precisely so it could. The screen still rendered a
+Burmese heading over a button reading **"Try again"** — `RetryButton` hardcoded `label = "Try again"`
+with no prop to pass, and the retry is the ONE control on the one screen that exists because
+everything else is unreachable.
+
+Nobody in-session saw it, twice: the props read as complete, and the diff read as complete. The blind
+pass saw it because it read the **rendered card**, not the prop list. Two rules out of it:
+
+- **Localization is finished per SCREEN, never per prop.** Enumerate what a person sees — heading,
+  body, control, busy state, empty state, error — and tick the list.
+- **When you widen a copy prop to ReactNode, add it to the guard's prop list IN THE SAME COMMIT.** Rule
+  5's list said `["title", "subtitle"]` under a comment reading _"Only the two EmptyState slots exist
+  today"_ — written in the very diff that created `body` and `escalatedBody`. A comment falsified by
+  its own commit is the cheapest defect there is to prevent and the easiest to ship.
+- **A name has to land on an element that can BEAR one.** `<div tabIndex={-1} aria-label=…>` is the
+  `generic` role, which prohibits an author name — the browser discards it. Two live instances, one of
+  them the panel a cashier's focus is deliberately moved to as the card reader takes the transaction.
+  Now `rule 3d`, which is one attribute to fix and was invisible to every other check in the repo.

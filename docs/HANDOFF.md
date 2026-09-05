@@ -5,6 +5,93 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #260 — pilot P2 PR B: the staff console's ratchets are DRAINED, and the guard grew four teeth it did not have)
+>
+> **`main` is still `5715781`; #260 is open at `96f9702` and is NOT merged — it needs Min's go.**
+> Codex could not review a single head of it (quota exhausted since #259, owner-only to restore at
+> `chatgpt.com/codex/cloud/settings/code-review`), so `codex-review` will be RED the moment the PR
+> leaves draft and cannot go green on its own. **The blind adversarial pass is the only independent
+> reviewer this slice has.** It returned **REJECT** with ten findings; all ten were real, all ten are
+> fixed, and the verdict + triage are the last comment on the PR.
+>
+> ### What shipped
+>
+> Both ratchets in `scripts/check-staff-lang.mjs` are **empty**: 15/15 staff pages reach the language
+> control (was 2), 63 staff files are aria-clean (19 carried hand-written English names). 359 new
+> dictionary keys (104 → 463). **P2c · P2g · P2h closed**; **P2i–P2s filed** — eleven rows, because
+> every deferral in this slice is enumerated rather than implied.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: three rounds, one shape — the guard was the defect, not the code
+>
+> Thirteen Codex findings on #241/#242 were guard defects. This slice's REJECT was the same, again:
+> **zero product-logic defects, four holes in the guard written that same session**, each satisfied by
+> something other than the behaviour it claimed to enforce.
+>
+> - **Rule 3c kept the FIRST verb key and searched the whole subtree.** On the expo bump button's four
+>   `al()` calls, breaking branch one's `<Chrome>` reddened and breaking any of the other three did
+>   not — three of four pairings unguarded, by POSITION. It now collects every key AND is
+>   branch-aware (`armPath`/`contradicts`), so a CROSSED ternary reddens. **Stated limit, in the
+>   code:** conditions compare as normalized source text, so `firstStage` vs `!firstStage` reads as
+>   two conditions and a pairing crossed that way still passes. It can only miss, never invent.
+> - **Rule 3 never looked inside a name call's slot VALUES**, and its docblock asserted it need not
+>   ("its arguments are keys and values, not copy"). Half false: it shipped the accessible name
+>   `Table 7 အတွက် ပါဆယ်ထုပ်` — an English word the console owns as `floor.table`, inside a Burmese
+>   sentence. It now follows string-shaped bindings **transitively** (the defect was two hops) and
+>   refuses only Latin WORDS in a value. ⚠️ The first cut followed every identifier and reported four
+>   literals nobody hears (`"comp"`, `"grocery"`, `"fired"`, `"kds.channel.dinein"`); `stringish()` is
+>   what makes the findings trustworthy, and key positions are skipped by ARGUMENT INDEX, not shape.
+> - **Rule 3's hoisted-const branch was empty**, so `` const aria = `${ts(lang,k)} — bag for ${x}` ``
+>   passed while the identical inline string failed.
+> - **Rule 3d is new: a name on a bare `<div>`/`<span>`/`<p>` is DISCARDED by the browser** (`generic`
+>   and `paragraph` take no author name). Two live instances — the reader-settle panel the cashier's
+>   focus is deliberately moved to, and the KDS stat strip. Both are `role="group"` now.
+>
+> ### ⚠️ Read these before touching the staff console
+>
+> - **`<Chrome>` marks INTERPOLATED VALUES, and that cuts both ways.** Any value containing a Latin
+>   character is wrapped `lang="en"` whole — so passing a value that is ITSELF bilingual (`စားပွဲ 7`)
+>   marks Burmese as English. That is why the expo `catch` sentences are still English (**P2p**) and
+>   why `frozenBoardCopy`'s clock is unmarked (**P2s**): a function that returns a flat STRING cannot
+>   mark anything, and `<OutageText>`'s passthrough arm returns a bare text node.
+> - **A guard finding is only as good as the population it walks.** `check:docs` is CI's FIRST step
+>   under `bash -e`. Nine guards, the orphan check and the whole `lint typecheck build test` run sit
+>   behind it — `check:staff-lang` among them, which had never executed on this branch while six
+>   builds went red on stale counts. **Refresh counts on every push, not last.** CLAUDE.md's fast-lane
+>   paragraph listed six of the ten steps and left the blind auditor unable to tell whether this
+>   slice's own guard was wired at all; it now carries the command to measure the lane.
+> - **Two Burmese words for one English word is invisible to every guard.** `strings.test.ts` fires on
+>   two keys SHARING a value, never on one word wearing two coats. Three forks got through parallel
+>   authoring; the sharpest was `မကြာမီ` (PROSPECTIVE — "before long") on screens entirely about the
+>   past. The inverse guard added here catches same-surface/same-English/different-Burmese; the
+>   reverse case is still a hand-read.
+> - **`staff-labels.test.ts`'s 22-case containment loop is TAUTOLOGICAL in every arm** — `al()`
+>   interpolates `visible` into `aria` by construction. It says so at the top now. Every defect that
+>   file has caught was caught by a NAMED assertion below it; add rules there.
+>
+> ### Filed this arc
+>
+> **P2i** (97 server-module `error:` strings, out of scope by owner direction) · **P2j** · **P2k** ·
+> **P2l** · **P2m** (four surfaces with a control over an English body — `TeamManager`'s form was
+> tracked NOWHERE for one commit because its docblock pointed at P2c, which this slice closed) ·
+> **P2n** · **P2o** (the back-arrow inside nine names — wants ONE repo-wide decision, not nine) ·
+> **P2p** · **P2q** (the expo ticket card) · **P2r** (three polite live regions under one `<main>`) ·
+> **P2s**.
+>
+> ### Counts on this head, measured not transcribed
+>
+> `verify:slice` **362 mutants caught, 0 survived, 0 stale, no orphans** · `check:docs` clean
+> (98 files, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
+> `check:staff-lang` clean (63 files aria-clean 0 left · 15/15 pages 0 left · 32 marked renders).
+>
+> ### Next
+>
+> 1. **#260 needs Min's go** — and needs saying plainly that Codex reviewed nothing.
+> 2. **#261 (P3) is still open.** When it merges, #260 merges `main` in and resolves
+>    `FloorDetailLive.tsx` as a SET operation, never from memory (LEARNINGS #61).
+> 3. Then the P2 remainder in one pass per surface, not word by word: **P2q** → **P2m** → **P2p**.
+
+---
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
 >
 > **`main` is at `dfcda72`** (#257, squash of `c166d43`). **Prod has the migration:**
