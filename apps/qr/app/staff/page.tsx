@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
 export default async function StaffHome() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate renders the outage shell in place (URL kept) — never a login redirect.
-  if (!caller) return <StaffOutageShell what="the floor" />;
+  if (!caller) return <StaffOutageShell what="what.floor" />;
   const isManager = roleAtLeast(caller.role, "manager");
   const [hasPin, floor, pendingApprovals] = await Promise.all([
     staffHasPin(caller.staffId),
@@ -30,7 +30,7 @@ export default async function StaffHome() {
     isManager ? countPendingApprovals() : Promise.resolve(0),
   ]);
   if (!floor.ok) {
-    if (floor.reason === "outage") return <StaffOutageShell what="the floor" />;
+    if (floor.reason === "outage") return <StaffOutageShell what="what.floor" />;
     redirect("/staff/login"); // gate race between requireStaffPage and the read
   }
 

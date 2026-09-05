@@ -23,10 +23,10 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const { id } = await params;
   // W10b: an unknowable gate/read keeps the URL and renders the outage shell — never a redirect
   // that pretends a verdict (the old `!detail → /staff` bounce fired on outage too).
-  if (!caller) return <StaffOutageShell what="this table" />;
+  if (!caller) return <StaffOutageShell what="what.table" />;
 
   const res = await getTableDetail(id);
-  if (res.kind === "outage") return <StaffOutageShell what="this table" />;
+  if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
   if (res.kind === "closed") redirect("/staff");
   const detail = res.detail;

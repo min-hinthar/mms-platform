@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function StaffProfile() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
-  if (!caller) return <StaffOutageShell what="your profile" />;
+  if (!caller) return <StaffOutageShell what="what.profile" />;
   const hasPin = await staffHasPin(caller.staffId);
 
   return (

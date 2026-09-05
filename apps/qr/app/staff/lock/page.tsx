@@ -17,7 +17,7 @@ export default async function StaffLockScreen() {
   const auth = await getStaffAuth();
   // W10b: unknowable ≠ signed out — the tablet stays locked (the lock is a local cookie) and the
   // shell's retry re-enters here; a PIN couldn't be verified mid-outage anyway.
-  if (auth.kind === "unavailable") return <StaffOutageShell what="the lock screen" />;
+  if (auth.kind === "unavailable") return <StaffOutageShell what="what.lock" />;
   if (auth.kind === "anon") redirect("/staff/login");
   if (auth.kind === "not_staff") redirect("/staff/login?denied=1");
   if (!(await isConsoleLocked())) redirect("/staff");

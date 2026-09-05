@@ -214,6 +214,58 @@ export const STAFF = {
   "kds.a11y.nextPage": { en: "Next page", my: "နောက် စာမျက်နှာ" },
   "kds.a11y.recall": { en: "Recall a bumped ticket", my: "ပြီးသွားတဲ့ အော်ဒါ ပြန်ခေါ်" },
 
+  // ── the floor: the console home and the live table board ──────────────────
+  // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
+  // per-key native check: the kitchen's only exit and one link in a console header may want
+  // different wording, and one key would force them to move together.
+  "floor.back": { en: "← Floor", my: "← ခန်းမ" },
+  "floor.hi": { en: "Hi, {x}", my: "မင်္ဂလာပါ {x}" },
+  "floor.eyebrow": { en: "Floor", my: "ခန်းမ" },
+  "floor.a11y.tools": { en: "Staff tools", my: "ဝန်ထမ်း ကိရိယာများ" },
+
+  // ── the floor: the per-table STATUS chip ──────────────────────────────────
+  // ⚠️ THE VISIBLE CHIP AND THE ACCESSIBLE NAME READ THESE SAME KEYS (`FLOOR_STATUS_KEY` in
+  // lib/staff-labels.ts). OPEN-ITEMS P2g was the other arrangement: `TableCard` interpolated the RAW
+  // status key into the name, so a splitting table announced "settling" while the chip read
+  // "Splitting" — a WCAG 2.5.3 mismatch in ENGLISH, live today. One key per state is the fix.
+  // `settling` is the DB value; "Splitting" is the word the room uses, and the word wins.
+  "floor.status.seated": { en: "Seated", my: "ထိုင်ပြီ" },
+  "floor.status.ordering": { en: "Ordering", my: "မှာနေဆဲ" },
+  "floor.status.paying": { en: "Paying", my: "ငွေရှင်းနေဆဲ" },
+  "floor.status.settling": { en: "Splitting", my: "ခွဲရှင်းနေဆဲ" },
+  "floor.status.paid": { en: "Paid", my: "ငွေရှင်းပြီး" },
+
+  // ── the floor: the table card ─────────────────────────────────────────────
+  // {id} is the number on the physical tent card and {m} is preformatted money — both Latin in
+  // both tongues (lib/i18n/fill.ts owns that rule); {n} is a prose count, so Burmese numerals.
+  "floor.table": { en: "Table {id}", my: "စားပွဲ {id}" }, // grounded: kiosk `tableNumber`
+  "floor.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
+  // TWO keys for one idea, and the reason is layout, not translation: the card's flag sits in ~12px
+  // of space beside a 24px table number, while the accessible name has no such constraint and can
+  // afford the noun that says WHICH thing is unregistered.
+  "floor.unregistered": { en: "unregistered", my: "မှတ်ပုံမတင်" },
+  "floor.unregisteredSticker": { en: "unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
+  "floor.tab": { en: "Tab", my: "စာရင်းဖွင့်" },
+  "floor.tabSecured": { en: "Tab secured · card on file", my: "စာရင်း အာမခံပြီး · ကတ် သိမ်းထား" },
+  "floor.tabOpen": { en: "tab open", my: "စာရင်း ဖွင့်ထား" },
+  "floor.tabOverLimit": { en: "over tab limit", my: "စာရင်း ကန့်သတ် ကျော်" }, // K15-HIGH — the cue to check in with the table
+  "floor.party": { en: "party of {n}", my: "{n} ယောက်" },
+  "floor.card.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
+  "floor.card.item.many": { en: "{n} items", my: "ပစ္စည်း {n} ခု" },
+  // The pair below is the same sentence at two lengths: the CARD renders the amount through
+  // `LiveMoney` (a rolling, flashing figure) and needs only the trailing words, while the
+  // accessible name is a flat string and must carry the amount itself. A K15 correction to one
+  // belongs on the other.
+  "floor.card.soFarLabel": { en: "so far", my: "ယခုအထိ" },
+  "floor.card.soFar": { en: "{m} so far", my: "ယခုအထိ {m}" },
+  "floor.card.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
+  "floor.card.empty": { en: "No items yet", my: "ဘာမှ မရှိသေးပါ" },
+
+  // ── the floor: modes (where the order came from) ──────────────────────────
+  "floor.mode.dinein": { en: "Dine-in", my: "ဆိုင်မှာ စား" }, // grounded: kiosk `dineIn`
+  "floor.mode.scango": { en: "Scan & Go", my: "Scan & Go" }, // LATIN BY DESIGN — the product's own name
+  "floor.mode.pickup": { en: "Pickup", my: "လာယူ" },
+
   // ── /board — the wall TV. Guests read this, so the warm register stays. ────
   // The two column headings are VERBATIM from ReadyBoard.tsx (W3e) — on the wall since then, still
   // unchecked on K15, and this slice does not reword them.
@@ -269,6 +321,7 @@ export type StaffKey = keyof typeof STAFF;
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
   ["kds.open.one", "kds.open.many"],
+  ["floor.card.item.one", "floor.card.item.many"],
 ];
 
 /**
@@ -280,6 +333,8 @@ export const STAFF_LATIN_BY_DESIGN: Readonly<Record<string, string>> = {
   "kds.station.wok": "Station jargon kept Latin by owner decision — a wrong word hides tickets.",
   "kds.station.cold": "Station jargon kept Latin by owner decision — a wrong word hides tickets.",
   "kds.station.drinks": "Station jargon kept Latin by owner decision — a wrong word hides tickets.",
+  "floor.mode.scango":
+    "The product's own name for the grocery mode, printed on the aisle signage and the shelf tags — a brand term, not a sentence. Same treatment the diner surfaces already give it.",
 };
 
 /**

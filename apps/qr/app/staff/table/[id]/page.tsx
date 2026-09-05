@@ -19,10 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function TablePage({ params }: { params: Promise<{ id: string }> }) {
   const caller = await requireStaffPage();
   const { id } = await params;
-  if (!caller) return <StaffOutageShell what="this table" />;
+  if (!caller) return <StaffOutageShell what="what.table" />;
 
   const res = await getTableDetail(id);
-  if (res.kind === "outage") return <StaffOutageShell what="this table" />;
+  if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
   if (res.kind === "closed") {
     return (

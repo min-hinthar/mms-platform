@@ -17,7 +17,7 @@ export default async function OrdersPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   // (getStaffOrders below throws 503 on an unreadable list — the staff error boundary catches it.)
-  if (!caller) return <StaffOutageShell what="orders" />;
+  if (!caller) return <StaffOutageShell what="what.orders" />;
 
   const orders = await getStaffOrders();
 

@@ -15,7 +15,7 @@ export const metadata = { title: "Staff — Mandalay Morning Star" };
 export default async function TeamPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
-  if (!caller) return <StaffOutageShell what="the team page" />;
+  if (!caller) return <StaffOutageShell what="what.team" />;
 
   if (caller.role !== "owner") {
     return (

@@ -315,7 +315,22 @@ const ARIA_FILES = ARIA_ALL.filter((f) => !ARIA_TODO.has(f));
  * naming them with `sx()` is exactly right. The first cut of this rule conflated "has children"
  * with "has a label" and flagged all eight of the KDS's legitimate region names.
  */
-const CONTROL_TAGS = new Set(["button", "a", "input", "select", "textarea", "summary", "label"]);
+const CONTROL_TAGS = new Set([
+  "button",
+  "a",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "label",
+  // `next/link` renders an `<a>`, and this console navigates by pill-shaped Links with visible text
+  // — ten of them in `/staff`'s tool nav alone. Without this entry `sx()` on one of those pills
+  // passes the check below while bypassing the {visible, aria} pair, which is the same bypass the
+  // check exists to refuse; the lowercase `a` never matches because the JSX tag reads `Link`.
+  // STATED LIMIT: a control rendered through a polymorphic wrapper (`<Card as={Link}>`) still reads
+  // as its wrapper's tag here and is not covered.
+  "Link",
+]);
 
 /** A CONTROL with visible text of its own — the only shape where sx() would bypass the pair. */
 function isLabelledControl(el, sf) {
@@ -335,53 +350,173 @@ function isLabelledControl(el, sf) {
   );
 }
 
-for (const file of ARIA_FILES) {
+/**
+ * The functions that can produce a localized accessible name. `al()` pairs it with the visible
+ * label (2.5.3 containment); `sx()` is the aria-only form; the three dictionary calls cover a name
+ * assembled from more than one key.
+ */
+const NAME_CALLS = [...DICT_CALLS, "al", "sx"];
+
+/** Does this binding pattern bind `name`? Recurses through object/array destructuring. */
+function bindsName(binding, name) {
+  if (ts.isIdentifier(binding)) return binding.text === name;
+  if (ts.isObjectBindingPattern(binding) || ts.isArrayBindingPattern(binding))
+    return binding.elements.some((el) => ts.isBindingElement(el) && bindsName(el.name, name));
+  return false;
+}
+
+/**
+ * Where in an enclosing scope is `name` declared, and does that declaration reach a localized name?
+ *
+ * `const { visible, aria } = al(lang, {…})` is the SHAPE the pair is meant to be consumed in — the
+ * control has ten fields and inlining the call at the attribute would bury it — so a bare
+ * `aria-label={aria}` has to be readable as localized. Walking to the declaration and asking whether
+ * ITS initializer calls a name function keeps that legible without weakening the rule: a
+ * `const a11yName = \`Table ${x}, ${status}\`` declaration answers no, which is exactly the
+ * OPEN-ITEMS P2g defect (a hand-built name in a local const, invisible to the first cut of rule 3).
+ *
+ * Scope-walked rather than file-scanned: two functions in one file may each declare `aria`, and the
+ * nearest enclosing declaration is the one the browser would see.
+ */
+function localBindingIsLocalized(id) {
+  for (let n = id.parent; n; n = n.parent) {
+    const stmts = n.statements;
+    if (!stmts) continue;
+    for (const st of stmts) {
+      if (!ts.isVariableStatement(st)) continue;
+      for (const d of st.declarationList.declarations) {
+        if (d.initializer && bindsName(d.name, id.text)) return callsAny(d.initializer, NAME_CALLS);
+      }
+    }
+  }
+  return null; // no declaration found in any enclosing scope
+}
+
+/**
+ * Is this identifier a PARAMETER of an enclosing function — a name handed IN rather than built here?
+ *
+ * `StaggerList` is the shape: a generic `role="list"` wrapper whose `aria-label={ariaLabel}` is pure
+ * plumbing, and whose callers supply the localized string. That is not a name this file authored, so
+ * the rule has nothing to hold. A LOCAL `const` is the opposite case and stays governed — `TableCard`
+ * built its whole name in one, interpolating a raw status key the screen never showed (OPEN-ITEMS
+ * P2g), and an exemption for "any identifier" would have hidden exactly that.
+ */
+function isEnclosingParam(id) {
+  for (let n = id.parent; n; n = n.parent) {
+    if (
+      ts.isFunctionDeclaration(n) ||
+      ts.isArrowFunction(n) ||
+      ts.isFunctionExpression(n) ||
+      ts.isMethodDeclaration(n)
+    ) {
+      if (n.parameters.some((p) => bindsName(p.name, id.text))) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Authored text spliced into a name OUTSIDE any dictionary call: `` `${label} — bag for ${callOut}` ``,
+ * `x ? "Deactivate" : "Reactivate"`, `ts(lang, k) + " request"`. Subtrees rooted at a NAME_CALLS call
+ * are skipped, so a dictionary KEY (`sx(lang, "reg.a11y.open")`) is never mistaken for copy. Joiner
+ * punctuation (`" — "`, `", "`) carries no letter or digit and is left alone in any script.
+ */
+function splicedText(node, sf) {
+  const speakable = /[\p{L}\p{N}]/u;
+  let hit = null;
+  function visit(n) {
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      NAME_CALLS.includes(n.expression.text)
+    )
+      return; // a localized name — its arguments are keys and values, not copy
+    if (
+      (ts.isStringLiteral(n) ||
+        ts.isNoSubstitutionTemplateLiteral(n) ||
+        n.kind === ts.SyntaxKind.TemplateHead ||
+        n.kind === ts.SyntaxKind.TemplateMiddle ||
+        n.kind === ts.SyntaxKind.TemplateTail) &&
+      speakable.test(n.text) &&
+      hit === null
+    )
+      hit = n.text;
+    ts.forEachChild(n, (c) => {
+      visit(c);
+    });
+  }
+  visit(node);
+  return hit;
+}
+
+/**
+ * Every rule-3 violation in one file. Rule 3 reports these for a CONVERTED file; rule 3b reads the
+ * SAME function to decide whether a still-to-convert file has in fact been converted. Two predicates
+ * would let a file be clean for the ratchet and dirty for the rule at the same time — which is how a
+ * TODO entry becomes a permanent exemption for work that only looks finished.
+ */
+function ariaFindings(file) {
+  const out = [];
   let sf;
   try {
     sf = parse(file);
   } catch {
-    continue;
+    return out;
   }
   const rel = relative(ROOT, file);
   function visit(node) {
-    if (ts.isJsxAttribute(node) && node.name.getText(sf) === "aria-label") {
+    // `aria-label` on a DOM element, and `ariaLabel` — the camelCase PROP a wrapper takes and then
+    // spreads onto its own element.
+    //
+    // ⚠️ THE SECOND NAME IS NOT DECORATION. `StaggerList` takes `ariaLabel` and writes it straight
+    // onto its `<ul role="list">`; inside that file the write is a bare parameter, correctly
+    // exempted as passthrough — so the CALLER is the only place the rule can apply, and the caller
+    // spells it camelCase. Matching only the hyphenated form meant `ApprovalsBoard`'s
+    // `ariaLabel="Pending approval requests"` produced no finding at all: convert that file's one
+    // hyphenated site and `ariaFindings` empties, rule 3b then REQUIRES deleting its ratchet entry,
+    // and the English literal leaves the guard's reach permanently. A ratchet that can be emptied
+    // while a violation remains is worse than no ratchet.
+    const attrName =
+      ts.isJsxAttribute(node) && ["aria-label", "ariaLabel"].includes(node.name.getText(sf))
+        ? node.name.getText(sf)
+        : null;
+    if (attrName) {
       const init = node.initializer;
       const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
-      // `aria-label="x"` AND `aria-label={"x"}` — the braces are the evasion the first cut missed.
-      const literal =
-        (init && ts.isStringLiteral(init)) ||
-        (init &&
-          ts.isJsxExpression(init) &&
-          init.expression &&
-          (ts.isStringLiteral(init.expression) ||
-            ts.isNoSubstitutionTemplateLiteral(init.expression)));
-      if (literal) {
-        failures.push(
+      // `aria-label="x"` is a bare StringLiteral; `aria-label={…}` wraps its expression.
+      const expr = init && ts.isJsxExpression(init) ? init.expression : init;
+      if (!expr) {
+        out.push(`rule 3: ${rel}:${line} — an aria-label with no value.`);
+      } else if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) {
+        out.push(
           `rule 3: ${rel}:${line} — a LITERAL aria-label. Use al() for a control with a visible label, or sx() for one without.`,
         );
-      } else if (init && ts.isJsxExpression(init) && init.expression) {
-        const expr = init.expression;
-        const text = expr.getText(sf);
-        if (
-          ts.isTemplateExpression(expr) &&
-          !callsAny(expr, DICT_CALLS) &&
-          !callsAny(expr, ["al"])
-        ) {
-          failures.push(
-            `rule 3: ${rel}:${line} — a hand-built template aria-label. Names come from lib/staff-labels.ts.`,
+      } else if (ts.isIdentifier(expr) && isEnclosingParam(expr)) {
+        // A name passed in as a prop. The CALLER is where the rule applies.
+      } else if (ts.isIdentifier(expr) && localBindingIsLocalized(expr) === true) {
+        // `const { aria } = al(lang, …)` one line up — localized, just not inlined.
+      } else if (!callsAny(expr, NAME_CALLS)) {
+        out.push(
+          `rule 3: ${rel}:${line} — a hand-built aria-label (${expr.getText(sf).replace(/\s+/g, " ").slice(0, 70)}). Names come from lib/staff-labels.ts — al() for a control with a visible label, sx() for one without.`,
+        );
+      } else {
+        const spliced = splicedText(expr, sf);
+        if (spliced !== null)
+          out.push(
+            `rule 3: ${rel}:${line} — authored text "${spliced.trim()}" spliced into a localized name. Every word a person hears comes from the dictionary; only punctuation joins them.`,
           );
-        }
-        // The sx()-on-a-labelled-control evasion.
-        if (/\bsx\(/.test(text)) {
-          const owner = node.parent?.parent;
-          if (owner && (ts.isJsxElement(owner) || ts.isJsxOpeningElement(owner))) {
-            const el = ts.isJsxOpeningElement(owner) ? owner.parent : owner;
-            if (isLabelledControl(el, sf)) {
-              failures.push(
-                `rule 3: ${rel}:${line} — sx() on an element that HAS visible text. That bypasses the {visible, aria} pair; use al().`,
-              );
-            }
-          }
+      }
+      // The sx()-on-a-labelled-control evasion: it compiles, reads as localized, and bypasses the
+      // {visible, aria} containment pair at every call site. Only checkable on the DOM attribute —
+      // where the name is a PROP, the element it lands on is inside the callee.
+      if (attrName === "aria-label" && expr && callsAny(expr, ["sx"])) {
+        const owner = node.parent?.parent;
+        if (owner && (ts.isJsxElement(owner) || ts.isJsxOpeningElement(owner))) {
+          const el = ts.isJsxOpeningElement(owner) ? owner.parent : owner;
+          if (isLabelledControl(el, sf))
+            out.push(
+              `rule 3: ${rel}:${line} — sx() on an element that HAS visible text. That bypasses the {visible, aria} pair; use al().`,
+            );
         }
       }
     }
@@ -390,7 +525,10 @@ for (const file of ARIA_FILES) {
     });
   }
   visit(sf);
+  return out;
 }
+
+for (const file of ARIA_FILES) failures.push(...ariaFindings(file));
 
 // ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
 // A staff surface that cannot switch language is a surface one of the two readers is locked out of.
@@ -469,7 +607,24 @@ function mountsSwitchHere(file) {
   return found;
 }
 
-/** …or does any module it transitively imports, within apps/qr? */
+/**
+ * ⚠️ NOT FOLLOWED by the walk below, and this is the single most load-bearing line in rule 4.
+ *
+ * `StaffOutageShell` MOUNTS the control as of P2 PR B (OPEN-ITEMS P2h) — it is the surface with the
+ * strongest claim on it, because it replaces the page during an outage and takes the page's own
+ * control with it. Every staff page imports the shell for its unknowable-gate branch. So a walk that
+ * followed this import would answer "yes, reachable" for all fifteen pages the moment the shell was
+ * converted, and rule 4 would go green over every page that has NO control in its normal render —
+ * re-opening, in a new form, the exact hole the rule was rewritten to close (it used to accept the
+ * shell's TAG as evidence while the shell mounted nothing).
+ *
+ * The shell is a DIFFERENT SURFACE, not this page's chrome. Rule 4 asks whether the person can
+ * change the language on the page they are looking at; an answer that only holds while the ordering
+ * system is unreachable is not an answer.
+ */
+const SWITCH_WALK_EXCLUDED = new Set([join(QR, "components/staff/StaffOutageShell.tsx")]);
+
+/** …or does any module it transitively imports, within apps/qr, other than the excluded surfaces? */
 function reachesSwitch(root) {
   const seen = new Set([root]);
   const queue = [root];
@@ -477,7 +632,7 @@ function reachesSwitch(root) {
     const file = queue.shift();
     if (mountsSwitchHere(file)) return true;
     for (const dep of importsOf(file)) {
-      if (!seen.has(dep) && dep.startsWith(QR)) {
+      if (!seen.has(dep) && dep.startsWith(QR) && !SWITCH_WALK_EXCLUDED.has(dep)) {
         seen.add(dep);
         queue.push(dep);
       }
@@ -485,6 +640,15 @@ function reachesSwitch(root) {
   }
   return false;
 }
+
+// Self-check: the exclusion is only meaningful while the excluded module ACTUALLY mounts a switch.
+// If the shell ever stops mounting one, this set is silently hiding nothing and the next reader
+// would trust a comment that has stopped being true.
+for (const f of SWITCH_WALK_EXCLUDED)
+  if (!mountsSwitchHere(f))
+    failures.push(
+      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but no longer mounts <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
+    );
 
 for (const file of staffPages) {
   const listed = SWITCH_TODO.has(file);
@@ -506,41 +670,27 @@ for (const file of SWITCH_TODO) {
 }
 
 // ── Rule 3b — the ratchet only turns one way ─────────────────────────────────────────────────────
-// A file listed as still-to-convert that no longer carries a literal name HAS been converted, and
-// its entry must be deleted — otherwise the list silently becomes a permanent exemption for finished
-// work, which is how a TODO turns into a hole.
+// A file listed as still-to-convert that rule 3 no longer has anything to say about HAS been
+// converted, and its entry must be deleted — otherwise the list silently becomes a permanent
+// exemption for finished work, which is how a TODO turns into a hole.
+//
+// It reads `ariaFindings` — the SAME predicate rule 3 enforces — rather than a second, looser one.
+// The first cut asked only "is there a literal left?", which is a WEAKER question than rule 3 asks:
+// a file whose names had been rewritten as hand-built templates would have satisfied 3b (no
+// literals), left the list, and then failed rule 3 — or, with the ratchet entry deleted first,
+// passed both while announcing English.
 for (const file of ARIA_TODO) {
-  let sf;
   try {
-    sf = parse(file);
+    parse(file);
   } catch {
     failures.push(
       `rule 3b: ${relative(ROOT, file)} is on the still-to-convert list but does not exist. Delete the entry.`,
     );
     continue;
   }
-  let hasLiteral = false;
-  function visit(node) {
-    if (ts.isJsxAttribute(node) && node.name.getText(sf) === "aria-label") {
-      const init = node.initializer;
-      if (init && ts.isStringLiteral(init)) hasLiteral = true;
-      if (init && ts.isJsxExpression(init) && init.expression) {
-        if (
-          ts.isTemplateExpression(init.expression) &&
-          !callsAny(init.expression, DICT_CALLS) &&
-          !callsAny(init.expression, ["al"])
-        )
-          hasLiteral = true;
-      }
-    }
-    ts.forEachChild(node, (c) => {
-      visit(c);
-    });
-  }
-  visit(sf);
-  if (!hasLiteral)
+  if (ariaFindings(file).length === 0)
     failures.push(
-      `rule 3b: ${relative(ROOT, file)} has no literal aria-label left — it is converted. Delete its ARIA_TODO entry so the guard starts holding it.`,
+      `rule 3b: ${relative(ROOT, file)} has no hand-written aria-label left — it is converted. Delete its ARIA_TODO entry so the guard starts holding it.`,
     );
 }
 

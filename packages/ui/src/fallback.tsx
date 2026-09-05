@@ -102,12 +102,19 @@ export function OutageState({
   focusOnMount = false,
   headingLevel = "h2",
 }: {
-  title?: string;
+  /**
+   * ReactNode, not string — P2. A staff surface renders this through `<Chrome>`, which emits the
+   * Burmese inside a `lang="my"` span and the English echo as a sibling. A plain string could not
+   * carry that mark, and an UNMARKED Burmese heading is the exact defect the staff-locale guard's
+   * rule 5 exists for: Padauk-less, tracked, and announced as English. The diner callers still pass
+   * strings, which are ReactNodes too, so nothing about them changes.
+   */
+  title?: ReactNode;
   /** Burmese companion line (Padauk, `lang="my"`). Pass null to opt out on a staff-only surface. */
   titleMy?: string | null;
-  body?: string;
+  body?: ReactNode;
   /** Shown once ≥2 retries have failed — stop promising "a moment" during a sustained outage. */
-  escalatedBody?: string;
+  escalatedBody?: ReactNode;
   onRetry?: () => void | Promise<void>;
   /** Secondary way out (e.g. a home link) so the state is never a dead end. */
   exit?: ReactNode;

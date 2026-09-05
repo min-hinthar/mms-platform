@@ -22,12 +22,12 @@ export const dynamic = "force-dynamic";
 export default async function StaffTipsPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
-  if (!caller) return <StaffOutageShell what="today’s tips" />;
+  if (!caller) return <StaffOutageShell what="what.tips" />;
 
   const res = await getDayTips();
   // A failed read must never render as "you were tipped nothing" — the worst false verdict on a
   // screen whose whole job is telling someone what they earned.
-  if (!res.ok) return <StaffOutageShell what="today’s tips" />;
+  if (!res.ok) return <StaffOutageShell what="what.tips" />;
 
   const { report, names, scope } = res;
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;

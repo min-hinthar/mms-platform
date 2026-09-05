@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function FeedbackPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
-  if (!caller) return <StaffOutageShell what="feedback" />;
+  if (!caller) return <StaffOutageShell what="what.feedback" />;
 
   const rows = await getStaffFeedback();
   const lowCount = rows.filter((r) => r.rating <= 3).length;

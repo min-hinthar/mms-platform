@@ -20,7 +20,7 @@ export default async function ApprovalsPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   // (The list reads below throw 503 on an unreadable queue — the staff error boundary catches it.)
-  if (!caller) return <StaffOutageShell what="approvals" />;
+  if (!caller) return <StaffOutageShell what="what.approvals" />;
 
   const [pending, approvers, refunds] = await Promise.all([
     listPendingApprovals(),

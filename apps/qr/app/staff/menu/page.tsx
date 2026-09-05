@@ -29,7 +29,7 @@ export default async function StaffMenuPrices() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect
   // that destroys where you were mid-service.
-  if (!caller) return <StaffOutageShell what="menu prices" />;
+  if (!caller) return <StaffOutageShell what="what.menuPrices" />;
 
   const canEditPrice = caller.role !== "server";
 
@@ -43,7 +43,7 @@ export default async function StaffMenuPrices() {
     .order("name_en");
   // A failed read is UNKNOWABLE, not "the menu is empty" — an empty editor would read as a catalog
   // that lost its dishes (W10a: a failure must never render as emptiness).
-  if (error) return <StaffOutageShell what="menu prices" />;
+  if (error) return <StaffOutageShell what="what.menuPrices" />;
 
   const items: PricedItem[] = (data ?? []).map((i) => ({
     id: i.id,

@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function RegisterPage() {
   const caller = await requireStaffPage("server");
-  if (!caller) return <StaffOutageShell what="the register" />;
+  if (!caller) return <StaffOutageShell what="what.register" />;
 
   const [queue, day] = await Promise.all([getRegisterQueue(), getDayCashSummary()]);
 
