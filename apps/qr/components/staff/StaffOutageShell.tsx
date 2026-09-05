@@ -46,7 +46,9 @@ export async function StaffOutageShell({ what = "what.console" }: { what?: WhatK
         headingLevel="h1"
         titleMy={null}
         title={<Chrome lang={lang} k="out.shell.title" echo="stack" />}
-        body={<Chrome lang={lang} k="out.shell.body" vars={{ what: ts(lang, what) }} echo="stack" />}
+        body={
+          <Chrome lang={lang} k="out.shell.body" vars={{ what: ts(lang, what) }} echo="stack" />
+        }
         escalatedBody={<Chrome lang={lang} k="out.shell.escalated" echo="stack" />}
       />
     </main>

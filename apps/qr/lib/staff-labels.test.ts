@@ -187,7 +187,6 @@ describe("sx — aria-only strings, where there is no visible label to contain",
   });
 });
 
-
 /**
  * P2 · OPEN-ITEMS P2g — the defect this arm exists to close, asserted as a VALUE.
  *

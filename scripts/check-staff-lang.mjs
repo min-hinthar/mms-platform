@@ -593,7 +593,10 @@ function verbLabelFindings(file) {
           const lit =
             init && ts.isStringLiteral(init)
               ? init
-              : init && ts.isJsxExpression(init) && init.expression && ts.isStringLiteral(init.expression)
+              : init &&
+                  ts.isJsxExpression(init) &&
+                  init.expression &&
+                  ts.isStringLiteral(init.expression)
                 ? init.expression
                 : null;
           if (lit && lit.text === key) hit = true;
@@ -656,7 +659,6 @@ function verbLabelFindings(file) {
 }
 
 for (const file of ARIA_ALL) failures.push(...verbLabelFindings(file));
-
 
 // ── Rule 4 — every staff page reaches the language control ──────────────────────────────────────
 // A staff surface that cannot switch language is a surface one of the two readers is locked out of.
