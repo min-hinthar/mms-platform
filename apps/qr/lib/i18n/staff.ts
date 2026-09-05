@@ -281,7 +281,10 @@ export const STAFF = {
     my: "ဒီမှာ စာလုံးမှားရင် အလုပ် ရပ်သွားပါတယ် — ဆိုင်းထားတဲ့ အော်ဒါကို လက်ရှိလို့ ဖတ်မိတာ၊ ပြန်မရတော့တဲ့ ပြီးပြီနှိပ်မိတာ၊ စနစ်ပျက်တဲ့အခါ ဘာလုပ်ရမှန်း မသိတာ။",
   },
   "pilot.gloss.band.rest": { en: "The rest", my: "ကျန်တာများ" },
-  "pilot.gloss.locked.settled": { en: "Already checked — leave this one", my: "စစ်ပြီးသား — ဒါကို မပြင်ပါနဲ့" },
+  "pilot.gloss.locked.settled": {
+    en: "Already checked — leave this one",
+    my: "စစ်ပြီးသား — ဒါကို မပြင်ပါနဲ့",
+  },
   "pilot.gloss.locked.latin": {
     en: "Kept in English on purpose — don’t translate",
     my: "အင်္ဂလိပ်လို တမင် ထားတာ — မဘာသာပြန်ပါနဲ့",
@@ -290,7 +293,10 @@ export const STAFF = {
     en: "The two language buttons are not on this sheet, and must not be. Each one names its own language, so correcting either into the other leaves whoever cannot read that language with no way back.",
     my: "ဘာသာစကား ခလုတ်နှစ်ခုကို ဒီစာရွက်မှာ မထည့်ထားပါ၊ မထည့်သင့်ပါ။ တစ်ခုစီက သူ့ဘာသာစကားကို သူ့ဘာသာနဲ့ ခေါ်တာဖြစ်လို့ တစ်ခုကို တစ်ခုအဖြစ် ပြင်လိုက်ရင် အဲဒီဘာသာစကား မဖတ်တတ်သူ ပြန်ပြောင်းလို့ မရတော့ပါ။",
   },
-  "pilot.gloss.count": { en: "{n} to check · {total} in all", my: "စစ်ရန် {n} ကြောင်း · စုစုပေါင်း {total} ကြောင်း" },
+  "pilot.gloss.count": {
+    en: "{n} to check · {total} in all",
+    my: "စစ်ရန် {n} ကြောင်း · စုစုပေါင်း {total} ကြောင်း",
+  },
   "pilot.gloss.sign": { en: "Checked by", my: "စစ်ဆေးသူ" },
   "pilot.gloss.date": { en: "Date", my: "ရက်စွဲ" },
 
@@ -327,7 +333,10 @@ export const STAFF = {
     en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
     my: "ဒီည ဂဏန်းတွေကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",
   },
-  "pilot.night.glossary": { en: "Print the word-check sheet", my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်" },
+  "pilot.night.glossary": {
+    en: "Print the word-check sheet",
+    my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
