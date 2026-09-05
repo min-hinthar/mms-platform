@@ -5,11 +5,15 @@
  * add-time snapshot carries beneath it (Dad, and the K15 native check that may still move the
  * Burmese). Three rules, each falsifiable by a value:
  *
- *  1. **A Burmese name is a catalog fact or nothing.** Blank → null. A `name_my` that IS the English
- *     label (a brand name stored twice) is English, and `lang="my"` must not claim it → null. And a
- *     `name_my` with no Myanmar-script character at all is not Burmese whatever it differs from
- *     (a romanisation, a brand-plus-size string) → null; measured on prod at build time, none of
- *     the 531 live names trips this, so it is a belt for the next import, not a live fix.
+ *  1. **A Burmese name is a catalog fact or nothing.** Blank → null. A `name_my` with no
+ *     Myanmar-script character at all is not Burmese whatever it differs from (a romanisation, a
+ *     brand name stored twice, a brand-plus-size string) → null; measured on prod at build time,
+ *     none of the 531 live names trips this, so it is a belt for the next import, not a live fix.
+ *     And a `name_my` equal to the line's snapshot `name` adds no second tongue → null: with the
+ *     script rule in front of it, the case that REACHES this clause is a Burmese-only catalog row
+ *     stored twice (`name_en` is owner-editable free text — 0 such rows on prod today), which
+ *     would otherwise print the same Burmese twice, once as its own "English" echo. Null keeps
+ *     that row's line byte-identical to pre-P1 instead.
  *  2. **Per-slot, never pre-substituted.** `modifiersMy[i]` is the Burmese for `modifiers[i]` or
  *     null — the RENDERER does the fallback, wrapping the English in `lang="en"`, so an English
  *     label is never typeset in Padauk or announced as Burmese (QA-CHECKLIST §A: keep `lang="en"` on

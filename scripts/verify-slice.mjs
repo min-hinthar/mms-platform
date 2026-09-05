@@ -2619,7 +2619,7 @@ const MUTANTS = [
     id: "ticket-names/english-name-my-claimed-as-burmese",
     file: "apps/qr/lib/ticket-names.ts",
     suite: "lib/ticket-names.test.ts",
-    why: 'P1 — a name_my that IS the English label (a brand name stored twice) is English; claiming it under lang="my" sets Latin in Padauk\'s Latin glyphs and announces English as Burmese',
+    why: "P1 — a name_my equal to the snapshot name adds no second tongue; the script rule already stops a Latin duplicate, so the case this clause owns is a Burmese-only catalog row stored twice, which would otherwise print the same Burmese twice (once as its own English echo)",
     find: "  if (my === en.trim()) return null;\n",
     replace: "",
   },

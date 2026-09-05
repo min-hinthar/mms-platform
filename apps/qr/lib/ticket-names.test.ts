@@ -30,11 +30,15 @@ describe("catalogNameMy — a Burmese name is a catalog fact or nothing", () => 
     expect(catalogNameMy("mohinga", "Mohinga")).toBeNull();
     expect(catalogNameMy("Red Bull အားဖြည့်", "Red Bull")).toBe("Red Bull အားဖြည့်");
   });
-  it('a name_my that IS the English label is English — lang="my" must not claim it', () => {
-    // A brand name stored twice ("Red Bull" / "Red Bull"): typesetting it in Padauk under lang="my"
-    // would announce English as Burmese and set Latin in Padauk's Latin glyphs.
+  it("a name_my equal to the snapshot name adds no second tongue — even when both are Burmese", () => {
+    // A brand name stored twice ("Red Bull" / "Red Bull") is already stopped by the script rule, so
+    // it cannot tell the equality clause from that rule. The input that SEPARATES them is a
+    // Burmese-only catalog row stored twice: the script rule admits it, and without the equality
+    // clause the board prints the same Burmese twice — once as its own "English" echo.
+    // MUTATION: drop `if (my === en.trim()) return null` → the second and third lines fail.
     expect(catalogNameMy("Red Bull", "Red Bull")).toBeNull();
-    expect(catalogNameMy("Red Bull ", " Red Bull")).toBeNull();
+    expect(catalogNameMy("မုန့်ဟင်းခါး", "မုန့်ဟင်းခါး")).toBeNull();
+    expect(catalogNameMy("မုန့်ဟင်းခါး ", " မုန့်ဟင်းခါး")).toBeNull();
   });
 });
 
@@ -67,9 +71,11 @@ describe("pairModifiersMy — per slot, parallel, never a guessed pairing", () =
       pairModifiersMy([A, "33333333-3333-4333-8333-333333333333"], ["Spicy", "Iced"], byId),
     ).toEqual(["အစပ်", null]);
   });
-  it("a Burmese label equal to its English one is English (rule 1 applies per slot)", () => {
-    const same = new Map([[A, "Masala"]]);
-    expect(pairModifiersMy([A], ["Masala"], same)).toEqual([null]);
+  it("a slot whose Burmese equals its label adds nothing (rule 1 applies per slot)", () => {
+    // Both halves of rule 1, per slot: the Latin duplicate (script rule) and the Burmese-only
+    // duplicate (equality clause) each leave the slot null.
+    expect(pairModifiersMy([A], ["Masala"], new Map([[A, "Masala"]]))).toEqual([null]);
+    expect(pairModifiersMy([A], ["အစပ်"], new Map([[A, "အစပ်"]]))).toEqual([null]);
   });
   it("no modifiers → empty, never a phantom slot", () => {
     expect(pairModifiersMy([], [], byId)).toEqual([]);

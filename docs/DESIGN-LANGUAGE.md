@@ -148,8 +148,9 @@ string joins the K15 native-check ledger the day it ships.
 line are Burmese-FIRST — the catalog's `name_my` as the primary line, English always beneath at full
 contrast (the modifier size on the ticket, the chrome size on the rail, the row size on the expo).** The rules are `lib/ticket-names.ts`: a Burmese slot with no
 `name_my` is `null` and the RENDERER marks the English fallback `lang="en"` (never pre-substituted,
-never typeset in Padauk); every Burmese rule is gated on the `lang` attribute so an English-only
-line is byte-identical to before; Padauk is declared at 700 (the heaviest cut it ships) with
+never typeset in Padauk); the echo and rail classes are emitted only in the Burmese BRANCH of
+`components/staff/TicketText.tsx` (its jsdom suite pins that), so an English-only line mounts
+exactly what it mounted before; Padauk is declared at 700 (the heaviest cut it ships) with
 `font-synthesis: none`; and the held card's two stacked fades are tokens the composite guard reads.
 No Claude-authored Burmese reaches a ticket — every string is a DB row K15 corrects in place.
 

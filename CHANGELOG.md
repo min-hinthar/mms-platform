@@ -16,12 +16,15 @@ and the board renders **Burmese as the primary line** (Padauk 700, a new `--kfs-
 way: a Burmese line above the English one. Notes, aria-labels and the 86 control are untouched —
 P2 owns the moment the chrome speaks Burmese.
 
-**The rules live in ONE pure module (`lib/ticket-names.ts`, 18 tests, five `verify:slice` mutants),
+**The rules live in ONE pure module (`lib/ticket-names.ts`, 19 tests, six `verify:slice` mutants —
+plus three on `components/staff/TicketText.tsx`, the render sites),
 because a design panel of three independent drafts got the same thing wrong twice:** a Burmese slot
 with no `name_my` must stay **null** — the renderer wraps the English fallback in `lang="en"` and
 restores the body face — never pre-substituted, or English is typeset in Padauk and announced as
 Burmese. A count mismatch between labels and option ids is not a mapping (every slot null, never a
-prefix pairing); a `name_my` identical to its English label is English; the All-Day rail's key stays
+prefix pairing); a `name_my` with no Myanmar-script codepoint is not Burmese, and one equal to its
+snapshot name adds no second tongue (the case the script rule leaves it: a Burmese-only row stored
+twice); the All-Day rail's key stays
 the English label so a legacy row beside a fresh one is one count, and a row carries the most Burmese
 known for its key. An English-only KDS line mounts exactly the elements it mounted before: every
 Burmese rule is gated on the `lang` attribute (a `(0,2,0)` compound, because the global `[lang="my"]`
