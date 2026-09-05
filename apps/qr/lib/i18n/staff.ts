@@ -257,6 +257,77 @@ export const STAFF = {
     en: "We can’t read the board right now.",
     my: "ဘုတ်ကို အခု မဖတ်နိုင်သေးပါ။",
   },
+
+  // ── P5 · the pilot loop: the printed word-check sheet and tonight's numbers ────────────────
+  // Two surfaces, one namespace. `pilot.gloss.*` is the sheet Mom and Dad mark up over dessert —
+  // the instrument that turns K15 from a blocker into pilot OUTPUT — and `pilot.night.*` is the
+  // read-only nightly sheet on /staff/feedback. Both are read by the two people whose language
+  // this whole arc exists for, so both are Burmese-primary with the English echo beside.
+  "pilot.gloss.title": { en: "Word check", my: "စာလုံး စစ်ဆေးစာရွက်" },
+  "pilot.gloss.lede": {
+    en: "Every Burmese word this console shows. Read each line; where a word is wrong, write the right one beside it.",
+    my: "ဒီစက် ပြတဲ့ မြန်မာစာလုံး အားလုံး။ တစ်ကြောင်းစီ ဖတ်ပြီး မှားနေတာရှိရင် ဘေးမှာ မှန်တာ ရေးပါ။",
+  },
+  "pilot.gloss.print": { en: "Print", my: "ပုံနှိပ်" },
+  // ⚠️ Neither heading may be `မြန်မာ` or `English` on its own — those two strings are the language
+  // control’s own labels, and `autonyms.test.ts` refuses them as dictionary VALUES so a corrector
+  // can never meet one on the printed sheet with a box beside it.
+  "pilot.gloss.col.my": { en: "Burmese now", my: "အခု မြန်မာစာ" },
+  "pilot.gloss.col.en": { en: "English now", my: "အခု အင်္ဂလိပ်စာ" },
+  "pilot.gloss.col.fix": { en: "Correction", my: "ပြင်ဆင်ချက်" },
+  "pilot.gloss.band.high": { en: "Read these first", my: "ဒါတွေ အရင်ဖတ်ပါ" },
+  "pilot.gloss.band.high.why": {
+    en: "A wrong word here stops service: a held ticket read as live, a bump with no way back, an outage nobody knows what to do about.",
+    my: "ဒီမှာ စာလုံးမှားရင် အလုပ် ရပ်သွားပါတယ် — ဆိုင်းထားတဲ့ အော်ဒါကို လက်ရှိလို့ ဖတ်မိတာ၊ ပြန်မရတော့တဲ့ ပြီးပြီနှိပ်မိတာ၊ စနစ်ပျက်တဲ့အခါ ဘာလုပ်ရမှန်း မသိတာ။",
+  },
+  "pilot.gloss.band.rest": { en: "The rest", my: "ကျန်တာများ" },
+  "pilot.gloss.locked.settled": { en: "Already checked — leave this one", my: "စစ်ပြီးသား — ဒါကို မပြင်ပါနဲ့" },
+  "pilot.gloss.locked.latin": {
+    en: "Kept in English on purpose — don’t translate",
+    my: "အင်္ဂလိပ်လို တမင် ထားတာ — မဘာသာပြန်ပါနဲ့",
+  },
+  "pilot.gloss.autonyms": {
+    en: "The two language buttons are not on this sheet, and must not be. Each one names its own language, so correcting either into the other leaves whoever cannot read that language with no way back.",
+    my: "ဘာသာစကား ခလုတ်နှစ်ခုကို ဒီစာရွက်မှာ မထည့်ထားပါ၊ မထည့်သင့်ပါ။ တစ်ခုစီက သူ့ဘာသာစကားကို သူ့ဘာသာနဲ့ ခေါ်တာဖြစ်လို့ တစ်ခုကို တစ်ခုအဖြစ် ပြင်လိုက်ရင် အဲဒီဘာသာစကား မဖတ်တတ်သူ ပြန်ပြောင်းလို့ မရတော့ပါ။",
+  },
+  "pilot.gloss.count": { en: "{n} to check · {total} in all", my: "စစ်ရန် {n} ကြောင်း · စုစုပေါင်း {total} ကြောင်း" },
+  "pilot.gloss.sign": { en: "Checked by", my: "စစ်ဆေးသူ" },
+  "pilot.gloss.date": { en: "Date", my: "ရက်စွဲ" },
+
+  "pilot.night.title": { en: "Tonight", my: "ဒီည" },
+  "pilot.night.since": { en: "Since midnight — {t}", my: "သန်းခေါင်ကတည်းက — {t}" },
+  "pilot.night.promo": { en: "{x} discounts given", my: "{x} လျှော့ဈေး ပေးထားတာ" },
+  "pilot.night.orders": { en: "Orders paid", my: "ငွေရှင်းပြီး အော်ဒါ" },
+  "pilot.night.money": { en: "Taken today", my: "ဒီနေ့ ရငွေ" },
+  "pilot.night.money.cash": { en: "Cash", my: "ငွေသား" },
+  "pilot.night.money.card": { en: "Card · online", my: "ကတ် · အွန်လိုင်း" },
+  "pilot.night.money.reader": { en: "Card · reader", my: "ကတ် · စက်" },
+  "pilot.night.money.where": {
+    en: "The register has the full report, refunds included.",
+    my: "အပြည့်အစုံကို ကောင်တာ စာမျက်နှာမှာ ကြည့်ပါ — ငွေပြန်အမ်းတာတွေပါ ပါပါတယ်။",
+  },
+  "pilot.night.ratings": { en: "Ratings tonight", my: "ဒီည အမှတ်ပေးချက်" },
+  "pilot.night.ratings.low": { en: "{n} need following up", my: "{n} ခု လိုက်ကြည့်ရန်" },
+  "pilot.night.recovery": { en: "Charged with no order", my: "အော်ဒါ မရှိဘဲ ငွေဖြတ်ထားတာ" },
+  "pilot.night.recovery.none": { en: "None — nothing to chase.", my: "မရှိပါ — လိုက်စရာ မရှိပါ။" },
+  "pilot.night.recovery.some": {
+    en: "{n} waiting on the approvals screen.",
+    my: "ခွင့်ပြုချက် စာမျက်နှာမှာ {n} ခု စောင့်နေပါတယ်။",
+  },
+  "pilot.night.unattributed": { en: "No channel recorded", my: "ဘယ်ကလာမှန်း မမှတ်ရသေးပါ" },
+  "pilot.night.stripe": {
+    en: "Compare this against Stripe by hand before you close — this screen cannot see Stripe.",
+    my: "မပိတ်ခင် Stripe နဲ့ လက်နဲ့ တိုက်စစ်ပါ — ဒီစခရင်က Stripe ကို မမြင်ပါ။",
+  },
+  "pilot.night.split": {
+    en: "A table that split its bill is not counted above: a split settle records no discount use.",
+    my: "ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲကို အပေါ်မှာ မရေတွက်ပါ — ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ။",
+  },
+  "pilot.night.unreadable": {
+    en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
+    my: "ဒီည ဂဏန်းတွေကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "pilot.night.glossary": { en: "Print the word-check sheet", my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -291,3 +362,71 @@ export const STAFF_LATIN_BY_DESIGN: Readonly<Record<string, string>> = {
 export function ts(lang: "en" | "my", key: StaffKey): string {
   return STAFF[key][lang];
 }
+
+/**
+ * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
+ *
+ * These are the thirteen the printed word-check sheet puts in its first band, so that ten minutes
+ * with the sheet buys the corrections that matter most: a held ticket read as live is food cooked an
+ * hour early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences
+ * are the only instruction anyone has when nothing else on the tablet works.
+ *
+ * ⚠️ DATA AND COMMENT MUST AGREE, and `staff-markers.test.ts` is what makes that true rather than
+ * hoped: it PARSES this module (the TypeScript compiler, so a comment inside a string cannot
+ * satisfy it) for every entry carrying a trailing `K15-HIGH` marker and asserts the two sets are
+ * EQUAL — both directions. A key marked in a comment but missing here is a string Mom is never asked
+ * about; a key listed here with no marker is a claim about severity with nothing behind it.
+ */
+export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
+  "out.tail.paper",
+  "out.write.failed",
+  "out.shell.body",
+  "kds.held",
+  "kds.slot",
+  "kds.fire",
+  "kds.bump",
+  "kds.86",
+  "kds.86.done",
+  "kds.stat.late",
+  "kds.empty.outage",
+  "kds.recall",
+  "kds.undo",
+]);
+
+/**
+ * P5 — the strings the native check must NOT re-ask, each with the reason it is closed.
+ *
+ * The module docblock above already says these three are settled; this is that sentence as data, so
+ * the printed sheet can render them as read-only rows instead of leaving a corrector to discover the
+ * rule from a source comment they will never see. Re-asking is not a harmless duplicate question: a
+ * fresh answer to `kds.title` would overwrite an OWNER-VERIFIED correction, and the two board
+ * headings have been on the wall since W3e — rewording them changes what the ROOM reads, which is a
+ * different decision from checking a translation.
+ *
+ * Guarded like `STAFF_LATIN_BY_DESIGN`: every listed key must exist, so the list cannot outlive its
+ * reason.
+ */
+export const STAFF_SETTLED: Readonly<Record<string, string>> = {
+  "kds.title": "Owner-corrected in W21 — မီးဖိုချောင် is the word this kitchen uses.",
+  "board.col.preparing": "On the wall since W3e — the room has been reading it for months.",
+  "board.col.ready": "On the wall since W3e — the room has been reading it for months.",
+};
+
+/** The three values `table_sessions.mode` may hold, which are also `KitchenChannel`'s three. */
+export type StaffChannel = "dinein" | "pickup" | "scango";
+
+/**
+ * P5 — mode → channel key, in ONE place.
+ *
+ * `KdsBoard.tsx` carried this map privately and the pilot's nightly sheet needs the same three
+ * words, so a second copy would be two bindings for one vocabulary — the drift the "name it ONCE"
+ * rule exists for (`scango` reads "To-go", which is not a mapping either surface should re-derive).
+ * The type is spelled out locally rather than imported from `kitchen-types` so this module keeps no
+ * dependency: it is imported by client code, and `lib/i18n/index.ts`'s own docblock explains why
+ * that matters.
+ */
+export const STAFF_CHANNEL_KEY: Readonly<Record<StaffChannel, StaffKey>> = {
+  dinein: "kds.channel.dinein",
+  pickup: "kds.channel.pickup",
+  scango: "kds.channel.togo",
+};

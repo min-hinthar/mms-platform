@@ -4,6 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
+
+**Three things the two-week pilot needs and did not have: a way to tell its orders apart from the
+rest of the traffic, a way for Mom and Dad to hand back corrections, and one screen with the night's
+answers on it.**
+
+**The pilot's orders funnel apart — by the code, because the door cannot.** `payment_succeeded` and
+`staff_settle_cash` now carry `promo_code` beside the `promo_cents` they already reported, both
+server-derived from the cart at fulfilment and normalized through one function (`lib/pilot-tag.ts`,
+two mutants): upper-cased so `PILOT15` and `pilot15` are not two campaigns, and `null` for the empty
+string a second writer could leave behind. The cash settle matters most — a cash order fires no
+Stripe event at all, so Dad's register arm would otherwise be absent from the campaign entirely.
+
+_The `door` dimension was NOT faked to match._ It is persisted nowhere — measured: zero occurrences
+in the generated schema — so no server event downstream of the session mint can carry it. What the
+mint gained instead is `cart_id`, the one stable id the money-path events already share, so a door
+split is a join rather than an invention. Two honest limits are recorded on **S7**: the physical
+table stickers carry no `?door=`, and the split-tender `payment_succeeded` deliberately carries no
+`promo_code` at all, because that arm has no cart row and `mms_fulfill_split_order` consumes no
+redemption either — asserting `null` there would claim knowledge the handler does not have.
+
+**`/staff/glossary` — the printed word-check sheet, which is what turns K15 from a blocker into pilot
+OUTPUT.** Every staff string, EN and MY, with its key (so a correction is traceable) and a pen box.
+It is a PAGE, not a generated artifact, and that is the stronger reading of the brief's own "can
+never drift": a committed file needs a freshness check somebody remembers to run, while a page that
+imports the dictionary cannot drift at all. The thirteen K15-HIGH lines — the ones a wrong word takes
+service down over — get page one to themselves; the settled three and the four Latin-by-design
+station chips print LOCKED with their reason, because a corrector who cannot find မီးဖိုချောင် on the
+sheet writes it in the margin and now the sheet disagrees with a decision the owner already made.
+
+_The two language-control autonyms are absent, and the page says so._ `မြန်မာ` and `English` are
+component constants precisely so a native-check pass cannot correct one into the other language — the
+single edit that leaves whoever cannot read the other label with no way back. Two guards keep it
+that way: `autonyms.test.ts` refuses them as dictionary VALUES (and re-derives them from the
+component, so a guard naming two literals cannot outlive them), and `glossary.test.ts` keeps them off
+the sheet even if that were relaxed. The severity band is data now (`STAFF_K15_HIGH`) with a
+bidirectional parity guard against the source's own `// K15-HIGH` markers, parsed rather than
+scanned — five of the thirteen ride the closing brace of a multi-line entry, and prose about
+K15-HIGH anywhere else in the module is invisible to it.
+
+**Tonight's sheet on `/staff/feedback`, read-only for the whole pilot (K13 stays open by decision).**
+Discounts given, orders paid by channel, the day's takings, ratings, and the `qr_refunds_needed`
+ledger. Every figure is quoted rather than re-derived — the money comes from `getDayCashSummary`, the
+register's own Z-report, and the day window from `laDayStartIso`, so "tonight" means one instant on
+three screens. What it refuses to say is the reviewed part: an order whose channel cannot be read is
+counted APART, never distributed and never dropped; the Stripe reconciliation stays a hand-check and
+the sheet says so rather than printing a number that would look like the check had been done; and it
+discloses that a table which splits its bill is missing from its own discount count (filed as
+**M157** — `mms_fulfill_split_order` consumes no redemption, and the Day-0 script's first table
+splits its bill).
+
+_A failed read is never a zero, on either half of that page._ `getPilotNight` collapses to a single
+"can't read tonight" sentence when any read fails or answers a null count. And the neighbour was
+worse: `getStaffFeedback` swallowed its read error and rendered "No feedback yet. Diners are asked to
+rate after every order." during an outage — with the new sheet above it reading its rating count from
+a query that fails loud, one outage could have put "7 ratings tonight" and "no feedback yet" on one
+screen. It returns an outcome now.
+
+**Eleven mutants, each watched failing first**, plus `verify:slice`'s existing coverage on the two
+money files touched. `KdsBoard`'s private channel→key map moved to `STAFF_CHANNEL_KEY` rather than
+being copied for the sheet — one vocabulary, one binding.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese

@@ -4,6 +4,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
 
 export const metadata = { title: "Feedback — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -19,7 +20,11 @@ export default async function FeedbackPage() {
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="feedback" />;
 
-  const rows = await getStaffFeedback();
+  // P5 — the read reports its OUTCOME now (lib/feedback.ts): a failed read must not render as
+  // "No feedback yet", least of all directly beneath a pilot sheet that reads its own rating count
+  // from a query that fails loud. `rows` is only ever consulted when the read actually happened.
+  const feedback = await getStaffFeedback();
+  const rows = feedback.ok ? feedback.rows : [];
   const lowCount = rows.filter((r) => r.rating <= 3).length;
 
   return (
@@ -27,13 +32,20 @@ export default async function FeedbackPage() {
       <Link href="/staff" style={back}>
         ← Floor
       </Link>
+      {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
+          the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
+          It renders nothing at all for a non-manager (its own gate), so a server's view of this page
+          is unchanged. */}
+      <PilotNightSheet />
       <h1 style={h1}>Guest feedback</h1>
       <p style={sub}>
-        {rows.length === 0
-          ? "No feedback yet. Diners are asked to rate after every order."
-          : lowCount > 0
-            ? `${lowCount} recent rating${lowCount === 1 ? "" : "s"} need follow-up.`
-            : "All recent ratings look good."}
+        {!feedback.ok
+          ? "We can’t read the feedback list right now — nothing is lost. Try again in a moment."
+          : rows.length === 0
+            ? "No feedback yet. Diners are asked to rate after every order."
+            : lowCount > 0
+              ? `${lowCount} recent rating${lowCount === 1 ? "" : "s"} need follow-up.`
+              : "All recent ratings look good."}
       </p>
 
       {rows.length > 0 && (

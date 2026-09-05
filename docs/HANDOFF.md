@@ -5,6 +5,62 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · pilot P5 — the pilot can be measured, and the family can correct it)
+>
+> **Branch `claude/session-d-pilot-loop-myabrt`, off `main` at `5715781`** (#259, pilot P2 PR A).
+> ⚠️ **THREE OTHER SESSIONS ARE BUILDING PILOT SLICES IN PARALLEL** — P2 PR B (the rest of the staff
+> console), P3 (`PILOT15` + the staff apply), P6 (the dual-audience board). Whichever PR merges second
+> re-measures the doc counts and re-pushes; merge `main` IN, never rebase.
+>
+> ### What P5 shipped
+>
+> **The pilot's orders funnel apart by the CODE, because the door cannot.** `promo_code` now rides
+> `payment_succeeded` and `staff_settle_cash` beside the `promo_cents` they already carried,
+> server-derived from the cart at fulfilment and normalized once in `lib/pilot-tag.ts`. The cash arm is
+> the one that mattered: a cash order fires no Stripe event at all, so Dad's register would otherwise
+> have been absent from the campaign entirely.
+>
+> ⚠️ **`door` was NOT put on the money path, and that is the finding to carry forward.** It is
+> persisted NOWHERE — measured: zero occurrences of it in the generated schema, no column on
+> `table_sessions`, `qr_carts` or `qr_orders` — so no server event downstream of the session mint can
+> know it, and writing one would have been a fabricated dimension. The mint gained `cart_id` instead:
+> the one stable id `payment_intent_created`, `payment_succeeded` and `payment_failed` already share,
+> so a door split is a JOIN rather than an invention. Two honest limits are recorded on **S7**: the
+> physical table stickers deep-link with no `?door=` (so a sticker scan mints `door: null`), and the
+> SPLIT-TENDER `payment_succeeded` deliberately carries no `promo_code` at all — that arm holds no cart
+> row, and asserting `null` would claim knowledge the handler does not have.
+>
+> **`/staff/glossary` is the K15 instrument.** A printable EN/MY word-check sheet derived from
+> `lib/i18n/staff.ts` AT RENDER — a page, not a generated artifact, so there is no second copy to go
+> stale and no freshness check to forget. K15-HIGH first (its own printed page), settled and
+> Latin-by-design rows LOCKED with their reason, the two language-control autonyms absent with the
+> reason printed where a corrector meets it. `STAFF_K15_HIGH` and `STAFF_SETTLED` are DATA now, with a
+> bidirectional parity guard against the source's own trailing markers — parsed, not scanned, because
+> five of the thirteen markers ride the closing brace of a multi-line entry.
+>
+> **Tonight's sheet on `/staff/feedback`** is read-only for the whole pilot (K13 stays open by
+> decision). Every figure is quoted rather than re-derived — the takings from `getDayCashSummary`, the
+> day window from `laDayStartIso` — and what it refuses to say is the reviewed part: an unattributable
+> channel is counted APART, the Stripe reconciliation is named as the hand-check it is, and the
+> split-tender discount blind spot is disclosed on the sheet and filed as **M157**.
+>
+> ### A defect found next door and fixed
+>
+> `getStaffFeedback` swallowed its read error and rendered "No feedback yet. Diners are asked to rate
+> after every order." during an outage. With the night sheet now directly above it — reading its rating
+> count from a query that fails LOUD — one outage could have put "7 ratings tonight" and "no feedback
+> yet" on the same screen. It returns an outcome now (`lib/feedback-read.test.ts`, plus a mutant).
+>
+> ### Gate
+>
+> Eleven new mutants, each watched failing first, and every new guard induced red before shipping
+> (both directions on the marker parity, and the matcher's own evasion — prose containing the marker —
+> falsified). ⚠️ **Codex could not review this PR: the connector reported its usage limit reached on
+> #259 (2026-09-05), so the `codex-review` check cannot go green.** The blind adversarial pass is the
+> only independent reviewer this slice had; do not read it as two.
+>
+> The block below is #257's — read this one, then `docs/PILOT_PLAN.md` §3, then the older banners.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
 >
 > **`main` is at `dfcda72`** (#257, squash of `c166d43`). **Prod has the migration:**

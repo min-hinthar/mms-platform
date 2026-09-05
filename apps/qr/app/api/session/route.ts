@@ -345,7 +345,21 @@ export async function POST(req: NextRequest) {
     // three-door IA funnel-able even where two doors share an internal mode. Unclaimed = null, NOT
     // a mode fallback: mode values ("scango") would pollute the door vocabulary until K1 wires
     // every entry point.
-    properties: { session_id: sess.id, mode: sess.mode, role, door: body.door ?? null },
+    // P5 — `cart_id` is the JOIN KEY, and it is the only way `door` can reach the money path.
+    // The door is a client-declared entrance (analytics-only, K0) and is persisted NOWHERE: no
+    // column on `table_sessions` or `qr_carts` holds it, so no server-side event downstream of this
+    // one can carry it, and inventing a door on an order event would be a fabricated dimension.
+    // What IS stable from here to the charge is the cart: `payment_intent_created`,
+    // `payment_succeeded` and `payment_failed` are all keyed on `cart_id` (as their distinctId AND
+    // as a property), so emitting it here lets "which door did the pilot's paying tables come in
+    // by?" be answered by joining on it — rather than by guessing.
+    properties: {
+      session_id: sess.id,
+      mode: sess.mode,
+      role,
+      door: body.door ?? null,
+      cart_id: cart.id,
+    },
   });
 
   // `joinCode` = the session's qr_code → the code other phones scan/enter to join (dine-in group).

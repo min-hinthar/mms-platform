@@ -22,7 +22,10 @@ export async function openCartFor(sessionId: string) {
     return { session: null, cart: null, unavailable: false as const };
   const { data: cart, error: cartError } = await db
     .from("qr_carts")
-    .select("id,locked,locked_at,settle_at,tab_type")
+    // `promo_code` is here rather than in a second read at the settle site (P5): the register is the
+    // only path a cash order takes, so without it a pilot table that pays cash is invisible to the
+    // funnel — no Stripe event ever fires for it. Widening the ONE shared read keeps a single shape.
+    .select("id,locked,locked_at,settle_at,tab_type,promo_code")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();

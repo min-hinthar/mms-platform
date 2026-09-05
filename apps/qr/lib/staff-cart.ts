@@ -16,6 +16,7 @@ import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
 import { acquireSettlement, releaseSettlement } from "./lock";
 import { getPostHogClient } from "./posthog-server";
+import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
 
@@ -420,6 +421,12 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
               // M22 (Codex round 2) — the promo's DELIVERED contribution, matching the card path and
               // the value this settle just consumed a redemption on.
               promo_cents: totals.promoCents,
+              // P5 — WHICH code, on the one settle path Stripe never sees. A cash order fires no
+              // `payment_succeeded`, so without this the pilot's cash tables — the register arm Dad
+              // actually uses — would be absent from the campaign funnel entirely. Same normalizer
+              // and the same pairing rule as the card path: reported beside `promo_cents`, never
+              // instead of it.
+              promo_code: promoTag(cart.promo_code),
               item_count: count ?? 0,
             },
           });

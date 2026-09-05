@@ -6,6 +6,7 @@ import { closeCounterStyleSession } from "@/lib/staff-open-cart";
 import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
 import {
@@ -55,6 +56,13 @@ export async function POST(req: NextRequest) {
         if (orderId) {
           await enqueueQboSync(db, orderId);
           after(() => syncOrderToQbo(orderId));
+          // ⚠️ P5 — this `payment_succeeded` deliberately carries NO `promo_code` (and no
+          // `promo_cents`), unlike the single/terminal branch below. Two reasons, and neither is an
+          // oversight to tidy up later: this arm has no cart row in hand, and `mms_fulfill_split_order`
+          // consumes NO promo redemption at all, so a split settle is genuinely absent from the
+          // campaign ledger too. Emitting `promo_code: null` here would assert "this order used no
+          // code", which is not something this handler knows. `split: true` is the discriminator — a
+          // campaign funnel must filter on it rather than read an absent property as a null.
           posthog.capture({
             distinctId: intent.metadata?.cartId ?? intent.id,
             event: "payment_succeeded",
@@ -222,7 +230,11 @@ export async function POST(req: NextRequest) {
         // on a non-open cart as the hard DB backstop; this is the graceful, no-retry-storm path.
         const { data: cartRow, error: cartRowError } = await db
           .from("qr_carts")
-          .select("status,tab_type")
+          // P5 — `promo_code` rides this EXISTING read rather than a second one: the pilot needs its
+          // orders to funnel apart from the rest of the traffic, and the code on the cart AT
+          // FULFILLMENT is the one fulfillment consumed a redemption for. A separate read taken a
+          // moment later could disagree with the amount this handler is reconciling.
+          .select("status,tab_type,promo_code")
           .eq("id", cartId)
           .maybeSingle();
         // W10c (M30) — an unreadable cart silently SKIPPED the cross-tender guard below and proceeded
@@ -515,6 +527,14 @@ export async function POST(req: NextRequest) {
             // overstates campaign cost on exactly the orders where the promo gave least. Same
             // lesson as the amount_cents comment above — report what happened, not what was asked.
             promo_cents: totals.promoCents,
+            // P5 — WHICH code, beside what it delivered. `promo_cents` alone cannot separate the
+            // pilot's orders from every other campaign's, and a join back to `promo_applied` (which
+            // carries the code at APPLY time, on a different distinctId) is not something anyone will
+            // do at 9pm. Normalized through `promoTag` so one campaign is one filter value and an
+            // empty string never reports as a nameless one; null when the basket carried no code.
+            // Reported ALONGSIDE `promo_cents`, never instead of it: an attached code that delivered
+            // nothing is a true and useful pair, and collapsing it to one field would lose that.
+            promo_code: promoTag(cartRow?.promo_code),
           },
         });
       } else if (!existing && !cartId) {

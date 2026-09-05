@@ -27,7 +27,7 @@ import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffLangSwitch } from "./StaffLangSwitch";
 import { Chrome } from "./Chrome";
-import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -91,12 +91,6 @@ function ticketId(
   const main = t.customerName ?? code;
   return { main, node: main, sub: t.customerName ? code : null };
 }
-
-const CHANNEL_KEY: Record<KitchenTicket["channel"], StaffKey> = {
-  dinein: "kds.channel.dinein",
-  pickup: "kds.channel.pickup",
-  scango: "kds.channel.togo",
-};
 
 function fmtElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -795,7 +789,7 @@ function TicketCard({
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
       className={`kds-ticket${ticket.held ? " kds-ticket-held" : ""}`}
-      aria-label={`${id.main} — ${ts(lang, CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}`}
+      aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >
       {pulse != null && <span key={pulse} className="kds-flash" aria-hidden="true" />}
@@ -817,7 +811,7 @@ function TicketCard({
               device's language alone. */}
           <span className="kds-badge" lang={lang}>
             {ticket.held ? ts(lang, "kds.held") : ""}
-            {ts(lang, CHANNEL_KEY[ticket.channel])}
+            {ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}
           </span>
         </span>
       </header>
