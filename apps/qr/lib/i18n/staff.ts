@@ -122,6 +122,9 @@ export const STAFF = {
   }, // K15-HIGH
   "kds.fire": { en: "Fire now", my: "အခု စချက်" }, // K15-HIGH — no undo, only a second ticket
   "kds.bump": { en: "BUMP", my: "ပြီးပြီ" }, // K15-HIGH — the tap made most; a 6s undo is the only way back
+  // The bump's accessible-name tail. The visible label leads the name (2.5.3), and this says WHICH
+  // ticket and how much it clears — the two facts a cook needs before a tap that clears the card.
+  "kds.bump.what": { en: "{x}, all {n} items done", my: "{x} — ပစ္စည်း {n} ခုလုံး ပြီးပြီ" },
   "kds.line.start": { en: "Start", my: "စလုပ်" },
   "kds.line.done": { en: "Done", my: "ပြီး" },
   "kds.line.bagit": { en: "Bag it", my: "ထုပ်ရန်" },
