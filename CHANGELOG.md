@@ -4,6 +4,50 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The sentence that names the dish survives the banner that names nothing (2026-09-05)
+
+**T33 — the one live region is arbitrated.** Three merged PRs made the /menu refusal sentence
+correct. None of them made it READABLE: `flash` is a single slot, `publishRefusal` writes it
+synchronously, and the lock/settle banners defer into it through `void Promise.resolve().then(...)`
+— so the banner landed last, on exactly the taps that produce a refusal. It collides because it
+shares a cause: the re-read that DIAGNOSES the refusal is the read that flips `locked` through
+`applyView`.
+
+**Measured against HEAD before anything was designed**, with a jsdom probe rather than an argument
+about React's scheduler:
+
+```
+Expected: "That didn’t go through — the order’s locked while someone checks out."
+Received: "Someone is checking out — the order’s locked"
+```
+
+Same fact. The survivor names neither the verdict nor — through `YourUsual` — the dish.
+
+**The fix is redundancy, not priority**, and the distinction is the whole design. A priority ladder
+answers "which of these matters more", which is the wrong question: the banner is not less
+important, it is exactly what a diner who did NOTHING needs (W9b filed that case). It is redundant
+only for a diner who just tried to write and was told why. So `apps/qr/lib/live-region.ts` decides
+on redundancy: **a release ALWAYS speaks** (never silence "you can edit again" — the over-blocking
+direction is the one this repo has paid for), **entering a freeze is silent only when the SAME axis
+was explained**, and **`unknown` explains nothing** (its clause names no freeze). The axis comes
+from the CAUSE, never the cart's current flags — the cause is what was spoken, the flags are what is
+true now, and those disagreeing by a tick is the class this sits in.
+
+**Two things the red-first probes found that reasoning had not.** A per-write clear beside
+`lastRefusalRef` was written first and its mutant SURVIVED: `explained` is non-null only while the
+freeze it names is true, and the only way out is the release edge, so the clear was unreachable and
+is gone with the search recorded. And the settle-axis test's first fixture settled a cart with
+`locked:false` — the lock release edge cleared `explained` before the settle banner ran, so the
+mutant survived against a fixture that separated nothing. The input that separates them keeps the
+pay-lock held while the table starts splitting, which is also the shape a real table takes.
+
+An existing test broke, and instructively: "never mounts a second status region" waited on
+`/checking out/i`, which matches ONLY the banner — the refusal clause reads "…while someone CHECKS
+out". Its wait was satisfied by the very announcement T33 removes. #252 had recorded that collision
+as a reason to assert somewhere else; this slice reads the same fact as a bug.
+
+`T33` closed. Eight mutants added, every one watched red.
+
 ### The refusal sentence is composed once, and a cause never outlives its write (2026-09-04)
 
 **T32 — the /menu partial add said the verdict twice.** `YourUsual` appended the provider's whole

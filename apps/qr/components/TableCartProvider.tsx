@@ -27,6 +27,11 @@ import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
 import { acceptView, issueRead, newViewSeq, readReachedServer, type ViewSeq } from "@/lib/view-seq";
 import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
+import {
+  explainedByRefusal,
+  freezeBannerSuppressed,
+  type ExplainedFreeze,
+} from "@/lib/live-region";
 import { setDisplayName } from "@/lib/members";
 import { useTableSession } from "@/lib/useTableSession";
 import {
@@ -323,6 +328,21 @@ export function TableCartProvider({
    *  ⚠️ CLEARED at the top of every write by `forgetRefusal` (T31), so a cause cannot outlive the
    *  write it explains. */
   const lastRefusalRef = useRef<string | null>(null);
+  /** T33 — the freeze axis the last published refusal EXPLAINED, or null.
+   *
+   *  The single live region is last-writer-wins, and the lock/settle banners defer into it through a
+   *  microtask — so they land AFTER `publishRefusal` and after any sentence a consumer composed from
+   *  its clause. Measured against HEAD, the region ended up holding "Someone is checking out — the
+   *  order's locked" where the diner needed "That didn't go through — …", which names the verdict
+   *  and, through `YourUsual`, the dish. Same fact, strictly less information, spoken second.
+   *
+   *  This is what lets the banner know it would be REDUNDANT rather than merely later. The rule
+   *  itself lives in `lib/live-region.ts`; this ref is only the fact it reads.
+   *
+   *  ⚠️ TWO BOUNDS, closing different holes: `forgetRefusal` clears it per WRITE (T31's discipline,
+   *  so a cause cannot outlive the write it explained), and the release edge below clears it per
+   *  FACT (so "locked" cannot silence a banner about a lock the diner was never told about). */
+  const explainedFreezeRef = useRef<ExplainedFreeze>(null);
   const settlingRef = useRef(false);
 
   // What a ticketed read established, and the rows it accepted — as a UNION, so `items` is
@@ -807,6 +827,11 @@ export function TableCartProvider({
   const publishRefusal = useCallback(
     (refusal: PublishableRefusal) => {
       lastRefusalRef.current = refusedWriteClause(refusal);
+      // T33 — record WHICH freeze this sentence explained, so the banner for that same freeze stays
+      // silent instead of overwriting it a microtask later. Derived from the CAUSE, never from the
+      // cart's current flags: the cause is what was spoken, the flags are what is true now, and the
+      // two disagreeing by a tick is the whole class of defect this sits in.
+      explainedFreezeRef.current = explainedByRefusal(refusal.cause);
       flash(refusedWriteNotice(refusal), 2600);
     },
     [flash],
@@ -828,6 +853,17 @@ export function TableCartProvider({
    */
   const forgetRefusal = useCallback(() => {
     lastRefusalRef.current = null;
+    // ⚠️ `explainedFreezeRef` IS DELIBERATELY NOT CLEARED HERE, and the asymmetry with the line above
+    // is the point (T33). A per-write clear was written first, and its mutant SURVIVED — so the
+    // separating case was searched for rather than assertions piled on, and it does not exist:
+    // `explained` is only ever non-null while the freeze it names is TRUE (the cause is derived from
+    // a re-read that saw that freeze), and the only way out of that freeze is the release edge,
+    // which clears it there. A cart that is still frozen refuses every write, so no second write can
+    // succeed underneath a stale value either.
+    //
+    // The two refs bound different things and that is why only one is cleared here: `lastRefusalRef`
+    // must not outlive its WRITE (T31), `explainedFreezeRef` must not outlive its FACT — and a fact
+    // ends at a release, not at a tap.
   }, []);
 
   /**
@@ -1228,12 +1264,29 @@ export function TableCartProvider({
   useEffect(() => {
     if (locked === prevLocked.current) return;
     prevLocked.current = locked;
+    // T33 — the release edge clears what a refusal explained: the fact has ended, so it may no
+    // longer silence anything. Without this, peer-releases-then-re-locks leaves a stale "locked"
+    // suppressing a banner about a freeze the diner was never told about.
+    if (!locked) explainedFreezeRef.current = null;
     const msg = !locked
       ? "The order’s unlocked — you can edit again"
       : lockedByYou
         ? "You’re checking out — the order’s locked"
         : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;
-    void Promise.resolve().then(() => flash(msg, 2600));
+    // T33 — decided AT SPEAK TIME, inside the microtask, not before deferring. The slot is
+    // last-writer-wins and this callback is the last writer; asking earlier would answer about a
+    // moment that is not the one the sentence lands in.
+    void Promise.resolve().then(() => {
+      if (
+        freezeBannerSuppressed({
+          axis: "locked",
+          entering: locked,
+          explained: explainedFreezeRef.current,
+        })
+      )
+        return;
+      flash(msg, 2600);
+    });
   }, [locked, lockedByName, lockedByYou, flash]);
 
   // W9b — the settlement freeze is the OTHER way this cart goes read-only, and it announced nothing:
@@ -1247,10 +1300,22 @@ export function TableCartProvider({
     const prev = prevSettling.current;
     if (prev === null || prev === settling) return;
     prevSettling.current = settling;
+    // T33 — same release-clears-the-fact rule as the lock edge above.
+    if (!settling) explainedFreezeRef.current = null;
     const msg = settling
       ? "Your table is splitting the bill — the order’s locked while everyone pays"
       : "The split was called off — you can edit the order again";
-    void Promise.resolve().then(() => flash(msg, 2600));
+    void Promise.resolve().then(() => {
+      if (
+        freezeBannerSuppressed({
+          axis: "settling",
+          entering: settling,
+          explained: explainedFreezeRef.current,
+        })
+      )
+        return;
+      flash(msg, 2600);
+    });
   }, [settling, flash]);
 
   return (
