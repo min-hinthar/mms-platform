@@ -46,7 +46,37 @@ An existing test broke, and instructively: "never mounts a second status region"
 out". Its wait was satisfied by the very announcement T33 removes. #252 had recorded that collision
 as a reason to assert somewhere else; this slice reads the same fact as a bug.
 
-`T33` closed. Eight mutants added, every one watched red.
+**The blind pass returned REJECT on the first draft, and both findings were defects the design had
+created rather than ones it missed.**
+
+- **The latch could be set from a recovery read that LOST the screen.** `explainCaught` classifies
+  from what its read observed even when `applyView` rejects the view — deliberately, since a refusal
+  is a fact about the moment it looked. But a latch is a claim about what the diner can SEE. An
+  overtaken read therefore latched a freeze the rendered state never carried, no release edge could
+  ever fire for it, and the next genuine lock was announced to NOBODY — the exact W9b silence this
+  arbitration exists to prevent, produced by the arbitration. Fixed at the source: the latch is gated
+  on the view having won.
+- **Equality-only suppression was wrong where both freezes enter on one view.** `locked_at` and
+  `settle_at` are independent columns, and `classifyRefusedWrite` tests settling first — so the
+  refusal explains `settling`, an equality rule let the LOCK banner through, and because its effect
+  is declared first it became the surviving sentence. The region would have swapped from the wider
+  banner to the narrower one with the refusal still erased: worse than not arbitrating. Fixed with a
+  rank that mirrors `inertReason`'s documented precedence.
+
+Also from that pass: the settle-release clear shipped with neither mutant nor test (its lock twin had
+both, on the axis this module calls the more consequential); the release copy said "you can edit
+again" on a cart still settling, which rule 1 would have pinned IN rather than merely left standing;
+and the lock mutant's fixture mounted already-locked, so its catch depended on when React flushed
+passive effects rather than on the rule.
+
+**And the per-write clear came back, then went again — for a better reason.** Draft 1 deleted it on a
+surviving mutant, reading that as "unreachable" when the repo's rule says it means the fixture is
+blind. The pass found the separating input. The fix is the gate, not a second clear: the gate makes
+the invariant TRUE where the clear would only have papered over a latch that should not exist. With
+it, the clear is genuinely subsumed — and the asymmetry with `lastRefusalRef` is principled, since
+that ref is read by a CONSUMER after the write while this one is read by the banner effects.
+
+`T33` closed. Twelve mutants added, every one watched red.
 
 ### The refusal sentence is composed once, and a cause never outlives its write (2026-09-04)
 

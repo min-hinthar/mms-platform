@@ -66,11 +66,30 @@ export type ExplainedFreeze = FreezeAxis | null;
  *     names this freeze and additionally names what the diner was trying to do.
  *  3. **Anything else speaks.** A refusal about the other axis does not cover this fact.
  *
- * ⚠️ THE CALLER MUST CLEAR `explained` WHEN THE FREEZE IT NAMES ENDS, or rule 2 outlives its own
- * truth: peer releases, peer re-locks, and a stale "locked" would silence a banner about a freeze
- * the diner was never told about. That clear lives at the release edge in `TableCartProvider`,
- * beside `forgetRefusal`'s per-write clear (T31) — two bounds, because they close different holes:
- * T31's stops a cause outliving its WRITE, this one stops it outliving its FACT.
+ * ⚠️ PRECEDENCE, NOT EQUALITY — and the blind pass on this PR is why. The first draft suppressed
+ * only an EXACT axis match, which is wrong in the cell where both freezes enter on ONE applied view
+ * (reachable: `locked_at` and `settle_at` are independent columns with no mutual exclusion).
+ * `classifyRefusedWrite` tests settling FIRST, so the refusal there explains `settling` — and an
+ * equality rule then let the LOCK banner through, which runs before the settle callback and ends up
+ * as the surviving sentence. The diff would have swapped the region from the WIDER banner to the
+ * NARROWER one while still erasing the refusal: worse than doing nothing, on the cell the fixture
+ * called the real shape.
+ *
+ * So the rank mirrors `inertReason`'s documented order — settling is wider than locked, "the state
+ * that outlives the other and the one with somewhere for the diner to go". A refusal that explained
+ * the WIDER freeze has already told the diner the strongest true thing; a narrower banner adds
+ * nothing. A refusal that explained the NARROWER one has not, so the wider banner still speaks.
+ *
+ * ⚠️ THE CALLER MUST CLEAR `explained` ON BOTH BOUNDS, and neither is optional:
+ *   • per WRITE (`forgetRefusal`, T31's discipline) — because the latch can be set from a recovery
+ *     read that LOST the screen (`applyView` returns false; the refusal is still classified from
+ *     what that read observed). Then the freeze it names is not in the rendered state at all, no
+ *     release edge can ever fire for it, and without this clear the next genuine freeze is
+ *     announced to NOBODY. A first draft deleted this clear because its mutant survived; the
+ *     fixture was degenerate, not the rule unreachable — the separating input is an overtaken
+ *     recovery read.
+ *   • per FACT (the release edge) — because a peer releasing and re-locking with no write in
+ *     between would otherwise leave a stale axis silencing a banner nobody explained.
  */
 export function freezeBannerSuppressed(input: {
   axis: FreezeAxis;
@@ -80,8 +99,22 @@ export function freezeBannerSuppressed(input: {
 }): boolean {
   // Rule 1, first and alone — so no later branch can ever silence a release.
   if (!input.entering) return false;
-  // Rules 2 and 3: only the axis actually explained is redundant.
-  return input.explained === input.axis;
+  if (input.explained === null) return false;
+  // Rules 2 and 3, by RANK rather than equality — see the precedence note above. A refusal that
+  // explained a freeze at least as wide as this banner's has already said the stronger true thing.
+  return freezeRank(input.explained) >= freezeRank(input.axis);
+}
+
+/**
+ * How WIDE a freeze is, mirroring `inertReason`'s precedence exactly.
+ *
+ * ⚠️ THIS IS NOT AN ARBITRARY ORDER and must not drift from `inertReason`'s: that function resolves
+ * one cart carrying both freezes into ONE sentence, settling first, on the stated grounds that it is
+ * the state which outlives the other. If these two disagreed, the same cart would get its sentence
+ * from one ranking and its silence from another.
+ */
+function freezeRank(axis: FreezeAxis): number {
+  return axis === "settling" ? 2 : 1;
 }
 
 /**

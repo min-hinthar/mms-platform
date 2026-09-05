@@ -825,13 +825,21 @@ export function TableCartProvider({
    * the same verdict.
    */
   const publishRefusal = useCallback(
-    (refusal: PublishableRefusal) => {
+    (refusal: PublishableRefusal, viewIsCurrent: boolean) => {
       lastRefusalRef.current = refusedWriteClause(refusal);
       // T33 — record WHICH freeze this sentence explained, so the banner for that same freeze stays
       // silent instead of overwriting it a microtask later. Derived from the CAUSE, never from the
       // cart's current flags: the cause is what was spoken, the flags are what is true now, and the
       // two disagreeing by a tick is the whole class of defect this sits in.
-      explainedFreezeRef.current = explainedByRefusal(refusal.cause);
+      //
+      // ⚠️ GATED ON THE VIEW HAVING WON, and a draft that was not shipped a live over-block (blind
+      // pass on this PR, CRITICAL). `explainCaught` classifies from the read it made EVEN WHEN THAT
+      // READ LOST THE SCREEN — deliberately, since the refusal is a fact about the moment it looked.
+      // But a latch is not a fact about a moment, it is a claim about what the diner can currently
+      // SEE. Latch an overtaken read's freeze and the rendered state never carries it, so no release
+      // edge can ever fire for it, and the next genuine lock is announced to nobody: the exact W9b
+      // silence this arbitration exists to avoid, caused by the arbitration.
+      explainedFreezeRef.current = viewIsCurrent ? explainedByRefusal(refusal.cause) : null;
       flash(refusedWriteNotice(refusal), 2600);
     },
     [flash],
@@ -853,17 +861,25 @@ export function TableCartProvider({
    */
   const forgetRefusal = useCallback(() => {
     lastRefusalRef.current = null;
-    // ⚠️ `explainedFreezeRef` IS DELIBERATELY NOT CLEARED HERE, and the asymmetry with the line above
-    // is the point (T33). A per-write clear was written first, and its mutant SURVIVED — so the
-    // separating case was searched for rather than assertions piled on, and it does not exist:
-    // `explained` is only ever non-null while the freeze it names is TRUE (the cause is derived from
-    // a re-read that saw that freeze), and the only way out of that freeze is the release edge,
-    // which clears it there. A cart that is still frozen refuses every write, so no second write can
-    // succeed underneath a stale value either.
+    // ⚠️ `explainedFreezeRef` IS NOT CLEARED HERE, and the full arc of that decision is worth the
+    // lines because a draft got it wrong in BOTH directions.
     //
-    // The two refs bound different things and that is why only one is cleared here: `lastRefusalRef`
-    // must not outlive its WRITE (T31), `explainedFreezeRef` must not outlive its FACT — and a fact
-    // ends at a release, not at a tap.
+    // Draft 1 had no `viewIsCurrent` gate on the latch and deleted this clear because its mutant
+    // survived — reading a surviving mutant as "unreachable" when the repo's rule says it means the
+    // FIXTURE cannot express the failure. The blind pass found the separating input: a recovery read
+    // that LOSES the screen latched a freeze the rendered state never carried, so no release edge
+    // could ever retire it and the next genuine lock was announced to nobody.
+    //
+    // The fix is the gate at `publishRefusal`, not a second clear here: it makes the invariant TRUE
+    // — `explained` is set only from a view that won the screen — where this line would only have
+    // papered over a latch that should never have existed. With the gate in place the clear is
+    // genuinely subsumed and its mutant survives again, this time because the rule really is
+    // unreachable rather than because the fixture was blind.
+    //
+    // The asymmetry with the line above is therefore principled: `lastRefusalRef` is read by a
+    // CONSUMER after the write (`YourUsual`), so its correctness bound is the write. This ref is
+    // read by the banner effects, and its bound is the FACT — established at the source by the gate,
+    // ended at the release edge.
   }, []);
 
   /**
@@ -1079,7 +1095,7 @@ export function TableCartProvider({
         // that read failed — so the two can never disagree. It is written as a narrowing rather than
         // a cast because the mutant `refusal/unreadable-cart-yields-a-list` proves the coupling
         // instead of asserting it.
-        if (result.state === "refused" && refusal) publishRefusal(refusal);
+        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);
         // The optimistic "Added to your order" is still on screen; retract it rather than let an
         // outcome that may not claim a landing stand as one.
         else if (result.state === "unconfirmed") publishUnconfirmed();
@@ -1206,7 +1222,7 @@ export function TableCartProvider({
           landed: fresh === null ? null : qty <= 0 ? line === undefined : line?.qty === qty,
           viewIsCurrent,
         });
-        if (result.state === "refused" && refusal) publishRefusal(refusal);
+        if (result.state === "refused" && refusal) publishRefusal(refusal, viewIsCurrent);
         else if (result.state === "unconfirmed") publishUnconfirmed();
         return result;
       } finally {
@@ -1269,7 +1285,14 @@ export function TableCartProvider({
     // suppressing a banner about a freeze the diner was never told about.
     if (!locked) explainedFreezeRef.current = null;
     const msg = !locked
-      ? "The order’s unlocked — you can edit again"
+      ? // ⚠️ THE RELEASE IS NOT ALWAYS AN INVITATION (blind pass on this PR). `locked` and `settling`
+        // are independent columns, so a pay-lock can lift while the table is still splitting — and
+        // "you can edit again" is then false: every `addItem`/`setQty` still refuses on `settling`.
+        // The copy predates this slice, but rule 1 now PINS the release as always-spoken, so the
+        // false case would have been guarded in rather than merely left standing.
+        settling
+        ? "The pay-lock lifted — the order stays locked while your table splits the bill"
+        : "The order’s unlocked — you can edit again"
       : lockedByYou
         ? "You’re checking out — the order’s locked"
         : `${lockedByName ?? "Someone"} is checking out — the order’s locked`;

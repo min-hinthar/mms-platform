@@ -24,14 +24,27 @@ describe("freezeBannerSuppressed — entering a freeze", () => {
     }
   });
 
+  it("is silent for the NARROWER axis when the WIDER one was explained", () => {
+    // ⚠️ PRECEDENCE, and the cell an equality rule got wrong (blind pass, HIGH). Both freezes can
+    // enter on ONE applied view — `locked_at` and `settle_at` are independent columns — and
+    // `classifyRefusedWrite` tests settling FIRST, so the refusal there explains `settling`. Under
+    // equality the LOCK banner was let through, and because its effect is declared first its
+    // callback runs first and it ends up as the surviving sentence: the region swaps from the WIDER
+    // banner to the NARROWER one while the refusal is still erased. Worse than doing nothing.
+    expect(freezeBannerSuppressed({ axis: "locked", entering: true, explained: "settling" })).toBe(
+      true,
+    );
+  });
+
   it("speaks when the OTHER axis was explained — a lock refusal says nothing about a settle", () => {
     // ⚠️ THE SEPARATING CASE for rule 3, and the reason `explained` is an axis and not a boolean.
     // `inertReason` fixes settling as the widest, longest-lived state; silencing its banner because
     // a LOCK was explained drops the more consequential of the two freezes.
+    // ⚠️ ASYMMETRIC ON PURPOSE — the reverse direction is the test above. A lock refusal has NOT
+    // told the diner about the settle freeze, and `inertReason` fixes settling as the wider state,
+    // so the wider banner must still speak. Ranking these the other way would silence the more
+    // consequential of the two.
     expect(freezeBannerSuppressed({ axis: "settling", entering: true, explained: "locked" })).toBe(
-      false,
-    );
-    expect(freezeBannerSuppressed({ axis: "locked", entering: true, explained: "settling" })).toBe(
       false,
     );
   });

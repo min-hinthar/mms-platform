@@ -268,15 +268,142 @@ describe("T33 — a freeze banner never overwrites the refusal that explained it
     // Measured against HEAD before the fix: the region held "Someone is checking out — the order's
     // locked". Same fact as the refusal, minus the verdict and minus the dish, spoken second
     // because the transition effect defers through a microtask while `publishRefusal` is sync.
+    // ⚠️ MOUNTS UNLOCKED, then locks only on the RECOVERY read (blind pass, MEDIUM). The first
+    // draft resolved `LOCKED_BY_PEER` before `mount()` too, so the mount read and the recovery read
+    // carried the same locked view and collapsed into ONE lock edge whose position relative to
+    // `publishRefusal` was decided by when React happened to flush passive effects. The mutant would
+    // then have survived silently on a different flush order. Locking only on recovery makes the
+    // edge land strictly after the refusal, which is the ordering the defect is actually about.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+
     h.addItem.mockRejectedValue(new Error("redacted"));
     h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
-    mount();
-
     await ctl.add(ITEM);
 
     await waitFor(() => expect(ctl.lastRefusalClause()).toBe(CLAUSE.peerLock));
     await drainDeferredAnnounces();
     expect(spoken()).toBe(NOTICE.peerLock);
+  });
+
+  it("does NOT latch a freeze from a recovery read that LOST THE SCREEN", async () => {
+    // ⚠️ A REAL OVERTAKE, because the first draft of this test was degenerate and the mutant
+    // `t33/latch-survives-an-overtaken-read` SURVIVED it. That draft refused a write against an
+    // EDITABLE view — so the cause was `unknown`, `explainedByRefusal` returned null anyway, and the
+    // `viewIsCurrent` gate was never the thing under test.
+    //
+    // The separating input needs a recovery read that sees a LOCKED cart and still loses: a
+    // mutation's own view is UNTICKETED and sets `applied = issued` (`view-seq.ts`), invalidating
+    // every read in flight. So a concurrent successful write lands an unlocked view while the
+    // refused write's recovery read is still awaiting.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+
+    let releaseRecoveryRead: () => void = () => {};
+    h.getCartView.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseRecoveryRead = () => resolve(LOCKED_BY_PEER);
+        }),
+    );
+    h.addItem.mockRejectedValueOnce(new Error("redacted"));
+    const refused = ctl.add(ITEM);
+
+    // A concurrent write COMMITS and applies its own view — untickted, so it outranks the read above.
+    h.addItem.mockResolvedValueOnce(view({ items: [line(1)] }));
+    await ctl.add(ITEM);
+
+    releaseRecoveryRead();
+    await refused;
+    await drainDeferredAnnounces();
+
+    // The freeze that read saw is not on screen, so nothing may claim it was explained — otherwise
+    // no release edge can ever retire it and the next real lock is announced to nobody.
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+    await ctl.refresh();
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("is checking out");
+  });
+
+  it("does not invite editing while the table is still splitting", async () => {
+    // ⚠️ Rule 1 pins the release as ALWAYS spoken, so its copy has to be true of BOTH axes — a
+    // pay-lock can lift while the split runs, and `addItem`/`setQty` still refuse on `settling`.
+    // Without this the slice would have guarded a false sentence in rather than left it standing.
+    h.getCartView.mockResolvedValue(
+      view({ locked: true, lockedBy: PEER_SEAT, settling: true, settleBy: PEER_SEAT }),
+    );
+    mount();
+    await drainDeferredAnnounces();
+
+    h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
+    await ctl.refresh();
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("you can edit again");
+  });
+
+  it("does NOT latch a freeze when the refusal names no freeze at all", async () => {
+    // ⚠️ THE SEPARATING INPUT the deleted per-write clear needed, and the blind pass's CRITICAL.
+    // `explainCaught` classifies from the read it made even when `applyView` rejects it — the
+    // refusal is a fact about the moment it looked. But latching that freeze claims something about
+    // what the diner can SEE. If the winning view is unlocked, the rendered state never carries the
+    // freeze, so no release edge can fire for it, and the next genuine lock would be silenced.
+    //
+    // Modelled as: the write is refused while the view on screen shows an editable cart. The latch
+    // must not survive that, so the later real lock still announces.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    await ctl.add(ITEM);
+    await drainDeferredAnnounces();
+
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+    await ctl.refresh();
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("is checking out");
+  });
+
+  it("announces the WIDER freeze when both enter on one view, and never the narrower alone", async () => {
+    // ⚠️ THE BOTH-AXES CELL (blind pass, HIGH). `locked_at` and `settle_at` are independent, so one
+    // applied view can carry both. `classifyRefusedWrite` tests settling first, so the refusal
+    // explains `settling` — and under an equality-only rule the LOCK banner was let through and,
+    // because its effect is declared first, became the surviving sentence. The region would have
+    // swapped from the wider banner to the narrower one with the refusal still erased.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(
+      view({ locked: true, lockedBy: PEER_SEAT, settling: true, settleBy: PEER_SEAT }),
+    );
+    await ctl.add(ITEM);
+    await drainDeferredAnnounces();
+    expect(spoken()).not.toContain("is checking out");
+  });
+
+  it("clears the settle axis on ITS release, not only the lock axis", async () => {
+    // ⚠️ THE SETTLE TWIN of the staleness bound (blind pass, HIGH): it shipped with neither mutant
+    // nor test, so `if (!settling) explainedFreezeRef.current = null` could be deleted with the
+    // whole gate green — on the axis this module calls the more consequential of the two.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(ctl.lastRefusalClause()).toBeNull());
+
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
+    await ctl.add(ITEM);
+    await drainDeferredAnnounces();
+
+    h.getCartView.mockResolvedValue(view());
+    await ctl.refresh();
+    await drainDeferredAnnounces();
+
+    h.getCartView.mockResolvedValue(view({ settling: true, settleBy: PEER_SEAT }));
+    await ctl.refresh();
+    await drainDeferredAnnounces();
+    expect(spoken()).toContain("splitting the bill");
   });
 
   it("STILL announces a freeze the diner was never told about — the banner's whole reason to exist", async () => {
