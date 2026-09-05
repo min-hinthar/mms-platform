@@ -290,7 +290,7 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // session with no `table_number`) has no number to show, so it stays off the wall while still
     // counting toward the load figures above.
     if (!PULSE_TABLE_MODES.has(sess.mode)) continue;
-    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue;
+    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // the strip's half of the test
     // …AND not a GHOST. `status` alone is what the KDS uses; the FLOOR board — the surface that owns
     // table state — pairs it with `expires_at > now`, because nothing in this repo closes an
     // abandoned session (`app/api/session/route.ts`: "there's no background sweeper") and nothing

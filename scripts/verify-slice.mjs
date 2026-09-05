@@ -3065,7 +3065,7 @@ const MUTANTS = [
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
     why: 'P6 — the all-day rail and the table strip are safe apart and not together. With ONE live ticket the rail IS that ticket\'s order and the strip names its table, so the wall would state "Table 2 is having Mohinga ×2" — the exact fact this slice says may not cross. Publishing unconditionally is the whole defect, and it looks like a simplification',
-    find: "  const railOpen = cookingCarts.size >= PULSE_RAIL_MIN_TICKETS;",
+    find: "  const railOpen = cookingSessions.size >= PULSE_RAIL_MIN_TICKETS;",
     replace: "  const railOpen = true;",
   },
   {
@@ -3081,7 +3081,7 @@ const MUTANTS = [
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
     why: "P6 — a table's session is what makes its number a LIVE fact. Drop the status guard and a closed or locked session keeps its number and status on the wall after the table was cleared and re-seated by someone else, which is a statement about the new party drawn from the old one's data",
-    find: "    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue;",
+    find: "    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // the strip's half of the test",
     replace: "    if (false) continue;",
   },
   {
