@@ -90,10 +90,16 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
  * arrow, a volume slider, a `<ul>` that needs a name. 2.5.3 does not apply where there is no visible
  * label, which is exactly the set this covers and nothing more: the AST guard refuses `sx()` on any
  * element that has visible text, because there it would bypass the pair above.
+ *
+ * P6 — the key type admits `board.a11y.*` beside `kds.a11y.*`. The union is a NAMESPACE rule, not a
+ * loosening: an aria-only name still has to be a dictionary entry filed under a surface that owns
+ * it, so the wall's unlabelled regions come through this same door rather than growing a second
+ * one. Widening it to all of `StaffKey` would let any visible-label key be used as an aria-only
+ * name, which is the containment bypass `al()` exists to prevent.
  */
 export function sx(
   lang: StaffLang,
-  key: Extract<keyof typeof STAFF, `kds.a11y.${string}`>,
+  key: Extract<keyof typeof STAFF, `kds.a11y.${string}` | `board.a11y.${string}`>,
 ): string {
   return ts(lang, key);
 }

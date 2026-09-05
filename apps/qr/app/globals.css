@@ -8012,6 +8012,183 @@ html[data-seen-surface] .mms-stagger {
   }
 }
 
+/* ── P6: the KITCHEN PULSE band — the second audience on the same wall ─────────────────────────────
+   A footer band under the two columns: load, the dine-in table strip, the all-day rail. It ANIMATES
+   NOTHING and therefore joins no reduced-motion list — deliberately, not by omission. The gold flash
+   above marks a transition a customer is waiting for; a band that moved its own numbers on a screen
+   hanging in a dining room would pull every guest's eye to the kitchen's workload every five seconds.
+
+   EVERY text×surface pair here is one `contrast-audit.test.ts` already asserts in DARK, which is the
+   only theme this band renders in (`.orb-root` is Night-forced): `--tx` on `--pg` is `.orb-root`'s own
+   declared pair, `--t2` on `--pg` is asserted, and `--gold` on `--pg` is the 12.29:1 pair the READY
+   column heading already pins. So the chips sit on the page ground with a hairline border rather than
+   on a filled surface — a new fill would be a new pairing with no coverage, and flat high-contrast is
+   what reads across a room anyway.
+
+   GOLD IS THE SELECTION VOCABULARY AND IT IS NOT SPENT ELSEWHERE. `.orb-table-ready` is the only new
+   gold in this block; the rail's quantity stays `--tx` precisely so the one lit thing on the band is
+   the one a runner has to act on. Extending the lit-gold cap, never inventing a parallel one
+   (DESIGN-LANGUAGE §"ONE selection vocabulary").
+
+   The uppercase + tracked labels below are the KDS's chrome idiom, and Burmese needs neither: the
+   `.orb-root [lang="my"]` rule at the bottom of this file is (0,2,0) and beats `.orb-stat span`
+   (0,1,1) and `.orb-table-state` (0,1,0), restoring Padauk, normal tracking and no case transform on
+   every marked run. That is why these rules may state them at all. */
+.orb-pulse {
+  border-top: 2px solid var(--bd);
+  padding-top: clamp(10px, 1.2vw, 20px);
+  display: grid;
+  gap: clamp(8px, 1vw, 16px);
+}
+.orb-pulse h2 {
+  margin: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: clamp(14px, 1.3vw, 22px);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.orb-pulse h2 small {
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.orb-pulse-note {
+  margin: 0;
+  color: var(--t2);
+  font-size: clamp(15px, 1.4vw, 24px);
+  font-weight: 600;
+}
+.orb-pulse-body {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: clamp(14px, 2.2vw, 40px);
+}
+.orb-pulse-stats {
+  flex: none;
+  display: flex;
+  gap: clamp(14px, 1.8vw, 32px);
+  font-variant-numeric: tabular-nums;
+}
+.orb-stat {
+  margin: 0;
+  display: grid;
+  justify-items: start;
+  gap: 2px;
+}
+.orb-stat b {
+  font-size: clamp(24px, 2.6vw, 40px);
+  font-weight: 800;
+  line-height: 1;
+}
+.orb-stat span {
+  font-size: clamp(11px, 0.85vw, 14px);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.orb-tables {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: clamp(8px, 0.9vw, 14px);
+}
+.orb-table {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: clamp(5px, 0.6vw, 10px) clamp(10px, 1vw, 18px);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  font-size: clamp(15px, 1.4vw, 24px);
+  line-height: var(--lh-tight);
+}
+.orb-table-no {
+  font-weight: 800;
+}
+.orb-table-state {
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.orb-table-ready {
+  border-color: var(--gold);
+}
+.orb-table-ready .orb-table-no,
+.orb-table-ready .orb-table-state {
+  color: var(--gold);
+}
+.orb-rail {
+  flex: 1 1 clamp(220px, 26vw, 460px);
+  min-width: 0;
+}
+.orb-rail h3 {
+  margin: 0 0 4px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: clamp(11px, 0.85vw, 14px);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--t2);
+}
+.orb-rail h3 small {
+  font-size: 0.9em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.orb-rail ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+.orb-rail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: clamp(15px, 1.4vw, 24px);
+  line-height: var(--lh-tight);
+}
+.orb-rail-name {
+  min-width: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+.orb-rail-name small {
+  display: block;
+  font-size: 0.64em;
+  font-weight: 600;
+  color: var(--t2);
+}
+.orb-rail-qty {
+  flex: none;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.orb-rail-more {
+  margin: 4px 0 0;
+  font-size: clamp(11px, 0.9vw, 15px);
+  font-weight: 700;
+  color: var(--t2);
+}
+
 /* ── P2f — EVERY marked Burmese run on a staff surface gets the Burmese treatment ─────────────────
    THE FIX FOR A LIVE DEFECT, not a new feature, and it is stated as ONE rule because it was three
    separate omissions with one cause.

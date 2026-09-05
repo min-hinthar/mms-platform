@@ -257,6 +257,29 @@ export const STAFF = {
     en: "We can’t read the board right now.",
     my: "ဘုတ်ကို အခု မဖတ်နိုင်သေးပါ။",
   },
+
+  // ── P6 — the KITCHEN PULSE band on the same wall TV ────────────────────────────────────────────
+  // FOUR new keys and no more, because the band deliberately speaks the words the PASS already
+  // speaks: its heading and region name are `kds.title` (မီးဖိုချောင်, owner-verified in W21), its
+  // table chip is `kds.table`, its cooking status is `kds.line.cooking`, its rail heading is
+  // `kds.allday.title`, its overflow is `kds.more`, its quiet state is `kds.allclear`, and its rail
+  // region name is `kds.a11y.allDay`. Drafting a second Burmese word for "kitchen" or for "all day"
+  // would put two words for one thing in front of the same two people — the wall and the pass are
+  // read by Mom and Dad in the same shift, and a K15 correction has to land in ONE place.
+  //
+  // What genuinely has no twin at the pass is below. Every MY value is a Claude-authored working
+  // draft pending Min's native check (K15).
+  "board.pulse.oldest": { en: "Oldest (min)", my: "အကြာဆုံး (မိနစ်)" },
+  // NOT `board.col.ready`. That heading's Burmese — ယူသွားနိုင်ပါပြီ — tells a GUEST their bag can
+  // be collected; a table's food being up at the pass is a different fact for a different reader,
+  // and reusing the customer sentence there would put "come and collect it" beside a table number.
+  "board.pulse.ready": { en: "Ready", my: "အဆင်သင့်" },
+  "board.pulse.unavailable": {
+    en: "Can’t read the kitchen right now.",
+    my: "မီးဖိုချောင် အခြေအနေကို အခု မဖတ်နိုင်သေးပါ။",
+  },
+  // Aria-only (no visible text of its own), so it goes through `sx()` — see lib/staff-labels.ts.
+  "board.a11y.tables": { en: "Table status", my: "စားပွဲ အခြေအနေ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
