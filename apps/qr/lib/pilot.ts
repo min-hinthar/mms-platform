@@ -59,15 +59,40 @@ export type PilotNight = {
   /** The pilot code these redemptions belong to, so the copy never hardcodes it twice. */
   promoCode: string;
   /**
-   * Does an ACTIVE `promo_codes` row for that code exist at all?
+   * The pilot code's own row, QUOTED — never a verdict this module computed.
    *
-   * P5 landed ahead of P3, which is the slice that inserts the row — so on Day 0 the redemption
-   * count is a structural zero. "0 discounts given" is true and reads as "nobody used it", which is
-   * a different statement and the wrong one. The sheet says "not set up yet" instead, and this is
-   * the fact that decides. `false` also covers a deactivated code (`active = false`), which is how
-   * the pilot ENDS — the count freezes and the sheet should say why.
+   * WHY IT IS READ AT ALL. Without it the sheet reports a redemption count and nothing else, and a
+   * zero has two completely different meanings: "guests did not use it" and "the code does not work".
+   * Those call for opposite actions at 9pm, and the first is the one a reader assumes.
+   *
+   * ⚠️ WHY IT IS FACTS AND NOT A `live` BOOLEAN — the first cut got this wrong twice over. It read
+   * `active === true` and called that liveness, justified by "P3 has not inserted the row yet". Both
+   * halves were false by the time they shipped: the row went live on prod on 2026-09-05 (#261, row
+   * `20260905220123 pilot15_promo` — pct 0.15, max_uses 200, valid_until 2026-10-31), and `active`
+   * is only ONE of the terms `mms_promo_check` gates on. A code that has exhausted `max_uses`, or
+   * passed `valid_until`, still reads `active = true` while refusing every basket — so the boolean
+   * would have shown a confident count of 0 under a code that had simply run out, which is the exact
+   * misreading it was added to prevent.
+   *
+   * Re-deriving validity here instead would be worse: `mms_promo_check` is the single authority on
+   * whether a code applies, and a second copy of that rule on a reporting surface is precisely the
+   * drift the W17 money rules forbid. So this module quotes the row's own columns and the SHEET
+   * shows them beside the count — the budget spent and the window's end — leaving the reader to see
+   * why a number stopped moving rather than being told a verdict this screen is not entitled to give.
    */
-  promoLive: boolean;
+  promo:
+    | { exists: false }
+    | {
+        exists: true;
+        /** The row's own flag. NOT "usable" — see above. */
+        active: boolean;
+        /** `promo_codes.used`, the participation counter the pilot measures. */
+        used: number;
+        /** The redemption budget, or null when the row sets none. */
+        maxUses: number | null;
+        /** The window's end as stored, or null. Rendered as a date, never compared to here. */
+        validUntil: string | null;
+      };
   /** The day's paid orders, bucketed by the door they came in — see `pilot-night.ts`. */
   split: ChannelSplit;
   /** The register's own day summary, quoted verbatim. */
@@ -128,8 +153,14 @@ export async function getPilotNight(): Promise<PilotNightResult> {
     // The SHEET says so on the card (`pilot.night.recovery.scope`) — a card headed "since midnight"
     // must not let an all-time figure pass as tonight's, and a docblock is not where a reader looks.
     db.from("qr_refunds_needed").select("id", { count: "exact", head: true }).eq("resolved", false),
-    // Does the code exist and is it live? `maybeSingle` so "no row" is data, not an error.
-    db.from("promo_codes").select("active").eq("code", PILOT_PROMO_CODE).maybeSingle(),
+    // The code's own row. `maybeSingle` so "no row" is DATA, not an error — the two say different
+    // things and only one of them is a fact about the campaign. Columns are quoted, never judged:
+    // whether a code APPLIES is `mms_promo_check`'s decision and this surface does not repeat it.
+    db
+      .from("promo_codes")
+      .select("active,used,max_uses,valid_until")
+      .eq("code", PILOT_PROMO_CODE)
+      .maybeSingle(),
   ]);
   // `{ data: null, error }` is how postgrest-js reports a transport failure — it RESOLVES rather than
   // rejecting — so an unchecked read here would answer a confident `null` count that `?? 0` would
@@ -189,7 +220,15 @@ export async function getPilotNight(): Promise<PilotNightResult> {
       sinceIso,
       pilotRedemptions,
       promoCode: PILOT_PROMO_CODE,
-      promoLive: promoRow.data?.active === true,
+      promo: promoRow.data
+        ? {
+            exists: true,
+            active: promoRow.data.active,
+            used: promoRow.data.used,
+            maxUses: promoRow.data.max_uses,
+            validUntil: promoRow.data.valid_until,
+          }
+        : { exists: false },
       split: bucketByChannel(rows),
       money: cash.summary,
       ratings: { total: ratingsTotal, low: ratingsLowCount },

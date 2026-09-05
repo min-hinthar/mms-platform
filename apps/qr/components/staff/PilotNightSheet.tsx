@@ -56,7 +56,7 @@ export async function PilotNightSheet() {
       </div>
 
       <dl className="pns-grid">
-        {night.promoLive ? (
+        {night.promo.exists && night.promo.active ? (
           <Figure
             value={night.pilotRedemptions}
             label={
@@ -70,15 +70,42 @@ export async function PilotNightSheet() {
             // C4 — the disclosure lives BESIDE the figure it qualifies. Under the recovery block it
             // read as "not counted above" about the orders and the takings, where it is FALSE: a
             // split settle writes a real paid `qr_orders` row. What it skips is the redemption.
+            //
+            // The budget and the window sit here for a related reason: a count that stops moving
+            // because the code ran OUT, or ran PAST its end date, looks exactly like a count that
+            // stopped because nobody used it. Both facts are quoted from the row — this screen makes
+            // no judgement about whether the code still applies, which is `mms_promo_check`'s.
             detail={
-              <span className="pns-chip pns-chip-warn">
-                <Chrome lang={lang} k="pilot.night.split" echo={false} />
-              </span>
+              <>
+                {night.promo.maxUses !== null && (
+                  <span className="pns-chip">
+                    <Chrome
+                      lang={lang}
+                      k="pilot.night.promo.budget"
+                      vars={{ n: night.promo.used, total: night.promo.maxUses }}
+                      echo={false}
+                    />
+                  </span>
+                )}
+                {night.promo.validUntil !== null && (
+                  <span className="pns-chip">
+                    <Chrome
+                      lang={lang}
+                      k="pilot.night.promo.until"
+                      vars={{ t: laDate(night.promo.validUntil) }}
+                      echo={false}
+                    />
+                  </span>
+                )}
+                <span className="pns-chip pns-chip-warn">
+                  <Chrome lang={lang} k="pilot.night.split" echo={false} />
+                </span>
+              </>
             }
           />
         ) : (
-          // P5 landed ahead of P3, which inserts the row. A structural 0 under "discounts given"
-          // would be true and would read as "nobody used it" — a different claim, and the wrong one.
+          // A zero here would be TRUE and would read as "nobody used it" — a claim about the guests
+          // rather than about the campaign. These two states say the other thing instead.
           <div className="pns-cell">
             <dt className="pns-label">
               <Chrome
@@ -91,7 +118,7 @@ export async function PilotNightSheet() {
             <dd className="pns-value pns-value-none">
               <Chrome
                 lang={lang}
-                k="pilot.night.promo.unset"
+                k={night.promo.exists ? "pilot.night.promo.off" : "pilot.night.promo.unset"}
                 vars={{ x: night.promoCode }}
                 echo="stack"
               />

@@ -34,8 +34,14 @@ export default async function FeedbackPage() {
       </Link>
       {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
           the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
-          It renders nothing at all for a non-manager (its own gate), so a server's view of this page
-          is unchanged. */}
+
+          ⚠️ THE SHEET RE-CHECKS THE MANAGER FLOOR ITSELF rather than trusting this page's, and the
+          first draft of this comment got the reason wrong — it said "a server's view of this page is
+          unchanged", which is vacuous: `requireStaffPage("manager")` above redirects a server before
+          they reach any of this. The real reason is the one `lib/feedback.ts` gives for re-checking
+          inside `getStaffFeedback`: a gate that lives only at the mount point is a gate that a later
+          re-mount, or a lowered floor on this page, silently removes. `getPilotNight` carries its
+          own, so the component is safe to mount anywhere. */}
       <PilotNightSheet />
       <h1 style={h1}>Guest feedback</h1>
       <p style={sub}>

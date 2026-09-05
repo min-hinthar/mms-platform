@@ -3173,12 +3173,20 @@ const MUTANTS = [
     replace: 'db.from("qr_refunds_needed").select("id", { count: "exact", head: true }),',
   },
   {
-    id: "pilot/promo-liveness-fails-open",
+    id: "pilot/an-absent-promo-row-reported-as-a-live-campaign",
     file: "apps/qr/lib/pilot.ts",
     suite: "lib/pilot-read.test.ts",
-    why: 'P5 (blind pass) — P5 shipped ahead of P3, which inserts the `promo_codes` row, so before it merges there IS no code. Reporting it live turns the structural zero back into "0 discounts given", which reads as "nobody used it" — a claim about the guests instead of about the campaign, on Day 0 of the pilot',
-    find: "      promoLive: promoRow.data?.active === true,",
-    replace: "      promoLive: true,",
+    why: 'P5 (blind pass, then corrected once PILOT15 actually went live on prod) — a missing row and a live one are DIFFERENT SENTENCES on the sheet. Collapse them and a code that was never inserted, or was switched off, reports a confident "0 discounts given", which reads as a claim about the guests rather than about the campaign. The row is QUOTED, never judged: whether a code applies is `mms_promo_check`\'s decision and a second copy of it on a reporting surface is the drift the W17 rules forbid',
+    find: "      promo: promoRow.data",
+    replace: "      promo: { active: true, used: 0, max_uses: null, valid_until: null }",
+  },
+  {
+    id: "glossary/latin-values-announced-as-burmese",
+    file: "apps/qr/lib/glossary.ts",
+    suite: "lib/glossary.test.ts",
+    why: "P5 — four dictionary values are Latin BY OWNER DECISION (the station chips All/Wok/Cold/Drinks, kept Latin because a wrong Burmese word there hides tickets). Mark them `lang=\"my\"` and each is typeset in Padauk and announced to a screen reader as Burmese — the defect `TicketText.tsx`'s hole rule exists for, already caught once in review on `ReadyBoard`. The rule lives in `lib/` rather than the page's JSX precisely so a VALUE can falsify it",
+    find: '  return MYANMAR.test(value) ? "my" : undefined;',
+    replace: '  return "my";',
   },
 ];
 

@@ -40,6 +40,17 @@ export type GlossaryRow = {
   en: string;
   my: string;
   locked: GlossaryLock | null;
+  /**
+   * The `lang` mark the Burmese cell must carry — `undefined` where the value is not Myanmar script.
+   *
+   * ⚠️ IT IS DERIVED HERE, NOT AT THE RENDER SITE, and that move is the whole point. Four dictionary
+   * values are Latin BY DESIGN (the station chips: `All`, `Wok`, `Cold`, `Drinks`), and marking one
+   * of those `lang="my"` typesets it in Padauk and announces it to a screen reader as Burmese — the
+   * exact defect `TicketText.tsx`'s hole rule exists for, and one that review has already caught once
+   * in `ReadyBoard`. As a per-row VALUE it is falsified by a value and carries a mutant; inline in
+   * the page's JSX it was a rendering rule nothing could fail.
+   */
+  myLang: "my" | undefined;
 };
 
 /** `high` is the K15-HIGH band — the lines a wrong word takes service down over. */
@@ -54,6 +65,17 @@ export type Glossary = {
   /** The rows that actually carry a correction box. This is the ask, and it is what the count says. */
   openForCorrection: number;
 };
+
+/**
+ * Myanmar script, tested on the VALUE rather than assumed from the column. The column says which
+ * tongue the string is FOR; only the codepoints say which script it is IN, and for the four
+ * Latin-by-design entries those two answers differ.
+ */
+const MYANMAR = /\p{Script=Myanmar}/u;
+
+function myLangFor(value: string): "my" | undefined {
+  return MYANMAR.test(value) ? "my" : undefined;
+}
 
 function lockFor(key: StaffKey): GlossaryLock | null {
   const settled = STAFF_SETTLED[key];
@@ -84,6 +106,7 @@ export function buildGlossary(): Glossary {
     en: STAFF[key].en,
     my: STAFF[key].my,
     locked: lockFor(key),
+    myLang: myLangFor(STAFF[key].my),
   }));
   const bands: GlossaryBand[] = [
     { id: "high", rows: rows.filter((r) => STAFF_K15_HIGH.has(r.key)) },

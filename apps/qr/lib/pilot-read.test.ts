@@ -144,7 +144,11 @@ function keysFor(since: string) {
 }
 const K = keysFor(SINCE);
 
-const LIVE_CODE: Result = { data: { active: true }, error: null };
+/** The prod row as applied on 2026-09-05 (#261): pct 0.15 · max_uses 200 · valid_until 2026-10-31. */
+const LIVE_CODE: Result = {
+  data: { active: true, used: 12, max_uses: 200, valid_until: "2026-10-31T23:59:59-07:00" },
+  error: null,
+};
 
 /** A quiet-but-successful night: every read answered, every answer zero. */
 function quiet(since = SINCE) {
@@ -204,7 +208,13 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.night.pilotRedemptions).toBe(3);
     expect(res.night.ratings).toEqual({ total: 7, low: 2 });
     expect(res.night.unresolvedRecoveries).toBe(1);
-    expect(res.night.promoLive).toBe(true);
+    expect(res.night.promo).toEqual({
+      exists: true,
+      active: true,
+      used: 12,
+      maxUses: 200,
+      validUntil: "2026-10-31T23:59:59-07:00",
+    });
     expect(res.night.split.channels).toEqual([
       { mode: "dinein", orders: 2 },
       { mode: "pickup", orders: 1 },
@@ -265,22 +275,76 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.night.unresolvedRecoveries).toBe(0);
   });
 
-  it("says the pilot code is NOT LIVE when no row exists, rather than reporting a zero", async () => {
-    // P5 landed ahead of P3, which inserts the row. "0 discounts given" is true and reads as
-    // "nobody used it" — a different claim, and the wrong one on Day 0.
+  it("reports NO ROW as its own state, rather than as a zero", async () => {
+    // "0 discounts given" is true and reads as "nobody used it" — a claim about the guests rather
+    // than about the campaign, and the wrong one when the code simply is not there.
     quiet();
     script[K.promoRow] = [{ data: null, error: null }];
     const res = await getPilotNight();
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.night.promoLive).toBe(false);
+    if (res.ok) expect(res.night.promo).toEqual({ exists: false });
   });
 
-  it("a DEACTIVATED code is not live either", async () => {
+  it("reports a DEACTIVATED code as existing-but-off, not as absent", async () => {
+    // The two are different sentences on the sheet: "isn't set up yet" vs "switched off". Collapsing
+    // them would tell whoever turned it off that their change never landed.
     quiet();
-    script[K.promoRow] = [{ data: { active: false }, error: null }];
+    script[K.promoRow] = [
+      { data: { active: false, used: 200, max_uses: 200, valid_until: null }, error: null },
+    ];
     const res = await getPilotNight();
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.night.promoLive).toBe(false);
+    if (res.ok)
+      expect(res.night.promo).toEqual({
+        exists: true,
+        active: false,
+        used: 200,
+        maxUses: 200,
+        validUntil: null,
+      });
+  });
+
+  it("QUOTES the row's budget and window — it does not judge whether the code still applies", async () => {
+    // `mms_promo_check` is the single authority on whether a code applies (active AND window AND
+    // caps AND min-subtotal). A second copy of that rule on a reporting screen is the drift the W17
+    // money rules forbid — so an EXHAUSTED, still-`active` code is reported exactly as it is stored,
+    // and the sheet shows 200-of-200 beside the count so the reader can see why it stopped moving.
+    quiet();
+    script[K.promoRow] = [
+      {
+        data: { active: true, used: 200, max_uses: 200, valid_until: "2026-10-31T23:59:59-07:00" },
+        error: null,
+      },
+    ];
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.night.promo).toEqual({
+      exists: true,
+      active: true,
+      used: 200,
+      maxUses: 200,
+      validUntil: "2026-10-31T23:59:59-07:00",
+    });
+  });
+
+  it("carries a null budget and a null window through as null, never as a number", async () => {
+    // Both columns are nullable. Defaulting either to 0 would print "0 of 0 redemptions used" under
+    // a code with no cap at all.
+    quiet();
+    script[K.promoRow] = [
+      { data: { active: true, used: 3, max_uses: null, valid_until: null }, error: null },
+    ];
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (res.ok)
+      expect(res.night.promo).toEqual({
+        exists: true,
+        active: true,
+        used: 3,
+        maxUses: null,
+        validUntil: null,
+      });
   });
 
   it("a FAILED code lookup is an outage, not 'not set up yet'", async () => {

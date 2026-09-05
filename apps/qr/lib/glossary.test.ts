@@ -80,6 +80,30 @@ describe("buildGlossary — the printed word-check sheet", () => {
       expect(allRows.filter((r) => r.en === autonym || r.my === autonym)).toEqual([]);
   });
 
+  it("marks a row's Burmese cell as Burmese ONLY where the value really is Myanmar script", () => {
+    // The separating fixture is already in the dictionary and is not hypothetical: the four station
+    // chips are Latin BY DESIGN (`All`, `Wok`, `Cold`, `Drinks`), by an owner decision recorded in
+    // `STAFF_LATIN_BY_DESIGN`. Marking one of those `lang="my"` typesets it in Padauk and announces
+    // it to a screen reader as Burmese — the defect `TicketText.tsx`'s hole rule exists for, caught
+    // once already in review on `ReadyBoard`. So this asserts BOTH directions on real data.
+    const myanmar = /\p{Script=Myanmar}/u;
+    const wrong = allRows.filter((r) => r.myLang !== (myanmar.test(r.my) ? "my" : undefined));
+    expect(wrong.map((r) => `${r.key} (my=${JSON.stringify(r.my)}, mark=${r.myLang})`)).toEqual([]);
+  });
+
+  it("leaves every Latin-by-design row UNMARKED, and marks a Burmese row", () => {
+    // The same rule stated as the two concrete populations, so a mutant that always answers "my" —
+    // or never does — reddens here on named keys rather than on an abstract predicate.
+    const latin = (Object.keys(STAFF_LATIN_BY_DESIGN) as StaffKey[]).map(
+      (k) => allRows.find((r) => r.key === k)!,
+    );
+    expect(latin.length).toBeGreaterThan(0);
+    expect(latin.map((r) => r.myLang)).toEqual(latin.map(() => undefined));
+    const burmese = allRows.filter((r) => !(r.key in STAFF_LATIN_BY_DESIGN));
+    expect(burmese.length).toBeGreaterThan(0);
+    expect(new Set(burmese.map((r) => r.myLang))).toEqual(new Set(["my"]));
+  });
+
   it("is stable and grouped by surface — the same keys print in the same order every time", () => {
     // A marked-up sheet is compared against a fresh print; rows that moved would make that useless.
     for (const band of g.bands) {

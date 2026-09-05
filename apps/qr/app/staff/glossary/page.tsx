@@ -131,13 +131,6 @@ export default async function GlossaryPage() {
   );
 }
 
-/** Mark a run `lang="my"` only when it IS Myanmar script — the four Latin-by-design values are not,
- *  and typesetting `Wok` in Padauk while announcing it as Burmese would be the same defect the
- *  console's own hole rule exists to prevent, one table cell down. */
-function myMark(value: string): "my" | undefined {
-  return /\p{Script=Myanmar}/u.test(value) ? "my" : undefined;
-}
-
 function SheetTable({
   lang,
   rows,
@@ -168,7 +161,10 @@ function SheetTable({
         {rows.map((row) => (
           <tr key={row.key} className={row.locked ? "pgl-row pgl-row-locked" : "pgl-row"}>
             <td>
-              <span className="pgl-my" lang={myMark(row.my)}>
+              {/* The mark is DERIVED in `lib/glossary.ts`, where a value can falsify it — see
+                  `GlossaryRow.myLang`. Four values here are Latin by design and must not be
+                  announced as Burmese. */}
+              <span className="pgl-my" lang={row.myLang}>
                 {row.my}
               </span>
               {/* The key is what makes a correction traceable back to the string it belongs to — a

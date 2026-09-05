@@ -366,12 +366,24 @@ export const STAFF = {
     en: "Missing from this one: a table that split its bill. A split settle records no discount use — its order and its money ARE counted.",
     my: "ဒီဂဏန်းမှာ မပါတာ — ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲ။ ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ — အော်ဒါနဲ့ ငွေကတော့ ရေတွက်ထားပါတယ်။",
   },
-  // Day 0 runs before P3 inserts the code. "0 discounts given" would be true and would read as
-  // "nobody used it"; this says the other thing, and the read that decides is in `getPilotNight`.
+  // A zero under "discounts given" has two opposite meanings — "guests did not use it" and "the code
+  // does not work" — and a reader assumes the first. These three say the second, each for the state
+  // that causes it. The facts come from the row; no verdict on whether a code APPLIES is made here
+  // (that is `mms_promo_check`'s, and a second copy of it on a reporting screen would drift).
   "pilot.night.promo.unset": {
     en: "{x} isn’t set up yet — there is no code to give.",
     my: "{x} ကို မပြင်ဆင်ရသေးပါ — ပေးစရာ ကုဒ် မရှိသေးပါ။",
   },
+  "pilot.night.promo.off": {
+    en: "{x} is switched off — it isn’t discounting anything.",
+    my: "{x} ကို ပိတ်ထားပါတယ် — ဘာမှ လျှော့မပေးတော့ပါ။",
+  },
+  // {n}/{total} are counts (Burmese numerals under my); the window end is a preformatted date.
+  "pilot.night.promo.budget": {
+    en: "{n} of {total} redemptions used",
+    my: "သုံးထားပြီး {n} / {total}",
+  },
+  "pilot.night.promo.until": { en: "Runs until {t}", my: "{t} အထိ" },
   "pilot.night.unreadable": {
     en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
     my: "ဒီည ဂဏန်းတွေကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",

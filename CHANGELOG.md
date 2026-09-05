@@ -102,10 +102,22 @@ which one `Promise.all` issued first. A query's identity is now its table AND it
 mutants pin it, and each was watched failing. `glossary.test.ts`'s autonym check had the same shape
 one layer over — it filtered to unlocked rows first, and a locked row still PRINTS.
 
-One thing the pass surfaced became a product decision rather than a fix: P5 landed ahead of P3, so
-the `PILOT15` row does not exist yet and "0 discounts given" would be true and would read as "nobody
-used it". The sheet reads `promo_codes` and says "isn't set up yet" instead — which also covers the
-day the pilot ENDS and the code is deactivated.
+One thing the pass surfaced became a product decision rather than a fix, and then the world moved
+under the decision. The point stands: a zero under "discounts given" has two opposite meanings —
+"guests did not use it" and "the code does not work" — and a reader assumes the first. What changed
+is the justification. The first version read `promo_codes.active` and called it liveness, reasoning
+that P5 had landed ahead of P3 so the row did not exist. **Both halves were false within the hour:**
+`PILOT15` went live on prod on 2026-09-05 (#261 — row `20260905220123 pilot15_promo`, pct 0.15,
+`max_uses 200`, `valid_until 2026-10-31`), and `active` is only one of the terms `mms_promo_check`
+gates on. A code that has exhausted its budget or passed its window still reads `active = true` while
+refusing every basket — so the boolean would have shown a confident 0 under a code that had simply
+run out, which is the exact misreading it was added to prevent.
+
+The sheet now QUOTES the row — the budget spent and the window's end, beside the count — and makes no
+judgement about whether the code still applies. That decision has one authority, `mms_promo_check`,
+and a second copy of it on a reporting screen is the drift the W17 rules forbid. A reader who sees
+"200 of 200 redemptions used" beside a flat count knows why it stopped moving; a reader told "live"
+does not.
 
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 

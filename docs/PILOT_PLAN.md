@@ -159,8 +159,9 @@ back with ink on it, and nothing in Stripe that isn't in `qr_orders`.
 O1–O3 start now (hardware · env · auth)
 D0 drift ✅ → P0 promo-pin fix ✅ (+ the one-file prod apply ✅) → P1 ticket ✅ → P2 chrome (PR A ✅, PR B)
 → P3 PILOT15 → P6 the dual-audience board → P4 walkthrough + fix PR → P5 loop ✅
-(P5 landed ahead of P3/P4/P6: it depends on none of them, and the glossary has to be PRINTED
- before Day 0 rather than reported after it)
+(P5 landed ahead of P4/P6: it depends on neither, and the glossary has to be PRINTED before
+ Day 0 rather than reported after it. P3's PILOT15 row went live on prod the same evening,
+ so P5's sheet reads a real code rather than a structural zero)
 Day 0 (parents only) → Days 1–14 (regulars) → re-score the four fronts on real devices
 ```
 
