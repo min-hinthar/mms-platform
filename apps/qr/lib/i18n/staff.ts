@@ -382,7 +382,7 @@ export const STAFF = {
   "browse.review": { en: "Review order & settle →", my: "အော်ဒါ စစ်ပြီး ငွေရှင်း →" },
 
   // ── the staff menu browser: the counter order's name strip ─────────────────
-  "browse.name.label": { en: "Name for the order", my: "အော်ဒါအတွက် အမည်" },
+  "browse.name.label": { en: "Name for the order", my: "အော်ဒါအတွက် နာမည်" },
   "browse.name.placeholder": {
     en: "First name — it’s the pickup call-out",
     my: "နာမည်အရင် — လာယူချိန် လှမ်းခေါ်မယ့် နာမည်",
@@ -391,11 +391,11 @@ export const STAFF = {
   "browse.name.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" },
   "browse.name.saved": { en: "Saved ✓", my: "သိမ်းပြီးပြီ ✓" },
   // {x} is the guest's own name, rendered verbatim in whatever script it arrives in.
-  "browse.name.set": { en: "Order name: {x}.", my: "အော်ဒါ အမည် — {x}။" },
-  "browse.name.cleared": { en: "Order name cleared.", my: "အော်ဒါ အမည် ရှင်းလိုက်ပြီ။" },
+  "browse.name.set": { en: "Order name: {x}.", my: "အော်ဒါ နာမည် — {x}။" },
+  "browse.name.cleared": { en: "Order name cleared.", my: "အော်ဒါ နာမည် ရှင်းလိုက်ပြီ။" },
   "browse.name.failed": {
     en: "Couldn’t save the name — try again.",
-    my: "အမည် မသိမ်းနိုင်ပါ — ထပ်စမ်းပါ။",
+    my: "နာမည် မသိမ်းနိုင်ပါ — ထပ်စမ်းပါ။",
   },
 
   // ── the staff menu browser: search, filters, list ──────────────────────────
@@ -404,7 +404,7 @@ export const STAFF = {
   // The row's sold-out FLAG, a statement about the dish. `browse.add.verb.soldOut` is the disabled
   // BUTTON's own word — two keys for one idea, the way floor.unregistered/…Sticker are, so a K15
   // correction to the badge cannot silently reword the control.
-  "browse.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" },
+  "browse.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // the glossary's ဖြုတ်, as kds.86.done
   "browse.verb.choose": { en: "Choose…", my: "ရွေးရန်…" },
   // {n} is a prose count (Burmese numerals); {x} is the dish name, verbatim.
   "browse.added": { en: "Added {n} × {x}.", my: "{x} {n} ခု ထည့်ပြီးပြီ။" },
@@ -414,14 +414,16 @@ export const STAFF = {
   },
 
   // ── the staff menu browser: names with no visible text to pair with ────────
-  "browse.a11y.search": { en: "Search the menu", my: "မီနူး ရှာရန်" },
+  // The ellipsis is not decoration: the placeholder IS visible text in the control, so the name has
+  // to contain it exactly for WCAG 2.5.3.
+  "browse.a11y.search": { en: "Search the menu…", my: "မီနူး ရှာရန်…" },
   "browse.a11y.categories": { en: "Filter by category", my: "အမျိုးအစား အလိုက် စစ်ထုတ်" },
   "browse.a11y.items": { en: "Menu items", my: "မီနူး ပစ္စည်းများ" },
 
   // ── the add-to-table button (StaffAddButton) ───────────────────────────────
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
   "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
-  "browse.add.verb.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" },
+  "browse.add.verb.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // ကုန်သွား is the LOSS reason
   // This console's OWN failure sentence — a thrown Server Action, not a server-authored string, so
   // it is a dictionary key rather than something <OutageText> passes through as English forever.
   "browse.add.failed": { en: "Couldn’t add that — try again.", my: "မထည့်နိုင်ပါ — ထပ်စမ်းပါ။" },
@@ -941,14 +943,19 @@ export const STAFF = {
   },
   "reg.queue.empty": { en: "None right now.", my: "အခု တစ်ခုမှ မရှိပါ။" },
   "reg.row.walkup": { en: "Walk-up", my: "လမ်းလျှောက်လာ" },
-  "reg.row.kiosk": { en: "Kiosk", my: "မှာစက်" },
+  "reg.row.kiosk": { en: "Kiosk", my: "အော်ဒါစက်" }, // the SAME word settle.cash.kiosk* uses
   // {n} is a prose count (Burmese numerals); {m} is preformatted money (Latin, always).
   "reg.row.one": { en: "{n} item · {m} + tax", my: "ပစ္စည်း {n} ခု · {m} + အခွန်" },
   "reg.row.many": { en: "{n} items · {m} + tax", my: "ပစ္စည်း {n} ခု · {m} + အခွန်" },
   // The queue row's verb. The row's VISIBLE label is the guest's name and the line meta — the
   // `recall` inversion — so the verb leads the announcement and the visible text is what the name
   // must contain. `al(lang, {kind:"verb"})` builds it from the very same renders the row shows.
-  "reg.verb.resume": { en: "Resume", my: "ပြန်ဖွင့်" },
+  // ဆက်လုပ်, not ပြန်ဖွင့် — `floor.verb.reactivate` ("Reactivate", a staff member) already reads
+  // ပြန်ဖွင့်, and two CONTROL labels that do different things should not read identically even on
+  // different screens. The surface-scoped collision guard in strings.test.ts deliberately does not
+  // flag this one (cross-surface sharing is the namespace working as intended); it was found by
+  // reading the whole corpus at once, which is what the printed K15 glossary will make routine.
+  "reg.verb.resume": { en: "Resume", my: "ဆက်လုပ်" },
 
   // ── the register: the day's takings (the Z-report-lite, manager+) ─────────
   "reg.day.title": { en: "Today’s takings", my: "ဒီနေ့ ရငွေ" },
@@ -1071,7 +1078,11 @@ export const STAFF = {
   // {id} is the number off the physical tent card — Latin in both tongues.
   "settle.clear.btn": { en: "Clear table", my: "စားပွဲ ရှင်း" }, // glossary: စားပွဲ
   "settle.clear.question": { en: "Clear table {id}?", my: "စားပွဲ {id} ရှင်းမလား?" },
-  "settle.clear.clearing": { en: "Clearing…", my: "ရှင်းနေပါတယ်…" },
+  // ⚠️ NAMES THE TABLE. `settle.cash.settling` is the bare ရှင်းနေပါတယ်… and both controls mount on
+  // FloorDetailLive, so an identical busy line made "take the guest's cash" and "close the session
+  // and route away" indistinguishable under `my`. Nothing catches a duplicate MY value outside a
+  // declared plural pair.
+  "settle.clear.clearing": { en: "Clearing…", my: "စားပွဲ ရှင်းနေပါတယ်…" },
   "settle.clear.midPayment": {
     en: "Can’t clear while this table is mid-payment.",
     my: "ဒီစားပွဲ ငွေရှင်းနေဆဲမို့ မရှင်းနိုင်ပါ။",
@@ -1104,7 +1115,9 @@ export const STAFF = {
   },
   "settle.merge.closes": { en: "This closes Table {id}.", my: "စားပွဲ {id} ကို ပိတ်လိုက်ပါမယ်။" },
   "settle.merge.merging": { en: "Merging…", my: "ပေါင်းနေပါတယ်…" },
-  "settle.merge.confirmBtn": { en: "Merge into Table {id}", my: "စားပွဲ {id} ထဲ ပေါင်း" },
+  // {into}, not {id}: every other key here uses {id} for the SOURCE table. Rendered the same today,
+  // but the slot name is what the next editor and the printed K15 glossary read.
+  "settle.merge.confirmBtn": { en: "Merge into Table {into}", my: "စားပွဲ {into} ထဲ ပေါင်း" },
 
   // ── aria-only names: regions and panels with no visible label of their own ─
   "settle.a11y.confirmCash": { en: "Confirm cash settlement", my: "ငွေသား ရှင်းတာ အတည်ပြု" },

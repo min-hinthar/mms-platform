@@ -223,7 +223,7 @@ export function MergeTableButton({
                 <Chrome
                   lang={lang}
                   k="settle.merge.confirmBtn"
-                  vars={{ id: tableDisplay(target).text }}
+                  vars={{ into: tableDisplay(target).text }}
                   echo="stack"
                 />
               )}
@@ -237,7 +237,7 @@ export function MergeTableButton({
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
           ) : (
-            <Chrome lang={lang} k="settle.merge.loadFailed" />
+            <Chrome lang={lang} k="settle.merge.loadFailed" echo={false} />
           )}
         </p>
       )}

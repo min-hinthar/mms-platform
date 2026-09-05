@@ -146,7 +146,9 @@ export function CashSettleButton({
                   lang={lang}
                   k="settle.cash.tipBreakdown"
                   vars={{ m: fmt(totalCents), tip: fmt(tipCents) }}
-                  echo={false}
+                  // A money label, which the echo policy gives an echo; "inline" rather than
+                  // "stack" so it does not add a third block line to the confirm question.
+                  echo="inline"
                 />{" "}
               </>
             )}

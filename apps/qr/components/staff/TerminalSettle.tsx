@@ -101,7 +101,7 @@ export function TerminalSettleButton({
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
           ) : (
-            <Chrome lang={lang} k="settle.reader.startFailed" />
+            <Chrome lang={lang} k="settle.reader.startFailed" echo={false} />
           )}
         </p>
       )}
@@ -130,6 +130,14 @@ export function TerminalCollectPanel({
   const lang = useStaffLang();
   const router = useRouter();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
+  // ⚠️ NOT an <OutageText> candidate, and the reason is narrower than "it is a server string".
+  // `failCopy` is set ONLY in the `res.state === "failed"` arm below, whose `error` is
+  // `declineCopy(intent.last_payment_error.code)` (lib/terminal.ts) — a card-decline sentence, which
+  // has no Burmese twin. The arm that CAN carry STAFF_WRITE_OUTAGE is `!res.ok`, and this component
+  // swallows that into `pollMisses` without rendering it. So wrapping this would be a behavioural
+  // no-op (OutageText passes every non-twin sentence through verbatim) and would imply a swap that
+  // can never happen. What it actually needs is a twin per decline reason, which is a dictionary
+  // question, not a rendering one.
   const [failCopy, setFailCopy] = useState<string | null>(null);
   // Consecutive poll misses — past the threshold the panel admits it can't see Stripe instead of
   // claiming a live wait it isn't actually watching (review finding: the honest server copy was
@@ -276,7 +284,7 @@ export function TerminalCollectPanel({
             {cancelError.kind === "server" ? (
               <OutageText lang={lang} error={cancelError.text} />
             ) : (
-              <Chrome lang={lang} k="settle.reader.cancelFailed" />
+              <Chrome lang={lang} k="settle.reader.cancelFailed" echo={false} />
             )}
           </>
         )}

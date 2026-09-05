@@ -229,7 +229,13 @@ export function StaffModSheet({
           {error === null ? (
             ""
           ) : typeof error === "string" ? (
-            <OutageText lang={lang} error={error} />
+            // ⚠️ VERBATIM, not through <OutageText>. The only producer of the bare-string arm is the
+            // KIOSK (`KioskMenu` passes `t(lang, "somethingWrong")`), which has already localized
+            // it with its own dictionary — and this prop's docblock promises exactly that. Routing
+            // it through the swapper would identity-match a caller's own sentence against
+            // STAFF_WRITE_OUTAGE and replace it with the staff twin; it does not today only because
+            // this component defaults `lang` to "en" and the swap is gated on "my".
+            <>{error}</>
           ) : error.kind === "server" ? (
             <OutageText lang={lang} error={error.message} />
           ) : (

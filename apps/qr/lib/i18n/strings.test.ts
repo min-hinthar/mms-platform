@@ -111,6 +111,54 @@ describe("the dictionary guards", () => {
     expect(bad).toEqual([]);
   });
 
+  it("P2 — two keys on ONE surface may not share a Burmese value while their English differs", () => {
+    // A Burmese reader must not lose a distinction the English reader has. The case that produced
+    // this rule: `settle.cash.settling` ("Settling…") and `settle.clear.clearing` ("Clearing…") both
+    // read `ရှင်းနေပါတယ်…`, and BOTH controls mount on `FloorDetailLive` — so under `my` the busy
+    // state of "take the guest's cash" and of "close the session and route away" were the same
+    // sentence, one of them destructive. Nothing caught it: the only duplicate-MY assertion in this
+    // file fires for declared plural pairs, which these are not.
+    //
+    // SCOPED TO ONE SURFACE deliberately. Across surfaces a shared Burmese word is the NORM and the
+    // point of the namespace — `kds.table` and `floor.table` are both စားပွဲ {id} because they are
+    // the same words on two screens. An unscoped version of this rule reports 11, of which 10 are
+    // that. Scoping it drops the noise to a single reasoned exemption, which is the difference
+    // between a guard and a whitelist that rots.
+    //
+    // English is compared with punctuation and case folded, so "All-day" / "All day" is one word.
+    const SAME_WORD_BY_DESIGN: Readonly<Record<string, string>> = {
+      "what.floor|what.room":
+        "The floor and the room are one physical space; the console says ခန်းမ for both, and the two English forms exist only because the sentences around them differ.",
+    };
+    const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
+    const norm = (v: string) =>
+      v
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    const groups = new Map<string, string[]>();
+    for (const [k, v] of Object.entries(STAFF)) {
+      if (paired.has(k)) continue;
+      const g = `${k.split(".")[0]}\u0000${v.my}`;
+      groups.set(g, [...(groups.get(g) ?? []), k]);
+    }
+    const collisions = [...groups.values()]
+      .filter((ks) => ks.length > 1)
+      .filter((ks) => new Set(ks.map((k) => norm(STAFF[k as keyof typeof STAFF].en))).size > 1)
+      .map((ks) => ks.sort().join("|"))
+      .filter((id) => !(id in SAME_WORD_BY_DESIGN));
+    expect(collisions).toEqual([]);
+    // …and an exemption may not outlive the collision it excuses.
+    const stale = Object.keys(SAME_WORD_BY_DESIGN).filter((id) => {
+      const ks = id.split("|");
+      return (
+        ks.some((k) => !(k in STAFF)) ||
+        new Set(ks.map((k) => STAFF[k as keyof typeof STAFF].my)).size !== 1
+      );
+    });
+    expect(stale).toEqual([]);
+  });
+
   it("P2 — the staff key namespace is dotted and surface-scoped", () => {
     // At 100+ strings across seven surfaces the same English word means different things: `All` is
     // a station chip AND a browser category; `Pickup` is a channel, a floor mode and a slot. A flat
