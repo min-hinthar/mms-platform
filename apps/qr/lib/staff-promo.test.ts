@@ -401,9 +401,15 @@ describe("applyPromoForTable — the gates before the write", () => {
   });
 
   it("refuses when a split share is already authorized, which the UPDATE's predicates cannot see", async () => {
-    // The freeze can be STALE while a captured share still hangs on the cart — `paymentInFlightReason`
-    // is the only gate that knows. Without this pre-check the row would move.
-    row = openCart({ settle_at: iso(SETTLE_TTL_MS + 60_000) });
+    // ⚠️ `settle_at: null`, and that is the whole point of the fixture. It used to be a STALE
+    // `settle_at`, and the Terminal fix above made that DEGENERATE: the tightened predicate now
+    // refuses a stale freeze on its own, so dropping the `paymentInFlightReason` pre-check changed
+    // no outcome and the mutant SURVIVED. `paymentInFlightReason`'s share-count branch is
+    // explicitly "independent of the freshness TTL" (pay-guard.ts) — a cart whose settlement was
+    // released while a share is still authorized/captured is exactly what it exists for, and it is
+    // the ONE state where this pre-check is the only thing standing between a promo write and money
+    // already collected. Separating the two paths is what makes the guard reachable.
+    row = openCart({ settle_at: null });
     inFlight = "split_in_progress";
     expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
       ok: false,
