@@ -1471,3 +1471,23 @@ disk. Restored, tree confirmed clean, exactly one run started and watched to com
   the tree — while a run is live. Do the doc pass and the `pnpm format` BEFORE you start it.
 - `pgrep -f "[v]erify-slice"` before committing is necessary and not sufficient. **`git status` after
   every run**, and never report a number from a run whose tree you did not check afterwards.
+
+## #82 — a cross-implementation hash is not a diff; validate the normalizer on bodies you KNOW are identical (pilot D0, 2026-09-05)
+
+Comparing prod's 69 `mms_*` function bodies to the repo's latest definitions, the first
+comment-stripped comparison said **68 of 69 differ**. The truth was **0 of 69**. The 68 was the
+NORMALIZER disagreeing with itself across two runtimes: Postgres `btrim()` trims spaces only, so a
+body's leading newline survived there and collapsed to a leading space, while Python `.strip()` ate
+it. Every function got a different hash for a byte nobody wrote.
+
+What made it catchable: an EARLIER raw-md5 pass had shown 39 bodies byte-identical. A normalizer
+that then reports those same 39 as different cannot be measuring the code — it is measuring itself.
+That is the check to run before trusting any drift count: **normalize on both sides with the same
+regex chain in the same order (strip block comments → strip `--` comments → collapse `\s+` → trim
+ends with a regex, never `btrim`), and confirm the known-identical set still matches.** Then, and
+only then, read the count.
+
+The wider lesson is the one this repo already has for guards: a measurement that can be satisfied
+by something other than the fact (here, a trimming rule) needs to be falsified against a known
+answer first. Three files were read by eye to confirm (`mms_taxable`, `mms_open_tab`,
+`mms_pickup_slots`) — all identical modulo comments — before the 69/69 was believed.
