@@ -272,6 +272,13 @@ export function MenuPriceEditor({
         {msg === null ? (
           ""
         ) : msg.kind === "server" ? (
+          // ⚠️ INERT TODAY, and saying so is the point. `<OutageText>` swaps exactly one sentence —
+          // `STAFF_WRITE_OUTAGE` — and BOTH producers of this arm pass their own outage copy to the
+          // gate (`staffGate("manager", PRICE_OUTAGE)` and `staffGate("server", AVAILABILITY_OUTAGE)`),
+          // so nothing here can ever match and every server sentence on this screen stays English in
+          // both tongues. It is kept rather than removed because it costs nothing and becomes live
+          // the moment either module drops its custom copy — but a mechanism that cannot fail must
+          // not be mistaken for the conversion. The twins those two constants need are OPEN-ITEMS P2i.
           <OutageText lang={lang} error={msg.error} />
         ) : msg.kind === "plain" ? (
           <Chrome lang={lang} k={msg.k} />
@@ -282,7 +289,16 @@ export function MenuPriceEditor({
         )}
       </p>
 
-      <ul role="list" aria-label={sx(lang, "browse.price.a11y.list")} style={list}>
+      {/* The list's name follows the PAGE's heading, which is role-conditional: a server is shown
+          "Menu availability" and is deliberately not offered the price editor. */}
+      <ul
+        role="list"
+        aria-label={sx(
+          lang,
+          canEditPrice ? "browse.price.a11y.list" : "browse.price.a11y.listAvail",
+        )}
+        style={list}
+      >
         {shown.map((i) => {
           const open = editing === i.id;
           return (

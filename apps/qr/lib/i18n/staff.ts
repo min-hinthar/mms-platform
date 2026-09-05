@@ -717,7 +717,7 @@ export const STAFF = {
   "browse.price.titleAvail": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
   "browse.price.leadManager": {
     en: "One price per dish — dine-in and to-go ring the same amount, the way the register does. A change takes effect on the next order; lines already in a cart keep the price they were quoted, and paid orders never change. Every edit is recorded with your name.",
-    my: "ဟင်းတစ်မျိုးကို ဈေးတစ်ခုတည်း — ဆိုင်မှာစားရော ပါဆယ်ရော အတူတူ၊ ကောင်တာမှာလိုပဲ။ ပြောင်းလိုက်ရင် နောက်အော်ဒါကစပြီး သက်ရောက်ပါတယ်။ ဈေးခြင်းထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေလည်း မပြောင်းပါ။ ပြင်ဆင်မှုတိုင်းကို သင့်နာမည်နဲ့ မှတ်ထားပါတယ်။",
+    my: "ဟင်းတစ်မျိုးကို ဈေးတစ်ခုတည်း — ဆိုင်မှာစားရော ပါဆယ်ရော အတူတူ၊ ကောင်တာမှာလိုပဲ။ ပြောင်းလိုက်ရင် နောက်အော်ဒါကစပြီး သက်ရောက်ပါတယ်။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေလည်း မပြောင်းပါ။ ပြင်ဆင်မှုတိုင်းကို သင့်နာမည်နဲ့ မှတ်ထားပါတယ်။",
   },
   "browse.price.leadServer": {
     en: "Take a dish off the menu the moment you run out — nobody can order it until someone puts it back, and there is no timer that does it for you. Prices are managers only. Every change is recorded with your name.",
@@ -759,7 +759,7 @@ export const STAFF = {
   }, // K15-HIGH
   "browse.price.confirmDetail": {
     en: "Every new order pays the new price. Lines already in a cart keep what they were quoted, and paid orders never change.",
-    my: "အော်ဒါအသစ်တိုင်း ဈေးအသစ်နဲ့ ရှင်းရပါမယ်။ ဈေးခြင်းထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေ မပြောင်းပါ။",
+    my: "အော်ဒါအသစ်တိုင်း ဈေးအသစ်နဲ့ ရှင်းရပါမယ်။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေ မပြောင်းပါ။",
   },
   "browse.price.keep": { en: "Keep {m}", my: "{m} အတိုင်း ထား" }, // K15-HIGH — the way out
   "browse.price.set": { en: "Set {m}", my: "{m} သတ်မှတ်" }, // K15-HIGH — the tap that charges it
@@ -776,7 +776,7 @@ export const STAFF = {
   },
   "browse.price.live.saved": {
     en: "{x} is now {m}. Lines already in a cart keep the price they were quoted.",
-    my: "{x} က အခု {m} ဖြစ်ပါပြီ။ ဈေးခြင်းထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ။",
+    my: "{x} က အခု {m} ဖြစ်ပါပြီ။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ။",
   }, // K15-HIGH — the only confirmation that a charged amount moved
   "browse.price.err.flipUnknown": {
     en: "Couldn’t reach the menu — {x} may or may not have changed. Check the row and try again.",
@@ -788,7 +788,12 @@ export const STAFF = {
   },
 
   // ── names with no visible text to pair with ────────────────────────────────
+  // TWO names because the PAGE has two headings: a server sees "Menu availability" (they are not
+  // offered the price editor at all) and a manager sees "Menu prices". One unconditional name left
+  // a server on a page headed one thing whose only list announced the other. The literal had the
+  // same defect; moving it into a key was the moment to split it.
   "browse.price.a11y.list": { en: "Menu prices", my: "မီနူး ဈေးနှုန်းများ" },
+  "browse.price.a11y.listAvail": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
   // The price field's sr-only <label>. It carries the dish, so it is `tf()`/<Chrome>, never `sx()`.
   "browse.price.a11y.newPrice": {
     en: "New price for {x}, in dollars",
