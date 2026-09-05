@@ -25,18 +25,38 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 /**
  * P2 — the reason a server gave, as a dictionary KEY per code rather than an English label.
  *
- * The map covers the six codes the loss sheet can send. An UNKNOWN code still falls through to the
- * raw column value at the render site: that is a database status key on a manager’s screen (the
- * OPEN-ITEMS P2g shape), and inventing a Burmese word for a code nobody has declared would be a
- * worse answer than showing what the row actually says. Reported rather than papered over.
+ * ⚠️ IT POINTS AT `table.loss.reason.*`, THE SHEET'S OWN KEYS, and that is the whole point. The
+ * server picks a reason in `LossActionSheet`; the manager approves the SAME request here. When the
+ * two surfaces carried their own key families the Burmese forked — `မှားပြီး မှာမိ` against
+ * `မှားပြီး မှာမိတာ`, `မီးဖိုချောင် မှားလုပ်` against `မီးဖိုချောင်က မှားချက်မိတာ` — so under `my` a
+ * cook tapped one wording and the manager approved it under another, on a record the server audits.
+ * The reason code is the DB's, so the WORD must be the dictionary's, once.
+ *
+ * SEVEN codes, not six: the void arm offers `sold_out` (`LossActionSheet`'s W23a dine-in 86), and
+ * `mms_request_approval` gates on the action and the loss ceiling but never on the reason — so that
+ * code reaches this queue and, before this map named it, rendered as the raw column value.
+ *
+ * `guest_request` is the one code that cannot share a key: the sheet splits it by ACTION
+ * (`guestChanged` when voiding, `guestCourtesy` when comping) and this card knows the kind, so it
+ * makes the same split rather than flattening two intents into one word.
+ *
+ * An UNKNOWN code still falls through to the raw column value at the render site: that is a database
+ * status key on a manager’s screen (the OPEN-ITEMS P2g shape), and inventing a Burmese word for a
+ * code nobody has declared would be a worse answer than showing what the row actually says.
  */
 const REASON_KEY: Record<string, StaffKey> = {
-  mistake: "table.appr.reason.mistake",
-  kitchen_error: "table.appr.reason.kitchenError",
-  quality: "table.appr.reason.quality",
-  guest_request: "table.appr.reason.guestRequest",
-  service_recovery: "table.appr.reason.serviceRecovery",
-  other: "table.appr.reason.other",
+  mistake: "table.loss.reason.mistake",
+  kitchen_error: "table.loss.reason.kitchenError",
+  sold_out: "table.loss.reason.soldOut",
+  quality: "table.loss.reason.quality",
+  service_recovery: "table.loss.reason.serviceRecovery",
+  other: "table.loss.reason.other",
+};
+
+/** `guest_request` means something different either side of the void/comp fork. */
+const GUEST_REQUEST_KEY: Record<"void" | "comp", StaffKey> = {
+  void: "table.loss.reason.guestChanged",
+  comp: "table.loss.reason.guestCourtesy",
 };
 
 /**
@@ -215,7 +235,11 @@ function RequestCard({
   // status word interpolated into a Burmese sentence is the OPEN-ITEMS P2g shape one file over.
   const kindKey = request.kind === "comp" ? "table.appr.kind.comp" : "table.appr.kind.void";
   const cardKey = request.kind === "comp" ? "table.appr.card.comp" : "table.appr.card.void";
-  const reasonKey = REASON_KEY[request.reasonCode];
+  // `guest_request` is read through the kind-aware map: the sheet meant two different things by it.
+  const reasonKey =
+    request.reasonCode === "guest_request"
+      ? GUEST_REQUEST_KEY[request.kind]
+      : REASON_KEY[request.reasonCode];
   const confirmKey =
     decision === "approve"
       ? request.kind === "comp"

@@ -283,7 +283,7 @@ export const STAFF = {
   "table.appr.title": { en: "Pending requests", my: "စောင့်နေတဲ့ တောင်းဆိုချက်များ" },
 
   // ── the refunds-needed strip (money was taken with no order behind it) ─────
-  "table.appr.a11y.refunds": { en: "Refunds needed", my: "ပြန်အမ်းရန် ရှိသည်များ" },
+  "table.appr.a11y.refunds": { en: "Refunds needed", my: "ပြန်အမ်းရန် ရှိတာများ" },
   "table.appr.a11y.refundsList": { en: "Refunds to issue", my: "ပြန်အမ်းရမယ့် စာရင်း" },
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
   "table.appr.refunds.one": { en: "{n} refund needed", my: "ပြန်အမ်းရန် {n} ခု" },
@@ -333,12 +333,9 @@ export const STAFF = {
   "table.appr.card.void": { en: "Void request for {x}", my: "{x} အတွက် ဖျက်ရန် တောင်းဆိုချက်" },
   "table.appr.cooked": { en: "cooked", my: "ချက်ပြီးသား" }, // K15-HIGH — the food is already gone; comping it costs the kitchen twice
   // The six reason codes the loss sheet can send, as words rather than as `service_recovery`.
-  "table.appr.reason.mistake": { en: "Ordered by mistake", my: "မှားပြီး မှာမိ" },
-  "table.appr.reason.kitchenError": { en: "Kitchen made it wrong", my: "မီးဖိုချောင် မှားလုပ်" }, // glossary: မီးဖိုချောင်
-  "table.appr.reason.quality": { en: "Quality / guest unhappy", my: "အရည်အသွေး / ဧည့်သည် မကျေနပ်" },
-  "table.appr.reason.guestRequest": { en: "Guest request", my: "ဧည့်သည် တောင်းဆို" },
-  "table.appr.reason.serviceRecovery": { en: "Making it right", my: "ပြန်ပြင်ပေးရန်" },
-  "table.appr.reason.other": { en: "Other", my: "အခြား" },
+  // The approvals queue reads `table.loss.reason.*` — the SHEET's keys. It had its own family until
+  // the merge showed the two forking the Burmese for identical English on one audited record; see
+  // ApprovalsBoard's REASON_KEY docblock.
   "table.appr.from": { en: "from {x}", my: "{x} က တောင်းထား" },
 
   // ── the decision controls ──────────────────────────────────────────────────
@@ -362,7 +359,7 @@ export const STAFF = {
   "table.appr.verb.confirmApprove": { en: "Confirm approve", my: "ခွင့်ပြုကြောင်း အတည်ပြု" },
   "table.appr.verb.confirmDeny": { en: "Confirm deny", my: "ငြင်းပယ်ကြောင်း အတည်ပြု" },
   "table.appr.verb.cancel": { en: "Cancel", my: "မလုပ်တော့" },
-  "table.appr.working": { en: "Working…", my: "လုပ်နေသည်…" },
+  "table.appr.working": { en: "Working…", my: "လုပ်နေပါတယ်…" }, // as table.loss.working — 44 values use ပါတယ်, 3 used သည်
 
   // ═══ P2 PR B · browse ═══════════════════════════════════════════════════════════
   // ── the staff order screen: the page header (app/staff/table/[id]/add) ─────
@@ -501,8 +498,11 @@ export const STAFF = {
   "table.detail.order.title": { en: "Order so far", my: "ယခုအထိ အော်ဒါ" },
   "table.detail.addItems": { en: "+ Add items", my: "+ ပစ္စည်း ထည့်" },
   "table.detail.cart.empty": { en: "Nothing in the cart yet.", my: "အော်ဒါထဲမှာ ဘာမှ မရှိသေးပါ။" },
-  "table.detail.line.voided": { en: "Voided", my: "ဖျက်ထား" },
-  "table.detail.line.comped": { en: "Comped", my: "အလကားပေး" },
+  // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches
+  // of a single list in a single card and the word for a voided line must not change with the
+  // reader's write permission.
+  "table.detail.line.voided": { en: "Voided", my: "ဖျက်ပြီး" },
+  "table.detail.line.comped": { en: "Comped", my: "အခမဲ့ ပေး" }, // the အခမဲ့ root every other comp string uses
   // The money row. `{m}` is preformatted by `fmt()` and stays Latin; the item count is prose.
   "table.detail.subtotalSoFar": { en: "subtotal so far", my: "ယခုအထိ စုစုပေါင်း" },
   "table.detail.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
@@ -617,7 +617,6 @@ export const STAFF = {
   // ═══ P2 PR B · lines ═══════════════════════════════════════════════════════════
   // ── the table drill-down: one cart line (StaffLineEditor) ──────────────────
   // Terminal badges. No echo at the call site — a badge cannot legibly stack two scripts.
-  "table.line.voided": { en: "Voided", my: "ဖျက်ပြီး" },
   "table.line.comped": { en: "Comped · free", my: "အခမဲ့ ပေးထား" },
   "table.line.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // grounded: browse.price.soldOut
   "table.line.approvalRequested": { en: "Approval requested", my: "ခွင့်ပြုချက် တောင်းထားပြီ" },

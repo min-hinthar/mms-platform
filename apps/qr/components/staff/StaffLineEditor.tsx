@@ -31,11 +31,15 @@ export function StaffLineEditor({
   disabled: boolean;
   onError: (msg: string) => void;
 }) {
-  // P2 — the staff device's language, from app/staff/layout.tsx. `onError` is deliberately NOT
-  // localized: it lands in FloorDetailLive's shared `role="status"`, which marks `lang` only while
-  // the FROZEN copy renders — a Burmese sentence handed out through this callback would arrive in
-  // that region unmarked, in the Latin face at Latin leading. That region's other branches convert
-  // together, under OPEN-ITEMS P2c.
+  // P2 — the staff device's language, from app/staff/layout.tsx.
+  //
+  // `onError` stays a PLAIN STRING and is deliberately not localized here. The reason is no longer
+  // the one an earlier draft of this comment gave (that the target region marked `lang` only while
+  // the frozen copy rendered — that suppression is gone; `FloorDetailLive` now renders the write
+  // failure through `<OutageText>`, which marks its own span). The reason is the contract: what
+  // arrives through this callback is a SERVER sentence, and `<OutageText>` is what decides at the
+  // render site whether it has an authored Burmese twin. Localizing it here would mean guessing on
+  // this side of the boundary for a sentence the server owns.
   const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
@@ -93,7 +97,7 @@ export function StaffLineEditor({
           {line.qty}× {line.name}
         </span>
         <span style={badge}>
-          <Chrome lang={lang} k="table.line.voided" />
+          <Chrome lang={lang} k="table.detail.line.voided" />
         </span>
       </li>
     );

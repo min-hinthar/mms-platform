@@ -159,6 +159,53 @@ describe("the dictionary guards", () => {
     expect(stale).toEqual([]);
   });
 
+  it("P2 — two keys on ONE surface saying the same English must say the same Burmese", () => {
+    // The INVERSE of the rule above, and the one the parallel conversion actually needed. Ten agents
+    // wrote ten fragments at once; the merge put them side by side and they had forked the Burmese
+    // for identical English on shared records. The worst was the void/comp reason codes: the loss
+    // sheet and the approvals queue name the SAME database values, so a cook tapped `မှားပြီး မှာမိတာ`
+    // and the manager approved the same request reading `မှားပြီး မှာမိ`. "Voided" changed wording
+    // between the writable and read-only branches of ONE list in ONE card.
+    //
+    // Decoration is stripped from BOTH tongues before comparing, so a nav pill ("Tips today →") and
+    // the page title it points at are one entry, not a finding — that arrow is the only difference
+    // and it is present in both halves.
+    const SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN: Readonly<Record<string, string>> = {
+      "browse.price.a11y.list|browse.price.title":
+        "The page title names the surface (မီနူး ဈေးနှုန်း); the list's accessible name is plural because it names a LIST of them (…များ). Burmese marks that where English does not, so the two values differ for the same reason the English does not need to.",
+    };
+    const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
+    const DECOR = /^[\s·+←→↑↓•\-—]+|[\s·+←→↑↓•\-—]+$/gu;
+    const core = (v: string) => v.replace(DECOR, "").trim();
+    const normEn = (v: string) =>
+      core(v)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    const groups = new Map<string, string[]>();
+    for (const [k, v] of Object.entries(STAFF)) {
+      if (paired.has(k)) continue;
+      const g = `${k.split(".")[0]}\u0000${normEn(v.en)}`;
+      groups.set(g, [...(groups.get(g) ?? []), k]);
+    }
+    const forks = [...groups.values()]
+      .filter((ks) => ks.length > 1)
+      .filter((ks) => new Set(ks.map((k) => core(STAFF[k as keyof typeof STAFF].my))).size > 1)
+      .map((ks) => ks.sort().join("|"))
+      .filter((id) => !(id in SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN));
+    expect(forks).toEqual([]);
+    // …and an exemption may not outlive the fork it excuses.
+    const stale = Object.keys(SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN).filter((id) => {
+      const ks = id.split("|");
+      return (
+        ks.some((k) => !(k in STAFF)) ||
+        new Set(ks.map((k) => normEn(STAFF[k as keyof typeof STAFF].en))).size !== 1 ||
+        new Set(ks.map((k) => core(STAFF[k as keyof typeof STAFF].my))).size === 1
+      );
+    });
+    expect(stale).toEqual([]);
+  });
+
   it("P2 — the staff key namespace is dotted and surface-scoped", () => {
     // At 100+ strings across seven surfaces the same English word means different things: `All` is
     // a station chip AND a browser category; `Pickup` is a channel, a floor mode and a slot. A flat

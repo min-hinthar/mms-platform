@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 1537 qr tests + 140 ui tests · 361 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 1538 qr tests + 140 ui tests · 361 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
