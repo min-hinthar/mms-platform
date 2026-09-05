@@ -58,8 +58,31 @@ since the undo-grace comparison is ten seconds wide.
 `kds.title`, `kds.table`, `kds.line.cooking`, `kds.allday.title`, `kds.more`, `kds.allclear`,
 `kds.a11y.allDay` — so a K15 correction lands in one place instead of two.
 
-**Guards.** 25 assertions on the shaper, 15 on the route, 20 on the board's
-markup (13 of them on the new band), and 13 `verify:slice` mutants. `pulse/cooking-loses-to-ready` SURVIVED its first fixture — two states on
+**The blind adversarial pass returned REJECT with a CRITICAL, and it was right.** The load figures
+applied **no session-liveness test at all** — while this module, an OPEN-ITEMS row and an earlier
+draft of this entry all claimed they used the KDS's. The scenario is ordinary: a dine-in table pays
+(its cart flips open→PAID), one line is never bumped (`mms_bump_ticket` serves only the lines the
+cook saw), staff clear the table — and `clearTable` cancels only the OPEN cart before closing the
+session, so that paid cart's `fired` line survives. The wall counted it as live kitchen work for a
+full 24 hours, ageing `Oldest` toward 1440, while the KDS beside it correctly showed nothing. The
+load path now restates `lib/kitchen.ts`'s per-channel rule verbatim, so the sentence is true.
+Also fixed from that pass: **the exposure floor counted CARTS where the exposure is per-PARTY** (one
+table can hold a paid cart beside a fresh open one, so two parties looked like three and opened the
+rail a party early); the route's docblock claimed the two sections "never join", which the sibling
+module's own frame-delta paragraph disproves; a dead `serverNow` field survived the move of the age
+server-side, carrying a docblock describing a mechanism it no longer implemented — and pointing at
+the app clock while `oldestMinutes` comes from `mms_now`; an `expires_at === null` branch guarded a
+state the column forbids, in a module that rejects unreachable code by name; and three unchecked row
+casts on a public payload path turned out to be unnecessary, so they are annotations now and tsc
+checks the shapes again.
+
+**Guards.** 27 assertions on the shaper, 15 on the route, 20 on the board's markup (13 of them on
+the new band), and 19 `verify:slice` mutants — six of which exist only because that pass named the
+rules that had none: the two liveness arms, the floor's unit, the unregistered sticker, the idle
+table, and the rounding. **`oldestMinutes` was a degenerate fixture**: every offset in the first
+suite was a whole minute, so `floor`, `ceil` and `round` all answered 7 and the rule had no guard at
+all; the fixture is 7m59s now, and a wall must not round a 7-minute wait up to 8 and call a ticket
+late against the KDS's 8-minute amber. `pulse/cooking-loses-to-food-up` SURVIVED its first fixture — two states on
 two sessions, where the ternary and its mutant agree — and the fixture that separates them puts both
 on one session, which is what a table actually looks like mid-service. The bilingual property test
 had never rendered one byte of the band; it now sweeps every state the band can mount. `tx on pg`,

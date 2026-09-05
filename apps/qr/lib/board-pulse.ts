@@ -107,7 +107,8 @@ export type BoardPulse = {
  * later appears in NEITHER place until somebody decides it should. `!== "pickup"`-shaped thinking is
  * what put names on this wall twice before.
  */
-export const PULSE_TABLE_MODES: ReadonlySet<string> = new Set(["dinein"]);
+export const PULSE_DINEIN_MODE = "dinein";
+export const PULSE_TABLE_MODES: ReadonlySet<string> = new Set([PULSE_DINEIN_MODE]);
 
 /**
  * A dine-in ticket belongs to a table only while its session is live; a cleared table drops off.
@@ -163,8 +164,13 @@ export type PulseLineRow = {
   bumped_at: string | null;
 };
 
-/** The parent cart. `status` is already filtered to open/paid by the read; carried for clarity. */
-export type PulseCartRow = { id: string; session_id: string };
+/**
+ * The parent cart. `status` is CARRIED, not merely filtered upstream — the read narrows it to
+ * open/paid, but the two are not interchangeable and the load rule below has to tell them apart.
+ * An earlier version of this type dropped the column and left a comment saying it was "carried for
+ * clarity", which is mechanically why the shaper could not restate `kitchen.ts`'s rule at all.
+ */
+export type PulseCartRow = { id: string; session_id: string; status: string };
 
 /**
  * The session behind a cart: what decides whether it is a TABLE, and which one.
@@ -179,8 +185,13 @@ export type PulseSessionRow = {
   mode: string;
   status: string;
   table_number: number | null;
-  /** The 4-hour mint TTL. NEVER extended by anything in this repo — see the ghost rule below. */
-  expires_at: string | null;
+  /**
+   * The 4-hour mint TTL. `not null` in the schema (`20260618000000_qr_platform_init.sql`) and NEVER
+   * extended by anything in this repo — see the ghost rule below. Typed non-nullable so this module
+   * grows no branch for a state the column forbids: it rejects a zero-clamp two screens down for
+   * exactly that reason, and an unreachable guard is one no mutant can make fail.
+   */
+  expires_at: string;
 };
 
 export type ShapePulseInput = {
@@ -225,6 +236,20 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // is the one comparison in this module that is sensitive to clock skew, which is why `nowMs`
     // is the DATABASE clock and not the app's (`lib/kitchen.ts` documents the same reasoning).
     if (fireMs > nowMs) continue;
+    // ⚠️ THE KDS'S PER-CHANNEL LIVENESS RULE, RESTATED — and it was MISSING here, while this file,
+    // the CHANGELOG and an OPEN-ITEMS row all claimed the load figures used it. What the omission
+    // actually published: a dine-in table pays (its cart flips open→paid), one line is never bumped
+    // (`mms_bump_ticket` serves only the lines the cook SAW, so this is ordinary), staff clear the
+    // table — and `clearTable` cancels only the OPEN cart (`.eq("status","open")`, lib/floor.ts)
+    // before closing the session, so that paid cart's `fired` line survives untouched. With no
+    // liveness test the wall then counted it as live kitchen work for a full 24 hours, climbing
+    // `Oldest` toward 1440, while the KDS beside it correctly showed nothing.
+    const dineIn = sess.mode === PULSE_DINEIN_MODE;
+    if (dineIn) {
+      if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // cleared/closed table
+    } else if (cart.status !== "paid") {
+      continue; // non-dine-in food only legitimately fires at settlement
+    }
 
     if (PULSE_COOKING_STATES.has(l.state)) {
       cookingCarts.add(l.cart_id);
@@ -275,7 +300,6 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // table authority. The load figures above deliberately do NOT, so the wall and the pass keep
     // counting the same tickets; the residual disagreement is stated in OPEN-ITEMS rather than
     // resolved on one screen only.
-    if (sess.expires_at === null) continue;
     const expiresMs = new Date(sess.expires_at).getTime();
     if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) continue;
     if (sess.table_number === null) continue;
@@ -291,7 +315,13 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
   }
 
   const ranked = [...dishes.values()].sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
-  const railOpen = cookingCarts.size >= PULSE_RAIL_MIN_TICKETS;
+  // ⚠️ SESSIONS, NOT CARTS — the floor is about how many PARTIES the rail could be attributed to,
+  // and one party can hold two carts at once (a paid cart with unbumped lines beside a fresh open
+  // one; the strip's own comment below contemplates exactly that). Counting carts let two parties
+  // look like three and opened the rail one party early, which is the one thing the floor exists to
+  // prevent. `tickets` stays a CART count, because a ticket is what the kitchen and the KDS mean by
+  // one — the two numbers measure different things and must not be collapsed.
+  const railOpen = cookingSessions.size >= PULSE_RAIL_MIN_TICKETS;
   const allDay = railOpen ? ranked.slice(0, PULSE_RAIL_MAX_ROWS) : [];
 
   return {

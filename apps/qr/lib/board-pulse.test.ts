@@ -41,7 +41,12 @@ const line = (over: Partial<PulseLineRow> & { cart_id: string }): PulseLineRow =
   ...over,
 });
 
-const cart = (id: string, sessionId: string): PulseCartRow => ({ id, session_id: sessionId });
+/** Defaults to `open`, the dine-in shape; the load rule's non-dine-in arm needs `paid`. */
+const cart = (id: string, sessionId: string, status = "open"): PulseCartRow => ({
+  id,
+  session_id: sessionId,
+  status,
+});
 
 const session = (over: Partial<PulseSessionRow> & { id: string }): PulseSessionRow => ({
   mode: "dinein",
@@ -73,7 +78,7 @@ function tickets(n: number, dish = (i: number) => `Dish ${i}`) {
     lines: Array.from({ length: n }, (_, i) =>
       line({ cart_id: `c${i}`, name: dish(i), menu_item_id: `m${i}` }),
     ),
-    carts: Array.from({ length: n }, (_, i) => cart(`c${i}`, `s${i}`)),
+    carts: Array.from({ length: n }, (_, i) => cart(`c${i}`, `s${i}`, "paid")),
     sessions: Array.from({ length: n }, (_, i) =>
       session({ id: `s${i}`, mode: "pickup", table_number: null }),
     ),
@@ -109,7 +114,7 @@ describe("what is on the wall — the table strip", () => {
     // DECISION to put it on the wall, not a consequence of `!== "pickup"`.
     const p = shape({
       lines: [line({ cart_id: "c1" })],
-      carts: [cart("c1", "s1")],
+      carts: [cart("c1", "s1", "paid")],
       sessions: [session({ id: "s1", mode: "counter-seated", table_number: 7 })],
     });
     expect(p.tables).toEqual([]);
@@ -128,15 +133,52 @@ describe("what is on the wall — the table strip", () => {
     }
   });
 
-  it("a CLEARED table drops off the wall the moment its session closes", () => {
+  it("a CLEARED table drops off the wall the moment its session closes — strip AND load", () => {
+    // ⚠️ `tickets` is asserted here, not only `tables`, and it is the CRITICAL this suite missed on
+    // its first pass. The scenario is ordinary, not exotic: the table pays (its cart flips
+    // open→PAID), one line was never bumped, and `clearTable` cancels only the OPEN cart before
+    // closing the session — so that paid cart's `fired` line survives. With no liveness test on the
+    // load path the wall counted it as live kitchen work for 24 hours while the KDS, which applies
+    // the test, showed nothing. Both cart statuses are covered because only the paid one persists.
     for (const status of ["closed", "locked"]) {
-      const p = shape({
-        lines: [line({ cart_id: "c1" })],
-        carts: [cart("c1", "s1")],
-        sessions: [session({ id: "s1", status, table_number: 7 })],
-      });
-      expect(p.tables).toEqual([]);
+      for (const cartStatus of ["open", "paid"]) {
+        const p = shape({
+          lines: [line({ cart_id: "c1" })],
+          carts: [cart("c1", "s1", cartStatus)],
+          sessions: [session({ id: "s1", status, table_number: 7 })],
+        });
+        expect(p.tables).toEqual([]);
+        expect(p.tickets).toBe(0);
+        expect(p.oldestMinutes).toBeNull();
+      }
     }
+  });
+
+  it("non-dine-in food is counted only once its cart is PAID — the pass's rule, restated", () => {
+    // `lib/kitchen.ts`: "a pre-payment fired line on an open pickup cart is an edge no diner surface
+    // produces — skip rather than cook unpaid food." The wall must agree with the pass, or its count
+    // is a different number wearing the same label.
+    for (const mode of ["pickup", "scango", "counter-seated"]) {
+      const open = shape({
+        lines: [line({ cart_id: "c1" })],
+        carts: [cart("c1", "s1", "open")],
+        sessions: [session({ id: "s1", mode, table_number: null })],
+      });
+      expect(open.tickets).toBe(0);
+      const paid = shape({
+        lines: [line({ cart_id: "c1" })],
+        carts: [cart("c1", "s1", "paid")],
+        sessions: [session({ id: "s1", mode, table_number: null })],
+      });
+      expect(paid.tickets).toBe(1);
+    }
+    // …and dine-in is the mirror: it cooks on an OPEN cart, which is the whole point of the fork.
+    const dineIn = shape({
+      lines: [line({ cart_id: "c1" })],
+      carts: [cart("c1", "s1", "open")],
+      sessions: [session({ id: "s1", table_number: 7 })],
+    });
+    expect(dineIn.tickets).toBe(1);
   });
 
   it("an UNREGISTERED sticker has no number to show, so it shows none — and still counts", () => {
@@ -207,7 +249,7 @@ describe("what is on the wall — the table strip", () => {
       ],
     });
     expect(live.tables).toEqual([{ table: 5, status: "cooking" }]);
-    for (const expires_at of [new Date(NOW).toISOString(), new Date(NOW - 1).toISOString(), null]) {
+    for (const expires_at of [new Date(NOW).toISOString(), new Date(NOW - 1).toISOString()]) {
       const ghost = shape({
         lines: [line({ cart_id: "c1" })],
         carts: [cart("c1", "s1")],
@@ -336,7 +378,10 @@ describe("load — the count and the age", () => {
           fire_at: new Date(NOW - 90 * MIN).toISOString(),
           bumped_at: new Date(NOW - 1 * MIN).toISOString(),
         }),
-        line({ cart_id: "c2", fire_at: new Date(NOW - 7 * MIN).toISOString() }),
+        // ⚠️ 7m59s, not 7m00s. Every offset in the first draft of this suite was a whole minute, so
+        // `Math.floor`, `Math.ceil` and `Math.round` all answered 7 and the rounding rule had no
+        // guard at all. A wall must never round a 7-minute wait up to 8 and call a ticket late.
+        line({ cart_id: "c2", fire_at: new Date(NOW - (7 * MIN + 59_000)).toISOString() }),
         line({ cart_id: "c3", fire_at: new Date(NOW - 3 * MIN).toISOString() }),
       ],
       carts: [cart("c1", "s1"), cart("c2", "s2"), cart("c3", "s3")],
@@ -380,6 +425,24 @@ describe("the all-day rail's exposure floor", () => {
     }
   });
 
+  it("counts PARTIES, not carts — one table holding two carts is one party", () => {
+    // ⚠️ The unit is the finding. A dine-in session can hold a paid cart with unbumped lines beside
+    // a fresh open one, so a cart count let two parties look like three and opened the rail one
+    // party early — at which point the strip shows one number beside a rail that is substantially
+    // that table's order, which is the exact fact the floor exists to prevent.
+    const p = shape({
+      lines: [
+        line({ cart_id: "cPaid", name: "Mohinga" }),
+        line({ cart_id: "cOpen", name: "Tea" }),
+        line({ cart_id: "cOther", name: "Salad", menu_item_id: "mSalad" }),
+      ],
+      carts: [cart("cPaid", "s1", "paid"), cart("cOpen", "s1"), cart("cOther", "s2")],
+      sessions: [session({ id: "s1", table_number: 2 }), session({ id: "s2", table_number: 3 })],
+    });
+    expect(p.tickets).toBe(3); // three tickets — that is what the KITCHEN has
+    expect(p.allDay).toEqual([]); // …but only two parties, so the rail stays shut
+  });
+
   it("OPENS at the floor — a guard that never opens is a disabled feature, not a floor", () => {
     const p = shape(tickets(PULSE_RAIL_MIN_TICKETS));
     expect(p.tickets).toBe(PULSE_RAIL_MIN_TICKETS);
@@ -415,7 +478,7 @@ describe("the all-day rail's exposure floor", () => {
         line({ cart_id: "c2", name: "Mohinga", qty: 2, menu_item_id: "mMoh" }),
         line({ cart_id: "c3", name: "Mohinga", qty: 2, menu_item_id: "mMoh" }),
       ],
-      carts: [cart("c1", "s1"), cart("c2", "s2"), cart("c3", "s3")],
+      carts: [cart("c1", "s1", "paid"), cart("c2", "s2", "paid"), cart("c3", "s3", "paid")],
       sessions: [
         session({ id: "s1", mode: "pickup", table_number: null }),
         session({ id: "s2", mode: "pickup", table_number: null }),

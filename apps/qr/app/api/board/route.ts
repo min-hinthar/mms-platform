@@ -41,8 +41,12 @@ const PULSE_LINE_CAP = 500;
  * order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail the
  * diner's own /track shows. ⚠️ That sentence used to describe the whole response and no longer can:
  * P6's `pulse` publishes dish names (unattributed, and only above an exposure floor) and dine-in
- * TABLE NUMBERS. It still publishes no id and no amount anywhere, and the two sections never join —
- * nothing in `pulse` can be linked to a name in `orders`.
+ * TABLE NUMBERS. It still publishes no id and no amount anywhere, and no single frame joins the two
+ * sections. ⚠️ It does NOT claim they can never be joined: a takeaway cart named in `orders` also
+ * feeds `pulse.tickets` and the rail, so an observer differencing two polls across that customer's
+ * Preparing→Ready transition reads their dishes. That channel is `lib/board-pulse.ts`'s frame-delta
+ * residual (OPEN-ITEMS P6a); an earlier draft of this sentence asserted the stronger guarantee, and
+ * the sibling module documented the counterexample to it three files away.
  *
  * Scope: takeout + grocery ONLY (`table_number is null` — dine-in status stays on the diner's phone).
  * picked_up rows ride along for 10 minutes (togo_picked_up_at) so a just-collected name lingers briefly
@@ -131,14 +135,24 @@ export async function GET(req: NextRequest) {
     console.error("[board] read failed:", error.message);
     return NextResponse.json({ error: "Board read failed" }, { status: 500 });
   }
-  const dbNowIso = nowRes.data ?? nowIso;
-  const dbNowMs = new Date(dbNowIso).getTime();
+  // ⚠️ VALIDATED, not merely defaulted. `dbNowMs` feeds two `new Date(...).toISOString()` calls
+  // below, and `toISOString()` on a NaN date THROWS `RangeError` — which would 500 the customer-
+  // facing Ready column, a surface that had no dependency on this rpc before P6 added one. A
+  // `mms_now` answer we cannot parse falls back to the app clock, exactly as a failed rpc does.
+  const dbNowMs = (() => {
+    const fromDb = nowRes.data === null ? NaN : new Date(nowRes.data).getTime();
+    return Number.isFinite(fromDb) ? fromDb : Date.parse(nowIso);
+  })();
 
   // ── P6: the kitchen pulse's own reads ────────────────────────────────────────────────────────
   // Live kitchen lines, plus the just-bumped ones a `ready` table is derived from. Bounded to
-  // today's service for the same reason the orders read is, and ordered oldest-first so a
-  // truncation at the cap drops the NEWEST rows — an under-report, which is the safe direction for
-  // both honesty (the count only ever understates the wok) and exposure (fewer rows, never more).
+  // today's service for the same reason the orders read is, and ordered oldest-first because the
+  // oldest LIVE ticket is the number the band exists to state and must never be the row that gets
+  // dropped. ⚠️ The cap's honest behaviour, stated rather than flattered: it drops the NEWEST rows,
+  // so past 500 the count under-reports (safe) but its COMPOSITION skews old (not safe) — the wall
+  // would age on rows the shaper is about to discard as non-live. SQL cannot apply the session
+  // liveness test that discards them (it lives two reads away), so the cap is a real bound and not
+  // a formality; at teahouse volume it is far out of reach, and it is filed rather than assumed.
   const pulseDayFloor = new Date(dbNowMs - 24 * 60 * 60 * 1000).toISOString();
   const passFloor = new Date(dbNowMs - PULSE_PASS_LINGER_MS).toISOString();
   const linesRes = await db
@@ -150,7 +164,13 @@ export async function GET(req: NextRequest) {
     .order("fire_at", { ascending: true })
     .limit(PULSE_LINE_CAP);
   if (linesRes.error) console.error("[board] pulse line read failed:", linesRes.error.message);
-  const lines = (linesRes.data ?? []) as PulseLineRow[];
+  // ANNOTATED, never `as`. Three unchecked casts stood here and every one was unnecessary — the
+  // generated types already match — so they bought nothing and cost the only mechanical check that
+  // the shaper's row types still describe the columns this route selects. That is the
+  // `.returns<T>()` hazard the delivery repo learned the expensive way: a cast replaces the
+  // generated type, so a column that stops existing is invisible to tsc, and PostgREST rejects the
+  // WHOLE query for one unknown column. On a public payload path an annotation is the cheap belt.
+  const lines: PulseLineRow[] = linesRes.data ?? [];
 
   // The parent carts, filtered to the two statuses whose lines are legitimately in the kitchen —
   // `lib/kitchen.ts`'s rule, restated: dine-in cooks while OPEN, and a to-go batch fired at
@@ -165,7 +185,7 @@ export async function GET(req: NextRequest) {
         .in("status", ["open", "paid"])
     : { data: [] as { id: string; session_id: string; status: string }[], error: null };
   if (cartsRes.error) console.error("[board] pulse cart read failed:", cartsRes.error.message);
-  const pulseCarts = (cartsRes.data ?? []) as PulseCartRow[];
+  const pulseCarts: PulseCartRow[] = cartsRes.data ?? [];
   // A failed read is UNKNOWN, not empty. `pulse: null` is the whole degrade: the Ready column above
   // still publishes, and the screen says it cannot read the kitchen rather than drawing an empty
   // band that reads "all clear".
@@ -254,7 +274,7 @@ export async function GET(req: NextRequest) {
     ? shapeBoardPulse({
         lines,
         cartById: new Map(pulseCarts.map((c) => [c.id, c])),
-        sessionById: new Map((sessions ?? []).map((s) => [s.id, s as PulseSessionRow])),
+        sessionById: new Map<string, PulseSessionRow>((sessions ?? []).map((s) => [s.id, s])),
         nameMyByItem: new Map(
           (menuRes.error ? [] : (menuRes.data ?? [])).map((m) => [m.id, m.name_my]),
         ),

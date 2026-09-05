@@ -59,20 +59,13 @@ type BoardState =
    * band. A band drawn from `{tickets: 0}` over a full wok is the same lie `lib/kitchen.ts` refuses
    * (an empty KDS reading "all clear" over a room of cooking food), one screen further out.
    *
-   * `serverNow` rides along because the oldest-ticket age is measured against it and NOT against
-   * `Date.now()`: a clock read in a render body is impure and React Compiler rejects it, and the
-   * two endpoints have to share one clock domain to be a duration at all (`staff-outage.ts`
-   * documents the skew bug that taught this). A stale board keeps the last pair, so the age freezes
-   * with the rest of the snapshot rather than drifting upward against a live clock while nothing
-   * behind it is being refreshed.
+   * ⚠️ There is deliberately NO `serverNow` here. An earlier cut carried one, with a docblock
+   * saying the oldest-ticket age was measured against it — and by then the age had already moved
+   * server-side as an integer, so the field was read by nothing. Worse if a later reader had used
+   * it: the route stamps `serverNow` from the APP clock while `oldestMinutes` comes from `mms_now`,
+   * which is precisely the two-clock-domain error the removed comment claimed to prevent.
    */
-  | {
-      kind: "live";
-      orders: BoardOrder[];
-      pulse: BoardPulse | null;
-      serverNow: string | null;
-      stale: boolean;
-    };
+  | { kind: "live"; orders: BoardOrder[]; pulse: BoardPulse | null; stale: boolean };
 
 export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) {
   // A tokenless board is no longer knowably unlinked at mount: a staff sign-in on the device is now
@@ -146,7 +139,6 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       const data = (await res.json()) as {
         orders: BoardOrder[];
         pulse?: BoardPulse | null;
-        serverNow?: string;
       };
       fails.current = 0;
 
@@ -170,13 +162,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       });
       if (newlyReady.length > 0) chime.current?.play("pickup");
 
-      setState({
-        kind: "live",
-        orders: data.orders,
-        pulse: data.pulse ?? null,
-        serverNow: data.serverNow ?? null,
-        stale: false,
-      });
+      setState({ kind: "live", orders: data.orders, pulse: data.pulse ?? null, stale: false });
     } catch {
       fails.current += 1;
       // The fold lives in `lib/board-poll.ts` so it can be tested: keep a live board's snapshot and
@@ -326,7 +312,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
  *   · a ticket count and the oldest ticket's age — load, attached to nobody;
  *   · an all-day dish rail — unattributed, and the route withholds it entirely below three live
  *     tickets, because at one or two it is one party's order in the clear;
- *   · dine-in as TABLE NUMBER + `cooking`/`ready` — the number is printed on the tent card and
+ *   · dine-in as TABLE NUMBER + `cooking`/`up` — the number is printed on the tent card and
  *     called across the room all night; the status is what a runner walking past already sees.
  * Nothing here reaches for a guest name, a per-table dish, a modifier, an amount or an id, because
  * `BoardPulse` has no field for one.

@@ -351,6 +351,21 @@ function seedCookingTable() {
   carts = [{ id: "cart-1", session_id: "sess-dinein", status: "open" }];
 }
 
+/** Two more PAID takeaway parties, each on its own session — enough to open the exposure floor. */
+function seedTwoMoreParties() {
+  for (const n of [2, 3]) {
+    lines.push({ ...lines[0]!, cart_id: `cart-${n}`, qty: 1 });
+    carts.push({ id: `cart-${n}`, session_id: `sess-togo-${n}`, status: "paid" });
+    sessions.push({
+      id: `sess-togo-${n}`,
+      mode: "pickup",
+      status: "active",
+      table_number: null,
+      expires_at: LIVE,
+    });
+  }
+}
+
 describe("GET /api/board — the kitchen pulse publishes load, not people", () => {
   it("carries the dine-in table by NUMBER and status, with no name and no dish attached to it", async () => {
     seedCookingTable();
@@ -374,10 +389,9 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
 
   it("publishes the rail once three tickets are live, with the catalog's Burmese", async () => {
     seedCookingTable();
-    for (const n of [2, 3]) {
-      lines.push({ ...lines[0]!, cart_id: `cart-${n}`, qty: 1 });
-      carts.push({ id: `cart-${n}`, session_id: "sess-togo", status: "paid" });
-    }
+    // THREE distinct PARTIES, not three carts: the exposure floor counts sessions, because one
+    // table can hold a paid cart beside a fresh open one and two parties must not look like three.
+    seedTwoMoreParties();
     menu = [{ id: DISH, name_my: "မုန့်ဟင်းခါး" }];
     const res = await GET(req());
     const body = (await res.json()) as Body;
@@ -456,10 +470,7 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
 
   it("a failed NAME read degrades to English — a label can never withhold the band", async () => {
     seedCookingTable();
-    for (const n of [2, 3]) {
-      lines.push({ ...lines[0]!, cart_id: `cart-${n}`, qty: 1 });
-      carts.push({ id: `cart-${n}`, session_id: "sess-togo", status: "paid" });
-    }
+    seedTwoMoreParties();
     menuError = { message: "connection terminated" };
     const res = await GET(req());
     const body = (await res.json()) as Body;
