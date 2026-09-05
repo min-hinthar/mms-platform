@@ -208,7 +208,12 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           ariaLabel="Active tables"
           style={grid}
           renderItem={(t) => (
-            <TableCard table={t} serverNow={snap.serverNow} pulse={pulses.get(t.sessionId)} />
+            <TableCard
+              table={t}
+              serverNow={snap.serverNow}
+              pulse={pulses.get(t.sessionId)}
+              lang={lang}
+            />
           )}
         />
       )}

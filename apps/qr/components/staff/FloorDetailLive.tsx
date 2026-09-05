@@ -222,7 +222,7 @@ export function FloorDetailLive({
                 Unregistered sticker
               </Badge>
             )}
-            <FloorStatusChip status={detail.status} />
+            <FloorStatusChip status={detail.status} lang={lang} />
             {detail.tab !== "none" && (
               // Announced (not decorative): this chip's text is the only place the tab state is named.
               // Secured = jade (affirmative, card-backed); open = accent (neutral-attention). `bordered`
