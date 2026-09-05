@@ -6,6 +6,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ### A pin is cleared only while no live intent depends on it (2026-09-05 · pilot P0)
 
+**Merged as `dfcda72` (#257); prod migration `20260905103039 m151_live_payment_intent` applied via the MCP one-file path and verified BEFORE the merge, so the app never deployed ahead of its column.** Merged on the owner's per-PR authorization with the Codex quota exhausted — no Codex round exists for any head of this PR; the blind adversarial pass (below) is the independent review it had.
+
 **M151 · M152 · M124 — the cart→intent link.** Every pin-clearer in this codebase decided "is the
 attempt that took this lock still the one that owns it?" from `locked_at`, a wall-clock era. Nothing
 on the cart said which PaymentIntent, if any, still DEPENDED on the pin — so a captured intent whose
