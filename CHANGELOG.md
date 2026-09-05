@@ -77,8 +77,8 @@ casts on a public payload path turned out to be unnecessary, so they are annotat
 checks the shapes again.
 
 **Guards.** 27 assertions on the shaper, 15 on the route, 20 on the board's markup (13 of them on
-the new band), and 19 `verify:slice` mutants — six of which exist only because that pass named the
-rules that had none: the two liveness arms, the floor's unit, the unregistered sticker, the idle
+the new band), and 18 `verify:slice` mutants — six of which exist only because that pass named the
+rules that had none, and one of which the same tool then retired as unreachable: the two liveness arms, the floor's unit, the unregistered sticker, the idle
 table, and the rounding. **`oldestMinutes` was a degenerate fixture**: every offset in the first
 suite was a whole minute, so `floor`, `ceil` and `round` all answered 7 and the rule had no guard at
 all; the fixture is 7m59s now, and a wall must not round a 7-minute wait up to 8 and call a ticket

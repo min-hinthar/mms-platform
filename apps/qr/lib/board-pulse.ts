@@ -290,16 +290,21 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // session with no `table_number`) has no number to show, so it stays off the wall while still
     // counting toward the load figures above.
     if (!PULSE_TABLE_MODES.has(sess.mode)) continue;
-    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // the strip's half of the test
-    // …AND not a GHOST. `status` alone is what the KDS uses; the FLOOR board — the surface that owns
-    // table state — pairs it with `expires_at > now`, because nothing in this repo closes an
-    // abandoned session (`app/api/session/route.ts`: "there's no background sweeper") and nothing
+    // ⚠️ NO `status` CHECK HERE, and its absence is load-bearing rather than an omission. The strip
+    // only ever shows rows drawn from `cookingSessions`/`passSessions`, and the load loop above now
+    // refuses a non-`active` dine-in session before either set can hold it — so a second check here
+    // could not fail. It DID stand here for one commit, and `verify:slice` said so: the mutant that
+    // blanks it SURVIVED, because after the load-path fix nothing could reach it. That is this
+    // module's own rule about unreachable defensive code, applied to itself; the enforcement lives
+    // in ONE place and carries ONE mutant (`pulse/cleared-table-counted-as-live-load`).
+    //
+    // The GHOST test below is a different matter and IS reachable: the load path deliberately does
+    // not filter `expires_at` (so the wall and the pass count the same tickets), while the FLOOR
+    // board — the surface that owns table state — always has, because nothing in this repo closes
+    // an abandoned session (`app/api/session/route.ts`: "there's no background sweeper") and nothing
     // ever extends the 4-hour TTL. Past it `is_member` refuses the diners themselves, so the table
-    // is functionally dead while its row still says `active` — and one unbumped line would otherwise
-    // pin its number to a public wall indefinitely. The strip is about TABLES, so it follows the
-    // table authority. The load figures above deliberately do NOT, so the wall and the pass keep
-    // counting the same tickets; the residual disagreement is stated in OPEN-ITEMS rather than
-    // resolved on one screen only.
+    // is functionally dead while its row still says `active`, and one unbumped line would otherwise
+    // pin its number to a public wall indefinitely.
     const expiresMs = new Date(sess.expires_at).getTime();
     if (!Number.isFinite(expiresMs) || expiresMs <= nowMs) continue;
     if (sess.table_number === null) continue;

@@ -3077,14 +3077,6 @@ const MUTANTS = [
     replace: '    if (sess.mode === "pickup" || sess.mode === "scango") continue;',
   },
   {
-    id: "pulse/cleared-table-stays-on-the-wall",
-    file: "apps/qr/lib/board-pulse.ts",
-    suite: "lib/board-pulse.test.ts",
-    why: "P6 — a table's session is what makes its number a LIVE fact. Drop the status guard and a closed or locked session keeps its number and status on the wall after the table was cleared and re-seated by someone else, which is a statement about the new party drawn from the old one's data",
-    find: "    if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // the strip's half of the test",
-    replace: "    if (false) continue;",
-  },
-  {
     id: "pulse/held-line-reads-as-cooking",
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
