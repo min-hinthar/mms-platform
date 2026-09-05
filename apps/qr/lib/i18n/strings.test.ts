@@ -90,6 +90,27 @@ describe("the dictionary guards", () => {
     expect(nowBurmese).toEqual([]);
   });
 
+  it("P2 — a STAFF my value carries no bare Latin run: <Chrome> can only mark INTERPOLATED values", () => {
+    // `Chrome`'s `renderMyTemplate` splits a MY template on its `{slots}` and wraps a slot VALUE in
+    // `<span lang="en">` when it contains Latin — which is what keeps `$42.10` in the body face and
+    // stops it breaking mid-amount inside a Burmese run. Latin written LITERALLY inside the template
+    // is not a slot, so nothing wraps it: it renders in Padauk, at Burmese leading, announced as
+    // Burmese. That is the defect `check-staff-lang.mjs` rule 5 exists for, one layer below where
+    // rule 5 can look — the guard inspects the CALL SITE, this inspects the STRING.
+    //
+    // Scoped to STAFF deliberately: `Chrome` is the staff renderer, and the diner dictionaries reach
+    // the DOM through a different path with its own rules. `STAFF_LATIN_BY_DESIGN` is the one
+    // exemption, and it already carries a reason per entry.
+    //
+    // Found while converting the register: one value said "LA" for the timezone inside an otherwise
+    // Burmese sentence, and every other guard on this file was green on it.
+    const bad = Object.entries(STAFF)
+      .filter(([k]) => !(k in STAFF_LATIN_BY_DESIGN))
+      .filter(([, v]) => /[A-Za-z]/.test(v.my.replace(/\{[a-z]+\}/g, "")))
+      .map(([k]) => k);
+    expect(bad).toEqual([]);
+  });
+
   it("P2 — the staff key namespace is dotted and surface-scoped", () => {
     // At 100+ strings across seven surfaces the same English word means different things: `All` is
     // a station chip AND a browser category; `Pickup` is a channel, a floor mode and a slot. A flat
