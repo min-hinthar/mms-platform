@@ -76,7 +76,26 @@ the invariant TRUE where the clear would only have papered over a latch that sho
 it, the clear is genuinely subsumed — and the asymmetry with `lastRefusalRef` is principled, since
 that ref is read by a CONSUMER after the write while this one is read by the banner effects.
 
-`T33` closed. Twelve mutants added, every one watched red.
+**Codex found two more, and both were the same shape one altitude down: a check that answers about
+the wrong MOMENT.** Round 1: the first fix for the overtaken read passed `applyView`'s return value
+down to `publishRefusal` — a SNAPSHOT of "did my read win when it landed", which another mutation's
+view can invalidate before the caller resumes from `await`. Currency is now asked at publish time
+against the refs `applyView` writes, because a latch is a claim about what is on screen when the
+claim is made. Round 1 also caught the release-edge clears discarding the OTHER axis's live
+explanation; writing that test is what exposed rule 1 as too blanket — a pay-lock lifting while the
+table still settles restores nothing, so it cannot strand anyone and must not overwrite the refusal.
+
+Round 2: the latch recorded only the AXIS, and the lock sentence names a HOLDER —
+`refusedWriteClause` renders a frozen refusal through `inertReason({ lockedByYou: refusal.freeze ===
+"self" })`. `locked` never goes false across a handoff, so no release edge retires the latch: an
+ownership change left it suppressing the banner for the other holder while the region still named
+the first. `ExplainedFreeze` now carries `self` on the lock arm, derived from the same
+`refusal.freeze` field the clause forks on, and BOTH edges route through `explanationHolds` rather
+than only the release. The paired P3 was a docblock still demanding a per-write clear the caller
+deliberately does not do — a contract that reads as a bug in its own caller and invites the deleted
+clear back.
+
+`T33` closed. Sixteen mutants added, every one watched red.
 
 ### The refusal sentence is composed once, and a cause never outlives its write (2026-09-04)
 
