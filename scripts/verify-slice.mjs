@@ -3403,6 +3403,15 @@ const MUTANTS = [
       '      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")\n      .eq("session_id", sessionId)\n      .maybeSingle(),',
   },
   {
+    id: "floor/detail-reads-the-wrong-status",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the sibling of `detail-reads-a-settled-cart`, and the one that proves the suite's fake is filter-AWARE rather than merely filter-carrying: deleting the guard and INVERTING it are different mutations, and a fake that recorded filters without evaluating them would catch neither. Inverted, the drill-down reads the SETTLED order instead of the open one \u2014 every live table reports no cart, the promo row and the whole settle panel vanish mid-service, and `getTableDetail` answers about an order that is already paid",
+    find: '      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
+    replace:
+      '      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")\n      .eq("session_id", sessionId)\n      .eq("status", "paid")\n      .maybeSingle(),',
+  },
+  {
     id: "i18n/money-amount-hardcoded-in-the-dictionary",
     file: "apps/qr/lib/i18n/staff.ts",
     suite: "lib/i18n/strings.test.ts",
