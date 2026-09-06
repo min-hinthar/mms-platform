@@ -12,6 +12,18 @@ import type { StaffLang } from "@/lib/staff-lang";
  *   {x}         — a name or label: a dish, a guest, a ticket id. Verbatim, whatever script it is.
  *   {head} {what} {tail} — outage parts, each itself a dictionary value.
  *
+ * ⚠️ THAT LIST IS THE VOCABULARY IN USE, NOT THE SET OF LEGAL NAMES, and the difference matters. The
+ * only slots this module treats specially are the two COUNT ones; every other name passes its value
+ * through verbatim. So when ONE sentence needs two amounts or two identifiers — `fill` substitutes by
+ * NAME, and a name can appear twice but cannot carry two values — do not reach for `{x}` a second
+ * time. NAME THE SECOND SLOT FOR WHAT IT IS: `{tip}` beside `{m}` in the cash breakdown, `{into}`
+ * beside `{id}` in the merge question, `{old}` beside `{m}` in the price change. A reader (and the
+ * printed K15 glossary, which shows these braces to Mom and Dad) learns the meaning from the name;
+ * `{x}` used for money teaches them the opposite of the rule this list opens with.
+ *
+ * The names are lowercase LETTERS only — `fill`'s pattern is `\{([a-z]+)\}`, so `{m2}` renders as a
+ * literal brace. That constraint is why the convention is semantic rather than positional.
+ *
  * The owner's rule (2026-09-05): Burmese numerals in prose counts, Latin for money, clocks, table
  * numbers and pickup codes. The KDS stat row is Latin too — its column is `tabular-nums` and Padauk
  * ships no tabular Myanmar figures, so Burmese digits there would make the row ragged — and it is
@@ -59,7 +71,7 @@ export function fill(
 
 /** The slot names a template declares, as a union — so `tf` demands exactly the right vars. */
 type Slots<S extends string> = S extends `${string}{${infer K}}${infer R}` ? K | Slots<R> : never;
-type SlotsOf<K extends StaffKey> = Slots<(typeof STAFF)[K]["en"]>;
+export type SlotsOf<K extends StaffKey> = Slots<(typeof STAFF)[K]["en"]>;
 
 /**
  * Look up a key and fill its slots. The var object is typed from the EN template's slot names, so a

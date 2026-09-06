@@ -3,6 +3,9 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { closeSecureTab } from "@/lib/staff-cart";
 import { Card } from "@mms/ui";
+import { sx } from "@/lib/staff-labels";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -19,6 +22,7 @@ export function CloseSecureTabButton({
   sessionId: string;
   totalCents: number;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -55,11 +59,19 @@ export function CloseSecureTabButton({
           ref={confirmRef}
           tabIndex={-1}
           role="group"
-          aria-label="Confirm charging the card on file"
+          aria-label={sx(lang, "settle.a11y.confirmCard")}
           style={{ ...confirmCard, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-            Charge the card on file <strong>{fmt(totalCents)}</strong>? This closes the tab.
+            <Chrome
+              lang={lang}
+              k="settle.card.chargeQ"
+              vars={{ m: fmt(totalCents) }}
+              echo="stack"
+            />{" "}
+            {/* The same sentence the cash settle closes with — one key, so a K15 correction lands
+                on both surfaces at once. */}
+            <Chrome lang={lang} k="settle.cash.closesTab" echo="stack" />
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
@@ -68,10 +80,19 @@ export function CloseSecureTabButton({
               disabled={busy}
               style={cancelBtn}
             >
-              Cancel
+              <Chrome lang={lang} k="settle.cancel" echo={false} />
             </button>
             <button type="button" onClick={confirm} disabled={busy} style={payBtn}>
-              {busy ? "Charging…" : `Charge ${fmt(totalCents)}`}
+              {busy ? (
+                <Chrome lang={lang} k="settle.card.charging" echo={false} />
+              ) : (
+                <Chrome
+                  lang={lang}
+                  k="settle.card.chargeAmount"
+                  vars={{ m: fmt(totalCents) }}
+                  echo="stack"
+                />
+              )}
             </button>
           </div>
         </Card>
@@ -83,15 +104,15 @@ export function CloseSecureTabButton({
           aria-describedby="secure-close-hint"
           style={{ ...payBtn, width: "100%" }}
         >
-          Close tab · card on file · {fmt(totalCents)}
+          <Chrome lang={lang} k="settle.card.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
         </button>
       )}
       <p id="secure-close-hint" style={hint}>
-        Charges the saved card for the final total. No tip is added — a tip stays cash or in person.
+        <Chrome lang={lang} k="settle.card.hint" echo="stack" />
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error}
+          <OutageText lang={lang} error={error} />
         </p>
       )}
     </div>

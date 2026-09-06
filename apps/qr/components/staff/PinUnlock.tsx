@@ -156,7 +156,10 @@ export function PinUnlock({ displayName }: { displayName: string }) {
 }
 
 const wrap: CSSProperties = {
-  minHeight: "100dvh",
+  // `flex: 1`, not a second `100dvh`: `StaffLangShell` owns the viewport height and this fills
+  // what the language strip leaves. Two competing `100dvh` boxes made the page overflow.
+  flex: 1,
+  minHeight: 0,
   display: "grid",
   placeItems: "center",
   padding: "var(--s6)",

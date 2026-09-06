@@ -26,12 +26,21 @@ import { StaffPromoControl } from "./StaffPromoControl";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
 import { useStaffLang } from "./StaffLangProvider";
+import { StaffLangSwitch } from "./StaffLangSwitch";
+import { Chrome, OutageText } from "./Chrome";
+import { plural } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
+import type { StaffKey } from "@/lib/i18n/staff";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-const MODE_LABEL: Record<TableDetail["mode"], string> = {
-  dinein: "Dine-in",
-  scango: "Scan & Go",
-  pickup: "Pickup",
+// P2 — keys, not labels. The three modes already have dictionary entries on the floor card
+// (`floor.mode.*`); this surface reads the SAME ones rather than minting a second set that could
+// drift from the board a manager compares it against. `scango` stays Latin in both tongues — it is
+// the product's own name, and the dictionary carries that decision with its reason.
+const MODE_KEY: Record<TableDetail["mode"], StaffKey> = {
+  dinein: "floor.mode.dinein",
+  scango: "floor.mode.scango",
+  pickup: "floor.mode.pickup",
 };
 
 /**
@@ -218,9 +227,16 @@ export function FloorDetailLive({
 
   return (
     <main style={wrap} onFocusCapture={markFocus}>
-      <Link href="/staff" style={back}>
-        ← Floor
-      </Link>
+      {/* P2 — the language control is mounted PER SURFACE (see KdsBoard): the staff layout owns no
+          strip, so this row is where the person looking at this table changes its language.
+          `check-staff-lang.mjs` rule 4 holds this page to that mount. The arrow belongs to the
+          label and lives inside the dictionary value (precedent: `kds.back`). */}
+      <div style={topRow}>
+        <Link href="/staff" style={back}>
+          <Chrome lang={lang} k="floor.back" />
+        </Link>
+        <StaffLangSwitch lang={lang} />
+      </div>
 
       <header style={header}>
         <div style={{ minWidth: 0 }}>
@@ -228,32 +244,58 @@ export function FloorDetailLive({
             {/* K2: the real table number; an unregistered/legacy sticker shows its raw token + flag.
                 W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table — name it so,
                 and never wave the unregistered-sticker warning at it. */}
-            <h1 style={h1}>{isCounter ? "Counter order" : `Table ${tableDisplay(detail).text}`}</h1>
+            <h1 style={h1}>
+              {isCounter ? (
+                <Chrome lang={lang} k="floor.counter" echo="stack" />
+              ) : (
+                <Chrome
+                  lang={lang}
+                  k="floor.table"
+                  vars={{ id: tableDisplay(detail).text }}
+                  echo="stack"
+                />
+              )}
+            </h1>
             {!isCounter && tableDisplay(detail).unregistered && (
+              // A badge is a 44px object: two scripts cannot legibly stack inside one, so no echo.
               <Badge tone="warn" bordered>
-                Unregistered sticker
+                <Chrome lang={lang} k="table.detail.unregisteredBadge" />
               </Badge>
             )}
-            <FloorStatusChip status={detail.status} />
+            <FloorStatusChip status={detail.status} lang={lang} />
             {detail.tab !== "none" && (
               // Announced (not decorative): this chip's text is the only place the tab state is named.
               // Secured = jade (affirmative, card-backed); open = accent (neutral-attention). `bordered`
               // matches the sibling FloorStatusChip; the "· card on file" suffix is the non-color cue.
               <Badge tone={detail.tab === "secure" ? "jade" : "accent"} bordered>
-                {detail.tab === "secure" ? "Tab secured · card on file" : "Tab open"}
+                <Chrome
+                  lang={lang}
+                  k={detail.tab === "secure" ? "floor.tabSecured" : "table.detail.tabOpen"}
+                />
               </Badge>
             )}
           </div>
+          {/* P2 — four fragments on one middot-separated line, so every one of them takes
+              `echo={false}`: an English echo per fragment would double a line already at its width
+              budget and the middots would stop reading as separators. The relative time beside them
+              is still English (`RelativeTime` is not in this slice) and sits OUTSIDE the Burmese
+              spans, so it keeps the body face rather than being typeset in Padauk. */}
           <p style={sub}>
-            {MODE_LABEL[detail.mode]} · {detail.members.length}{" "}
-            {detail.members.length === 1 ? "guest" : "guests"} ·{" "}
+            <Chrome lang={lang} k={MODE_KEY[detail.mode]} /> ·{" "}
+            <Chrome
+              lang={lang}
+              k={plural(detail.members.length, "table.detail.guest.one", "table.detail.guest.many")}
+              vars={{ n: detail.members.length }}
+            />{" "}
+            ·{" "}
             {detail.tab !== "none" && detail.tabOpenedAt ? (
               <>
-                tab opened <RelativeTime iso={detail.tabOpenedAt} serverNow={detail.serverNow} />
+                <Chrome lang={lang} k="table.detail.tabOpened" />{" "}
+                <RelativeTime iso={detail.tabOpenedAt} serverNow={detail.serverNow} />
               </>
             ) : (
               <>
-                last activity{" "}
+                <Chrome lang={lang} k="table.detail.lastActivity" />{" "}
                 <RelativeTime iso={detail.lastActivityAt} serverNow={detail.serverNow} />
               </>
             )}
@@ -267,10 +309,25 @@ export function FloorDetailLive({
       {detail.tabOverCeiling && (
         <div style={ceilingBanner}>
           <Icon name="alert" size={16} style={{ marginTop: 2 }} />
+          {/* TWO keys for one sentence: it quotes TWO money figures and `{m}` fills globally, so a
+              single template could not carry both. The lead-in keeps its <strong> and takes an
+              inline echo (it is one short bolded clause); the advisory body stacks. Neither amount
+              is recomputed — both come from `fmt()` on the server-derived cents, as before. */}
           <span>
-            <strong>Tab at {fmt(detail.runningSubtotalCents)}</strong> — past the{" "}
-            {fmt(detail.ceilingCents)} mark. Check in with the table, or ask them to secure the tab
-            with a card on file.
+            <strong>
+              <Chrome
+                lang={lang}
+                k="table.detail.ceiling.at"
+                vars={{ m: fmt(detail.runningSubtotalCents) }}
+                echo="inline"
+              />
+            </strong>{" "}
+            <Chrome
+              lang={lang}
+              k="table.detail.ceiling.past"
+              vars={{ m: fmt(detail.ceilingCents) }}
+              echo="stack"
+            />
           </span>
         </div>
       )}
@@ -278,27 +335,40 @@ export function FloorDetailLive({
         <div style={nudgeBanner}>
           <Icon name="star" size={16} style={{ marginTop: 2 }} />
           <span>
-            {detail.nudgeSecure === "party"
-              ? "Large party — consider suggesting a secure tab (a card on file) so they can order freely and settle once."
-              : "This tab's been open a while — consider suggesting they secure it with a card on file."}
+            <Chrome
+              lang={lang}
+              k={
+                detail.nudgeSecure === "party"
+                  ? "table.detail.nudge.party"
+                  : "table.detail.nudge.age"
+              }
+              echo="stack"
+            />
           </span>
         </div>
       )}
 
       {/* Party */}
       <section className="card card-textured" style={sectionCard} aria-labelledby="party-h">
+        {/* `echo={false}` is REQUIRED on a heading that is an aria-labelledby target: the computed
+            name is the element's whole text, so an echo would name this region "အဖွဲ့ Party". */}
         <h2 id="party-h" style={sectionH}>
-          Party
+          <Chrome lang={lang} k="table.detail.party.title" />
         </h2>
         {detail.members.length === 0 ? (
-          <p style={muted}>No guests yet.</p>
+          <p style={muted}>
+            <Chrome lang={lang} k="table.detail.party.empty" echo="stack" />
+          </p>
         ) : (
-          <ul role="list" style={chipList} aria-label="Guests at this table">
+          <ul role="list" style={chipList} aria-label={sx(lang, "table.detail.a11y.guests")}>
             {detail.members.map((m) => (
               <li key={m.seatId} style={guestChip}>
                 {m.name}
                 {m.isHost && (
-                  <span style={{ color: "var(--ac)", fontSize: "var(--fs-sm)" }}> · host</span>
+                  <span style={{ color: "var(--ac)", fontSize: "var(--fs-sm)" }}>
+                    {" · "}
+                    <Chrome lang={lang} k="table.detail.host" />
+                  </span>
                 )}
               </li>
             ))}
@@ -308,11 +378,17 @@ export function FloorDetailLive({
             the off-session close charges their saved card (or the table splits). */}
         {detail.tab === "secure" && detail.members.some((m) => m.isHost) && (
           <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-            Card on file — host of record:{" "}
-            <strong style={{ color: "var(--tx)" }}>
-              {detail.members.find((m) => m.isHost)?.name}
-            </strong>
-            .
+            {/* The name rides an {x} slot instead of its own <strong>, and that costs the emphasis
+                deliberately: the sentence ends in a full stop that has to be Burmese on a Burmese
+                console, and a terminator written as bare JSX between two elements cannot be. In
+                exchange <Chrome> marks a Latin name `lang="en"`, so it keeps the body face inside
+                the Burmese run instead of being typeset in Padauk. */}
+            <Chrome
+              lang={lang}
+              k="table.detail.hostOfRecord"
+              vars={{ x: detail.members.find((m) => m.isHost)?.name ?? "" }}
+              echo="stack"
+            />
           </p>
         )}
       </section>
@@ -333,19 +409,32 @@ export function FloorDetailLive({
             tabIndex={-1}
             style={{ ...sectionH, outline: "none" }}
           >
-            Order so far
+            {/* `echo={false}`: this heading names the region through aria-labelledby AND is the
+                focus target the catch-all restores to — an echo would put both scripts in both. */}
+            <Chrome lang={lang} k="table.detail.order.title" />
           </h2>
           {canWrite && (
             <Link href={`/staff/table/${sessionId}/add`} style={addLink}>
-              + Add items
+              {/* Inline, not stacked: this link shares a baseline-aligned row with the heading and
+                  a stacked pair would push that row to two lines. The "+" belongs to the label and
+                  lives inside the dictionary value. */}
+              <Chrome lang={lang} k="table.detail.addItems" echo="inline" />
             </Link>
           )}
         </div>
 
         {detail.lines.length === 0 ? (
-          <p style={muted}>Nothing in the cart yet.</p>
+          <p style={muted}>
+            <Chrome lang={lang} k="table.detail.cart.empty" echo="stack" />
+          </p>
         ) : canWrite ? (
-          <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          // A `role="list"` with `list-style: none` and no accessible name is a QA gap (§A): both
+          // branches of this list now carry one.
+          <ul
+            role="list"
+            style={{ listStyle: "none", margin: 0, padding: 0 }}
+            aria-label={sx(lang, "table.detail.a11y.lines")}
+          >
             {detail.lines.map((l) => (
               <StaffLineEditor
                 key={l.id}
@@ -359,15 +448,29 @@ export function FloorDetailLive({
         ) : (
           // Read-only (settled, or a payment in flight): show the lines without the steppers. A
           // voided/comped line is struck + badged so it reads honestly beside the (excluding) subtotal.
-          <ul role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+          <ul
+            role="list"
+            style={{ listStyle: "none", margin: 0, padding: 0 }}
+            aria-label={sx(lang, "table.detail.a11y.lines")}
+          >
             {detail.lines.map((l) => {
               const off = l.state === "voided" || l.comped;
               return (
                 <li key={l.id} style={lineRow}>
                   <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
                     <span style={{ fontWeight: 600 }}>{l.qty}×</span> {l.name}
-                    {l.state === "voided" && <span style={offBadge}> · Voided</span>}
-                    {l.comped && <span style={offBadge}> · Comped</span>}
+                    {l.state === "voided" && (
+                      <span style={offBadge}>
+                        {" · "}
+                        <Chrome lang={lang} k="table.detail.line.voided" />
+                      </span>
+                    )}
+                    {l.comped && (
+                      <span style={offBadge}>
+                        {" · "}
+                        <Chrome lang={lang} k="table.detail.line.comped" />
+                      </span>
+                    )}
                     {l.bySeatName && (
                       <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
                         {" "}
@@ -397,28 +500,47 @@ export function FloorDetailLive({
               <span style={{ fontWeight: 700 }}>
                 <LiveMoney cents={detail.runningSubtotalCents} />
               </span>{" "}
+              {/* The AMOUNT is untouched — `LiveMoney` still renders the server-derived cents. Only
+                  the label speaks the device language: inline on the words, no echo on the count
+                  (an echoed count would print the same number twice, once per numeral system). */}
               <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
-                subtotal so far · {detail.itemCount} {detail.itemCount === 1 ? "item" : "items"}
+                <Chrome lang={lang} k="table.detail.subtotalSoFar" echo="inline" /> ·{" "}
+                <Chrome
+                  lang={lang}
+                  k={plural(detail.itemCount, "table.detail.item.one", "table.detail.item.many")}
+                  vars={{ n: detail.itemCount }}
+                />
               </span>
             </span>
           )}
           {detail.paidTotalCents != null && (
             <span style={{ color: "var(--ok)", fontWeight: 700 }}>
-              {fmt(detail.paidTotalCents)} paid
+              <Chrome lang={lang} k="table.detail.paid" vars={{ m: fmt(detail.paidTotalCents) }} />
             </span>
           )}
         </div>
         <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-          Running pre-tax subtotal — tax is added at settle.
+          <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
         </p>
         {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
-        {/* P2 — marked only while the FROZEN copy is what renders: this region's other branches
-              are still English literals until PR B converts them (OPEN-ITEMS P2c), so an
-              unconditional `lang={lang}` would announce "All clear" as Burmese. */}
+        {/* P2 — EACH ARM MARKS ITS OWN SCRIPT, so the region itself carries no `lang`. The frozen-
+            board copy is fully authored, and its mark sits on the span that holds it. That is why
+            the old conditional suppression can go: the condition it encoded now lives inside the
+            component that knows the answer.
+
+            P2 ∩ P3 — TWO PRODUCERS SHARE THIS ONE CHANNEL and they hand over different things, so
+            the arm discriminates on the value rather than assuming one shape. `StaffLineEditor`
+            (and the note/qty writes) pass a SERVER STRING, deliberately unlocalized at the source:
+            `<OutageText>` swaps the one sentence that has an authored Burmese twin (the write-outage
+            line) and passes every other sentence through in English, verbatim — which is also why a
+            `lang="my"` on this <p> would typeset those English arms in Padauk and announce them as
+            Burmese. `StaffPromoControl` passes an ALREADY-LOCALIZED `<Chrome>` element, because a
+            promo refusal has a dictionary key and its Burmese is authored; wrapping that in
+            `OutageText` would ask a string matcher to read a React element and would strip the
+            element's own script mark. Rendering the node as-is keeps that mark on the node. */}
         <p
           role="status"
-          lang={!writeError && degraded ? lang : undefined}
           style={{
             ...muted,
             marginTop: 6,
@@ -427,16 +549,21 @@ export function FloorDetailLive({
             color: writeError || degraded ? "var(--warn)" : "var(--t3)",
           }}
         >
-          {writeError ??
-            (degraded
-              ? frozenBoardCopy(
-                  lang,
-                  detail.serverNow,
-                  nowMs - degraded.since,
-                  "what.order",
-                  degraded.cause,
-                )
-              : null)}
+          {typeof writeError === "string" ? (
+            <OutageText lang={lang} error={writeError} />
+          ) : writeError !== null ? (
+            writeError
+          ) : degraded ? (
+            <span lang={lang}>
+              {frozenBoardCopy(
+                lang,
+                detail.serverNow,
+                nowMs - degraded.since,
+                "what.order",
+                degraded.cause,
+              )}
+            </span>
+          ) : null}
         </p>
       </section>
 
@@ -459,7 +586,10 @@ export function FloorDetailLive({
       {/* Open a tab (S3.1) — when there's an open cart, no tab yet, and no payment in flight. Marks the
           table so it settles once at close; moves no money. The diner can also open one from /cart. */}
       {canWrite && detail.tab === "none" && (
-        <section style={{ marginTop: "var(--s4)" }} aria-label="Open a tab for this table">
+        <section
+          style={{ marginTop: "var(--s4)" }}
+          aria-label={sx(lang, "table.detail.a11y.openTab")}
+        >
           <OpenTabButton cartId={detail.cartId!} />
         </section>
       )}
@@ -467,7 +597,10 @@ export function FloorDetailLive({
       {/* Settle in cash — when there's an open order with items and no payment in flight. On a trust
           tab this IS the tab close (re-framed copy); the money path is the same cash reconcile. */}
       {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
-        <section style={{ marginTop: "var(--s4)" }} aria-label="Settle this table">
+        <section
+          style={{ marginTop: "var(--s4)" }}
+          aria-label={sx(lang, "table.detail.a11y.settle")}
+        >
           {/* Secure tab (S3.2): the off-session charge on the card on file is the primary close; cash
               stays available as a fallback below. */}
           {detail.tab === "secure" && (
@@ -500,9 +633,11 @@ export function FloorDetailLive({
             <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
               {/* W6c: with a reader configured, card-at-the-counter is the button above — don't
                   send the guest back to their phone for a payment the reader takes right here. */}
-              {terminalReady
-                ? "Paying by card? Use the reader above, or the guest can close the tab from their phone."
-                : "Paying by card? The guest closes the tab from their phone — it settles when that payment lands."}
+              <Chrome
+                lang={lang}
+                k={terminalReady ? "table.detail.trust.reader" : "table.detail.trust.phone"}
+                echo="stack"
+              />
             </p>
           )}
         </section>
@@ -523,7 +658,7 @@ export function FloorDetailLive({
           ref={handoffRef}
           tabIndex={-1}
           role="status"
-          aria-label="Order paid"
+          aria-label={sx(lang, "table.detail.a11y.paid")}
           className="card"
           style={{
             marginTop: "var(--s4)",
@@ -532,10 +667,27 @@ export function FloorDetailLive({
             outline: "none",
           }}
         >
+          {/* The two amounts now go through `fmt()` — the SAME formatter the rest of this file
+              uses, and byte-for-byte what the inline `$${(cents / 100).toFixed(2)}` produced. They
+              ride `{m}` slots, so they stay Latin and <Chrome> marks them `lang="en"` inside the
+              Burmese run; no amount is recomputed and no rounding changes. */}
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-            Paid · ${(handoff.totalCents / 100).toFixed(2)}
+            <Chrome
+              lang={lang}
+              k="table.detail.handoff.paid"
+              vars={{ m: fmt(handoff.totalCents) }}
+              echo="inline"
+            />
             {handoff.changeCents != null && handoff.changeCents > 0 && (
-              <> — change ${(handoff.changeCents / 100).toFixed(2)}</>
+              <>
+                {" — "}
+                <Chrome
+                  lang={lang}
+                  k="table.detail.handoff.change"
+                  vars={{ m: fmt(handoff.changeCents) }}
+                  echo="inline"
+                />
+              </>
             )}
           </p>
           <p
@@ -550,21 +702,34 @@ export function FloorDetailLive({
             #{handoff.orderId.slice(-6).toUpperCase()}
           </p>
           <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-            The pickup call-out — it&rsquo;s on the kitchen ticket and the ready board.
+            <Chrome lang={lang} k="table.detail.handoff.callout" echo="stack" />
           </p>
         </div>
       )}
       {detail.paymentInFlight && terminalCollect == null && (
         <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
-          A guest is paying on their phone — editing and{" "}
-          {detail.tab !== "none" ? "tab close" : "cash settle"} are paused until that finishes.
+          {/* Two whole sentences, not one with a spliced clause: the differing phrase sits in the
+              middle in English and at the end in Burmese, and a template with a hole there would
+              have to be reordered per tongue. */}
+          <Chrome
+            lang={lang}
+            k={
+              detail.tab !== "none"
+                ? "table.detail.payingPhone.tab"
+                : "table.detail.payingPhone.cash"
+            }
+            echo="stack"
+          />
         </p>
       )}
 
       {/* Soft convergence (S1.4): fold a double-order into another table. Same gate as a write (open cart,
           not mid-payment) and only when there's something to move. */}
       {canWrite && detail.itemCount > 0 && detail.tab !== "secure" && (
-        <section style={{ marginTop: "var(--s4)" }} aria-label="Merge this table">
+        <section
+          style={{ marginTop: "var(--s4)" }}
+          aria-label={sx(lang, "table.detail.a11y.merge")}
+        >
           <MergeTableButton
             sourceSessionId={sessionId}
             sourceLabel={tableDisplay(detail).text}
@@ -595,6 +760,15 @@ const addLink: CSSProperties = {
 };
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
+// The back link and the language control share one row: the link keeps its own bottom margin, so
+// the space below the row is unchanged from before the control was added.
+const topRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--s3)",
+  flexWrap: "wrap",
+};
 const back: CSSProperties = {
   display: "inline-flex",
   minHeight: 44,

@@ -19,10 +19,10 @@ export default async function KitchenPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL — the outage shell's retry re-enters right here, so the
   // kitchen tablet is one tap from its board the moment the platform returns.
-  if (!caller) return <StaffOutageShell what="the kitchen board" />;
+  if (!caller) return <StaffOutageShell what="what.kitchen" />;
   const res = await getKitchenQueue();
   if (!res.ok) {
-    if (res.reason === "outage") return <StaffOutageShell what="the kitchen board" />;
+    if (res.reason === "outage") return <StaffOutageShell what="what.kitchen" />;
     redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
   }
 
