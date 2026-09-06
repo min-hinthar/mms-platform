@@ -118,3 +118,27 @@ export function buildGlossary(): Glossary {
     openForCorrection: rows.filter((r) => r.locked === null).length,
   };
 }
+
+/** One run of a mixed-script string: Myanmar, or everything else. */
+export type ScriptRun = { text: string; my: boolean };
+
+/**
+ * Split a string into maximal Myanmar / non-Myanmar runs.
+ *
+ * ⚠️ WHY A RUN AND NOT THE WHOLE CELL. The lock REASONS are English sentences with a Burmese word
+ * inside them — `STAFF_SETTLED["kds.title"]` is "Owner-corrected in W21 — မီးဖိုချောင် is the word
+ * this kitchen uses." Marking the whole span `lang="my"` would announce an English sentence in a
+ * Burmese voice; leaving it unmarked (what shipped) drops that word out of the `[lang="my"]` rules
+ * entirely — no Padauk, no `--lh-my` leading, no `overflow-wrap`, and an English voice on the one
+ * word the row exists to protect. The repo rule is that `lang` marks a RUN, never a wrapper
+ * (`Chrome.tsx` rule 3, `TicketText.tsx`'s hole rule); this is that rule applied to prose the
+ * dictionary does not slot.
+ *
+ * A string with no Myanmar returns one unmarked run, so a caller never has to special-case it.
+ */
+export function scriptRuns(value: string): ScriptRun[] {
+  return value
+    .split(/(\p{Script=Myanmar}+)/u)
+    .filter((part) => part !== "")
+    .map((text) => ({ text, my: MYANMAR.test(text) }));
+}

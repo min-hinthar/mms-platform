@@ -1,7 +1,8 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
-import { buildGlossary, type GlossaryRow } from "@/lib/glossary";
+import { buildGlossary, scriptRuns, type GlossaryRow } from "@/lib/glossary";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { PrintSheetButton } from "@/components/staff/PrintSheetButton";
@@ -184,7 +185,17 @@ function SheetTable({
                     }
                     echo="stack"
                   />
-                  <span className="pgl-lock-why">{row.locked.why}</span>
+                  <span className="pgl-lock-why">
+                    {scriptRuns(row.locked.why).map((run, i) =>
+                      run.my ? (
+                        <span key={i} lang="my">
+                          {run.text}
+                        </span>
+                      ) : (
+                        <Fragment key={i}>{run.text}</Fragment>
+                      ),
+                    )}
+                  </span>
                 </span>
               ) : (
                 // An empty ruled box. Deliberately NOT an <input>: this sheet is written on with a

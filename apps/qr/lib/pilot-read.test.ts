@@ -39,10 +39,11 @@ type Result = { count?: number | null; data?: unknown; error?: unknown };
 class FakeQuery implements PromiseLike<Result> {
   private readonly filters: string[] = [];
   private readonly ordering: string[] = [];
+  private readonly ranges: string[] = [];
   private projection = "";
   constructor(
     private readonly table: string,
-    private readonly take: (key: string) => Result,
+    private readonly take: (key: string, ranges: readonly string[]) => Result,
   ) {}
   select(columns?: string, opts?: { count?: string; head?: boolean }) {
     // ⚠️ THE PROJECTION IS PART OF A QUERY'S IDENTITY, and for the orders read it is the whole
@@ -79,7 +80,14 @@ class FakeQuery implements PromiseLike<Result> {
     this.ordering.push(`${col}:${opts?.ascending === false ? "desc" : "asc"}`);
     return this;
   }
-  range() {
+  range(from: number, to: number) {
+    // ⚠️ The WINDOW, recorded but deliberately NOT folded into `key()`. The paged read issues
+    // several queries that must share one scripted queue, so keying on the window would need a key
+    // per page; asserting the observed windows keeps the queue simple and still makes the cursor
+    // falsifiable. Without this, `from + PAGE - 1` → `from + PAGE` asks for 1001 rows a page, the
+    // seam OVERLAPS by one row and that order is counted twice — with the two-page test green,
+    // because it only ever checked that two requests happened, never which rows they asked for.
+    this.ranges.push(`${from}-${to}`);
     return this;
   }
   maybeSingle() {
@@ -104,7 +112,7 @@ class FakeQuery implements PromiseLike<Result> {
     onOk?: ((value: Result) => A | PromiseLike<A>) | null,
     onErr?: ((reason: unknown) => B | PromiseLike<B>) | null,
   ): PromiseLike<A | B> {
-    return Promise.resolve(this.take(this.key())).then(onOk, onErr);
+    return Promise.resolve(this.take(this.key(), this.ranges)).then(onOk, onErr);
   }
 }
 
@@ -115,12 +123,15 @@ class FakeQuery implements PromiseLike<Result> {
  */
 let script: Record<string, Result[]>;
 let queries: string[];
+/** The `range(from, to)` windows the module actually asked for, in issue order. */
+let ranges: string[];
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) =>
-      new FakeQuery(table, (key) => {
+      new FakeQuery(table, (key, windows) => {
         queries.push(key);
+        ranges.push(...windows);
         const queue = script[key];
         if (!queue?.length) return { error: new Error(`unscripted read: ${key}`) };
         return queue.length === 1 ? queue[0]! : queue.shift()!;
@@ -217,6 +228,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
   queries = [];
+  ranges = [];
   gate = { ok: true, caller: {} };
   // The register OWNS the day boundary and `getPilotNight` adopts it — so this is the window every
   // scripted key below is built from, not a value the module is free to ignore.
@@ -432,6 +444,10 @@ describe("getPilotNight — the night sheet's reads", () => {
     expect(res.ok).toBe(true);
     if (!res.ok) return;
     expect(queries.filter((q) => q === K.orders)).toHaveLength(2);
+    // …and it asked for the RIGHT windows. Two requests with the same rows counted proves neither
+    // the cursor advance nor the page size: `range(from, from + PAGE)` overlaps the seam by one row
+    // and `range(0, PAGE - 1)` never advances at all, both invisible to the assertion above.
+    expect(ranges).toEqual(["0-999", "1000-1999"]);
     expect(res.night.split.channels).toEqual([
       { mode: "dinein", orders: 1000 },
       { mode: "pickup", orders: 1 },

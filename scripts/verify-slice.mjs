@@ -3116,12 +3116,12 @@ const MUTANTS = [
     replace: "    break;",
   },
   {
-    id: "pilot/day-window-forked-from-the-register",
-    file: "apps/qr/lib/pilot.ts",
-    suite: "lib/pilot-read.test.ts",
-    why: 'P5 — "tonight" must mean the same instant here, on the register and on the tip report; `laDayStartIso` is that one definition and it is DST-correct by construction. A rolling 24 hours looks identical on a quiet evening and disagrees with the Z-report every time service crosses midnight or a clock changes — two screens answering the same question differently is the drift the money rules exist about',
-    find: "  const sinceIso = laDayStartIso(new Date());",
-    replace: "  const sinceIso = new Date(Date.now() - 86_400_000).toISOString();",
+    id: "register-math/the-service-day-becomes-a-rolling-24-hours",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "P5 — \"tonight\" must mean the same instant on the register, the tip report and the pilot sheet, and `laDayStartIso` is now that ONE definition: the pilot sheet ADOPTS the register's instant rather than deriving its own. A rolling 24 hours looks identical on a quiet evening and disagrees with the Z-report every time service crosses midnight or a clock changes. This mutant used to sit on `pilot.ts`'s own `laDayStartIso(new Date())` call; adopting the register's window deleted that line and left the rule pinned NOWHERE, so it moved to the definition rather than being dropped — a stale mutant whose rule still matters is RETARGETED, never deleted. ⚠️ The retarget an agent first proposed emptied the offset-probe loop, which disables the DST probe and is a different rule from the one this id names; the mutation below returns an actual rolling 24 hours, so the id, the why and the edit agree",
+    find: "    if (hour % 24 === 0) return candidate.toISOString();",
+    replace: "    if (hour % 24 === 0) return new Date(now.getTime() - 86_400_000).toISOString();",
   },
   {
     id: "glossary/a-settled-row-is-dropped-instead-of-locked",
@@ -3203,6 +3203,14 @@ const MUTANTS = [
     why: 'P5 — the register derives the service day for the takings it hands over, and this sheet ADOPTS that instant rather than calling `laDayStartIso(new Date())` again. Two derivations of one value is the W17 "name it ONCE" shape, and here the two calls happen at different instants: a sheet opened as the clock crosses midnight would bucket the money into one service day and the counts beside it into the next, with nothing on screen saying so',
     find: "  const sinceIso = cash.sinceIso;",
     replace: "  const sinceIso = new Date(Date.parse(cash.sinceIso) - 3600_000).toISOString();",
+  },
+  {
+    id: "glossary/a-burmese-word-inside-an-english-sentence-loses-its-mark",
+    file: "apps/qr/lib/glossary.ts",
+    suite: "lib/glossary.test.ts",
+    why: 'P5 (deep pass, a11y) — the lock REASONS are English sentences carrying a Burmese word (`STAFF_SETTLED["kds.title"]` embeds မီးဖိုချောင်), and the sheet rendered them in a span with no `lang` and no font rule. On the one surface whose entire purpose is judging Burmese typography, that word fell outside Padauk and `--lh-my` and was announced in an English voice. Marking the WRAPPER instead is the opposite error — an English sentence announced in Burmese — so the mark belongs on the RUN, which is the same rule `Chrome.tsx` §3 and `TicketText.tsx`\'s hole rule already state',
+    find: "    .map((text) => ({ text, my: MYANMAR.test(text) }));",
+    replace: "    .map((text) => ({ text, my: false }));",
   },
   {
     id: "glossary/latin-values-announced-as-burmese",

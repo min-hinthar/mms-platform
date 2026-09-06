@@ -10,6 +10,27 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 rest of the traffic, a way for Mom and Dad to hand back corrections, and one screen with the night's
 answers on it.**
 
+**The paging cursor was unguarded — the fake recorded the ordering and not the window.** Closing the
+projection hole one method short left `range()` discarding its arguments, so `from + PAGE - 1` →
+`from + PAGE` overlaps the page seam by one row and double-counts that order, and a window that
+never advances is equally invisible: the two-page test only ever checked that two requests happened.
+The windows are now asserted (`["0-999", "1000-1999"]`) and both defects redden.
+
+**A Burmese word on the sheet had no `lang` mark at all.** The lock REASONS are English sentences
+carrying a Burmese word — `STAFF_SETTLED["kds.title"]` embeds မီးဖိုချောင် — rendered in a span with
+no `lang` and no font rule, so on the one surface built to judge Burmese typography that word fell
+outside Padauk and `--lh-my` and was announced in an English voice. Marking the wrapper would be the
+opposite error, so `scriptRuns` splits the string and the mark lands on the RUN, per `Chrome.tsx` §3.
+The per-VALUE mark on the Burmese cell itself is a smaller, contested version of the same thing
+(34 of 150 rows put a slot placeholder inside a marked run) and is filed as **M158** rather than
+folded in here.
+
+**A stale mutant was retargeted rather than deleted.** Adopting the register's day window removed
+the line `pilot/day-window-forked-from-the-register` mutated, leaving its rule pinned nowhere;
+`verify:slice` reported STALE, which is a failure. It now sits on `laDayStartIso` itself and returns
+an actual rolling 24 hours — the first proposed retarget emptied the DST-probe loop, which is a
+different rule from the one the id names.
+
 **A campaign state change no longer deletes tonight's measurement (pre-merge blind pass, CRITICAL).**
 `active = false` is the pilot's documented emergency off-switch. Pull it at 20:00 on a day that had
 already taken redemptions and the 9pm sheet showed no participation figure at all — the one evening

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildGlossary } from "./glossary";
+import { buildGlossary, scriptRuns } from "./glossary";
 import {
   STAFF,
   STAFF_K15_HIGH,
@@ -126,5 +126,44 @@ describe("buildGlossary — the printed word-check sheet", () => {
 
   it("has something in both bands — a sheet with an empty band is a broken derivation", () => {
     for (const band of g.bands) expect(band.rows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("scriptRuns — a lang mark belongs on the RUN, never the wrapper", () => {
+  it("splits an English sentence carrying a Burmese word into marked and unmarked runs", () => {
+    // The real fixture, not a hypothetical: this is the sheet's one mixed-script string, and the
+    // word it protects is the OWNER-VERIFIED correction the row tells the reader not to change.
+    const settled = STAFF_SETTLED["kds.title"];
+    // If this key ever stops being settled the fixture is gone and the test must say so, not pass
+    // vacuously on an empty string.
+    expect(settled).toBeDefined();
+    const runs = scriptRuns(settled!);
+    expect(runs.filter((r) => r.my).map((r) => r.text)).toEqual(["မီးဖိုချောင်"]);
+    // Nothing is lost or invented in the split — the runs rejoin to the original, exactly.
+    expect(runs.map((r) => r.text).join("")).toBe(settled);
+    // …and the English around it is NOT marked, which is the half a whole-wrapper mark gets wrong:
+    // it would announce an English sentence in a Burmese voice.
+    expect(runs.some((r) => !r.my && /Owner-corrected/.test(r.text))).toBe(true);
+  });
+
+  it("returns ONE unmarked run for pure Latin, so a caller never special-cases it", () => {
+    expect(scriptRuns("All")).toEqual([{ text: "All", my: false }]);
+  });
+
+  it("returns ONE marked run for pure Burmese", () => {
+    expect(scriptRuns("မီးဖိုချောင်")).toEqual([{ text: "မီးဖိုချောင်", my: true }]);
+  });
+
+  it("marks EVERY Burmese run when a string alternates, not just the first", () => {
+    // A `split` that stopped at the first match, or a matcher keyed on position, passes the tests
+    // above and fails here.
+    const runs = scriptRuns("a မီး b ဖို c");
+    expect(runs.map((r) => r.my)).toEqual([false, true, false, true, false]);
+    expect(runs.map((r) => r.text).join("")).toBe("a မီး b ဖို c");
+  });
+
+  it("never emits an empty run", () => {
+    for (const s of ["", "မီး", "abc", "မီးabc", "abcမီး"])
+      expect(scriptRuns(s).every((r) => r.text !== "")).toBe(true);
   });
 });
