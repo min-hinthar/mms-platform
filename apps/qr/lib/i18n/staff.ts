@@ -48,7 +48,7 @@ export const STAFF = {
   "what.feedback": { en: "feedback", my: "ဧည့်သည် မှတ်ချက်" },
   "what.orders": { en: "orders", my: "အော်ဒါများ" }, // glossary: အော်ဒါ
   "what.team": { en: "the team page", my: "ဝန်ထမ်း စာမျက်နှာ" },
-  "what.profile": { en: "your profile", my: "သင့်အချက်အလက်" },
+  "what.profile": { en: "your profile", my: "ကိုယ့်အချက်အလက်" },
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
   "what.lock": { en: "the lock screen", my: "သော့ခတ် စခရင်" },
   "what.queue": { en: "the queue", my: "အော်ဒါတန်း" },
@@ -87,7 +87,7 @@ export const STAFF = {
   },
   "out.shell.body": {
     en: "Your sign-in is fine — the system is unreachable, so {what} can’t load right now. Take new orders on paper; everything already recorded is safe.",
-    my: "သင့်အကောင့် ကောင်းနေပါတယ် — စနစ်နဲ့ မဆက်နိုင်လို့ {what} ကို အခု မဖွင့်နိုင်သေးပါ။ အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူထားပါ။ မှတ်ထားပြီးသားတွေ အားလုံး လုံခြုံပါတယ်။",
+    my: "ကိုယ့်အကောင့် ကောင်းနေပါတယ် — စနစ်နဲ့ မဆက်နိုင်လို့ {what} ကို အခု မဖွင့်နိုင်သေးပါ။ အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူထားပါ။ မှတ်ထားပြီးသားတွေ အားလုံး လုံခြုံပါတယ်။",
   }, // K15-HIGH — prevents the worst misread of an outage screen: "I've been logged out"
   "out.shell.escalated": {
     en: "Still down — keep running on paper. Nothing recorded is lost; this screen comes back the moment the system does.",
@@ -320,7 +320,7 @@ export const STAFF = {
   },
   "table.appr.empty.hint": {
     en: "When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first.",
-    my: "စားပွဲထိုးက သူ့ဘာသာ မလုပ်နိုင်တဲ့ ဖျက်ခြင်း ဒါမှမဟုတ် အခမဲ့ပေးခြင်းကို တောင်းဆိုရင် မန်နေဂျာ ခွင့်ပြု ဒါမှမဟုတ် ငြင်းပယ်ဖို့ ဒီမှာ ရောက်လာပါမယ် — အဟောင်းဆုံး အရင်။",
+    my: "စားပွဲထိုးက သူ့ဘာသာ မလုပ်နိုင်လို့ ဖျက်ဖို့ ဒါမှမဟုတ် အခမဲ့ပေးဖို့ တောင်းဆိုရင် မန်နေဂျာ ခွင့်ပြု ဒါမှမဟုတ် ငြင်းပယ်ဖို့ ဒီမှာ ရောက်လာပါမယ်။ အဟောင်းက အရင်ပြပါတယ်။",
   },
   "table.appr.empty.outage": {
     en: "New requests won’t appear here until this list is updating again. Anything already requested is still pending.",
@@ -358,15 +358,15 @@ export const STAFF = {
   // "PIN" is ပင်နံပါတ်: a bare Latin run inside a MY value is unmarkable (strings.test.ts).
   "table.appr.confirm.approveComp": {
     en: "Approve this comp — confirm with your PIN",
-    my: "ဒီ အခမဲ့ပေးမှုကို ခွင့်ပြုမယ် — သင့် ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
+    my: "ဒီဟာကို အခမဲ့ပေးမယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
   "table.appr.confirm.approveVoid": {
     en: "Approve this void — confirm with your PIN",
-    my: "ဒီ ဖျက်သိမ်းမှုကို ခွင့်ပြုမယ် — သင့် ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
+    my: "ဒီဟာကို ဖျက်မယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
   "table.appr.confirm.deny": {
     en: "Deny this request — confirm with your PIN",
-    my: "ဒီ တောင်းဆိုချက်ကို ငြင်းပယ်မယ် — သင့် ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
+    my: "ဒီ တောင်းဆိုချက်ကို ငြင်းပယ်မယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
   "table.appr.verb.confirmApprove": { en: "Confirm approve", my: "ခွင့်ပြုကြောင်း အတည်ပြု" },
   "table.appr.verb.confirmDeny": { en: "Confirm deny", my: "ငြင်းပယ်ကြောင်း အတည်ပြု" },
@@ -632,7 +632,7 @@ export const STAFF = {
   "floor.nav.tips": { en: "Tips today →", my: "ဒီနေ့ အပိုကြေး →" },
   // "PIN" is ပင်နံပါတ် — a bare Latin run inside a MY value is unmarkable (`Chrome` marks only
   // INTERPOLATED values; strings.test.ts pins that). Same word as `table.appr.confirm.*`.
-  "floor.nav.pin": { en: "Your PIN →", my: "သင့် ပင်နံပါတ် →" },
+  "floor.nav.pin": { en: "Your PIN →", my: "ကိုယ့် ပင်နံပါတ် →" },
   "floor.nav.pinSet": { en: "Set a tablet PIN →", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ် →" },
   "floor.nav.team": { en: "Manage staff →", my: "ဝန်ထမ်း စီမံ →" },
 
@@ -674,7 +674,7 @@ export const STAFF = {
   "floor.orders.title": { en: "Orders & refunds", my: "အော်ဒါနဲ့ ပြန်အမ်းငွေ" },
   "floor.orders.sub": {
     en: "Recent paid orders. Refunding a line returns its price + tax to the card and is logged with your name.",
-    my: "မကြာသေးမီက ငွေရှင်းပြီး အော်ဒါများ။ တစ်လိုင်းကို ပြန်အမ်းလိုက်ရင် အဲဒီဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပေးပြီး သင့်နာမည်နဲ့ မှတ်တမ်းတင်ပါတယ်။",
+    my: "မကြာသေးမီက ငွေရှင်းပြီး အော်ဒါများ။ တစ်လိုင်းကို ပြန်အမ်းလိုက်ရင် အဲဒီဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပေးပြီး ဘယ်သူလုပ်တယ်ဆိုတာ မှတ်တမ်းတင်ပါတယ်။",
   }, // K15-HIGH — the sentence that says a refund is logged to the person who taps it
   "floor.orders.a11y.list": {
     en: "Recent paid orders",
@@ -784,11 +784,11 @@ export const STAFF = {
   "browse.price.titleAvail": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
   "browse.price.leadManager": {
     en: "One price per dish — dine-in and to-go ring the same amount, the way the register does. A change takes effect on the next order; lines already in a cart keep the price they were quoted, and paid orders never change. Every edit is recorded with your name.",
-    my: "ဟင်းတစ်မျိုးကို ဈေးတစ်ခုတည်း — ဆိုင်မှာစားရော ပါဆယ်ရော အတူတူ၊ ကောင်တာမှာလိုပဲ။ ပြောင်းလိုက်ရင် နောက်အော်ဒါကစပြီး သက်ရောက်ပါတယ်။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေလည်း မပြောင်းပါ။ ပြင်ဆင်မှုတိုင်းကို သင့်နာမည်နဲ့ မှတ်ထားပါတယ်။",
+    my: "ဟင်းတစ်မျိုးကို ဈေးတစ်ခုတည်း — ဆိုင်မှာစားရော ပါဆယ်ရော အတူတူ၊ ကောင်တာမှာလိုပဲ။ ပြောင်းလိုက်ရင် နောက်အော်ဒါကစပြီး သက်ရောက်ပါတယ်။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေလည်း မပြောင်းပါ။ ဘယ်သူ ပြင်တယ်ဆိုတာ အကုန် မှတ်ထားပါတယ်။",
   },
   "browse.price.leadServer": {
     en: "Take a dish off the menu the moment you run out — nobody can order it until someone puts it back, and there is no timer that does it for you. Prices are managers only. Every change is recorded with your name.",
-    my: "ကုန်သွားတာနဲ့ ဟင်းကို မီနူးက ချက်ချင်း ဖြုတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းက မန်နေဂျာ သီးသန့်။ ပြောင်းလဲမှုတိုင်းကို သင့်နာမည်နဲ့ မှတ်ထားပါတယ်။",
+    my: "ကုန်သွားတာနဲ့ ဟင်းကို မီနူးက ချက်ချင်း ဖြုတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းက မန်နေဂျာ သီးသန့်။ ဘယ်သူ ပြောင်းတယ်ဆိုတာ အကုန် မှတ်ထားပါတယ်။",
   },
   "browse.price.find": { en: "Find a dish", my: "ဟင်း ရှာပါ" },
   "browse.price.noMatch": {
@@ -909,14 +909,14 @@ export const STAFF = {
   },
   "floor.tips.sub.self": {
     en: "What you were handed since midnight.",
-    my: "သန်းခေါင်ကတည်းက သင် လက်ခံရတာတွေ။",
+    my: "သန်းခေါင်ကတည်းက ကိုယ် ရခဲ့တာတွေ။",
   },
   "floor.tips.sub.real": {
     en: "Real amounts only — nothing here is an estimate or a projection.",
     my: "အမှန်တကယ် ပမာဏတွေသာ — ဒီမှာ ခန့်မှန်းချက် တစ်ခုမှ မပါပါ။",
   },
   "floor.tips.total.all": { en: "All tips today", my: "ဒီနေ့ အပိုကြေး အားလုံး" },
-  "floor.tips.total.self": { en: "Your tips today", my: "သင့် ဒီနေ့ အပိုကြေး" },
+  "floor.tips.total.self": { en: "Your tips today", my: "ဒီနေ့ ကိုယ်ရတဲ့ အပိုကြေး" },
   "floor.tips.people": { en: "Handed to a person", my: "လူတစ်ယောက် လက်ခံထားတာ" },
   "floor.tips.people.empty.all": {
     en: "Nobody has settled a tipped order yet today.",
@@ -924,13 +924,13 @@ export const STAFF = {
   },
   "floor.tips.people.empty.self": {
     en: "You haven’t settled a tipped order yet today.",
-    my: "ဒီနေ့ အပိုကြေးပါတဲ့ အော်ဒါ သင် မရှင်းရသေးပါ။",
+    my: "ဒီနေ့ အပိုကြေးပါတဲ့ အော်ဒါ ကိုယ် မရှင်းရသေးပါ။",
   },
   "floor.tips.a11y.people": { en: "Tips by person", my: "လူအလိုက် အပိုကြေး" },
   // The name lookup is deliberately non-fatal, so the fallback is CHROME, not data — it was the one
   // authored string on this page built outside JSX, where no guard reaches it.
   "floor.tips.staffFallback": { en: "Staff #{x}", my: "ဝန်ထမ်း #{x}" },
-  "floor.tips.you": { en: " · you", my: " · သင်" },
+  "floor.tips.you": { en: " · you", my: " · ကိုယ်" },
   "floor.tips.orders.one": { en: "{n} order", my: "အော်ဒါ {n} ခု" },
   "floor.tips.orders.many": { en: "{n} orders", my: "အော်ဒါ {n} ခု" },
   "floor.tips.phone": { en: "Paid on a phone", my: "ဖုန်းနဲ့ ရှင်းထား" },
@@ -948,15 +948,15 @@ export const STAFF = {
   },
   "floor.tips.shared.tail.one": {
     en: "across {n} order. Nobody handed this to anyone, so it isn’t credited to a person — how it’s shared is the owner’s call, and this screen won’t guess at it.",
-    my: "— အော်ဒါ {n} ခုမှ။ ဘယ်သူ့လက်ကိုမှ တိုက်ရိုက် မရောက်လို့ ဘယ်သူ့အတွက်မှ မမှတ်ထားပါ — ဘယ်လို ခွဲဝေမလဲဆိုတာ ပိုင်ရှင် ဆုံးဖြတ်မှာပါ။ ဒီစခရင်က မှန်းမပြောပါ။",
+    my: "— အော်ဒါ {n} ခုမှ။ ဘယ်သူ့လက်ကိုမှ တိုက်ရိုက် မရောက်လို့ ဘယ်သူ့အတွက်မှ မမှတ်ထားပါ — ဘယ်လို ခွဲဝေမလဲဆိုတာ ပိုင်ရှင် ဆုံးဖြတ်မှာပါ။ ဒီစခရင်ကလည်း မခန့်မှန်းပါ။",
   },
   "floor.tips.shared.tail.many": {
     en: "across {n} orders. Nobody handed this to anyone, so it isn’t credited to a person — how it’s shared is the owner’s call, and this screen won’t guess at it.",
-    my: "— အော်ဒါ {n} ခုမှ။ ဘယ်သူ့လက်ကိုမှ တိုက်ရိုက် မရောက်လို့ ဘယ်သူ့အတွက်မှ မမှတ်ထားပါ — ဘယ်လို ခွဲဝေမလဲဆိုတာ ပိုင်ရှင် ဆုံးဖြတ်မှာပါ။ ဒီစခရင်က မှန်းမပြောပါ။",
+    my: "— အော်ဒါ {n} ခုမှ။ ဘယ်သူ့လက်ကိုမှ တိုက်ရိုက် မရောက်လို့ ဘယ်သူ့အတွက်မှ မမှတ်ထားပါ — ဘယ်လို ခွဲဝေမလဲဆိုတာ ပိုင်ရှင် ဆုံးဖြတ်မှာပါ။ ဒီစခရင်ကလည်း မခန့်မှန်းပါ။",
   },
   "floor.tips.selfNote": {
     en: "You’re seeing your own line. Managers see the whole team’s.",
-    my: "သင့်ကိုယ်ပိုင် စာကြောင်းကိုပဲ မြင်နေတာပါ။ မန်နေဂျာတွေက အဖွဲ့တစ်ခုလုံးကို မြင်ပါတယ်။",
+    my: "ကိုယ့်စာကြောင်းကိုပဲ မြင်နေတာပါ။ မန်နေဂျာတွေက အဖွဲ့တစ်ခုလုံးကို မြင်ပါတယ်။",
   },
 
   // ── the floor: the team roster (/staff/team) ──────────────────────────────
