@@ -4,14 +4,21 @@ import { EmptyState, Icon } from "@mms/ui";
 import { getStaffOrders, type StaffOrder, type StaffOrderLine } from "@/lib/refunds";
 import { RefundActionSheet } from "./RefundActionSheet";
 import { StaggerList } from "./StaggerList";
+import { useStaffLang } from "./StaffLangProvider";
+import { sx } from "@/lib/staff-labels";
 
 /**
  * Manager orders & refunds board (S4.3b). Lists recent paid orders; expand to lines; refund a line
  * (money-OUT) via the RefundActionSheet (reason + self-PIN). Server-authoritative throughout — the board
  * only displays; the refund amount + PI are re-derived server-side. Refreshes from getStaffOrders after a
  * refund so a refunded line + a fully-refunded order's status reflect immediately (no client state-math).
+ *
+ * P2 — the two list NAMES speak the device language; this board's visible copy does not yet
+ * (OPEN-ITEMS P2c), which is why nothing here carries an English echo to keep in sync.
  */
 export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
+  // P2 — the device language, from app/staff/layout.tsx (this board renders only under /staff).
+  const lang = useStaffLang();
   const [orders, setOrders] = useState(initial);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [refunding, setRefunding] = useState<{ order: StaffOrder; line: StaffOrderLine } | null>(
@@ -72,7 +79,9 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
       <StaggerList
         items={orders}
         getKey={(o) => o.id}
-        ariaLabel="Recent paid orders"
+        // Aria-only (`sx`): a `role="list"` has no visible label of its own for WCAG 2.5.3 to
+        // contain, so there is no al() pair to make.
+        ariaLabel={sx(lang, "floor.orders.a11y.list")}
         style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}
         renderItem={(o) => {
           const isOpen = open.has(o.id);
@@ -107,7 +116,9 @@ export function StaffOrdersBoard({ initial }: { initial: StaffOrder[] }) {
               </button>
 
               {isOpen && (
-                <ul role="list" style={lineList}>
+                // A `role="list"` with `listStyle: none` and no name is a QA §A gap: the lines of
+                // one order need a name of their own, distinct from the order list above it.
+                <ul role="list" aria-label={sx(lang, "floor.orders.a11y.lines")} style={lineList}>
                   {o.isSplit && (
                     <li style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", padding: "6px 0" }}>
                       Split-tender order — refund via the Stripe dashboard (per-payer cards).

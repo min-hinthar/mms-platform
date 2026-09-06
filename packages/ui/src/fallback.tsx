@@ -27,8 +27,14 @@ export function RetryButton({
 }: {
   /** Must perform an IN-PLACE refetch — never `location.reload()` (reload-as-retry loses state). */
   onRetry: () => void | Promise<void>;
-  label?: string;
-  busyLabel?: string;
+  /**
+   * ReactNode, not string — P2, for the same reason `OutageState`'s copy props widened: a staff
+   * surface passes `<Chrome>`, which carries its own `lang="my"` mark. A string cannot, and this is
+   * the ONE control on the outage screen — the button a Burmese-first person taps to get their
+   * shift back. The defaults keep every diner caller byte-identical.
+   */
+  label?: ReactNode;
+  busyLabel?: ReactNode;
   style?: CSSProperties;
 }) {
   const [busy, setBusy] = useState(false);
@@ -98,17 +104,34 @@ export function OutageState({
   body = "It’s on us, not your connection. Nothing is lost — your order and table are safe.",
   escalatedBody = "Still down on our end — sorry. Your order and table are safe; please give it a few minutes, or ask our staff.",
   onRetry,
+  retryLabel,
+  retryBusyLabel,
   exit,
   focusOnMount = false,
   headingLevel = "h2",
 }: {
-  title?: string;
+  /**
+   * ReactNode, not string — P2. A staff surface renders this through `<Chrome>`, which emits the
+   * Burmese inside a `lang="my"` span and the English echo as a sibling. A plain string could not
+   * carry that mark, and an UNMARKED Burmese heading is the exact defect the staff-locale guard's
+   * rule 5 exists for: Padauk-less, tracked, and announced as English. The diner callers still pass
+   * strings, which are ReactNodes too, so nothing about them changes.
+   */
+  title?: ReactNode;
   /** Burmese companion line (Padauk, `lang="my"`). Pass null to opt out on a staff-only surface. */
   titleMy?: string | null;
-  body?: string;
+  body?: ReactNode;
   /** Shown once ≥2 retries have failed — stop promising "a moment" during a sustained outage. */
-  escalatedBody?: string;
+  escalatedBody?: ReactNode;
   onRetry?: () => void | Promise<void>;
+  /**
+   * The retry button's label and its busy twin. Defaulted in `RetryButton`, so a caller that says
+   * nothing gets the English pair it always got — but a caller that renders the rest of this card
+   * in Burmese MUST pass them, or the screen's only action stays English under a Burmese heading.
+   * A blind audit found exactly that on the staff shell.
+   */
+  retryLabel?: ReactNode;
+  retryBusyLabel?: ReactNode;
   /** Secondary way out (e.g. a home link) so the state is never a dead end. */
   exit?: ReactNode;
   focusOnMount?: boolean;
@@ -153,7 +176,8 @@ export function OutageState({
             }
             setFailedRetries((n) => n + 1);
           }}
-          label="Try again"
+          {...(retryLabel === undefined ? null : { label: retryLabel })}
+          {...(retryBusyLabel === undefined ? null : { busyLabel: retryBusyLabel })}
           style={{ minWidth: 160 }}
         />
       ) : null}

@@ -4,8 +4,12 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { staffAddItem } from "@/lib/staff-cart";
 import { setCartCustomerName } from "@/lib/register";
+import { ts } from "@/lib/i18n/staff";
+import { al, sx } from "@/lib/staff-labels";
 import { StaffAddButton } from "./StaffAddButton";
-import { StaffModSheet } from "./StaffModSheet";
+import { StaffModSheet, type StaffSheetFailure } from "./StaffModSheet";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 import type { ModGroup } from "@/lib/menu/modifiers";
 
 export type StaffMenuItem = {
@@ -18,6 +22,26 @@ export type StaffMenuItem = {
   category: string;
   groups: ModGroup[];
 };
+
+/**
+ * P2 — what the ONE live region can hold, tagged by ORIGIN rather than flattened to a string.
+ *
+ * A sentence the SERVER wrote goes through `<OutageText>`, which swaps the single write-outage twin
+ * and passes every other sentence through in English — better shown than guessed at. Everything
+ * else here is this console's own copy, so it is a dictionary key rendered through `<Chrome>`:
+ * routed through `OutageText` instead, an authored English literal would pass through untranslated
+ * forever while looking converted.
+ *
+ * That split is also what keeps the region correctly MARKED. A `lang={lang}` on the `<p>` itself
+ * would claim an English server sentence is Burmese; `Chrome` and `OutageText` mark their own
+ * output, so the mark lands on exactly the runs that are Burmese.
+ */
+type BrowserNotice =
+  | { kind: "added"; qty: number; name: string }
+  | { kind: "nameSet"; name: string }
+  | { kind: "nameCleared" }
+  | { kind: "nameFailed" }
+  | { kind: "server"; message: string };
 
 /**
  * The staff menu browser (W6a — the register's order screen, shared with table service). Search +
@@ -38,12 +62,13 @@ export function StaffMenuBrowser({
   counterOrder: boolean;
   initialName: string | null;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
   const [sheetItem, setSheetItem] = useState<StaffMenuItem | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<BrowserNotice | null>(null);
+  const [sheetError, setSheetError] = useState<StaffSheetFailure | null>(null);
   const [pending, startTransition] = useTransition();
   const [name, setName] = useState(initialName ?? "");
   const [nameSaved, setNameSaved] = useState<boolean>(initialName != null && initialName !== "");
@@ -70,14 +95,14 @@ export function StaffMenuBrowser({
         const r = await staffAddItem({ sessionId, menuItemId: item.id, ...choice });
         if (r.ok) {
           setSheetItem(null);
-          setStatus(`Added ${choice.qty} × ${item.nameEn}.`);
+          setNotice({ kind: "added", qty: choice.qty, name: item.nameEn });
           router.refresh();
         } else {
           // Into the SHEET's live region — the page-level one is behind the modal scrim.
-          setSheetError(r.error);
+          setSheetError({ kind: "server", message: r.error });
         }
       } catch {
-        setSheetError("Couldn’t add that — try again.");
+        setSheetError({ kind: "threw" });
       }
     });
   }
@@ -88,12 +113,13 @@ export function StaffMenuBrowser({
         const r = await setCartCustomerName({ sessionId, name: name.trim() });
         if (r.ok) {
           setNameSaved(true);
-          setStatus(name.trim() ? `Order name: ${name.trim()}.` : "Order name cleared.");
+          const trimmed = name.trim();
+          setNotice(trimmed ? { kind: "nameSet", name: trimmed } : { kind: "nameCleared" });
         } else {
-          setStatus(r.error);
+          setNotice({ kind: "server", message: r.error });
         }
       } catch {
-        setStatus("Couldn’t save the name — try again.");
+        setNotice({ kind: "nameFailed" });
       }
     });
   }
@@ -109,7 +135,7 @@ export function StaffMenuBrowser({
           }}
         >
           <label style={nameLabel} htmlFor="reg-order-name">
-            Name for the order
+            <Chrome lang={lang} k="browse.name.label" echo="stack" />
           </label>
           <div style={nameRow}>
             <input
@@ -118,14 +144,22 @@ export function StaffMenuBrowser({
               value={name}
               maxLength={40}
               autoComplete="off"
-              placeholder="First name — it’s the pickup call-out"
+              placeholder={ts(lang, "browse.name.placeholder")}
               onChange={(e) => {
                 setName(e.target.value);
                 setNameSaved(false);
               }}
             />
+            {/* No echo on these three: the button shares a flex row with a `flex: 1` input, and a
+                second script beside the label squeezes the field it sits next to. */}
             <button type="submit" style={nameBtn} disabled={namePending || nameSaved}>
-              {namePending ? "Saving…" : nameSaved ? "Saved ✓" : "Save"}
+              {namePending ? (
+                <Chrome lang={lang} k="browse.name.saving" />
+              ) : nameSaved ? (
+                <Chrome lang={lang} k="browse.name.saved" />
+              ) : (
+                <Chrome lang={lang} k="browse.name.save" />
+              )}
             </button>
           </div>
         </form>
@@ -136,19 +170,20 @@ export function StaffMenuBrowser({
           type="search"
           style={searchInput}
           value={q}
-          placeholder="Search the menu…"
-          aria-label="Search the menu"
+          placeholder={ts(lang, "browse.search.placeholder")}
+          aria-label={sx(lang, "browse.a11y.search")}
           onChange={(e) => setQ(e.target.value)}
         />
       </div>
-      <div style={chipRow} role="group" aria-label="Filter by category">
+      <div style={chipRow} role="group" aria-label={sx(lang, "browse.a11y.categories")}>
         <button
           type="button"
           style={cat === null ? chipOn : chip}
           aria-pressed={cat === null}
           onClick={() => setCat(null)}
         >
-          All
+          {/* No echo on a 44px chip — two scripts cannot legibly stack in one. */}
+          <Chrome lang={lang} k="browse.cat.all" />
         </button>
         {categories.map((c) => (
           <button
@@ -163,12 +198,26 @@ export function StaffMenuBrowser({
         ))}
       </div>
 
-      {/* The browser's ONE polite live region — add confirmations, name saves, and refusals. */}
-      <p role="status" style={status ? statusText : srOnly}>
-        {status ?? ""}
+      {/* The browser's ONE polite live region — add confirmations, name saves, and refusals. No
+          `lang` on the region itself: a server sentence passing through <OutageText> is English,
+          and the two renderers mark their own output. */}
+      <p role="status" style={notice ? statusText : srOnly}>
+        {notice === null ? (
+          ""
+        ) : notice.kind === "server" ? (
+          <OutageText lang={lang} error={notice.message} />
+        ) : notice.kind === "added" ? (
+          <Chrome lang={lang} k="browse.added" vars={{ n: notice.qty, x: notice.name }} />
+        ) : notice.kind === "nameSet" ? (
+          <Chrome lang={lang} k="browse.name.set" vars={{ x: notice.name }} />
+        ) : notice.kind === "nameCleared" ? (
+          <Chrome lang={lang} k="browse.name.cleared" />
+        ) : (
+          <Chrome lang={lang} k="browse.name.failed" />
+        )}
       </p>
 
-      <ul role="list" aria-label="Menu items" style={list}>
+      <ul role="list" aria-label={sx(lang, "browse.a11y.items")} style={list}>
         {shown.map((i) => (
           <li
             key={i.id}
@@ -184,7 +233,10 @@ export function StaffMenuBrowser({
               <div style={{ fontWeight: 600 }}>
                 {i.nameEn}
                 {i.soldOut && (
-                  <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                  <span style={{ color: "var(--t3)", fontWeight: 400 }}>
+                    {" · "}
+                    <Chrome lang={lang} k="browse.soldOut" />
+                  </span>
                 )}
               </div>
               {i.nameMy && (
@@ -208,10 +260,14 @@ export function StaffMenuBrowser({
                 type="button"
                 style={chooseBtn}
                 disabled={i.soldOut}
-                aria-label={`Choose options for ${i.nameEn}`}
+                aria-label={
+                  al(lang, { kind: "verb", verb: "browse.verb.choose", subject: i.nameEn }).aria
+                }
                 onClick={() => setSheetItem(i)}
               >
-                Choose…
+                {/* Same key the name leads with (rule 3c). No echo: this is a compact pill in a
+                    three-up row, and a second script beside it squeezes the dish name on a phone. */}
+                <Chrome lang={lang} k="browse.verb.choose" />
               </button>
             ) : (
               <StaffAddButton
@@ -226,7 +282,7 @@ export function StaffMenuBrowser({
       </ul>
       {shown.length === 0 && (
         <p style={{ padding: "var(--s5) 0", color: "var(--t2)" }}>
-          Nothing matches — clear the search or pick another category.
+          <Chrome lang={lang} k="browse.empty" echo="stack" />
         </p>
       )}
 
@@ -245,6 +301,7 @@ export function StaffMenuBrowser({
           groups={sheetItem.groups}
           pending={pending}
           error={sheetError}
+          lang={lang}
           onAdd={(choice) => addWithChoice(sheetItem, choice)}
         />
       )}

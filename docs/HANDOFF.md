@@ -87,6 +87,240 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > The block below is #257's — read this one, then `docs/PILOT_PLAN.md` §3, then the older banners.
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-06 · PR #260 — a SECOND blind pass returned REJECT with a CRITICAL, and it was in the default language)
+>
+> **`main` is still `5715781`; #260 is open at `f195bdb` and is NOT merged — it needs Min's go.**
+> Two independent blind passes ran on this PR. The first (pre-open) returned REJECT with ten
+> findings; the second (pre-merge, from another session, on `c8d644a`) returned **REJECT with 1
+> CRITICAL and 3 HIGHs**. All eighteen findings across both are fixed. Codex reviewed no head of it
+> and cannot — quota exhausted across all four pilot PRs.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: the bug lived where only the non-default locale could see it
+>
+> `<Chrome echo>` under `lang="my"` puts TWO strings on screen (the Burmese span and the English
+> echo, `display: block`, no `aria-hidden`). `al()` built the accessible name from ONE. So the
+> Approve button SHOWED `ခွင့်ပြု` and `Approve` and ANNOUNCED `ခွင့်ပြု — Mohinga` — WCAG 2.5.3
+> failing on **15 controls across 6 files, in the language the pilot DEFAULTS to**, under three
+> comments and a CHANGELOG line asserting containment held by construction.
+>
+> Under `lang="en"` there is no defect at all: Chrome returns a bare text node and both halves are
+> the same string. **Every mutant, every guard and the whole suite were green** because the only arms
+> that can express it are `my` + echo. If you write a fixture for anything bilingual and it does not
+> exercise the non-default locale WITH the echo, it is degenerate — the same diagnosis `verify:slice`
+> gives a surviving mutant. `chromeVisible()` is now the ONE derivation of what Chrome puts on
+> screen; `Chrome.test.tsx` pins the render against it two-way. **Do not "fix" a 2.5.3 mismatch with
+> `aria-hidden`** — it is about text presented VISUALLY, so that hides the failure from tooling
+> rather than removing it.
+>
+> ⚠️ **The `subject` arm had the same defect and the review filed it as merely "unenforced".** The
+> register row renders two echoed Chromes and built its subject from un-echoed lookups. When a review
+> says a rule has no teeth, go hand-check every site it would have covered — there is usually exactly
+> one, and that is why nobody noticed.
+>
+> ### ⚠️ The guard tests itself now — keep it that way
+>
+> Its eight rules rested on one-time hand probes with nothing re-running them. **Ten fixture pairs now
+> live inside `check-staff-lang.mjs`** (a source each rule must find, plus a near-miss it must not)
+> and run on every invocation. Add a rule → add its pair. Writing them immediately caught a near-miss
+> that tripped a different clause, and dead `readFileSync` I/O in `mountsSwitchHere`.
+>
+> Four more guard defects, all in rules written for this slice: rule 3c kept only the FIRST verb key
+> and searched the whole subtree (crossed ternary passed green); rule 3's resolution stopped at
+> variable declarations, so a subject factored into a local `function` was skipped whole; rule 3d
+> asked whether a `role` attribute was PRESENT (`role="presentation"` satisfied it); rule 4's
+> dead-branch exclusion was a raw-text regex a prettier-wrapped `{false && (…)}` walks past. All four
+> parse now.
+>
+> ### Also worth knowing
+>
+> - **`/staff/login` shipped the same viewport overflow as `/staff/lock`** — a 44px control stacked
+>   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owns the height
+>   once; both surfaces render through it, and the two components' roots are `flex: 1`.
+> - **Do not quote a foil number that drifts.** `staff-outage.ts` said the unanchored grep "returns
+>   28"; it was 30 by the time a reviewer re-measured, because documenting it added mentions. Only the
+>   anchored form (→ 27) is quoted now.
+>
+> ### Counts on this head, measured not transcribed
+>
+> `check:docs` clean (98 files, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
+> `turbo lint typecheck build test` **8/8** · `check:staff-lang` clean with its self-test green
+> (64 files aria-clean · 15/15 pages).
+>
+> ---
+>
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #260 — pilot P2 PR B: the staff console's ratchets are DRAINED, and the guard grew four teeth it did not have)
+>
+> **`main` is still `5715781`; #260 is open at `96f9702` and is NOT merged — it needs Min's go.**
+> Codex could not review a single head of it (quota exhausted since #259, owner-only to restore at
+> `chatgpt.com/codex/cloud/settings/code-review`), so `codex-review` will be RED the moment the PR
+> leaves draft and cannot go green on its own. **The blind adversarial pass is the only independent
+> reviewer this slice has.** It returned **REJECT** with ten findings; all ten were real, all ten are
+> fixed, and the verdict + triage are the last comment on the PR.
+>
+> ### What shipped
+>
+> Both ratchets in `scripts/check-staff-lang.mjs` are **empty**: 15/15 staff pages reach the language
+> control (was 2), 63 staff files are aria-clean (19 carried hand-written English names). 359 new
+> dictionary keys (104 → 463). **P2c · P2g · P2h closed**; **P2i–P2s filed** — eleven rows, because
+> every deferral in this slice is enumerated rather than implied.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: three rounds, one shape — the guard was the defect, not the code
+>
+> Thirteen Codex findings on #241/#242 were guard defects. This slice's REJECT was the same, again:
+> **zero product-logic defects, four holes in the guard written that same session**, each satisfied by
+> something other than the behaviour it claimed to enforce.
+>
+> - **Rule 3c kept the FIRST verb key and searched the whole subtree.** On the expo bump button's four
+>   `al()` calls, breaking branch one's `<Chrome>` reddened and breaking any of the other three did
+>   not — three of four pairings unguarded, by POSITION. It now collects every key AND is
+>   branch-aware (`armPath`/`contradicts`), so a CROSSED ternary reddens. **Stated limit, in the
+>   code:** conditions compare as normalized source text, so `firstStage` vs `!firstStage` reads as
+>   two conditions and a pairing crossed that way still passes. It can only miss, never invent.
+> - **Rule 3 never looked inside a name call's slot VALUES**, and its docblock asserted it need not
+>   ("its arguments are keys and values, not copy"). Half false: it shipped the accessible name
+>   `Table 7 အတွက် ပါဆယ်ထုပ်` — an English word the console owns as `floor.table`, inside a Burmese
+>   sentence. It now follows string-shaped bindings **transitively** (the defect was two hops) and
+>   refuses only Latin WORDS in a value. ⚠️ The first cut followed every identifier and reported four
+>   literals nobody hears (`"comp"`, `"grocery"`, `"fired"`, `"kds.channel.dinein"`); `stringish()` is
+>   what makes the findings trustworthy, and key positions are skipped by ARGUMENT INDEX, not shape.
+> - **Rule 3's hoisted-const branch was empty**, so `` const aria = `${ts(lang,k)} — bag for ${x}` ``
+>   passed while the identical inline string failed.
+> - **Rule 3d is new: a name on a bare `<div>`/`<span>`/`<p>` is DISCARDED by the browser** (`generic`
+>   and `paragraph` take no author name). Two live instances — the reader-settle panel the cashier's
+>   focus is deliberately moved to, and the KDS stat strip. Both are `role="group"` now.
+>
+> ### ⚠️ Read these before touching the staff console
+>
+> - **`<Chrome>` marks INTERPOLATED VALUES, and that cuts both ways.** Any value containing a Latin
+>   character is wrapped `lang="en"` whole — so passing a value that is ITSELF bilingual (`စားပွဲ 7`)
+>   marks Burmese as English. That is why the expo `catch` sentences are still English (**P2p**) and
+>   why `frozenBoardCopy`'s clock is unmarked (**P2s**): a function that returns a flat STRING cannot
+>   mark anything, and `<OutageText>`'s passthrough arm returns a bare text node.
+> - **A guard finding is only as good as the population it walks.** `check:docs` is CI's FIRST step
+>   under `bash -e`. Nine guards, the orphan check and the whole `lint typecheck build test` run sit
+>   behind it — `check:staff-lang` among them, which had never executed on this branch while six
+>   builds went red on stale counts. **Refresh counts on every push, not last.** CLAUDE.md's fast-lane
+>   paragraph listed six of the ten steps and left the blind auditor unable to tell whether this
+>   slice's own guard was wired at all; it now carries the command to measure the lane.
+> - **Two Burmese words for one English word is invisible to every guard.** `strings.test.ts` fires on
+>   two keys SHARING a value, never on one word wearing two coats. Three forks got through parallel
+>   authoring; the sharpest was `မကြာမီ` (PROSPECTIVE — "before long") on screens entirely about the
+>   past. The inverse guard added here catches same-surface/same-English/different-Burmese; the
+>   reverse case is still a hand-read.
+> - **`staff-labels.test.ts`'s 22-case containment loop is TAUTOLOGICAL in every arm** — `al()`
+>   interpolates `visible` into `aria` by construction. It says so at the top now. Every defect that
+>   file has caught was caught by a NAMED assertion below it; add rules there.
+>
+> ### Filed this arc
+>
+> **P2i** (97 server-module `error:` strings, out of scope by owner direction) · **P2j** · **P2k** ·
+> **P2l** · **P2m** (four surfaces with a control over an English body — `TeamManager`'s form was
+> tracked NOWHERE for one commit because its docblock pointed at P2c, which this slice closed) ·
+> **P2n** · **P2o** (the back-arrow inside nine names — wants ONE repo-wide decision, not nine) ·
+> **P2p** · **P2q** (the expo ticket card) · **P2r** (three polite live regions under one `<main>`) ·
+> **P2s**.
+>
+> ### Counts on this head, measured not transcribed
+>
+> `verify:slice` **362 mutants caught, 0 survived, 0 stale, no orphans** · `check:docs` clean
+> (98 files, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
+> `check:staff-lang` clean (63 files aria-clean 0 left · 15/15 pages 0 left · 32 marked renders).
+>
+> ### Next
+>
+> 1. **#260 needs Min's go** — and needs saying plainly that Codex reviewed nothing.
+> 2. **#261 (P3) is still open.** When it merges, #260 merges `main` in and resolves
+>    `FloorDetailLive.tsx` as a SET operation, never from memory (LEARNINGS #61).
+> 3. Then the P2 remainder in one pass per surface, not word by word: **P2q** → **P2m** → **P2p**.
+
+---
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · pilot P3 — the register can put a promo on a table, and take one off)
+>
+> **This slice MERGED to `main`** (PR #261, from `claude/money-slice-pilot-4a2ody`). It ships
+> `lib/staff-promo.ts` (`applyPromoForTable` / `clearPromoForTable`), the drill-down control that
+> drives them, and the `PILOT15` row **as an unapplied migration file**.
+>
+> ### The three things a next session must not re-derive
+>
+> 1. **`PILOT15` IS LIVE ON PROD — applied 2026-09-05 on the owner's explicit authorization.**
+>    Prod row `20260905220123 pilot15_promo` (the MCP stamp; the repo filename is
+>    `20260905120000`, the usual M125 divergence). Verified after the apply: `pct 0.15` ·
+>    `max_uses 200` · `used 0` · `per_session_limit 1` · `min_subtotal_cents 0` ·
+>    `valid_from null` · `valid_until 2026-10-31 23:59:59 America/Los_Angeles`, active, pricing a
+>    $40 basket at $6.00; codes 2→3 with the other two untouched, 0 redemptions, 0 carts carrying
+>    it. ⚠️ **It is spendable by DINERS right now** through Checkout's existing promo field — the
+>    STAFF apply lands only when #261 merges. `used` is the participation counter the pilot
+>    measures; watch it. The file is
+>    `supabase/migrations/20260905120000_pilot15_promo.sql` — `value 0.15` (a FRACTION;
+>    `promo_pct_max_100` is `kind <> 'pct' or value <= 1`) · `per_session_limit 1` ·
+>    `min_subtotal_cents 0` · `max_uses 200` · `valid_until` 2026-10-31 America/Los_Angeles ·
+>    `valid_from` **null**, so the owner-gated apply is the only start gate. Measured against prod on
+>    2026-09-05 before it was written: zero `PILOT15` rows exist; the only codes present are
+>    `TEAHOUSE5` (flat 500, used 0/500) and `WELCOME10` (pct 0.10, used 0/1000). Apply via the
+>    one-file MCP path per §O4, then read the row back.
+>    1b. **⚠️ THE SETTLE PREDICATE WAS TIGHTENED AND THEN REVERTED — do not re-tighten it.** A first
+>    draft made both staff doors `settle_at IS NULL` to close the Stripe Terminal window (a real hole:
+>    `linkPaymentIntent` has one caller, `terminal.ts` writes no `qr_carts` column, no share row, no
+>    single-pay lock, so the settlement freeze is its only guard). Three blind auditors rejected it:
+>    `settle_at` is nulled only by a CLEAN release, so an abandoned split (`abortSettlement` has
+>    exactly ONE caller — the diner's own host UI) or a terminal decline whose release write failed
+>    leaves it set for the LIFE of the cart, and a strict predicate refuses both promo doors there
+>    while the component's `canWrite` — TTL-aware — renders them ENABLED. That re-opens P2e outright:
+>    the merge refusal points at a remove that is itself refused. And the window was never this door's
+>    — `acquireSettlement` deliberately re-acquires on a stale freeze (`lock.ts:128`), so `settleCash`
+>    already takes money there and `clearTable` cancels the cart there. Both directions are now pinned
+>    by mutants (`{apply,clear}-ignores-the-settlement-freeze` and `-settle-check-ignores-the-ttl`),
+>    so re-tightening reddens the suite. The real fix is **P3b (high)**: the terminal tender records
+>    its PI on the cart, closing it for every gate at once. Reasoning: LEARNINGS **#98**.
+> 2. **The link gate is on the REMOVE too, and that is the load-bearing half.** `mms_promo_discount`
+>    returns `promo_granted_cents` VERBATIM whenever it is non-null (M70), so dropping a code RAISES
+>    the total the webhook re-derives — the M152 (a) charged-card-no-order hazard, reached from the
+>    other side. Both writes therefore carry all five of `applyPromo`'s predicates, and the row count
+>    comes from `{ count: "exact" }`, never `.select("id")` (`lock.ts:66-73`).
+> 3. **The apply is rate-limited per CALLER; the remove is not, deliberately.** `STAFF_PROMO_RATE`
+>    keys on the staff id rather than spending the diner's session-keyed `mms_promo_attempt` budget —
+>    a guest fat-fingering ten codes must not disable the register. The remove carries no guessable
+>    secret and is the recovery path the merge refusal points at, so bounding it would lock a server
+>    out of merging the table. `staff-promo/clear-becomes-rate-limited` is the mutant that guards the
+>    asymmetry against a tidy-up.
+>
+> ### What the deep pass added after the first draft
+>
+> Besides the revert above: the apply now refuses OVER a code the cart already carries
+> (`promo_code.is.null,promo_code.eq.<attempted>`) instead of silently replacing one a guest was
+> quoted — the register's view is a 5s poll, so the race is ordinary — and `refusedPromoReason` takes
+> the attempted code so the refusal names the recovery rather than fabricating `cart_closed`. The
+> remove answers "nothing to clear" WITHOUT writing (it is unbounded by design, and an unconditional
+> UPDATE is a table-wide realtime broadcast plus a PostHog event plus two `revalidatePath`s per tap).
+> No control uses native `disabled` — `aria-disabled`/`readOnly` plus a ref re-entry guard, the
+> `StaffLangSwitch` lesson — and the refusal lookup has a runtime fallback because seven of its
+> reasons arrive as DATA from `mms_promo_check` and are cast. Three new suites where there were none:
+> `lib/rate.test.ts`, `components/staff/StaffPromoControl.test.tsx`, and a repo-wide guard that no
+> staff dictionary value carries a Myanmar digit. 47 new mutants, 357 → 404.
+>
+> ### What it cost to learn
+>
+> `verify:slice` returned SURVIVING mutants twice: the remove's TTL check had every under-blocking
+> case pinned and no over-blocking one, and the split mutex's fixture went degenerate against the
+> strict settle predicate. Each fix was tests, never a deleted mutant. An early draft of the
+> quote-versus-delivered comment named a mechanism (voided/comped lines) that stopped being true at
+> `20260622060000`; the SQL was re-read and the comment corrected — the conclusion survived on two
+> OTHER mechanisms (the pin, and M22's reward-first clamp), but the mechanism is what the next reader
+> acts on. And a red-first probe loop restored with `git checkout --`, which restores to **HEAD**:
+> it deleted an hour of uncommitted work and then produced four green-for-the-wrong-reason "red"
+> results against the wrong baseline (LEARNINGS **#97**).
+>
+> ### Still open here
+>
+> **P3a** `PILOT15` is not dine-in-only — `promo_codes` has no mode-scope column, which PILOT_PLAN §3
+> P3 accepts outright, bounded by `max_uses`. **P3b (high)** the Terminal window, above. **P3c** no
+> durable audit row for a staff promo change. **P3d** the merge refusal is English-only on a console
+> that speaks Burmese (P2c's shape, but `mergeTables`' own copy, so not covered by it). **P3e**
+> `openCartFor` widened for one caller. **P2e is CLOSED.** ⚠️ Codex had hit its usage limit for code
+> reviews on 2026-09-05 (posted on #259), so `codex-review` is RED on this head and the blind
+> adversarial passes are the ONLY independent review this slice had.
+>
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #257 — pilot P0 is on `main` AND on prod: the cart→intent link)
 >
 > **`main` is at `dfcda72`** (#257, squash of `c166d43`). **Prod has the migration:**
@@ -170,7 +404,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (377 today)**, **1372 qr + 138 ui tests at the time (1587 + 140 today)**, 69 target modules at the time (74 under `apps/qr/lib` today, 81 in all), 97 local
+> **334 mutants at the time (456 today)**, **1372 qr + 138 ui tests at the time (1755 + 142 today)**, 69 target modules at the time (80 under `apps/qr/lib` today, 90 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -179,6 +413,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > MY as the ≥28px line with EN beneath) → **P2** the staff-device locale (build, not reuse — W16b
 > retired the app-wide toggle; S2 is stale) → **P3** PILOT15 → **P6** the dual-audience board →
 > **P4/P5**. O1–O3 (hardware · `BOARD_DEVICE_TOKEN` · C1 auth) are owner actions running alongside.
+>
+> **P1 ✅ (#258) · P2 PR A ✅ (#259) · P6 ✅ built (this branch).** P6 gave `/board` its kitchen pulse
+> band — ticket count · oldest age in minutes · an unattributed all-day rail · dine-in as table
+> number + `cooking`/`Food up` — with the boundary expressed as `lib/board-pulse.ts`'s output type
+> and the rail withheld below three live tickets. **Three things a later reader should not re-derive:**
+> the status word is `up`, not "Ready", because `bumped_at` means the PASS finished the food and no
+> runner event exists anywhere in the schema; the table strip pairs `status='active'` with
+> `expires_at > now` (the FLOOR board's test, not the KDS's — past the TTL `is_member` refuses the
+> diners themselves, and nothing closes or extends a session); and the payload carries
+> `oldestMinutes`, not a fire timestamp, because an exact stamp beside one table states that party's
+> order instant to the room. The exposure floor is a bound on the worst SINGLE-FRAME reading and is
+> written as that, not as anonymity — **P6a–P6k** in OPEN-ITEMS carry the residuals, of which **P6a**
+> (frame deltas at the 5s poll) is the one that is genuinely an owner's call.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #256 — the one live region is ARBITRATED, and T33 is closed)
 >
@@ -1049,7 +1296,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 377 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1587 qr tests + 140 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 456 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1755 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1771,7 +2018,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (377 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (456 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

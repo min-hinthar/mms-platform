@@ -9,6 +9,9 @@ import {
 } from "@/lib/board-poll";
 import { STAFF, ts } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
+import { Chrome } from "@/components/staff/Chrome";
+import type { BoardPulse, PulseDish, PulseTable } from "@/lib/board-pulse";
 import type { StaffLang } from "@/lib/staff-lang";
 import { KdsChime } from "@/lib/kds-sound";
 
@@ -50,7 +53,19 @@ type BoardState =
    * skew bug `staff-outage.ts` already documents.
    */
   | { kind: "offline"; since: number; fails: number; escalated: boolean }
-  | { kind: "live"; orders: BoardOrder[]; stale: boolean };
+  /**
+   * P6 — `pulse` is `BoardPulse | null`, and the null is LOAD-BEARING: it is the route's answer when
+   * a kitchen read dropped, and it must render as "we can't read the kitchen", never as a zeroed
+   * band. A band drawn from `{tickets: 0}` over a full wok is the same lie `lib/kitchen.ts` refuses
+   * (an empty KDS reading "all clear" over a room of cooking food), one screen further out.
+   *
+   * ⚠️ There is deliberately NO `serverNow` here. An earlier cut carried one, with a docblock
+   * saying the oldest-ticket age was measured against it — and by then the age had already moved
+   * server-side as an integer, so the field was read by nothing. Worse if a later reader had used
+   * it: the route stamps `serverNow` from the APP clock while `oldestMinutes` comes from `mms_now`,
+   * which is precisely the two-clock-domain error the removed comment claimed to prevent.
+   */
+  | { kind: "live"; orders: BoardOrder[]; pulse: BoardPulse | null; stale: boolean };
 
 export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) {
   // A tokenless board is no longer knowably unlinked at mount: a staff sign-in on the device is now
@@ -116,7 +131,15 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         throw new Error("board poll: no verdict available");
       }
       if (!res.ok) throw new Error(`board poll ${res.status}`);
-      const data = (await res.json()) as { orders: BoardOrder[] };
+      // P6 — `pulse` and `serverNow` are read DEFENSIVELY (`?? null`) rather than trusted to be
+      // present. A TV is the longest-lived client in the building: it can be running a build from
+      // before this field existed, or be served a cached older deploy mid-rollout, and an
+      // `undefined` reaching the band's `pulse.tickets` would throw inside render — taking the
+      // Ready column, which is the customer-facing half, down with it.
+      const data = (await res.json()) as {
+        orders: BoardOrder[];
+        pulse?: BoardPulse | null;
+      };
       fails.current = 0;
 
       // Gold-flash the NEWLY ready. The card remounts as it moves columns (same key, different <ul>),
@@ -139,7 +162,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       });
       if (newlyReady.length > 0) chime.current?.play("pickup");
 
-      setState({ kind: "live", orders: data.orders, stale: false });
+      setState({ kind: "live", orders: data.orders, pulse: data.pulse ?? null, stale: false });
     } catch {
       fails.current += 1;
       // The fold lives in `lib/board-poll.ts` so it can be tested: keep a live board's snapshot and
@@ -244,7 +267,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
 
       <div className="orb-cols">
         <section className="orb-col" aria-label={ts(lang, "board.col.preparing")}>
-          <ColumnHeading lang={lang} k="board.col.preparing" />
+          <BilingualHeading lang={lang} k="board.col.preparing" />
           {preparing.length === 0 ? (
             <p className="orb-empty">—</p>
           ) : (
@@ -257,7 +280,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         </section>
 
         <section className="orb-col orb-col-ready" aria-label={ts(lang, "board.col.ready")}>
-          <ColumnHeading lang={lang} k="board.col.ready" />
+          <BilingualHeading lang={lang} k="board.col.ready" />
           {ready.length === 0 ? (
             <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
               {ts(lang, "board.empty")}
@@ -271,14 +294,186 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           )}
         </section>
       </div>
+
+      {/* ⚠️ `stale` NULLS THE PULSE, and that asymmetry with the Ready column is the point. The
+          stale fold keeps `kind: "live"` and carries the whole snapshot forward (`board-poll.ts`),
+          which is right for a name and a pickup code — those do not rot. Every value in this band
+          does: a count of what is on the wok NOW, an age in minutes, and a `Food up` announcement
+          whose five-minute window is enforced SERVER-side and therefore lapses the moment the server
+          stops answering. Left carried, forty minutes into an outage the wall showed `9 Oldest` and
+          a lit-gold `Table 3 · Food up` — the "act on this" vocabulary — and sent a runner to the
+          pass for a plate that went out half an hour ago.
+          The cost, stated: `stale` needs only two consecutive misses (~15s), so a brief blip blanks
+          the band and it self-heals on the next good poll. A band that says it cannot read the
+          kitchen for fifteen seconds is cheaper than one that lies for forty minutes, and it is the
+          same `null`-is-unknown contract the route already uses for a dropped kitchen read. */}
+      <KitchenPulse
+        lang={lang}
+        pulse={state.kind === "live" && !state.stale ? state.pulse : null}
+        known={state.kind === "live"}
+      />
     </div>
   );
 }
 
 /**
- * P2 — a column heading, both tongues, ALWAYS. The wall serves a mixed room and cannot choose for
- * it; `lang` decides only which one LEADS. The Burmese is verbatim from W3e and this slice does not
- * reword it.
+ * P6 — the KITCHEN PULSE band: the second audience on the one screen.
+ *
+ * WHAT IS ON IT AND WHY EACH IS ALLOWED (the boundary is argued in full in `lib/board-pulse.ts`;
+ * this component may only ever render LESS than the payload carries, never derive more):
+ *   · a ticket count and the oldest ticket's age — load, attached to nobody;
+ *   · an all-day dish rail — unattributed, and the route withholds it entirely below three live
+ *     tickets, because at one or two it is one party's order in the clear;
+ *   · dine-in as TABLE NUMBER + `cooking`/`up` — the number is printed on the tent card and
+ *     called across the room all night; the status is what a runner walking past already sees.
+ * Nothing here reaches for a guest name, a per-table dish, a modifier, an amount or an id, because
+ * `BoardPulse` has no field for one.
+ *
+ * The oldest age arrives as WHOLE MINUTES rather than as a fire timestamp, and that is a boundary
+ * decision made in `lib/board-pulse.ts`, not a formatting one: at one live ticket beside one table
+ * on the strip, an exact `fire_at` would state that party's order instant to the room. The screen
+ * therefore has no clock arithmetic to do and no drift to clamp.
+ *
+ * `known` vs `pulse === null` are DIFFERENT unknowns and the band says so: `known: false` is a
+ * board that has no snapshot at all (loading, or the offline/unlinked screens above never reach
+ * here), and `pulse: null` is a live board whose kitchen read dropped. Only the second gets the
+ * "can't read the kitchen" sentence — saying it while merely connecting would call an outage on a
+ * board that is simply starting up.
+ *
+ * NO MOTION, deliberately, and it is a design decision rather than an omission. The Ready column's
+ * gold flash marks a transition a customer is waiting for; a band that animated its own numbers on
+ * a screen hanging in a dining room would pull every guest's eye to the kitchen's workload every
+ * five seconds. The band earns its place typographically — the same lit-gold vocabulary the Ready
+ * column already owns marks a `ready` table, static.
+ */
+function KitchenPulse({
+  lang,
+  pulse,
+  known,
+}: {
+  lang: StaffLang;
+  pulse: BoardPulse | null;
+  known: boolean;
+}) {
+  const my = lang === "my";
+  return (
+    <section className="orb-pulse" aria-label={ts(lang, "kds.title")}>
+      <BilingualHeading lang={lang} k="kds.title" />
+      {!known ? null : pulse === null ? (
+        <p className="orb-pulse-note" lang={my ? "my" : undefined}>
+          {ts(lang, "board.pulse.unavailable")}
+        </p>
+      ) : pulse.tickets === 0 && pulse.tables.length === 0 ? (
+        <p className="orb-pulse-note" lang={my ? "my" : undefined}>
+          {ts(lang, "kds.allclear")}
+        </p>
+      ) : (
+        <div className="orb-pulse-body">
+          <div className="orb-pulse-stats">
+            {/* The KDS stat-row idiom, verbatim: the VALUE is a plain number in its own element, so
+                it is Latin by construction rather than by discipline — it never passes through a
+                `{n}` slot, which is where `fill.ts` localizes numerals. The two screens a cook reads
+                in one shift therefore render a count the same way. */}
+            <p className="orb-stat">
+              <b>{pulse.tickets}</b>
+              <span lang={my ? "my" : undefined}>{ts(lang, "kds.line.cooking")}</span>
+            </p>
+            <p className="orb-stat">
+              <b>{pulse.oldestMinutes === null ? "—" : pulse.oldestMinutes}</b>
+              <span lang={my ? "my" : undefined}>{ts(lang, "board.pulse.oldest")}</span>
+            </p>
+          </div>
+
+          {pulse.tables.length > 0 && (
+            <ul className="orb-tables" role="list" aria-label={sx(lang, "board.a11y.tables")}>
+              {pulse.tables.map((t) => (
+                <PulseTableChip key={t.table} lang={lang} table={t} />
+              ))}
+            </ul>
+          )}
+
+          {pulse.allDay.length > 0 && (
+            <div className="orb-rail">
+              <h3 className="orb-rail-head">
+                <span lang={my ? "my" : undefined}>{ts(lang, "kds.allday.title")}</span>
+                <small lang={my ? undefined : "my"}>
+                  {my ? STAFF["kds.allday.title"].en : STAFF["kds.allday.title"].my}
+                </small>
+              </h3>
+              <ul role="list" aria-label={sx(lang, "kds.a11y.allDay")}>
+                {pulse.allDay.map((d) => (
+                  <li key={d.name} className="orb-rail-row">
+                    <PulseDishName lang={lang} dish={d} />
+                    {/* `×4` — a multiplicity, not a prose count, and Latin in both tongues for the
+                        same reason the stat values are: it is scanned, not read. */}
+                    <b className="orb-rail-qty">×{d.qty}</b>
+                  </li>
+                ))}
+              </ul>
+              {pulse.allDayMore > 0 && (
+                <p className="orb-rail-more" lang={my ? "my" : undefined}>
+                  {tf(lang, "kds.more", { n: pulse.allDayMore })}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * One dine-in chip: the tent-card number and one of two coarse statuses.
+ *
+ * `echo={false}` on the number follows PR A's echo policy verbatim — "no echo on 44px chips and
+ * badges, because two scripts cannot legibly stack in a chip". The BAND's heading carries both
+ * tongues, which is where the room learns what it is looking at; the chips stay terse. `<Chrome>`
+ * is also what wraps the Latin table number in `lang="en"` inside a Burmese run, so `စားပွဲ 2`
+ * keeps the body face and cannot break mid-value.
+ */
+function PulseTableChip({ lang, table }: { lang: StaffLang; table: PulseTable }) {
+  const my = lang === "my";
+  return (
+    <li className={`orb-table orb-table-${table.status}`}>
+      <span className="orb-table-no">
+        <Chrome lang={lang} k="kds.table" vars={{ id: table.table }} />
+      </span>
+      <span className="orb-table-state" lang={my ? "my" : undefined}>
+        {ts(lang, table.status === "cooking" ? "kds.line.cooking" : "board.pulse.up")}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * A rail dish, both tongues, as SIBLINGS.
+ *
+ * The KDS's `RailRowText` nests its English fallback inside the Burmese run (marked `lang="en"`),
+ * which is right for a ticket. The wall holds itself to the stricter shape its own suite already
+ * pins — no English text inside a `lang="my"` element at all — because that property is what stops
+ * the next heading refactor from typesetting an English word in Padauk on the one staff screen
+ * guests read. So: the lead carries the tongue it actually contains, and the echo is a sibling.
+ *
+ * A dish with no catalog Burmese renders its English name ALONE and unmarked, exactly as the rail
+ * would have looked with no `name_my` at all — never an English word wearing a Burmese mark.
+ */
+function PulseDishName({ lang, dish }: { lang: StaffLang; dish: PulseDish }) {
+  const my = lang === "my" && dish.nameMy !== null;
+  return (
+    <span className="orb-rail-name">
+      <span lang={my ? "my" : undefined}>{my ? dish.nameMy : dish.name}</span>
+      {dish.nameMy !== null && (
+        <small lang={my ? undefined : "my"}>{my ? dish.name : dish.nameMy}</small>
+      )}
+    </span>
+  );
+}
+
+/**
+ * P2 — a section heading, both tongues, ALWAYS. The wall serves a mixed room and cannot choose for
+ * it; `lang` decides only which one LEADS. The Burmese of the two column headings is verbatim from
+ * W3e and this slice does not reword it.
  *
  * ⚠️ WHY THE LEAD SITS IN ITS OWN SPAN AND `lang` NEVER GOES ON THE `<h2>`. The first cut wrote
  * `<h2 lang="my">…<small>English</small></h2>`: under a Burmese board that nests the English echo
@@ -287,13 +482,18 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
  * SIBLING, never a child"), and the heading is the one staff surface guests read. Two sibling spans,
  * each marked for what it actually contains — and the `<h2>` itself stays unmarked, because it
  * contains both.
+ *
+ * P6 renamed it from `ColumnHeading` and widened `k` by exactly one key: the pulse band is a third
+ * section on the same wall and must not grow a second, subtly different heading shape. The type
+ * stays an explicit union rather than `StaffKey`, so the set of things that can be a heading here
+ * remains something a reader can enumerate.
  */
-function ColumnHeading({
+function BilingualHeading({
   lang,
   k,
 }: {
   lang: StaffLang;
-  k: "board.col.preparing" | "board.col.ready";
+  k: "board.col.preparing" | "board.col.ready" | "kds.title";
 }) {
   const my = lang === "my";
   return (

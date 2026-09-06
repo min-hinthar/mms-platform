@@ -175,6 +175,399 @@ and a second copy of it on a reporting screen is the drift the W17 rules forbid.
 "200 of 200 redemptions used" beside a flat count knows why it stopped moving; a reader told "live"
 does not.
 
+### One TV, two audiences — /board gains a kitchen pulse band (2026-09-05 · pilot P6)
+
+**The wall board keeps its customer-safe Preparing | Ready columns exactly as they were and gains a
+second section for the other audience in the same room.** The band carries the kitchen's load — live
+ticket count, the oldest ticket's age in minutes — an unattributed all-day dish rail, and dine-in as
+**table number plus one of two coarse statuses**. Same sanitized `/api/board` poll, same device
+token, one more section in the payload.
+
+**The privacy boundary is the slice, and it is the output TYPE.** `lib/board-pulse.ts` has no field
+for a guest name, a session/cart/order id, a per-table dish list, a modifier or an amount, so none
+of them can arrive by a later edit at a call site. The table strip is a POSITIVE allowlist (`dinein`
+only) — the mirror of the orders half's takeout-only allowlist, so a fourth `table_sessions.mode`
+value reaches neither until somebody decides it should. A test asserts the property over the
+serialized payload rather than over key names: ids seeded with values that could not appear by
+coincidence do not come back out.
+
+**The all-day rail is withheld below three live tickets, and the docblock states exactly what that
+buys.** At one ticket the rail IS that table's order beside its number; at two, a guest who knows
+their own order differences the other out. The floor closes exact attribution **from a single
+frame** by an observer who can resolve none of the counted tickets — it is not anonymity, and four
+open channels are named rather than hidden: frame deltas at a 5s poll, a residual that shrinks with
+every ticket the observer already knows, `allDayMore` as an aggregate over withheld rows, and
+absence as a per-table signal (P6a).
+
+**Three findings from the blind recon pass changed the design, not just the copy.**
+
+_The word was wrong._ "Ready" asserts a fact the schema does not hold: `bumped_at` means the PASS
+finished the food and there is no runner event anywhere. On a screen a dining room reads it is also
+aimed at the wrong person — dine-in is table service, so a guest reading "Ready" has nothing to do.
+The status is `up` / **Food up** / **ဟင်းထွက်ပြီ**, and the linger constant stopped being a bound on
+a claim and became a display window over a fact that stays true.
+
+_Ghost tables._ The strip gated on `status = 'active'` alone and a comment argued that was
+deliberate, because the TTL "bounds a JWT, not a meal". Measured, that is wrong where it matters:
+`is_member` requires `expires_at > now()`, so past four hours the diners cannot act on their own
+cart, nothing closes the session and nothing extends the clock — one unbumped line pinned a table
+number to a public wall for good. The strip now pairs both predicates, as the floor board always
+has; the load figures deliberately keep the KDS's test so the wall and the pass count the same
+tickets, and the residual is filed (P6b).
+
+_An exact timestamp crossed below the floor._ `oldestFiredAt` at one live ticket beside one table
+states that party's order instant to the room. The payload carries `oldestMinutes`, computed
+server-side from the one clock — which also deleted the screen's two-clock subtraction.
+
+**Read postures differ on purpose.** The session-mode read stays fail-CLOSED (503, publish nothing)
+because its failure would put dine-in names on the Ready column; the new kitchen reads are
+fail-DEGRADED to `pulse: null`, never a zeroed band, because "all clear" over a full wok is the lie
+`lib/kitchen.ts` already refuses. The pulse's windows are cut from the DATABASE clock (`mms_now`),
+since the undo-grace comparison is ten seconds wide.
+
+**Four new `board.*` keys and no more.** The band speaks the words the pass already speaks —
+`kds.title`, `kds.table`, `kds.line.cooking`, `kds.allday.title`, `kds.more`, `kds.allclear`,
+`kds.a11y.allDay` — so a K15 correction lands in one place instead of two.
+
+**The blind adversarial pass returned REJECT with a CRITICAL, and it was right.** The load figures
+applied **no session-liveness test at all** — while this module, an OPEN-ITEMS row and an earlier
+draft of this entry all claimed they used the KDS's. The scenario is ordinary: a dine-in table pays
+(its cart flips open→PAID), one line is never bumped (`mms_bump_ticket` serves only the lines the
+cook saw), staff clear the table — and `clearTable` cancels only the OPEN cart before closing the
+session, so that paid cart's `fired` line survives. The wall counted it as live kitchen work for a
+full 24 hours, ageing `Oldest` toward 1440, while the KDS beside it correctly showed nothing. The
+load path now restates `lib/kitchen.ts`'s per-channel rule verbatim, so the sentence is true.
+Also fixed from that pass: **the exposure floor counted CARTS where the exposure is per-PARTY** (one
+table can hold a paid cart beside a fresh open one, so two parties looked like three and opened the
+rail a party early); the route's docblock claimed the two sections "never join", which the sibling
+module's own frame-delta paragraph disproves; a dead `serverNow` field survived the move of the age
+server-side, carrying a docblock describing a mechanism it no longer implemented — and pointing at
+the app clock while `oldestMinutes` comes from `mms_now`; an `expires_at === null` branch guarded a
+state the column forbids, in a module that rejects unreachable code by name; and three unchecked row
+casts on a public payload path turned out to be unnecessary, so they are annotations now and tsc
+checks the shapes again.
+
+**A SECOND blind pass, run pre-merge from a separate session, returned REJECT — and its CRITICAL is
+the one the first pass and the author both missed.** The exposure floor counted PARTIES, and
+attribution is decided by DISH DIVERSITY. With one rail row every counted party's cooking content
+_is_ that dish, so every table the strip shows `cooking` is named by it — in a single frame, at any
+party count. The checked-in route fixture _was_ that frame (`3 Cooking · Table 4 Cooking · All day —
+Mohinga ×4`) and asserted it as correct behaviour, because it asserted `allDay` and never `tables`.
+`PULSE_RAIL_MIN_DISHES` is the missing term, read against the strip rather than alone: gating on
+dish count by itself would withhold the rail when nothing is on the strip to attribute, which costs
+a pickup-only kitchen its all-day view during the rush the band exists for. The bound is now stated
+once and no stronger than it is — **no single frame determines which dish a named table is having**
+— with the collective-set residual named as accepted rather than implied away. Two mutants pin both
+directions, and the route asserts `tables` in the withheld case as well as the published one.
+
+Also from that pass: **a stale board froze the band indefinitely.** The poll's stale fold keeps
+`kind: "live"` and carries the snapshot forward — right for a name and a pickup code, wrong for a
+count of what is on the wok now, an age in minutes, and a `Food up` whose five-minute window is
+enforced server-side and therefore lapses the instant the server stops answering. Forty minutes into
+an outage the wall still read `9 Oldest (min)` beside a lit-gold `Table 3 · Food up`. The band now
+blanks to its own "cannot read the kitchen" note after two missed polls (~15s) while the Ready
+column keeps its rows — a claim-by-claim degrade, not a blanket one. And **`PULSE_RAIL_MIN_TICKETS`
+was renamed `PULSE_RAIL_MIN_PARTIES`**, because `tickets` is a different number (`cookingCarts`), so
+the wall can publish `tickets: 3` beside an empty rail against a floor that reads 3 — the comparison
+was always right and only the label lied. The no-leak property test had been proving its dish clause
+with the rail SHUT (both secret carts on one session), so adding a `menuItemId` field to `PulseDish`
+would have kept it green; each secret cart now has its own session and its own dish, and reverting
+that exact field is what watched it go red.
+
+**The table-mode set is a defaulted PARAMETER now, so a rule with one member is still falsifiable.**
+`verify:slice` proved the strip's own `status = 'active'` guard dead — the load loop refuses a
+non-`active` dine-in session above every branch that feeds the strip — so it was deleted. That is
+correct today and held by a coincidence: `PULSE_TABLE_MODES` has one member, so "may appear on the
+wall" and "is checked for liveness" happen to name the same mode, and a second table mode (a
+numbered bar counter) would route to the load loop's `paid` arm, which applies no session test at
+all. `shapeBoardPulse` takes the set as a defaulted argument (W17's "a guard that cannot be reached
+is decorative", applied to a set rather than a price ladder), the suite passes a two-member set, and
+the mutant that spells the fork from the dine-in constant is caught.
+
+**And two guard defects of our own.** `check:docs` was structurally blind to the one HANDOFF line
+that advertises itself as measured — `1372 qr + 138 ui tests at the time (1558 + 142 today)` has no
+digit adjacent to either `qr tests` or `ui tests`, so no rule saw the live pair and 1558 sat two
+lines from a measured 1572. Worse, the historical-marker exemption scans a 24-character window AFTER
+a match, so on a line that chains two claims it lands inside the NEIGHBOUR's `at the time` and
+exempts a live number; a `(N today)` match states its own currency and is never exempt now. And the
+`verify:slice` destructive-file enumeration in `CLAUDE.md`/`README.md` read FOUR components while the
+set held five (70 + 3 + 4 = 77 ≠ 78) — that list is the operator's only inventory of files that may
+be sitting on disk as deliberately-broken mutants after a killed run, so it carries a measure command
+now instead of a hand count.
+
+**Two things the pass named that this slice files rather than fixes.** `pulse/unplaceable-line-counted-anonymously` reddened its suite by a **TypeError**, not by a value: with the guard removed `sess` is `undefined` and the next `sess.mode` throws, so the mutant measured the crash and no fixture ever separated the two readings numerically — the degenerate shape `verify:slice` exists to surface. Its mutation is now the plausible wrong implementation its own rationale describes (count the row anyway, we just cannot place it), and it dies on `tickets: 1` where the rule says `0`. And neither the cart read nor the session read carries a `.limit()`, so a `db-max-rows` below ~560 would truncate silently and drop a legitimate name from the CUSTOMER-facing Ready column; measured on the project, no `pgrst.db_max_rows` role override exists, so the effective value is the dashboard's API "Max rows" — config this environment cannot read (**P6i**). A fix built on an unmeasured bound is how over-blocking ships.
+
+**Guards.** 37 assertions on the shaper, 16 on the route, 21 on the board's markup (14 of them on
+the new band), and 21 `verify:slice` mutants — six of which exist only because that pass named the
+rules that had none, and one of which the same tool then retired as unreachable: the two liveness arms, the floor's unit, the unregistered sticker, the idle
+table, and the rounding. **`oldestMinutes` was a degenerate fixture**: every offset in the first
+suite was a whole minute, so `floor`, `ceil` and `round` all answered 7 and the rule had no guard at
+all; the fixture is 7m59s now, and a wall must not round a 7-minute wait up to 8 and call a ticket
+late against the KDS's 8-minute amber. `pulse/cooking-loses-to-food-up` SURVIVED its first fixture — two states on
+two sessions, where the ternary and its mutant agree — and the fixture that separates them puts both
+on one session, which is what a table actually looks like mid-service. The bilingual property test
+had never rendered one byte of the band; it now sweeps every state the band can mount. `tx on pg`,
+the wall's largest type and previously uncovered, joins the contrast audit, watched red by reverting
+the dark ink.
+
+### A promo can be put on a table at the counter — and, for the first time, taken off (2026-09-05 · pilot P3)
+
+**`applyPromo` was the only writer of `qr_carts.promo_code` in the app, it only ever wrote a
+non-empty code, and it was reachable only from the diner's own Checkout.** Two things followed, and
+this slice is both. The pilot's own script has a table typing `PILOT15` and then paying CASH — a
+settle that never opens Checkout — so without a staff apply the incentive reached only guests who
+finished on their own phone. And a promo could never be REMOVED, while `lib/floor.ts` had been
+refusing table merges with _"remove it before merging"_ since S1.4: an instruction naming an action
+the product did not implement, so that merge was refused permanently (OPEN-ITEMS P2e, now closed).
+
+**Both writes carry `applyPromo`'s FULL predicate set, and the remove is the sharper case.** Status,
+the TTL-aware pay lock, the TTL-aware settlement freeze, and `live_payment_intent_id is null` — the
+pin these statements null is what a captured charge reconciles against, because `mms_promo_discount`
+returns `promo_granted_cents` VERBATIM whenever it is set (M70). Dropping a code RAISES the total the
+webhook re-derives, so a remove under a live intent is the M152 (a) charged-card-no-order hazard
+reached from the other side. The row count comes from `{ count: "exact" }` and deliberately not
+`.select("id")`: PostgREST 14 re-projects a top-level `or()` against the RETURNING list and 42703s,
+the outage that once gave every checkout a spurious 409 (`lock.ts:66-73`).
+
+**Four decisions that are not style, each with a mutant behind it.**
+
+_The refusal diagnosis moved out of `cart.ts`._ `refusedPromoReason` became `lib/promo-refusal.ts`
+the moment a second writer existed. Two copies of a refusal diagnosis is the drift shape the W17
+rules name, and this one decides what a diner and a server are TOLD about a refused money write; the
+two mutants that guard it now cover both doors instead of one.
+
+_The apply returns a REASON, not a sentence._ The six staff server modules return English `error:`
+strings and P2c defers converting them because that changes a plain-string contract across an auth
+path. This module is new, so it inherits no such debt: it returns a stable key and the render site
+picks the bilingual twin — the `<OutageText>` pattern. The person applying this code at the register
+reads Burmese, and a refusal he cannot read is the pilot failing at the surface it exists to test.
+
+_The apply is bounded per CALLER; the remove is bounded not at all._ A Server Action is a public
+POST, so a stolen staff cookie is all a code-space scan needs — but spending the diner's
+session-keyed `mms_promo_attempt` budget would let a guest who fat-fingers ten codes disable the
+register's control for five minutes. So `STAFF_PROMO_RATE` keys on the staff id. The remove carries
+no guessable secret and is the RECOVERY path the merge refusal points at, so bounding it would lock a
+server out of merging the table too — the over-blocking half of the tip-cap lesson, and one that
+`verify:slice` proved was unguarded until a test for it existed.
+
+_The drill-down shows the DELIVERED discount, never the apply-time quote._ `settlePromoCents` comes
+off the same `getCartTotals` call as the settle total. A pinned grant outranks the live derivation
+and M22's reward-first clamp can take the delivered promo to 0 while the quote stays whole — so the
+two are legitimately different numbers, and quoting one beside a total derived from the other is
+exactly the drift the W17 rules forbid. An earlier draft of this reasoning named a third mechanism
+(voided/comped lines) that had not been true since `20260622060000`; the SQL was re-read and the
+comment corrected, because it is the mechanism the next reader acts on.
+
+**The merge refusal stands, and finally says which table.** The reasoning is unchanged — a merge
+re-parents server-priced lines and the discount is re-derived per cart at settle, so the source's
+code cannot follow and recomputing the target's off a larger subtotal swings what a guest pays. What
+changed is that it is now actionable, and it names the side carrying the code rather than "one of
+these tables", which is not something a server can act on without opening both. Deliberately NOT an
+auto-clear: silently dropping a quoted discount is the outcome that paragraph exists to prevent.
+
+**`PILOT15` is DATA, and it is now LIVE on prod** (applied 2026-09-05 on the owner's explicit authorization, via the one-file MCP path; prod row `20260905220123`, every field verified after the write). `value 0.15` — a FRACTION, because
+`promo_pct_max_100` is `kind <> 'pct' or value <= 1` · `per_session_limit 1` · `min_subtotal_cents 0`
+· `max_uses 200`, the ceiling if the code leaks · `valid_until` bounded but generous, since Day 0 is
+still blocked on hardware and env · `valid_from` null, so the owner-gated apply is the only start
+gate. `on conflict do update` rather than the house `do nothing`, with `active` and `used` excluded:
+a policy row that re-applies green while changing nothing is green for the wrong reason, but a re-run
+must never resurrect a code the owner switched off or hand back a spent budget. ⚠️ It is spendable by DINERS from the moment it was
+applied, through Checkout's existing promo field — the STAFF apply this PR builds lands only when
+the PR merges. `max_uses 200` is the bound on that window.
+
+⚠️ **The code is not dine-in-only and the card says it is.** `promo_codes` has no mode-scope column,
+which PILOT_PLAN §3 P3 accepts outright — the pilot scopes it by who gets the card. Registered as
+OPEN-ITEMS **P3a** rather than fixed, bounded by `max_uses`.
+
+**⚠️ One predicate shipped in the first draft and was REVERTED, and the reversal is the decision
+worth reading.** That draft closed the Stripe Terminal window on these two doors alone with
+`settle_at IS NULL` instead of the TTL-aware disjunct. Three independent blind auditors rejected it
+from three different triggers, and they were right: `settle_at` is only ever nulled by a CLEAN
+release, so an abandoned split (`abortSettlement` has exactly one caller — the diner's own host UI)
+or a terminal decline whose release write failed leaves it set forever. The strict form then refuses
+BOTH promo doors for the life of that cart while `canWrite` — which is TTL-aware — renders the
+controls enabled, and P2e re-opens exactly: the merge refusal points at a remove that is itself
+refused. The window it would have closed is real but PRE-EXISTING and repo-wide — `acquireSettlement`
+deliberately re-acquires on a stale freeze, so `settleCash` already takes money there — so closing it
+on the lowest-money door at the price of a permanent dead end is a net regression. Reverted to
+parity, both directions pinned by mutants, and the real fix (the terminal tender recording its PI on
+the cart) filed as **P3b (high)**.
+
+**Hardening from the deep pass, each with a mutant and a falsification behind it.** The apply now
+refuses OVER a code the cart already carries (`promo_code.is.null,promo_code.eq.<attempted>`) rather
+than replacing it silently — the register's view is a 5s poll, so a diner can apply on their own
+phone while a server holds a stale form, and the refusal names the recovery instead of a fabricated
+`cart_closed`. The remove answers "nothing to clear" WITHOUT writing, because it is deliberately
+unbounded and an unconditional UPDATE makes every tap a table-wide realtime broadcast plus a PostHog
+event plus two `revalidatePath`s. No control uses the native `disabled` attribute — that drops focus
+to `<body>` in a real browser and jsdom does not reproduce it, the exact defect `StaffLangSwitch`
+shipped under a green assertion — so it is `aria-disabled`/`readOnly` with a re-entry guard on a ref.
+The refusal lookup gained a runtime fallback: seven of its reasons arrive as DATA from
+`mms_promo_check` and are cast, so a reason added in SQL would render `<Chrome k={undefined}>` and
+throw inside render. And the focus latch is ONE SHOT — consumed by the first refresh, matched or
+not — so it can never outlive its own action and move a cashier's focus on someone else's change.
+
+**A second blind pass, on the head that was about to merge, found six more.** An independent session
+was handed `.review-bundle/` for `6bb0002` and nothing else; every finding below was re-verified
+against source before being acted on, and one of its two CRITICALs did NOT survive that check — the
+`live_payment_intent_id` predicate it called a new strict gate is PARITY with the diner door, which
+`main` already carried (`git show 5715781:apps/qr/lib/cart.ts` line 459). Correcting a finding is
+part of triaging it; the mechanism is what the next reader acts on.
+
+_The migration file said NOT APPLIED after it had been applied._ CHANGELOG and PILOT_PLAN both said
+applied; the file an operator actually opens said the opposite, so the next §O4 session would have
+re-applied it — and `on conflict do update` overwrites `valid_until` and every other policy column
+with the file's frozen literals, silently reverting a dashboard edit. The banner now names the prod
+row and says outright that a re-apply reverts policy.
+
+_P2e is closed with ONE exception, and it is P3b._ Every writer that nulls `live_payment_intent_id`
+is event-driven and none is a timer; two of them route through `readLiveIntentFor(cartId, uid, era)`
+and so are reachable only by the diner who minted the intent, on the era that minted it. An
+abandoned Checkout (an iOS app-switch drops the release beacon) therefore pins the cart, both staff
+promo doors match zero rows for its life, and `mergeTables` still points at a remove that is itself
+refused. The predicate must NOT be loosened — it is M151's invariant — so the row is qualified and
+P3b is what closes it.
+
+_Three guards were green for the wrong reason._ `floor-detail-promo.test.ts`'s fake discarded every
+filter, so `getTableDetail`'s `.eq("status","open")` had no coverage at all: a settled cart's promo
+code would reach the drill-down and the control would announce a discount on a table with no open
+order. The staff promo code is interpolated into a PostgREST `or()` and its schema had no charset
+bound, so a real code containing a comma would 400 the UPDATE and fail permanently at the register —
+the same interpolation `lock.ts` justifies on the grounds that ITS value is never a client string.
+And the new numerals guard claimed to be "the whole rule" while enforcing one side of it: a
+hard-coded `$5` in `promo.worth` passed every check. All three now have a mutant and a falsification.
+
+**Proven, not asserted.** 50 new `verify:slice` mutants (357 → 407 total, measured against the merge
+base), every one watched turning its suite red — including two that SURVIVED first: the remove's TTL
+check had no over-blocking test, and the split mutex's fixture was degenerate against the strict
+settle predicate. Three new suites where there were none: `lib/rate.test.ts` (bucket uniqueness, key
+pass-through and the FAIL-OPEN decision the module had only ever stated in prose),
+`components/staff/StaffPromoControl.test.tsx`, and a repo-wide dictionary guard that no staff value
+in either tongue carries a Myanmar digit — the money-numerals rule had only ever been checked on the
+diner's `CART_MONEY_KEYS`. `lib/floor.ts` carried ZERO mutants before this while matching two money
+markers (measured against `check-money-coverage`'s list, not counted by eye). The SQL test ran on a
+local PostgreSQL 16 with all 98 migrations applied in order (Docker is unavailable in the agent
+environment, so the Supabase-shaped prerequisites were built by hand): **twelve of its twenty-two
+assertions** were induced red and watched fail, and the header now says exactly which twelve and why
+the rest are pinned by construction — an earlier draft claimed all of them, which is the
+green-for-the-wrong-reason shape this repo audits guards for. The newest case is the one that was
+missing entirely: the migration's `on conflict do update` list EXCLUDES `active` and `used`, so a
+re-apply cannot resurrect a code the owner dark-switched off or hand back a spent budget — and the
+migration is `\ir`-included rather than transcribed, so the case can never drift from the statement
+it is about.
+
+### The rest of the staff console, and a name that says what the screen shows (2026-09-05 · pilot P2, PR B)
+
+**PR A gave the console a language; this puts the control on every screen and the names in both.**
+Thirteen staff pages had no language control at all — a Burmese-first person could reach
+`/staff/tips` and have no way to change what it said. Nineteen files still built their accessible
+names as English template literals, which is fine while the visible label is also English and stops
+being fine the moment the button reads ပြီးပြီ. Both ratchets in `check-staff-lang.mjs` are now
+**empty**: 15/15 pages reach the control, 63 staff files are aria-clean, 0 left to convert.
+
+**What that sentence does NOT claim, because a blind audit caught the version that did.** It first
+read "this gives it to every screen", and the console's own landing board was still saying "The
+floor is quiet" in English under a Burmese greeting — beneath a comment reading "until PR B converts
+them", in PR B. `FloorBoard` and the expo head row are converted now; what is still English is
+enumerated and filed, not implied away: the expo ticket CARD (**P2q**), the bump's two `catch`
+sentences and why the one-line conversion of them is wrong (**P2p**), `TeamManager`'s add-staff
+form, `PinUnlock`, `RoleBadge` and `RelativeTime` (**P2m**), and the 97 server-module `error:`
+strings that were out of scope by owner direction (**P2i**).
+
+**A pre-merge blind pass returned REJECT with a CRITICAL, and it was a WCAG 2.5.3 failure in the
+language the pilot DEFAULTS to.** `<Chrome echo>` under `lang="my"` renders TWO visible strings — the
+Burmese span and `<span class="chrome-en">`, which is `display: block` with no `aria-hidden` — while
+`al()` composed its accessible name from ONE. So the Approve button SHOWED `ခွင့်ပြု` and `Approve`
+and ANNOUNCED `ခွင့်ပြု — Mohinga`: a speech-input user saying the word they can see hit nothing.
+Measured at **15 controls across 6 files** — two more than the review found, because the KDS bump and
+86 hide their key inside `al()` and a search keyed on the `verb:` field cannot see them. Three
+comments and this changelog asserted the opposite, which is the part that stops the next reader
+re-checking. `chromeVisible()` is now the ONE derivation of what Chrome puts on screen, `al()`
+composes every visible label through it, and `Chrome.test.tsx` pins the rendered text against that
+derivation two-way — every rendered part is in the derivation, and once struck out nothing but
+separators remains, so it can neither miss a visible word nor invent one. ⚠️ `aria-hidden` on the
+echo is NOT the fix: 2.5.3 is about text presented VISUALLY, so hiding it makes the mismatch
+invisible to tooling instead of absent.
+
+**The same defect had a second instance the review classified as merely unenforced.** The register
+queue row renders two `echo="inline"` Chromes and built its subject from un-echoed lookups, so the
+row showed `လမ်းလျှောက်လာ · Walk-up` and announced neither English half. Rule 3c cannot reach that arm
+at all — a subject is a runtime string, not a key — so `staff-labels.ts`'s claim that it enforced
+both arms is narrowed to what is true, and `rowSubject` composes through `chromeVisible`.
+
+**The guard now tests itself, on every invocation.** Its eight rules rested entirely on one-time hand
+probes: induce the violation, watch it go red, revert — with nothing re-running them, so a refactor
+that quietly disarmed `verbKeyOf`, `rendersKey`, `contradicts` or `splicedText` would have turned all
+eight into a no-op with CI green. Ten fixture pairs now run inside `check:staff-lang` itself (each a
+source the rule MUST find plus a near-miss it must not), and they were falsified by disarming three
+matchers in turn: `contradicts` → 1 failure, `splicedText` → 3, rule 3d's prohibited-role list → 1.
+
+**Four more guard defects, all in rules written for this slice.** Rule 3c kept only the FIRST verb key
+and searched the whole subtree, so three of four pairings on the expo bump button were unguarded and
+a crossed ternary passed green; it now holds every key, compares branch paths, and compares the echo.
+Rule 3's resolution stopped at variable declarations, so a subject factored into a local `function` —
+which this diff wrote the first of — was skipped whole. Rule 3d asked whether a `role` attribute was
+PRESENT, so `role="presentation"` satisfied it. Rule 4's dead-branch exclusion was a 40-character
+raw-text regex that a prettier-wrapped `{false && (…)}` walks straight past — the exact hole rule 4
+was rewritten to close, reopened by the exclusion meant to narrow it. All four parse now.
+
+**And the language strip was making two screens taller than the viewport.** `/staff/lock` (this slice)
+and `/staff/login` (PR A) each stacked a 44px control above a component whose own root is
+`min-height: 100dvh`, so "Forgot PIN? Sign out" could fall below the fold — while `app/staff/layout.tsx`
+argues for per-surface mounting precisely so a strip is never subtracted from a measured surface.
+`StaffLangShell` owns the viewport height once and both surfaces render through it.
+
+**A table card announced a word the screen never showed, in ENGLISH, and had since S1.2.**
+`TableCard` built its accessible name in a local `const` and interpolated `table.status` raw, so a
+splitting table announced _"settling"_ while the chip beside it read _"Splitting"_ — a WCAG 2.5.3
+mismatch nothing could see, because a name assembled in a local variable is a string no guard was
+looking at. Both halves now read one `FLOOR_STATUS_KEY`. The fixture that pins it is `settling`
+specifically: it is the only status whose database value and displayed word differ, so it is the only
+one that separates the two code paths — and the suite's generic containment loop stays green under
+the mutant, which is exactly why the dedicated assertions exist beside it.
+
+**The outage screen now speaks the device's language, and mounts the control.** `StaffOutageShell`
+is a full-page takeover: it REPLACES the page, so it takes that page's control with it, on the
+fourteen pages that render it, during the outage it exists to explain. It has the strongest claim on
+the switch of any surface in the console — `setStaffLang` is ungated precisely so it keeps working
+when `getStaffAuth()` answers `unavailable`, and there nothing else on the screen does. Its `what`
+prop became a dictionary KEY rather than a free English string; all 21 call sites already passed a
+sentence that had an exact twin.
+
+**Five guard changes, each watched failing first — and four of them found live defects on the way
+in.** Rule 3 now demands a dictionary or label CALL rather than merely the absence of a literal, and
+it also matches the camelCase `ariaLabel=` **prop**: between them they surfaced seven hand-written
+English names the old matcher structurally could not see, including `TableCard`'s own. That prop
+match is load-bearing rather than tidy — `StaggerList` takes `ariaLabel` and writes it straight onto
+its `<ul>`, so the CALLER is the only place the rule can apply, and converting a file's one
+hyphenated site would have emptied its findings, forced its ratchet entry out, and let the literal
+leave the guard's reach permanently. Rule 3b now reads the SAME predicate as rule 3, so a file
+cannot be clean for the ratchet and dirty for the rule at once. **Rule 3c** is new and mechanises
+WCAG 2.5.3 at the call site, which the value test structurally cannot reach: a control whose name
+comes from a `verb` control must render that same key in its children, on the same ternary branch,
+with the same `echo` — falsified against an English label, the right key, a DIFFERENT key, a
+computed key, a CROSSED ternary, and each of the three echo mismatches. What it does **not** do is
+read what `<Chrome>` emits; an earlier draft of this line claimed the pairing was proved
+mechanically end to end, and a pre-merge blind pass showed the gap that left (below). And rule 4 now excludes the outage shell
+from its reachability walk, because every staff page imports it: without that, the shell's new mount
+declared all thirteen un-converted pages "converted" (measured — thirteen false greens).
+
+**A Burmese string may not carry a bare Latin run.** `<Chrome>` marks interpolated slot VALUES —
+that is what keeps `$42.10` in the body face and stops it breaking mid-amount — but Latin written
+literally inside a template is not a slot, so nothing wraps it and it renders in Padauk, announced as
+Burmese. Exactly one value had it (`"LA"` for the timezone) and every other guard was green on it;
+`strings.test.ts` now refuses the shape. `lib/i18n/fill.ts` also states the slot rule it had only
+implied: `{n}`/`{total}` localize and every other name passes through verbatim, so a sentence needing
+two amounts names the second for what it IS (`{tip}`, `{into}`, `{old}`) instead of reaching for
+`{x}` again — the printed K15 glossary shows those braces to the people correcting the Burmese.
+
+**What is deliberately NOT here.** No `error: "…"` string in a staff SERVER module was converted:
+the 97 of them ride the same plain-string contract as the outage arms, and changing it means either
+threading `lang` through an auth path or designing a key-based error protocol. `<OutageText>` at the
+render site is the answer instead, and it reaches further than OPEN-ITEMS P2c assumed — **46** arms,
+not 27, because 19 `error: gate.error` returns inherit `staffGate`'s default copy. The server
+population is filed as **P2i**, with the counts measured rather than carried over.
+
 ### The staff console speaks Burmese on the devices that read it (2026-09-05 · pilot P2, PR A)
 
 **The kitchen tablet and the counter tablet are each read all night by one person who reads Burmese

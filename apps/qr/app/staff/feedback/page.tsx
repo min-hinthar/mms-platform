@@ -5,6 +5,11 @@ import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { Chrome } from "@/components/staff/Chrome";
+import { readStaffLang } from "@/lib/staff-lang-server";
+import { plural, tf } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
 
 export const metadata = { title: "Feedback — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -18,8 +23,9 @@ export const dynamic = "force-dynamic";
 export default async function FeedbackPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
-  if (!caller) return <StaffOutageShell what="feedback" />;
+  if (!caller) return <StaffOutageShell what="what.feedback" />;
 
+  const lang = await readStaffLang();
   // P5 — the read reports its OUTCOME now (lib/feedback.ts): a failed read must not render as
   // "No feedback yet", least of all directly beneath a pilot sheet that reads its own rating count
   // from a query that fails loud. `rows` is only ever consulted when the read actually happened.
@@ -29,9 +35,15 @@ export default async function FeedbackPage() {
 
   return (
     <main style={wrap}>
-      <Link href="/staff" style={back}>
-        ← Floor
-      </Link>
+      <div style={topRow}>
+        <Link href="/staff" style={back}>
+          {/* The arrow is part of the label and lives INSIDE the dictionary value (`floor.back`), so
+              a Burmese console gets "← ခန်းမ" rather than an English word behind a glyph. The
+              visible text is an adequate accessible name on its own — no aria-label to keep in sync. */}
+          <Chrome lang={lang} k="floor.back" />
+        </Link>
+        <StaffLangSwitch lang={lang} />
+      </div>
       {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
           the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
 
@@ -43,20 +55,37 @@ export default async function FeedbackPage() {
           re-mount, or a lowered floor on this page, silently removes. `getPilotNight` carries its
           own, so the component is safe to mount anywhere. */}
       <PilotNightSheet />
-      <h1 style={h1}>Guest feedback</h1>
+      <h1 style={h1}>
+        <Chrome lang={lang} k="floor.fb.title" echo="stack" />
+      </h1>
       <p style={sub}>
-        {!feedback.ok
-          ? "We can’t read the feedback list right now — nothing is lost. Try again in a moment."
-          : rows.length === 0
-            ? "No feedback yet. Diners are asked to rate after every order."
-            : lowCount > 0
-              ? `${lowCount} recent rating${lowCount === 1 ? "" : "s"} need follow-up.`
-              : "All recent ratings look good."}
+        {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
+            `floor.fb.empty`: "No feedback yet" on a read that never happened is the exact fabricated
+            verdict M116/M119 were filed for, and it is worse here because the arm sits under a sheet
+            whose own numbers failed loud. Bilingual like every other arm — a manager who reads
+            Burmese must not be the only one told nothing went wrong. */}
+        {!feedback.ok ? (
+          <Chrome lang={lang} k="floor.fb.unavailable" echo="stack" />
+        ) : rows.length === 0 ? (
+          <Chrome lang={lang} k="floor.fb.empty" echo="stack" />
+        ) : lowCount > 0 ? (
+          <Chrome
+            lang={lang}
+            k={plural(lowCount, "floor.fb.low.one", "floor.fb.low.many")}
+            vars={{ n: lowCount }}
+            echo="stack"
+          />
+        ) : (
+          <Chrome lang={lang} k="floor.fb.allGood" echo="stack" />
+        )}
       </p>
 
       {rows.length > 0 && (
         <ul
           role="list"
+          // QA §A: a `role="list"` with `list-style: none` needs a name. It has no visible label of
+          // its own, so the name is aria-only — `sx()`, never `al()`.
+          aria-label={sx(lang, "floor.fb.a11y.list")}
           style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}
         >
           {rows.map((r) => {
@@ -77,7 +106,9 @@ export default async function FeedbackPage() {
                 >
                   <span
                     role="img"
-                    aria-label={`${r.rating} of 5 stars`}
+                    // Two runtime counts, so this is `tf` and not `sx` — `sx()` takes no vars. Both
+                    // ride count slots, so a Burmese console announces "ကြယ် ၅ ထဲမှ ၄ ကြယ်".
+                    aria-label={tf(lang, "floor.fb.a11y.stars", { n: r.rating, total: 5 })}
                     style={{
                       display: "inline-flex",
                       alignItems: "center",
@@ -94,7 +125,12 @@ export default async function FeedbackPage() {
                       />
                     ))}
                   </span>
-                  {low && <span style={followChip}>Needs follow-up</span>}
+                  {/* A badge, not a control — echo={false}: two scripts cannot legibly stack in a chip. */}
+                  {low && (
+                    <span style={followChip}>
+                      <Chrome lang={lang} k="floor.fb.followUp" />
+                    </span>
+                  )}
                   <span
                     style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
                   >
@@ -128,6 +164,14 @@ export default async function FeedbackPage() {
 }
 
 const wrap: CSSProperties = { padding: 24, maxWidth: 560, margin: "0 auto" };
+// The back link and the language control share one row, so the control costs no vertical space on a
+// surface whose card list is what a manager actually scans.
+const topRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: 12,
+};
 const back: CSSProperties = {
   color: "var(--ac)",
   fontWeight: 700,

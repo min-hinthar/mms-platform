@@ -74,6 +74,40 @@ describe("the dictionary guards", () => {
     expect(burmeseDigits).toEqual([]);
   });
 
+  it("P3 — NO dictionary value anywhere carries a Myanmar digit, either tongue", () => {
+    // The rule above walks `CART_MONEY_KEYS` only, so it covers the diner receipt and nothing else.
+    // Every staff money string — `promo.worth`'s `{m}`, the register's settle lines, the tip ladder —
+    // lives in `STAFF`, which that list cannot name, so the staff half of the money-numerals rule had
+    // no guard at all. Burmese numerals enter ONLY through `localizeCount` at render (fill.ts), for
+    // `{n}`/`{total}` counts, so a literal ၀–၉ in a TEMPLATE is by construction a number that skipped
+    // the classifier — the one place that decides money and identifiers stay Latin. Checked on both
+    // tongues because an `en` value with Burmese digits is the same defect wearing the other hat.
+    //
+    // ⚠️ This is ONE SIDE of the numerals rule, and an earlier version of this comment claimed it was
+    // "the whole rule instead of a list of it" — an overclaim caught by the pre-merge blind pass on
+    // #261. `staff.ts` states the rule two ways: Burmese numerals in prose counts, and Latin wherever
+    // a number is an identifier or an AMOUNT. Banning ၀–၉ enforces the first half only; the second is
+    // the case below.
+    const withMyDigits = allEntries
+      .filter(([, , v]) => /[၀-၉]/.test(v.my) || /[၀-၉]/.test(v.en))
+      .map(([id]) => id);
+    expect(withMyDigits).toEqual([]);
+  });
+
+  it("P3 — no dictionary value hard-codes a MONEY AMOUNT, in either tongue", () => {
+    // The other half, and the one the blind pass named an evasion for: rewrite `promo.worth` as
+    // `{ en: "$5 off this order", my: "ဒီအော်ဒါ $5 လျှော့" }` and every guard above stays green —
+    // no Myanmar digit, the {slot} sets still match (both empty), both values still carry Myanmar
+    // script. A hard-coded amount would ship on the sentence flagged K15-HIGH as the one a cashier
+    // reads out before taking cash, and it can never be right: money reaches these templates ONLY
+    // through the `{m}` slot, preformatted by `fmt()` from a server-derived figure. A literal is by
+    // construction a number no code computed. Zero today, measured, so the floor is the whole set.
+    const hardCoded = allEntries
+      .filter(([, , v]) => /[$£€¥]\s?\d|\d+\s?(?:¢|cents\b)/i.test(`${v.en} ${v.my}`))
+      .map(([id]) => id);
+    expect(hardCoded).toEqual([]);
+  });
+
   it("the S14a glossary holds — the order NOUN is အော်ဒါ, never the formal မှာယူမှု", () => {
     const drifted = allEntries.filter(([, , v]) => v.my.includes("မှာယူမှု")).map(([id]) => id);
     expect(drifted).toEqual([]);
@@ -90,13 +124,129 @@ describe("the dictionary guards", () => {
     expect(nowBurmese).toEqual([]);
   });
 
+  it("P2 — a STAFF my value carries no bare Latin run: <Chrome> can only mark INTERPOLATED values", () => {
+    // `Chrome`'s `renderMyTemplate` splits a MY template on its `{slots}` and wraps a slot VALUE in
+    // `<span lang="en">` when it contains Latin — which is what keeps `$42.10` in the body face and
+    // stops it breaking mid-amount inside a Burmese run. Latin written LITERALLY inside the template
+    // is not a slot, so nothing wraps it: it renders in Padauk, at Burmese leading, announced as
+    // Burmese. That is the defect `check-staff-lang.mjs` rule 5 exists for, one layer below where
+    // rule 5 can look — the guard inspects the CALL SITE, this inspects the STRING.
+    //
+    // Scoped to STAFF deliberately: `Chrome` is the staff renderer, and the diner dictionaries reach
+    // the DOM through a different path with its own rules. `STAFF_LATIN_BY_DESIGN` is the one
+    // exemption, and it already carries a reason per entry.
+    //
+    // Found while converting the register: one value said "LA" for the timezone inside an otherwise
+    // Burmese sentence, and every other guard on this file was green on it.
+    const bad = Object.entries(STAFF)
+      .filter(([k]) => !(k in STAFF_LATIN_BY_DESIGN))
+      .filter(([, v]) => /[A-Za-z]/.test(v.my.replace(/\{[a-z]+\}/g, "")))
+      .map(([k]) => k);
+    expect(bad).toEqual([]);
+  });
+
+  it("P2 — two keys on ONE surface may not share a Burmese value while their English differs", () => {
+    // A Burmese reader must not lose a distinction the English reader has. The case that produced
+    // this rule: `settle.cash.settling` ("Settling…") and `settle.clear.clearing` ("Clearing…") both
+    // read `ရှင်းနေပါတယ်…`, and BOTH controls mount on `FloorDetailLive` — so under `my` the busy
+    // state of "take the guest's cash" and of "close the session and route away" were the same
+    // sentence, one of them destructive. Nothing caught it: the only duplicate-MY assertion in this
+    // file fires for declared plural pairs, which these are not.
+    //
+    // SCOPED TO ONE SURFACE deliberately. Across surfaces a shared Burmese word is the NORM and the
+    // point of the namespace — `kds.table` and `floor.table` are both စားပွဲ {id} because they are
+    // the same words on two screens. An unscoped version of this rule reports 11, of which 10 are
+    // that. Scoping it drops the noise to a single reasoned exemption, which is the difference
+    // between a guard and a whitelist that rots.
+    //
+    // English is compared with punctuation and case folded, so "All-day" / "All day" is one word.
+    const SAME_WORD_BY_DESIGN: Readonly<Record<string, string>> = {
+      "what.floor|what.room":
+        "The floor and the room are one physical space; the console says ခန်းမ for both, and the two English forms exist only because the sentences around them differ.",
+    };
+    const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
+    const norm = (v: string) =>
+      v
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    const groups = new Map<string, string[]>();
+    for (const [k, v] of Object.entries(STAFF)) {
+      if (paired.has(k)) continue;
+      const g = `${k.split(".")[0]}\u0000${v.my}`;
+      groups.set(g, [...(groups.get(g) ?? []), k]);
+    }
+    const collisions = [...groups.values()]
+      .filter((ks) => ks.length > 1)
+      .filter((ks) => new Set(ks.map((k) => norm(STAFF[k as keyof typeof STAFF].en))).size > 1)
+      .map((ks) => ks.sort().join("|"))
+      .filter((id) => !(id in SAME_WORD_BY_DESIGN));
+    expect(collisions).toEqual([]);
+    // …and an exemption may not outlive the collision it excuses.
+    const stale = Object.keys(SAME_WORD_BY_DESIGN).filter((id) => {
+      const ks = id.split("|");
+      return (
+        ks.some((k) => !(k in STAFF)) ||
+        new Set(ks.map((k) => STAFF[k as keyof typeof STAFF].my)).size !== 1
+      );
+    });
+    expect(stale).toEqual([]);
+  });
+
+  it("P2 — two keys on ONE surface saying the same English must say the same Burmese", () => {
+    // The INVERSE of the rule above, and the one the parallel conversion actually needed. Ten agents
+    // wrote ten fragments at once; the merge put them side by side and they had forked the Burmese
+    // for identical English on shared records. The worst was the void/comp reason codes: the loss
+    // sheet and the approvals queue name the SAME database values, so a cook tapped `မှားပြီး မှာမိတာ`
+    // and the manager approved the same request reading `မှားပြီး မှာမိ`. "Voided" changed wording
+    // between the writable and read-only branches of ONE list in ONE card.
+    //
+    // Decoration is stripped from BOTH tongues before comparing, so a nav pill ("Tips today →") and
+    // the page title it points at are one entry, not a finding — that arrow is the only difference
+    // and it is present in both halves.
+    const SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN: Readonly<Record<string, string>> = {
+      "browse.price.a11y.list|browse.price.title":
+        "The page title names the surface (မီနူး ဈေးနှုန်း); the list's accessible name is plural because it names a LIST of them (…များ). Burmese marks that where English does not, so the two values differ for the same reason the English does not need to.",
+    };
+    const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
+    const DECOR = /^[\s·+←→↑↓•\-—]+|[\s·+←→↑↓•\-—]+$/gu;
+    const core = (v: string) => v.replace(DECOR, "").trim();
+    const normEn = (v: string) =>
+      core(v)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+    const groups = new Map<string, string[]>();
+    for (const [k, v] of Object.entries(STAFF)) {
+      if (paired.has(k)) continue;
+      const g = `${k.split(".")[0]}\u0000${normEn(v.en)}`;
+      groups.set(g, [...(groups.get(g) ?? []), k]);
+    }
+    const forks = [...groups.values()]
+      .filter((ks) => ks.length > 1)
+      .filter((ks) => new Set(ks.map((k) => core(STAFF[k as keyof typeof STAFF].my))).size > 1)
+      .map((ks) => ks.sort().join("|"))
+      .filter((id) => !(id in SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN));
+    expect(forks).toEqual([]);
+    // …and an exemption may not outlive the fork it excuses.
+    const stale = Object.keys(SAME_ENGLISH_DIFFERENT_WORD_BY_DESIGN).filter((id) => {
+      const ks = id.split("|");
+      return (
+        ks.some((k) => !(k in STAFF)) ||
+        new Set(ks.map((k) => normEn(STAFF[k as keyof typeof STAFF].en))).size !== 1 ||
+        new Set(ks.map((k) => core(STAFF[k as keyof typeof STAFF].my))).size === 1
+      );
+    });
+    expect(stale).toEqual([]);
+  });
+
   it("P2 — the staff key namespace is dotted and surface-scoped", () => {
     // At 100+ strings across seven surfaces the same English word means different things: `All` is
     // a station chip AND a browser category; `Pickup` is a channel, a floor mode and a slot. A flat
     // key would silently collapse them. A segment may LEAD with a digit — `kds.86` is the kitchen
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
     // like an identifier.
-    const SURFACES = /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|pilot)$/;
+    const SURFACES = /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

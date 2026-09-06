@@ -22,10 +22,13 @@ export async function openCartFor(sessionId: string) {
     return { session: null, cart: null, unavailable: false as const };
   const { data: cart, error: cartError } = await db
     .from("qr_carts")
-    // `promo_code` is here rather than in a second read at the settle site (P5): the register is the
-    // only path a cash order takes, so without it a pilot table that pays cash is invisible to the
-    // funnel — no Stripe event ever fires for it. Widening the ONE shared read keeps a single shape.
-    .select("id,locked,locked_at,settle_at,tab_type,promo_code")
+    // `promo_code` / `promo_granted_cents` are here rather than in a second read at the call sites.
+    // P3's staff remove answers "nothing to clear" without writing (see `clearPromoForTable`), and
+    // P5's funnel needs the code on the ONE path a cash order takes — the register — because no
+    // Stripe event ever fires for it, so a pilot table paying cash would otherwise be invisible.
+    // Two more columns on a row every settle path already reads beats a second round trip, and
+    // widening the ONE shared read keeps a single shape for both callers.
+    .select("id,locked,locked_at,settle_at,tab_type,promo_code,promo_granted_cents")
     .eq("session_id", sessionId)
     .eq("status", "open")
     .maybeSingle();

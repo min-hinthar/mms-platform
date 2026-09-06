@@ -58,7 +58,7 @@ export default async function GlossaryPage() {
   const caller = await requireStaffPage();
   // W10b — an unknowable auth answer keeps the URL and renders the outage shell, never a login
   // redirect that costs the person their place.
-  if (!caller) return <StaffOutageShell what="the word-check sheet" />;
+  if (!caller) return <StaffOutageShell what="what.glossary" />;
 
   const lang = await readStaffLang();
   const glossary = buildGlossary();

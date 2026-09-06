@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { authorizeDevice } from "@/lib/device-auth";
+import { isUuid } from "@/lib/ticket-names";
+import {
+  PULSE_PASS_LINGER_MS,
+  shapeBoardPulse,
+  type BoardPulse,
+  type PulseCartRow,
+  type PulseLineRow,
+  type PulseSessionRow,
+} from "@/lib/board-pulse";
 
 export const runtime = "nodejs"; // node:crypto timingSafeEqual
 export const dynamic = "force-dynamic";
@@ -12,6 +21,9 @@ export const dynamic = "force-dynamic";
  * IS, so a mode added later has to be added here deliberately instead of appearing on the wall.
  */
 const BOARD_MODES = new Set(["pickup", "scango"]);
+
+/** Bound the pulse's line scan the way the KDS bounds its own (`lib/kitchen.ts`). */
+const PULSE_LINE_CAP = 500;
 
 /**
  * W3e: the order-ready board's poll (GET /api/board?k=<device token>). The TV can't join the private
@@ -25,13 +37,40 @@ const BOARD_MODES = new Set(["pickup", "scango"]);
  * can be signed in with the same email OTP as the portals (owner, 2026-08-21). Neither credential ⇒
  * 401; no token configured AND not staff ⇒ 503 (the board stays opt-in config, docs/ENV.md); an auth
  * read that FAILS ⇒ 503 with the outage sentence, never 401 — "we cannot tell" is not "you are not
- * allowed". The response is deliberately minimal — first name (diner-chosen call-out),
- * short order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail
- * the diner's own /track shows.
+ * allowed". The `orders` array is deliberately minimal — first name (diner-chosen call-out), short
+ * order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail the
+ * diner's own /track shows. ⚠️ That sentence used to describe the whole response and no longer can:
+ * P6's `pulse` publishes dish names (unattributed, and only above an exposure floor) and dine-in
+ * TABLE NUMBERS. It still publishes no id and no amount anywhere, and no single frame determines
+ * which dish a named table is having. ⚠️ THAT SENTENCE USED TO READ "no single frame joins the two
+ * sections", which was FALSE and shipped for four commits: the floor counted parties only, so three
+ * parties who all ordered mohinga produced `3 Cooking · Table 4 Cooking · All day — Mohinga ×4`, and
+ * one rail row names every cooking table on the strip. `PULSE_RAIL_MIN_DISHES` is the term that
+ * closes it; the bound is about dish IDENTITY, and what a passing frame still permits — the SET of
+ * dishes the cooking tables collectively ordered — is the aggregate this band exists to publish.
+ * ⚠️ It does NOT claim the sections can never be joined: a takeaway cart named in `orders` also
+ * feeds `pulse.tickets` and the rail, so an observer differencing two polls across that customer's
+ * Preparing→Ready transition reads their dishes. That channel is `lib/board-pulse.ts`'s frame-delta
+ * residual (OPEN-ITEMS P6a); an earlier draft of this sentence asserted the stronger guarantee, and
+ * the sibling module documented the counterexample to it three files away.
  *
  * Scope: takeout + grocery ONLY (`table_number is null` — dine-in status stays on the diner's phone).
  * picked_up rows ride along for 10 minutes (togo_picked_up_at) so a just-collected name lingers briefly
  * in the Ready column, then auto-clears (SPEC-KDS §6).
+ *
+ * P6 — the SECOND section, for the second audience in the same room. `pulse` carries the kitchen's
+ * load (ticket count · oldest fire time · an unattributed dish rail) and dine-in as TABLE NUMBER +
+ * a coarse status, and NOTHING else: the boundary is `lib/board-pulse.ts`'s output type, which has
+ * no field for a name, an id, a per-table dish list, a modifier or an amount. The `orders` array
+ * above is untouched by this — dine-in still never reaches it.
+ *
+ * ⚠️ TWO READ POSTURES, and the difference between them is the point:
+ *  · the SESSION-MODE read is fail-CLOSED (503, nothing published). Its failure would let dine-in
+ *    names onto the Ready column, so a dropped read there exposes MORE than a successful one.
+ *  · the PULSE reads are fail-DEGRADED (`pulse: null`, the Ready column still publishes). Their
+ *    failure can only REMOVE information, never add any — and `null` is not zero: the screen renders
+ *    "we can't read the kitchen", never "all clear" over a full wok, which is the lie `lib/kitchen.ts`
+ *    already learned to refuse.
  */
 export async function GET(req: NextRequest) {
   const gate = await authorizeDevice("board", req.nextUrl.searchParams.get("k") ?? "");
@@ -75,35 +114,111 @@ export async function GET(req: NextRequest) {
   // Bound the scan to today's service (parity with the reconciler's 24h window) — an unbumped stray
   // "ready" from the morning must never crowd a just-ready customer off the ASC + limit read.
   const dayFloor = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await db
-    .from("qr_orders")
-    .select("id,session_id,togo_status,customer_name,togo_ready_at,togo_picked_up_at,created_at")
-    .is("table_number", null)
-    .gte("created_at", dayFloor)
-    .or(
-      `togo_status.in.(preparing,ready),and(togo_status.eq.picked_up,togo_picked_up_at.gte.${since})`,
-    )
-    // A HELD scheduled order (fire_at still in the future) isn't being prepared yet — keep it off the
-    // public board until the kitchen actually starts (the diner's own /track carries their status).
-    // Separate .or() calls AND together in PostgREST.
-    .or(`fire_at.is.null,fire_at.lte.${nowIso}`)
-    .order("created_at", { ascending: true })
-    .limit(60);
+  // P6 — the DATABASE clock, for the pulse alone. Every other window on this route is coarse
+  // (10 minutes, 24 hours) and app-clock skew cannot reach it; the pulse's undo-grace comparison is
+  // 10 SECONDS wide, and `lib/kitchen.ts` documents what a skew does there — a line the DB still
+  // considers undoable surfaces as cooking. `mms_now` is the same read the KDS makes, with the same
+  // app-clock fallback when the rpc itself fails.
+  const [nowRes, ordersRes] = await Promise.all([
+    db.rpc("mms_now"),
+    db
+      .from("qr_orders")
+      .select("id,session_id,togo_status,customer_name,togo_ready_at,togo_picked_up_at,created_at")
+      .is("table_number", null)
+      .gte("created_at", dayFloor)
+      .or(
+        `togo_status.in.(preparing,ready),and(togo_status.eq.picked_up,togo_picked_up_at.gte.${since})`,
+      )
+      // A HELD scheduled order (fire_at still in the future) isn't being prepared yet — keep it off
+      // the public board until the kitchen actually starts (the diner's own /track carries their
+      // status). Separate .or() calls AND together in PostgREST.
+      .or(`fire_at.is.null,fire_at.lte.${nowIso}`)
+      .order("created_at", { ascending: true })
+      .limit(60),
+  ]);
+  const { data, error } = ordersRes;
   if (error) {
     console.error("[board] read failed:", error.message);
     return NextResponse.json({ error: "Board read failed" }, { status: 500 });
   }
+  // ⚠️ VALIDATED, not merely defaulted. `dbNowMs` feeds two `new Date(...).toISOString()` calls
+  // below, and `toISOString()` on a NaN date THROWS `RangeError` — which would 500 the customer-
+  // facing Ready column, a surface that had no dependency on this rpc before P6 added one. A
+  // `mms_now` answer we cannot parse falls back to the app clock, exactly as a failed rpc does.
+  const dbNowMs = (() => {
+    const fromDb = nowRes.data === null ? NaN : new Date(nowRes.data).getTime();
+    return Number.isFinite(fromDb) ? fromDb : Date.parse(nowIso);
+  })();
+
+  // ── P6: the kitchen pulse's own reads ────────────────────────────────────────────────────────
+  // Live kitchen lines, plus the just-bumped ones a `ready` table is derived from. Bounded to
+  // today's service for the same reason the orders read is, and ordered oldest-first because the
+  // oldest LIVE ticket is the number the band exists to state and must never be the row that gets
+  // dropped. ⚠️ The cap's honest behaviour, stated rather than flattered: it drops the NEWEST rows,
+  // so past 500 the count under-reports (safe) but its COMPOSITION skews old (not safe) — the wall
+  // would age on rows the shaper is about to discard as non-live. SQL cannot apply the session
+  // liveness test that discards them (it lives two reads away), so the cap is a real bound and not
+  // a formality; at teahouse volume it is far out of reach, and it is filed rather than assumed.
+  const pulseDayFloor = new Date(dbNowMs - 24 * 60 * 60 * 1000).toISOString();
+  const passFloor = new Date(dbNowMs - PULSE_PASS_LINGER_MS).toISOString();
+  const linesRes = await db
+    .from("qr_cart_items")
+    .select("cart_id,menu_item_id,name,qty,state,fire_at,bumped_at")
+    .not("fire_at", "is", null)
+    .gte("fire_at", pulseDayFloor)
+    .or(`state.in.(fired,in_progress),and(state.eq.served,bumped_at.gte.${passFloor})`)
+    .order("fire_at", { ascending: true })
+    .limit(PULSE_LINE_CAP);
+  if (linesRes.error) console.error("[board] pulse line read failed:", linesRes.error.message);
+  // ANNOTATED, never `as`. Three unchecked casts stood here and every one was unnecessary — the
+  // generated types already match — so they bought nothing and cost the only mechanical check that
+  // the shaper's row types still describe the columns this route selects. That is the
+  // `.returns<T>()` hazard the delivery repo learned the expensive way: a cast replaces the
+  // generated type, so a column that stops existing is invisible to tsc, and PostgREST rejects the
+  // WHOLE query for one unknown column. On a public payload path an annotation is the cheap belt.
+  const lines: PulseLineRow[] = linesRes.data ?? [];
+
+  // The parent carts, filtered to the two statuses whose lines are legitimately in the kitchen —
+  // `lib/kitchen.ts`'s rule, restated: dine-in cooks while OPEN, and a to-go batch fired at
+  // checkout lives on a PAID cart. A line whose cart is absent from this answer is dropped by the
+  // shaper, never counted anonymously.
+  const cartIds = [...new Set(lines.map((l) => l.cart_id))];
+  const cartsRes = cartIds.length
+    ? await db
+        .from("qr_carts")
+        .select("id,session_id,status")
+        .in("id", cartIds)
+        .in("status", ["open", "paid"])
+    : { data: [] as { id: string; session_id: string; status: string }[], error: null };
+  if (cartsRes.error) console.error("[board] pulse cart read failed:", cartsRes.error.message);
+  const pulseCarts: PulseCartRow[] = cartsRes.data ?? [];
+  // A failed read is UNKNOWN, not empty. `pulse: null` is the whole degrade: the Ready column above
+  // still publishes, and the screen says it cannot read the kitchen rather than drawing an empty
+  // band that reads "all clear".
+  const pulseReadable = !linesRes.error && !cartsRes.error;
 
   // Takeout + grocery ONLY (SPEC-KDS §6: dine-in status stays on the diner's phone). `table_number
   // is null` alone isn't sufficient — a dine-in session at an UNREGISTERED sticker stamps null too,
   // and its to-go box gets a togo_status (adversarial MED-2). Resolve the session's mode (sessions
   // are closed, never deleted — the read is durable; the expo does the same) and drop dine-in rows.
+  //
+  // P6 widens this ONE read rather than adding a second: the pulse needs `status` and
+  // `table_number` for the same rows plus the pulse carts' sessions, and two reads of one table
+  // could disagree about a session mid-transition — the orders half publishing a name the pulse
+  // half had already reclassified. One read, one answer, one failure posture.
   const sessionIds = [
-    ...new Set((data ?? []).map((o) => o.session_id).filter((s): s is string => !!s)),
+    ...new Set(
+      [...(data ?? []).map((o) => o.session_id), ...pulseCarts.map((c) => c.session_id)].filter(
+        (s): s is string => !!s,
+      ),
+    ),
   ];
   const { data: sessions, error: sessionsError } = sessionIds.length
-    ? await db.from("table_sessions").select("id,mode").in("id", sessionIds)
-    : { data: [] as { id: string; mode: string }[], error: null };
+    ? await db
+        .from("table_sessions")
+        .select("id,mode,status,table_number,expires_at")
+        .in("id", sessionIds)
+    : { data: [] as PulseSessionRow[], error: null };
   // M108-adjacent: this filter is the ONLY thing keeping dine-in off a wall-mounted public screen,
   // and it read fail-OPEN — a failed read left the map empty, every `undefined !== "dinein"` passed,
   // and the whole table's diner-chosen first names went up on the TV. The exposure a dropped read
@@ -144,8 +259,37 @@ export async function GET(req: NextRequest) {
       readyAt: o.togo_ready_at ?? null,
     }));
 
+  // The Burmese half of the all-day rail, from the LIVE catalog — ADVISORY, the P1 posture: a failed
+  // read logs and the rail renders the English snapshot names, which is exactly what a wall with no
+  // rail at all showed yesterday. A name read cannot misidentify anything, and withholding the whole
+  // band over a label would be the over-blocking direction. Partitioned to uuid-shaped ids BEFORE
+  // the IN-list: `menu_item_id` is a soft ref that also carries grocery barcodes, and one malformed
+  // value fails the whole query.
+  const menuIds = [...new Set(lines.map((l) => l.menu_item_id).filter(isUuid))];
+  const menuRes =
+    pulseReadable && menuIds.length
+      ? await db.from("menu_items").select("id,name_my").in("id", menuIds)
+      : { data: [] as { id: string; name_my: string | null }[], error: null };
+  if (menuRes.error)
+    console.error(
+      "[board] pulse name_my read failed — the rail renders EN:",
+      menuRes.error.message,
+    );
+
+  const pulse: BoardPulse | null = pulseReadable
+    ? shapeBoardPulse({
+        lines,
+        cartById: new Map(pulseCarts.map((c) => [c.id, c])),
+        sessionById: new Map<string, PulseSessionRow>((sessions ?? []).map((s) => [s.id, s])),
+        nameMyByItem: new Map(
+          (menuRes.error ? [] : (menuRes.data ?? [])).map((m) => [m.id, m.name_my]),
+        ),
+        nowMs: dbNowMs,
+      })
+    : null;
+
   return NextResponse.json(
-    { orders, serverNow: new Date().toISOString() },
+    { orders, pulse, serverNow: new Date().toISOString() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

@@ -1559,3 +1559,321 @@ Two rules from this. **Measure a guard change against the subject set before tru
 the set, diff it against the expected list, read every arrival. And **a dead-exemption rule is
 load-bearing, not tidy**: it is the only mechanism here that turns "the selector stopped reaching a
 function" into a failure instead of a silence.
+
+## #86 — a name-check that stops at the dictionary call is checking the wrong half (pilot P2 PR B blind pass, 2026-09-05)
+
+`check-staff-lang.mjs`'s rule 3 asks "is this accessible name built from the dictionary?" — and its
+splice check returned the moment it reached a `ts`/`tf`/`al`/`sx` call, under a comment stating the
+reason: _"its arguments are keys and values, not copy"_. Half of that sentence is false. A KEY is not
+copy; a **slot VALUE is copy whenever a person hears a word in it**. So this passed, green:
+
+```ts
+const callOut = ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : …;
+aria-label={tf(lang, "expo.a11y.cardBag", { x: callOut })}   // → "Table 7 အတွက် ပါဆယ်ထုပ်"
+```
+
+An English word the console **already owns** (`floor.table` = `"စားပွဲ {id}"`) spoken inside a Burmese
+sentence, at a call site the guard certified as converted. Three things generalize:
+
+- **A guard that skips a subtree is making a claim about that subtree.** Write the claim down and then
+  falsify it. This one was written down — and nobody re-asked _values of WHAT?_ (the #223 shape:
+  "idempotent, therefore safe", safe against WHAT?).
+- **Resolution must be TRANSITIVE or it is theatre.** The defect was two hops
+  (`verifyWho` → `callOut` → `` `Table ${n}` ``). A one-hop walk would have reported clean and felt
+  thorough.
+- **A guard whose findings need hand-sorting teaches people to skim it.** The first cut followed every
+  identifier and reported four literals nobody hears: `"comp"`, `"grocery"`, `"fired"` (discriminants
+  in `===` tests) and `"kds.channel.dinein"` (a key reached through a key map). The fix is to follow
+  only **string-shaped** expressions (`stringish()`: literal · template · `+`/`??`/`||` · ternary ·
+  identifier-thereof — never a call, never a property read) and to skip key positions by **argument
+  index**, not by shape. Precision is what makes the true positive believable.
+
+## #87 — "the first match" and "somewhere in the subtree" are two different ways to guard nothing (pilot P2 PR B blind pass, 2026-09-05)
+
+The same file's rule 3c mechanizes WCAG 2.5.3: a control named from a `verb` must RENDER that verb.
+It did two things, each defensible alone and fatal together:
+
+```js
+if (v && found === null) found = v;   // keep the FIRST verb key
+…
+if (!rendersKey(el, found.key))       // search the WHOLE element subtree
+```
+
+On a four-branch button (`grocery × firstStage`), only branch one was ever checked — and because the
+search was subtree-wide, a **crossed** pairing (announce `deactivate` while `row.active`, render
+`reactivate` on that same branch) passed with both keys present. Measured, not reasoned: breaking
+branch one's `<Chrome>` reddened; breaking any of the other three did not.
+
+The rule now collects **every** verb key and compares BRANCH PATHS (`armPath` records the ternary arms
+an expression sits under; `contradicts` refuses a render that disagrees on a shared condition). Two
+things to keep:
+
+- **`uniqueness ≠ liveness` has a sibling: `presence ≠ correspondence`.** "The key appears under this
+  element" is not "this branch shows the word this branch announces". When a rule is about a PAIRING,
+  the matcher has to name both halves and the condition that selects them.
+- **State the limit in the code.** Conditions compare as normalized source text, so `firstStage` and
+  `!firstStage` read as two conditions and a pairing crossed that way still passes. Writing that down
+  is what stops the next reader from trusting it further than it goes — the failure mode that produced
+  the paragraph in #86.
+
+## #88 — three props localized out of four reads as finished at every review that looks at props (pilot P2 PR B blind pass, 2026-09-05)
+
+`StaffOutageShell` passes `title`, `body` and `escalatedBody` through `<Chrome>`; `packages/ui`'s
+`OutageState` widened all three to `ReactNode` precisely so it could. The screen still rendered a
+Burmese heading over a button reading **"Try again"** — `RetryButton` hardcoded `label = "Try again"`
+with no prop to pass, and the retry is the ONE control on the one screen that exists because
+everything else is unreachable.
+
+Nobody in-session saw it, twice: the props read as complete, and the diff read as complete. The blind
+pass saw it because it read the **rendered card**, not the prop list. Two rules out of it:
+
+- **Localization is finished per SCREEN, never per prop.** Enumerate what a person sees — heading,
+  body, control, busy state, empty state, error — and tick the list.
+- **When you widen a copy prop to ReactNode, add it to the guard's prop list IN THE SAME COMMIT.** Rule
+  5's list said `["title", "subtitle"]` under a comment reading _"Only the two EmptyState slots exist
+  today"_ — written in the very diff that created `body` and `escalatedBody`. A comment falsified by
+  its own commit is the cheapest defect there is to prevent and the easiest to ship.
+- **A name has to land on an element that can BEAR one.** `<div tabIndex={-1} aria-label=…>` is the
+  `generic` role, which prohibits an author name — the browser discards it. Two live instances, one of
+  them the panel a cashier's focus is deliberately moved to as the card reader takes the transaction.
+  Now `rule 3d`, which is one attribute to fix and was invisible to every other check in the repo.
+
+## #89 — a bilingual control shows TWO strings and the label module built the name from ONE (pilot P2 PR B, pre-merge blind pass, 2026-09-06)
+
+The staff console renders a bilingual pair through one component: `<Chrome echo>` under `lang="my"`
+emits the Burmese span **and** an English echo — `display: block`, no `aria-hidden`, i.e. text a
+sighted person reads. `al()` built the control's `visible` from `ts(lang, key)`, one tongue. So:
+
+```
+button SHOWS    ခွင့်ပြု   Approve
+button ANNOUNCES ခွင့်ပြု — Mohinga
+```
+
+WCAG 2.5.3 (Label in Name) fails: a speech-input user says the word they can see and hits nothing.
+**15 controls across 6 files, in the language the pilot DEFAULTS to** — and under `lang="en"` there
+is no defect at all, because Chrome returns a bare text node and both halves are the same string.
+
+- **A default that only one locale exercises is a locale-shaped blind spot.** Every in-session pass,
+  every mutant and the whole test suite ran green because the arms that can express the bug are
+  exactly `my` + echo. A fixture set that omits the non-default locale is degenerate for anything
+  bilingual — and "degenerate fixture" is the same diagnosis `verify:slice` gives for a surviving
+  mutant.
+- **`aria-hidden` is not the fix, and reaching for it is the tell.** 2.5.3 is about text presented
+  VISUALLY. Hiding the echo from the a11y tree leaves it on screen and makes the mismatch invisible
+  to tooling instead of absent — trading a detectable failure for an undetectable one.
+- **When two modules must agree about what is on screen, one of them must not guess.** The fix is a
+  single `chromeVisible(lang, key, echo, vars?)` that both the renderer's test and the label module
+  read, pinned two-way: every rendered part appears in the derivation, and striking them out leaves
+  only separators — so it can neither miss a visible word nor invent one.
+
+## #90 — "unenforced" and "correct" are different claims, and the second one is the one to check (pilot P2 PR B, 2026-09-06)
+
+The same review filed `al()`'s `subject` arm as a HIGH because the guard could not enforce it. True —
+a subject is a runtime string, not a key, so no static rule can match it. But the interesting question
+was never whether the rule covered the arm; it was whether the one shipped call site was RIGHT. It
+was not: the register queue row renders two `echo="inline"` Chromes and built its subject from
+un-echoed lookups, so the row showed `လမ်းလျှောက်လာ · Walk-up` and announced neither English half.
+
+**An unenforced rule is a place to go LOOK, not a place to note.** The finding said "nothing checks
+this"; five minutes of computing what that call site actually produces turned it into a second live
+defect of the CRITICAL's exact shape. When a review tells you a rule has no teeth, the follow-up is
+to hand-check every site the rule would have covered — there is usually exactly one, and it is
+usually why the gap was never noticed.
+
+## #91 — a guard whose red-first proofs are one-time hand probes is a guard with no test (pilot P2 PR B, 2026-09-06)
+
+Eight rules, ~1300 lines, every falsification claim in the header written as fact — and each proved
+exactly once, by inducing the violation, watching it go red, and reverting. Nothing re-ran them. A
+refactor that quietly disarmed `verbKeyOf`, `rendersKey`, `contradicts` or `splicedText` would turn
+all eight into a no-op with CI green: the precise failure the guard exists to prevent, in the guard.
+
+The fix that fit: **fixture pairs INSIDE the guard, run on every invocation** — for each rule, a
+source it MUST find plus a near-miss it must not. Not a separate suite, because `check:staff-lang`
+already runs in CI's fast lane and a suite nobody points at this file is a suite that rots. Proved by
+disarming three matchers in turn (1, 3 and 1 self-test failures).
+
+Two things fell out immediately, which is the argument for writing them at all:
+
+- **The near-miss half earns its keep first.** My "clean" rule-3 fixture tripped a _different_ rule-3
+  clause (`sx()` on an element with visible text). A rule that fires on the correct shape teaches
+  everyone to skim it, and only a near-miss catches that.
+- **Making a rule testable exposes what it reads that it shouldn't.** `mountsSwitchHere` still did a
+  `readFileSync` its parse no longer needed, so it returned `false` for any in-memory fixture —
+  dead I/O that no on-disk run could reveal.
+
+## #92 — `pgrep -f` matches the command line you are typing, so the pre-commit check cries wolf exactly when it matters (pilot P2 PR B, 2026-09-06)
+
+CLAUDE.md prescribes `pgrep -f "[v]erify-slice"` before any commit, because committing during a
+`verify:slice` run snapshots a deliberately-broken module (LEARNINGS #74, and #250 shipped it). The
+bracketed first character stops the pattern from matching its own `pgrep`. It does **not** stop a
+SECOND mention of the string in the same command line:
+
+```
+git add scripts/verify-slice.mjs && pgrep -f "[v]erify-slice" && …   → matches your own shell
+```
+
+Measured: it reported LIVE with **zero** runs going, because the bash process's `args` contained
+`scripts/verify-slice.mjs` from the `git add`. And that is the single most likely command to run it
+in — you edit a mutant, then stage the file that holds the mutants.
+
+**Why it is worth more than a one-line fix:** a false positive here is not neutral. The correct
+response to "LIVE" is to _not commit_, so a check that fires spuriously either blocks real work or,
+worse, gets waved through — and once you have waved it through once, it no longer protects you on the
+run that is genuinely live. A guard you have learned to overrule is weaker than no guard, because it
+carries the feeling of having checked.
+
+Match the PROCESS, not the string:
+
+```
+ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'
+```
+
+`comm` is the executable, which your shell can never satisfy. Same shape as the repo's other
+guard lessons: bind the assertion to what actually runs, not to text that mentions it.
+
+## #93 — the `pgrep` bracket trick is defeated by your own message (pilot P3, 2026-09-05)
+
+CLAUDE.md says to run `pgrep -f "[v]erify-slice"` before every commit, bracketing the first
+character so the pattern cannot match the shell running it. It returned a PID on a checkout where
+nothing was running, and the reason is the rest of the same command:
+`pgrep -f "[v]erify-slice" || echo "no verify-slice running"`. The bracket protects the PATTERN; the
+**echo message carried the literal string**, so the wrapper's command line matched it. The harness's
+`eval '…'` re-quoting puts the whole line in one process's argv, which makes every mention count.
+
+A false positive here is expensive in exactly the wrong direction: it says "a run is live" when none
+is, and the correct response to that reading is to NOT commit. So the check is only trustworthy with
+a second step — `ps -o pid,etime,cmd -p <pid>` on whatever it returns. A PID that no longer resolves
+is the tell. Never put the guarded string anywhere else on the line.
+
+> Merge note (#261 ← #260): **#92 above is the same defect found independently**, and it
+> carries the stronger remedy — match the PROCESS (`ps -eo pid,comm,args | awk '$2=="node" &&
+/verify-slice\.mjs/'`), which a shell can never satisfy, instead of policing what else is on
+> the line. Use that form; this entry keeps the `eval`-requoting mechanism that explains WHY the
+> bracket trick fails.
+
+## #94 — a docs guard can PRINT a number it never checks (pilot P3, 2026-09-05)
+
+`check:docs` measures five truths and enforces them through ten phrasings. Its clean message read, on the day
+this was written, `clean (98 files, 1554+140 tests, 384 mutants)` — and **`98 files` is not one of
+the five**. (Quoted as a point-in-time record on purpose: the test and mutant figures in it moved
+within the same PR, and a war story that keeps refreshing its own numbers teaches the wrong lesson —
+the guard's own message is where the live values live.) Nothing
+asserts the tracked-markdown count, so `docs/HANDOFF.md` quoted `97 files` for a while: a number the
+script emits, in a doc the script guards, that the script cannot see.
+
+Two more on the same line were invisible for narrower reasons: `(1512 + 140 today)` needs the digits
+adjacent to the words `qr tests` for the rule to fire, and `76 in all` needs the words
+`money/authority` beside it. Both are LIVE-state claims wearing a shape no rule matches.
+
+So: refreshing "what the guard names" is not the same as refreshing the line. When you edit a line
+the guard reports on, read the WHOLE line and derive every number on it the way `measure()` does.
+And the corollary for the guard itself: a value worth printing in the clean message is a value worth
+asserting — printing it is a claim.
+
+## #95 — a full Supabase-shaped Postgres is available here without Docker (pilot P3, 2026-09-05)
+
+`supabase db start` needs Docker, which the agent environment does not have — and that has meant SQL
+tests shipped unrun, with CI as their first execution. It does not have to. PostgreSQL 16's server
+binaries are installed (`/usr/lib/postgresql/16/bin`), and the whole 98-file migration stack applies
+in order against a hand-built prerequisite layer: the `auth` / `extensions` / `realtime` schemas,
+`pgcrypto` + `pg_trgm` in `extensions`, the `anon` / `authenticated` / `service_role` roles, a stub
+`auth.users` (id · email · **email_confirmed_at** · raw_app_meta_data · is_anonymous), `auth.uid()`
+and `auth.jwt()` off `current_setting`, and `realtime.messages` + `realtime.topic()`.
+
+Two traps. `initdb` refuses to run as root, so it must go through `su postgres` — and the session
+scratchpad is `drwx-----x` under a `drwx------` parent, so the postgres user cannot traverse to it
+no matter what `PGDATA` is chmod'd to. Put the cluster somewhere that user can reach and delete it
+after. The payoff is the rule the repo cares most about: every assertion in a new
+`supabase/tests/*.sql` can be **induced red and watched fail** before it ships, which is otherwise
+impossible here.
+
+## #96 — the promo QUOTE and the promo CHARGE diverge, but not for the reason the comment said
+
+`mms_promo_check` (the apply-time quote) and `mms_promo_discount_live` (the pricing-time derivation)
+look like they should differ on voided and comped lines. They do not, and have not since
+`20260622060000_voids_comps.sql` gave BOTH the same
+`where ci.cart_id = … and ci.state <> 'voided' and not ci.comped`. A comment asserting that
+difference shipped in a first draft of `lib/staff-promo.ts` and was caught by re-reading the SQL.
+
+The conclusion it supported survived on two OTHER mechanisms, both real: `mms_promo_discount` returns
+`promo_granted_cents` **verbatim** whenever the pin is set (M70) and the quote never reads the pin;
+and `computeTotals` clamps reward-first, `min(promoRaw, max(subtotal − reward, 0))` (M22), so a
+reward covering the basket takes the delivered promo to 0 while the quote stays whole. Right answer,
+wrong mechanism — and the mechanism is what the next reader acts on, which is why "verify every
+finding against source" cuts both ways: toward the reviewer's claims AND your own.
+
+## #97 — `git checkout --` is not an undo for a red-first probe (pilot P3, 2026-09-05)
+
+The red-first rule says induce the violation, watch it fail, restore. The obvious restore is
+`git checkout -- <file>` — and it restores the file to **HEAD**, not to what was on disk a moment
+ago. On a file carrying uncommitted work that is not a restore, it is a delete: one probe loop
+falsified two guards correctly and silently threw away every edit made to `apps/qr/lib/staff-promo.ts`
+and `apps/qr/lib/i18n/staff.ts` in the preceding hour.
+
+The damage was not the lost hour. It was that the FOUR probes after it kept "going red" — against
+the HEAD version of the module, with the new suite, so every one of them was a failure of the
+revert, not of the guard under test. Four green-for-the-wrong-reason results in a row, in the
+mechanism whose entire job is to tell green from green-for-the-wrong-reason.
+
+So: `cp <file> <backup>` before a probe loop and `cp <backup> <file>` after, and end the loop with
+`git diff --stat <file>` plus a green run to prove the restore. And the general form, which is the
+part worth carrying: **a probe that cannot prove it restored has not proved anything it measured
+afterwards.** A red result is only evidence if the baseline it was measured against is the one you
+think it is.
+
+## #98 — closing a pre-existing window on ONE door can be a net regression (pilot P3, 2026-09-05)
+
+A blind auditor found a real hole: a Stripe Terminal charge is invisible to every cart-level money
+gate (`linkPaymentIntent` has one caller, `terminal.ts` writes no `qr_carts` column, no share row, no
+single-pay lock). Its only guard is the settlement freeze, kept alive by a CLIENT-side poll. The fix
+looked obvious and was applied: make the new staff promo doors `settle_at IS NULL` instead of the
+TTL-aware disjunct every other writer uses.
+
+The deep pass rejected it, from three independent triggers, and the reasoning generalises. `settle_at`
+is nulled only by a CLEAN release, so the abandoned states are reachable and ordinary: a party that
+taps "Split the bill" and then pays cash (`abortSettlement` has exactly ONE caller — the diner's own
+host UI), or a terminal decline whose `releaseSettlementFor` write fails, which both call sites drop
+deliberately because _"the TTLs above are the real backstop"_. In all of them the strict predicate
+refuses both doors for the LIFE of the cart — while the component's `canWrite` stayed TTL-aware and
+rendered the controls ENABLED, so the register taps forever against "Someone's paying" for a payment
+that already died. It also re-opened the very item the slice existed to close: the merge refusal says
+"remove it here first", and the remove was the thing refused.
+
+And the window it closed was never this door's. `acquireSettlement` deliberately re-acquires on a
+stale freeze (`lock.ts:128`), so `settleCash` already TAKES MONEY in exactly that state; `clearTable`
+cancels the cart there; `applyPromo` writes there. Tightening the lowest-money door in a set of five
+that share an exposure buys nothing measurable and costs a reachable dead end.
+
+Three rules out of it:
+
+1. **Before tightening one writer past its peers, enumerate the peers.** If the others stay open, the
+   exposure is unchanged and the asymmetry is pure cost.
+2. **A predicate with no TTL has no backstop.** Ask what nulls the column, and what happens when
+   nothing does — every state that reaches "forever" is a dead end you are choosing to ship.
+3. **Check the ENABLED state against the new refusal.** A control that renders enabled and always
+   refuses is worse than one that renders disabled, because it teaches staff the console is broken.
+
+The honest close is to make the terminal tender RECORD its PaymentIntent on the cart, which closes it
+for every gate at once — filed as OPEN-ITEMS P3b (high) rather than half-done here.
+
+## #99 — a component test that jsdom CAN answer is worth more than one it cannot (pilot P3, 2026-09-05)
+
+`StaffLangSwitch`'s source carries a ⚠️ about a defect it shipped: disabling the button just tapped
+drops focus to `<body>` in a real browser, and **jsdom does not reproduce that**, so its suite's
+"keeps focus on the tapped button" assertion was green over a live keyboard bug.
+
+The reflex when repeating that fix elsewhere is to write the same focus assertion again. Don't. Assert
+the STRUCTURE that decides it — sweep the rendered container for `[disabled]` and expect zero — which
+jsdom answers honestly, and which covers controls added later without editing the test.
+
+Two things that only showed up on the falsification run, and both are the same mistake:
+
+- The sweep must run **while the control is busy**. `disabled={false}` renders no attribute at all, so
+  a resting sweep passes against a `disabled`-using component. Hold the action's promise open.
+- The re-entry guard had to be falsified on the **Remove** button, not the apply. The apply is a
+  `<form onSubmit>` whose handler already refuses re-entry, so mutating the ref guard there changed
+  nothing — the test was green in both directions. The Remove button is a bare `onClick` beside
+  `aria-disabled`, which does not block a click, and it is the only place the guard is load-bearing.
+
+Same lesson as #97 from the other side: a guard is only evidence once you have seen the exact edit it
+exists to catch turn it red.

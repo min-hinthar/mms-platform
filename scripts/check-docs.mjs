@@ -163,6 +163,23 @@ const COUNT_RULES = [
     key: "libModules",
     label: "verify:slice target modules under apps/qr/lib",
   },
+  // P6 (blind adversarial pass): the ONE line in HANDOFF that advertises itself as measured was the
+  // one line no rule could see. `1372 qr + 138 ui tests at the time (1558 + 142 today)` states a
+  // CURRENT pair inside the parentheses, but there is no digit adjacent to either `qr tests` or
+  // `ui tests` — the counts sit on the far side of a `+` — so every rule above missed it, and 1558
+  // rotted two lines from a measured 1560 while this script reported clean. Split in two so each
+  // rule keeps ONE capture and the existing single-key loop is untouched; both require the
+  // `qr + N ui tests` context so neither can grab an unrelated `(3 + 4 today)`.
+  {
+    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\((\d+)\s*\+\s*\d+\s+today\)/gi,
+    key: "qr",
+    label: "qr tests",
+  },
+  {
+    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\(\d+\s*\+\s*(\d+)\s+today\)/gi,
+    key: "ui",
+    label: "ui tests",
+  },
 ];
 
 /**
@@ -255,7 +272,15 @@ export function countFailures(text, truth, name = "<doc>") {
       // Even inside a live-state doc, a number may deliberately record a past value ("88 mutants at
       // the time"). Deliberately NOT "was written": that phrase turned up in CLAUDE.md as ordinary
       // prose about a guard, exempting the gate-size count on the same line.
-      if (HISTORICAL.test(scan.slice(m.index + m[0].length))) continue;
+      // ⚠️ …unless the match STATES its own currency. `(N today)` is a live-state claim with the
+      // word in the match, so the exemption must not be able to reach it — and it could: HISTORICAL
+      // scans a 24-character window AFTER the match, and on a line that chains two claims
+      // (`… (1558 + 142 today)**, 69 target modules at the time (70 …)`) that window lands inside
+      // the NEIGHBOUR's marker and exempted a live number. The `(375 today)` on the very same line
+      // escaped only because its own neighbour's marker happened to sit 40 characters away. That is
+      // how P6's blind pass found HANDOFF stating 1558 where two other measured lines said 1560.
+      const statesItsOwnCurrency = /\btoday\b/i.test(m[0]);
+      if (!statesItsOwnCurrency && HISTORICAL.test(scan.slice(m.index + m[0].length))) continue;
       out.push(
         `${name}:${lineNo} — says ${stated} ${rule.label}, measured ${truth[rule.key]}\n` +
           c.dim(`      ${line.trim().slice(0, 110)}`),
