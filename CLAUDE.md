@@ -87,8 +87,16 @@ pnpm verify:slice        # the MECHANICAL pre-PR gate: money-path coverage guard
                          # deliberately-broken version of itself, so `git commit -am` snapshots a
                          # mutant. #250 pushed `split.ts`'s `await releaseHold(pi)` → `"released"`
                          # inside a DOCS-only commit that way; CI surfaced it as a failure in a file
-                         # the PR never touched (LEARNINGS #74). `pgrep -f "[v]erify-slice"` before
-                         # any commit — bracket the first char or the pattern matches your own shell.
+                         # the PR never touched (LEARNINGS #74).
+                         # ⚠️ CHECK FOR A LIVE RUN LIKE THIS — the `pgrep -f "[v]erify-slice"` this
+                         # line used to prescribe CRIES WOLF, and precisely when you need it:
+                         #   ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'
+                         # `-f` matches the WHOLE command line, so bracketing the first char stops the
+                         # pattern matching itself but NOT a second mention of the path in the same
+                         # command — and `git add scripts/verify-slice.mjs`, the commit you make right
+                         # after editing a mutant, contains one. Measured 2026-09-06: it reported LIVE
+                         # with zero runs going. A guard that false-positives on the exact command it
+                         # governs teaches you to ignore it (LEARNINGS #92).
                          # Measure with:
                          #   grep -oE '^\s+file: "[^"]+"' scripts/verify-slice.mjs | sort -u | wc -l
 pnpm verify:slice --no-gate --only=totals   # iterate on one module

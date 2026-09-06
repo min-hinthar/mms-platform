@@ -1700,3 +1700,33 @@ Two things fell out immediately, which is the argument for writing them at all:
 - **Making a rule testable exposes what it reads that it shouldn't.** `mountsSwitchHere` still did a
   `readFileSync` its parse no longer needed, so it returned `false` for any in-memory fixture —
   dead I/O that no on-disk run could reveal.
+
+## #92 — `pgrep -f` matches the command line you are typing, so the pre-commit check cries wolf exactly when it matters (pilot P2 PR B, 2026-09-06)
+
+CLAUDE.md prescribes `pgrep -f "[v]erify-slice"` before any commit, because committing during a
+`verify:slice` run snapshots a deliberately-broken module (LEARNINGS #74, and #250 shipped it). The
+bracketed first character stops the pattern from matching its own `pgrep`. It does **not** stop a
+SECOND mention of the string in the same command line:
+
+```
+git add scripts/verify-slice.mjs && pgrep -f "[v]erify-slice" && …   → matches your own shell
+```
+
+Measured: it reported LIVE with **zero** runs going, because the bash process's `args` contained
+`scripts/verify-slice.mjs` from the `git add`. And that is the single most likely command to run it
+in — you edit a mutant, then stage the file that holds the mutants.
+
+**Why it is worth more than a one-line fix:** a false positive here is not neutral. The correct
+response to "LIVE" is to _not commit_, so a check that fires spuriously either blocks real work or,
+worse, gets waved through — and once you have waved it through once, it no longer protects you on the
+run that is genuinely live. A guard you have learned to overrule is weaker than no guard, because it
+carries the feeling of having checked.
+
+Match the PROCESS, not the string:
+
+```
+ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'
+```
+
+`comm` is the executable, which your shell can never satisfy. Same shape as the repo's other
+guard lessons: bind the assertion to what actually runs, not to text that mentions it.
