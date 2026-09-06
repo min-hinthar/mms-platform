@@ -1335,6 +1335,33 @@ export const STAFF = {
   },
   "promo.err.signin": { en: "Staff sign-in required.", my: "ဝန်ထမ်း အကောင့် ဝင်ဖို့ လိုပါတယ်။" },
   "promo.err.error": { en: "That didn’t save — try again.", my: "မသိမ်းရသေးပါ — ထပ်စမ်းပါ။" },
+
+  // ── P6 — the KITCHEN PULSE band on the same wall TV ────────────────────────────────────────────
+  // FOUR new keys and no more, because the band deliberately speaks the words the PASS already
+  // speaks: its heading and region name are `kds.title` (မီးဖိုချောင်, owner-verified in W21), its
+  // table chip is `kds.table`, its cooking status is `kds.line.cooking`, its rail heading is
+  // `kds.allday.title`, its overflow is `kds.more`, its quiet state is `kds.allclear`, and its rail
+  // region name is `kds.a11y.allDay`. Drafting a second Burmese word for "kitchen" or for "all day"
+  // would put two words for one thing in front of the same two people — the wall and the pass are
+  // read by Mom and Dad in the same shift, and a K15 correction has to land in ONE place.
+  //
+  // What genuinely has no twin at the pass is below. Every MY value is a Claude-authored working
+  // draft pending Min's native check (K15).
+  "board.pulse.oldest": { en: "Oldest (min)", my: "အကြာဆုံး (မိနစ်)" },
+  // ⚠️ NOT "Ready", in either tongue, and the word IS the design decision. Nothing in this schema
+  // records that a plate reached a table — `bumped_at` means the PASS finished the food and there is
+  // no runner event anywhere — so "Ready" would assert a fact the database does not hold. It is also
+  // aimed at the wrong reader: this screen hangs in a dining room, a guest reads "Ready" as an
+  // instruction, and dine-in is table service, so there is nothing for them to do. `board.col.ready`
+  // (ယူသွားနိုင်ပါပြီ, "you can take it away") is right for the takeaway column beside it and would
+  // be a lie here. The kitchen's own word for what the stamp holds is that the food has come out.
+  "board.pulse.up": { en: "Food up", my: "ဟင်းထွက်ပြီ" },
+  "board.pulse.unavailable": {
+    en: "Can’t read the kitchen right now.",
+    my: "မီးဖိုချောင် အခြေအနေကို အခု မဖတ်နိုင်သေးပါ။",
+  },
+  // Aria-only (no visible text of its own), so it goes through `sx()` — see lib/staff-labels.ts.
+  "board.a11y.tables": { en: "Table status", my: "စားပွဲ အခြေအနေ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

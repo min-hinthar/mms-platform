@@ -4,6 +4,141 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### One TV, two audiences — /board gains a kitchen pulse band (2026-09-05 · pilot P6)
+
+**The wall board keeps its customer-safe Preparing | Ready columns exactly as they were and gains a
+second section for the other audience in the same room.** The band carries the kitchen's load — live
+ticket count, the oldest ticket's age in minutes — an unattributed all-day dish rail, and dine-in as
+**table number plus one of two coarse statuses**. Same sanitized `/api/board` poll, same device
+token, one more section in the payload.
+
+**The privacy boundary is the slice, and it is the output TYPE.** `lib/board-pulse.ts` has no field
+for a guest name, a session/cart/order id, a per-table dish list, a modifier or an amount, so none
+of them can arrive by a later edit at a call site. The table strip is a POSITIVE allowlist (`dinein`
+only) — the mirror of the orders half's takeout-only allowlist, so a fourth `table_sessions.mode`
+value reaches neither until somebody decides it should. A test asserts the property over the
+serialized payload rather than over key names: ids seeded with values that could not appear by
+coincidence do not come back out.
+
+**The all-day rail is withheld below three live tickets, and the docblock states exactly what that
+buys.** At one ticket the rail IS that table's order beside its number; at two, a guest who knows
+their own order differences the other out. The floor closes exact attribution **from a single
+frame** by an observer who can resolve none of the counted tickets — it is not anonymity, and four
+open channels are named rather than hidden: frame deltas at a 5s poll, a residual that shrinks with
+every ticket the observer already knows, `allDayMore` as an aggregate over withheld rows, and
+absence as a per-table signal (P6a).
+
+**Three findings from the blind recon pass changed the design, not just the copy.**
+
+_The word was wrong._ "Ready" asserts a fact the schema does not hold: `bumped_at` means the PASS
+finished the food and there is no runner event anywhere. On a screen a dining room reads it is also
+aimed at the wrong person — dine-in is table service, so a guest reading "Ready" has nothing to do.
+The status is `up` / **Food up** / **ဟင်းထွက်ပြီ**, and the linger constant stopped being a bound on
+a claim and became a display window over a fact that stays true.
+
+_Ghost tables._ The strip gated on `status = 'active'` alone and a comment argued that was
+deliberate, because the TTL "bounds a JWT, not a meal". Measured, that is wrong where it matters:
+`is_member` requires `expires_at > now()`, so past four hours the diners cannot act on their own
+cart, nothing closes the session and nothing extends the clock — one unbumped line pinned a table
+number to a public wall for good. The strip now pairs both predicates, as the floor board always
+has; the load figures deliberately keep the KDS's test so the wall and the pass count the same
+tickets, and the residual is filed (P6b).
+
+_An exact timestamp crossed below the floor._ `oldestFiredAt` at one live ticket beside one table
+states that party's order instant to the room. The payload carries `oldestMinutes`, computed
+server-side from the one clock — which also deleted the screen's two-clock subtraction.
+
+**Read postures differ on purpose.** The session-mode read stays fail-CLOSED (503, publish nothing)
+because its failure would put dine-in names on the Ready column; the new kitchen reads are
+fail-DEGRADED to `pulse: null`, never a zeroed band, because "all clear" over a full wok is the lie
+`lib/kitchen.ts` already refuses. The pulse's windows are cut from the DATABASE clock (`mms_now`),
+since the undo-grace comparison is ten seconds wide.
+
+**Four new `board.*` keys and no more.** The band speaks the words the pass already speaks —
+`kds.title`, `kds.table`, `kds.line.cooking`, `kds.allday.title`, `kds.more`, `kds.allclear`,
+`kds.a11y.allDay` — so a K15 correction lands in one place instead of two.
+
+**The blind adversarial pass returned REJECT with a CRITICAL, and it was right.** The load figures
+applied **no session-liveness test at all** — while this module, an OPEN-ITEMS row and an earlier
+draft of this entry all claimed they used the KDS's. The scenario is ordinary: a dine-in table pays
+(its cart flips open→PAID), one line is never bumped (`mms_bump_ticket` serves only the lines the
+cook saw), staff clear the table — and `clearTable` cancels only the OPEN cart before closing the
+session, so that paid cart's `fired` line survives. The wall counted it as live kitchen work for a
+full 24 hours, ageing `Oldest` toward 1440, while the KDS beside it correctly showed nothing. The
+load path now restates `lib/kitchen.ts`'s per-channel rule verbatim, so the sentence is true.
+Also fixed from that pass: **the exposure floor counted CARTS where the exposure is per-PARTY** (one
+table can hold a paid cart beside a fresh open one, so two parties looked like three and opened the
+rail a party early); the route's docblock claimed the two sections "never join", which the sibling
+module's own frame-delta paragraph disproves; a dead `serverNow` field survived the move of the age
+server-side, carrying a docblock describing a mechanism it no longer implemented — and pointing at
+the app clock while `oldestMinutes` comes from `mms_now`; an `expires_at === null` branch guarded a
+state the column forbids, in a module that rejects unreachable code by name; and three unchecked row
+casts on a public payload path turned out to be unnecessary, so they are annotations now and tsc
+checks the shapes again.
+
+**A SECOND blind pass, run pre-merge from a separate session, returned REJECT — and its CRITICAL is
+the one the first pass and the author both missed.** The exposure floor counted PARTIES, and
+attribution is decided by DISH DIVERSITY. With one rail row every counted party's cooking content
+_is_ that dish, so every table the strip shows `cooking` is named by it — in a single frame, at any
+party count. The checked-in route fixture _was_ that frame (`3 Cooking · Table 4 Cooking · All day —
+Mohinga ×4`) and asserted it as correct behaviour, because it asserted `allDay` and never `tables`.
+`PULSE_RAIL_MIN_DISHES` is the missing term, read against the strip rather than alone: gating on
+dish count by itself would withhold the rail when nothing is on the strip to attribute, which costs
+a pickup-only kitchen its all-day view during the rush the band exists for. The bound is now stated
+once and no stronger than it is — **no single frame determines which dish a named table is having**
+— with the collective-set residual named as accepted rather than implied away. Two mutants pin both
+directions, and the route asserts `tables` in the withheld case as well as the published one.
+
+Also from that pass: **a stale board froze the band indefinitely.** The poll's stale fold keeps
+`kind: "live"` and carries the snapshot forward — right for a name and a pickup code, wrong for a
+count of what is on the wok now, an age in minutes, and a `Food up` whose five-minute window is
+enforced server-side and therefore lapses the instant the server stops answering. Forty minutes into
+an outage the wall still read `9 Oldest (min)` beside a lit-gold `Table 3 · Food up`. The band now
+blanks to its own "cannot read the kitchen" note after two missed polls (~15s) while the Ready
+column keeps its rows — a claim-by-claim degrade, not a blanket one. And **`PULSE_RAIL_MIN_TICKETS`
+was renamed `PULSE_RAIL_MIN_PARTIES`**, because `tickets` is a different number (`cookingCarts`), so
+the wall can publish `tickets: 3` beside an empty rail against a floor that reads 3 — the comparison
+was always right and only the label lied. The no-leak property test had been proving its dish clause
+with the rail SHUT (both secret carts on one session), so adding a `menuItemId` field to `PulseDish`
+would have kept it green; each secret cart now has its own session and its own dish, and reverting
+that exact field is what watched it go red.
+
+**The table-mode set is a defaulted PARAMETER now, so a rule with one member is still falsifiable.**
+`verify:slice` proved the strip's own `status = 'active'` guard dead — the load loop refuses a
+non-`active` dine-in session above every branch that feeds the strip — so it was deleted. That is
+correct today and held by a coincidence: `PULSE_TABLE_MODES` has one member, so "may appear on the
+wall" and "is checked for liveness" happen to name the same mode, and a second table mode (a
+numbered bar counter) would route to the load loop's `paid` arm, which applies no session test at
+all. `shapeBoardPulse` takes the set as a defaulted argument (W17's "a guard that cannot be reached
+is decorative", applied to a set rather than a price ladder), the suite passes a two-member set, and
+the mutant that spells the fork from the dine-in constant is caught.
+
+**And two guard defects of our own.** `check:docs` was structurally blind to the one HANDOFF line
+that advertises itself as measured — `1372 qr + 138 ui tests at the time (1558 + 142 today)` has no
+digit adjacent to either `qr tests` or `ui tests`, so no rule saw the live pair and 1558 sat two
+lines from a measured 1572. Worse, the historical-marker exemption scans a 24-character window AFTER
+a match, so on a line that chains two claims it lands inside the NEIGHBOUR's `at the time` and
+exempts a live number; a `(N today)` match states its own currency and is never exempt now. And the
+`verify:slice` destructive-file enumeration in `CLAUDE.md`/`README.md` read FOUR components while the
+set held five (70 + 3 + 4 = 77 ≠ 78) — that list is the operator's only inventory of files that may
+be sitting on disk as deliberately-broken mutants after a killed run, so it carries a measure command
+now instead of a hand count.
+
+**Two things the pass named that this slice files rather than fixes.** `pulse/unplaceable-line-counted-anonymously` reddened its suite by a **TypeError**, not by a value: with the guard removed `sess` is `undefined` and the next `sess.mode` throws, so the mutant measured the crash and no fixture ever separated the two readings numerically — the degenerate shape `verify:slice` exists to surface. Its mutation is now the plausible wrong implementation its own rationale describes (count the row anyway, we just cannot place it), and it dies on `tickets: 1` where the rule says `0`. And neither the cart read nor the session read carries a `.limit()`, so a `db-max-rows` below ~560 would truncate silently and drop a legitimate name from the CUSTOMER-facing Ready column; measured on the project, no `pgrst.db_max_rows` role override exists, so the effective value is the dashboard's API "Max rows" — config this environment cannot read (**P6i**). A fix built on an unmeasured bound is how over-blocking ships.
+
+**Guards.** 37 assertions on the shaper, 16 on the route, 21 on the board's markup (14 of them on
+the new band), and 21 `verify:slice` mutants — six of which exist only because that pass named the
+rules that had none, and one of which the same tool then retired as unreachable: the two liveness arms, the floor's unit, the unregistered sticker, the idle
+table, and the rounding. **`oldestMinutes` was a degenerate fixture**: every offset in the first
+suite was a whole minute, so `floor`, `ceil` and `round` all answered 7 and the rule had no guard at
+all; the fixture is 7m59s now, and a wall must not round a 7-minute wait up to 8 and call a ticket
+late against the KDS's 8-minute amber. `pulse/cooking-loses-to-food-up` SURVIVED its first fixture — two states on
+two sessions, where the ternary and its mutant agree — and the fixture that separates them puts both
+on one session, which is what a table actually looks like mid-service. The bilingual property test
+had never rendered one byte of the band; it now sweeps every state the band can mount. `tx on pg`,
+the wall's largest type and previously uncovered, joins the contrast audit, watched red by reverting
+the dark ink.
+
 ### A promo can be put on a table at the counter — and, for the first time, taken off (2026-09-05 · pilot P3)
 
 **`applyPromo` was the only writer of `qr_carts.promo_code` in the app, it only ever wrote a

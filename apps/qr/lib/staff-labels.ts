@@ -256,10 +256,14 @@ export const FLOOR_STATUS_KEY = {
  * element that has visible text, because there it would bypass the pair above.
  *
  * The key must sit in an `…a11y…` segment of its surface's namespace (`kds.a11y.tickets`,
- * `reg.a11y.open`). That is a naming rule with teeth: it makes the aria-ONLY strings a set you can
- * enumerate, so a native-check pass can see at a glance which strings nobody will ever read on
- * screen — and it stops a VISIBLE key being quietly borrowed as a name that then drifts from the
- * label it is supposed to contain.
+ * `reg.a11y.open`, and since P6 `board.a11y.tables`). That is a naming rule with teeth: it makes the
+ * aria-ONLY strings a set you can enumerate, so a native-check pass can see at a glance which
+ * strings nobody will ever read on screen — and it stops a VISIBLE key being quietly borrowed as a
+ * name that then drifts from the label it is supposed to contain. The pattern is deliberately a
+ * NAMESPACE rule rather than an allowlist of surfaces: a new wall region comes through this same
+ * door instead of growing a second one. What it must never widen to is all of `StaffKey`, which
+ * would let any visible-label key be used as an aria-only name — the containment bypass `al()`
+ * exists to prevent.
  */
 export function sx(lang: StaffLang, key: Extract<keyof typeof STAFF, `${string}.a11y.${string}`>) {
   return ts(lang, key);
