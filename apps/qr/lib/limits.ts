@@ -56,6 +56,28 @@ export const STEPUP_RATE = { max: 20, windowSeconds: 600 } as const;
 export const RECEIPT_RATE = { max: 5, windowSeconds: 600 } as const;
 
 /**
+ * P3 — the STAFF promo-apply bucket, keyed by the caller's staff id.
+ *
+ * The diner path's anti-enumeration gate is `mms_promo_attempt`, keyed by TABLE SESSION (10 per 5
+ * min). The staff apply deliberately does NOT spend that budget, because it is the wrong budget for
+ * this door in both directions:
+ *
+ *   • Spending it would let a GUEST lock STAFF out. A diner who fat-fingers ten codes on their own
+ *     phone would exhaust the session's window, and the register's "apply PILOT15" would then be
+ *     refused for the next five minutes — on the exact table the pilot script has Dad applying it at
+ *     (PILOT_PLAN §5, table 2). One party's typing must not disable a staff control.
+ *   • Leaving the staff door UNBOUNDED would make it the weaker of the two entrances to the same
+ *     secret. A Server Action is a public POST, so a stolen staff cookie is all a code-space scan
+ *     needs; the diner door is bounded at 10/5min and this one has to be bounded too.
+ *
+ * So the budget is per-CALLER, like STEPUP_RATE and for the same reason: bound the actor, not the
+ * table they are standing at. 30 per 5 minutes clears a rush (a server walking a full section,
+ * applying and correcting) while holding a scripted scan to a visible, attributable trickle.
+ * Fail-open like every `mms_rate_limit` consumer.
+ */
+export const STAFF_PROMO_RATE = { max: 30, windowSeconds: 300 } as const;
+
+/**
  * Staff-PIN policy (S1.1b). A PIN is a low-entropy shared-tablet fast-path, so the brute-force defense
  * is the lockout, enforced atomically in the SQL `mms_staff_verify_pin` (lib/staff-pin.ts is the app
  * mirror). KEEP THESE IN SYNC with the `v_max` (5) / `v_lockout` (15 min) constants in

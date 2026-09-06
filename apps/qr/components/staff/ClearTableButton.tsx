@@ -2,6 +2,9 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { clearTable } from "@/lib/floor";
+import { tf } from "@/lib/i18n/fill";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
 
 /**
  * Clear a table on turnover (S1.2). Two-step confirm (no accidental clear), and DISABLED with an honest
@@ -17,6 +20,7 @@ export function ClearTableButton({
   label: string;
   paymentInFlight: boolean;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -53,9 +57,11 @@ export function ClearTableButton({
     return (
       <div>
         <button type="button" disabled style={{ ...clearBtn, opacity: 0.5, cursor: "not-allowed" }}>
-          Clear table
+          <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
         </button>
-        <p style={hint}>Can’t clear while this table is mid-payment.</p>
+        <p style={hint}>
+          <Chrome lang={lang} k="settle.clear.midPayment" echo="stack" />
+        </p>
       </div>
     );
   }
@@ -67,10 +73,14 @@ export function ClearTableButton({
           ref={confirmRef}
           tabIndex={-1}
           role="group"
-          aria-label={`Confirm clearing table ${label}`}
+          aria-label={tf(lang, "settle.a11y.confirmClear", { id: label })}
           style={{ ...confirmRow, outline: "none" }}
         >
-          <span style={{ fontSize: "var(--fs-sm)" }}>Clear table {label}?</span>
+          <span style={{ fontSize: "var(--fs-sm)" }}>
+            {/* Inline echo, not stacked: this row is a flex line with the two buttons beside it,
+                and a stacked pair would push its height. */}
+            <Chrome lang={lang} k="settle.clear.question" vars={{ id: label }} echo="inline" />
+          </span>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
               type="button"
@@ -78,23 +88,27 @@ export function ClearTableButton({
               disabled={busy}
               style={cancelBtn}
             >
-              Cancel
+              <Chrome lang={lang} k="settle.cancel" echo={false} />
             </button>
             <button type="button" onClick={confirm} disabled={busy} style={clearBtn}>
-              {busy ? "Clearing…" : "Confirm"}
+              {busy ? (
+                <Chrome lang={lang} k="settle.clear.clearing" echo={false} />
+              ) : (
+                <Chrome lang={lang} k="settle.confirm" echo="stack" />
+              )}
             </button>
           </div>
         </div>
       ) : (
         <button ref={triggerRef} type="button" onClick={() => setConfirming(true)} style={clearBtn}>
-          Clear table
+          <Chrome lang={lang} k="settle.clear.btn" echo="stack" />
         </button>
       )}
       {/* Assertive alert (not a polite live region) so the detail view keeps ONE polite region — its
           shared line-edit status; parity with CashSettle/Merge (S1-audit S5). */}
       {error && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
-          {error}
+          <OutageText lang={lang} error={error} />
         </p>
       )}
     </div>

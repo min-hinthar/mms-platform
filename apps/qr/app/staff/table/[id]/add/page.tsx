@@ -6,6 +6,9 @@ import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { Chrome } from "@/components/staff/Chrome";
+import { readStaffLang } from "@/lib/staff-lang-server";
 import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
 
@@ -17,16 +20,20 @@ export const dynamic = "force-dynamic";
  * now WITH the modifier embed — searched and filtered client-side, adding to THIS session's open cart
  * via staffAddItem (server re-derives the price, cardinality enforced). Counter (`reg-`) orders get a
  * name-capture strip; the header speaks "table" only when there is one.
+ *
+ * P2 — the language control is mounted HERE, in the header beside the exit, rather than by
+ * `app/staff/layout.tsx` (a layout strip would steal height from the measured surfaces beneath it).
+ * `check-staff-lang.mjs` rule 4 holds this page to that mount.
  */
 export default async function StaffAddItems({ params }: { params: Promise<{ id: string }> }) {
   const caller = await requireStaffPage();
   const { id } = await params;
   // W10b: an unknowable gate/read keeps the URL and renders the outage shell — never a redirect
   // that pretends a verdict (the old `!detail → /staff` bounce fired on outage too).
-  if (!caller) return <StaffOutageShell what="this table" />;
+  if (!caller) return <StaffOutageShell what="what.table" />;
 
   const res = await getTableDetail(id);
-  if (res.kind === "outage") return <StaffOutageShell what="this table" />;
+  if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
   if (res.kind === "closed") redirect("/staff");
   const detail = res.detail;
@@ -72,8 +79,8 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name);
 
-  const backLabel = counterOrder ? "Register" : `Table ${detail.label}`;
   const backHref = counterOrder ? "/staff/register" : `/staff/table/${id}`;
+  const lang = await readStaffLang();
 
   return (
     <main style={wrap}>
@@ -89,20 +96,34 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
           zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
         }}
       >
-        <Link href={backHref} style={back}>
-          ← {backLabel}
-        </Link>
+        <div style={topRow}>
+          <Link href={backHref} style={back}>
+            {/* The arrow lives INSIDE the dictionary value, the way `kds.back` does. */}
+            {counterOrder ? (
+              <Chrome lang={lang} k="browse.back.register" />
+            ) : (
+              <Chrome lang={lang} k="browse.back.table" vars={{ id: detail.label }} />
+            )}
+          </Link>
+          <StaffLangSwitch lang={lang} />
+        </div>
         <h1 style={{ fontSize: "var(--fs-h1)", margin: "var(--s3) 0 0" }}>
-          {counterOrder ? "Counter order" : "Add items"}
+          <Chrome
+            lang={lang}
+            k={counterOrder ? "browse.title.counter" : "browse.title.add"}
+            echo="stack"
+          />
         </h1>
         <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
-          {counterOrder
-            ? "Walk-up or phone order — review and settle from the order page."
-            : `Ordering for table ${detail.label}. Tap to add — it lands on the table’s order instantly.`}
+          {counterOrder ? (
+            <Chrome lang={lang} k="browse.sub.counter" echo="stack" />
+          ) : (
+            <Chrome lang={lang} k="browse.sub.table" vars={{ id: detail.label }} echo="stack" />
+          )}
         </p>
         {counterOrder && (
           <Link href={`/staff/table/${id}`} style={reviewLink}>
-            Review order & settle →
+            <Chrome lang={lang} k="browse.review" echo="stack" />
           </Link>
         )}
       </header>
@@ -122,6 +143,13 @@ const wrap: CSSProperties = {
   maxWidth: 640,
   margin: "0 auto",
   padding: "var(--s5) var(--s6) 96px",
+};
+const topRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--s3)",
+  flexWrap: "wrap",
 };
 const back: CSSProperties = {
   display: "inline-flex",

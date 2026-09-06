@@ -3,6 +3,9 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { useRouter } from "next/navigation";
 import { setMenuPrice } from "@/lib/menu-price";
 import { setItemSoldOut } from "@/lib/menu-availability";
+import { useStaffLang } from "./StaffLangProvider";
+import { Chrome, OutageText } from "./Chrome";
+import { al, sx } from "@/lib/staff-labels";
 
 export type PricedItem = {
   id: string;
@@ -15,6 +18,43 @@ export type PricedItem = {
    *  the only thing that makes a flag which has outlived its shift visible to whoever looks next. */
   soldOutAt: string | null;
 };
+
+/**
+ * P2 — what the view's ONE live region has to say, and WHO authored it.
+ *
+ * A `server` message is a sentence `setMenuPrice` / `setItemSoldOut` returned, and only
+ * `<OutageText>` may render one: it swaps the single sentence that has an authored Burmese twin and
+ * passes every other through verbatim, because a sentence we cannot translate is better shown in
+ * English than guessed at in Burmese. Everything else here is copy THIS file authors, and
+ * blanket-wrapping the region in `<OutageText>` would pass those literals through as English forever
+ * while looking converted — so the region branches instead (the `RegisterStart` idiom).
+ *
+ * The variants are grouped by SLOT SET rather than by meaning, so every `<Chrome>` below is handed
+ * exactly the vars its key declares: `<Chrome>`'s `vars` prop is a loose record and cannot check
+ * that for us.
+ */
+type Msg =
+  /** A sentence the Server Action returned. */
+  | { ok: false; kind: "server"; error: string }
+  /** A key with no slots. */
+  | { ok: false; kind: "plain"; k: "browse.price.err.saveUnknown" }
+  /** A key whose only slot is the dish. */
+  | {
+      ok: boolean;
+      kind: "dish";
+      k: "browse.price.err.flipUnknown" | "browse.price.live.off" | "browse.price.live.on";
+      x: string;
+    }
+  /** The save confirmation — the dish, and the amount it now rings at. */
+  | { ok: true; kind: "saved"; x: string; m: string };
+
+/**
+ * The search placeholder — a COMPONENT CONSTANT, not a dictionary key, and deliberately so: it is a
+ * list of example dish and category names, two of the three Latin. A MY value carrying a bare Latin
+ * run is exactly what `strings.test.ts` refuses — nothing marks it, so it would set in Padauk and be
+ * announced as Burmese — and the string is already bilingual as it stands.
+ */
+const SEARCH_PLACEHOLDER = "Mohinga, ကြေးအိုး, Curries…";
 
 /**
  * W17b — the manager price editor (owner: "staff portal should be able to update prices?").
@@ -39,6 +79,8 @@ export function MenuPriceEditor({
    *  into the edit form (`openEdit` has no other caller), so withholding it withholds the form. */
   canEditPrice: boolean;
 }) {
+  // P2 — the device language, from app/staff/layout.tsx (one cookie read, one provider).
+  const lang = useStaffLang();
   const router = useRouter();
   const [q, setQ] = useState("");
   // The row being edited, and its typed dollars. One row at a time: a bulk grid of live price inputs
@@ -53,7 +95,7 @@ export function MenuPriceEditor({
   // re-enable the second row's button while that flip was still in the air.
   const [flipping, setFlipping] = useState<ReadonlySet<string>>(() => new Set());
   // ONE live region for this view (QA §A) — outcomes and refusals both ride it.
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [msg, setMsg] = useState<Msg | null>(null);
 
   // W23a — the 86 toggle. ONE tap in both directions, deliberately: this is the control the cook
   // reaches for with their hands full at the moment the pan comes up empty, and a confirm step is
@@ -75,10 +117,7 @@ export function MenuPriceEditor({
         expectedSoldOut: i.soldOut,
       });
     } catch {
-      setMsg({
-        ok: false,
-        text: `Couldn’t reach the menu — ${i.nameEn} may or may not have changed. Check the row and try again.`,
-      });
+      setMsg({ ok: false, kind: "dish", k: "browse.price.err.flipUnknown", x: i.nameEn });
       // The list is the only honest account of what landed; the toggle's own state is a guess.
       router.refresh();
       return;
@@ -90,7 +129,7 @@ export function MenuPriceEditor({
       });
     }
     if (!r.ok) {
-      setMsg({ ok: false, text: r.error });
+      setMsg({ ok: false, kind: "server", error: r.error });
       // Codex P2 on #193, same rule as the price refusal: a concurrency refusal means this screen is
       // stale, and without a refresh the row keeps feeding the SAME stale `expectedSoldOut` forever —
       // so every retry fails identically and the cook cannot get the dish off the menu at all.
@@ -99,9 +138,9 @@ export function MenuPriceEditor({
     }
     setMsg({
       ok: true,
-      text: r.soldOut
-        ? `${i.nameEn} is off the menu — nobody can order it until you put it back.`
-        : `${i.nameEn} is back on the menu.`,
+      kind: "dish",
+      k: r.soldOut ? "browse.price.live.off" : "browse.price.live.on",
+      x: i.nameEn,
     });
     router.refresh();
   }
@@ -176,10 +215,7 @@ export function MenuPriceEditor({
         expectedPriceCents: current.priceCents,
       });
     } catch {
-      setMsg({
-        ok: false,
-        text: "Couldn’t reach the menu — the save may not have landed. Check the price and try again.",
-      });
+      setMsg({ ok: false, kind: "plain", k: "browse.price.err.saveUnknown" });
       setConfirming(false);
       return;
     } finally {
@@ -189,7 +225,7 @@ export function MenuPriceEditor({
     if (!res.ok) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
       // their input.
-      setMsg({ ok: false, text: res.error });
+      setMsg({ ok: false, kind: "server", error: res.error });
       // W21d (Codex P2 on #193) — refresh the LIST on a refusal: the concurrency refusal tells the
       // manager to "check the new price and try again", but the stale `items` prop would keep
       // feeding the same stale expectedPriceCents forever. The edit row's own client state
@@ -199,7 +235,10 @@ export function MenuPriceEditor({
     }
     setMsg({
       ok: true,
-      text: `${current.nameEn} is now ${dollars(res.priceCents)}. Lines already in a cart keep the price they were quoted.`,
+      kind: "saved",
+      x: current.nameEn,
+      // The SERVER's amount, never the draft — the confirmation quotes what actually landed.
+      m: dollars(res.priceCents),
     });
     closeEdit();
     // W21d (Codex P2 on #180) — closeEdit unmounts the whole edit form (confirm group included),
@@ -212,24 +251,54 @@ export function MenuPriceEditor({
   return (
     <div>
       <label htmlFor="mp-search" style={label}>
-        Find a dish
+        <Chrome lang={lang} k="browse.price.find" echo="stack" />
       </label>
       <input
         id="mp-search"
         ref={searchRef}
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Mohinga, ကြေးအိုး, Curries…"
+        // A placeholder is a flat attribute: it carries no markup and so no `lang`. The visible
+        // <label> above is the marked one.
+        placeholder={SEARCH_PLACEHOLDER}
         autoComplete="off"
         style={input}
       />
 
-      {/* The view's ONE live region — every outcome and refusal lands here. */}
+      {/* The view's ONE live region — every outcome and refusal lands here. No echo: a bilingual
+          announcement says everything twice, and <Chrome>/<OutageText> mark their own Burmese, so
+          the region itself carries no `lang`. */}
       <p role="status" style={msg ? (msg.ok ? okLine : errLine) : srOnly}>
-        {msg?.text ?? ""}
+        {msg === null ? (
+          ""
+        ) : msg.kind === "server" ? (
+          // ⚠️ INERT TODAY, and saying so is the point. `<OutageText>` swaps exactly one sentence —
+          // `STAFF_WRITE_OUTAGE` — and BOTH producers of this arm pass their own outage copy to the
+          // gate (`staffGate("manager", PRICE_OUTAGE)` and `staffGate("server", AVAILABILITY_OUTAGE)`),
+          // so nothing here can ever match and every server sentence on this screen stays English in
+          // both tongues. It is kept rather than removed because it costs nothing and becomes live
+          // the moment either module drops its custom copy — but a mechanism that cannot fail must
+          // not be mistaken for the conversion. The twins those two constants need are OPEN-ITEMS P2i.
+          <OutageText lang={lang} error={msg.error} />
+        ) : msg.kind === "plain" ? (
+          <Chrome lang={lang} k={msg.k} />
+        ) : msg.kind === "dish" ? (
+          <Chrome lang={lang} k={msg.k} vars={{ x: msg.x }} />
+        ) : (
+          <Chrome lang={lang} k="browse.price.live.saved" vars={{ x: msg.x, m: msg.m }} />
+        )}
       </p>
 
-      <ul role="list" aria-label="Menu prices" style={list}>
+      {/* The list's name follows the PAGE's heading, which is role-conditional: a server is shown
+          "Menu availability" and is deliberately not offered the price editor. */}
+      <ul
+        role="list"
+        aria-label={sx(
+          lang,
+          canEditPrice ? "browse.price.a11y.list" : "browse.price.a11y.listAvail",
+        )}
+        style={list}
+      >
         {shown.map((i) => {
           const open = editing === i.id;
           return (
@@ -239,8 +308,18 @@ export function MenuPriceEditor({
                   {i.nameEn}
                   {i.soldOut && (
                     <span style={soldOutTag}>
-                      {" "}
-                      · sold out{i.soldOutAt ? ` since ${clock(i.soldOutAt)}` : ""}
+                      {/* The leading " · " lives INSIDE the value, the way `kds.held` carries its
+                          own separator — a joiner spliced in here would be authored text in a
+                          language nobody chose. No echo: this is a badge on a row. */}
+                      {i.soldOutAt ? (
+                        <Chrome
+                          lang={lang}
+                          k="browse.price.soldOutSince"
+                          vars={{ t: clock(i.soldOutAt) }}
+                        />
+                      ) : (
+                        <Chrome lang={lang} k="browse.price.soldOut" />
+                      )}
                     </span>
                   )}
                 </p>
@@ -260,21 +339,54 @@ export function MenuPriceEditor({
                     style={i.soldOut ? restoreBtn : eightySixBtn}
                     disabled={flipping.has(i.id)}
                     onClick={() => void toggleSoldOut(i)}
-                    // The visible label is two words; the accessible name has to say WHICH dish,
-                    // because every row in this list carries the same one.
+                    // The visible label is one verb; the accessible name has to say WHICH dish,
+                    // because every row in this list carries the same one. TWO whole al() calls
+                    // rather than one with a computed key: rule 3c can only find a string LITERAL
+                    // verb, and it is that literal which ties this name to the label rendered
+                    // below it — the two halves become one edit.
                     aria-label={
                       i.soldOut
-                        ? `Put ${i.nameEn} back on the menu`
-                        : `Mark ${i.nameEn} sold out — nobody can order it until you put it back`
+                        ? al(lang, {
+                            kind: "verb",
+                            echo: "inline",
+                            verb: "browse.price.verb.putBack",
+                            subject: i.nameEn,
+                          }).aria
+                        : al(lang, {
+                            kind: "verb",
+                            echo: "inline",
+                            verb: "browse.price.verb.eightySix",
+                            subject: i.nameEn,
+                          }).aria
                     }
                   >
-                    {flipping.has(i.id) ? "…" : i.soldOut ? "Put back" : "86"}
+                    {/* echo="inline": the 86 control is named in <Chrome>'s echo policy, and a
+                        stacked pair on every row would grow the row's height fifty times over. */}
+                    {flipping.has(i.id) ? (
+                      "…"
+                    ) : i.soldOut ? (
+                      <Chrome lang={lang} k="browse.price.verb.putBack" echo="inline" />
+                    ) : (
+                      <Chrome lang={lang} k="browse.price.verb.eightySix" echo="inline" />
+                    )}
                   </button>
                   {canEditPrice && (
-                    <button type="button" style={ghostBtn} onClick={() => openEdit(i)}>
-                      Edit
-                      {/* The name alone reads as "Edit" on every row in the list — say which dish. */}
-                      <span style={srOnly}> the price of {i.nameEn}</span>
+                    <button
+                      type="button"
+                      style={ghostBtn}
+                      onClick={() => openEdit(i)}
+                      // "Edit" reads the same on every row, so the name says which dish. This
+                      // replaces an sr-only English tail — a hand-built name no guard could see.
+                      aria-label={
+                        al(lang, {
+                          kind: "verb",
+                          echo: "inline",
+                          verb: "browse.price.verb.edit",
+                          subject: i.nameEn,
+                        }).aria
+                      }
+                    >
+                      <Chrome lang={lang} k="browse.price.verb.edit" echo="inline" />
                     </button>
                   )}
                 </div>
@@ -283,16 +395,40 @@ export function MenuPriceEditor({
                   ref={confirmRef}
                   tabIndex={-1}
                   role="group"
-                  aria-label={`Confirm the new price for ${current.nameEn}`}
+                  aria-label={
+                    al(lang, {
+                      kind: "verb",
+                      echo: "stack",
+                      verb: "browse.price.verb.confirm",
+                      subject: current.nameEn,
+                    }).aria
+                  }
                   style={confirmCard}
                 >
+                  {/* The group's name LEADS with this exact key, so the words are on the screen
+                      rather than in an sr-only span: WCAG 2.5.3 containment holds because a person
+                      can read the label the group announces, in whichever language is on. */}
+                  <p style={confirmLead}>
+                    <Chrome lang={lang} k="browse.price.verb.confirm" echo="stack" />
+                  </p>
                   <p style={confirmQ}>
-                    Change {current.nameEn} from {dollars(current.priceCents)} to{" "}
-                    <strong>{dollars(draftCents)}</strong>?
+                    {/* Both amounts ride slots — {old} is what the screen shows now, {m} what the
+                        next tap sets. Preformatted by `dollars()`, Latin in both tongues, and
+                        <Chrome> marks each one lang="en" so neither can break mid-amount inside a
+                        Burmese run. Nothing here recomputes a price. */}
+                    <Chrome
+                      lang={lang}
+                      k="browse.price.confirmQ"
+                      vars={{
+                        x: current.nameEn,
+                        old: dollars(current.priceCents),
+                        m: dollars(draftCents),
+                      }}
+                      echo="stack"
+                    />
                   </p>
                   <p style={confirmDetail}>
-                    Every new order pays the new price. Lines already in a cart keep what they were
-                    quoted, and paid orders never change.
+                    <Chrome lang={lang} k="browse.price.confirmDetail" echo="stack" />
                   </p>
                   <div style={{ display: "flex", gap: "var(--s2)" }}>
                     <button
@@ -301,10 +437,22 @@ export function MenuPriceEditor({
                       disabled={busy}
                       onClick={() => setConfirming(false)}
                     >
-                      Keep {dollars(current.priceCents)}
+                      <Chrome
+                        lang={lang}
+                        k="browse.price.keep"
+                        vars={{ m: dollars(current.priceCents) }}
+                        echo="stack"
+                      />
                     </button>
                     <button type="button" style={proceedBtn} disabled={busy} onClick={save}>
-                      {busy ? "Saving…" : `Set ${dollars(draftCents)}`}
+                      {/* Both states echo, so the button cannot change height mid-save. The busy
+                          key declares no {m} slot, so the var is simply unused there. */}
+                      <Chrome
+                        lang={lang}
+                        k={busy ? "browse.price.saving" : "browse.price.set"}
+                        vars={{ m: dollars(draftCents) }}
+                        echo="stack"
+                      />
                     </button>
                   </div>
                 </div>
@@ -314,7 +462,9 @@ export function MenuPriceEditor({
                     $
                   </span>
                   <label htmlFor={`mp-${i.id}`} style={srOnly}>
-                    New price for {i.nameEn}, in dollars
+                    {/* Never seen on screen, so no echo — but it carries the dish, and sx() takes
+                        no vars, so it is <Chrome> rather than an aria-only lookup. */}
+                    <Chrome lang={lang} k="browse.price.a11y.newPrice" vars={{ x: i.nameEn }} />
                   </label>
                   <input
                     id={`mp-${i.id}`}
@@ -328,7 +478,7 @@ export function MenuPriceEditor({
                     style={priceInput}
                   />
                   <button type="button" style={ghostBtn} onClick={closeEdit}>
-                    Cancel
+                    <Chrome lang={lang} k="browse.price.verb.cancel" echo="inline" />
                   </button>
                   <button
                     ref={saveRef}
@@ -337,7 +487,7 @@ export function MenuPriceEditor({
                     disabled={!validDraft}
                     onClick={() => setConfirming(true)}
                   >
-                    Save
+                    <Chrome lang={lang} k="browse.price.verb.save" echo="inline" />
                   </button>
                 </div>
               )}
@@ -345,7 +495,11 @@ export function MenuPriceEditor({
           );
         })}
       </ul>
-      {shown.length === 0 && <p style={cat}>No dish matches “{q.trim()}”.</p>}
+      {shown.length === 0 && (
+        <p style={cat}>
+          <Chrome lang={lang} k="browse.price.noMatch" vars={{ x: q.trim() }} echo="stack" />
+        </p>
+      )}
     </div>
   );
 }
@@ -445,6 +599,14 @@ const confirmCard: CSSProperties = {
   display: "grid",
   gap: "var(--s2)",
   maxWidth: 340,
+};
+/** The confirm group's visible lead. No `letter-spacing` — tracking a Burmese run separates a
+ *  syllable from its own diacritics, which is the defect rule 5 of check-staff-lang.mjs exists for. */
+const confirmLead: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  color: "var(--t2)",
 };
 const confirmQ: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", fontWeight: 700 };
 const confirmDetail: CSSProperties = {

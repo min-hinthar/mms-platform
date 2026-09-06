@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getStaffAuth } from "@/lib/staff";
 import { safeNext } from "@/lib/safe-next";
 import { StaffLogin } from "@/components/staff/StaffLogin";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffLangShell } from "@/components/staff/StaffLangShell";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Staff sign-in — Mandalay Morning Star" };
@@ -37,11 +37,8 @@ export default async function StaffLoginPage({
   // copy stays English this slice (OPEN-ITEMS P2c); the control does not have to wait for it.
   const lang = await readStaffLang();
   return (
-    <>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <StaffLangSwitch lang={lang} />
-      </div>
+    <StaffLangShell lang={lang}>
       <StaffLogin denied={denied} next={next} />
-    </>
+    </StaffLangShell>
   );
 }

@@ -19,10 +19,10 @@ export const dynamic = "force-dynamic";
 export default async function ExpoPage() {
   const caller = await requireStaffPage();
   // W10b: outage keeps the URL — one tap of retry re-enters the expo the moment we're back.
-  if (!caller) return <StaffOutageShell what="the expo board" />;
+  if (!caller) return <StaffOutageShell what="what.expo" />;
   const res = await getExpoQueue();
   if (!res.ok) {
-    if (res.reason === "outage") return <StaffOutageShell what="the expo board" />;
+    if (res.reason === "outage") return <StaffOutageShell what="what.expo" />;
     redirect(res.reason === "locked" ? "/staff/lock" : "/staff/login");
   }
 

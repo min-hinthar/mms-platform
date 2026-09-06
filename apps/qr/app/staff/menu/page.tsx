@@ -2,7 +2,10 @@ import { type CSSProperties } from "react";
 import Link from "next/link";
 import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
+import { readStaffLang } from "@/lib/staff-lang-server";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { Chrome } from "@/components/staff/Chrome";
 import { MenuPriceEditor, type PricedItem } from "@/components/staff/MenuPriceEditor";
 
 export const metadata = { title: "Menu — Mandalay Morning Star" };
@@ -24,14 +27,22 @@ export const dynamic = "force-dynamic";
  *
  * The catalog read is the same public-RLS one the diner menu uses, so this page shows exactly the
  * prices a guest would be charged — the point of the screen.
+ *
+ * P2 — the chrome speaks the device language, and the switch is mounted HERE rather than by
+ * `app/staff/layout.tsx`: the layout renders no chrome of its own, because a strip it added would be
+ * silently subtracted from every measured surface beneath it. `check-staff-lang.mjs` rule 4 is what
+ * holds this surface to the mount.
  */
 export default async function StaffMenuPrices() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect
   // that destroys where you were mid-service.
-  if (!caller) return <StaffOutageShell what="menu prices" />;
+  if (!caller) return <StaffOutageShell what="what.menuPrices" />;
 
   const canEditPrice = caller.role !== "server";
+  // Read AFTER the gate: the unknowable-gate branch above renders `StaffOutageShell`, which carries
+  // its own control, so the cookie is only needed on the path that renders this page's chrome.
+  const lang = await readStaffLang();
 
   const db = publicClient();
   const { data, error } = await db
@@ -43,7 +54,7 @@ export default async function StaffMenuPrices() {
     .order("name_en");
   // A failed read is UNKNOWABLE, not "the menu is empty" — an empty editor would read as a catalog
   // that lost its dishes (W10a: a failure must never render as emptiness).
-  if (error) return <StaffOutageShell what="menu prices" />;
+  if (error) return <StaffOutageShell what="what.menuPrices" />;
 
   const items: PricedItem[] = (data ?? []).map((i) => ({
     id: i.id,
@@ -57,26 +68,27 @@ export default async function StaffMenuPrices() {
 
   return (
     <main style={wrap}>
-      <Link href="/staff" style={{ ...back, marginBottom: "var(--s4)" }}>
-        ← Floor
-      </Link>
+      <div style={headRow}>
+        {/* The arrow is part of the label and lives inside the dictionary value (`floor.back`), so
+            it travels with the word instead of being spliced in beside it. */}
+        <Link href="/staff" style={back}>
+          <Chrome lang={lang} k="floor.back" />
+        </Link>
+        <StaffLangSwitch lang={lang} />
+      </div>
       <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 4px" }}>
-        {canEditPrice ? "Menu prices" : "Menu availability"}
+        <Chrome
+          lang={lang}
+          k={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
+          echo="stack"
+        />
       </h1>
       <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
-        {canEditPrice ? (
-          <>
-            One price per dish — dine-in and to-go ring the same amount, the way the register does.
-            A change takes effect on the next order; lines already in a cart keep the price they
-            were quoted, and paid orders never change. Every edit is recorded with your name.
-          </>
-        ) : (
-          <>
-            Take a dish off the menu the moment you run out — nobody can order it until someone puts
-            it back, and there is no timer that does it for you. Prices are managers only. Every
-            change is recorded with your name.
-          </>
-        )}
+        <Chrome
+          lang={lang}
+          k={canEditPrice ? "browse.price.leadManager" : "browse.price.leadServer"}
+          echo="stack"
+        />
       </p>
       <MenuPriceEditor items={items} canEditPrice={canEditPrice} />
     </main>
@@ -84,6 +96,15 @@ export default async function StaffMenuPrices() {
 }
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
+/** The back link and the language control share one row, so mounting the switch costs no height. */
+const headRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--s3)",
+  flexWrap: "wrap",
+  marginBottom: "var(--s4)",
+};
 const back: CSSProperties = {
   display: "inline-flex",
   minHeight: 44,

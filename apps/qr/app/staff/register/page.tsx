@@ -1,59 +1,139 @@
 import { type CSSProperties } from "react";
 import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
-import { getDayCashSummary, getRegisterQueue } from "@/lib/register";
+import { getDayCashSummary, getRegisterQueue, type RegisterQueueRow } from "@/lib/register";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { Chrome } from "@/components/staff/Chrome";
+import { readStaffLang } from "@/lib/staff-lang-server";
+import { ts } from "@/lib/i18n/staff";
+import { plural, tf } from "@/lib/i18n/fill";
+import { al, chromeVisible, sx } from "@/lib/staff-labels";
+import type { StaffLang } from "@/lib/staff-lang";
 
 export const metadata = { title: "Register — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
+
+/** Preformatted money — the repo's counter idiom (`ApprovalsBoard`, `StaffLineEditor`). Latin in
+ *  both tongues: it rides the `{m}` slot, which `fill()` never localizes. */
+const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/**
+ * The queue row's accessible SUBJECT — the same dictionary renders the row shows, in the same order,
+ * joined by punctuation only.
+ *
+ * Built here, outside the JSX, rather than as a hand-written template at the attribute: the row's
+ * visible text and its accessible name are one derivation, so an edit to `reg.row.*` moves both and
+ * WCAG 2.5.3 containment cannot drift the way OPEN-ITEMS P2g describes.
+ */
+/**
+ * The row's own text, assembled for the NAME — which means every piece composed the way the row
+ * RENDERS it, echo included.
+ *
+ * ⚠️ THIS BUILT FROM `ts()`/`tf()` AND WAS A LIVE WCAG 2.5.3 FAILURE. Two of the three Chromes below
+ * carry `echo="inline"`, so under `my` the row visibly reads
+ * `လမ်းလျှောက်လာ · Walk-up` … `ပစ္စည်း ၂ ခု · $12.00 + အခွန် · 2 items · $12.00 + tax`
+ * while the name said only the Burmese halves — measured, not reasoned. It is the same defect a
+ * pre-merge blind pass found on the `verb` arm; the `subject` arm had it too, and rule 3c cannot
+ * see this one at all (the subject is a runtime string, not a key), which is exactly why the
+ * composition is centralized in `chromeVisible` instead of being spelled out per call site.
+ *
+ * The echo passed here must match the `echo` prop on the matching `<Chrome>` in the row below. The
+ * kiosk badge deliberately has none — two scripts cannot legibly stack in a chip.
+ */
+function rowSubject(lang: StaffLang, r: RegisterQueueRow): string {
+  const name = r.customerName ?? chromeVisible(lang, "reg.row.walkup", "inline");
+  const source = r.source === "kiosk" ? ` · ${chromeVisible(lang, "reg.row.kiosk")}` : "";
+  const meta = chromeVisible(lang, plural(r.itemCount, "reg.row.one", "reg.row.many"), "inline", {
+    n: r.itemCount,
+    m: fmt(r.subtotalCents),
+  });
+  return `${name}${source}, ${meta}`;
+}
 
 /**
  * The FOH register (W6a — closes K6): walk-up and phone orders finally have a way to exist. Counter
  * home for any staff role — start an order, resume an open one. Counter (`reg-`) sessions live here,
  * deliberately OFF the floor board. Day cash summary lands in W6a·3.
+ *
+ * P2 — the counter tablet speaks the device language. The switch is mounted HERE, beside the exit
+ * link, rather than by `app/staff/layout.tsx` (a layout strip would steal measured height from the
+ * KDS); `check-staff-lang.mjs` rule 4 holds this surface to that mount.
  */
 export default async function RegisterPage() {
   const caller = await requireStaffPage("server");
-  if (!caller) return <StaffOutageShell what="the register" />;
+  if (!caller) return <StaffOutageShell what="what.register" />;
 
+  const lang = await readStaffLang();
   const [queue, day] = await Promise.all([getRegisterQueue(), getDayCashSummary()]);
 
   return (
     <main style={wrap}>
-      <Link href="/staff" style={back}>
-        <span aria-hidden>←</span> Floor
-      </Link>
-      <h1 style={h1}>Register</h1>
-      <p style={sub}>Walk-up and phone orders, entered here and paid at the counter.</p>
+      <div style={topRow}>
+        <Link href="/staff" style={back}>
+          <Chrome lang={lang} k="reg.back" />
+        </Link>
+        <StaffLangSwitch lang={lang} />
+      </div>
+      <h1 style={h1}>
+        <Chrome lang={lang} k="reg.title" echo="stack" />
+      </h1>
+      <p style={sub}>
+        <Chrome lang={lang} k="reg.sub" echo="stack" />
+      </p>
 
       <RegisterStart />
 
-      <h2 style={h2}>Open counter orders</h2>
+      <h2 style={h2}>
+        <Chrome lang={lang} k="reg.queue.title" echo="stack" />
+      </h2>
       {!queue.ok ? (
-        <p style={mut}>Couldn’t load the counter queue — check the connection and refresh.</p>
+        <p style={mut}>
+          <Chrome lang={lang} k="reg.queue.failed" echo="stack" />
+        </p>
       ) : queue.rows.length === 0 ? (
-        <p style={mut}>None right now.</p>
+        <p style={mut}>
+          <Chrome lang={lang} k="reg.queue.empty" echo="stack" />
+        </p>
       ) : (
-        <ul role="list" style={list} aria-label="Open counter orders">
-          {queue.rows.map((r) => (
-            <li key={r.sessionId}>
-              <Link
-                href={`/staff/table/${r.sessionId}/add`}
-                style={rowCard}
-                aria-label={`Resume ${r.customerName ?? "walk-up"} — ${r.itemCount} item${r.itemCount === 1 ? "" : "s"}`}
-              >
-                <span style={rowName}>
-                  {r.customerName ?? "Walk-up"}
-                  {r.source === "kiosk" && <span style={rowMeta}> · Kiosk</span>}
-                </span>
-                <span style={rowMeta}>
-                  {r.itemCount} item{r.itemCount === 1 ? "" : "s"} · $
-                  {(r.subtotalCents / 100).toFixed(2)} + tax
-                </span>
-              </Link>
-            </li>
-          ))}
+        <ul role="list" style={list} aria-label={sx(lang, "reg.a11y.queue")}>
+          {queue.rows.map((r) => {
+            // The whole row is one link, so its visible content is a paragraph rather than a label:
+            // `kind: "subject"` — the verb LEADS the announcement and the row's own text is what the
+            // name must contain. Written as `kind: "verb"` first, which is the opposite arm: it
+            // makes `visible` the word "Resume", which this row never shows, so the {visible, aria}
+            // pair went unexercised and the name led with a key nothing rendered.
+            const { aria } = al(lang, {
+              kind: "subject",
+              verb: "reg.verb.resume",
+              subject: rowSubject(lang, r),
+            });
+            return (
+              <li key={r.sessionId}>
+                <Link href={`/staff/table/${r.sessionId}/add`} style={rowCard} aria-label={aria}>
+                  <span style={rowName}>
+                    {r.customerName ?? <Chrome lang={lang} k="reg.row.walkup" echo="inline" />}
+                    {r.source === "kiosk" && (
+                      <span style={rowMeta}>
+                        {" · "}
+                        {/* A badge: no echo — two scripts cannot legibly stack in one. */}
+                        <Chrome lang={lang} k="reg.row.kiosk" />
+                      </span>
+                    )}
+                  </span>
+                  <span style={rowMeta}>
+                    <Chrome
+                      lang={lang}
+                      k={plural(r.itemCount, "reg.row.one", "reg.row.many")}
+                      vars={{ n: r.itemCount, m: fmt(r.subtotalCents) }}
+                      echo="inline"
+                    />
+                  </span>
+                </Link>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -62,22 +142,40 @@ export default async function RegisterPage() {
           status='paid' (M2), so a "net cash" claim would overpromise. */}
       {day.ok && (
         <section aria-labelledby="day-cash-h" style={dayCard}>
+          {/* echo={false}: this heading IS the section's accessible name, and an aria-labelledby
+              name is the target's FULL text — an English echo would make the region announce both
+              scripts concatenated. */}
           <h2 id="day-cash-h" style={h2}>
-            Today’s takings
+            <Chrome lang={lang} k="reg.day.title" />
           </h2>
           <dl style={dayGrid}>
             <div style={dayCell}>
-              <dt style={dayLabel}>Cash</dt>
+              <dt style={dayLabel}>
+                <Chrome lang={lang} k="reg.day.cash" echo="stack" />
+              </dt>
               <dd style={dayBig}>
-                ${(day.summary.cashCents / 100).toFixed(2)}
-                <span style={dayCount}> · {day.summary.cashCount} orders</span>
+                {fmt(day.summary.cashCents)}
+                <span style={dayCount}>
+                  {" · "}
+                  <Chrome
+                    lang={lang}
+                    k={plural(day.summary.cashCount, "reg.day.orders.one", "reg.day.orders.many")}
+                    vars={{ n: day.summary.cashCount }}
+                    echo="inline"
+                  />
+                </span>
                 {/* W17c-2 — the tip portion, stated as INCLUDED so nobody adds it to the drawer
                     figure twice. Shown only once a cash tip exists, so a tipless day reads exactly
                     as it did before. */}
                 {day.summary.cashTipCents > 0 && (
                   <span style={dayCount}>
-                    {" "}
-                    · incl. ${(day.summary.cashTipCents / 100).toFixed(2)} tips
+                    {" · "}
+                    <Chrome
+                      lang={lang}
+                      k="reg.day.tips"
+                      vars={{ m: fmt(day.summary.cashTipCents) }}
+                      echo="inline"
+                    />
                   </span>
                 )}
               </dd>
@@ -87,37 +185,68 @@ export default async function RegisterPage() {
                 a terminal order exists (a two-column day stays two columns). */}
             {(day.summary.terminalCount > 0 || day.summary.terminalCents > 0) && (
               <div style={dayCell}>
-                <dt style={dayLabel}>Card · reader</dt>
+                <dt style={dayLabel}>
+                  <Chrome lang={lang} k="reg.day.terminal" echo="stack" />
+                </dt>
                 <dd style={dayBig}>
-                  ${(day.summary.terminalCents / 100).toFixed(2)}
-                  <span style={dayCount}> · {day.summary.terminalCount} orders</span>
+                  {fmt(day.summary.terminalCents)}
+                  <span style={dayCount}>
+                    {" · "}
+                    <Chrome
+                      lang={lang}
+                      k={plural(
+                        day.summary.terminalCount,
+                        "reg.day.orders.one",
+                        "reg.day.orders.many",
+                      )}
+                      vars={{ n: day.summary.terminalCount }}
+                      echo="inline"
+                    />
+                  </span>
                 </dd>
               </div>
             )}
             <div style={dayCell}>
-              <dt style={dayLabel}>Card · online</dt>
+              <dt style={dayLabel}>
+                <Chrome lang={lang} k="reg.day.card" echo="stack" />
+              </dt>
               <dd style={dayBig}>
-                ${(day.summary.cardCents / 100).toFixed(2)}
-                <span style={dayCount}> · {day.summary.cardCount} orders</span>
+                {fmt(day.summary.cardCents)}
+                <span style={dayCount}>
+                  {" · "}
+                  <Chrome
+                    lang={lang}
+                    k={plural(day.summary.cardCount, "reg.day.orders.one", "reg.day.orders.many")}
+                    vars={{ n: day.summary.cardCount }}
+                    echo="inline"
+                  />
+                </span>
               </dd>
             </div>
           </dl>
           {day.summary.refundedCount > 0 && (
             <p style={mut}>
-              {day.summary.refundedCount} order{day.summary.refundedCount === 1 ? "" : "s"} paid
-              today and since fully refunded (${(day.summary.refundedCents / 100).toFixed(2)}) — not
-              counted above. A refund of an earlier day&rsquo;s order shows on Orders &amp; refunds,
-              not here.
+              <Chrome
+                lang={lang}
+                k={plural(
+                  day.summary.refundedCount,
+                  "reg.day.refunded.one",
+                  "reg.day.refunded.many",
+                )}
+                vars={{ n: day.summary.refundedCount, m: fmt(day.summary.refundedCents) }}
+                echo="stack"
+              />
             </p>
           )}
           <p style={mut}>
-            Since midnight (LA). Order totals by status — line-level refunds aren’t netted out;
-            check Orders &amp; refunds for those.
+            <Chrome lang={lang} k="reg.day.note" echo="stack" />
           </p>
         </section>
       )}
       {!day.ok && day.reason === "outage" && (
-        <p style={mut}>Today’s takings can’t load right now — the system is unreachable.</p>
+        <p style={mut}>
+          <Chrome lang={lang} k="reg.day.outage" echo="stack" />
+        </p>
       )}
     </main>
   );
@@ -127,6 +256,14 @@ const wrap: CSSProperties = {
   maxWidth: 760,
   margin: "0 auto",
   padding: "var(--s5) var(--s4) var(--s8)",
+};
+/** The exit link and the language control share one row — the switch is the counter's, not a strip. */
+const topRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "var(--s3)",
+  flexWrap: "wrap",
 };
 const back: CSSProperties = {
   fontSize: "var(--fs-sm)",

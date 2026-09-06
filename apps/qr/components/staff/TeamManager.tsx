@@ -4,12 +4,26 @@ import { useRouter } from "next/navigation";
 import { provisionStaff, setStaffActive } from "@/lib/staff-actions";
 import type { StaffRole, StaffRow } from "@/lib/staff";
 import { RoleBadge } from "./RoleBadge";
+import { useStaffLang } from "./StaffLangProvider";
+import { Chrome, OutageText } from "./Chrome";
+import { al, sx } from "@/lib/staff-labels";
 
 /**
  * Owner team management (S1.1a). Renders the roster from the SERVER prop (no local mirror — every
  * mutation revalidates the page and router.refresh() pulls fresh state, so the list can't drift),
  * plus the add-staff form. Authority is server-side (requireStaff('owner') in every action); this is
  * the affordance + honest success/error feedback, never the gate.
+ *
+ * P2 SCOPE, stated so the next reader does not mistake it for a finished conversion: this file's
+ * ARIA and its ONE live region are localized; the form's own visible copy (the heading, three field
+ * labels, the role options, the submit button, the "(you)" / "Inactive" tags) and the per-row
+ * `<RoleBadge>` label are still English, and are tracked under OPEN-ITEMS **P2m**. The two halves
+ * are separable because a hand-written English aria-label is the thing that BREAKS when the visible
+ * label turns Burmese — an English label beside an English name is merely unconverted.
+ *
+ * ⚠️ THAT ROW NUMBER IS LOAD-BEARING. It read P2c until an audit followed it: P2c CLOSED with this
+ * slice, and its closure names `FloorDetailLive`, `StaffModSheet` and the thirteen pages — never
+ * this file. A deferral that points at a closed row is a deferral tracked nowhere.
  */
 export function TeamManager({
   initial,
@@ -21,12 +35,17 @@ export function TeamManager({
   selfEmail: string | null;
 }) {
   const router = useRouter();
+  const lang = useStaffLang();
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<StaffRole>("server");
   const [busy, setBusy] = useState(false);
   const [pendingUid, setPendingUid] = useState<string | null>(null);
-  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // A DISCRIMINATED UNION, not `{ ok: boolean; text: string }`: the success half is a dictionary key
+  // rendered through <Chrome>, so there is no success STRING left to hold — and keeping a dead one
+  // would invite the next reader to feed it to <OutageText>, which passes anything without an
+  // authored twin through as English forever while looking converted.
+  const [msg, setMsg] = useState<{ ok: true } | { ok: false; text: string } | null>(null);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -41,7 +60,7 @@ export function TeamManager({
     setEmail("");
     setName("");
     setRole("server");
-    setMsg({ ok: true, text: "Added — they can now sign in with a one-time code." });
+    setMsg({ ok: true });
     router.refresh();
   }
 
@@ -121,16 +140,26 @@ export function TeamManager({
         </div>
       </form>
 
-      {/* One live region for both add + toggle feedback (QA §A: a single region per view). */}
+      {/* One live region for both add + toggle feedback (QA §A: a single region per view).
+          BRANCHED ON `msg.ok`, never wrapped wholesale: <OutageText> swaps the ONE server sentence
+          that has an authored Burmese twin and passes everything else through verbatim, so handing
+          it an authored success literal would ship English forever while looking converted.
+          echo={false} on both arms — this is a live region (a bilingual announcement says
+          everything twice) and its `minHeight: 20` is a measured height a stacked pair would break. */}
       <p role="status" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
-        {msg && (
-          <span style={{ fontSize: "var(--fs-sm)", color: msg.ok ? "var(--ok)" : "var(--warn)" }}>
-            {msg.text}
-          </span>
-        )}
+        {msg &&
+          (msg.ok ? (
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--ok)" }}>
+              <Chrome lang={lang} k="floor.team.added" echo={false} />
+            </span>
+          ) : (
+            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+              <OutageText lang={lang} error={msg.text} />
+            </span>
+          ))}
       </p>
 
-      <ul role="list" aria-label="Staff" style={list}>
+      <ul role="list" aria-label={sx(lang, "floor.team.a11y.roster")} style={list}>
         {initial.map((row) => {
           // Match by uid OR email — a Google/magic-link session uid can differ from the uid stamped on
           // the row, so email is the reliable "this is me" signal (mirrors the server self-guard).
@@ -182,11 +211,43 @@ export function TeamManager({
                   disabled={pendingUid === row.userId}
                   aria-busy={pendingUid === row.userId}
                   // Stable, member-specific name so two "Deactivate" buttons aren't identical to a
-                  // screen reader (the visible label can shrink to "…" mid-request).
-                  aria-label={`${row.active ? "Deactivate" : "Reactivate"} ${row.displayName}`}
+                  // screen reader.
+                  //
+                  // ⚠️ THE PENDING STATE IS NOT FED INTO al(). The visible label collapses to "…"
+                  // mid-request; the NAME must not, or the control a screen-reader user just took
+                  // hold of renames itself under them and the row loses its only identifying word.
+                  // `al()` reads `row.active` alone, so the name is stable across the flip.
+                  //
+                  // A TERNARY OVER TWO WHOLE al() CALLS, not one call with a computed `verb:` — the
+                  // key has to stay a string literal or rule 3c cannot check that the button RENDERS
+                  // the same key it announces, which is the whole of WCAG 2.5.3 here.
+                  aria-label={
+                    row.active
+                      ? al(lang, {
+                          kind: "verb",
+                          echo: "inline",
+                          verb: "floor.verb.deactivate",
+                          subject: row.displayName,
+                        }).aria
+                      : al(lang, {
+                          kind: "verb",
+                          echo: "inline",
+                          verb: "floor.verb.reactivate",
+                          subject: row.displayName,
+                        }).aria
+                  }
                   style={row.active ? deactivateBtn : reactivateBtn}
                 >
-                  {pendingUid === row.userId ? "…" : row.active ? "Deactivate" : "Reactivate"}
+                  {/* The SAME keys the name is built from, so 2.5.3 containment holds by
+                      construction. echo="inline" rather than "stack": this is a 44px pill in a flex
+                      row beside the member's name, and a stacked pair would push every row taller. */}
+                  {pendingUid === row.userId ? (
+                    "…"
+                  ) : row.active ? (
+                    <Chrome lang={lang} k="floor.verb.deactivate" echo="inline" />
+                  ) : (
+                    <Chrome lang={lang} k="floor.verb.reactivate" echo="inline" />
+                  )}
                 </button>
               )}
             </li>
