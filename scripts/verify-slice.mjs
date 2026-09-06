@@ -3899,6 +3899,67 @@ const MUTANTS = [
     find: "    settlePromoCents = settleTotals.promoCents;\n",
     replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
+  // ── P7 · the doors (a REDIRECT decision) and the KDS text dial (a PAGE-SIZE decision) ───────────
+  // Neither moves money, but both are authority: the first decides where a tablet lands and whether
+  // it can ever leave, the second decides which tickets a page shows. Each rule is falsified by a
+  // value in its own suite; a guard here that survives is a tablet that can be trapped.
+  {
+    id: "staff-door/doors-param-loses-to-remembered-door",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — `?doors=1` is the Screens chip, the ONLY way off a remembered door. If a remembered kitchen door outranks it, Mom's tablet redirects onto the board from the very chip that exists to leave it — a trap with no in-app exit, only a cookie clear",
+    find: '  if (input.doorsParam) return { view: "doors" };',
+    replace: '  if (input.doorsParam && input.door === null) return { view: "doors" };',
+  },
+  {
+    id: "staff-door/warm-navigation-redirects-too",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — the redirect is for a COLD start (icon, bookmark). An in-app tap that lands on /staff from a kitchen device (an '← Floor' link on the expo page) must show the doors: redirecting every arrival makes 'Floor' mean 'Kitchen' on that tablet and the word a lie",
+    find: '    return input.coldStart ? { redirect: "/staff/kitchen" } : { view: "doors" };',
+    replace: '    return { redirect: "/staff/kitchen" };',
+  },
+  {
+    id: "staff-door/cold-start-ignores-origin",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — 'cold' is NO SAME-ORIGIN referer, not 'no referer'. Treating any referer as warm means a link from another site (or a phishing page) into /staff on a kitchen tablet shows the doors instead of the board — harmless-looking, but it is the bound that makes the redirect a device behaviour rather than a request-shaped one. Treating none as warm is the trap the other way",
+    find: "  return from.host.toLowerCase() !== own.host.toLowerCase();",
+    replace: "  return false;",
+  },
+  {
+    id: "staff-door/origin-check-by-suffix",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — the same-origin test is EQUALITY of hosts. A suffix match admits `evil-mms.example` as ours; the suite carries exactly that host so this cannot regress to `endsWith` the way host checks usually do",
+    find: "  return from.host.toLowerCase() !== own.host.toLowerCase();",
+    replace: "  return !from.host.toLowerCase().endsWith(own.host.toLowerCase());",
+  },
+  {
+    id: "staff-door/parser-case-folds",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — EXACT equality, like the language cookie. A lax parse turns a QA session's leftover `Kitchen` into a remembered door on a counter tablet, and the doors screen — the honest fallback for garbage — never shows",
+    find: '  return value === "kitchen" || value === "counter" ? value : null;',
+    replace:
+      '  const v = value?.toLowerCase();\n  return v === "kitchen" || v === "counter" ? (v as StaffDoor) : null;',
+  },
+  {
+    id: "kds-size/page-size-ignores-the-dial",
+    file: "apps/qr/lib/kds-size.ts",
+    suite: "lib/kds-size.test.ts",
+    why: "P7 — the CSS drops medium and large to THREE columns; a page of eight there is two tickets below the fold on every page, and they are exactly the tickets nobody bumps. 'One page' has to stay 'one screen' at every size",
+    find: '  return size === "s" ? 8 : 6;',
+    replace: "  return 8;",
+  },
+  {
+    id: "kds-size/parser-admits-any-value",
+    file: "apps/qr/lib/kds-size.ts",
+    suite: "lib/kds-size.test.ts",
+    why: "P7 — a stored value from an older build or a hand-edit must fall to the size every ticket has always rendered at, never to a size the CSS has no rule for (which renders at small type on a three-column grid — the worst of both)",
+    find: '  return value === "m" || value === "l" ? value : KDS_SIZE_DEFAULT;',
+    replace: "  return (value as KdsSize) ?? KDS_SIZE_DEFAULT;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

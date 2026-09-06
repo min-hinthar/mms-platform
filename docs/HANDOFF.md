@@ -59,8 +59,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **456 `verify:slice` mutants** · **90 target modules** (80 under `apps/qr/lib`, 3 API routes,
-> 6 components, 1 in `packages/db`) · **1755 qr + 142 ui tests** · 98 tracked docs files ·
+> **463 `verify:slice` mutants** · **92 target modules** (82 under `apps/qr/lib`, 3 API routes,
+> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
 > **Prod carries everything this code needs — verified against the live project, not from prose:**
@@ -73,14 +73,25 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### What is actually next
 >
-> 1. **P4 — the Day-0 walkthrough — is the only `docs/PILOT_PLAN.md` §Code row still unbuilt.** It
->    is a fix PR, not a build: walk the §D edge-case matrix (`QA-CHECKLIST`) and fix what it finds.
-> 2. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
+> 1. **P7 — the parents' console — is in flight, four PRs decided on the design canvas
+>    (2026-09-06, "Staff Console for Mom and Dad": four forks, today beside three options each; Min
+>    picked A1 two doors · B1 "How this works" sheet · C1 "Something's wrong" report · D1 text-size
+>    dial, then answered: email + a row for the report, the front door in Burmese in the same
+>    slice, NO phone button — the report opens a GitHub issue with the diagnostics instead).**
+>    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch; PR 2 (login /
+>    lock / PIN / error in Burmese), PR 3 (the one gold Help chip + "How this screen works" sheets),
+>    PR 4 (the report: migration + Resend + GitHub issue) follow, smallest first, one at a time on
+>    this branch name. The build order and every decision are in `docs/PILOT_PLAN.md` §Code P7.
+> 2. **P4 — the Day-0 walkthrough — is the only other `docs/PILOT_PLAN.md` §Code row still unbuilt.**
+>    It is a fix PR, not a build: walk the §D edge-case matrix (`QA-CHECKLIST`) and fix what it
+>    finds — and it now also answers P7c/P7d (the referer on the real tablet; the shortcut names).
+> 3. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
 >    money gate. It is the exception that keeps P2e from being fully closed.
-> 3. **The K15 native check has a queue now** — the 40-key first band on `/staff/glossary`, plus two
->    MY values this merge train authored as drafts: `floor.fb.unavailable` and `what.glossary`.
->    Both are marked in `lib/i18n/staff.ts` as pending Min's read.
-> 4. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train** (P2i–P2s, P3a–P3f, P6a–P6k, M157,
+> 4. **The K15 native check has a queue now** — the 40-key first band on `/staff/glossary`, plus two
+>    MY values the merge train authored as drafts (`floor.fb.unavailable`, `what.glossary`) and the
+>    thirteen P7 PR 1 added (the doors, More, Screens, the three sizes, two tiles). All marked in
+>    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
+> 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7d** (P2i–P2s, P3a–P3f, P6a–P6k, M157,
 >    M158). Sweep it before claiming anything is done.
 >
 > The blocks below are the slices' own handoffs, written while each was still an open PR — P5 first,
@@ -490,7 +501,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (456 today)**, **1372 qr + 138 ui tests at the time (1755 + 142 today)**, 69 target modules at the time (80 under `apps/qr/lib` today, 90 in all), 97 local
+> **334 mutants at the time (463 today)**, **1372 qr + 138 ui tests at the time (1787 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1382,7 +1393,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 456 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1755 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 463 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1787 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2104,7 +2115,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (456 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (463 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -37,6 +37,8 @@ export const STAFF = {
   // control unusable for the person who cannot read the other label.
   "shell.lang.group": { en: "Console language", my: "စက်၏ ဘာသာစကား" },
   "shell.lang.failed": { en: "Couldn’t save that — tap again.", my: "မသိမ်းနိုင်ပါ — ထပ်နှိပ်ပါ။" },
+  // P7 — the way back to the DOORS from any staff screen (`ScreensLink`). A 44px chip: no echo.
+  "shell.screens": { en: "Screens", my: "စခရင်များ" },
 
   // ── outage nouns (the `what` slot of every frozen-board and shell sentence) ─
   "what.console": { en: "the console", my: "ဒီစက်" },
@@ -225,6 +227,12 @@ export const STAFF = {
   "kds.a11y.prevPage": { en: "Previous page", my: "ရှေ့ စာမျက်နှာ" },
   "kds.a11y.nextPage": { en: "Next page", my: "နောက် စာမျက်နှာ" },
   "kds.a11y.recall": { en: "Recall a bumped ticket", my: "ပြီးသွားတဲ့ အော်ဒါ ပြန်ခေါ်" },
+  // P7 — the TEXT SIZE dial (aria-only group name + three 44px chips, so no echo on the chips).
+  // 30px was derived from the font files; the right size is Mom's eyes at the pass, picked once.
+  "kds.a11y.size": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
+  "kds.size.s": { en: "Small", my: "သေး" },
+  "kds.size.m": { en: "Medium", my: "အလယ်" },
+  "kds.size.l": { en: "Large", my: "ကြီး" },
 
   // ── the floor: the console home and the live table board ──────────────────
   // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
@@ -641,6 +649,28 @@ export const STAFF = {
   "floor.nav.pin": { en: "Your PIN →", my: "ကိုယ့် ပင်နံပါတ် →" },
   "floor.nav.pinSet": { en: "Set a tablet PIN →", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ် →" },
   "floor.nav.team": { en: "Manage staff →", my: "ဝန်ထမ်း စီမံ →" },
+  // ── P7 — the two DOORS `/staff` opens on, and the More grid beneath them ──────────────────────
+  // The kitchen door's title is `kds.title` itself (မီးဖိုချောင်, owner-verified in W21): the wall,
+  // the pass and the door must say ONE word for the kitchen, so no second key exists for it. The
+  // counter door names both of Dad's rooms — the register AND the tables — because that is what it
+  // opens on. Every MY value here is a Claude-authored draft pending Min's native check (K15).
+  "floor.door.counter": { en: "Counter & tables", my: "ကောင်တာနဲ့ စားပွဲများ" },
+  "floor.door.kitchen.sub": {
+    en: "The pass · tickets, bump, 86",
+    my: "ဟင်းထွက်တဲ့နေရာ · တစ်ကတ်၊ ပြီးပြီ၊ ဖြုတ်",
+  },
+  "floor.door.counter.sub": {
+    en: "Register · take an order, settle a table, apply a promo code",
+    my: "ကောင်တာ · အော်ဒါယူ၊ စားပွဲ ငွေရှင်း၊ လျှော့ကုဒ် ထည့်",
+  },
+  // A tablet that has walked through a door says so on that door, and opens there next time.
+  "floor.door.here": { en: "This tablet opens here", my: "ဒီတက်ဘလက် ဖွင့်တိုင်း ဒီစခရင် ရောက်မယ်" },
+  "floor.door.more": { en: "More", my: "နောက်ထပ်" },
+  "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
+  // Two surfaces that were reachable only by bookmark (the wall TV) or from the manager-only pilot
+  // sheet (the word-check sheet): Mom on the kitchen tablet could never reach the sheet at all.
+  "floor.nav.board": { en: "TV board →", my: "တီဗီ ဘုတ် →" },
+  "floor.nav.glossary": { en: "Word check →", my: "စာလုံး စစ်ဆေးစာရွက် →" },
 
   // ── the floor board: a region name with no visible label to pair with ─────
   "floor.a11y.tables": { en: "Active tables", my: "အသုံးပြုနေတဲ့ စားပွဲများ" },

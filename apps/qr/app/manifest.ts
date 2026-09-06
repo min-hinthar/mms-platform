@@ -65,6 +65,14 @@ export default function manifest(): MetadataRoute.Manifest {
       { name: "Dine-in", short_name: "Dine-in", url: "/dine-in" },
       { name: "To-go", short_name: "To-go", url: "/menu?mode=pickup&door=togo" },
       { name: "Grocery", short_name: "Grocery", url: "/grocery" },
+      // P7 — the two STAFF doors. Before this, "add to home screen" on Mom's tablet landed her on
+      // the guest menu with no staff entry anywhere in the jump list. Both are complete routes:
+      // /staff/kitchen is the board (gated by requireStaffPage, so a guest who long-presses sees the
+      // sign-in, never a kitchen), and /staff is the counter's floor. English only, like the three
+      // above — the manifest is `lang: "en"` and Android renders these in the OS locale's font; the
+      // Burmese names live on the doors themselves.
+      { name: "Kitchen", short_name: "Kitchen", url: "/staff/kitchen" },
+      { name: "Counter", short_name: "Counter", url: "/staff" },
     ],
   };
 }

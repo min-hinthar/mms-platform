@@ -9626,3 +9626,233 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 700;
   text-decoration: none;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   P7 — the parents' console. Doors on /staff, the counter home, the Screens chip, the KDS text size.
+   Tokens only; every new surface extends the lit-gold cap for "this tablet opens here" rather than
+   inventing a second selection vocabulary (docs/DESIGN-LANGUAGE.md §2).
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.staff-doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s5);
+}
+@media (max-width: 720px) {
+  .staff-doors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* A door is one <a>: icon, the Burmese word, the English beneath, and — on the door this tablet
+   walked through — the "opens here" line. Big on purpose: ≥240px tall, 38px Burmese, because the
+   doors are read once a night from across a counter, not scanned. */
+.staff-door {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--s4);
+  min-height: 240px;
+  padding: var(--s6) 28px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  text-decoration: none;
+  box-shadow: var(--sh-paper);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.staff-door:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-paper-hover);
+}
+.staff-door:active {
+  transform: translateY(0);
+}
+.staff-door-icon {
+  color: var(--ac);
+}
+.staff-door-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.staff-door-name > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 2.375rem; /* 38px — the biggest Burmese on any staff surface but the ticket */
+  font-weight: 700;
+  line-height: 1.35;
+}
+.staff-door-name > .staff-door-en {
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--t2);
+}
+.staff-door-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+/* The door this tablet walked through wears the lit-gold cap — the app's ONE selection vocabulary
+   (the same recipe as `.app-header-order-open`), never a second one. */
+.staff-door[aria-current="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 18px -8px var(--glow-gold);
+}
+.staff-door-here {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--gold-strong);
+}
+/* The More grid: the eight manager pages as small tiles beneath the doors. */
+.staff-more-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s2);
+  font-size: var(--fs-h3);
+  font-weight: 800;
+}
+.staff-more-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+.staff-more {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: var(--s3);
+}
+.staff-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 116px;
+  padding: var(--s4) 18px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  text-decoration: none;
+  box-shadow: var(--sh);
+}
+.staff-tile:hover {
+  box-shadow: var(--sh-md);
+}
+.staff-tile-icon {
+  color: var(--ac);
+}
+/* The tile's script comes from <Chrome>'s own mark (`.chrome-my` sets Padauk); this only sizes. */
+.staff-tile-name {
+  font-size: var(--fs-h2);
+  font-weight: 800;
+  line-height: var(--lh-snug);
+}
+/* The Screens chip (`ScreensLink`) on the counter home — the KDS variant reuses `.kds-chip`. */
+.staff-screens {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+.kds-chip-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+}
+/* The counter home's register-first row: the one action Dad takes most, gold-capped; two smaller
+   tiles beside it. */
+.staff-counter-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+}
+@media (max-width: 720px) {
+  .staff-counter-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.staff-counter-primary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 96px;
+  padding: var(--s5) var(--s6);
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 18px -8px var(--glow-gold);
+  color: var(--tx);
+  text-decoration: none;
+}
+.staff-counter-primary .staff-door-name > [lang="my"] {
+  font-size: var(--fs-h1);
+}
+.staff-counter-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 96px;
+  padding: var(--s5);
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: var(--sh);
+  color: var(--tx);
+  text-decoration: none;
+}
+
+/* KDS TEXT SIZE — three steps, the middle two derived by scaling every `--kfs-*` together so the
+   identity tier (table number) never drops below the dish line. Medium and large also drop the wide
+   envelope to THREE columns: bigger type at four across would wrap every Burmese line. The page size
+   follows the column count in `KdsBoard.tsx` (`kdsPageSize`), so "one page" stays "one screen". */
+.kds-root[data-size="m"] {
+  --kfs-id: 2.25rem; /* 36 */
+  --kfs-item: 2rem; /* 32 */
+  --kfs-item-my: 2.125rem; /* 34 */
+  --kfs-mod: 1.5rem; /* 24 */
+}
+.kds-root[data-size="l"] {
+  --kfs-id: 2.5rem; /* 40 */
+  --kfs-item: 2.25rem; /* 36 */
+  --kfs-item-my: 2.375rem; /* 38 */
+  --kfs-mod: 1.6875rem; /* 27 */
+}
+@media (min-width: 1200px) {
+  .kds-root[data-size="m"] .kds-grid,
+  .kds-root[data-size="l"] .kds-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.kds-size-group {
+  display: flex;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-door {
+    transition: none;
+  }
+  .staff-door:hover {
+    transform: none;
+  }
+}

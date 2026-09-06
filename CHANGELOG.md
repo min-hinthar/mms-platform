@@ -4,6 +4,58 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Two doors, and a tablet that remembers which one it walked through (2026-09-06 · P7, PR 1 of 4)
+
+**`/staff` opened on a wrapping row of thirteen 13px text pills, Burmese only, no icons — for two
+people who each have exactly one job.** Mom's tablet is the kitchen board; Dad's is the counter. The
+console now opens on **two doors** (Kitchen · Counter & tables — 38px Burmese with the English
+beneath, 240px tall, the word for kitchen being `kds.title`'s owner-verified မီးဖိုချောင် and no
+second one), and the tablet **remembers** the one it walked through in a device cookie
+(`mms_staff_door`) shaped exactly like the language cookie: a pure carrier, one `server-only` reader,
+one **ungated** action (the value carries no authority — every page behind a door still runs
+`requireStaffPage`), `path: "/"`, 400 days, EXACT-equality parse with the doors as the fallback for
+anything else. `resolveStaffHome` is the one decision: a kitchen device on a **cold start** (the app
+icon, a bookmark — no same-origin referer) goes straight onto its board; any in-app arrival shows the
+doors, because a tablet with no floor has nowhere honest to send an "← Floor" tap; `?doors=1` (the
+new **Screens** chip on the board and the counter home) wins over every remembered door, so no
+tablet can be trapped. Both halves are pure and mutated: the trap, the warm-redirect, the origin
+check as EQUALITY (a suffix match admits `evil-mms.example`; the suite carries that host), and the
+parser's exactness.
+
+The **counter door is the floor itself, register first**: the one action Dad takes most as a
+gold-capped row (the lit-gold cap — the app's one selection vocabulary — never a second one),
+Approvals and Expo beside it, the live table grid, and every remaining page under **More** as a
+tile with an icon. Two of those were reachable from nowhere in-app before this: the **TV board**
+(bookmark only) and the **word-check sheet** (only from the manager-only pilot sheet — Mom could
+never print her own).
+
+The **kitchen board's text size is a dial now** (`lib/kds-size.ts`): three 44px chips, Small /
+Medium / Large — 30 / 34 / 38px Burmese with every `--kfs-*` tier scaled together so the table
+number never drops below the dish line — remembered per device in storage like the station filter.
+Medium and large drop the wide grid to **three columns**, and the page size follows
+(`kdsPageSize`: 8 → 6), so "one page" stays "one screen" — mutated, because a page of eight at three
+across hides two tickets below the fold on every page, and they are exactly the ones nobody bumps.
+P1's 30px was arithmetic from the font files; the right number is Mom's eyes at the pass, and this
+lets her set it on Day 0.
+
+**PWA:** the manifest's jump list gains **Kitchen** and **Counter** — before this, "add to home
+screen" on a staff tablet landed on the guest menu with no staff entry anywhere.
+
+**Guards:** `check-staff-lang.mjs` rules 1 and 2 now run over a LIST of device cookies rather than a
+second copy of themselves — the door reader and action are unreachable from every non-staff route
+root, and `mms_staff_door` may appear in exactly one file — and all three evasions were induced and
+watched go red before the guard was trusted (a diner page importing the reader; an inline literal;
+the exported constant). Two new icons in `@mms/ui` (`grid`, `tv`, `print`).
+
+**Every new Burmese string is a Claude draft for the K15 sheet** (13 keys: the doors, More, the
+Screens chip, the three sizes and their group name, the two new tiles). Two first drafts carried
+Latin inside a Burmese run (`PILOT15`, `TV`) and the dictionary guard refused them; they now read
+လျှော့ကုဒ် and တီဗီ.
+
+Residuals filed as **P7a–P7d**. This is PR 1 of the four decided on the design canvas (the doors ·
+the front door in Burmese · the Help door with "How this screen works" · the "Something's wrong"
+report); the text-size chips move behind the Help door in PR 3.
+
 ### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
 
 **Three things the two-week pilot needs and did not have: a way to tell its orders apart from the
