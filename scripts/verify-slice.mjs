@@ -2785,6 +2785,14 @@ const MUTANTS = [
     replace: "      parts.push(control.status);",
   },
   {
+    id: "staff-labels/name-drops-the-visible-echo",
+    file: "apps/qr/lib/staff-labels.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "P2 PR B, pre-merge blind pass \u2014 the CRITICAL. `<Chrome echo>` under `my` renders TWO visible strings (the Burmese span AND `.chrome-en`, which is `display: block` with no aria-hidden); `al()` composed its `visible` from ONE. So Approve SHOWED `\u1001\u103d\u1004\u1037\u103a\u1015\u103c\u102f` and `Approve` and ANNOUNCED only the Burmese half \u2014 WCAG 2.5.3 failing on 15 controls across 6 files, in the language the pilot DEFAULTS to, under three comments asserting containment held by construction. \u26a0\ufe0f Only the `my`-WITH-echo arms can catch this: under `en` Chrome returns a bare text node and under `my`-without-echo the two are identical, so a fixture that omits the echo modes is degenerate",
+    find: '  return echo === "inline" ? `${my} \u00b7 ${en}` : `${my} ${en}`;',
+    replace: "  return my;",
+  },
+  {
     id: "staff-labels/line-qty-stays-latin",
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",

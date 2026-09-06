@@ -368,6 +368,7 @@ function RequestCard({
             aria-label={
               al(lang, {
                 kind: "verb",
+                echo: "stack",
                 verb: "table.appr.verb.approve",
                 subject: request.lineName,
               }).aria
@@ -383,6 +384,7 @@ function RequestCard({
             aria-label={
               al(lang, {
                 kind: "verb",
+                echo: "stack",
                 verb: "table.appr.verb.deny",
                 subject: request.lineName,
               }).aria

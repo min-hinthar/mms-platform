@@ -3,7 +3,7 @@ import { getStaffAuth } from "@/lib/staff";
 import { isConsoleLocked } from "@/lib/staff-lock";
 import { PinUnlock } from "@/components/staff/PinUnlock";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffLangShell } from "@/components/staff/StaffLangShell";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Locked — Mandalay Morning Star" };
@@ -34,11 +34,8 @@ export default async function StaffLockScreen() {
   // Next request-memoizes `cookies()`, so this costs one read even though the layout read it too.
   const lang = await readStaffLang();
   return (
-    <>
-      <div style={{ display: "flex", justifyContent: "flex-end", padding: "12px 16px 0" }}>
-        <StaffLangSwitch lang={lang} />
-      </div>
+    <StaffLangShell lang={lang}>
       <PinUnlock displayName={auth.caller.displayName} />
-    </>
+    </StaffLangShell>
   );
 }

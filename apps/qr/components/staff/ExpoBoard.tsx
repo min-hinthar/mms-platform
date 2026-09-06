@@ -403,10 +403,16 @@ function ExpoCard({
         ))}
       </ul>
       {/* P2 — the four (grocery × stage) labels are spelled out as WHOLE al() calls with LITERAL
-          verb keys, and the same four keys render below through <Chrome>. That pairing is what
-          `check-staff-lang.mjs` rule 3c proves mechanically: this button announces the word it
-          shows, in whichever language is on screen (WCAG 2.5.3). A computed key would read as one
-          call site to the guard and as four to the counter. */}
+          verb keys, and the same four keys render below through <Chrome>. A computed key would read
+          as one call site to the guard and as four to the counter.
+
+          What rule 3c proves, stated precisely because the first version of this comment overstated
+          it: that each announced key is RENDERED in this element, on the same ternary branch, with
+          the SAME echo. It does not read what `<Chrome>` emits. The reason the echo is part of that
+          check is that an echo puts TWO strings on screen under `my`, so `al()` must compose its
+          visible label through `chromeVisible(lang, key, echo)` — pass different echoes at the two
+          ends and the name silently drops half the visible label (WCAG 2.5.3). The rendered text is
+          pinned against that derivation in `Chrome.test.tsx`, which is the only place it can be. */}
       <button
         type="button"
         onClick={bump}
@@ -414,11 +420,31 @@ function ExpoCard({
         aria-label={
           grocery
             ? firstStage
-              ? al(lang, { kind: "verb", verb: "expo.verb.verified", subject: verifyWho }).aria
-              : al(lang, { kind: "verb", verb: "expo.verb.handedOver", subject: verifyWho }).aria
+              ? al(lang, {
+                  kind: "verb",
+                  echo: "stack",
+                  verb: "expo.verb.verified",
+                  subject: verifyWho,
+                }).aria
+              : al(lang, {
+                  kind: "verb",
+                  echo: "stack",
+                  verb: "expo.verb.handedOver",
+                  subject: verifyWho,
+                }).aria
             : firstStage
-              ? al(lang, { kind: "verb", verb: "expo.verb.bagged", subject: callOutAria }).aria
-              : al(lang, { kind: "verb", verb: "expo.verb.pickedUp", subject: callOutAria }).aria
+              ? al(lang, {
+                  kind: "verb",
+                  echo: "stack",
+                  verb: "expo.verb.bagged",
+                  subject: callOutAria,
+                }).aria
+              : al(lang, {
+                  kind: "verb",
+                  echo: "stack",
+                  verb: "expo.verb.pickedUp",
+                  subject: callOutAria,
+                }).aria
         }
         className="staff-btn"
         style={{ ...bumpBtn, ...(firstStage ? readyBtn : pickedBtn) }}

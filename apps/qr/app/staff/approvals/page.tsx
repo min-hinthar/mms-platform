@@ -112,14 +112,23 @@ export default async function ApprovalsPage() {
                 >
                   {/* Every row shows the same two words, so the visible label alone names nothing —
                       the name carries the payment intent, which is what the manager matches against
-                      the processor. The SAME key renders as the button's text, so WCAG 2.5.3
-                      containment holds by construction (guard rule 3c). */}
+                      the processor.
+
+                      ⚠️ THIS COMMENT USED TO SAY 2.5.3 "holds by construction (guard rule 3c)", and
+                      that was FALSE under `lang="my"`: rule 3c compares the KEY on the attribute
+                      with a key in the children, and is structurally blind to what `<Chrome>`
+                      EMITS — which with an echo is two visible strings, while `al()` composed its
+                      name from one. The button showed `ခွင့်ပြု` and `Approve` and announced only
+                      the Burmese half. What holds it now is `al()` taking the same `echo` this
+                      button renders and composing through `chromeVisible()`, plus rule 3c comparing
+                      the two echoes, plus a test that mounts the control and reads its text. */}
                   <button
                     type="submit"
                     style={resolveBtn}
                     aria-label={
                       al(lang, {
                         kind: "verb",
+                        echo: "stack",
                         verb: "table.appr.verb.markRefunded",
                         subject: r.paymentIntent,
                       }).aria

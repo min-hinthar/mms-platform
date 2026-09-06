@@ -225,11 +225,13 @@ export function TeamManager({
                     row.active
                       ? al(lang, {
                           kind: "verb",
+                          echo: "inline",
                           verb: "floor.verb.deactivate",
                           subject: row.displayName,
                         }).aria
                       : al(lang, {
                           kind: "verb",
+                          echo: "inline",
                           verb: "floor.verb.reactivate",
                           subject: row.displayName,
                         }).aria

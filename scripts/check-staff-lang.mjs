@@ -59,10 +59,10 @@ function walkFiles(dir, out = []) {
   return out;
 }
 
-function parse(file) {
+function parse(file, srcOverride) {
   return ts.createSourceFile(
     file,
-    readFileSync(file, "utf8"),
+    srcOverride ?? readFileSync(file, "utf8"),
     ts.ScriptTarget.Latest,
     true,
     file.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
@@ -433,6 +433,42 @@ function declarationInitializerOf(id) {
 }
 
 /**
+ * The local `function` declaration this identifier names, or null — the sibling of
+ * `declarationInitializerOf` for the other way a call site factors a name out.
+ *
+ * ⚠️ ADDED BECAUSE THE RESOLUTION WAS ONE SHAPE SHORT AND THIS DIFF WROTE THE FIRST INSTANCE OF THE
+ * OTHER. `declarationInitializerOf` matches variable statements only, so `subject: rowSubject(lang, r)`
+ * — a `function` declaration in `app/staff/register/page.tsx` — was skipped WHOLE and its body never
+ * scanned. It is clean today; the problem is that it is now the template, and moving one English
+ * literal inside it would have left rule 3 reporting the file clean. That is precisely the
+ * transitivity LEARNINGS #86 says the resolution must have or it is theatre. Found by a pre-merge
+ * blind pass.
+ */
+function localFunctionOf(id) {
+  for (let n = id.parent; n; n = n.parent) {
+    const stmts = n.statements;
+    if (!stmts) continue;
+    for (const st of stmts)
+      if (ts.isFunctionDeclaration(st) && st.name && st.name.text === id.text) return st;
+  }
+  return null;
+}
+
+/** Every expression a function RETURNS, not descending into functions nested inside it. */
+function returnExpressionsOf(fn) {
+  const out = [];
+  function walk(n) {
+    if (n !== fn && (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n))) return;
+    if (ts.isReturnStatement(n) && n.expression) out.push(n.expression);
+    ts.forEachChild(n, (c) => {
+      walk(c);
+    });
+  }
+  if (fn.body) walk(fn.body);
+  return out;
+}
+
+/**
  * Authored text spliced into a name — OUTSIDE a dictionary call (`` `${label} — bag for ${callOut}` ``,
  * `x ? "Deactivate" : "Reactivate"`, `ts(lang, k) + " request"`) and, since the audit below, INSIDE
  * one, in the slot values it fills. Joiner punctuation (`" — "`, `", "`) carries no letter or digit
@@ -471,9 +507,14 @@ function splicedText(node, sf) {
   // keeps a computed key from reading as copy. `al`'s second argument is the control OBJECT, whose
   // own key-ish fields are named below; `frozenBoardCopy` takes no key at all.
   const KEY_ARG = { ts: 1, tf: 1, sx: 1 };
-  const KEYISH_PROPS = ["kind", "verb", "status"];
+  // `echo` joins these: it selects a RENDER MODE ("stack"/"inline"/false), never a word anybody
+  // hears. It was added to `al()` to fix the WCAG 2.5.3 failure the pre-merge blind pass found, and
+  // rule 3 flagged it as spliced copy the moment it appeared — correctly, by its own lights, which
+  // is why the exemption is declared here rather than the rule loosened.
+  const KEYISH_PROPS = ["kind", "verb", "status", "echo"];
   let hit = null;
   const seenDecls = new Set();
+  const seenFns = new Set();
   const isChunk = (n) =>
     ts.isStringLiteral(n) ||
     ts.isNoSubstitutionTemplateLiteral(n) ||
@@ -513,14 +554,45 @@ function splicedText(node, sf) {
       const d = declarationInitializerOf(n);
       return d ? stringish(d) : false;
     }
+    // A call into a function declared in THIS file is not opaque — its returns are authored here.
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression)) {
+      const fn = localFunctionOf(n.expression);
+      if (fn && !seenFns.has(fn)) {
+        seenFns.add(fn);
+        const yes = returnExpressionsOf(fn).some((r) => stringish(r));
+        seenFns.delete(fn);
+        return yes;
+      }
+    }
     return false;
   }
 
   /** Walk a slot VALUE for authored Latin words, following local bindings to their declarations. */
   function scanValue(n) {
     if (hit !== null || !stringish(n)) return;
+    const EQUALITY = [
+      ts.SyntaxKind.EqualsEqualsToken,
+      ts.SyntaxKind.EqualsEqualsEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsToken,
+      ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ts.SyntaxKind.LessThanToken,
+      ts.SyntaxKind.GreaterThanToken,
+      ts.SyntaxKind.LessThanEqualsToken,
+      ts.SyntaxKind.GreaterThanEqualsToken,
+    ];
+
     function walk(x) {
       if (hit !== null) return;
+      // A DISCRIMINANT is never spoken. `r.kind === "kiosk" ? … : …` picks which sentence renders;
+      // the literal that picks it is not a word anybody hears. Walk the ARMS, never the condition —
+      // extending the resolution through local functions surfaced this immediately, because a
+      // factored-out subject builder is exactly where a ternary on a row kind lives.
+      if (ts.isConditionalExpression(x)) {
+        walk(x.whenTrue);
+        walk(x.whenFalse);
+        return;
+      }
+      if (ts.isBinaryExpression(x) && EQUALITY.includes(x.operatorToken.kind)) return;
       // A dictionary call NESTED inside a value (`` `${tf(lang, "floor.table", { id })} · #${code}` ``)
       // is the correct shape, not a splice — but its OWN slots are governed by the same rule, so it
       // goes back through `visit` rather than being skipped. Walking it as plain text would report
@@ -531,6 +603,14 @@ function splicedText(node, sf) {
       }
       if (isChunk(x)) {
         if (latinWord.test(x.text)) hit = x.text;
+        return;
+      }
+      if (ts.isCallExpression(x) && ts.isIdentifier(x.expression)) {
+        const fn = localFunctionOf(x.expression);
+        if (fn && !seenFns.has(fn)) {
+          seenFns.add(fn);
+          for (const r of returnExpressionsOf(fn)) walk(r);
+        }
         return;
       }
       if (ts.isIdentifier(x)) {
@@ -613,11 +693,11 @@ function bareDictCall(expr) {
  * would let a file be clean for the ratchet and dirty for the rule at the same time — which is how a
  * TODO entry becomes a permanent exemption for work that only looks finished.
  */
-function ariaFindings(file) {
+function ariaFindings(file, srcOverride) {
   const out = [];
   let sf;
   try {
-    sf = parse(file);
+    sf = parse(file, srcOverride);
   } catch {
     return out;
   }
@@ -720,17 +800,35 @@ for (const file of ARIA_FILES) failures.push(...ariaFindings(file));
  * and "the guard cannot see it" is not a licence — pick the key with a ternary over two whole
  * `al()` calls instead, the way the comp/void card does.
  */
-function verbLabelFindings(file) {
+function verbLabelFindings(file, srcOverride) {
   const out = [];
   let sf;
   try {
-    sf = parse(file);
+    sf = parse(file, srcOverride);
   } catch {
     return out;
   }
   const rel = relative(ROOT, file);
 
   /** The `verb:` property of an `al(_, { kind: "verb", … })` call, or null. */
+  /** The `echo` an `al()` control or a `<Chrome>` declares, normalized. Absent === `false`. */
+  function echoOf(props, name = "echo") {
+    const e = props.find(
+      (pr) =>
+        (ts.isPropertyAssignment(pr) || ts.isJsxAttribute(pr)) && pr.name.getText(sf) === name,
+    );
+    if (!e) return "false";
+    const init = ts.isJsxAttribute(e)
+      ? e.initializer && ts.isJsxExpression(e.initializer)
+        ? e.initializer.expression
+        : e.initializer
+      : e.initializer;
+    if (!init) return "<computed>";
+    if (ts.isStringLiteral(init)) return init.text;
+    if (init.kind === ts.SyntaxKind.FalseKeyword) return "false";
+    return "<computed>";
+  }
+
   function verbKeyOf(node) {
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return null;
     if (node.expression.text !== "al") return null;
@@ -739,18 +837,21 @@ function verbLabelFindings(file) {
     const kind = arg.properties.find(
       (pr) => ts.isPropertyAssignment(pr) && pr.name.getText(sf) === "kind",
     );
-    if (
-      !kind ||
-      !ts.isPropertyAssignment(kind) ||
-      !ts.isStringLiteral(kind.initializer) ||
-      kind.initializer.text !== "verb"
-    )
+    if (!kind || !ts.isPropertyAssignment(kind) || !ts.isStringLiteral(kind.initializer))
       return null;
+    const k = kind.initializer.text;
+    const echo = echoOf(arg.properties);
+    // An arm whose key is hardcoded inside al() — the KDS bump and 86 are these, and they are the
+    // two the blind pass's own search could not see.
+    if (FIXED_KEY_ARMS.has(k)) return { key: FIXED_KEY_ARMS.get(k), echo };
+    if (k !== "verb") return null;
     const verb = arg.properties.find(
       (pr) => ts.isPropertyAssignment(pr) && pr.name.getText(sf) === "verb",
     );
-    if (!verb || !ts.isPropertyAssignment(verb)) return { key: null };
-    return ts.isStringLiteral(verb.initializer) ? { key: verb.initializer.text } : { key: null };
+    if (!verb || !ts.isPropertyAssignment(verb)) return { key: null, echo };
+    return ts.isStringLiteral(verb.initializer)
+      ? { key: verb.initializer.text, echo }
+      : { key: null, echo };
   }
 
   /**
@@ -786,8 +887,9 @@ function verbLabelFindings(file) {
    * Does this subtree RENDER `key` — `<Chrome … k="key">` or `ts(_, "key")` — on a branch that does
    * not contradict `namePath`, the ternary arms the name announcing it sits under?
    */
-  function rendersKey(node, key, namePath = []) {
+  function rendersKey(node, key, namePath = [], wantEcho = null) {
     let hit = false;
+    let wrongEcho = null;
     function visit(n) {
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
         if (n.tagName.getText(sf) === "Chrome") {
@@ -804,7 +906,16 @@ function verbLabelFindings(file) {
                   ts.isStringLiteral(init.expression)
                 ? init.expression
                 : null;
-          if (lit && lit.text === key && !contradicts(namePath, armPath(n, node))) hit = true;
+          if (lit && lit.text === key && !contradicts(namePath, armPath(n, node))) {
+            // ⚠️ THE ECHO IS PART OF THE PAIRING, not decoration. `<Chrome echo>` under `my` puts
+            // TWO strings on screen; `al()` composes its `visible` through `chromeVisible(…, echo)`
+            // to match. Pass a different echo at either end and the name silently stops containing
+            // half the visible label — the WCAG 2.5.3 failure a pre-merge blind pass found on 15
+            // controls, which rule 3c could not see because it compared KEYS only.
+            const rendered = echoOf(n.attributes.properties);
+            if (wantEcho !== null && rendered !== wantEcho) wrongEcho = rendered;
+            else hit = true;
+          }
         }
       }
       if (
@@ -826,7 +937,7 @@ function verbLabelFindings(file) {
       });
     }
     visit(node);
-    return hit;
+    return { hit, wrongEcho };
   }
 
   function visit(node) {
@@ -874,11 +985,18 @@ function verbLabelFindings(file) {
           out.push(
             `rule 3c: ${rel}:${line} — a \`verb\` control whose \`verb:\` is not a string literal. The guard cannot then find the label it must contain; pick the key with a ternary over two al() calls instead.`,
           );
-        } else if (!el || !rendersKey(el, f.key, f.path)) {
+        } else {
+          const r = el ? rendersKey(el, f.key, f.path, f.echo) : { hit: false, wrongEcho: null };
           const where = f.path.length ? ` on the branch \`${f.path.join(" / ")}\`` : "";
-          out.push(
-            `rule 3c: ${rel}:${line} — the control announces \`${f.key}\`${where} but never renders it there. WCAG 2.5.3 asks the NAME to contain the VISIBLE label; render the same key in this element's children, on the same branch, through <Chrome k="${f.key}" /> or ts(lang, "${f.key}").`,
-          );
+          if (r.wrongEcho !== null) {
+            out.push(
+              `rule 3c: ${rel}:${line} — the control announces \`${f.key}\`${where} with \`echo: ${f.echo}\`, but renders it with \`echo=${r.wrongEcho}\`. Under lang="my" an echo puts TWO strings on screen and al() composes its visible label through chromeVisible(…, echo) — mismatch them and the name stops containing half of what the control shows (WCAG 2.5.3). Pass the SAME echo at both ends.`,
+            );
+          } else if (!r.hit) {
+            out.push(
+              `rule 3c: ${rel}:${line} — the control announces \`${f.key}\`${where} but never renders it there. WCAG 2.5.3 asks the NAME to contain the VISIBLE label; render the same key in this element's children, on the same branch, through <Chrome k="${f.key}" /> or ts(lang, "${f.key}").`,
+            );
+          }
         }
       }
     }
@@ -889,6 +1007,53 @@ function verbLabelFindings(file) {
   visit(sf);
   return out;
 }
+
+/**
+ * The `al()` arms whose visible label comes from a key HARDCODED inside the label module — read OUT
+ * of `staff-labels.ts` rather than transcribed here, because a hand map is a second copy and the
+ * pre-merge blind pass proved what a second copy costs: its own search keyed on the `verb:` field,
+ * so it missed the KDS bump and 86 entirely and reported 13 sites where the measured number is 15.
+ *
+ * Shape matched: `case "<kind>": { … chromeVisible(lang, "<key>", control.echo) … }`.
+ */
+function fixedKeyArms() {
+  const sf = parse(join(QR, "lib/staff-labels.ts"));
+  const out = new Map();
+  function visit(node) {
+    if (ts.isCaseClause(node) && ts.isStringLiteral(node.expression)) {
+      const kind = node.expression.text;
+      let key = null;
+      function find(n) {
+        if (
+          ts.isCallExpression(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === "chromeVisible" &&
+          n.arguments[1] &&
+          ts.isStringLiteral(n.arguments[1])
+        )
+          key = n.arguments[1].text;
+        ts.forEachChild(n, (c) => {
+          find(c);
+        });
+      }
+      find(node);
+      if (key) out.set(kind, key);
+    }
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return out;
+}
+
+const FIXED_KEY_ARMS = fixedKeyArms();
+// Self-check: this rule is about arms that exist. If the derivation stops finding any, it has gone
+// blind and every control it governs would pass by default.
+if (FIXED_KEY_ARMS.size === 0)
+  failures.push(
+    'rule 3c: no fixed-key al() arm found in lib/staff-labels.ts — the derivation that feeds rule 3c has gone blind (did `chromeVisible(lang, "<key>", …)` change shape?).',
+  );
 
 for (const file of ARIA_ALL) failures.push(...verbLabelFindings(file));
 
@@ -904,16 +1069,19 @@ for (const file of ARIA_ALL) failures.push(...verbLabelFindings(file));
 // The fix at both sites is one attribute (`role="group"`), which is why this is a rule and not a
 // backlog row. Scoped to the three generic tags: every other element the console names is a
 // `<button>`, `<a>`, `<nav>`, `<section>`, `<ul>` or a div that already declares its role.
-function nameableFindings(file) {
+function nameableFindings(file, srcOverride) {
   const out = [];
   let sf;
   try {
-    sf = parse(file);
+    sf = parse(file, srcOverride);
   } catch {
     return out;
   }
   const rel = relative(ROOT, file);
   const GENERIC_TAGS = ["div", "span", "p"];
+  // Roles whose name is PROHIBITED by ARIA — declaring one of these does not rescue the name, it
+  // guarantees it is thrown away. `presentation`/`none` additionally strip the element's semantics.
+  const NAME_PROHIBITED_ROLES = ["generic", "presentation", "none", "paragraph"];
   const NAME_ATTRS = ["aria-label", "ariaLabel", "aria-labelledby"];
   function visit(node) {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
@@ -923,11 +1091,32 @@ function nameableFindings(file) {
         const named = props.find(
           (a) => ts.isJsxAttribute(a) && NAME_ATTRS.includes(a.name.getText(sf)),
         );
-        const hasRole = props.some((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "role");
+        // ⚠️ THE ROLE'S VALUE, NOT THE ATTRIBUTE'S NAME. The first cut asked only whether a `role`
+        // attribute was present, so `<div role="presentation" aria-label={…}>` satisfied it — a role
+        // that ALSO discards the name, and strips the element's semantics on top. A matcher
+        // satisfied by an attribute NAME is LEARNINGS #60 in miniature; a pre-merge blind pass
+        // caught it in the rule added to fix that very class.
+        const roleAttr = props.find((a) => ts.isJsxAttribute(a) && a.name.getText(sf) === "role");
+        const roleInit = roleAttr && ts.isJsxAttribute(roleAttr) ? roleAttr.initializer : undefined;
+        const roleLit = roleInit
+          ? ts.isStringLiteral(roleInit)
+            ? roleInit.text
+            : ts.isJsxExpression(roleInit) &&
+                roleInit.expression &&
+                ts.isStringLiteral(roleInit.expression)
+              ? roleInit.expression.text
+              : null // computed — stated limit: the guard cannot tell, and says nothing
+          : undefined;
+        const prohibited =
+          roleLit !== null && roleLit !== undefined && NAME_PROHIBITED_ROLES.includes(roleLit);
+        const hasRole = roleAttr !== undefined && !prohibited;
         if (named && !hasRole) {
           const line = sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1;
+          const because = prohibited
+            ? `role="${roleLit}"`
+            : `a bare <${tag}> (implicit role ${tag === "p" ? "paragraph" : "generic"})`;
           out.push(
-            `rule 3d: ${rel}:${line} — a name on a bare <${tag}>. That element's implicit role (${tag === "p" ? "paragraph" : "generic"}) does not accept an author-supplied name, so the browser DISCARDS it. Give it a role that does — role="group" for a named container, role="status" for a live one, role="list" for a list.`,
+            `rule 3d: ${rel}:${line} — a name on ${because}. That role does not accept an author-supplied name, so the browser DISCARDS it. Give it a role that does — role="group" for a named container, role="status" for a live one, role="list" for a list.`,
           );
         }
       }
@@ -983,23 +1172,48 @@ if (staffPages.length < 10)
 const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
 
 /** Does this module's own JSX mount a live `<StaffLangSwitch>`? */
-function mountsSwitchHere(file) {
+function mountsSwitchHere(file, srcOverride) {
   let sf;
-  let src;
   try {
-    src = readFileSync(file, "utf8");
-    sf = parse(file);
+    sf = parse(file, srcOverride);
   } catch {
     return false;
   }
   let found = false;
+
+  /**
+   * Is this element parked in a literal-dead branch — `{false && <X/>}` or `{0 && <X/>}`?
+   *
+   * ⚠️ THIS USED TO BE A 40-CHARACTER RAW-TEXT REGEX (`/\{\s*(false|0)\s*&&\s*$/` over the source
+   * before the tag), and a pre-merge blind pass showed exactly what that costs: write the same dead
+   * branch across lines — which is what prettier emits past the print width —
+   *
+   *     {false && (
+   *       <StaffLangSwitch lang={lang} />
+   *     )}
+   *
+   * and the preceding 40 characters end in `(` + newline + indent, the regex misses, and the page is
+   * reported as REACHING a live control while shipping nothing. That is the hole rule 4 was rewritten
+   * to close, reopened by the exclusion meant to narrow it — and the guard's own header claims all
+   * its rules parse. Walking parents costs nothing and cannot be defeated by a line break.
+   */
+  function inDeadBranch(node) {
+    for (let n = node.parent; n; n = n.parent) {
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+        (n.left.kind === ts.SyntaxKind.FalseKeyword ||
+          (ts.isNumericLiteral(n.left) && n.left.text === "0"))
+      )
+        return true;
+      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) break;
+    }
+    return false;
+  }
+
   function visit(node) {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
-      if (node.tagName.getText(sf) === "StaffLangSwitch") {
-        // Exclude the literal-dead shapes: `{false && <X/>}` and `{0 && <X/>}`.
-        const before = src.slice(Math.max(0, node.getStart(sf) - 40), node.getStart(sf));
-        if (!/\{\s*(false|0)\s*&&\s*$/.test(before)) found = true;
-      }
+      if (node.tagName.getText(sf) === "StaffLangSwitch" && !inDeadBranch(node)) found = true;
     }
     ts.forEachChild(node, (c) => {
       visit(c);
@@ -1246,6 +1460,138 @@ for (const file of MARK_FILES) {
     });
   }
   visit(sf);
+}
+
+// ── SELF-TEST — every rule, aimed at a fixture that MUST make it fire ───────────────────────────
+//
+// ⚠️ THIS IS THE ANSWER TO "the 1265-line guard this slice rests on has no test of its own" (a
+// pre-merge blind pass, 2026-09-06). Every falsification claim in this file's header and in
+// LEARNINGS #86/#87 was a ONE-TIME hand assertion: I induced each violation, watched it go red, and
+// reverted. Nothing re-ran those probes afterwards, so a refactor that quietly disarmed `verbKeyOf`,
+// `rendersKey`, `contradicts` or `splicedText` would turn eight rules into a no-op with CI green —
+// the exact shape this guard exists to prevent, in the guard itself.
+//
+// The repo's precedent is `scripts/codex-review-gate.mjs`, unit-tested in
+// `apps/qr/lib/codex-review-gate.test.ts`. This is the same idea placed differently: the fixtures
+// live INSIDE the guard and run on every invocation, so they cannot rot in a suite nobody points at
+// this file, and `check:staff-lang` already runs in CI's fast lane. Each case is a source string the
+// rule must find, plus one NEAR-MISS it must not — a rule that fires on everything is as useless as
+// one that fires on nothing.
+//
+// If you add a rule, add its pair here. If a case here stops firing, the rule is gone, not the case.
+const SELF_TEST_CASES = [
+  // ── rule 3 — the name comes from the dictionary ──────────────────────────────────────────────
+  {
+    rule: "rule 3",
+    what: "a literal aria-label",
+    fn: ariaFindings,
+    fires: `const A = () => <button aria-label="Approve">x</button>;`,
+    misses: `const A = () => <ul role="list" aria-label={sx(lang, "kds.a11y.x")}><li>x</li></ul>;`,
+  },
+  {
+    rule: "rule 3",
+    what: "authored English spliced into a localized name",
+    fn: ariaFindings,
+    fires:
+      'const A = () => <button aria-label={`${ts(lang, "kds.bump")} — bag for ${x}`}>x</button>;',
+    misses: 'const A = () => <button aria-label={`${ts(lang, "kds.bump")} — ${x}`}>x</button>;',
+  },
+  {
+    rule: "rule 3",
+    what: "an English WORD inside a name call's slot value",
+    fn: ariaFindings,
+    fires:
+      'const A = () => <button aria-label={tf(lang, "kds.err.bump", { x: "Table 7" })}>x</button>;',
+    misses:
+      'const A = () => <button aria-label={tf(lang, "kds.err.bump", { x: code })}>x</button>;',
+  },
+  {
+    rule: "rule 3",
+    what: "the same splice, hoisted one declaration up",
+    fn: ariaFindings,
+    fires:
+      'const A = () => { const aria = `${ts(lang, "kds.bump")} — bag for the counter`; return <button aria-label={aria}>x</button>; };',
+    misses:
+      'const A = () => { const { aria } = al(lang, { kind: "verb", verb: "kds.verb.x", subject: s }); return <button aria-label={aria}>x</button>; };',
+  },
+  // ── rule 3c — the control renders the word it announces ──────────────────────────────────────
+  {
+    rule: "rule 3c",
+    what: "a verb control that never renders its key",
+    fn: verbLabelFindings,
+    fires:
+      'const A = () => <button aria-label={al(lang, { kind: "verb", verb: "kds.bump", subject: s }).aria}>x</button>;',
+    misses:
+      'const A = () => <button aria-label={al(lang, { kind: "verb", verb: "kds.bump", subject: s }).aria}><Chrome lang={lang} k="kds.bump" /></button>;',
+  },
+  {
+    rule: "rule 3c",
+    what: "a CROSSED ternary — both keys present, each on the wrong branch",
+    fn: verbLabelFindings,
+    fires:
+      'const A = () => <button aria-label={on ? al(lang, { kind: "verb", verb: "kds.bump", subject: s }).aria : al(lang, { kind: "verb", verb: "kds.undo", subject: s }).aria}>{on ? <Chrome lang={lang} k="kds.undo" /> : <Chrome lang={lang} k="kds.bump" />}</button>;',
+    misses:
+      'const A = () => <button aria-label={on ? al(lang, { kind: "verb", verb: "kds.bump", subject: s }).aria : al(lang, { kind: "verb", verb: "kds.undo", subject: s }).aria}>{on ? <Chrome lang={lang} k="kds.bump" /> : <Chrome lang={lang} k="kds.undo" />}</button>;',
+  },
+  {
+    rule: "rule 3c",
+    what: "an echo mismatch — the name composed for one mode, the label rendered in another",
+    fn: verbLabelFindings,
+    fires:
+      'const A = () => <button aria-label={al(lang, { kind: "verb", verb: "kds.bump", subject: s }).aria}><Chrome lang={lang} k="kds.bump" echo="stack" /></button>;',
+    misses:
+      'const A = () => <button aria-label={al(lang, { kind: "verb", echo: "stack", verb: "kds.bump", subject: s }).aria}><Chrome lang={lang} k="kds.bump" echo="stack" /></button>;',
+  },
+  // ── rule 3d — the name lands on an element that can bear one ─────────────────────────────────
+  {
+    rule: "rule 3d",
+    what: "a name on a bare <div>",
+    fn: nameableFindings,
+    fires: 'const A = () => <div aria-label={sx(lang, "kds.a11y.x")}>x</div>;',
+    misses: 'const A = () => <div role="group" aria-label={sx(lang, "kds.a11y.x")}>x</div>;',
+  },
+  {
+    rule: "rule 3d",
+    what: "a role that is PRESENT and still prohibits a name",
+    fn: nameableFindings,
+    fires: 'const A = () => <div role="presentation" aria-label={sx(lang, "kds.a11y.x")}>x</div>;',
+    misses: 'const A = () => <div role="status" aria-label={sx(lang, "kds.a11y.x")}>x</div>;',
+  },
+];
+
+for (const c of SELF_TEST_CASES) {
+  const fires = c.fn(join(QR, "components/staff/__selftest__.tsx"), c.fires);
+  const misses = c.fn(join(QR, "components/staff/__selftest__.tsx"), c.misses);
+  if (fires.length === 0)
+    failures.push(
+      `SELF-TEST: ${c.rule} no longer fires on "${c.what}". The rule is disarmed — its fixture is unchanged, so this is the guard breaking, not the code.`,
+    );
+  if (misses.length !== 0)
+    failures.push(
+      `SELF-TEST: ${c.rule} fires on the NEAR-MISS for "${c.what}" (${misses[0]}). A rule that flags the correct shape teaches everyone to ignore it.`,
+    );
+}
+
+// Rule 4's evidence test is a boolean rather than a finding list, so it gets its own pair — and the
+// multi-line dead branch is here because the raw-text regex it replaced could not see it.
+{
+  const F = join(QR, "components/staff/__selftest__.tsx");
+  const live = mountsSwitchHere(F, "const A = () => <div><StaffLangSwitch lang={lang} /></div>;");
+  const deadInline = mountsSwitchHere(
+    F,
+    "const A = () => <div>{false && <StaffLangSwitch lang={lang} />}</div>;",
+  );
+  const deadWrapped = mountsSwitchHere(
+    F,
+    "const A = () => (\n  <div>\n    {false && (\n      <StaffLangSwitch lang={lang} />\n    )}\n  </div>\n);",
+  );
+  if (!live) failures.push("SELF-TEST: rule 4 no longer sees a LIVE <StaffLangSwitch> mount.");
+  if (deadInline)
+    failures.push("SELF-TEST: rule 4 counts `{false && <StaffLangSwitch/>}` as a live mount.");
+  if (deadWrapped)
+    failures.push(
+      "SELF-TEST: rule 4 counts a MULTI-LINE `{false && (…)}` as a live mount — the exact shape prettier emits past the print width, and the hole the raw-text regex left.",
+    );
 }
 
 // Self-check: a rule that finds nothing to hold is not passing, it is not running.

@@ -71,7 +71,7 @@ export function fill(
 
 /** The slot names a template declares, as a union — so `tf` demands exactly the right vars. */
 type Slots<S extends string> = S extends `${string}{${infer K}}${infer R}` ? K | Slots<R> : never;
-type SlotsOf<K extends StaffKey> = Slots<(typeof STAFF)[K]["en"]>;
+export type SlotsOf<K extends StaffKey> = Slots<(typeof STAFF)[K]["en"]>;
 
 /**
  * Look up a key and fill its slots. The var object is typed from the EN template's slot names, so a

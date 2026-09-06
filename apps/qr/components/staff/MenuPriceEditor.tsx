@@ -348,11 +348,13 @@ export function MenuPriceEditor({
                       i.soldOut
                         ? al(lang, {
                             kind: "verb",
+                            echo: "inline",
                             verb: "browse.price.verb.putBack",
                             subject: i.nameEn,
                           }).aria
                         : al(lang, {
                             kind: "verb",
+                            echo: "inline",
                             verb: "browse.price.verb.eightySix",
                             subject: i.nameEn,
                           }).aria
@@ -378,6 +380,7 @@ export function MenuPriceEditor({
                       aria-label={
                         al(lang, {
                           kind: "verb",
+                          echo: "inline",
                           verb: "browse.price.verb.edit",
                           subject: i.nameEn,
                         }).aria
@@ -395,6 +398,7 @@ export function MenuPriceEditor({
                   aria-label={
                     al(lang, {
                       kind: "verb",
+                      echo: "stack",
                       verb: "browse.price.verb.confirm",
                       subject: current.nameEn,
                     }).aria

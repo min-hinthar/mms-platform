@@ -2,6 +2,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Chrome, OutageText } from "./Chrome";
+import { al, chromeVisible, type ChromeEcho } from "@/lib/staff-labels";
 import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "@/lib/staff-outage";
 
 /**
@@ -126,5 +127,111 @@ describe("OutageText — the one server sentence with a Burmese twin", () => {
     );
     expect(container.textContent).toContain("#A12");
     expect(container.textContent).not.toContain(STAFF_WRITE_OUTAGE_MY);
+  });
+});
+
+/**
+ * ⚠️ THE PAIR THAT ACTUALLY FAILED WCAG 2.5.3, AND THE ONLY TEST SHAPE THAT COULD SEE IT.
+ *
+ * A pre-merge blind pass found that `al()` built a control's `visible` from ONE tongue while
+ * `<Chrome echo>` put TWO on screen — so the Approve button SHOWED `ခွင့်ပြု` and `Approve` and
+ * ANNOUNCED only `ခွင့်ပြု — Mohinga`. A speech-input user saying the word they can see hit
+ * nothing, on 15 controls across 6 files, in the language the pilot DEFAULTS to.
+ *
+ * Nothing caught it because nothing rendered a control and compared its text to its name:
+ * `staff-labels.test.ts`'s containment loop is tautological (al() interpolates `visible` into `aria`
+ * by construction), and guard rule 3c compares KEYS, so it is structurally blind to what `<Chrome>`
+ * emits. These tests close that gap from both ends — the render is measured, never assumed.
+ */
+/**
+ * The parts a viewer actually reads: the Burmese span and the English echo when Chrome renders the
+ * pair, or the single bare text node when it does not. Deliberately NOT `textContent` — jsdom
+ * concatenates two `display: block` siblings with no whitespace ("ခွင့်ပြုApprove"), so a raw string
+ * comparison would encode a jsdom quirk rather than what the screen shows.
+ */
+function renderedParts(container: HTMLElement): string[] {
+  const spans = container.querySelectorAll('[lang="my"], .chrome-en');
+  return spans.length ? [...spans].map((e) => e.textContent ?? "") : [container.textContent ?? ""];
+}
+
+describe("what Chrome puts ON SCREEN is what chromeVisible() says it does", () => {
+  const CASES: ReadonlyArray<readonly [ChromeEcho, string]> = [
+    [false, "no echo"],
+    ["stack", "stacked echo"],
+    ["inline", "inline echo"],
+  ];
+  for (const [echo, what] of CASES) {
+    for (const lang of ["en", "my"] as const) {
+      it(`${lang} · ${what}: the derivation al() reads accounts for every rendered part, and adds none`, () => {
+        const { container } = render(
+          <Chrome lang={lang} k="table.appr.verb.approve" echo={echo} />,
+        );
+        const parts = renderedParts(container);
+        expect(parts.filter(Boolean)).toHaveLength(parts.length);
+
+        // Two-way: every rendered part is IN the derivation, and once they are struck out nothing
+        // but separators is left — so the derivation can neither miss a visible word nor invent one.
+        let rest = chromeVisible(lang, "table.appr.verb.approve", echo);
+        for (const part of parts) {
+          expect(rest).toContain(part);
+          rest = rest.replace(part, "");
+        }
+        expect(rest.trim()).toMatch(/^[·\s]*$/u);
+      });
+    }
+  }
+});
+
+describe("a labelled control's NAME contains every word the control SHOWS", () => {
+  const ECHOES: readonly ChromeEcho[] = [false, "stack", "inline"];
+  for (const echo of ECHOES) {
+    for (const lang of ["en", "my"] as const) {
+      it(`${lang} · echo=${String(echo)}: WCAG 2.5.3 on the rendered text, not on the key`, () => {
+        const { container } = render(
+          <Chrome lang={lang} k="table.appr.verb.approve" echo={echo} />,
+        );
+        const { aria } = al(lang, {
+          kind: "verb",
+          echo,
+          verb: "table.appr.verb.approve",
+          subject: "Mohinga",
+        });
+        // The mutation this separates: drop `echo` from the al() call and, under `my` WITH an echo,
+        // the English half of the visible label stops appearing in the name. Under `en` and under
+        // `my`-without-echo the two are identical either way, so those arms cannot catch it — which
+        // is exactly why every echo mode is exercised here.
+        for (const part of renderedParts(container)) expect(aria).toContain(part);
+      });
+    }
+  }
+
+  it("a SLOTTED key pins too — the count is Burmese in the my half and Latin in the echo", () => {
+    // The register row is the reason this case exists: its subject is built from two echoed Chromes
+    // with a `{n}`/`{m}` count, and it announced only the Burmese halves. A no-slot fixture cannot
+    // catch that — `fill` is where the two tongues diverge on numerals.
+    const { container } = render(
+      <Chrome lang="my" k="reg.row.many" vars={{ n: 2, m: "$12.00" }} echo="inline" />,
+    );
+    const parts = renderedParts(container);
+    let rest = chromeVisible("my", "reg.row.many", "inline", { n: 2, m: "$12.00" });
+    for (const part of parts) {
+      expect(rest).toContain(part);
+      rest = rest.replace(part, "");
+    }
+    expect(rest.trim()).toMatch(/^[·\s]*$/u);
+    expect(parts.join(" ")).toContain("၂"); // Burmese numeral in the my half…
+    expect(parts.join(" ")).toContain("2 items"); // …Latin in the echo
+  });
+
+  it("the English echo is the half that used to go missing", () => {
+    const { aria } = al("my", {
+      kind: "verb",
+      echo: "stack",
+      verb: "table.appr.verb.approve",
+      subject: "Mohinga",
+    });
+    expect(aria).toContain("Approve"); // the VISIBLE English word — absent before this fix
+    expect(aria).toContain("ခွင့်ပြု");
+    expect(aria).toContain("Mohinga");
   });
 });

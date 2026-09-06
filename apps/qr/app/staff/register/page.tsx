@@ -9,7 +9,7 @@ import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { ts } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
-import { al, sx } from "@/lib/staff-labels";
+import { al, chromeVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 
 export const metadata = { title: "Register — Mandalay Morning Star" };
@@ -27,10 +27,25 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * visible text and its accessible name are one derivation, so an edit to `reg.row.*` moves both and
  * WCAG 2.5.3 containment cannot drift the way OPEN-ITEMS P2g describes.
  */
+/**
+ * The row's own text, assembled for the NAME — which means every piece composed the way the row
+ * RENDERS it, echo included.
+ *
+ * ⚠️ THIS BUILT FROM `ts()`/`tf()` AND WAS A LIVE WCAG 2.5.3 FAILURE. Two of the three Chromes below
+ * carry `echo="inline"`, so under `my` the row visibly reads
+ * `လမ်းလျှောက်လာ · Walk-up` … `ပစ္စည်း ၂ ခု · $12.00 + အခွန် · 2 items · $12.00 + tax`
+ * while the name said only the Burmese halves — measured, not reasoned. It is the same defect a
+ * pre-merge blind pass found on the `verb` arm; the `subject` arm had it too, and rule 3c cannot
+ * see this one at all (the subject is a runtime string, not a key), which is exactly why the
+ * composition is centralized in `chromeVisible` instead of being spelled out per call site.
+ *
+ * The echo passed here must match the `echo` prop on the matching `<Chrome>` in the row below. The
+ * kiosk badge deliberately has none — two scripts cannot legibly stack in a chip.
+ */
 function rowSubject(lang: StaffLang, r: RegisterQueueRow): string {
-  const name = r.customerName ?? ts(lang, "reg.row.walkup");
-  const source = r.source === "kiosk" ? ` · ${ts(lang, "reg.row.kiosk")}` : "";
-  const meta = tf(lang, plural(r.itemCount, "reg.row.one", "reg.row.many"), {
+  const name = r.customerName ?? chromeVisible(lang, "reg.row.walkup", "inline");
+  const source = r.source === "kiosk" ? ` · ${chromeVisible(lang, "reg.row.kiosk")}` : "";
+  const meta = chromeVisible(lang, plural(r.itemCount, "reg.row.one", "reg.row.many"), "inline", {
     n: r.itemCount,
     m: fmt(r.subtotalCents),
   });

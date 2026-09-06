@@ -857,7 +857,9 @@ function TicketCard({
           className="kds-bump"
           onClick={bumpAll}
           disabled={pending}
-          aria-label={al(lang, { kind: "bump", id: id.main, items: ticket.lines.length }).aria}
+          aria-label={
+            al(lang, { kind: "bump", echo: "stack", id: id.main, items: ticket.lines.length }).aria
+          }
         >
           {pending ? (
             "…"
@@ -995,7 +997,10 @@ function KdsLineRow({
             className="kds-line-86"
             disabled={eightySixing}
             onClick={() => void flip(line.menuItemId!)}
-            aria-label={al(lang, { kind: "eighty6", name: line.name, nameMy: line.nameMy }).aria}
+            aria-label={
+              al(lang, { kind: "eighty6", echo: "stack", name: line.name, nameMy: line.nameMy })
+                .aria
+            }
           >
             {eightySixing ? "…" : <Chrome lang={lang} k="kds.86" echo="stack" />}
           </button>

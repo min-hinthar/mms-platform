@@ -22,6 +22,49 @@ sentences and why the one-line conversion of them is wrong (**P2p**), `TeamManag
 form, `PinUnlock`, `RoleBadge` and `RelativeTime` (**P2m**), and the 97 server-module `error:`
 strings that were out of scope by owner direction (**P2i**).
 
+**A pre-merge blind pass returned REJECT with a CRITICAL, and it was a WCAG 2.5.3 failure in the
+language the pilot DEFAULTS to.** `<Chrome echo>` under `lang="my"` renders TWO visible strings — the
+Burmese span and `<span class="chrome-en">`, which is `display: block` with no `aria-hidden` — while
+`al()` composed its accessible name from ONE. So the Approve button SHOWED `ခွင့်ပြု` and `Approve`
+and ANNOUNCED `ခွင့်ပြု — Mohinga`: a speech-input user saying the word they can see hit nothing.
+Measured at **15 controls across 6 files** — two more than the review found, because the KDS bump and
+86 hide their key inside `al()` and a search keyed on the `verb:` field cannot see them. Three
+comments and this changelog asserted the opposite, which is the part that stops the next reader
+re-checking. `chromeVisible()` is now the ONE derivation of what Chrome puts on screen, `al()`
+composes every visible label through it, and `Chrome.test.tsx` pins the rendered text against that
+derivation two-way — every rendered part is in the derivation, and once struck out nothing but
+separators remains, so it can neither miss a visible word nor invent one. ⚠️ `aria-hidden` on the
+echo is NOT the fix: 2.5.3 is about text presented VISUALLY, so hiding it makes the mismatch
+invisible to tooling instead of absent.
+
+**The same defect had a second instance the review classified as merely unenforced.** The register
+queue row renders two `echo="inline"` Chromes and built its subject from un-echoed lookups, so the
+row showed `လမ်းလျှောက်လာ · Walk-up` and announced neither English half. Rule 3c cannot reach that arm
+at all — a subject is a runtime string, not a key — so `staff-labels.ts`'s claim that it enforced
+both arms is narrowed to what is true, and `rowSubject` composes through `chromeVisible`.
+
+**The guard now tests itself, on every invocation.** Its eight rules rested entirely on one-time hand
+probes: induce the violation, watch it go red, revert — with nothing re-running them, so a refactor
+that quietly disarmed `verbKeyOf`, `rendersKey`, `contradicts` or `splicedText` would have turned all
+eight into a no-op with CI green. Ten fixture pairs now run inside `check:staff-lang` itself (each a
+source the rule MUST find plus a near-miss it must not), and they were falsified by disarming three
+matchers in turn: `contradicts` → 1 failure, `splicedText` → 3, rule 3d's prohibited-role list → 1.
+
+**Four more guard defects, all in rules written for this slice.** Rule 3c kept only the FIRST verb key
+and searched the whole subtree, so three of four pairings on the expo bump button were unguarded and
+a crossed ternary passed green; it now holds every key, compares branch paths, and compares the echo.
+Rule 3's resolution stopped at variable declarations, so a subject factored into a local `function` —
+which this diff wrote the first of — was skipped whole. Rule 3d asked whether a `role` attribute was
+PRESENT, so `role="presentation"` satisfied it. Rule 4's dead-branch exclusion was a 40-character
+raw-text regex that a prettier-wrapped `{false && (…)}` walks straight past — the exact hole rule 4
+was rewritten to close, reopened by the exclusion meant to narrow it. All four parse now.
+
+**And the language strip was making two screens taller than the viewport.** `/staff/lock` (this slice)
+and `/staff/login` (PR A) each stacked a 44px control above a component whose own root is
+`min-height: 100dvh`, so "Forgot PIN? Sign out" could fall below the fold — while `app/staff/layout.tsx`
+argues for per-surface mounting precisely so a strip is never subtracted from a measured surface.
+`StaffLangShell` owns the viewport height once and both surfaces render through it.
+
 **A table card announced a word the screen never showed, in ENGLISH, and had since S1.2.**
 `TableCard` built its accessible name in a local `const` and interpolated `table.status` raw, so a
 splitting table announced _"settling"_ while the chip beside it read _"Splitting"_ — a WCAG 2.5.3
@@ -49,8 +92,11 @@ hyphenated site would have emptied its findings, forced its ratchet entry out, a
 leave the guard's reach permanently. Rule 3b now reads the SAME predicate as rule 3, so a file
 cannot be clean for the ratchet and dirty for the rule at once. **Rule 3c** is new and mechanises
 WCAG 2.5.3 at the call site, which the value test structurally cannot reach: a control whose name
-comes from a `verb` control must render that same key in its children — falsified against an English
-label, the right key, a DIFFERENT key, and a computed key. And rule 4 now excludes the outage shell
+comes from a `verb` control must render that same key in its children, on the same ternary branch,
+with the same `echo` — falsified against an English label, the right key, a DIFFERENT key, a
+computed key, a CROSSED ternary, and each of the three echo mismatches. What it does **not** do is
+read what `<Chrome>` emits; an earlier draft of this line claimed the pairing was proved
+mechanically end to end, and a pre-merge blind pass showed the gap that left (below). And rule 4 now excludes the outage shell
 from its reachability walk, because every staff page imports it: without that, the shell's new mount
 declared all thirteen un-converted pages "converted" (measured — thirteen false greens).
 

@@ -37,11 +37,16 @@ export const STAFF_WRITE_OUTAGE =
  *
  *     grep -rnE 'error: STAFF_WRITE_OUTAGE[ ]*[},]' apps/qr/lib | wc -l    → 27
  *
- * The obvious command — `grep -rn 'error: STAFF_WRITE_OUTAGE\b' apps/qr/lib | wc -l` — returns
- * **28**, because writing it here put the pattern inside the corpus it measures. The count above was
- * right when it was taken and is right now; the INSTRUCTION was invalidated by the commit that wrote
- * it. Anchoring to a value position (the arm ends in `}` or `,`) is more robust than excluding this
- * file, since it survives the docblock moving.
+ * The obvious command — `grep -rn 'error: STAFF_WRITE_OUTAGE\b' apps/qr/lib | wc -l` — OVER-COUNTS,
+ * because writing it here put the pattern inside the corpus it measures. Anchoring to a value
+ * position (the arm ends in `}` or `,`) is more robust than excluding this file, since it survives
+ * the docblock moving.
+ *
+ * ⚠️ AND THE OVER-COUNT IS NOT A FIXED NUMBER — do not quote one. This paragraph said "returns 28",
+ * which was true when written and was **30** by the time a pre-merge blind pass re-measured it: the
+ * correction itself added two more mentions of the pattern. A foil that drifts every time somebody
+ * explains it is worse than no foil, because it reads as a measurement and decays like prose. Run
+ * both forms if you want the gap; only the anchored one is a fact about the code.
  *
  * The twin is picked at the RENDER site, by `<OutageText>` (components/staff/Chrome.tsx). P2 PR B
  * finished that: every place a staff write failure reaches the DOM as prose now renders through it,
