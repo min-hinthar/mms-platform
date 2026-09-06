@@ -2822,7 +2822,7 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-labels.ts",
     suite: "lib/staff-labels.test.ts",
     why: "P2 — the `verb` arm's whole contract is that the control's VISIBLE word and the word its name leads with are ONE dictionary lookup. Return the subject as the visible label instead and every call site still compiles, the containment loop still passes (the name contains the subject), and WCAG 2.5.3 breaks at every one of them: the button reads the Burmese verb and announces a person's name",
-    find: '    case "verb": {\n      const visible = ts(lang, control.verb);',
+    find: '    case "verb": {\n      const visible = chromeVisible(lang, control.verb, control.echo);',
     replace: '    case "verb": {\n      const visible = control.subject;',
   },
   {
