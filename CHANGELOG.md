@@ -101,7 +101,37 @@ The refusal lookup gained a runtime fallback: seven of its reasons arrive as DAT
 throw inside render. And the focus latch is ONE SHOT — consumed by the first refresh, matched or
 not — so it can never outlive its own action and move a cashier's focus on someone else's change.
 
-**Proven, not asserted.** 47 new `verify:slice` mutants (357 → 404 total, measured against the merge
+**A second blind pass, on the head that was about to merge, found six more.** An independent session
+was handed `.review-bundle/` for `6bb0002` and nothing else; every finding below was re-verified
+against source before being acted on, and one of its two CRITICALs did NOT survive that check — the
+`live_payment_intent_id` predicate it called a new strict gate is PARITY with the diner door, which
+`main` already carried (`git show 5715781:apps/qr/lib/cart.ts` line 459). Correcting a finding is
+part of triaging it; the mechanism is what the next reader acts on.
+
+_The migration file said NOT APPLIED after it had been applied._ CHANGELOG and PILOT_PLAN both said
+applied; the file an operator actually opens said the opposite, so the next §O4 session would have
+re-applied it — and `on conflict do update` overwrites `valid_until` and every other policy column
+with the file's frozen literals, silently reverting a dashboard edit. The banner now names the prod
+row and says outright that a re-apply reverts policy.
+
+_P2e is closed with ONE exception, and it is P3b._ Every writer that nulls `live_payment_intent_id`
+is event-driven and none is a timer; two of them route through `readLiveIntentFor(cartId, uid, era)`
+and so are reachable only by the diner who minted the intent, on the era that minted it. An
+abandoned Checkout (an iOS app-switch drops the release beacon) therefore pins the cart, both staff
+promo doors match zero rows for its life, and `mergeTables` still points at a remove that is itself
+refused. The predicate must NOT be loosened — it is M151's invariant — so the row is qualified and
+P3b is what closes it.
+
+_Three guards were green for the wrong reason._ `floor-detail-promo.test.ts`'s fake discarded every
+filter, so `getTableDetail`'s `.eq("status","open")` had no coverage at all: a settled cart's promo
+code would reach the drill-down and the control would announce a discount on a table with no open
+order. The staff promo code is interpolated into a PostgREST `or()` and its schema had no charset
+bound, so a real code containing a comma would 400 the UPDATE and fail permanently at the register —
+the same interpolation `lock.ts` justifies on the grounds that ITS value is never a client string.
+And the new numerals guard claimed to be "the whole rule" while enforcing one side of it: a
+hard-coded `$5` in `promo.worth` passed every check. All three now have a mutant and a falsification.
+
+**Proven, not asserted.** 50 new `verify:slice` mutants (357 → 407 total, measured against the merge
 base), every one watched turning its suite red — including two that SURVIVED first: the remove's TTL
 check had no over-blocking test, and the split mutex's fixture was degenerate against the strict
 settle predicate. Three new suites where there were none: `lib/rate.test.ts` (bucket uniqueness, key

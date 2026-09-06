@@ -63,6 +63,10 @@
 --     case 6 is what actually guards the mechanism.
 --   · `assert p.valid_from is null` (case 2) restates the insert. It earns its place by making a
 --     LATER addition of a second start gate a deliberate edit to this file.
+--   · `assert exists (… PILOT15PROBE)` (case 3, the over-tight-bound half) cannot fail on its own:
+--     the `insert` above it is UNGUARDED, so a refusal raises and aborts the block before the ASSERT
+--     is reached. The bound is genuinely proven — by the insert succeeding — but the assertion after
+--     it adds nothing, and counting it as a check would overstate what this file demonstrates.
 -- The GUC below is proven live by the fact that any falsification fired at all.
 --
 -- ⚠️ `set local plpgsql.check_asserts = on` is NOT optional — with the GUC off every ASSERT compiles

@@ -67,13 +67,26 @@ type Row = Record<string, unknown>;
 let cartRow: Row | null = null;
 let itemRows: Row[] = [];
 
-/** A postgrest-ish builder that answers per TABLE, ignoring filters this suite does not vary. */
+/**
+ * A postgrest-ish builder that answers per TABLE, and EVALUATES its `eq` filters against the row.
+ *
+ * ⚠️ It discarded them until the pre-merge blind pass on #261 named the evasion: with `eq()` a no-op,
+ * changing `getTableDetail`'s cart read from `.eq("status", "open")` to `"paid"` — or deleting it —
+ * left all five cases green, and no mutant covered the line. The shipped behaviour that hides behind
+ * that is not cosmetic: a SETTLED cart's `promo_code` reaches the drill-down, `StaffPromoControl`
+ * renders (it is gated on `detail.cartId != null`, not on status), and the console announces a
+ * discount on a table with no open order — while `applyPromoForTable`, which goes through the real
+ * `openCartFor`, answers `no_order` to every tap on it. A fake that swallows the filters cannot see
+ * a whole class of defect in the statement it is standing in for.
+ */
 function tableApi(name: string) {
+  const eqs: [string, unknown][] = [];
   const api = {
     select() {
       return api;
     },
-    eq() {
+    eq(col: string, val: unknown) {
+      eqs.push([col, val]);
       return api;
     },
     in() {
@@ -99,7 +112,13 @@ function tableApi(name: string) {
           },
           error: null,
         });
-      if (name === "qr_carts") return Promise.resolve({ data: cartRow, error: null });
+      if (name === "qr_carts") {
+        // The open-cart predicate, actually applied. `cartRow` carries a `status` so a read that
+        // dropped or widened the guard returns nothing instead of returning it anyway.
+        const r = cartRow;
+        const hit = r !== null && eqs.every(([col, val]) => !(col in r) || r[col] === val);
+        return Promise.resolve({ data: hit ? r : null, error: null });
+      }
       return Promise.resolve({ data: null, error: null });
     },
     then(resolve: (r: { data: Row[]; error: null }) => void) {
@@ -134,6 +153,10 @@ beforeEach(() => {
   };
   cartRow = {
     id: "c-1",
+    // Carried so the read's `.eq("status", "open")` is actually EVALUATED — the builder above
+    // skips a filter naming a column the row does not have, so a fixture without it would let the
+    // guard back through the hole it was just closed on.
+    status: "open",
     locked: false,
     locked_at: null,
     settle_at: null,
@@ -177,6 +200,19 @@ describe("getTableDetail — the promo reaches the drill-down", () => {
     if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(res.detail.settlePromoCents).toBe(900);
     expect(res.detail.settleTotalCents).toBe(3930);
+  });
+
+  it("reports NO cart at all once the order is SETTLED — the read is status-guarded", async () => {
+    // The predicate, not the projection. `getTableDetail` reads the cart with `.eq("status","open")`;
+    // without it a settled cart's `promo_code` reaches the drill-down and `StaffPromoControl`
+    // renders — it is gated on `cartId != null`, not on status — announcing a discount on a table
+    // with no open order, while every tap on it is answered `no_order` by the real `openCartFor`.
+    cartRow = { ...(cartRow as Row), status: "paid" };
+    const res = await getTableDetail(SESSION);
+    expect(res.kind).toBe("detail");
+    if (res.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    expect(res.detail.cartId).toBeNull();
+    expect(res.detail.promoCode).toBeNull();
   });
 
   it("reports NO code when the cart has none", async () => {

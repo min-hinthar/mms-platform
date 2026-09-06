@@ -53,10 +53,25 @@
 --                           gate — one gate, not two, and the second one could silently sit in the
 --                           future while everyone waited for a code that was never live.
 --
--- ⚠️ NOT APPLIED. Per PILOT_PLAN §O4 the one-file-at-a-time Supabase MCP `apply_migration` path is
--- owner-authorized per file. Measured against prod on 2026-09-05 before this was written: zero
--- PILOT15 rows exist, and the only codes present are TEAHOUSE5 (flat 500, used 0/500) and WELCOME10
--- (pct 0.10, used 0/1000).
+-- ⚠️ APPLIED TO PROD 2026-09-05, on the owner's explicit authorization, via the one-file-at-a-time
+-- Supabase MCP `apply_migration` path (PILOT_PLAN §O4). Prod row `20260905220123 pilot15_promo` —
+-- the MCP stamp; this filename is `20260905120000`, the usual M125 history divergence. Verified
+-- field by field after the write, and the stored value prices a $40 basket at $6.00.
+--
+-- ⚠️⚠️ SO DO NOT RE-APPLY IT AS A ROUTINE §O4 STEP, and this banner is the only place an operator
+-- would learn that. The `do update` below is deliberate and it is NOT idempotent against the
+-- DASHBOARD: it overwrites kind · value · max_uses · per_session_limit · min_subtotal_cents ·
+-- valid_from · valid_until with the frozen literals in this file. `active` and `used` are excluded,
+-- so the emergency off switch and the spent budget survive — but an owner who extends `valid_until`
+-- to 2026-11-30 in the dashboard, or lowers the rate mid-pilot, has that reverted by a re-apply
+-- that reports green. If a policy number needs to change, change it HERE and re-apply deliberately;
+-- if the change was made in the dashboard, bring this file up to date before ever running it again.
+--
+-- (An earlier revision of this banner read "NOT APPLIED" and stayed that way after the apply, while
+-- CHANGELOG.md and docs/PILOT_PLAN.md both said applied. The file an operator actually opens was the
+-- one that lied — caught by the pre-merge blind pass on #261. Measured against prod on 2026-09-05
+-- BEFORE the apply, for the record: zero PILOT15 rows existed, and the only codes present were
+-- TEAHOUSE5 (flat 500, used 0/500) and WELCOME10 (pct 0.10, used 0/1000).)
 
 -- `do update` and not `do nothing`, with `active` and `used` DELIBERATELY EXCLUDED.
 --

@@ -345,7 +345,29 @@ export const clearTableInput = z.object({ sessionId: uuid });
  */
 export const staffApplyPromoInput = z.object({
   sessionId: uuid,
-  code: z.string().trim().min(1).max(40),
+  /**
+   * ⚠️ THE CHARSET IS LOAD-BEARING, unlike the diner path's — this value is INTERPOLATED into a
+   * PostgREST `or()` term list (`staff-promo.ts`: `promo_code.is.null,promo_code.eq.${normalized}`,
+   * the non-replacement predicate). A code containing a comma or a parenthesis splits that list and
+   * 400s the whole UPDATE, so the staff door would break permanently on a code the diner's
+   * `applyPromo` — which has no such disjunct — applies fine.
+   *
+   * `lock.ts:491-492` justifies the identical interpolation on the grounds that its value is
+   * "Stripe-generated and server-side — never a client string". This one IS a client string, so it
+   * is bounded here instead. Not attacker-reachable (the code must first survive `mms_promo_check`,
+   * so it has to be a real owner-created row), which is why the answer is a bound rather than a
+   * rewrite — but "a real code that permanently fails at the register" is still a defect, and this
+   * turns it into an honest `invalid` at the door instead of "That didn't save — try again."
+   *
+   * The set is every character a promo code on a printed card can practically carry, and every code
+   * on prod today fits it (PILOT15 · TEAHOUSE5 · WELCOME10, measured 2026-09-05).
+   */
+  code: z
+    .string()
+    .trim()
+    .min(1)
+    .max(40)
+    .regex(/^[A-Za-z0-9_-]+$/),
 });
 export const staffClearPromoInput = z.object({ sessionId: uuid });
 

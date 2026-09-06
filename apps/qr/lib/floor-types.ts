@@ -115,7 +115,16 @@ export type TableDetail = {
    *  it). Null once the cart is settled/absent, like every other open-cart field here. */
   promoCode: string | null;
   /** P3 — the promo's DELIVERED contribution in cents, from the SAME `getCartTotals` call that
-   *  produced `settleTotalCents`, so the two cannot disagree.
+   *  produced `settleTotalCents`, so those two AMOUNTS cannot disagree.
+   *
+   *  ⚠️ That guarantee does NOT extend to the code/amount pair the drill-down renders side by side,
+   *  and an earlier version of this comment implied it did. `promoCode` is read in the `Promise.all`
+   *  batch and this figure comes off a LATER awaited `getCartTotals`, so a diner applying a
+   *  different code between the two statements makes the card show one code beside the other code's
+   *  amount, for one round trip. Accepted rather than closed: the 5s poll corrects it, the settle
+   *  button charges the server-derived total either way, and folding the read into the batch would
+   *  mean pricing every table on the floor list. Named so the next reader does not have to re-derive
+   *  the window from two line numbers.
    *
    *  ⚠️ NOT the apply-time quote from `mms_promo_check`. A pinned `promo_granted_cents` outranks
    *  the live derivation (M70) and the quote never reads it, and M22's reward-first clamp can take

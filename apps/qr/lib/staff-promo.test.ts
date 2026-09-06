@@ -428,6 +428,33 @@ describe("applyPromoForTable — the gates before the write", () => {
     expect(row?.promo_code).toBeNull();
   });
 
+  it("refuses a code carrying a PostgREST metacharacter, and writes NOTHING", async () => {
+    // The code is interpolated into an `or()` term list (`promo_code.eq.${normalized}`), so a comma
+    // or a parenthesis splits the list and 400s the whole UPDATE — a real owner-created code that
+    // then fails PERMANENTLY at the register while the diner door, which has no such disjunct,
+    // applies it fine. Bounded at the schema so the door answers `invalid` instead of "didn't save".
+    for (const bad of ["HAPPY,HOUR", "SAVE(5)", "A.B", "TEN%OFF", "with space"]) {
+      row = openCart();
+      expect(await applyPromoForTable({ sessionId: SESSION, code: bad }), bad).toEqual({
+        ok: false,
+        reason: "invalid",
+      });
+      expect(row?.promo_code, bad).toBeNull();
+    }
+  });
+
+  it("still accepts every shape a real promo code has", async () => {
+    // The over-blocking direction. Every code on prod fits this set (PILOT15 · TEAHOUSE5 ·
+    // WELCOME10, measured), and a bound that refused one of them would be the tip-cap lesson again.
+    for (const good of ["PILOT15", "TEAHOUSE5", "welcome10", "SUMMER_24", "BOGO-2"]) {
+      row = openCart();
+      expect(await applyPromoForTable({ sessionId: SESSION, code: good }), good).toEqual({
+        ok: true,
+      });
+      expect(row?.promo_code, good).toBe(good.toUpperCase());
+    }
+  });
+
   it("answers outage on an unreadable table — not 'that table is closed'", async () => {
     resolveUnavailable = true;
     expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
@@ -466,15 +493,17 @@ describe("applyPromoForTable — the gates before the write", () => {
   });
 
   it("carries mms_promo_check's OWN verdict out verbatim, and writes NOTHING", async () => {
+    // Every assertion carries the case label: a bare loop aborts on the first failure and names no
+    // reason, so the report says "expected ok:false" about an input nobody can identify.
     for (const reason of ["expired", "min_not_met", "exhausted", "session_limit", "inactive"]) {
       row = openCart();
       check = { valid: false, reason, discount_cents: 0 };
-      expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" })).toEqual({
+      expect(await applyPromoForTable({ sessionId: SESSION, code: "pilot15" }), reason).toEqual({
         ok: false,
         reason,
       });
-      expect(row?.promo_code).toBeNull();
-      expect(row?.promo_granted_cents).toBe(900);
+      expect(row?.promo_code, reason).toBeNull();
+      expect(row?.promo_granted_cents, reason).toBe(900);
     }
   });
 

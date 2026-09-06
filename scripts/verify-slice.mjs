@@ -3386,6 +3386,32 @@ const MUTANTS = [
     replace: "    return false;\n",
   },
   {
+    id: "staff-promo/apply-code-charset-unbounded",
+    file: "packages/db/src/schemas.ts",
+    suite: "lib/staff-promo.test.ts",
+    why: "the staff apply INTERPOLATES this value into a PostgREST `or()` term list (`promo_code.eq.${normalized}`, the non-replacement predicate), so a code carrying a comma or a parenthesis splits the list and 400s the whole UPDATE \u2014 a real owner-created code that then fails PERMANENTLY at the register while the diner door, which has no such disjunct, applies it fine. `lock.ts:491-492` justifies the identical interpolation on the grounds that its value is Stripe-generated and never a client string; this one IS a client string, so the bound lives here",
+    find: "  code: z\n    .string()\n    .trim()\n    .min(1)\n    .max(40)\n    .regex(/^[A-Za-z0-9_-]+$/),",
+    replace: "  code: z.string().trim().min(1).max(40),",
+  },
+  {
+    id: "floor/detail-reads-a-settled-cart",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-detail-promo.test.ts",
+    why: "the drill-down's cart read is status-guarded, and dropping the guard is invisible in the projection: a SETTLED cart's `promo_code` and `id` reach the detail, `StaffPromoControl` renders (it is gated on `cartId != null`, never on status), and the console announces a live discount on a table with no open order \u2014 while every tap on it is answered `no_order` by `applyPromoForTable`, which goes through the real `openCartFor`. The suite's fake used to discard filters entirely, so this line had no coverage at all",
+    find: '      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")\n      .eq("session_id", sessionId)\n      .eq("status", "open")\n      .maybeSingle(),',
+    replace:
+      '      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")\n      .eq("session_id", sessionId)\n      .maybeSingle(),',
+  },
+  {
+    id: "i18n/money-amount-hardcoded-in-the-dictionary",
+    file: "apps/qr/lib/i18n/staff.ts",
+    suite: "lib/i18n/strings.test.ts",
+    why: "the numerals rule is TWO-sided \u2014 Burmese numerals in prose counts, Latin wherever a number is an identifier or an AMOUNT \u2014 and the \u1040\u2013\u1049 filter enforces only the first half. This is the exact evasion the pre-merge blind pass named: a hard-coded amount passes every other guard (no Myanmar digit, matching empty slot sets, Myanmar script still present) and ships on the sentence flagged K15-HIGH as the one a cashier reads out before taking cash. Money reaches these templates ONLY through the `{m}` slot, preformatted by `fmt()` from a server-derived figure, so a literal is by construction a number no code computed. \u26a0\ufe0f The mutant has to move the DICTIONARY, not the guard's own filter: blinding the filter makes the suite pass vacuously, which is a surviving mutant rather than a caught one",
+    find: '  "promo.worth": { en: "{m} off this order", my: "\u1012\u102e\u1021\u1031\u102c\u103a\u1012\u102b {m} \u101c\u103b\u103e\u1031\u102c\u1037" },\n',
+    replace:
+      '  "promo.worth": { en: "$5 off this order", my: "\u1012\u102e\u1021\u1031\u102c\u103a\u1012\u102b $5 \u101c\u103b\u103e\u1031\u102c\u1037" },\n',
+  },
+  {
     id: "staff-promo-ui/submit-uses-native-disabled",
     file: "apps/qr/components/staff/StaffPromoControl.tsx",
     suite: "components/staff/StaffPromoControl.test.tsx",
