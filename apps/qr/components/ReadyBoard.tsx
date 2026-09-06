@@ -295,9 +295,21 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         </section>
       </div>
 
+      {/* ⚠️ `stale` NULLS THE PULSE, and that asymmetry with the Ready column is the point. The
+          stale fold keeps `kind: "live"` and carries the whole snapshot forward (`board-poll.ts`),
+          which is right for a name and a pickup code — those do not rot. Every value in this band
+          does: a count of what is on the wok NOW, an age in minutes, and a `Food up` announcement
+          whose five-minute window is enforced SERVER-side and therefore lapses the moment the server
+          stops answering. Left carried, forty minutes into an outage the wall showed `9 Oldest` and
+          a lit-gold `Table 3 · Food up` — the "act on this" vocabulary — and sent a runner to the
+          pass for a plate that went out half an hour ago.
+          The cost, stated: `stale` needs only two consecutive misses (~15s), so a brief blip blanks
+          the band and it self-heals on the next good poll. A band that says it cannot read the
+          kitchen for fifteen seconds is cheaper than one that lies for forty minutes, and it is the
+          same `null`-is-unknown contract the route already uses for a dropped kitchen read. */}
       <KitchenPulse
         lang={lang}
-        pulse={state.kind === "live" ? state.pulse : null}
+        pulse={state.kind === "live" && !state.stale ? state.pulse : null}
         known={state.kind === "live"}
       />
     </div>

@@ -1,11 +1,12 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/kds-sound", () => ({ KdsChime: class {} }));
 
 const { ReadyBoard } = await import("./ReadyBoard");
-const { PULSE_RAIL_MIN_TICKETS } = await import("@/lib/board-pulse");
+const { PULSE_RAIL_MIN_PARTIES } = await import("@/lib/board-pulse");
+const { BOARD_FAIL_THRESHOLD } = await import("@/lib/board-poll");
 type BoardPulse = import("@/lib/board-pulse").BoardPulse;
 
 /**
@@ -228,7 +229,7 @@ describe("P6 — the kitchen pulse band", () => {
     // empty `allDay` must mount nothing rather than an empty list that reads as "no dishes".
     const { container } = await renderPulse("en", pulse({ allDay: [], allDayMore: 0 }));
     expect(container.querySelector(".orb-rail")).toBeNull();
-    expect(PULSE_RAIL_MIN_TICKETS).toBeGreaterThan(1);
+    expect(PULSE_RAIL_MIN_PARTIES).toBeGreaterThan(1);
   });
 
   it("says how many rail rows the cap dropped, rather than truncating in silence", async () => {
@@ -323,6 +324,65 @@ describe("P6 — the kitchen pulse band", () => {
       expect(chip.textContent).toContain("2");
       expect(chip.textContent).not.toContain("၂");
       expect(chip.querySelector('[lang="en"]')!.textContent).toBe("2");
+    });
+  });
+
+  describe("a stale board BLANKS the band, and only the band", () => {
+    /**
+     * ⚠️ THE ASYMMETRY IS THE POINT, and the first cut did not have it. `nextBoardStateOnFailure`
+     * keeps `kind: "live"` and carries the whole snapshot forward after two misses, flipping only
+     * `stale` — right for the Ready column, whose rows are a name and a pickup code and do not rot.
+     * Every value in this band does: a count of what is on the wok NOW, an age in minutes, and a
+     * `Food up` announcement whose five-minute window is enforced SERVER-side and therefore lapses
+     * the instant the server stops answering. Carried, the wall reads `9 Oldest` and a lit-gold
+     * `Table 3 · Food up` forty minutes into an outage, and a runner is sent to the pass for a plate
+     * that went out half an hour ago.
+     */
+    const withOrder = () => ({
+      orders: [{ code: "A1B2C3", name: "Nilar", status: "ready", readyAt: SERVER_NOW }],
+      serverNow: SERVER_NOW,
+      pulse: pulse(),
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("keeps the Ready column and drops the kitchen numbers after the fail threshold", async () => {
+      vi.useFakeTimers();
+      let answering = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (!answering) throw new Error("network");
+          return { status: 200, ok: true, json: async () => withOrder() };
+        }),
+      );
+      const { container } = render(<ReadyBoard token="t" lang="en" />);
+      // `act` around every advance: the poll's setState lands in a timer callback, and React 19
+      // batches those outside act into a warning and an unflushed render.
+      const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+      await tick(1);
+
+      // Live: the band is showing real numbers and the announcement this test exists to expire.
+      expect(container.querySelector(".orb-pulse-body")).not.toBeNull();
+      expect(container.textContent).toContain("Food up");
+      expect(container.textContent).toContain("A1B2C3");
+
+      answering = false;
+      // ONE miss under the threshold: still fresh, still showing. Asserted so the test cannot pass
+      // by blanking the band on any failure at all.
+      for (let i = 0; i < BOARD_FAIL_THRESHOLD - 1; i++) await tick(5_000);
+      expect(container.querySelector(".orb-pulse-body")).not.toBeNull();
+
+      await tick(5_000); // the miss that makes it stale
+      expect(container.querySelector(".orb-pulse-body")).toBeNull();
+      expect(container.textContent).not.toContain("Food up");
+      // …and the note replaces it, so the band says it cannot read the kitchen rather than going
+      // silently absent — the same `null`-is-unknown contract the route uses for a dropped read.
+      expect(container.querySelector(".orb-pulse-note")).not.toBeNull();
+      // The Ready column is untouched: this is not a blanket blank, it is a claim-by-claim one.
+      expect(container.textContent).toContain("A1B2C3");
     });
   });
 });

@@ -213,6 +213,7 @@ const order = (id: string, sessionId: string | null, name: string): OrderRow => 
 const TOGO = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001";
 const DINEIN = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002";
 const DISH = "cccccccc-cccc-4ccc-8ccc-cccccccc0003";
+const OTHER_DISH = "dddddddd-dddd-4ddd-8ddd-dddddddd0004";
 
 type Body = {
   orders?: { name: string | null }[];
@@ -351,10 +352,24 @@ function seedCookingTable() {
   carts = [{ id: "cart-1", session_id: "sess-dinein", status: "open" }];
 }
 
-/** Two more PAID takeaway parties, each on its own session — enough to open the exposure floor. */
-function seedTwoMoreParties() {
+/**
+ * Two more PAID takeaway parties, each on its OWN session — the PARTY half of the exposure floor.
+ *
+ * ⚠️ Own sessions, not one shared: the floor counts `cookingSessions`, so two carts on one session
+ * are two tickets and ONE party, and a fixture that shares a session silently shuts the rail. That
+ * is how the no-leak property below came to prove its dish clause vacuously.
+ *
+ * `dish` defaults to the SAME item as the dine-in ticket, which is the attributing frame — one rail
+ * row, so the row names whatever the strip shows cooking. Pass a second dish for the published case.
+ */
+function seedTwoMoreParties(dish?: { id: string; name: string }) {
   for (const n of [2, 3]) {
-    lines.push({ ...lines[0]!, cart_id: `cart-${n}`, qty: 1 });
+    lines.push({
+      ...lines[0]!,
+      cart_id: `cart-${n}`,
+      qty: 1,
+      ...(dish ? { menu_item_id: dish.id, name: dish.name } : {}),
+    });
     carts.push({ id: `cart-${n}`, session_id: `sess-togo-${n}`, status: "paid" });
     sessions.push({
       id: `sess-togo-${n}`,
@@ -387,16 +402,41 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
     expect(JSON.stringify(body)).not.toContain("Mohinga");
   });
 
-  it("publishes the rail once three tickets are live, with the catalog's Burmese", async () => {
+  it("WITHHOLDS the rail when ONE dish would name the cooking table, at any party count", async () => {
+    // ⚠️ THE FRAME THE BLIND PASS FOUND, and this exact fixture used to assert the opposite. Three
+    // parties clears the party floor; every one of them ordered mohinga, so the rail has ONE row —
+    // and one row means every counted party's cooking content is that dish, including the party
+    // whose table number is on the strip beside it. `3 Cooking · Table 4 Cooking · All day —
+    // Mohinga ×4` states what table 4 is having, in a single frame, to anyone who looks. A party
+    // count cannot express that; `PULSE_RAIL_MIN_DISHES` is the term that does.
+    seedCookingTable();
+    seedTwoMoreParties();
+    const res = await GET(req());
+    const body = (await res.json()) as Body;
+    expect(body.pulse!.tickets).toBe(3);
+    expect(body.pulse!.allDay).toEqual([]);
+    expect(body.pulse!.allDayMore).toBe(0);
+    // …asserted on BOTH sections, because the exposure is the JOIN and a rail-only assertion cannot
+    // see it: the strip still names the table, which is exactly why the rail may not.
+    expect(body.pulse!.tables).toEqual([{ table: 4, status: "cooking" }]);
+    expect(JSON.stringify(body)).not.toContain("Mohinga");
+  });
+
+  it("publishes the rail once three parties AND two dishes are cooking, with the catalog's Burmese", async () => {
     seedCookingTable();
     // THREE distinct PARTIES, not three carts: the exposure floor counts sessions, because one
     // table can hold a paid cart beside a fresh open one and two parties must not look like three.
-    seedTwoMoreParties();
+    // And a SECOND dish, so no rail row is determined by the one number on the strip.
+    seedTwoMoreParties({ id: OTHER_DISH, name: "Tea leaf salad" });
     menu = [{ id: DISH, name_my: "မုန့်ဟင်းခါး" }];
     const res = await GET(req());
     const body = (await res.json()) as Body;
     expect(body.pulse!.tickets).toBe(3);
-    expect(body.pulse!.allDay).toEqual([{ name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 4 }]);
+    expect(body.pulse!.allDay).toEqual([
+      { name: "Mohinga", nameMy: "မုန့်ဟင်းခါး", qty: 2 },
+      { name: "Tea leaf salad", nameMy: null, qty: 2 },
+    ]);
+    expect(body.pulse!.tables).toEqual([{ table: 4, status: "cooking" }]);
   });
 
   it("asks the kitchen read for live and just-bumped lines only, bounded by the linger window", async () => {
@@ -430,10 +470,31 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
     // check on one object. Every id the pulse READS is given a value that could not appear by
     // coincidence, and none of them may come back out — not the session, cart or order ids, not the
     // catalog id behind a rail row, and not the dine-in guest's name.
+    //
+    // ⚠️ AND THE RAIL HAS TO BE OPEN FOR HALF OF IT TO MEAN ANYTHING. The first version of this
+    // fixture put both secret carts on ONE session, so `cookingSessions.size` was 2, the exposure
+    // floor shut the rail, and `allDay` came back `[]` — under which `not.toContain(DISH)` cannot
+    // fail whatever a `PulseDish` carries. Adding a `menuItemId` field to that type would have kept
+    // it green, which is the class of thing this assertion exists to catch. Each secret cart now
+    // gets its own SESSION (the party term) and its own DISH (the diversity term), so the rail
+    // publishes a row derived from `DISH` while `DISH` itself stays off the wire — asserted below.
     seedCookingTable();
     for (const n of [2, 3]) {
-      lines.push({ ...lines[0]!, cart_id: `cart-SECRET-${n}`, qty: 1 });
-      carts.push({ id: `cart-SECRET-${n}`, session_id: "sess-togo", status: "paid" });
+      lines.push({
+        ...lines[0]!,
+        cart_id: `cart-SECRET-${n}`,
+        qty: 1,
+        menu_item_id: `item-SECRET-${n}`,
+        name: `Dish ${n}`,
+      });
+      carts.push({ id: `cart-SECRET-${n}`, session_id: `sess-SECRET-${n}`, status: "paid" });
+      sessions.push({
+        id: `sess-SECRET-${n}`,
+        mode: "pickup",
+        status: "active",
+        table_number: null,
+        expires_at: LIVE,
+      });
     }
     const res = await GET(req());
     const body = JSON.stringify(await res.json());
@@ -441,15 +502,19 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
       "cart-1",
       "cart-SECRET-2",
       "sess-dinein",
-      "sess-togo",
+      "sess-SECRET-2",
+      "item-SECRET-2",
       DISH,
       DINEIN,
       "Thura",
     ])
       expect(body).not.toContain(leak);
-    // …while the things it IS for did come through, so this is not passing on an empty payload.
+    // …while the things it IS for did come through, so this is not passing on an empty payload: the
+    // load count, the table strip, and — the clause that used to be vacuous — a published rail row
+    // whose catalog id is `DISH`.
     expect(body).toContain('"tickets":3');
     expect(body).toContain('"table":4');
+    expect(body).toContain('"name":"Mohinga"');
   });
 
   it("a failed KITCHEN read is null, never an empty band — and the Ready column still publishes", async () => {
@@ -470,10 +535,13 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
 
   it("a failed NAME read degrades to English — a label can never withhold the band", async () => {
     seedCookingTable();
-    seedTwoMoreParties();
+    seedTwoMoreParties({ id: OTHER_DISH, name: "Tea leaf salad" });
     menuError = { message: "connection terminated" };
     const res = await GET(req());
     const body = (await res.json()) as Body;
-    expect(body.pulse!.allDay).toEqual([{ name: "Mohinga", nameMy: null, qty: 4 }]);
+    expect(body.pulse!.allDay).toEqual([
+      { name: "Mohinga", nameMy: null, qty: 2 },
+      { name: "Tea leaf salad", nameMy: null, qty: 2 },
+    ]);
   });
 });

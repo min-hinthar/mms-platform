@@ -41,8 +41,14 @@ const PULSE_LINE_CAP = 500;
  * order code, status, ready-time — never items, amounts, tables, or ids beyond the 6-char tail the
  * diner's own /track shows. ⚠️ That sentence used to describe the whole response and no longer can:
  * P6's `pulse` publishes dish names (unattributed, and only above an exposure floor) and dine-in
- * TABLE NUMBERS. It still publishes no id and no amount anywhere, and no single frame joins the two
- * sections. ⚠️ It does NOT claim they can never be joined: a takeaway cart named in `orders` also
+ * TABLE NUMBERS. It still publishes no id and no amount anywhere, and no single frame determines
+ * which dish a named table is having. ⚠️ THAT SENTENCE USED TO READ "no single frame joins the two
+ * sections", which was FALSE and shipped for four commits: the floor counted parties only, so three
+ * parties who all ordered mohinga produced `3 Cooking · Table 4 Cooking · All day — Mohinga ×4`, and
+ * one rail row names every cooking table on the strip. `PULSE_RAIL_MIN_DISHES` is the term that
+ * closes it; the bound is about dish IDENTITY, and what a passing frame still permits — the SET of
+ * dishes the cooking tables collectively ordered — is the aggregate this band exists to publish.
+ * ⚠️ It does NOT claim the sections can never be joined: a takeaway cart named in `orders` also
  * feeds `pulse.tickets` and the rail, so an observer differencing two polls across that customer's
  * Preparing→Ready transition reads their dishes. That channel is `lib/board-pulse.ts`'s frame-delta
  * residual (OPEN-ITEMS P6a); an earlier draft of this sentence asserted the stronger guarantee, and

@@ -88,7 +88,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (375 today)**, **1372 qr + 138 ui tests at the time (1558 + 142 today)**, 69 target modules at the time (70 under `apps/qr/lib` today, 78 in all), 97 local
+> **334 mutants at the time (379 today)**, **1372 qr + 138 ui tests at the time (1572 + 142 today)**, 69 target modules at the time (70 under `apps/qr/lib` today, 78 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -108,7 +108,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > diners themselves, and nothing closes or extends a session); and the payload carries
 > `oldestMinutes`, not a fire timestamp, because an exact stamp beside one table states that party's
 > order instant to the room. The exposure floor is a bound on the worst SINGLE-FRAME reading and is
-> written as that, not as anonymity — **P6a–P6g** in OPEN-ITEMS carry the residuals, of which **P6a**
+> written as that, not as anonymity — **P6a–P6k** in OPEN-ITEMS carry the residuals, of which **P6a**
 > (frame deltas at the 5s poll) is the one that is genuinely an owner's call.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #256 — the one live region is ARBITRATED, and T33 is closed)
@@ -980,7 +980,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 375 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1560 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 379 `verify:slice` mutants green · `pnpm check:docs` clean (97 files, 1572 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1702,7 +1702,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (375 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (379 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

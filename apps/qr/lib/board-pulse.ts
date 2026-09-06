@@ -23,10 +23,23 @@ import { catalogNameMy } from "./ticket-names";
  * chose, which nothing in the room publishes today.
  *
  * ⚠️ THE RAIL AND THE TABLE STRIP TOGETHER ARE WHAT NEEDED A GUARD, not either alone. With ONE live
- * ticket the rail IS that ticket's order, and the strip names its table — the wall would state
- * "Table 2 is having Mohinga x2", which is precisely the fact the paragraph above says may not
- * cross. With TWO, a guest who knows their own order subtracts it and reads the other exactly. So
- * the rail is withheld below `PULSE_RAIL_MIN_TICKETS`.
+ * ticket the rail IS that ticket's order, and the strip names its table — the wall would state that
+ * the party at Table 2 is having mohinga, which is precisely the fact the paragraph above says may
+ * not cross. With TWO, a guest who knows their own order subtracts it and reads the other exactly.
+ * So the rail is withheld below `PULSE_RAIL_MIN_PARTIES`.
+ *
+ * ⚠️ A PARTY COUNT IS ONLY HALF OF IT, and the missing half shipped for four commits. Attribution is
+ * decided by DISH DIVERSITY, not by how many parties are cooking: with one rail row every cooking
+ * party's content is that dish, so every `cooking` table on the strip is named by it at ANY party
+ * count. `PULSE_RAIL_MIN_DISHES` is the other term, and it is read against the strip rather than
+ * alone — see its docblock for the two ways a rail-only test gets this wrong.
+ *
+ * THE BOUND, stated exactly once and no stronger than it is: **no single frame determines which dish
+ * a named table is having.** Attribution here was always about dish IDENTITY, never quantity — the
+ * `xN` on a rail row is a house total across every party, and a given table's share of it is not
+ * determined even in the broken case. What a passing frame still permits, and is accepted: the room
+ * can read the SET of dishes the cooking tables collectively ordered. That is the aggregate the band
+ * exists to publish.
  *
  * ⚠️ WHAT THAT FLOOR CLOSES, STATED NARROWLY BECAUSE AN EARLIER DRAFT OF THIS PARAGRAPH OVERCLAIMED
  * IT. It closes exact attribution **from a single frame** — one look at the wall — by an observer
@@ -89,7 +102,14 @@ export type BoardPulse = {
    * there is no drift to clamp and no negative age to render.
    */
   oldestMinutes: number | null;
-  /** Largest first, capped. EMPTY below `PULSE_RAIL_MIN_TICKETS` — see the docblock. */
+  /**
+   * Largest first, capped. EMPTY whenever the exposure floor is shut — which is TWO conditions, not
+   * one: too few live PARTIES (`cookingSessions`, never `tickets`, which counts carts and can be
+   * larger, so `tickets: 3` beside an empty rail is REACHABLE and correct), or too few distinct
+   * DISHES while a table on the strip reads `cooking`. `PULSE_RAIL_MIN_PARTIES` and
+   * `PULSE_RAIL_MIN_DISHES`. See the module docblock; an earlier version of this line named only the
+   * first condition, in the wrong unit, against a constant whose name carried the same error.
+   */
   allDay: PulseDish[];
   /** How many rail rows the cap dropped. Published so the screen can say so instead of truncating
    *  silently: a rail that shows five of nine dishes and says nothing is a wrong all-day count. */
@@ -147,8 +167,36 @@ export const PULSE_COOKING_STATES: ReadonlySet<string> = new Set(["fired", "in_p
  */
 export const PULSE_PASS_LINGER_MS = 5 * 60 * 1000;
 
-/** The rail's exposure floor. See the module docblock — this is the whole privacy argument. */
-export const PULSE_RAIL_MIN_TICKETS = 3;
+/**
+ * The rail's exposure floor, counted in PARTIES. See the module docblock — this is half of the whole
+ * privacy argument, `PULSE_RAIL_MIN_DISHES` being the other.
+ *
+ * ⚠️ It was called `…_MIN_TICKETS` for four commits and the name was a trap, because `tickets` is a
+ * DIFFERENT number: `cookingCarts.size`, which one party holding two carts makes larger. So the wall
+ * can publish `tickets: 3` beside an empty rail against a floor that reads 3, and a reader who
+ * trusts the name calls that a bug. The comparison has always been on `cookingSessions`; only the
+ * label lied.
+ */
+export const PULSE_RAIL_MIN_PARTIES = 3;
+
+/**
+ * The rail's DIVERSITY floor, and it exists because the party floor above is the wrong lever on its
+ * own — the exposure is the rail×strip JOIN, not the rail.
+ *
+ * With ONE rail row every cooking party's content IS that dish, so every table on the strip reading
+ * `cooking` is attributed by identity, in a single frame, at any party count. Three parties who all
+ * ordered mohinga during a lull is the ordinary case, not the adversarial one.
+ *
+ * ⚠️ Two things this is NOT, both of which an earlier draft of this fix got wrong:
+ * • It is not `ranked[0].qty >= tickets`. `qty` is a per-LINE column with no upper bound of 1
+ *   (`qr_cart_items.qty int not null check (qty > 0)`), so one ticket carrying `Mohinga qty 4`
+ *   beside two others satisfies `4 >= 3` while only one of the three tickets contains it. A gate
+ *   built on that predicate fires when nothing is exposed.
+ * • It is not a rail-only test. Gating on dish count ALONE withholds the rail when the strip has no
+ *   cooking table at all — nothing to attribute, so the withholding buys nothing and costs the
+ *   kitchen its all-day view. The condition below reads the join.
+ */
+export const PULSE_RAIL_MIN_DISHES = 2;
 
 /** Rail rows the wall can carry at TV scale. The remainder is COUNTED, never silently dropped. */
 export const PULSE_RAIL_MAX_ROWS = 8;
@@ -212,7 +260,20 @@ export type ShapePulseInput = {
  * never what was merely not seen" the orders allowlist already holds to, applied to an aggregate so
  * the two halves of this payload cannot disagree about what a missing row means.
  */
-export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
+/**
+ * ⚠️ `tableModes` IS A DEFAULTED PARAMETER, and that is the W17 "a guard that cannot be reached is
+ * decorative" rule applied to a SET rather than to a price ladder. The proposition under guard is
+ * that every mode whose tables may reach the public wall is also liveness-checked on the LOAD path
+ * — the two loops below ask different questions and are coupled only by sharing this one set. With
+ * `PULSE_TABLE_MODES` hard-wired the proposition is unfalsifiable today, because the set has one
+ * member and the coupling is invisible until somebody adds a second. Taking the set as an argument
+ * lets a test add that second member (a numbered bar counter) and watch the rule hold or break.
+ * Production passes nothing and gets the constant.
+ */
+export function shapeBoardPulse(
+  input: ShapePulseInput,
+  tableModes: ReadonlySet<string> = PULSE_TABLE_MODES,
+): BoardPulse {
   const { lines, cartById, sessionById, nameMyByItem, nowMs } = input;
   const passFloorMs = nowMs - PULSE_PASS_LINGER_MS;
 
@@ -244,7 +305,14 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // before closing the session, so that paid cart's `fired` line survives untouched. With no
     // liveness test the wall then counted it as live kitchen work for a full 24 hours, climbing
     // `Oldest` toward 1440, while the KDS beside it correctly showed nothing.
-    const dineIn = sess.mode === PULSE_DINEIN_MODE;
+    // ⚠️ `PULSE_TABLE_MODES`, NOT `=== PULSE_DINEIN_MODE`, and the difference is only invisible
+    // because the set has one member today. These two loops ask different questions — "may this
+    // mode's number appear on a public wall?" and "does this mode cook before it pays?" — and while
+    // they were spelled from different expressions, adding a second table mode (a numbered bar
+    // counter) would route it to the `paid` arm below, which applies NO session-status test, and a
+    // CLEARED session of that mode would reach both the load figures and the strip. Spelling both
+    // from the one set makes the coupling structural instead of coincidental.
+    const dineIn = tableModes.has(sess.mode);
     if (dineIn) {
       if (sess.status !== PULSE_LIVE_SESSION_STATUS) continue; // cleared/closed table
     } else if (cart.status !== "paid") {
@@ -289,7 +357,7 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
     // ALLOWLIST — the strip is dine-in and nothing else, and an unregistered sticker (a dine-in
     // session with no `table_number`) has no number to show, so it stays off the wall while still
     // counting toward the load figures above.
-    if (!PULSE_TABLE_MODES.has(sess.mode)) continue;
+    if (!tableModes.has(sess.mode)) continue;
     // ⚠️ NO `status` CHECK HERE, and its absence is load-bearing rather than an omission. The strip
     // only ever shows rows drawn from `cookingSessions`/`passSessions`, and the load loop above now
     // refuses a non-`active` dine-in session before either set can hold it — so a second check here
@@ -322,11 +390,19 @@ export function shapeBoardPulse(input: ShapePulseInput): BoardPulse {
   const ranked = [...dishes.values()].sort((a, b) => b.qty - a.qty || a.name.localeCompare(b.name));
   // ⚠️ SESSIONS, NOT CARTS — the floor is about how many PARTIES the rail could be attributed to,
   // and one party can hold two carts at once (a paid cart with unbumped lines beside a fresh open
-  // one; the strip's own comment below contemplates exactly that). Counting carts let two parties
-  // look like three and opened the rail one party early, which is the one thing the floor exists to
-  // prevent. `tickets` stays a CART count, because a ticket is what the kitchen and the KDS mean by
-  // one — the two numbers measure different things and must not be collapsed.
-  const railOpen = cookingSessions.size >= PULSE_RAIL_MIN_TICKETS;
+  // one; the strip's own comment above contemplates exactly that). Counting carts let two parties
+  // look like three and opened the rail one party early. `tickets` stays a CART count, because a
+  // ticket is what the kitchen and the KDS mean by one — the two measure different things.
+  //
+  // ⚠️ AND THE DIVERSITY TERM, which is the half a party count cannot express. Only rows reading
+  // `cooking` are at risk: a row reads `up` out of `passSessions`, and a bumped line never enters
+  // `dishes` at all, so an `up` table's dish is not on the rail to be attributed. The join is what
+  // exposes — with no cooking table on the strip a one-row rail names nobody, and withholding it
+  // there would cost the kitchen its all-day view to protect nothing.
+  const cookingTables = [...byTable.values()].filter((status) => status === "cooking").length;
+  const railOpen =
+    cookingSessions.size >= PULSE_RAIL_MIN_PARTIES &&
+    (cookingTables === 0 || ranked.length >= PULSE_RAIL_MIN_DISHES);
   const allDay = railOpen ? ranked.slice(0, PULSE_RAIL_MAX_ROWS) : [];
 
   return {

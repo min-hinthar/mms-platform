@@ -76,8 +76,56 @@ state the column forbids, in a module that rejects unreachable code by name; and
 casts on a public payload path turned out to be unnecessary, so they are annotations now and tsc
 checks the shapes again.
 
-**Guards.** 27 assertions on the shaper, 15 on the route, 20 on the board's markup (13 of them on
-the new band), and 18 `verify:slice` mutants — six of which exist only because that pass named the
+**A SECOND blind pass, run pre-merge from a separate session, returned REJECT — and its CRITICAL is
+the one the first pass and the author both missed.** The exposure floor counted PARTIES, and
+attribution is decided by DISH DIVERSITY. With one rail row every counted party's cooking content
+_is_ that dish, so every table the strip shows `cooking` is named by it — in a single frame, at any
+party count. The checked-in route fixture _was_ that frame (`3 Cooking · Table 4 Cooking · All day —
+Mohinga ×4`) and asserted it as correct behaviour, because it asserted `allDay` and never `tables`.
+`PULSE_RAIL_MIN_DISHES` is the missing term, read against the strip rather than alone: gating on
+dish count by itself would withhold the rail when nothing is on the strip to attribute, which costs
+a pickup-only kitchen its all-day view during the rush the band exists for. The bound is now stated
+once and no stronger than it is — **no single frame determines which dish a named table is having**
+— with the collective-set residual named as accepted rather than implied away. Two mutants pin both
+directions, and the route asserts `tables` in the withheld case as well as the published one.
+
+Also from that pass: **a stale board froze the band indefinitely.** The poll's stale fold keeps
+`kind: "live"` and carries the snapshot forward — right for a name and a pickup code, wrong for a
+count of what is on the wok now, an age in minutes, and a `Food up` whose five-minute window is
+enforced server-side and therefore lapses the instant the server stops answering. Forty minutes into
+an outage the wall still read `9 Oldest (min)` beside a lit-gold `Table 3 · Food up`. The band now
+blanks to its own "cannot read the kitchen" note after two missed polls (~15s) while the Ready
+column keeps its rows — a claim-by-claim degrade, not a blanket one. And **`PULSE_RAIL_MIN_TICKETS`
+was renamed `PULSE_RAIL_MIN_PARTIES`**, because `tickets` is a different number (`cookingCarts`), so
+the wall can publish `tickets: 3` beside an empty rail against a floor that reads 3 — the comparison
+was always right and only the label lied. The no-leak property test had been proving its dish clause
+with the rail SHUT (both secret carts on one session), so adding a `menuItemId` field to `PulseDish`
+would have kept it green; each secret cart now has its own session and its own dish, and reverting
+that exact field is what watched it go red.
+
+**The table-mode set is a defaulted PARAMETER now, so a rule with one member is still falsifiable.**
+`verify:slice` proved the strip's own `status = 'active'` guard dead — the load loop refuses a
+non-`active` dine-in session above every branch that feeds the strip — so it was deleted. That is
+correct today and held by a coincidence: `PULSE_TABLE_MODES` has one member, so "may appear on the
+wall" and "is checked for liveness" happen to name the same mode, and a second table mode (a
+numbered bar counter) would route to the load loop's `paid` arm, which applies no session test at
+all. `shapeBoardPulse` takes the set as a defaulted argument (W17's "a guard that cannot be reached
+is decorative", applied to a set rather than a price ladder), the suite passes a two-member set, and
+the mutant that spells the fork from the dine-in constant is caught.
+
+**And two guard defects of our own.** `check:docs` was structurally blind to the one HANDOFF line
+that advertises itself as measured — `1372 qr + 138 ui tests at the time (1558 + 142 today)` has no
+digit adjacent to either `qr tests` or `ui tests`, so no rule saw the live pair and 1558 sat two
+lines from a measured 1572. Worse, the historical-marker exemption scans a 24-character window AFTER
+a match, so on a line that chains two claims it lands inside the NEIGHBOUR's `at the time` and
+exempts a live number; a `(N today)` match states its own currency and is never exempt now. And the
+`verify:slice` destructive-file enumeration in `CLAUDE.md`/`README.md` read FOUR components while the
+set held five (70 + 3 + 4 = 77 ≠ 78) — that list is the operator's only inventory of files that may
+be sitting on disk as deliberately-broken mutants after a killed run, so it carries a measure command
+now instead of a hand count.
+
+**Guards.** 37 assertions on the shaper, 16 on the route, 21 on the board's markup (14 of them on
+the new band), and 21 `verify:slice` mutants — six of which exist only because that pass named the
 rules that had none, and one of which the same tool then retired as unreachable: the two liveness arms, the floor's unit, the unregistered sticker, the idle
 table, and the rounding. **`oldestMinutes` was a degenerate fixture**: every offset in the first
 suite was a whole minute, so `floor`, `ceil` and `round` all answered 7 and the rule had no guard at

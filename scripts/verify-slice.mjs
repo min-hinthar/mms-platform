@@ -3065,7 +3065,7 @@ const MUTANTS = [
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
     why: 'P6 — the all-day rail and the table strip are safe apart and not together. With ONE live ticket the rail IS that ticket\'s order and the strip names its table, so the wall would state "Table 2 is having Mohinga ×2" — the exact fact this slice says may not cross. Publishing unconditionally is the whole defect, and it looks like a simplification',
-    find: "  const railOpen = cookingSessions.size >= PULSE_RAIL_MIN_TICKETS;",
+    find: "  const railOpen =\n    cookingSessions.size >= PULSE_RAIL_MIN_PARTIES &&\n    (cookingTables === 0 || ranked.length >= PULSE_RAIL_MIN_DISHES);",
     replace: "  const railOpen = true;",
   },
   {
@@ -3073,8 +3073,16 @@ const MUTANTS = [
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
     why: "P6 — the same shape the orders half already carries a mutant for, pointed the other way. Naming the modes to EXCLUDE means the day `table_sessions.mode`'s CHECK gains a fourth value that means table service, its tables appear on a public wall with nobody having decided that. An unknown mode belongs off the wall, not on it",
-    find: "    if (!PULSE_TABLE_MODES.has(sess.mode)) continue;",
+    find: "    if (!tableModes.has(sess.mode)) continue;",
     replace: '    if (sess.mode === "pickup" || sess.mode === "scango") continue;',
+  },
+  {
+    id: "pulse/second-table-mode-escapes-the-liveness-test",
+    file: "apps/qr/lib/board-pulse.ts",
+    suite: "lib/board-pulse.test.ts",
+    why: "P6 — the LOAD loop and the STRIP loop ask different questions and are coupled only by sharing one set. Spelled from the dine-in constant instead, a SECOND table mode (a numbered bar counter) routes to the `paid` arm, which applies no session-status test at all — so a CLEARED session of that mode reaches both the load figures and the public strip, which is the defect the strip's own deleted guard used to catch. The set is a defaulted PARAMETER precisely so this proposition is reachable while the set still has one member",
+    find: "    const dineIn = tableModes.has(sess.mode);",
+    replace: "    const dineIn = sess.mode === PULSE_DINEIN_MODE;",
   },
   {
     id: "pulse/held-line-reads-as-cooking",
@@ -3145,8 +3153,24 @@ const MUTANTS = [
     file: "apps/qr/lib/board-pulse.ts",
     suite: "lib/board-pulse.test.ts",
     why: "P6 — the floor asks how many PARTIES the rail could be attributed to, and one party can hold two carts (a paid cart with unbumped lines beside a fresh open one). Counting carts lets two parties look like three and opens the rail one party early, which is precisely the state the floor exists to prevent: one table number beside a rail that is substantially that table's order",
-    find: "  const railOpen = cookingSessions.size >= PULSE_RAIL_MIN_TICKETS;",
-    replace: "  const railOpen = cookingCarts.size >= PULSE_RAIL_MIN_TICKETS;",
+    find: "    cookingSessions.size >= PULSE_RAIL_MIN_PARTIES &&",
+    replace: "    cookingCarts.size >= PULSE_RAIL_MIN_PARTIES &&",
+  },
+  {
+    id: "pulse/one-row-rail-names-every-cooking-table",
+    file: "apps/qr/lib/board-pulse.ts",
+    suite: "lib/board-pulse.test.ts",
+    why: "P6, the blind pass's CRITICAL — the party floor was the ONLY term for four commits, and a party count cannot express attribution. With one rail row every counted party's cooking content IS that dish, so every `cooking` number on the strip is named by it in a single frame, at any party count: `3 Cooking · Table 4 Cooking · All day — Mohinga x4`. Three parties all ordering mohinga in a lull is the ordinary case, not the adversarial one. Dropping the term restores exactly the shipped defect, and it looks like a simplification",
+    find: "    (cookingTables === 0 || ranked.length >= PULSE_RAIL_MIN_DISHES);",
+    replace: "    true;",
+  },
+  {
+    id: "pulse/diversity-floor-withholds-with-nothing-to-attribute",
+    file: "apps/qr/lib/board-pulse.ts",
+    suite: "lib/board-pulse.test.ts",
+    why: "P6 — the OTHER direction, and the one a rail-only fix gets wrong. The exposure is the rail x strip JOIN: with no `cooking` row on the strip a one-row rail names nobody (an `up` row's dish left `dishes` at the bump), so withholding it there protects nothing and costs a pickup-only kitchen its all-day view during the exact rush the band exists for. Over-withholding is a defect too, and it is the invisible kind",
+    find: "cookingTables === 0 || ",
+    replace: "",
   },
   {
     id: "pulse/unregistered-sticker-published-as-a-table",
@@ -3203,6 +3227,14 @@ const MUTANTS = [
     why: 'P6 — the render rule no data-layer guard can see, and the one P1\'s blind pass rejected twice on the ticket. `nameMy: null` means the rail shows the English snapshot ALONE; dropping the null check marks that English word `lang="my"`, which typesets it in Padauk and announces it as Burmese on the one staff screen guests read',
     find: '  const my = lang === "my" && dish.nameMy !== null;',
     replace: '  const my = lang === "my";',
+  },
+  {
+    id: "pulse/stale-board-keeps-announcing-the-pass",
+    file: "apps/qr/components/ReadyBoard.tsx",
+    suite: "components/ReadyBoard.test.tsx",
+    why: 'P6 — the stale fold keeps `kind: "live"` and carries the whole snapshot forward, which is right for a name and a pickup code and wrong for every value in this band. Drop the `stale` term and forty minutes into an outage the wall still reads `9 Oldest (min)` and a lit-gold `Table 3 · Food up`, sending a runner to the pass for a plate that went out half an hour ago — and the five-minute linger that exists to prevent exactly that is enforced SERVER-side, so it lapses the moment the server stops answering. It reads like a simplification of a redundant condition',
+    find: '        pulse={state.kind === "live" && !state.stale ? state.pulse : null}',
+    replace: '        pulse={state.kind === "live" ? state.pulse : null}',
   },
 ];
 

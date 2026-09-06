@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   PULSE_RAIL_MAX_ROWS,
-  PULSE_RAIL_MIN_TICKETS,
+  PULSE_RAIL_MIN_PARTIES,
   PULSE_PASS_LINGER_MS,
+  PULSE_RAIL_MIN_DISHES,
   shapeBoardPulse,
   type PulseCartRow,
   type PulseLineRow,
@@ -414,8 +415,8 @@ describe("load — the count and the age", () => {
 });
 
 describe("the all-day rail's exposure floor", () => {
-  it(`is WITHHELD below ${PULSE_RAIL_MIN_TICKETS} live tickets — one ticket's rail is one party's order`, () => {
-    for (let n = 1; n < PULSE_RAIL_MIN_TICKETS; n++) {
+  it(`is WITHHELD below ${PULSE_RAIL_MIN_PARTIES} live tickets — one ticket's rail is one party's order`, () => {
+    for (let n = 1; n < PULSE_RAIL_MIN_PARTIES; n++) {
       const p = shape(tickets(n));
       expect(p.tickets).toBe(n);
       expect(p.allDay).toEqual([]);
@@ -444,15 +445,93 @@ describe("the all-day rail's exposure floor", () => {
   });
 
   it("OPENS at the floor — a guard that never opens is a disabled feature, not a floor", () => {
-    const p = shape(tickets(PULSE_RAIL_MIN_TICKETS));
-    expect(p.tickets).toBe(PULSE_RAIL_MIN_TICKETS);
+    const p = shape(tickets(PULSE_RAIL_MIN_PARTIES));
+    expect(p.tickets).toBe(PULSE_RAIL_MIN_PARTIES);
     expect(p.allDay.map((d) => d.name).sort()).toEqual(
-      Array.from({ length: PULSE_RAIL_MIN_TICKETS }, (_, i) => `Dish ${i}`).sort(),
+      Array.from({ length: PULSE_RAIL_MIN_PARTIES }, (_, i) => `Dish ${i}`).sort(),
     );
   });
 
+  describe("a ONE-ROW rail names every cooking table on the strip", () => {
+    /**
+     * ⚠️ THE FRAME THIS SUITE GENERATED ON EVERY RUN AND INSPECTED WITH NOTHING. Three parties who
+     * all ordered the same dish is an ordinary lull, not an adversarial input — and with one rail
+     * row every cooking party's content IS that dish, so every `cooking` table beside it is named
+     * by identity, in a single frame, at any party count. The party floor cannot see this: it
+     * counts parties, and the exposure is the rail×strip JOIN.
+     *
+     * These assert on `tables` as well as `allDay`. The old tests asserted `tickets` and `allDay`
+     * and never once looked at the strip, which is exactly why the frame went unnoticed.
+     */
+    /** N cooking parties all on ONE dish, plus a dine-in table among them. */
+    function homogeneous(n: number, dish = "Mohinga") {
+      const base = tickets(n, () => dish);
+      return {
+        ...base,
+        lines: base.lines.map((l) => ({ ...l, menu_item_id: "mSame" })),
+        sessions: [
+          session({ id: "s0", table_number: 4 }), // dine-in, cooking
+          ...base.sessions.slice(1),
+        ],
+      };
+    }
+
+    it("withholds the rail when the strip has a cooking table and the rail has one row", () => {
+      const p = shape(homogeneous(PULSE_RAIL_MIN_PARTIES));
+      expect(p.tickets).toBe(PULSE_RAIL_MIN_PARTIES);
+      expect(p.tables).toEqual([{ table: 4, status: "cooking" }]);
+      // The wall must not be able to say "the party at Table 4 is having Mohinga".
+      expect(p.allDay).toEqual([]);
+      expect(p.allDayMore).toBe(0);
+    });
+
+    it("PUBLISHES a one-row rail when no table on the strip is cooking — nothing to attribute", () => {
+      // The other direction, and the reason the gate reads the JOIN rather than the rail alone: a
+      // dish-count test on its own would withhold here and buy no privacy at all, while costing the
+      // kitchen the all-day view. Three takeaway parties, one dish, empty strip.
+      const p = shape(tickets(PULSE_RAIL_MIN_PARTIES, () => "Mohinga"));
+      expect(p.tables).toEqual([]);
+      expect(p.allDay).toEqual([{ name: "Mohinga", nameMy: null, qty: PULSE_RAIL_MIN_PARTIES }]);
+    });
+
+    it("an `up` table does not close the rail — a bumped line is not on it to be attributed", () => {
+      // `up` comes out of `passSessions`, and a bumped line never enters `dishes`, so that table's
+      // dish is absent from the rail. Closing the gate on it would withhold for no exposure.
+      const base = tickets(PULSE_RAIL_MIN_PARTIES, () => "Mohinga");
+      const p = shape({
+        lines: [
+          ...base.lines.map((l) => ({ ...l, menu_item_id: "mSame" })),
+          line({
+            cart_id: "cUp",
+            name: "Tea",
+            state: "served",
+            bumped_at: new Date(NOW - 1 * MIN).toISOString(),
+          }),
+        ],
+        carts: [...base.carts, cart("cUp", "sUp")],
+        sessions: [...base.sessions, session({ id: "sUp", table_number: 6 })],
+      });
+      expect(p.tables).toEqual([{ table: 6, status: "up" }]);
+      expect(p.allDay).toEqual([{ name: "Mohinga", nameMy: null, qty: PULSE_RAIL_MIN_PARTIES }]);
+    });
+
+    it(`opens again at ${PULSE_RAIL_MIN_DISHES} distinct dishes, cooking table and all`, () => {
+      // A floor that never opens is a disabled feature. With two rows and three parties no single
+      // frame determines which dish table 4 is having.
+      const base = homogeneous(PULSE_RAIL_MIN_PARTIES);
+      const p = shape({
+        ...base,
+        lines: base.lines.map((l, i) =>
+          i === 0 ? { ...l, name: "Tea", menu_item_id: "mTea" } : l,
+        ),
+      });
+      expect(p.tables).toEqual([{ table: 4, status: "cooking" }]);
+      expect(p.allDay).toHaveLength(PULSE_RAIL_MIN_DISHES);
+    });
+  });
+
   it("counts only what is COOKING — a bumped dish has left the wok", () => {
-    const base = tickets(PULSE_RAIL_MIN_TICKETS, () => "Mohinga");
+    const base = tickets(PULSE_RAIL_MIN_PARTIES, () => "Mohinga");
     const p = shape({
       ...base,
       lines: [
@@ -468,7 +547,7 @@ describe("the all-day rail's exposure floor", () => {
       carts: [...base.carts, cart("cBumped", "sBumped")],
       sessions: [...base.sessions, session({ id: "sBumped", table_number: 8 })],
     });
-    expect(p.allDay).toEqual([{ name: "Mohinga", nameMy: null, qty: PULSE_RAIL_MIN_TICKETS }]);
+    expect(p.allDay).toEqual([{ name: "Mohinga", nameMy: null, qty: PULSE_RAIL_MIN_PARTIES }]);
   });
 
   it("sums quantities per dish and ranks the busiest first", () => {
@@ -500,7 +579,7 @@ describe("the all-day rail's exposure floor", () => {
 });
 
 describe("the Burmese half of a rail row", () => {
-  const three = tickets(PULSE_RAIL_MIN_TICKETS, () => "Mohinga");
+  const three = tickets(PULSE_RAIL_MIN_PARTIES, () => "Mohinga");
   const withMenu = (nameMy: string | null) =>
     shape({ ...three, nameMy: three.lines.map((l) => [l.menu_item_id, nameMy]) });
 
@@ -518,4 +597,56 @@ describe("the Burmese half of a rail row", () => {
     // than restated here, so a K15 correction to the rule reaches both the ticket and the wall.
     expect(withMenu("Mohinga").allDay[0]!.nameMy).toBeNull();
   });
+});
+
+describe("every mode that may reach the strip is liveness-checked on the LOAD path too", () => {
+  /**
+   * ⚠️ WHY THIS EXISTS AT ALL, and why it passes a SET in rather than trusting the constant. The
+   * strip once carried its own `status === 'active'` guard; `verify:slice` proved that guard dead,
+   * because the load loop already refuses a non-`active` DINE-IN session above both branches that
+   * feed the strip, and a dead guard is decorative — so it was deleted.
+   *
+   * That deletion is correct today and held by a COINCIDENCE: `PULSE_TABLE_MODES` has exactly one
+   * member, so "may appear on the wall" and "is checked for liveness" happen to name the same mode.
+   * Nothing states they must. Add a second table mode — a numbered bar counter — and it routes to
+   * the load loop's `else if (cart.status !== "paid")` arm, which applies NO session-status test,
+   * and a cleared session of that mode lands back on a public wall with a stale status.
+   *
+   * The set is a defaulted parameter for exactly this: the second member exists here, in the test,
+   * so the proposition is falsifiable while production still ships one.
+   */
+  const MODES = ["dinein", "counter"] as const;
+  const modes: ReadonlySet<string> = new Set(MODES);
+
+  const withMode = (mode: string, status: string, cartStatus: string) =>
+    shapeBoardPulse(
+      {
+        lines: [line({ cart_id: "c1" })],
+        cartById: new Map([["c1", cart("c1", "s1", cartStatus)]]),
+        sessionById: new Map([["s1", session({ id: "s1", mode, status, table_number: 7 })]]),
+        nameMyByItem: new Map(),
+        nowMs: NOW,
+      },
+      modes,
+    );
+
+  for (const mode of MODES) {
+    // Both cart statuses, because the load loop forks on `paid` and the un-checked arm is the paid
+    // one — a fixture that only ever passes `open` would never reach the branch this is about.
+    for (const cartStatus of ["open", "paid"] as const) {
+      it(`refuses a CLEARED \`${mode}\` session holding a \`${cartStatus}\` cart`, () => {
+        const p = withMode(mode, "closed", cartStatus);
+        expect(p.tables).toEqual([]);
+        expect(p.tickets).toBe(0);
+        expect(p.oldestMinutes).toBeNull();
+        expect(p.allDay).toEqual([]);
+      });
+    }
+
+    it(`still publishes a LIVE \`${mode}\` table — the rule refuses staleness, not the mode`, () => {
+      // Anti-vacuity: without this, `tables: []` above would also be satisfied by a shaper that
+      // dropped the mode entirely, and the test would pass for the wrong reason.
+      expect(withMode(mode, "active", "open").tables).toEqual([{ table: 7, status: "cooking" }]);
+    });
+  }
 });
