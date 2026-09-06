@@ -5,6 +5,67 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-06 · PR #260 — a SECOND blind pass returned REJECT with a CRITICAL, and it was in the default language)
+>
+> **`main` is still `5715781`; #260 is open at `f195bdb` and is NOT merged — it needs Min's go.**
+> Two independent blind passes ran on this PR. The first (pre-open) returned REJECT with ten
+> findings; the second (pre-merge, from another session, on `c8d644a`) returned **REJECT with 1
+> CRITICAL and 3 HIGHs**. All eighteen findings across both are fixed. Codex reviewed no head of it
+> and cannot — quota exhausted across all four pilot PRs.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: the bug lived where only the non-default locale could see it
+>
+> `<Chrome echo>` under `lang="my"` puts TWO strings on screen (the Burmese span and the English
+> echo, `display: block`, no `aria-hidden`). `al()` built the accessible name from ONE. So the
+> Approve button SHOWED `ခွင့်ပြု` and `Approve` and ANNOUNCED `ခွင့်ပြု — Mohinga` — WCAG 2.5.3
+> failing on **15 controls across 6 files, in the language the pilot DEFAULTS to**, under three
+> comments and a CHANGELOG line asserting containment held by construction.
+>
+> Under `lang="en"` there is no defect at all: Chrome returns a bare text node and both halves are
+> the same string. **Every mutant, every guard and the whole suite were green** because the only arms
+> that can express it are `my` + echo. If you write a fixture for anything bilingual and it does not
+> exercise the non-default locale WITH the echo, it is degenerate — the same diagnosis `verify:slice`
+> gives a surviving mutant. `chromeVisible()` is now the ONE derivation of what Chrome puts on
+> screen; `Chrome.test.tsx` pins the render against it two-way. **Do not "fix" a 2.5.3 mismatch with
+> `aria-hidden`** — it is about text presented VISUALLY, so that hides the failure from tooling
+> rather than removing it.
+>
+> ⚠️ **The `subject` arm had the same defect and the review filed it as merely "unenforced".** The
+> register row renders two echoed Chromes and built its subject from un-echoed lookups. When a review
+> says a rule has no teeth, go hand-check every site it would have covered — there is usually exactly
+> one, and that is why nobody noticed.
+>
+> ### ⚠️ The guard tests itself now — keep it that way
+>
+> Its eight rules rested on one-time hand probes with nothing re-running them. **Ten fixture pairs now
+> live inside `check-staff-lang.mjs`** (a source each rule must find, plus a near-miss it must not)
+> and run on every invocation. Add a rule → add its pair. Writing them immediately caught a near-miss
+> that tripped a different clause, and dead `readFileSync` I/O in `mountsSwitchHere`.
+>
+> Four more guard defects, all in rules written for this slice: rule 3c kept only the FIRST verb key
+> and searched the whole subtree (crossed ternary passed green); rule 3's resolution stopped at
+> variable declarations, so a subject factored into a local `function` was skipped whole; rule 3d
+> asked whether a `role` attribute was PRESENT (`role="presentation"` satisfied it); rule 4's
+> dead-branch exclusion was a raw-text regex a prettier-wrapped `{false && (…)}` walks past. All four
+> parse now.
+>
+> ### Also worth knowing
+>
+> - **`/staff/login` shipped the same viewport overflow as `/staff/lock`** — a 44px control stacked
+>   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owns the height
+>   once; both surfaces render through it, and the two components' roots are `flex: 1`.
+> - **Do not quote a foil number that drifts.** `staff-outage.ts` said the unanchored grep "returns
+>   28"; it was 30 by the time a reviewer re-measured, because documenting it added mentions. Only the
+>   anchored form (→ 27) is quoted now.
+>
+> ### Counts on this head, measured not transcribed
+>
+> `check:docs` clean (98 files, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
+> `turbo lint typecheck build test` **8/8** · `check:staff-lang` clean with its self-test green
+> (64 files aria-clean · 15/15 pages).
+>
+> ---
+>
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · PR #260 — pilot P2 PR B: the staff console's ratchets are DRAINED, and the guard grew four teeth it did not have)
 >
 > **`main` is still `5715781`; #260 is open at `96f9702` and is NOT merged — it needs Min's go.**

@@ -1637,3 +1637,66 @@ pass saw it because it read the **rendered card**, not the prop list. Two rules 
   `generic` role, which prohibits an author name — the browser discards it. Two live instances, one of
   them the panel a cashier's focus is deliberately moved to as the card reader takes the transaction.
   Now `rule 3d`, which is one attribute to fix and was invisible to every other check in the repo.
+
+## #89 — a bilingual control shows TWO strings and the label module built the name from ONE (pilot P2 PR B, pre-merge blind pass, 2026-09-06)
+
+The staff console renders a bilingual pair through one component: `<Chrome echo>` under `lang="my"`
+emits the Burmese span **and** an English echo — `display: block`, no `aria-hidden`, i.e. text a
+sighted person reads. `al()` built the control's `visible` from `ts(lang, key)`, one tongue. So:
+
+```
+button SHOWS    ခွင့်ပြု   Approve
+button ANNOUNCES ခွင့်ပြု — Mohinga
+```
+
+WCAG 2.5.3 (Label in Name) fails: a speech-input user says the word they can see and hits nothing.
+**15 controls across 6 files, in the language the pilot DEFAULTS to** — and under `lang="en"` there
+is no defect at all, because Chrome returns a bare text node and both halves are the same string.
+
+- **A default that only one locale exercises is a locale-shaped blind spot.** Every in-session pass,
+  every mutant and the whole test suite ran green because the arms that can express the bug are
+  exactly `my` + echo. A fixture set that omits the non-default locale is degenerate for anything
+  bilingual — and "degenerate fixture" is the same diagnosis `verify:slice` gives for a surviving
+  mutant.
+- **`aria-hidden` is not the fix, and reaching for it is the tell.** 2.5.3 is about text presented
+  VISUALLY. Hiding the echo from the a11y tree leaves it on screen and makes the mismatch invisible
+  to tooling instead of absent — trading a detectable failure for an undetectable one.
+- **When two modules must agree about what is on screen, one of them must not guess.** The fix is a
+  single `chromeVisible(lang, key, echo, vars?)` that both the renderer's test and the label module
+  read, pinned two-way: every rendered part appears in the derivation, and striking them out leaves
+  only separators — so it can neither miss a visible word nor invent one.
+
+## #90 — "unenforced" and "correct" are different claims, and the second one is the one to check (pilot P2 PR B, 2026-09-06)
+
+The same review filed `al()`'s `subject` arm as a HIGH because the guard could not enforce it. True —
+a subject is a runtime string, not a key, so no static rule can match it. But the interesting question
+was never whether the rule covered the arm; it was whether the one shipped call site was RIGHT. It
+was not: the register queue row renders two `echo="inline"` Chromes and built its subject from
+un-echoed lookups, so the row showed `လမ်းလျှောက်လာ · Walk-up` and announced neither English half.
+
+**An unenforced rule is a place to go LOOK, not a place to note.** The finding said "nothing checks
+this"; five minutes of computing what that call site actually produces turned it into a second live
+defect of the CRITICAL's exact shape. When a review tells you a rule has no teeth, the follow-up is
+to hand-check every site the rule would have covered — there is usually exactly one, and it is
+usually why the gap was never noticed.
+
+## #91 — a guard whose red-first proofs are one-time hand probes is a guard with no test (pilot P2 PR B, 2026-09-06)
+
+Eight rules, ~1300 lines, every falsification claim in the header written as fact — and each proved
+exactly once, by inducing the violation, watching it go red, and reverting. Nothing re-ran them. A
+refactor that quietly disarmed `verbKeyOf`, `rendersKey`, `contradicts` or `splicedText` would turn
+all eight into a no-op with CI green: the precise failure the guard exists to prevent, in the guard.
+
+The fix that fit: **fixture pairs INSIDE the guard, run on every invocation** — for each rule, a
+source it MUST find plus a near-miss it must not. Not a separate suite, because `check:staff-lang`
+already runs in CI's fast lane and a suite nobody points at this file is a suite that rots. Proved by
+disarming three matchers in turn (1, 3 and 1 self-test failures).
+
+Two things fell out immediately, which is the argument for writing them at all:
+
+- **The near-miss half earns its keep first.** My "clean" rule-3 fixture tripped a _different_ rule-3
+  clause (`sx()` on an element with visible text). A rule that fires on the correct shape teaches
+  everyone to skim it, and only a near-miss catches that.
+- **Making a rule testable exposes what it reads that it shouldn't.** `mountsSwitchHere` still did a
+  `readFileSync` its parse no longer needed, so it returned `false` for any in-memory fixture —
+  dead I/O that no on-disk run could reveal.
