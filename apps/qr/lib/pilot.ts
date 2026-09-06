@@ -1,7 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import type { DaySummary } from "./register-math";
-import { laDayStartIso } from "./register-math";
 import { getDayCashSummary } from "./register";
 import { bucketByChannel, type ChannelSplit, type PilotOrderRow } from "./pilot-night";
 import { PILOT_PROMO_CODE } from "./pilot-tag";
@@ -124,12 +123,19 @@ export async function getPilotNight(): Promise<PilotNightResult> {
   if (!gate.ok)
     return { ok: false, reason: gate.error === STAFF_WRITE_OUTAGE ? "outage" : "forbidden" };
 
-  const sinceIso = laDayStartIso(new Date());
   const db = serviceClient();
 
   // The register's day summary — its own gate, its own read, its own arithmetic. Quoted, not redone.
   const cash = await getDayCashSummary();
   if (!cash.ok) return { ok: false, reason: cash.reason };
+
+  // ⚠️ ONE DAY BOUNDARY, ADOPTED — never a second `laDayStartIso(new Date())` of our own. The
+  // register already derived this window for the money it just handed us, and two derivations of one
+  // value is the drift the W17 rules name ("computed in one place and quoted in another WILL
+  // drift"). Here it is not merely theoretical: the two calls happen at DIFFERENT INSTANTS, so a
+  // sheet opened as the clock crosses midnight would bucket the takings into one service day and the
+  // counts beside them into the next, with nothing on screen to say so.
+  const sinceIso = cash.sinceIso;
 
   // Exact counts, never a page length: `head: true` asks PostgREST for the count and no rows, so a
   // day with more than a page of ratings still reports the real number rather than the cap. (This is

@@ -75,3 +75,54 @@ export function bucketByChannel(rows: readonly PilotOrderRow[]): ChannelSplit {
     counted: channels.reduce((sum, c) => sum + c.orders, 0),
   };
 }
+
+/** What the campaign row says about itself, reduced to the three states the sheet can speak about. */
+export type PromoState = "live" | "off" | "unset";
+
+/**
+ * The promo cell's contents: whether tonight's redemption count is PRINTED, and the campaign state
+ * printed beside or instead of it.
+ */
+export type PromoFigure =
+  | { show: true; redemptions: number; state: PromoState }
+  | { show: false; state: "off" | "unset" };
+
+/**
+ * Decide whether tonight's redemption count reaches the paper.
+ *
+ * ⚠️ THIS LIVES HERE, AND IT USED TO LIVE IN JSX — that is the whole finding. The first cut wrote
+ * `night.promo.exists && night.promo.active ? <Figure …/> : <sentence/>` in `PilotNightSheet.tsx`,
+ * so a campaign state change DELETED an already-measured number: flip `active = false` at 20:00 on
+ * a day that had already taken N redemptions and the manager's 9pm read shows no participation
+ * figure at all, replaced by "PILOT15 is switched off". `docs/PILOT_PLAN.md` §3 says the redemption
+ * count IS the participation count, and `active = false` is the pilot's documented emergency
+ * off-switch — so the one evening someone pulls that lever is exactly the evening the sheet erases
+ * the measurement. A rendering decision about a measured number belongs where a VALUE can falsify
+ * it, with a mutant on it; in JSX nothing could.
+ *
+ * THE RULE, and why it is not "show the count whenever we have one":
+ *
+ *   • A measured NON-ZERO is never erased. Whatever the campaign is doing now, N guests used the
+ *     code today and that happened. The state is printed beside it, not instead of it — the screen
+ *     has room for both facts and they are different facts.
+ *   • A ZERO is printed only when the campaign is LIVE, where it carries its plain meaning: the
+ *     offer stood all evening and nobody took it. That is a fact about the guests, and it is the
+ *     one the reader will act on.
+ *   • A zero under an OFF or ABSENT campaign is suppressed, because there it is true and
+ *     misleading at once — it reads as "nobody used it" (about the guests) when the honest sentence
+ *     is "it wasn't discounting anything" (about the campaign). Those call for opposite actions at
+ *     9pm, which is the original reason this branch exists at all.
+ *
+ * `state` is a description of the row, never a verdict on whether the code would apply to a basket:
+ * `mms_promo_check` is the only authority on that, and a second copy of its rule on a reporting
+ * surface is the drift the W17 money rules forbid.
+ */
+export function promoFigure(
+  promo: { exists: false } | { exists: true; active: boolean },
+  redemptionsToday: number,
+): PromoFigure {
+  const state: PromoState = !promo.exists ? "unset" : promo.active ? "live" : "off";
+  if (redemptionsToday > 0 || state === "live")
+    return { show: true, redemptions: redemptionsToday, state };
+  return { show: false, state };
+}

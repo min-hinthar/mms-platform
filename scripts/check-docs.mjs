@@ -122,6 +122,37 @@ const COUNT_RULES = [
   // names as live-state docs, reported clean by this script. Both phrasings appear verbatim in
   // CLAUDE.md and README, and both describe what `verify:slice` REWRITES IN PLACE, which is the
   // number a reader checks before deciding whether a dirty tree is safe.
+  // P5 (pre-merge blind pass, SYSTEMIC): the idiom this repo INVENTED for recording measured
+  // history is precisely the idiom the measuring guard could not reach. `A qr + B ui tests at the
+  // time (C + D today)` puts no digit adjacent to "qr tests" or "ui tests", so the `(\d+) qr tests`
+  // rule matched nothing and C rotted while the same claim two lines down stayed current. Four
+  // instances of this ONE bug were live across the four pilot PRs at once, every one of them inside
+  // a paragraph advertising itself as measured-not-transcribed. The historical A and B stay exempt
+  // (they are what was true then); C and D are current-state claims and are now measured. The
+  // "tests at the time (" prefix is required so this cannot grab an unrelated parenthetical.
+  {
+    re: /tests?\s+at\s+the\s+time\s+\((\d+)\s*\+/gi,
+    key: "qr",
+    label: "qr tests (parenthetical 'today' form)",
+  },
+  {
+    // ⚠️ THE MATCH STOPS AT THE CAPTURED DIGITS, and that is load-bearing rather than tidiness.
+    // `HISTORICAL` is tested against the text following the match END, so a rule that ran on
+    // through `today)` put the NEXT clause's "at the time" (`…, 69 target modules at the time`)
+    // inside its 24-character window and exempted itself. Caught red-first: a planted `777` stayed
+    // green while the sibling qr rule — which happens to end sooner — reddened correctly.
+    re: /tests?\s+at\s+the\s+time\s+\(\d+\s*\+\s*(\d+)/gi,
+    key: "ui",
+    label: "ui tests (parenthetical 'today' form)",
+  },
+  // Same class, module side: "…74 under `apps/qr/lib` today, 81 in all)" — the `under apps/qr/lib`
+  // rule reached the first number and nothing reached the second, so a resolver who fixes exactly
+  // what the guard names leaves a wrong number on the line they just edited.
+  {
+    re: /`?apps\/qr\/lib`?[^.\n]{0,20}?,\s*(\d+)\s+in\s+all/gi,
+    key: "modules",
+    label: "verify:slice target modules ('N in all' form)",
+  },
   {
     re: /(\d+)\s+money\/authority\s+modules/gi,
     key: "modules",

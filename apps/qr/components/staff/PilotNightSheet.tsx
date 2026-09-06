@@ -3,7 +3,8 @@ import Link from "next/link";
 import { Chrome } from "./Chrome";
 import { getPilotNight } from "@/lib/pilot";
 import { readStaffLang } from "@/lib/staff-lang-server";
-import { STAFF_CHANNEL_KEY } from "@/lib/i18n/staff";
+import { STAFF, STAFF_CHANNEL_KEY } from "@/lib/i18n/staff";
+import { promoFigure } from "@/lib/pilot-night";
 import type { StaffLang } from "@/lib/staff-lang";
 
 /**
@@ -44,6 +45,10 @@ export async function PilotNightSheet() {
   if (!res.ok) return res.reason === "outage" ? <Unreadable lang={lang} /> : null;
   const { night } = res;
 
+  // The show/suppress decision is a VALUE from a pure rule, never a branch written here: a campaign
+  // state change must not delete a measurement the day already took (`promoFigure`'s docblock).
+  const promo = promoFigure(night.promo, night.pilotRedemptions);
+
   return (
     <section className="pns" aria-labelledby="pns-h">
       <div className="pns-head">
@@ -56,9 +61,9 @@ export async function PilotNightSheet() {
       </div>
 
       <dl className="pns-grid">
-        {night.promo.exists && night.promo.active ? (
+        {promo.show ? (
           <Figure
-            value={night.pilotRedemptions}
+            value={promo.redemptions}
             label={
               <Chrome
                 lang={lang}
@@ -77,7 +82,22 @@ export async function PilotNightSheet() {
             // no judgement about whether the code still applies, which is `mms_promo_check`'s.
             detail={
               <>
-                {night.promo.maxUses !== null && (
+                {/* The campaign state rides BESIDE the count when it is not simply live. The count
+                    is a measurement and stays; this says what the campaign was doing. */}
+                {promo.state !== "live" && (
+                  <span className="pns-chip pns-chip-warn">
+                    <Chrome
+                      lang={lang}
+                      k={
+                        promo.state === "off"
+                          ? "pilot.night.promo.chip.off"
+                          : "pilot.night.promo.chip.unset"
+                      }
+                      echo={false}
+                    />
+                  </span>
+                )}
+                {night.promo.exists && night.promo.maxUses !== null && (
                   <span className="pns-chip">
                     <Chrome
                       lang={lang}
@@ -87,7 +107,7 @@ export async function PilotNightSheet() {
                     />
                   </span>
                 )}
-                {night.promo.validUntil !== null && (
+                {night.promo.exists && night.promo.validUntil !== null && (
                   <span className="pns-chip">
                     <Chrome
                       lang={lang}
@@ -104,8 +124,9 @@ export async function PilotNightSheet() {
             }
           />
         ) : (
-          // A zero here would be TRUE and would read as "nobody used it" — a claim about the guests
-          // rather than about the campaign. These two states say the other thing instead.
+          // Only a ZERO under a campaign that was not live is suppressed: there it is true and
+          // misleading at once, reading as "nobody used it" when the honest sentence is about the
+          // campaign. A non-zero count never reaches this branch.
           <div className="pns-cell">
             <dt className="pns-label">
               <Chrome
@@ -118,7 +139,7 @@ export async function PilotNightSheet() {
             <dd className="pns-value pns-value-none">
               <Chrome
                 lang={lang}
-                k={night.promo.exists ? "pilot.night.promo.off" : "pilot.night.promo.unset"}
+                k={promo.state === "off" ? "pilot.night.promo.off" : "pilot.night.promo.unset"}
                 vars={{ x: night.promoCode }}
                 echo="stack"
               />
@@ -138,6 +159,16 @@ export async function PilotNightSheet() {
               ))}
               {/* Printed ONLY when there is something to disclose — a permanent "0 unattributed"
                   row would train the reader to stop seeing it. */}
+              {/* The register mints a `pickup` session for a counter walk-in, so this bucket is
+                  not phone-ahead demand alone. Said where the split is read, not in a docblock. */}
+              <span className="pns-chip">
+                <Chrome
+                  lang={lang}
+                  k="pilot.night.orders.counter"
+                  vars={{ x: STAFF[STAFF_CHANNEL_KEY.pickup][lang] }}
+                  echo={false}
+                />
+              </span>
               {night.split.unattributed > 0 && (
                 <span className="pns-chip pns-chip-warn">
                   <Chrome lang={lang} k="pilot.night.unattributed" echo={false} />{" "}
@@ -180,6 +211,18 @@ export async function PilotNightSheet() {
         {/* C2 — the register prints this line beside the same buckets and the sheet dropped it.
             A fully-refunded order is NOT in the figures above, so a drawer count that ignores this
             is over by exactly those orders. Shown only when there are any, like the register. */}
+        {/* The drawer figure already contains the team's cash tips. A takings number that silently
+            folds them in is the omission `/staff/tips` is careful about elsewhere. */}
+        {night.money.cashTipCents > 0 && (
+          <p className="pns-note">
+            <Chrome
+              lang={lang}
+              k="pilot.night.money.cashtip"
+              vars={{ m: `$${(night.money.cashTipCents / 100).toFixed(2)}` }}
+              echo="stack"
+            />
+          </p>
+        )}
         {night.money.refundedCount > 0 && (
           <p className="pns-note pns-note-warn">
             <Chrome
@@ -222,7 +265,7 @@ export async function PilotNightSheet() {
           <Chrome lang={lang} k="pilot.night.recovery.scope" echo="stack" />
         </p>
         <p className="pns-note">
-          <Chrome lang={lang} k="pilot.night.stripe" echo="stack" />
+          <Chrome lang={lang} k="pilot.night.stripe" vars={{ brand: "Stripe" }} echo="stack" />
         </p>
       </div>
 

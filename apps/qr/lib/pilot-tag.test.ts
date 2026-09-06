@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { PILOT_PROMO_CODE, isPilotCode, promoTag } from "./pilot-tag";
 
@@ -43,4 +46,51 @@ describe("promoTag — the one normalizer behind every reported promo code", () 
     // other assertion in this file.
     expect(isPilotCode(PILOT_PROMO_CODE)).toBe(true);
   });
+});
+
+/**
+ * P5 — the WIRING, which is the half the normalizer's own tests cannot see.
+ *
+ * `promoTag` was tested thoroughly and used unguarded: replace `promoTag(cartRow?.promo_code)` with
+ * `cartRow?.promo_code ?? null` at either capture site and every test here — and every mutant, since
+ * they all target the normalizer's internals — stays green, while PostHog starts receiving `PILOT15`,
+ * `pilot15` and `""` as three different campaign values in an exact-match filter. That is the exact
+ * failure this module exists to prevent, one call away from the code that prevents it.
+ *
+ * ⚠️ IT PARSES, IT DOES NOT SCAN (LEARNINGS #60). `grep "promoTag"` is satisfied by this very
+ * docblock, by an import left behind after the call was changed, and by a commented-out line. The
+ * check below walks the TypeScript AST to the `promo_code` property of the analytics payload and
+ * demands its initializer be a CALL to `promoTag` — a name in a comment is not an AST node.
+ *
+ * `apps/qr/app/api/stripe/webhook/route.ts` carries `verify:slice-exempt`, so `check-money-coverage`
+ * will never ask for a mutant there; this is the only thing standing under that call site.
+ */
+describe("the capture sites normalize the code — proved against the AST, not the text", () => {
+  const SITES = ["app/api/stripe/webhook/route.ts", "lib/staff-cart.ts"] as const;
+
+  for (const rel of SITES) {
+    it(`${rel} passes promo_code through promoTag()`, () => {
+      const src = readFileSync(join(import.meta.dirname, "..", rel), "utf8");
+      const sf = ts.createSourceFile(rel, src, ts.ScriptTarget.Latest, true);
+      const initializers: string[] = [];
+      const visit = (n: ts.Node): void => {
+        if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name) && n.name.text === "promo_code")
+          initializers.push(
+            ts.isCallExpression(n.initializer) && ts.isIdentifier(n.initializer.expression)
+              ? `call:${n.initializer.expression.text}`
+              : `raw:${n.initializer.getText()}`,
+          );
+        // ⚠️ `forEachChild` is a SEARCH primitive — a truthy return ABORTS the walk, which would
+        // silently stop at the first match and make this guard pass by not looking.
+        ts.forEachChild(n, (c) => {
+          visit(c);
+        });
+      };
+      visit(sf);
+      // A site that stopped assigning `promo_code` at all must fail too, not vacuously pass: an
+      // empty list is the shape a deleted capture leaves behind.
+      expect(initializers.length).toBeGreaterThan(0);
+      expect(initializers).toEqual(initializers.map(() => "call:promoTag"));
+    });
+  }
 });

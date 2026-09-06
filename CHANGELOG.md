@@ -10,6 +10,41 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 rest of the traffic, a way for Mom and Dad to hand back corrections, and one screen with the night's
 answers on it.**
 
+**A campaign state change no longer deletes tonight's measurement (pre-merge blind pass, CRITICAL).**
+`active = false` is the pilot's documented emergency off-switch. Pull it at 20:00 on a day that had
+already taken redemptions and the 9pm sheet showed no participation figure at all — the one evening
+something changed was the one evening the number vanished, and `PILOT_PLAN.md` §3 says that count IS
+the participation count. The show-vs-suppress decision moved out of JSX into `promoFigure`
+(`lib/pilot-night.ts`), where a value can falsify it and two mutants do: a measured non-zero is never
+erased, and a zero is printed only under a LIVE campaign, where it means what a reader takes it to
+mean. Under an off or absent code the sheet says which, because "nobody used it" is a claim about the
+guests and "it wasn't discounting anything" is a claim about the campaign.
+
+**Three numbers that were true and misread, now scoped on the page.** The redemption budget is
+lifetime and sat unlabelled beside a since-midnight figure ("{n} of {total} used all-time"); the
+register mints a `pickup` session for a counter walk-in, so that bucket is not phone-ahead demand
+and now says so; and the cash bucket already contains the team's cash tips, which the register
+discloses beside the same figure and this sheet did not.
+
+**The read fake was projection-blind — the load-bearing column could be deleted with the gate green.**
+Measured, not supposed: cutting `.select("status,table_sessions(mode)")` to `.select("status")` left
+all 26 tests passing while every order bucketed as unattributed. A query's identity is now
+`table | projection | sorted filters | ordering`, so the embed, the `{ count: "exact", head: true }`
+and W21d's `id` tie-break each redden 13 tests when removed. The two `promoTag` capture sites gained
+an AST-parsed wiring guard — falsified four ways, including a call left only in a comment and a
+capture deleted outright — because both sit where `check-money-coverage` will never ask.
+
+**One day boundary, adopted rather than re-derived.** The register owns the service-day instant and
+the sheet took a second `laDayStartIso(new Date())` of its own; across midnight that buckets the
+takings into one day and the counts beside them into the next.
+
+**The idiom this repo invented for measured history is the one its guard could not read.**
+`A qr + B ui tests at the time (C + D today)` puts no digit next to "qr tests", so `check:docs` never
+saw C — four instances of that single bug were live across the four pilot PRs at once, every one
+inside a paragraph advertising itself as measured-not-transcribed. Three rules close it (the two
+parenthetical forms and `N in all`), each watched failing first — one of them was silently exempting
+itself on a neighbouring clause's "at the time" until that was caught.
+
 **The pilot's orders funnel apart — by the code, because the door cannot.** `payment_succeeded` and
 `staff_settle_cash` now carry `promo_code` beside the `promo_cents` they already reported, both
 server-derived from the cart at fulfilment and normalized through one function (`lib/pilot-tag.ts`,

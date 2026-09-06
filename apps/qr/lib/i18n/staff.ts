@@ -355,8 +355,8 @@ export const STAFF = {
   },
   "pilot.night.unattributed": { en: "No channel recorded", my: "ဘယ်ကလာမှန်း မမှတ်ရသေးပါ" },
   "pilot.night.stripe": {
-    en: "Compare this against Stripe by hand before you close — this screen cannot see Stripe.",
-    my: "မပိတ်ခင် Stripe နဲ့ လက်နဲ့ တိုက်စစ်ပါ — ဒီစခရင်က Stripe ကို မမြင်ပါ။",
+    en: "Compare this against {brand} by hand before you close — this screen cannot see {brand}.",
+    my: "မပိတ်ခင် {brand} နဲ့ လက်နဲ့ တိုက်စစ်ပါ — ဒီစခရင်က {brand} ကို မမြင်ပါ။",
   },
   // ⚠️ IT QUALIFIES THE DISCOUNT COUNT AND NOTHING ELSE, and it renders beside that figure. Written
   // first as a bare "not counted above" under the recovery block, where the things above it were the
@@ -380,10 +380,27 @@ export const STAFF = {
   },
   // {n}/{total} are counts (Burmese numerals under my); the window end is a preformatted date.
   "pilot.night.promo.budget": {
-    en: "{n} of {total} redemptions used",
-    my: "သုံးထားပြီး {n} / {total}",
+    en: "{n} of {total} used all-time",
+    my: "စတင်ကတည်းက သုံးပြီး {n} / {total}",
   },
   "pilot.night.promo.until": { en: "Runs until {t}", my: "{t} အထိ" },
+  // The campaign state printed BESIDE tonight's count, not instead of it — terse, because it rides
+  // in a chip next to the figure rather than replacing it (`promoFigure`, `pilot-night.ts`).
+  "pilot.night.promo.chip.off": { en: "Switched off", my: "ပိတ်ထားသည်" },
+  "pilot.night.promo.chip.unset": { en: "No code set up", my: "ကုဒ် မပြင်ဆင်ရသေး" },
+  // The register mints a `pickup` session for a counter walk-in (`register.ts`), so this bucket is
+  // not purely phone-ahead demand. Said on the screen rather than left for the reader to assume.
+  // `summarizeDay`'s cashCents ALREADY contains the cash tips (the RPC folds the tip into the order
+  // total), so this is a breakdown of the drawer, never an addition to it — the same sentence
+  // `/staff/register` prints beside the same bucket.
+  "pilot.night.money.cashtip": {
+    en: "Cash includes {m} in tips.",
+    my: "ငွေသားထဲမှာ ဝန်ဆောင်ခ {m} ပါဝင်ပါတယ်။",
+  },
+  "pilot.night.orders.counter": {
+    en: "{x} includes counter orders.",
+    my: "{x} ထဲမှာ ကောင်တာက အော်ဒါတွေ ပါဝင်ပါတယ်။",
+  },
   "pilot.night.unreadable": {
     en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
     my: "ဒီည ဂဏန်းတွေကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",

@@ -56,9 +56,25 @@ function keysMarked(marker: string): string[] {
         (src[after] === "," || src[after] === " " || src[after] === "\t")
       )
         after++;
+      // …and a marker written on its OWN LINE ABOVE the entry counts too. Trailing-only was a
+      // matcher satisfied by POSITION (LEARNINGS #60): a human reads `// K15-HIGH` above a key and
+      // sees it marked, while this returned nothing and the sheet's first band silently lost the
+      // row. Not hypothetical — a sibling branch writes two money strings that way.
+      //
+      // ⚠️ TypeScript hands a same-line trailing comment to BOTH the previous node's trailing
+      // ranges AND the next node's leading ranges, so a naive union would attribute every existing
+      // marker to the FOLLOWING key as well and double the set. A leading range therefore counts
+      // only when it begins on a LATER LINE than the previous token ends — a genuinely own-line
+      // comment, which is exactly the shape being admitted.
+      const lineOf = (pos: number) => sf.getLineAndCharacterOfPosition(pos).line;
+      const prevEnd = node.pos; // end of the previous token's trivia-free text
+      const leading = (ts.getLeadingCommentRanges(src, node.pos) ?? []).filter(
+        (r) => lineOf(r.pos) > lineOf(prevEnd),
+      );
       const ranges = [
         ...(ts.getTrailingCommentRanges(src, node.end) ?? []),
         ...(ts.getTrailingCommentRanges(src, after) ?? []),
+        ...leading,
       ];
       if (ranges.some((r) => src.slice(r.pos, r.end).includes(marker))) hits.push(node.name.text);
     }
@@ -113,7 +129,7 @@ describe("P5 — the word-check sheet's own invariants", () => {
     expect(rendered.sort()).toEqual([...AUTONYMS].sort());
   });
 
-  it("STAFF_K15_HIGH equals the set of entries carrying a trailing K15-HIGH marker", () => {
+  it("STAFF_K15_HIGH equals the set of entries carrying a K15-HIGH marker, above or beside", () => {
     const marked = keysMarked("K15-HIGH").sort();
     expect(marked.length).toBeGreaterThan(0); // the parse ran at all
     expect([...STAFF_K15_HIGH].sort()).toEqual(marked);

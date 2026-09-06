@@ -38,11 +38,22 @@ type Result = { count?: number | null; data?: unknown; error?: unknown };
  */
 class FakeQuery implements PromiseLike<Result> {
   private readonly filters: string[] = [];
+  private readonly ordering: string[] = [];
+  private projection = "";
   constructor(
     private readonly table: string,
     private readonly take: (key: string) => Result,
   ) {}
-  select() {
+  select(columns?: string, opts?: { count?: string; head?: boolean }) {
+    // ⚠️ THE PROJECTION IS PART OF A QUERY'S IDENTITY, and for the orders read it is the whole
+    // feature. Discarding it here let `.select("status,table_sessions(mode)")` be cut to
+    // `.select("status")` with all 26 tests green — every order would then bucket as
+    // `unattributed` and the sheet would print "No channel recorded 42" beside "Orders paid 42".
+    // Measured, not supposed: that edit was made and the suite stayed green before this line.
+    // `{ count: "exact", head: true }` rides along for the same reason — dropping it makes
+    // PostgREST answer `count: null`, which `countOf` turns into a permanent "can't read tonight".
+    this.projection = columns ?? "";
+    if (opts) this.projection += `#${opts.count ?? ""}${opts.head ? "+head" : ""}`;
     return this;
   }
   eq(col: string, value: unknown) {
@@ -61,7 +72,11 @@ class FakeQuery implements PromiseLike<Result> {
     this.filters.push(`in:${col}=${values.join(",")}`);
     return this;
   }
-  order() {
+  order(col: string, opts?: { ascending?: boolean }) {
+    // The `id` tie-break is W21d's and is load-bearing: `created_at` alone can order tied rows
+    // differently across two page requests, duplicating or dropping rows at the seam. Recorded so
+    // deleting it is a failure rather than a silent change of behaviour past 1000 orders.
+    this.ordering.push(`${col}:${opts?.ascending === false ? "desc" : "asc"}`);
     return this;
   }
   range() {
@@ -70,9 +85,20 @@ class FakeQuery implements PromiseLike<Result> {
   maybeSingle() {
     return this;
   }
-  /** `<table>|<sorted filters>` — the identity a script entry is keyed on. */
+  /**
+   * `<table>|<projection>|<sorted filters>|<ordering>` — the identity a script entry is keyed on.
+   *
+   * Filters are SORTED (issue order is not part of a query's meaning) while ordering is NOT: the
+   * sequence of `.order()` calls is exactly what decides the page seam, so a reordering must change
+   * the key.
+   */
   key(): string {
-    return `${this.table}|${[...this.filters].sort().join("&")}`;
+    return [
+      this.table,
+      this.projection,
+      [...this.filters].sort().join("&"),
+      this.ordering.join(">"),
+    ].join("|");
   }
   then<A, B>(
     onOk?: ((value: Result) => A | PromiseLike<A>) | null,
@@ -134,12 +160,12 @@ const SINCE = "2026-09-05T07:00:00.000Z";
 /** The six queries `getPilotNight` is allowed to make, each named by its table AND its filters. */
 function keysFor(since: string) {
   return {
-    redemptions: `promo_redemptions|eq:code=PILOT15&gte:redeemed_at=${since}`,
-    ratingsAll: `mms_feedback|gte:created_at=${since}`,
-    ratingsLow: `mms_feedback|gte:created_at=${since}&lte:rating=3`,
-    recoveries: "qr_refunds_needed|eq:resolved=false",
-    promoRow: "promo_codes|eq:code=PILOT15",
-    orders: `qr_orders|gte:created_at=${since}&in:status=paid,refunded`,
+    redemptions: `promo_redemptions|id#exact+head|eq:code=PILOT15&gte:redeemed_at=${since}|`,
+    ratingsAll: `mms_feedback|id#exact+head|gte:created_at=${since}|`,
+    ratingsLow: `mms_feedback|id#exact+head|gte:created_at=${since}&lte:rating=3|`,
+    recoveries: "qr_refunds_needed|id#exact+head|eq:resolved=false|",
+    promoRow: "promo_codes|active,used,max_uses,valid_until|eq:code=PILOT15|",
+    orders: `qr_orders|status,table_sessions(mode)|gte:created_at=${since}&in:status=paid,refunded|created_at:asc>id:asc`,
   };
 }
 const K = keysFor(SINCE);
@@ -192,7 +218,9 @@ beforeEach(() => {
   vi.setSystemTime(new Date(NOW));
   queries = [];
   gate = { ok: true, caller: {} };
-  cash = { ok: true, summary: SUMMARY, sinceIso: "ignored" };
+  // The register OWNS the day boundary and `getPilotNight` adopts it — so this is the window every
+  // scripted key below is built from, not a value the module is free to ignore.
+  cash = { ok: true, summary: SUMMARY, sinceIso: SINCE };
   busy();
 });
 
@@ -258,11 +286,17 @@ describe("getPilotNight — the night sheet's reads", () => {
   });
 
   it("scopes the night to the LA calendar day, the same window the register uses", async () => {
+    // The register derives the window (`laDayStartIso` behind `getDayCashSummary`) and this module
+    // adopts it, so the assertion is that the SAME instant reaches both the takings and the counts.
+    // It used to call `laDayStartIso` itself, which was a second derivation of one value and is the
+    // drift W17 forbids — see the day-boundary suite below for the falsifying case.
+    const JULY = "2026-07-15T07:00:00.000Z";
     vi.setSystemTime(new Date("2026-07-15T19:30:00Z")); // PDT — 12:30pm in LA
-    quiet("2026-07-15T07:00:00.000Z");
+    cash = { ok: true, summary: SUMMARY, sinceIso: JULY };
+    quiet(JULY);
     const res = await getPilotNight();
     expect(res.ok).toBe(true);
-    if (res.ok) expect(res.night.sinceIso).toBe("2026-07-15T07:00:00.000Z");
+    if (res.ok) expect(res.night.sinceIso).toBe(JULY);
   });
 
   it("a QUIET night is reported as a night, not as a failure", async () => {
@@ -454,5 +488,27 @@ describe("getPilotNight — the night sheet's reads", () => {
     cash = { ok: false, reason: "outage" };
     const res = await getPilotNight();
     expect(res).toEqual({ ok: false, reason: "outage" });
+  });
+});
+
+describe("the day boundary is the register's, adopted — not a second derivation", () => {
+  it("scopes every day-scoped read to the window the register handed it", async () => {
+    // A boundary NOTHING here could compute: an hour off the LA midnight `laDayStartIso` would
+    // return for `NOW`. If the module recomputed its own window instead of adopting this one, the
+    // scripted keys would not match and the reads would go unscripted.
+    const HANDED = "2026-09-05T08:00:00.000Z";
+    expect(HANDED).not.toBe(SINCE);
+    cash = { ok: true, summary: SUMMARY, sinceIso: HANDED };
+    busy(HANDED);
+
+    const res = await getPilotNight();
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.night.sinceIso).toBe(HANDED);
+    // …and it reached the QUERIES, not just the returned shape — the money and the counts must be
+    // bucketed into the same service day, which is the whole reason for adopting rather than
+    // recomputing. Across midnight two `new Date()` calls put them on different days.
+    for (const q of queries.filter((k) => k.includes("created_at") || k.includes("redeemed_at")))
+      expect(q).toContain(HANDED);
   });
 });
