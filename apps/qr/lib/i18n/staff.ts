@@ -19,9 +19,11 @@ import type { Entry } from "./types";
  * NUMERALS (owner, 2026-09-05): Burmese numerals in PROSE counts — "အော်ဒါ ၃ ခု" — and Latin
  * everywhere a number is an identifier or an amount: money, clock times, table numbers, pickup
  * codes, and the KDS stat row (its column is `tabular-nums` and Padauk ships no tabular Myanmar
- * figures, so Burmese digits there would make the row ragged). No dictionary VALUE carries a digit
- * of either script: counts arrive through the `{n}` / `{total}` slots and `tf()` converts them at
- * render, so the rule lives in one function with one guard rather than in a hundred strings.
+ * figures, so Burmese digits there would make the row ragged). No dictionary VALUE carries a MYANMAR
+ * digit — counts arrive through the `{n}` / `{total}` slots and `tf()` converts them at render, so
+ * the rule lives in one function with one guard (`strings.test.ts`, "NO dictionary value anywhere
+ * carries a Myanmar digit") rather than in a hundred strings. Latin digits are a different matter and
+ * one value has one: `kds.86`'s "86 this dish", where 86 is the kitchen VERB, not a number.
  *
  * ⚠️ Every MY value is a Claude-authored working draft pending Min's native check (K15), EXCEPT
  * where a `grounded:` comment names its in-repo source. Two are already settled and must NOT be
@@ -1260,6 +1262,79 @@ export const STAFF = {
     en: "We can’t read the board right now.",
     my: "ဘုတ်ကို အခု မဖတ်နိုင်သေးပါ။",
   },
+
+  // ── promo (P3) — the register's apply/remove on the table drill-down ───────
+  // The one staff surface where a MONEY value changes on a tap, so the copy follows the money rules
+  // rather than the chrome ones: {m} is preformatted money and stays Latin in both tongues, {x} is
+  // the code itself (a Latin identifier), and NOTHING here claims a discount the totals do not
+  // already carry — `promo.zero` and `promo.noItems` exist precisely so an applied code that is
+  // currently worth nothing says so instead of implying a saving.
+  "promo.h": { en: "Promo code", my: "လျှော့ကုဒ်" },
+  "promo.none": { en: "No code on this order.", my: "ဒီအော်ဒါမှာ ကုဒ် မရှိပါ။" },
+  "promo.field": { en: "Code", my: "ကုဒ်" },
+  "promo.apply": { en: "Apply", my: "ထည့်ပါ" },
+  "promo.applying": { en: "Applying…", my: "ထည့်နေပါတယ်…" },
+  "promo.remove": { en: "Remove {x}", my: "{x} ကို ဖြုတ်ပါ" },
+  "promo.removing": { en: "Removing…", my: "ဖြုတ်နေပါတယ်…" },
+  // K15-HIGH — this is the sentence a cashier reads before taking cash, so it must be the DELIVERED
+  // figure, never the apply-time quote. {m} arrives already formatted.
+  "promo.worth": { en: "{m} off this order", my: "ဒီအော်ဒါ {m} လျှော့" },
+  // NO "right now": the causes are not all transient. `mms_promo_discount_live` returns 0 when the
+  // code is switched off or PAST `valid_until` (permanent) as much as when a void dropped the basket
+  // under its minimum or M22's reward-first clamp already covered it (transient). A sentence that
+  // implies "check back in a minute" on a code that expired last week is copy the code does not keep.
+  "promo.zero": {
+    en: "On the order, but it isn’t taking anything off.",
+    my: "အော်ဒါမှာ ရှိပေမဲ့ လျှော့ဈေး မရပါ။",
+  },
+  "promo.noItems": {
+    en: "On the order — nothing to price yet.",
+    my: "အော်ဒါမှာ ရှိပါတယ် — ဈေးတွက်စရာ မရှိသေးပါ။",
+  },
+
+  // ── promo refusals (P3) — one key per StaffPromoReason, picked at the render site ───────────────
+  // A NEW action, so it returns a stable reason rather than inheriting the plain-English `error:`
+  // contract the six staff server modules carry (OPEN-ITEMS P2c defers converting those). The person
+  // applying this code at the register reads Burmese; a refusal he cannot read is the pilot failing
+  // at the surface it exists to test. `outage` is deliberately absent — it renders the existing
+  // `out.write.failed`, the sentence every other staff mutation already shows.
+  "promo.err.invalid": { en: "That code isn’t valid.", my: "ဒီကုဒ် မမှန်ပါ။" },
+  "promo.err.inactive": { en: "That code is switched off.", my: "ဒီကုဒ်ကို ပိတ်ထားပါတယ်။" },
+  "promo.err.notStarted": { en: "That code isn’t live yet.", my: "ဒီကုဒ် မစသေးပါ။" },
+  "promo.err.expired": { en: "That code has expired.", my: "ဒီကုဒ် သက်တမ်းကုန်သွားပါပြီ။" },
+  "promo.err.minNotMet": {
+    en: "The order is under this code’s minimum.",
+    my: "အော်ဒါက ဒီကုဒ်ရဲ့ အနည်းဆုံးပမာဏထက် နည်းနေပါတယ်။",
+  },
+  "promo.err.exhausted": { en: "That code is all used up.", my: "ဒီကုဒ် ကုန်သွားပါပြီ။" },
+  "promo.err.sessionLimit": {
+    en: "This table has already used that code.",
+    my: "ဒီစားပွဲက ဒီကုဒ်ကို သုံးပြီးသွားပါပြီ။",
+  },
+  "promo.err.rateLimited": {
+    en: "Too many tries — wait a moment.",
+    my: "အကြိမ် များနေပါပြီ — ခဏ စောင့်ပါ။",
+  },
+  "promo.err.tableClosed": { en: "That table is closed.", my: "ဒီစားပွဲ ပိတ်သွားပါပြီ။" },
+  "promo.err.noOrder": {
+    en: "This table has no open order.",
+    my: "ဒီစားပွဲမှာ ဖွင့်ထားတဲ့ အော်ဒါ မရှိပါ။",
+  },
+  "promo.err.cartClosed": { en: "That order is no longer open.", my: "ဒီအော်ဒါ မဖွင့်ထားတော့ပါ။" },
+  // The apply refuses OVER an existing code rather than replacing it silently (staff-promo.ts), so
+  // this sentence has to name the recovery — the Remove button is on this same card.
+  "promo.err.codeApplied": {
+    en: "Another code is already on this order — remove it first.",
+    my: "ဒီအော်ဒါမှာ တခြားကုဒ် ရှိနေပါပြီ — အရင် ဖြုတ်ပါ။",
+  },
+  // K15-HIGH — the money refusal. A promo must not move while a payment is open on it, and this is
+  // the sentence that explains why the tap did nothing.
+  "promo.err.locked": {
+    en: "Someone’s paying — wait for that to finish.",
+    my: "ငွေရှင်းနေတုန်း ရှိပါတယ် — ပြီးအောင် စောင့်ပါ။",
+  },
+  "promo.err.signin": { en: "Staff sign-in required.", my: "ဝန်ထမ်း အကောင့် ဝင်ဖို့ လိုပါတယ်။" },
+  "promo.err.error": { en: "That didn’t save — try again.", my: "မသိမ်းရသေးပါ — ထပ်စမ်းပါ။" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

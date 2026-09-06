@@ -1,6 +1,13 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
-import { JOIN_RATE, MUTATE_RATE, PEEK_RATE, RECEIPT_RATE, STEPUP_RATE } from "./limits";
+import {
+  JOIN_RATE,
+  MUTATE_RATE,
+  PEEK_RATE,
+  RECEIPT_RATE,
+  STAFF_PROMO_RATE,
+  STEPUP_RATE,
+} from "./limits";
 
 /**
  * Per-device rate limiting (M3·P3.4). The join/mutation/pay paths are public POSTs (IDOR-by-default —
@@ -61,6 +68,18 @@ export function withinStepUpRate(callerStaffId: string): Promise<boolean> {
  *  silent drop of a receipt the diner is waiting on. */
 export function withinReceiptRate(uid: string): Promise<boolean> {
   return withinRate("receipt", uid, RECEIPT_RATE.max, RECEIPT_RATE.windowSeconds);
+}
+
+/** Gate a STAFF promo apply per CALLING staff account (P3) — see STAFF_PROMO_RATE for why this is a
+ *  separate budget from the diner path's session-keyed `mms_promo_attempt` rather than a share of it.
+ *  Keyed by the resolved staff row id, never by the table the caller is standing at. */
+export function withinStaffPromoRate(callerStaffId: string): Promise<boolean> {
+  return withinRate(
+    "staffpromo",
+    callerStaffId,
+    STAFF_PROMO_RATE.max,
+    STAFF_PROMO_RATE.windowSeconds,
+  );
 }
 
 /**

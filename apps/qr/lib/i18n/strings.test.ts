@@ -74,6 +74,40 @@ describe("the dictionary guards", () => {
     expect(burmeseDigits).toEqual([]);
   });
 
+  it("P3 — NO dictionary value anywhere carries a Myanmar digit, either tongue", () => {
+    // The rule above walks `CART_MONEY_KEYS` only, so it covers the diner receipt and nothing else.
+    // Every staff money string — `promo.worth`'s `{m}`, the register's settle lines, the tip ladder —
+    // lives in `STAFF`, which that list cannot name, so the staff half of the money-numerals rule had
+    // no guard at all. Burmese numerals enter ONLY through `localizeCount` at render (fill.ts), for
+    // `{n}`/`{total}` counts, so a literal ၀–၉ in a TEMPLATE is by construction a number that skipped
+    // the classifier — the one place that decides money and identifiers stay Latin. Checked on both
+    // tongues because an `en` value with Burmese digits is the same defect wearing the other hat.
+    //
+    // ⚠️ This is ONE SIDE of the numerals rule, and an earlier version of this comment claimed it was
+    // "the whole rule instead of a list of it" — an overclaim caught by the pre-merge blind pass on
+    // #261. `staff.ts` states the rule two ways: Burmese numerals in prose counts, and Latin wherever
+    // a number is an identifier or an AMOUNT. Banning ၀–၉ enforces the first half only; the second is
+    // the case below.
+    const withMyDigits = allEntries
+      .filter(([, , v]) => /[၀-၉]/.test(v.my) || /[၀-၉]/.test(v.en))
+      .map(([id]) => id);
+    expect(withMyDigits).toEqual([]);
+  });
+
+  it("P3 — no dictionary value hard-codes a MONEY AMOUNT, in either tongue", () => {
+    // The other half, and the one the blind pass named an evasion for: rewrite `promo.worth` as
+    // `{ en: "$5 off this order", my: "ဒီအော်ဒါ $5 လျှော့" }` and every guard above stays green —
+    // no Myanmar digit, the {slot} sets still match (both empty), both values still carry Myanmar
+    // script. A hard-coded amount would ship on the sentence flagged K15-HIGH as the one a cashier
+    // reads out before taking cash, and it can never be right: money reaches these templates ONLY
+    // through the `{m}` slot, preformatted by `fmt()` from a server-derived figure. A literal is by
+    // construction a number no code computed. Zero today, measured, so the floor is the whole set.
+    const hardCoded = allEntries
+      .filter(([, , v]) => /[$£€¥]\s?\d|\d+\s?(?:¢|cents\b)/i.test(`${v.en} ${v.my}`))
+      .map(([id]) => id);
+    expect(hardCoded).toEqual([]);
+  });
+
   it("the S14a glossary holds — the order NOUN is အော်ဒါ, never the formal မှာယူမှု", () => {
     const drifted = allEntries.filter(([, , v]) => v.my.includes("မှာယူမှု")).map(([id]) => id);
     expect(drifted).toEqual([]);
@@ -212,7 +246,7 @@ describe("the dictionary guards", () => {
     // key would silently collapse them. A segment may LEAD with a digit — `kds.86` is the kitchen
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
     // like an identifier.
-    const SURFACES = /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board)$/;
+    const SURFACES = /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (
