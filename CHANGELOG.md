@@ -124,6 +124,8 @@ set held five (70 + 3 + 4 = 77 ≠ 78) — that list is the operator's only inve
 be sitting on disk as deliberately-broken mutants after a killed run, so it carries a measure command
 now instead of a hand count.
 
+**Two things the pass named that this slice files rather than fixes.** `pulse/unplaceable-line-counted-anonymously` reddened its suite by a **TypeError**, not by a value: with the guard removed `sess` is `undefined` and the next `sess.mode` throws, so the mutant measured the crash and no fixture ever separated the two readings numerically — the degenerate shape `verify:slice` exists to surface. Its mutation is now the plausible wrong implementation its own rationale describes (count the row anyway, we just cannot place it), and it dies on `tickets: 1` where the rule says `0`. And neither the cart read nor the session read carries a `.limit()`, so a `db-max-rows` below ~560 would truncate silently and drop a legitimate name from the CUSTOMER-facing Ready column; measured on the project, no `pgrst.db_max_rows` role override exists, so the effective value is the dashboard's API "Max rows" — config this environment cannot read (**P6i**). A fix built on an unmeasured bound is how over-blocking ships.
+
 **Guards.** 37 assertions on the shaper, 16 on the route, 21 on the board's markup (14 of them on
 the new band), and 21 `verify:slice` mutants — six of which exist only because that pass named the
 rules that had none, and one of which the same tool then retired as unreachable: the two liveness arms, the floor's unit, the unregistered sticker, the idle

@@ -3098,7 +3098,13 @@ const MUTANTS = [
     suite: "lib/board-pulse.test.ts",
     why: 'P6 — a line whose session did not come back is a row we could not place, not a row that belongs. Counting it anyway makes the aggregate half of this payload disagree with the allowlisted half about what a missing row means, and the board already has one live defect from exactly that reading ("publish what is known to belong, never what was merely not seen")',
     find: "    if (!sess) continue; // unplaceable — never counted, never published",
-    replace: "    if (false) continue;",
+    // ⚠️ NOT `if (false) continue;`, which was the first form and is what the pre-merge blind pass
+    // called degenerate — and correctly. With the guard removed `sess` is `undefined` and the very
+    // next use of `sess.mode` THROWS, so the suite reddened on a TypeError: the mutant measured the
+    // crash, not the rule, and no fixture ever separated the two readings by a VALUE. The mutation
+    // is now the plausible wrong implementation the `why` below actually describes — count the row
+    // anyway, we just cannot place it — which the fixture separates as `tickets: 1` vs `0`.
+    replace: "    if (!sess) { cookingCarts.add(l.cart_id); continue; }",
   },
   {
     id: "pulse/served-food-counted-as-load",
