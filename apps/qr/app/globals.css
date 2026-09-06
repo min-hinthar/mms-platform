@@ -9237,3 +9237,392 @@ html[data-fx="lite"] .mms-scrim {
     transform: none;
   }
 }
+
+/* ── P5 · the printed word-check sheet (/staff/glossary) ─────────────────────────────────────────
+   A screen that exists to become PAPER. Mom and Dad mark it up over dessert and every correction is
+   one K15 line closed, so the layout's whole job is: a Burmese line big enough to judge, the English
+   beside it for context, the key so a correction is traceable, and a box big enough to write in.
+
+   ⚠️ STRUCTURE IS CARRIED BY RULING, NEVER BY FILL. Browsers drop background graphics from print by
+   default, and this repo sets no `print-color-adjust` anywhere — so `.pgl-row-locked`'s tint is a
+   screen affordance only, and what actually tells a locked row apart on paper is the words in its
+   correction column. Nothing here depends on a fill reaching the page.
+
+   Two rules the print half turns on, both learned from W7a's receipt block above:
+   • the token re-pin for `html, html.dark` lives in THAT block and is global, so this sheet printed
+     from Night already resolves the light palette. Nothing here re-pins anything.
+   • `.print-hide` is hidden wholesale there, which is why the back link, the print button and the
+     language control carry it rather than each having its own print rule.
+
+   It ANIMATES NOTHING and therefore joins no reduced-motion list — a sheet that moves while someone
+   is reading 180 lines off it would be a defect, not a flourish. */
+.pgl {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: var(--s5) var(--s5) var(--s8);
+}
+.pgl-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+.pgl-bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.pgl-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--ac);
+  font-weight: 700;
+  text-decoration: none;
+}
+.pgl-print {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: 700;
+  cursor: pointer;
+}
+.pgl-head {
+  border-bottom: 2px solid var(--bd);
+  padding-bottom: var(--s4);
+  margin-bottom: var(--s5);
+}
+.pgl-title {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-h1);
+  font-weight: 900;
+  color: var(--tx);
+}
+.pgl-lede {
+  margin: 0 0 var(--s3);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  max-width: 62ch;
+}
+.pgl-count {
+  margin: 0 0 var(--s3);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--tx);
+}
+/* The autonym note. It is the one paragraph on this sheet that explains an ABSENCE, so it is boxed
+   rather than set as a footnote — an unexplained gap gets written into the margin. */
+.pgl-note {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--bd);
+  border-left: 3px solid var(--ac);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  max-width: 72ch;
+}
+.pgl-band {
+  margin-top: var(--s6);
+}
+.pgl-band-title {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-h2);
+  font-weight: 800;
+  color: var(--tx);
+}
+.pgl-band-why {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  max-width: 68ch;
+}
+.pgl-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.pgl-table th {
+  text-align: left;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--t3);
+  padding: 0 var(--s3) var(--s2);
+  border-bottom: 1px solid var(--bd);
+}
+.pgl-col-my {
+  width: 38%;
+}
+.pgl-table td {
+  vertical-align: top;
+  padding: var(--s3);
+  border-bottom: 1px solid var(--bd);
+}
+/* A row is the unit a corrector reads, so it must never straddle two sheets of paper. */
+.pgl-row {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+/* The Burmese line is the thing being judged — it gets the size. Padauk's face comes from the
+   `.stx-root [lang="my"]` rule (P2f); only the size and the block flow belong here. */
+.pgl-my {
+  display: block;
+  font-size: var(--fs-h3);
+  color: var(--tx);
+}
+.pgl-key {
+  display: block;
+  margin-top: 2px;
+  /* A literal stack, not a token: the sheet has no `--font-mono` and a `var()` with a fallback would
+     read as if it did. The key is an identifier and must not be typeset as prose. */
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  word-break: break-all;
+}
+.pgl-en {
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+/* The correction box. Empty and unlabelled on screen because it is written on with a PEN — it is not
+   an input, and it must not look like one. */
+.pgl-box {
+  display: block;
+  min-height: 34px;
+  border: 1px dashed var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+}
+.pgl-row-locked td {
+  background: var(--sf);
+}
+.pgl-lock {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--t2);
+}
+.pgl-lock-why {
+  display: block;
+  margin-top: 2px;
+  font-weight: 400;
+  color: var(--t3);
+}
+.pgl-sign {
+  display: flex;
+  gap: var(--s6);
+  flex-wrap: wrap;
+  margin: var(--s5) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.pgl-rule {
+  display: inline-block;
+  width: 180px;
+  margin-left: var(--s3);
+  border-bottom: 1px solid var(--t3);
+}
+
+@media print {
+  /* NO `.pgl { max-width; padding }` rule here. The W7a block above already sets
+     `main { padding: 12px !important; max-width: none !important }` and `.pgl` IS the `<main>`, so
+     a second declaration without `!important` is inert — the shape LEARNINGS #60 calls a matcher
+     satisfied by text that does not ship the behaviour, one layer down in CSS. */
+  /* The first band is the ten minutes that matter, so it gets its own sheet of paper. Everything
+     else follows behind it. */
+  .pgl-band-high {
+    break-after: page;
+    page-break-after: always;
+  }
+  .pgl-band {
+    margin-top: 0;
+  }
+  .pgl-table th,
+  .pgl-table td {
+    padding: 5px 6px;
+  }
+  /* Room for a pen, not for a cursor. */
+  .pgl-box {
+    min-height: 30px;
+    border-style: solid;
+  }
+  .pgl-my {
+    font-size: 12pt;
+  }
+  .pgl-en,
+  .pgl-key,
+  .pgl-lock,
+  .pgl-lock-why {
+    font-size: 8pt;
+  }
+  /* A band heading orphaned at the foot of a page costs a whole sheet of confusion. */
+  .pgl-band-title,
+  .pgl-band-why,
+  .pgl-table thead {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+}
+
+/* ── P5 · tonight's pilot sheet (/staff/feedback) ────────────────────────────────────────────────
+   The night's answers, read standing up at 9pm above the guest-feedback list. Numbers lead; the
+   notes under them are the disclosures that keep each number honest, so they are set quietly but
+   never hidden behind a disclosure control — a caveat nobody opens is a caveat nobody read.
+
+   Latin figures on purpose: the values sit in a `tabular-nums` column and Padauk ships no tabular
+   Myanmar figures, which is the same construction rule the KDS stat row follows. It animates
+   nothing, so it joins no reduced-motion list. */
+.pns {
+  margin: var(--s4) 0 var(--s5);
+  padding: var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+}
+.pns-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+.pns-title {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: 900;
+  color: var(--tx);
+}
+.pns-since {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+}
+.pns-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--s4);
+  margin: 0;
+}
+.pns-cell {
+  min-width: 0;
+}
+.pns-label {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--t3);
+}
+.pns-value {
+  margin: 2px 0 0;
+  font-size: var(--fs-h3);
+  font-weight: 800;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+.pns-n {
+  font-size: var(--fs-h1);
+  line-height: 1.1;
+}
+/* The cell that carries a SENTENCE instead of a figure (the code is not set up yet). It must not
+   wear the numeral's size and weight — those say "this is a measurement". */
+.pns-value-none {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+}
+.pns-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.pns-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--t2);
+}
+.pns-chip-n {
+  font-variant-numeric: tabular-nums;
+  color: var(--tx);
+}
+/* The one chip that must not read as routine: an order whose channel we could not attribute, and a
+   rating that needs following up. */
+.pns-chip-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.pns-money,
+.pns-recovery {
+  margin-top: var(--s5);
+  padding-top: var(--s4);
+  border-top: 1px solid var(--bd);
+}
+.pns-sub {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-sm);
+  font-weight: 800;
+  color: var(--tx);
+}
+.pns-money-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--s3);
+  margin: 0;
+}
+.pns-note {
+  margin: var(--s3) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  line-height: 1.5;
+}
+/* The one note that is not background: money the figures above do NOT account for. */
+.pns-note-warn {
+  color: var(--warn);
+  font-weight: 600;
+}
+.pns-ok {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--ok);
+}
+.pns-warn {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--warn);
+}
+/* The link IS the paragraph's whole content, so it can carry the 44px target without disturbing
+   the copy around it — there is none. */
+.pns-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: inherit;
+}
+/* 44px, because it is the one control on this sheet and it is tapped on a tablet. */
+.pns-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: var(--s4);
+  padding: 0 16px;
+  border: 1px solid var(--ac);
+  border-radius: var(--r-full);
+  color: var(--ac);
+  font-weight: 700;
+  text-decoration: none;
+}

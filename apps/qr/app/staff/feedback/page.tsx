@@ -4,6 +4,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
 import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
@@ -25,7 +26,11 @@ export default async function FeedbackPage() {
   if (!caller) return <StaffOutageShell what="what.feedback" />;
 
   const lang = await readStaffLang();
-  const rows = await getStaffFeedback();
+  // P5 — the read reports its OUTCOME now (lib/feedback.ts): a failed read must not render as
+  // "No feedback yet", least of all directly beneath a pilot sheet that reads its own rating count
+  // from a query that fails loud. `rows` is only ever consulted when the read actually happened.
+  const feedback = await getStaffFeedback();
+  const rows = feedback.ok ? feedback.rows : [];
   const lowCount = rows.filter((r) => r.rating <= 3).length;
 
   return (
@@ -39,11 +44,29 @@ export default async function FeedbackPage() {
         </Link>
         <StaffLangSwitch lang={lang} />
       </div>
+      {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
+          the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
+
+          ⚠️ THE SHEET RE-CHECKS THE MANAGER FLOOR ITSELF rather than trusting this page's, and the
+          first draft of this comment got the reason wrong — it said "a server's view of this page is
+          unchanged", which is vacuous: `requireStaffPage("manager")` above redirects a server before
+          they reach any of this. The real reason is the one `lib/feedback.ts` gives for re-checking
+          inside `getStaffFeedback`: a gate that lives only at the mount point is a gate that a later
+          re-mount, or a lowered floor on this page, silently removes. `getPilotNight` carries its
+          own, so the component is safe to mount anywhere. */}
+      <PilotNightSheet />
       <h1 style={h1}>
         <Chrome lang={lang} k="floor.fb.title" echo="stack" />
       </h1>
       <p style={sub}>
-        {rows.length === 0 ? (
+        {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
+            `floor.fb.empty`: "No feedback yet" on a read that never happened is the exact fabricated
+            verdict M116/M119 were filed for, and it is worse here because the arm sits under a sheet
+            whose own numbers failed loud. Bilingual like every other arm — a manager who reads
+            Burmese must not be the only one told nothing went wrong. */}
+        {!feedback.ok ? (
+          <Chrome lang={lang} k="floor.fb.unavailable" echo="stack" />
+        ) : rows.length === 0 ? (
           <Chrome lang={lang} k="floor.fb.empty" echo="stack" />
         ) : lowCount > 0 ? (
           <Chrome

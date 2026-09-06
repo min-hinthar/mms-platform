@@ -1,0 +1,144 @@
+import {
+  STAFF,
+  STAFF_K15_HIGH,
+  STAFF_LATIN_BY_DESIGN,
+  STAFF_SETTLED,
+  type StaffKey,
+} from "./i18n/staff";
+
+/**
+ * P5 — the printed word-check sheet's row plan (`/staff/glossary`).
+ *
+ * WHY THIS IS DERIVED FROM THE MODULE AND NOT WRITTEN DOWN. `docs/PILOT_PLAN.md` §3 P5 asks for a
+ * glossary "generated from `apps/qr/lib/i18n/staff.ts` so it can never drift from the shipped
+ * strings; a hand-copied glossary is stale the day after it is printed." A committed artifact and a
+ * freshness check would satisfy the letter of that — a page that READS the dictionary satisfies it
+ * outright: there is no second copy to go stale, no `--check` to forget, and the sheet printed
+ * tonight is the strings deployed tonight, by construction.
+ *
+ * PURE, so the rules below are falsified by values rather than by a render. It touches no database,
+ * no clock and no request.
+ *
+ * ⚠️ THE TWO AUTONYMS ARE ABSENT AND MUST STAY ABSENT. `StaffLangSwitch` renders `မြန်မာ` and
+ * `English` as component constants, and its docblock says why: a native-check pass that "corrects"
+ * one into the other language makes the control unusable for exactly the person who needs it. They
+ * are not dictionary keys, so they cannot reach this plan — `lib/i18n/autonyms.test.ts` refuses them
+ * as dictionary VALUES so they cannot arrive by the back door either, and the sheet prints the
+ * reason where a corrector will read it rather than leaving the omission to look like an oversight.
+ *
+ * ⚠️ A LOCKED ROW IS STILL A ROW. Settled and Latin-by-design strings are PRINTED, with their
+ * reason, and simply carry no correction box. Omitting them would be the worse failure: a corrector
+ * who cannot find မီးဖိုချောင် on the sheet concludes it was missed and writes it in the margin
+ * anyway, and now the sheet disagrees with a decision the owner already made.
+ */
+
+/** Why a line is not open for correction. `null` on a row means: please check this one. */
+export type GlossaryLock = { kind: "settled" | "latin"; why: string };
+
+export type GlossaryRow = {
+  key: StaffKey;
+  en: string;
+  my: string;
+  locked: GlossaryLock | null;
+  /**
+   * The `lang` mark the Burmese cell must carry — `undefined` where the value is not Myanmar script.
+   *
+   * ⚠️ IT IS DERIVED HERE, NOT AT THE RENDER SITE, and that move is the whole point. Four dictionary
+   * values are Latin BY DESIGN (the station chips: `All`, `Wok`, `Cold`, `Drinks`), and marking one
+   * of those `lang="my"` typesets it in Padauk and announces it to a screen reader as Burmese — the
+   * exact defect `TicketText.tsx`'s hole rule exists for, and one that review has already caught once
+   * in `ReadyBoard`. As a per-row VALUE it is falsified by a value and carries a mutant; inline in
+   * the page's JSX it was a rendering rule nothing could fail.
+   */
+  myLang: "my" | undefined;
+};
+
+/** `high` is the K15-HIGH band — the lines a wrong word takes service down over. */
+export type GlossaryBandId = "high" | "rest";
+
+export type GlossaryBand = { id: GlossaryBandId; rows: GlossaryRow[] };
+
+export type Glossary = {
+  bands: GlossaryBand[];
+  /** Every key in the dictionary — locked rows included. */
+  total: number;
+  /** The rows that actually carry a correction box. This is the ask, and it is what the count says. */
+  openForCorrection: number;
+};
+
+/**
+ * Myanmar script, tested on the VALUE rather than assumed from the column. The column says which
+ * tongue the string is FOR; only the codepoints say which script it is IN, and for the four
+ * Latin-by-design entries those two answers differ.
+ */
+const MYANMAR = /\p{Script=Myanmar}/u;
+
+function myLangFor(value: string): "my" | undefined {
+  return MYANMAR.test(value) ? "my" : undefined;
+}
+
+function lockFor(key: StaffKey): GlossaryLock | null {
+  const settled = STAFF_SETTLED[key];
+  if (settled) return { kind: "settled", why: settled };
+  const latin = STAFF_LATIN_BY_DESIGN[key];
+  if (latin) return { kind: "latin", why: latin };
+  return null;
+}
+
+/**
+ * Build the sheet.
+ *
+ * Rows are sorted by KEY within each band, which groups them by surface for free — the key's first
+ * segment IS the surface (`kds.*`, `board.*`, `out.*`), and someone checking words reads by surface,
+ * not alphabetically by English. Sorting also makes the printout STABLE: two prints a week apart
+ * differ only where the dictionary did, so a marked-up sheet can be compared against a fresh one.
+ *
+ * Plain `<` rather than `localeCompare`: with no locale argument that resolves against the runtime's
+ * default, so two machines could order the same keys differently. Keys are ASCII by construction
+ * (`strings.test.ts` pins the namespace shape), so code-unit order is the total order this needs.
+ */
+export function buildGlossary(): Glossary {
+  const keys = (Object.keys(STAFF) as StaffKey[])
+    .slice()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const rows: GlossaryRow[] = keys.map((key) => ({
+    key,
+    en: STAFF[key].en,
+    my: STAFF[key].my,
+    locked: lockFor(key),
+    myLang: myLangFor(STAFF[key].my),
+  }));
+  const bands: GlossaryBand[] = [
+    { id: "high", rows: rows.filter((r) => STAFF_K15_HIGH.has(r.key)) },
+    { id: "rest", rows: rows.filter((r) => !STAFF_K15_HIGH.has(r.key)) },
+  ];
+  return {
+    bands,
+    total: rows.length,
+    openForCorrection: rows.filter((r) => r.locked === null).length,
+  };
+}
+
+/** One run of a mixed-script string: Myanmar, or everything else. */
+export type ScriptRun = { text: string; my: boolean };
+
+/**
+ * Split a string into maximal Myanmar / non-Myanmar runs.
+ *
+ * ⚠️ WHY A RUN AND NOT THE WHOLE CELL. The lock REASONS are English sentences with a Burmese word
+ * inside them — `STAFF_SETTLED["kds.title"]` is "Owner-corrected in W21 — မီးဖိုချောင် is the word
+ * this kitchen uses." Marking the whole span `lang="my"` would announce an English sentence in a
+ * Burmese voice; leaving it unmarked (what shipped) drops that word out of the `[lang="my"]` rules
+ * entirely — no Padauk, no `--lh-my` leading, no `overflow-wrap`, and an English voice on the one
+ * word the row exists to protect. The repo rule is that `lang` marks a RUN, never a wrapper
+ * (`Chrome.tsx` rule 3, `TicketText.tsx`'s hole rule); this is that rule applied to prose the
+ * dictionary does not slot.
+ *
+ * A string with no Myanmar returns one unmarked run, so a caller never has to special-case it.
+ */
+export function scriptRuns(value: string): ScriptRun[] {
+  return value
+    .split(/(\p{Script=Myanmar}+)/u)
+    .filter((part) => part !== "")
+    .map((text) => ({ text, my: MYANMAR.test(text) }));
+}

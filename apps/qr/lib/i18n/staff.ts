@@ -58,6 +58,10 @@ export const STAFF = {
   "what.room": { en: "the room", my: "ခန်းမ" },
   "what.order": { en: "this order", my: "ဒီအော်ဒါ" },
   "what.list": { en: "this list", my: "ဒီစာရင်း" },
+  // P5 ∩ P2 — the glossary page needs its own `what`, because `StaffOutageShell` takes a
+  // dictionary KEY (P2 PR B) and not a free English string. MY reuses `pilot.night.glossary`'s
+  // noun so the sheet is called one thing on both screens; Claude-authored draft pending K15.
+  "what.glossary": { en: "the word-check sheet", my: "စာလုံး စစ်ဆေးစာရွက်" },
 
   // ── the outage voice (class A — stacked pair; read when nothing else works) ─
   "out.head.cant": {
@@ -878,6 +882,15 @@ export const STAFF = {
     en: "No feedback yet. Diners are asked to rate after every order.",
     my: "မှတ်ချက် မရှိသေးပါ။ အော်ဒါတိုင်း ပြီးတိုင်း ဧည့်သည်တွေကို အဆင့်ပေးဖို့ တောင်းပါတယ်။",
   },
+  // P5 ∩ P2 — the READ-FAILED sentence, distinct from `floor.fb.empty` because "no feedback yet" on
+  // a read that never happened is a fabricated verdict (M116/M119). MY is a Claude-authored working
+  // draft pending Min's native check (K15); it reuses `pilot.night.unavailable`'s shape deliberately
+  // — one screen, one way of saying "we could not read this" — while naming a different subject, so
+  // the two do not collide.
+  "floor.fb.unavailable": {
+    en: "We can’t read the feedback list right now — nothing is lost. Try again in a moment.",
+    my: "ဧည့်သည် မှတ်ချက်စာရင်းကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",
+  },
   // The EN pair fixes a live agreement bug: the one-arm read "1 recent rating need follow-up".
   // ⚠️ "recent" is `မကြာသေးမီက` — the RETROSPECTIVE form — in all six keys that carry it, here and at
   // `floor.orders.*`. The first cut of this block wrote `မကြာမီက` on four of them, which is the
@@ -1362,6 +1375,158 @@ export const STAFF = {
   },
   // Aria-only (no visible text of its own), so it goes through `sx()` — see lib/staff-labels.ts.
   "board.a11y.tables": { en: "Table status", my: "စားပွဲ အခြေအနေ" },
+
+  // ── P5 · the pilot loop: the printed word-check sheet and tonight's numbers ────────────────
+  // Two surfaces, one namespace. `pilot.gloss.*` is the sheet Mom and Dad mark up over dessert —
+  // the instrument that turns K15 from a blocker into pilot OUTPUT — and `pilot.night.*` is the
+  // read-only nightly sheet on /staff/feedback. Both are read by the two people whose language
+  // this whole arc exists for, so both are Burmese-primary with the English echo beside.
+  "pilot.gloss.title": { en: "Word check", my: "စာလုံး စစ်ဆေးစာရွက်" },
+  // ⚠️ THE SCOPE IS IN THE SENTENCE, and it was not in the first draft. "Every Burmese word this
+  // console shows" was FALSE: the dish and option names P1 put on the kitchen ticket as its PRIMARY
+  // line come from `menu_items.name_my` / the modifier catalog, not from this dictionary, and no
+  // derivation of `STAFF` can reach them. A sheet that claims completeness and omits the console's
+  // largest Burmese surface sends a corrector away believing the check is done.
+  "pilot.gloss.lede": {
+    en: "Every Burmese word the console’s own buttons, labels and messages show. Read each line; where a word is wrong, write the right one beside it.",
+    my: "ဒီစက်ရဲ့ ခလုတ်၊ အညွှန်း၊ စာသားတွေမှာ ပြတဲ့ မြန်မာစာလုံး အားလုံး။ တစ်ကြောင်းစီ ဖတ်ပြီး မှားနေတာရှိရင် ဘေးမှာ မှန်တာ ရေးပါ။",
+  },
+  // …and the omission is NAMED, because this sheet teaches its reader that absences get explained
+  // (the autonym note does exactly that), which makes an unexplained one read as "there is nothing
+  // else". The dish names are not unchecked — they are checked where they are READ.
+  "pilot.gloss.scope": {
+    en: "Dish and option names are NOT on this sheet. Those come from the menu, not from the console, and they get checked where they are read — on the kitchen ticket, with the English beneath each one.",
+    my: "ဟင်းအမည်နဲ့ ရွေးချယ်စရာ အမည်တွေကို ဒီစာရွက်မှာ မထည့်ထားပါ။ အဲဒါတွေက မီနူးထဲကလာတာ၊ ဒီစက်ကလာတာ မဟုတ်ပါ — ဖတ်တဲ့နေရာမှာပဲ စစ်ပါတယ်၊ မီးဖိုချောင် အော်ဒါစာရွက်ပေါ်မှာ တစ်ခုစီအောက်က အင်္ဂလိပ်စာနဲ့အတူ။",
+  },
+  // The braces are machine slots. A corrector who translates `{n}` breaks a string — `strings.test.ts`
+  // catches it at CI rather than at the pass, but the paper is where it should never be written.
+  "pilot.gloss.slots": {
+    en: "Keep anything in curly braces exactly as it is — {n}, {t} and {x} are where the app puts a number, a time or a name. Change the words around them, never the braces.",
+    my: "တွန့်ကွင်းထဲက အရာတွေကို ရှိတဲ့အတိုင်း ထားပါ — {n}၊ {t}၊ {x} နေရာတွေမှာ အက်ပ်က ဂဏန်း၊ အချိန်၊ နာမည် ထည့်ပါတယ်။ ဘေးက စကားလုံးတွေကိုပဲ ပြင်ပါ၊ တွန့်ကွင်းကို မပြင်ပါနဲ့။",
+  },
+  "pilot.gloss.print": { en: "Print", my: "ပုံနှိပ်" },
+  // ⚠️ Neither heading may be `မြန်မာ` or `English` on its own — those two strings are the language
+  // control’s own labels, and `autonyms.test.ts` refuses them as dictionary VALUES so a corrector
+  // can never meet one on the printed sheet with a box beside it.
+  "pilot.gloss.col.my": { en: "Burmese now", my: "အခု မြန်မာစာ" },
+  "pilot.gloss.col.en": { en: "English now", my: "အခု အင်္ဂလိပ်စာ" },
+  "pilot.gloss.col.fix": { en: "Correction", my: "ပြင်ဆင်ချက်" },
+  "pilot.gloss.band.high": { en: "Read these first", my: "ဒါတွေ အရင်ဖတ်ပါ" },
+  "pilot.gloss.band.high.why": {
+    en: "A wrong word here stops service: a held ticket read as live, a bump with no way back, an outage nobody knows what to do about.",
+    my: "ဒီမှာ စာလုံးမှားရင် အလုပ် ရပ်သွားပါတယ် — ဆိုင်းထားတဲ့ အော်ဒါကို လက်ရှိလို့ ဖတ်မိတာ၊ ပြန်မရတော့တဲ့ ပြီးပြီနှိပ်မိတာ၊ စနစ်ပျက်တဲ့အခါ ဘာလုပ်ရမှန်း မသိတာ။",
+  },
+  "pilot.gloss.band.rest": { en: "The rest", my: "ကျန်တာများ" },
+  "pilot.gloss.locked.settled": {
+    en: "Already checked — leave this one",
+    my: "စစ်ပြီးသား — ဒါကို မပြင်ပါနဲ့",
+  },
+  "pilot.gloss.locked.latin": {
+    en: "Kept in English on purpose — don’t translate",
+    my: "အင်္ဂလိပ်လို တမင် ထားတာ — မဘာသာပြန်ပါနဲ့",
+  },
+  "pilot.gloss.autonyms": {
+    en: "The two language buttons are not on this sheet, and must not be. Each one names its own language, so correcting either into the other leaves whoever cannot read that language with no way back.",
+    my: "ဘာသာစကား ခလုတ်နှစ်ခုကို ဒီစာရွက်မှာ မထည့်ထားပါ၊ မထည့်သင့်ပါ။ တစ်ခုစီက သူ့ဘာသာစကားကို သူ့ဘာသာနဲ့ ခေါ်တာဖြစ်လို့ တစ်ခုကို တစ်ခုအဖြစ် ပြင်လိုက်ရင် အဲဒီဘာသာစကား မဖတ်တတ်သူ ပြန်ပြောင်းလို့ မရတော့ပါ။",
+  },
+  "pilot.gloss.count": {
+    en: "{n} to check · {total} in all",
+    my: "စစ်ရန် {n} ကြောင်း · စုစုပေါင်း {total} ကြောင်း",
+  },
+  "pilot.gloss.sign": { en: "Checked by", my: "စစ်ဆေးသူ" },
+  "pilot.gloss.date": { en: "Date", my: "ရက်စွဲ" },
+
+  "pilot.night.title": { en: "Tonight", my: "ဒီည" },
+  "pilot.night.since": { en: "Since midnight — {t}", my: "သန်းခေါင်ကတည်းက — {t}" },
+  "pilot.night.promo": { en: "{x} discounts given", my: "{x} လျှော့ဈေး ပေးထားတာ" },
+  "pilot.night.orders": { en: "Orders paid", my: "ငွေရှင်းပြီး အော်ဒါ" },
+  "pilot.night.money": { en: "Taken today", my: "ဒီနေ့ ရငွေ" },
+  "pilot.night.money.cash": { en: "Cash", my: "ငွေသား" },
+  "pilot.night.money.card": { en: "Card · online", my: "ကတ် · အွန်လိုင်း" },
+  "pilot.night.money.reader": { en: "Card · reader", my: "ကတ် · စက်" },
+  // ⚠️ VERBATIM FROM THE AUTHORITY, because quoting a figure without its caveat changes what the
+  // figure says. `/staff/register` labels these buckets "Order totals by status — line-level refunds
+  // aren’t netted out", and M2 is why: a partial refund leaves `status='paid'`, so the bucket is
+  // GROSS of it. Dropping that line made "Taken today" read as a drawer figure it is not.
+  "pilot.night.money.where": {
+    en: "Order totals by status — line-level refunds are NOT taken off these. The register has the full report.",
+    my: "အခြေအနေအလိုက် အော်ဒါ စုစုပေါင်း — တစ်မျိုးချင်း ပြန်အမ်းတာတွေကို ဒီကနေ မနုတ်ထားပါ။ အပြည့်အစုံကို ကောင်တာ စာမျက်နှာမှာ ကြည့်ပါ။",
+  },
+  "pilot.night.money.refunded": {
+    en: "{n} paid today and since fully refunded ({m}) — not counted above.",
+    my: "ဒီနေ့ ရှင်းပြီး နောက်မှ ငွေအပြည့် ပြန်အမ်းထားတာ {n} ခု ({m}) — အပေါ်မှာ မရေတွက်ပါ။",
+  },
+  "pilot.night.ratings": { en: "Ratings tonight", my: "ဒီည အမှတ်ပေးချက်" },
+  "pilot.night.ratings.low": { en: "{n} need following up", my: "{n} ခု လိုက်ကြည့်ရန်" },
+  "pilot.night.recovery": { en: "Charged with no order", my: "အော်ဒါ မရှိဘဲ ငွေဖြတ်ထားတာ" },
+  "pilot.night.recovery.none": { en: "None — nothing to chase.", my: "မရှိပါ — လိုက်စရာ မရှိပါ။" },
+  "pilot.night.recovery.some": {
+    en: "{n} waiting on the approvals screen.",
+    my: "ခွင့်ပြုချက် စာမျက်နှာမှာ {n} ခု စောင့်နေပါတယ်။",
+  },
+  // ⚠️ The one figure on this card that is NOT tonight's, said on the card rather than in a docblock.
+  // Day-scoping it would be worse — an orphan charge from Tuesday is still owed back on Friday — but
+  // a card headed "Since midnight" must not let an all-time number pass as tonight's.
+  "pilot.night.recovery.scope": {
+    en: "All time, not only tonight — a charge from any day is owed back until someone clears it.",
+    my: "ဒီညတစ်ညတည်း မဟုတ်ဘဲ အားလုံးပါ — ဘယ်နေ့ကမဆို တစ်ယောက်ယောက် မရှင်းပေးမချင်း ပြန်အမ်းရဦးမယ်။",
+  },
+  "pilot.night.unattributed": { en: "No channel recorded", my: "ဘယ်ကလာမှန်း မမှတ်ရသေးပါ" },
+  "pilot.night.stripe": {
+    en: "Compare this against {brand} by hand before you close — this screen cannot see {brand}.",
+    my: "မပိတ်ခင် {brand} နဲ့ လက်နဲ့ တိုက်စစ်ပါ — ဒီစခရင်က {brand} ကို မမြင်ပါ။",
+  },
+  // ⚠️ IT QUALIFIES THE DISCOUNT COUNT AND NOTHING ELSE, and it renders beside that figure. Written
+  // first as a bare "not counted above" under the recovery block, where the things above it were the
+  // orders and the takings — and a split-settled table IS in both: `mms_fulfill_split_order` writes a
+  // real `qr_orders` row with `status='paid'`. What it does not write is a `promo_redemptions` row.
+  "pilot.night.split": {
+    en: "Missing from this one: a table that split its bill. A split settle records no discount use — its order and its money ARE counted.",
+    my: "ဒီဂဏန်းမှာ မပါတာ — ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲ။ ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ — အော်ဒါနဲ့ ငွေကတော့ ရေတွက်ထားပါတယ်။",
+  },
+  // A zero under "discounts given" has two opposite meanings — "guests did not use it" and "the code
+  // does not work" — and a reader assumes the first. These three say the second, each for the state
+  // that causes it. The facts come from the row; no verdict on whether a code APPLIES is made here
+  // (that is `mms_promo_check`'s, and a second copy of it on a reporting screen would drift).
+  "pilot.night.promo.unset": {
+    en: "{x} isn’t set up yet — there is no code to give.",
+    my: "{x} ကို မပြင်ဆင်ရသေးပါ — ပေးစရာ ကုဒ် မရှိသေးပါ။",
+  },
+  "pilot.night.promo.off": {
+    en: "{x} is switched off — it isn’t discounting anything.",
+    my: "{x} ကို ပိတ်ထားပါတယ် — ဘာမှ လျှော့မပေးတော့ပါ။",
+  },
+  // {n}/{total} are counts (Burmese numerals under my); the window end is a preformatted date.
+  "pilot.night.promo.budget": {
+    en: "{n} of {total} used all-time",
+    my: "စတင်ကတည်းက သုံးပြီး {n} / {total}",
+  },
+  "pilot.night.promo.until": { en: "Runs until {t}", my: "{t} အထိ" },
+  // The campaign state printed BESIDE tonight's count, not instead of it — terse, because it rides
+  // in a chip next to the figure rather than replacing it (`promoFigure`, `pilot-night.ts`).
+  "pilot.night.promo.chip.off": { en: "Switched off", my: "ပိတ်ထားသည်" },
+  "pilot.night.promo.chip.unset": { en: "No code set up", my: "ကုဒ် မပြင်ဆင်ရသေး" },
+  // The register mints a `pickup` session for a counter walk-in (`register.ts`), so this bucket is
+  // not purely phone-ahead demand. Said on the screen rather than left for the reader to assume.
+  // `summarizeDay`'s cashCents ALREADY contains the cash tips (the RPC folds the tip into the order
+  // total), so this is a breakdown of the drawer, never an addition to it — the same sentence
+  // `/staff/register` prints beside the same bucket.
+  "pilot.night.money.cashtip": {
+    en: "Cash includes {m} in tips.",
+    my: "ငွေသားထဲမှာ ဝန်ဆောင်ခ {m} ပါဝင်ပါတယ်။",
+  },
+  "pilot.night.orders.counter": {
+    en: "{x} includes counter orders.",
+    my: "{x} ထဲမှာ ကောင်တာက အော်ဒါတွေ ပါဝင်ပါတယ်။",
+  },
+  "pilot.night.unreadable": {
+    en: "Tonight’s numbers can’t be read right now. Nothing is lost — try again in a moment.",
+    my: "ဒီည ဂဏန်းတွေကို အခု မဖတ်နိုင်သေးပါ။ ဘာမှ မပျောက်ပါ — ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "pilot.night.glossary": {
+    en: "Print the word-check sheet",
+    my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -1413,3 +1578,106 @@ export const STAFF_LATIN_BY_DESIGN: Readonly<Record<string, string>> = {
 export function ts(lang: "en" | "my", key: StaffKey): string {
   return STAFF[key][lang];
 }
+
+/**
+ * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
+ *
+ * These are the 40 the printed word-check sheet puts in its first band, so that ten minutes with
+ * the sheet buys the corrections that matter most: a held ticket read as live is food cooked an hour
+ * early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences are
+ * the only instruction anyone has when nothing else on the tablet works.
+ *
+ * ⚠️ THE SET IS DERIVED, NOT AUTHORED. It began as thirteen KDS/outage keys because that was the
+ * whole marked population when P5 was written against `5715781`. The merges that landed P2 PR B
+ * (#260) and P3 (#261) added markers on the register's money sentences, the loss/approval
+ * confirmations and the promo refusals — every one a string a wrong word takes SERVICE down over,
+ * so they belong in the first band by the same rule. The list below was regenerated by running the
+ * SAME AST walk `autonyms.test.ts` uses over this file, not by hand: transcribing it is how the two
+ * halves drift, and the guard asserts equality in BOTH directions precisely to catch that.
+ *
+ * ⚠️ DATA AND COMMENT MUST AGREE, and `lib/i18n/autonyms.test.ts` is what makes that true rather than
+ * hoped: it PARSES this module (the TypeScript compiler, so a comment inside a string cannot
+ * satisfy it) for every entry carrying a trailing `K15-HIGH` marker and asserts the two sets are
+ * EQUAL — both directions. A key marked in a comment but missing here is a string Mom is never asked
+ * about; a key listed here with no marker is a claim about severity with nothing behind it.
+ */
+export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
+  "browse.price.confirmQ",
+  "browse.price.keep",
+  "browse.price.live.off",
+  "browse.price.live.saved",
+  "browse.price.set",
+  "browse.price.verb.confirm",
+  "floor.orders.sub",
+  "floor.tabOverLimit",
+  "kds.86",
+  "kds.86.done",
+  "kds.bump",
+  "kds.empty.outage",
+  "kds.fire",
+  "kds.held",
+  "kds.recall",
+  "kds.slot",
+  "kds.stat.late",
+  "kds.undo",
+  "out.shell.body",
+  "out.tail.paper",
+  "out.write.failed",
+  "promo.err.locked",
+  "promo.worth",
+  "settle.card.chargeQ",
+  "settle.cash.change",
+  "settle.cash.overCap",
+  "settle.cash.settleAmount",
+  "settle.cash.take",
+  "settle.reader.failedTitle",
+  "table.appr.cooked",
+  "table.appr.empty.outage",
+  "table.appr.refundsHint",
+  "table.line.verb.voidComp",
+  "table.loss.confirm.comp",
+  "table.loss.confirm.void",
+  "table.loss.confirmApproval.comp",
+  "table.loss.confirmApproval.void",
+  "table.loss.cooking",
+  "table.loss.hint.comp",
+  "table.loss.hint.void",
+]);
+
+/**
+ * P5 — the strings the native check must NOT re-ask, each with the reason it is closed.
+ *
+ * The module docblock above already says these three are settled; this is that sentence as data, so
+ * the printed sheet can render them as read-only rows instead of leaving a corrector to discover the
+ * rule from a source comment they will never see. Re-asking is not a harmless duplicate question: a
+ * fresh answer to `kds.title` would overwrite an OWNER-VERIFIED correction, and the two board
+ * headings have been on the wall since W3e — rewording them changes what the ROOM reads, which is a
+ * different decision from checking a translation.
+ *
+ * Guarded like `STAFF_LATIN_BY_DESIGN`: every listed key must exist, so the list cannot outlive its
+ * reason.
+ */
+export const STAFF_SETTLED: Readonly<Record<string, string>> = {
+  "kds.title": "Owner-corrected in W21 — မီးဖိုချောင် is the word this kitchen uses.",
+  "board.col.preparing": "On the wall since W3e — the room has been reading it for months.",
+  "board.col.ready": "On the wall since W3e — the room has been reading it for months.",
+};
+
+/** The three values `table_sessions.mode` may hold, which are also `KitchenChannel`'s three. */
+export type StaffChannel = "dinein" | "pickup" | "scango";
+
+/**
+ * P5 — mode → channel key, in ONE place.
+ *
+ * `KdsBoard.tsx` carried this map privately and the pilot's nightly sheet needs the same three
+ * words, so a second copy would be two bindings for one vocabulary — the drift the "name it ONCE"
+ * rule exists for (`scango` reads "To-go", which is not a mapping either surface should re-derive).
+ * The type is spelled out locally rather than imported from `kitchen-types` so this module keeps no
+ * dependency: it is imported by client code, and `lib/i18n/index.ts`'s own docblock explains why
+ * that matters.
+ */
+export const STAFF_CHANNEL_KEY: Readonly<Record<StaffChannel, StaffKey>> = {
+  dinein: "kds.channel.dinein",
+  pickup: "kds.channel.pickup",
+  scango: "kds.channel.togo",
+};

@@ -5,6 +5,88 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-05 · pilot P5 — the pilot can be measured, and the family can correct it)
+>
+> **Branch `claude/session-d-pilot-loop-myabrt`, off `main` at `5715781`** (#259, pilot P2 PR A).
+> ⚠️ **THREE OTHER SESSIONS ARE BUILDING PILOT SLICES IN PARALLEL** — P2 PR B (the rest of the staff
+> console), P3 (`PILOT15` + the staff apply), P6 (the dual-audience board). Whichever PR merges second
+> re-measures the doc counts and re-pushes; merge `main` IN, never rebase.
+>
+> ### What P5 shipped
+>
+> **The pilot's orders funnel apart by the CODE, because the door cannot.** `promo_code` now rides
+> `payment_succeeded` and `staff_settle_cash` beside the `promo_cents` they already carried,
+> server-derived from the cart at fulfilment and normalized once in `lib/pilot-tag.ts`. The cash arm is
+> the one that mattered: a cash order fires no Stripe event at all, so Dad's register would otherwise
+> have been absent from the campaign entirely.
+>
+> ⚠️ **`door` was NOT put on the money path, and that is the finding to carry forward.** It is
+> persisted NOWHERE — measured: zero occurrences of it in the generated schema, no column on
+> `table_sessions`, `qr_carts` or `qr_orders` — so no server event downstream of the session mint can
+> know it, and writing one would have been a fabricated dimension. The mint gained `cart_id` instead:
+> the one stable id `payment_intent_created`, `payment_succeeded` and `payment_failed` already share,
+> so a door split is a JOIN rather than an invention. Two honest limits are recorded on **S7**: the
+> physical table stickers deep-link with no `?door=` (so a sticker scan mints `door: null`), and the
+> SPLIT-TENDER `payment_succeeded` deliberately carries no `promo_code` at all — that arm holds no cart
+> row, and asserting `null` would claim knowledge the handler does not have.
+>
+> **`/staff/glossary` is the K15 instrument.** A printable EN/MY word-check sheet derived from
+> `lib/i18n/staff.ts` AT RENDER — a page, not a generated artifact, so there is no second copy to go
+> stale and no freshness check to forget. K15-HIGH first (its own printed page), settled and
+> Latin-by-design rows LOCKED with their reason, the two language-control autonyms absent with the
+> reason printed where a corrector meets it. `STAFF_K15_HIGH` and `STAFF_SETTLED` are DATA now, with a
+> bidirectional parity guard against the source's own trailing markers — parsed, not scanned, because
+> five of the thirteen markers ride the closing brace of a multi-line entry.
+>
+> **Tonight's sheet on `/staff/feedback`** is read-only for the whole pilot (K13 stays open by
+> decision). Every figure is quoted rather than re-derived — the takings from `getDayCashSummary`, the
+> day window from `laDayStartIso` — and what it refuses to say is the reviewed part: an unattributable
+> channel is counted APART, the Stripe reconciliation is named as the hand-check it is, and the
+> split-tender discount blind spot is disclosed on the sheet and filed as **M157**.
+>
+> ### A defect found next door and fixed
+>
+> `getStaffFeedback` swallowed its read error and rendered "No feedback yet. Diners are asked to rate
+> after every order." during an outage. With the night sheet now directly above it — reading its rating
+> count from a query that fails LOUD — one outage could have put "7 ratings tonight" and "no feedback
+> yet" on the same screen. It returns an outcome now (`lib/feedback-read.test.ts`, plus a mutant).
+>
+> ### ⚠️ THE BLIND PASS RETURNED REJECT WITH FOUR CRITICALS — every one real, and one shape
+>
+> Each was a **disclosure that did not travel with the number it qualified**. Carry this forward: on
+> a surface built to be honest, the caveat is part of the figure, and moving one three blocks away is
+> the same defect as deleting it.
+>
+> 1. The sheet claimed "every Burmese word this console shows" while omitting the console's LARGEST
+>    Burmese surface — the dish and option names P1 made the kitchen ticket's primary line, which
+>    live in `menu_items` / the modifier catalog and which no derivation of `STAFF` can reach.
+> 2. "Taken today" quoted the register's buckets and dropped BOTH caveats that make them honest (M2
+>    leaves a partial refund at `status='paid'`, so the buckets are gross of it; a fully-refunded
+>    order is excluded outright). The register prints both lines beside the same numbers.
+> 3. "Charged with no order" is an ALL-TIME count and the card is headed "Since midnight".
+> 4. The split-bill disclosure sat under the recovery block, three blocks from the figure it
+>    qualifies — and was FALSE where it sat: `mms_fulfill_split_order` writes a real paid
+>    `qr_orders` row, so a split table IS in the orders and IS in the takings. Only the redemption
+>    is missing.
+>
+> **And the guard was green for the wrong reason** (the shape LEARNINGS #60 names, found again):
+> `pilot-read.test.ts`'s fake keyed each query on its table name and its POSITION in the queue, so
+> `.eq("code", PILOT15)`, `.eq("resolved", false)` and `.lte("rating", 3)` could each be deleted with
+> the suite still green. The two `mms_feedback` reads were distinguished only by which one
+> `Promise.all` happened to issue first. A query's identity is its table AND its filters now, four
+> more mutants pin it, and `glossary.test.ts`'s autonym check had the same shape one layer over — it
+> filtered to unlocked rows first, and a locked row still PRINTS.
+>
+> ### Gate
+>
+> Fifteen new mutants, each watched failing first, and every new guard induced red before shipping
+> (both directions on the marker parity, and the matcher's own evasion — prose containing the marker —
+> falsified). ⚠️ **Codex could not review this PR: the connector reported its usage limit reached on
+> #259 (2026-09-05), so the `codex-review` check cannot go green.** The blind adversarial pass is the
+> only independent reviewer this slice had; do not read it as two.
+>
+> The block below is #257's — read this one, then `docs/PILOT_PLAN.md` §3, then the older banners.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-06 · PR #260 — a SECOND blind pass returned REJECT with a CRITICAL, and it was in the default language)
 >
 > **`main` is still `5715781`; #260 is open at `f195bdb` and is NOT merged — it needs Min's go.**
@@ -322,7 +404,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (436 today)**, **1372 qr + 138 ui tests at the time (1680 + 142 today)**, 69 target modules at the time (75 under `apps/qr/lib` today, 85 in all), 97 local
+> **334 mutants at the time (456 today)**, **1372 qr + 138 ui tests at the time (1755 + 142 today)**, 69 target modules at the time (80 under `apps/qr/lib` today, 90 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1214,7 +1296,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 436 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1680 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 456 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1755 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -1936,7 +2018,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (436 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (456 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

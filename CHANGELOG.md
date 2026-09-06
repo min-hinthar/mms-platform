@@ -4,6 +4,177 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
+
+**Three things the two-week pilot needs and did not have: a way to tell its orders apart from the
+rest of the traffic, a way for Mom and Dad to hand back corrections, and one screen with the night's
+answers on it.**
+
+**The paging cursor was unguarded — the fake recorded the ordering and not the window.** Closing the
+projection hole one method short left `range()` discarding its arguments, so `from + PAGE - 1` →
+`from + PAGE` overlaps the page seam by one row and double-counts that order, and a window that
+never advances is equally invisible: the two-page test only ever checked that two requests happened.
+The windows are now asserted (`["0-999", "1000-1999"]`) and both defects redden.
+
+**A Burmese word on the sheet had no `lang` mark at all.** The lock REASONS are English sentences
+carrying a Burmese word — `STAFF_SETTLED["kds.title"]` embeds မီးဖိုချောင် — rendered in a span with
+no `lang` and no font rule, so on the one surface built to judge Burmese typography that word fell
+outside Padauk and `--lh-my` and was announced in an English voice. Marking the wrapper would be the
+opposite error, so `scriptRuns` splits the string and the mark lands on the RUN, per `Chrome.tsx` §3.
+The per-VALUE mark on the Burmese cell itself is a smaller, contested version of the same thing
+(34 of 150 rows put a slot placeholder inside a marked run) and is filed as **M158** rather than
+folded in here.
+
+**A stale mutant was retargeted rather than deleted.** Adopting the register's day window removed
+the line `pilot/day-window-forked-from-the-register` mutated, leaving its rule pinned nowhere;
+`verify:slice` reported STALE, which is a failure. It now sits on `laDayStartIso` itself and returns
+an actual rolling 24 hours — the first proposed retarget emptied the DST-probe loop, which is a
+different rule from the one the id names.
+
+**A campaign state change no longer deletes tonight's measurement (pre-merge blind pass, CRITICAL).**
+`active = false` is the pilot's documented emergency off-switch. Pull it at 20:00 on a day that had
+already taken redemptions and the 9pm sheet showed no participation figure at all — the one evening
+something changed was the one evening the number vanished, and `PILOT_PLAN.md` §3 says that count IS
+the participation count. The show-vs-suppress decision moved out of JSX into `promoFigure`
+(`lib/pilot-night.ts`), where a value can falsify it and two mutants do: a measured non-zero is never
+erased, and a zero is printed only under a LIVE campaign, where it means what a reader takes it to
+mean. Under an off or absent code the sheet says which, because "nobody used it" is a claim about the
+guests and "it wasn't discounting anything" is a claim about the campaign.
+
+**Three numbers that were true and misread, now scoped on the page.** The redemption budget is
+lifetime and sat unlabelled beside a since-midnight figure ("{n} of {total} used all-time"); the
+register mints a `pickup` session for a counter walk-in, so that bucket is not phone-ahead demand
+and now says so; and the cash bucket already contains the team's cash tips, which the register
+discloses beside the same figure and this sheet did not.
+
+**The read fake was projection-blind — the load-bearing column could be deleted with the gate green.**
+Measured, not supposed: cutting `.select("status,table_sessions(mode)")` to `.select("status")` left
+all 26 tests passing while every order bucketed as unattributed. A query's identity is now
+`table | projection | sorted filters | ordering`, so the embed, the `{ count: "exact", head: true }`
+and W21d's `id` tie-break each redden 13 tests when removed. The two `promoTag` capture sites gained
+an AST-parsed wiring guard — falsified four ways, including a call left only in a comment and a
+capture deleted outright — because both sit where `check-money-coverage` will never ask.
+
+**One day boundary, adopted rather than re-derived.** The register owns the service-day instant and
+the sheet took a second `laDayStartIso(new Date())` of its own; across midnight that buckets the
+takings into one day and the counts beside them into the next.
+
+**The idiom this repo invented for measured history is the one its guard could not read.**
+`A qr + B ui tests at the time (C + D today)` puts no digit next to "qr tests", so `check:docs` never
+saw C — four instances of that single bug were live across the four pilot PRs at once, every one
+inside a paragraph advertising itself as measured-not-transcribed. Three rules close it (the two
+parenthetical forms and `N in all`), each watched failing first — one of them was silently exempting
+itself on a neighbouring clause's "at the time" until that was caught.
+
+**The pilot's orders funnel apart — by the code, because the door cannot.** `payment_succeeded` and
+`staff_settle_cash` now carry `promo_code` beside the `promo_cents` they already reported, both
+server-derived from the cart at fulfilment and normalized through one function (`lib/pilot-tag.ts`,
+two mutants): upper-cased so `PILOT15` and `pilot15` are not two campaigns, and `null` for the empty
+string a second writer could leave behind. The cash settle matters most — a cash order fires no
+Stripe event at all, so Dad's register arm would otherwise be absent from the campaign entirely.
+
+_The `door` dimension was NOT faked to match._ It is persisted nowhere — measured: zero occurrences
+in the generated schema — so no server event downstream of the session mint can carry it. What the
+mint gained instead is `cart_id`, the one stable id the money-path events already share, so a door
+split is a join rather than an invention. Two honest limits are recorded on **S7**: the physical
+table stickers carry no `?door=`, and the split-tender `payment_succeeded` deliberately carries no
+`promo_code` at all, because that arm has no cart row and `mms_fulfill_split_order` consumes no
+redemption either — asserting `null` there would claim knowledge the handler does not have.
+
+**`/staff/glossary` — the printed word-check sheet, which is what turns K15 from a blocker into pilot
+OUTPUT.** Every staff string, EN and MY, with its key (so a correction is traceable) and a pen box.
+It is a PAGE, not a generated artifact, and that is the stronger reading of the brief's own "can
+never drift": a committed file needs a freshness check somebody remembers to run, while a page that
+imports the dictionary cannot drift at all. The thirteen K15-HIGH lines — the ones a wrong word takes
+service down over — get page one to themselves; the settled three and the four Latin-by-design
+station chips print LOCKED with their reason, because a corrector who cannot find မီးဖိုချောင် on the
+sheet writes it in the margin and now the sheet disagrees with a decision the owner already made.
+
+_The two language-control autonyms are absent, and the page says so._ `မြန်မာ` and `English` are
+component constants precisely so a native-check pass cannot correct one into the other language — the
+single edit that leaves whoever cannot read the other label with no way back. Two guards keep it
+that way: `autonyms.test.ts` refuses them as dictionary VALUES (and re-derives them from the
+component, so a guard naming two literals cannot outlive them), and `glossary.test.ts` keeps them off
+the sheet even if that were relaxed. The severity band is data now (`STAFF_K15_HIGH`) with a
+bidirectional parity guard against the source's own `// K15-HIGH` markers, parsed rather than
+scanned — five of the thirteen ride the closing brace of a multi-line entry, and prose about
+K15-HIGH anywhere else in the module is invisible to it.
+
+**Tonight's sheet on `/staff/feedback`, read-only for the whole pilot (K13 stays open by decision).**
+Discounts given, orders paid by channel, the day's takings, ratings, and the `qr_refunds_needed`
+ledger. Every figure is quoted rather than re-derived — the money comes from `getDayCashSummary`, the
+register's own Z-report, and the day window from `laDayStartIso`, so "tonight" means one instant on
+three screens. What it refuses to say is the reviewed part: an order whose channel cannot be read is
+counted APART, never distributed and never dropped; the Stripe reconciliation stays a hand-check and
+the sheet says so rather than printing a number that would look like the check had been done; and it
+discloses that a table which splits its bill is missing from its own discount count (filed as
+**M157** — `mms_fulfill_split_order` consumes no redemption, and the Day-0 script's first table
+splits its bill).
+
+_A failed read is never a zero, on either half of that page._ `getPilotNight` collapses to a single
+"can't read tonight" sentence when any read fails or answers a null count. And the neighbour was
+worse: `getStaffFeedback` swallowed its read error and rendered "No feedback yet. Diners are asked to
+rate after every order." during an outage — with the new sheet above it reading its rating count from
+a query that fails loud, one outage could have put "7 ratings tonight" and "no feedback yet" on one
+screen. It returns an outcome now.
+
+**Eleven mutants, each watched failing first**, plus `verify:slice`'s existing coverage on the two
+money files touched. `KdsBoard`'s private channel→key map moved to `STAFF_CHANNEL_KEY` rather than
+being copied for the sheet — one vocabulary, one binding.
+
+### ⚠️ THE BLIND PASS RETURNED REJECT WITH FOUR CRITICALS — every one real, and one shape
+
+Each was a **disclosure that did not travel with the number it qualified**, which is the failure mode
+a sheet built for honesty can least afford:
+
+_The sheet claimed completeness it does not have._ "Every Burmese word this console shows" — and the
+console's LARGEST Burmese surface is the dish and option names P1 put on the kitchen ticket as its
+primary line, which come from `menu_items` and the modifier catalog and which no derivation of
+`STAFF` can reach. The sheet also teaches its reader that absences get explained (the autonym note
+does exactly that), so the unexplained one read as "there is nothing else". Now the lede says what it
+covers, a printed note names what it does not and where those words ARE checked, and the K15 row no
+longer claims the sheet enumerates its backlog.
+
+_"Taken today" quoted the register's figures and dropped both caveats that made them honest._ M2
+leaves a partial refund at `status='paid'`, so the buckets are GROSS of it, and a fully-refunded
+order is excluded entirely — `/staff/register` prints both facts beside the same numbers. The pilot
+sheet printed neither, under a heading a manager counts a drawer against.
+
+_"Charged with no order" is an all-time count inside a card headed "Since midnight."_ Day-scoping it
+would be worse — an orphan charge from Tuesday is still owed back on Friday — so the card says
+"all time" now, where a reader is, instead of a source docblock, where they are not.
+
+_The split-bill disclosure sat three blocks below the figure it qualifies and was false where it
+sat._ `mms_fulfill_split_order` writes a real paid `qr_orders` row, so a split table IS in "orders
+paid" and IS in the card takings; what it does not write is a `promo_redemptions` row. It renders
+beside the discount count now and names only that.
+
+**And the guard the pass found was green for the wrong reason.** `pilot-read.test.ts`'s fake keyed a
+query on its table name and its position in the queue, so `.eq("code", PILOT15)`,
+`.eq("resolved", false)` and `.lte("rating", 3)` could each be DELETED with the suite still green —
+the sheet reporting every campaign under the pilot's label, counting cleared recovery rows as
+waiting, and setting `low` equal to `total`. The two `mms_feedback` reads were told apart ONLY by
+which one `Promise.all` issued first. A query's identity is now its table AND its filters, four more
+mutants pin it, and each was watched failing. `glossary.test.ts`'s autonym check had the same shape
+one layer over — it filtered to unlocked rows first, and a locked row still PRINTS.
+
+One thing the pass surfaced became a product decision rather than a fix, and then the world moved
+under the decision. The point stands: a zero under "discounts given" has two opposite meanings —
+"guests did not use it" and "the code does not work" — and a reader assumes the first. What changed
+is the justification. The first version read `promo_codes.active` and called it liveness, reasoning
+that P5 had landed ahead of P3 so the row did not exist. **Both halves were false within the hour:**
+`PILOT15` went live on prod on 2026-09-05 (#261 — row `20260905220123 pilot15_promo`, pct 0.15,
+`max_uses 200`, `valid_until 2026-10-31`), and `active` is only one of the terms `mms_promo_check`
+gates on. A code that has exhausted its budget or passed its window still reads `active = true` while
+refusing every basket — so the boolean would have shown a confident 0 under a code that had simply
+run out, which is the exact misreading it was added to prevent.
+
+The sheet now QUOTES the row — the budget spent and the window's end, beside the count — and makes no
+judgement about whether the code still applies. That decision has one authority, `mms_promo_check`,
+and a second copy of it on a reporting screen is the drift the W17 rules forbid. A reader who sees
+"200 of 200 redemptions used" beside a flat count knows why it stopped moving; a reader told "live"
+does not.
+
 ### One TV, two audiences — /board gains a kitchen pulse band (2026-09-05 · pilot P6)
 
 **The wall board keeps its customer-safe Preparing | Ready columns exactly as they were and gains a

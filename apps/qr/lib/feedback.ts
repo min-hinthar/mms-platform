@@ -99,20 +99,46 @@ export type StaffFeedbackRow = {
   createdAt: string;
 };
 
-/** Manager+ triage list — recent feedback, low ratings first surfaced by the caller. Owner-read RLS backs
- *  this; the service-role read is gated by requireStaff(manager) here. */
-export async function getStaffFeedback(limit = 50): Promise<StaffFeedbackRow[]> {
+export type StaffFeedbackResult =
+  /** The read succeeded — `rows` is the truth, empty or not. */
+  | { ok: true; rows: StaffFeedbackRow[] }
+  /** The read did not happen. NOT an empty list. */
+  | { ok: false };
+
+/**
+ * Manager+ triage list — recent feedback, low ratings first surfaced by the caller. Owner-read RLS
+ * backs this; the service-role read is gated by requireStaff(manager) here.
+ *
+ * ⚠️ IT RETURNS AN OUTCOME, NOT A LIST, and that changed in P5 for a reason that only became visible
+ * once a second read landed on the same page. The old shape destructured `{ data }` alone and
+ * `?? []` on a failure — and postgrest-js RESOLVES a transport failure into `{ data: null, error }`
+ * rather than rejecting, so an unreachable database rendered the page's cheerful "No feedback yet.
+ * Diners are asked to rate after every order." That was already the wrong sentence; with the pilot's
+ * nightly sheet now sitting directly above it, reading its ratings from a read that fails LOUD, the
+ * same outage could put "7 ratings tonight" and "No feedback yet" on one screen at once.
+ *
+ * The same rule as `getCartTotals` and `getPilotNight`, one process boundary out: a failure must
+ * never read as empty.
+ */
+export async function getStaffFeedback(limit = 50): Promise<StaffFeedbackResult> {
   await requireStaff("manager");
   const lim = Math.min(Math.max(Math.trunc(limit), 1), 100);
-  const { data } = await serviceClient()
+  const { data, error } = await serviceClient()
     .from("mms_feedback")
     .select("id,rating,comment,created_at")
     .order("created_at", { ascending: false })
     .limit(lim);
-  return (data ?? []).map((r) => ({
-    id: r.id,
-    rating: r.rating,
-    comment: r.comment,
-    createdAt: r.created_at,
-  }));
+  if (error) {
+    console.error("[feedback] staff triage read failed", error.message);
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    rows: (data ?? []).map((r) => ({
+      id: r.id,
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.created_at,
+    })),
+  };
 }
