@@ -4,6 +4,20 @@ import { useRouter } from "next/navigation";
 import { getMergeCandidates, mergeTables } from "@/lib/floor";
 import { type MergeCandidate, tableDisplay } from "@/lib/floor-types";
 import { Card } from "@mms/ui";
+import { plural } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
+import { Chrome, OutageText } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
+
+/**
+ * P2 — the two error sources this panel has, kept APART rather than flattened to one string.
+ *
+ * `mergeTables` returns a server sentence (during an outage, the one `STAFF_WRITE_OUTAGE` twin
+ * `<OutageText>` swaps); the candidate load failing is copy THIS file authors. Folding the second
+ * into the first would send an authored English literal through `<OutageText>`, which passes every
+ * sentence but that one through verbatim — so it would look converted and render English forever.
+ */
+type MergeError = { kind: "server"; text: string } | { kind: "loadFailed" };
 
 /**
  * One-tap merge (S1.4 soft convergence). The recovery for a double-order: fold THIS table's open order
@@ -22,11 +36,12 @@ export function MergeTableButton({
   sourceLabel: string;
   sourceItemCount: number;
 }) {
+  const lang = useStaffLang();
   const router = useRouter();
   const [step, setStep] = useState<"idle" | "picking" | "confirm">("idle");
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<MergeError | null>(null);
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [target, setTarget] = useState<MergeCandidate | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -52,7 +67,7 @@ export function MergeTableButton({
     try {
       setCandidates(await getMergeCandidates(sourceSessionId));
     } catch {
-      setError("Couldn’t load tables. Try again.");
+      setError({ kind: "loadFailed" });
     } finally {
       setLoading(false);
     }
@@ -71,7 +86,7 @@ export function MergeTableButton({
     const res = await mergeTables({ sourceSessionId, targetSessionId: target.sessionId });
     if (!res.ok) {
       setBusy(false);
-      setError(res.error);
+      setError({ kind: "server", text: res.error });
       return;
     }
     // This table is now closed; go to the table that received the order.
@@ -89,7 +104,7 @@ export function MergeTableButton({
           onClick={open}
           style={mergeBtn}
         >
-          Merge with another table
+          <Chrome lang={lang} k="settle.merge.btn" echo="stack" />
         </button>
       )}
 
@@ -98,12 +113,13 @@ export function MergeTableButton({
           ref={pickingRef}
           tabIndex={-1}
           role="group"
-          aria-label="Pick a table to merge into"
+          aria-label={sx(lang, "settle.a11y.pickTable")}
           style={{ ...panel, outline: "none" }}
         >
           <div style={panelHead}>
             <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
-              Merge Table {sourceLabel} into…
+              {/* Inline echo: this heading shares a flex row with Cancel. */}
+              <Chrome lang={lang} k="settle.merge.into" vars={{ id: sourceLabel }} echo="inline" />
             </span>
             <button
               className="staff-btn"
@@ -112,15 +128,19 @@ export function MergeTableButton({
               disabled={busy}
               style={linkBtn}
             >
-              Cancel
+              <Chrome lang={lang} k="settle.cancel" echo={false} />
             </button>
           </div>
           {loading ? (
-            <p style={muted}>Loading tables…</p>
+            <p style={muted}>
+              <Chrome lang={lang} k="settle.merge.loading" echo={false} />
+            </p>
           ) : candidates.length === 0 ? (
-            <p style={muted}>No other open tables of the same kind to merge into.</p>
+            <p style={muted}>
+              <Chrome lang={lang} k="settle.merge.noCandidates" echo="stack" />
+            </p>
           ) : (
-            <ul role="list" aria-label="Tables you can merge into" style={list}>
+            <ul role="list" aria-label={sx(lang, "settle.a11y.mergeTargets")} style={list}>
               {candidates.map((c) => (
                 <li key={c.sessionId}>
                   <button
@@ -132,9 +152,26 @@ export function MergeTableButton({
                     }}
                     style={candidateBtn}
                   >
-                    <span style={{ fontWeight: 700 }}>Table {tableDisplay(c).text}</span>
+                    {/* The floor's own keys, not new ones: this row says exactly what a table card
+                        says, and one wording is the point (`floor.table` / `floor.card.item.*` /
+                        `floor.party`). No echo — the row is dense metadata inside a 44px target. */}
+                    <span style={{ fontWeight: 700 }}>
+                      <Chrome
+                        lang={lang}
+                        k="floor.table"
+                        vars={{ id: tableDisplay(c).text }}
+                        echo={false}
+                      />
+                    </span>
                     <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
-                      {c.itemCount} {c.itemCount === 1 ? "item" : "items"} · party of {c.partySize}
+                      <Chrome
+                        lang={lang}
+                        k={plural(c.itemCount, "floor.card.item.one", "floor.card.item.many")}
+                        vars={{ n: c.itemCount }}
+                        echo={false}
+                      />
+                      {" · "}
+                      <Chrome lang={lang} k="floor.party" vars={{ n: c.partySize }} echo={false} />
                     </span>
                   </button>
                 </li>
@@ -149,13 +186,19 @@ export function MergeTableButton({
           ref={confirmRef}
           tabIndex={-1}
           role="group"
-          aria-label="Confirm merge"
+          aria-label={sx(lang, "settle.a11y.confirmMerge")}
           style={{ ...panel, outline: "none" }}
         >
           <p style={{ margin: 0, fontSize: "var(--fs-sm)" }}>
-            Move {sourceItemCount} {sourceItemCount === 1 ? "item" : "items"} from{" "}
-            <strong>Table {sourceLabel}</strong> into{" "}
-            <strong>Table {tableDisplay(target).text}</strong>? This closes Table {sourceLabel}.
+            {/* {id} is the SOURCE table and {into} the TARGET — two Latin tokens, so two slots, each
+                named for its role: `fill` substitutes by NAME, and one slot cannot carry two values. */}
+            <Chrome
+              lang={lang}
+              k={plural(sourceItemCount, "settle.merge.move.one", "settle.merge.move.many")}
+              vars={{ n: sourceItemCount, id: sourceLabel, into: tableDisplay(target).text }}
+              echo="stack"
+            />{" "}
+            <Chrome lang={lang} k="settle.merge.closes" vars={{ id: sourceLabel }} echo="stack" />
           </p>
           <div style={{ display: "flex", gap: "var(--s3)" }}>
             <button
@@ -165,7 +208,7 @@ export function MergeTableButton({
               disabled={busy}
               style={cancelBtn}
             >
-              Back
+              <Chrome lang={lang} k="settle.back" echo={false} />
             </button>
             <button
               className="staff-btn"
@@ -174,7 +217,16 @@ export function MergeTableButton({
               disabled={busy}
               style={mergeBtn}
             >
-              {busy ? "Merging…" : `Merge into Table ${tableDisplay(target).text}`}
+              {busy ? (
+                <Chrome lang={lang} k="settle.merge.merging" echo={false} />
+              ) : (
+                <Chrome
+                  lang={lang}
+                  k="settle.merge.confirmBtn"
+                  vars={{ into: tableDisplay(target).text }}
+                  echo="stack"
+                />
+              )}
             </button>
           </div>
         </Card>
@@ -182,7 +234,11 @@ export function MergeTableButton({
 
       {error && (
         <p role="alert" style={{ ...muted, marginTop: 6, color: "var(--warn)" }}>
-          {error}
+          {error.kind === "server" ? (
+            <OutageText lang={lang} error={error.text} />
+          ) : (
+            <Chrome lang={lang} k="settle.merge.loadFailed" echo={false} />
+          )}
         </p>
       )}
     </div>

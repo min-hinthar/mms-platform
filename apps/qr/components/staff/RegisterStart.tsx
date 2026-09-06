@@ -2,6 +2,26 @@
 import { useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { openRegisterOrder } from "@/lib/register";
+import { useStaffLang } from "./StaffLangProvider";
+import { Chrome, OutageText } from "./Chrome";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { tf } from "@/lib/i18n/fill";
+import { sx } from "@/lib/staff-labels";
+
+/**
+ * P2 — what the zone has to say, and who authored it.
+ *
+ * `openRegisterOrder` answers with a SERVER string (`STAFF_WRITE_OUTAGE` on the transport arm, a
+ * gate sentence otherwise), which only `<OutageText>` may render: it swaps the one sentence that has
+ * an authored twin and passes every other through verbatim, because a sentence with no twin is
+ * better shown in English than guessed at in Burmese.
+ *
+ * The table arm ALSO raises one failure of its own, before any server call — and blanket-wrapping
+ * the region in `<OutageText>` would pass that client literal through as English forever while
+ * looking converted. So the region carries the branch instead: a `local` notice is a dictionary key
+ * rendered through `<Chrome>`; a `server` notice is the string, rendered through `<OutageText>`.
+ */
+type Notice = { kind: "local"; k: StaffKey } | { kind: "server"; error: string };
 
 /**
  * The register's Start zone (W6a) — Walk-up · Phone order · Start a table. Each arm mints server-side
@@ -10,9 +30,10 @@ import { openRegisterOrder } from "@/lib/register";
  * sessions is worse than a beat of waiting.
  */
 export function RegisterStart() {
+  const lang = useStaffLang();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [phoneName, setPhoneName] = useState("");
   const [tableNumber, setTableNumber] = useState("");
   const [arm, setArm] = useState<"none" | "phone" | "table">("none");
@@ -22,11 +43,11 @@ export function RegisterStart() {
     tableNumber?: number;
     customerName?: string;
   }) {
-    setError(null);
+    setNotice(null);
     startTransition(async () => {
       const r = await openRegisterOrder(input);
       if (!r.ok) {
-        setError(r.error);
+        setNotice({ kind: "server", error: r.error });
         return;
       }
       router.push(`/staff/table/${r.sessionId}/add`);
@@ -34,7 +55,7 @@ export function RegisterStart() {
   }
 
   return (
-    <section aria-label="Start an order" style={zone}>
+    <section aria-label={sx(lang, "reg.a11y.start")} style={zone}>
       <div style={row}>
         <button
           type="button"
@@ -42,7 +63,7 @@ export function RegisterStart() {
           disabled={pending}
           onClick={() => mint({ kind: "walkup" })}
         >
-          Walk-up
+          <Chrome lang={lang} k="reg.start.walkup" echo="stack" />
         </button>
         <button
           type="button"
@@ -51,7 +72,7 @@ export function RegisterStart() {
           aria-expanded={arm === "phone"}
           onClick={() => setArm(arm === "phone" ? "none" : "phone")}
         >
-          Phone order
+          <Chrome lang={lang} k="reg.start.phone" echo="stack" />
         </button>
         <button
           type="button"
@@ -60,7 +81,7 @@ export function RegisterStart() {
           aria-expanded={arm === "table"}
           onClick={() => setArm(arm === "table" ? "none" : "table")}
         >
-          Start a table
+          <Chrome lang={lang} k="reg.start.table" echo="stack" />
         </button>
       </div>
 
@@ -73,7 +94,7 @@ export function RegisterStart() {
           }}
         >
           <label style={label} htmlFor="reg-phone-name">
-            Caller’s name
+            <Chrome lang={lang} k="reg.phone.label" echo="stack" />
           </label>
           <div style={row}>
             <input
@@ -83,10 +104,14 @@ export function RegisterStart() {
               maxLength={40}
               autoComplete="off"
               onChange={(e) => setPhoneName(e.target.value)}
-              placeholder="First name"
+              // A placeholder is a flat attribute — it carries no markup and so no `lang`, the same
+              // trade-off an accessible name makes (lib/staff-labels.ts). The visible <label> above
+              // is the marked one.
+              placeholder={ts(lang, "reg.phone.placeholder")}
             />
+            {/* Both states echo, so the button cannot change height mid-transition. */}
             <button type="submit" style={goBtn} disabled={pending}>
-              {pending ? "Starting…" : "Start"}
+              <Chrome lang={lang} k={pending ? "reg.going" : "reg.go"} echo="stack" />
             </button>
           </div>
         </form>
@@ -99,14 +124,14 @@ export function RegisterStart() {
             e.preventDefault();
             const n = Number.parseInt(tableNumber, 10);
             if (!Number.isInteger(n) || n < 1) {
-              setError("Enter the table number.");
+              setNotice({ kind: "local", k: "reg.err.table" });
               return;
             }
             mint({ kind: "table", tableNumber: n });
           }}
         >
           <label style={label} htmlFor="reg-table-number">
-            Table number
+            <Chrome lang={lang} k="reg.table.label" echo="stack" />
           </label>
           <div style={row}>
             <input
@@ -118,22 +143,35 @@ export function RegisterStart() {
               maxLength={3}
               autoComplete="off"
               onChange={(e) => setTableNumber(e.target.value.replace(/\D/g, ""))}
-              placeholder="e.g. 4"
+              // The example number rides an `{id}` slot: it is an identifier, Latin in both tongues,
+              // and no dictionary VALUE may carry a digit of either script.
+              placeholder={tf(lang, "reg.table.placeholder", { id: EXAMPLE_TABLE })}
             />
             <button type="submit" style={goBtn} disabled={pending}>
-              {pending ? "Starting…" : "Start"}
+              <Chrome lang={lang} k={pending ? "reg.going" : "reg.go"} echo="stack" />
             </button>
           </div>
         </form>
       )}
 
-      {/* The zone's ONE live region — mint failures land here (outage copy included). */}
-      <p role="status" style={error ? errText : srOnly}>
-        {error ?? ""}
+      {/* The zone's ONE live region — mint failures land here (outage copy included). No echo: a
+          bilingual announcement says everything twice, and <Chrome>/<OutageText> mark their own
+          Burmese, so the region itself carries no `lang`. */}
+      <p role="status" style={notice ? errText : srOnly}>
+        {notice === null ? (
+          ""
+        ) : notice.kind === "local" ? (
+          <Chrome lang={lang} k={notice.k} />
+        ) : (
+          <OutageText lang={lang} error={notice.error} />
+        )}
       </p>
     </section>
   );
 }
+
+/** The table number the placeholder shows as an example. Latin in both tongues. */
+const EXAMPLE_TABLE = 4;
 
 const zone: CSSProperties = { display: "grid", gap: "var(--s3)" };
 const row: CSSProperties = { display: "flex", gap: "var(--s3)", flexWrap: "wrap" };

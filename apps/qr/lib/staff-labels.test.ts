@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { al, sx, type StaffControl } from "./staff-labels";
-import { ts } from "./i18n/staff";
+import { FLOOR_STATUS_KEY, al, sx, type StaffControl } from "./staff-labels";
+import { STAFF, ts } from "./i18n/staff";
+import type { FloorStatus } from "./floor-types";
 import type { StaffLang } from "./staff-lang";
 
 /**
@@ -45,10 +46,52 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
   ["the 86", { kind: "eighty6", name: MOHINGA, nameMy: MOHINGA_MY }],
   ["the recall", { kind: "recall", label: "#A12" }],
   ["the undo", { kind: "undo", label: "#A12" }],
+  ["a verb control", { kind: "verb", verb: "floor.verb.deactivate", subject: "Daw Hla" }],
+  ["a subject control", { kind: "subject", verb: "reg.verb.resume", subject: "Daw Hla, 2 items" }],
+  [
+    "a quiet table",
+    {
+      kind: "table",
+      label: "7",
+      unregistered: false,
+      status: "seated",
+      tabOpen: false,
+      tabOverCeiling: false,
+      partySize: 2,
+      itemCount: 0,
+      runningSubtotal: "$0.00",
+      paidTotal: null,
+    },
+  ],
+  [
+    "a table with every optional fragment lit",
+    {
+      kind: "table",
+      label: "12",
+      unregistered: true,
+      status: "settling",
+      tabOpen: true,
+      tabOverCeiling: true,
+      partySize: 6,
+      itemCount: 9,
+      runningSubtotal: "$142.10",
+      paidTotal: "$88.00",
+    },
+  ],
 ];
 
 const LANGS: readonly StaffLang[] = ["en", "my"];
 
+/**
+ * ⚠️ READ THIS BEFORE TRUSTING THE LOOP BELOW. `al()` interpolates `visible` into `aria` by
+ * construction in EVERY arm (`staff-labels.ts` — `line`, `bump`, `eighty6`, `recall`, `undo`,
+ * `verb`, `subject`, `table`), so `expect(aria).toContain(visible)` cannot fail for any of them: it
+ * proves the SHAPE holds across 2 languages × N controls, and nothing about the words. A blind audit
+ * named it tautological and was right. Every defect this file has actually caught was caught by a
+ * NAMED assertion further down — the `settling` status word, the Burmese line quantity, the
+ * subject/verb inversion, the conditional fragments — and every `verify:slice` mutant on this module
+ * carries a note saying the loop stays green under it. Add rules to the named blocks, not here.
+ */
 describe("every labelled control satisfies 2.5.3 in BOTH languages", () => {
   for (const lang of LANGS) {
     for (const [what, control] of CONTROLS) {
@@ -76,6 +119,12 @@ describe("the visible label is what the screen actually shows", () => {
     // which is exactly what P1 shipped as a deliberate placeholder, and what this slice fixes.
     expect(aria).toContain(MOHINGA_MY);
     expect(aria).not.toContain(MOHINGA);
+    // …and the QUANTITY is a prose count, so it takes Burmese numerals like every other count this
+    // module builds. It shipped Latin. Asserted on the exact codepoint, and negatively on the Latin
+    // digit, because the containment assertions above stay green either way — the name contains the
+    // dish whichever numeral system the qty uses.
+    expect(aria).toContain("၂");
+    expect(aria).not.toContain("2");
   });
 
   it("under Burmese, a dish with no catalog Burmese falls back to English in BOTH halves", () => {
@@ -152,5 +201,200 @@ describe("sx — aria-only strings, where there is no visible label to contain",
   it("speaks the device's language", () => {
     expect(sx("en", "kds.a11y.tickets")).toBe("Open kitchen tickets");
     expect(sx("my", "kds.a11y.tickets")).toMatch(/[က-႟]/);
+  });
+});
+
+/**
+ * P2 · OPEN-ITEMS P2g — the defect this arm exists to close, asserted as a VALUE.
+ *
+ * `TableCard` built its accessible name in a local `const` and interpolated `table.status` RAW, so a
+ * splitting table announced "settling" while the chip beside it read "Splitting". Both halves now
+ * read `FLOOR_STATUS_KEY`, and the fixture below is chosen to SEPARATE the two: `settling` is the
+ * one status whose DB value and displayed word differ, so a name built from the raw key and a name
+ * built from the dictionary produce different strings on it and identical strings on every other
+ * status. A fixture of `paid` or `seated` would pass either way — which is exactly the degenerate
+ * shape a surviving mutant reports.
+ */
+describe("a table's name says the word the chip shows, never the database's", () => {
+  const splitting = {
+    kind: "table",
+    label: "7",
+    unregistered: false,
+    status: "settling",
+    tabOpen: false,
+    tabOverCeiling: false,
+    partySize: 2,
+    itemCount: 0,
+    runningSubtotal: "$0.00",
+    paidTotal: null,
+  } as const satisfies StaffControl;
+
+  it("en: the visible word is 'Splitting' and the raw key never appears", () => {
+    const { aria } = al("en", splitting);
+    expect(aria).toContain("Splitting");
+    expect(aria).not.toContain("settling");
+  });
+
+  it("my: the name carries the Burmese status word, not the English one and not the key", () => {
+    const { aria } = al("my", splitting);
+    expect(aria).toContain(STAFF["floor.status.settling"].my);
+    expect(aria).not.toContain("settling");
+    expect(aria).not.toContain("Splitting");
+  });
+
+  it("every FloorStatus resolves to a key that exists, and no two share one", () => {
+    // The map is `satisfies Record<FloorStatus, StaffKey>`, so totality is a compile-time fact —
+    // but a DUPLICATE value compiles fine and would make two states announce identically, which is
+    // the same class of defect one step over.
+    const keys = Object.values(FLOOR_STATUS_KEY);
+    expect(new Set(keys).size).toBe(keys.length);
+    for (const k of keys) expect(STAFF[k]).toBeDefined();
+  });
+
+  it("a status the room and the database agree on is NOT what pins this rule", () => {
+    // Named so the next reader does not "simplify" the fixture above to `paid`: on `paid` the raw
+    // key and the dictionary word differ only in case, and `toContain` would still separate them —
+    // but on `seated`/`ordering`/`paying` a lowercase raw key differs from the label by case ALONE,
+    // and any assertion that folded case would pass over the bug. `settling` is the honest fixture.
+    const statuses: FloorStatus[] = ["seated", "ordering", "paying", "paid"];
+    for (const status of statuses) {
+      const { aria } = al("en", { ...splitting, status });
+      expect(aria).toContain(STAFF[FLOOR_STATUS_KEY[status]].en);
+    }
+  });
+});
+
+describe("a table's name renders each fragment in the right script", () => {
+  const busy = {
+    kind: "table",
+    label: "12",
+    unregistered: true,
+    status: "paying",
+    tabOpen: true,
+    tabOverCeiling: true,
+    partySize: 6,
+    itemCount: 9,
+    runningSubtotal: "$142.10",
+    paidTotal: "$88.00",
+  } as const satisfies StaffControl;
+
+  it("my: the table number and both money figures stay LATIN", () => {
+    const { visible, aria } = al("my", busy);
+    // The number is read off the physical tent card; the amounts off a receipt. Localizing either
+    // stops the screen matching the thing in the room.
+    expect(visible).toContain("12");
+    expect(aria).toContain("$142.10");
+    expect(aria).toContain("$88.00");
+  });
+
+  it("my: the party COUNT is Burmese — it is prose, not an identifier", () => {
+    const { aria } = al("my", busy);
+    expect(aria).toContain("၆"); // party of 6
+    expect(aria).toContain("၉"); // 9 items
+  });
+
+  it("an optional fragment appears ONLY when its condition holds", () => {
+    const quiet = {
+      ...busy,
+      unregistered: false,
+      tabOpen: false,
+      tabOverCeiling: false,
+      itemCount: 0,
+      paidTotal: null,
+    } as const satisfies StaffControl;
+    const loud = al("en", busy).aria;
+    const soft = al("en", quiet).aria;
+    for (const fragment of [
+      STAFF["floor.unregisteredSticker"].en,
+      STAFF["floor.tabOpen"].en,
+      STAFF["floor.tabOverLimit"].en,
+      "$88.00",
+      "so far",
+    ]) {
+      expect(loud).toContain(fragment);
+      expect(soft).not.toContain(fragment);
+    }
+    // …and the fragments that are NOT conditional survive both.
+    expect(soft).toContain("Table 12");
+    expect(soft).toContain("party of 6");
+  });
+
+  it("the singular is used at one item and the plural above it", () => {
+    // Both anchored on the trailing separator. `toContain("2 items")` alone is ALSO satisfied by
+    // "12 items", so at itemCount 12 the assertion could not tell the two keys apart — and these
+    // two assertions are the only thing that does. (Blind audit, 2026-09-05.)
+    expect(al("en", { ...busy, itemCount: 1 }).aria).toContain("1 item,");
+    expect(al("en", { ...busy, itemCount: 2 }).aria).toContain("2 items,");
+    expect(al("en", { ...busy, itemCount: 12 }).aria).toContain("12 items,");
+    expect(al("en", { ...busy, itemCount: 12 }).aria).not.toContain("12 item,");
+  });
+});
+
+describe("the verb control — the general shape", () => {
+  it("the visible word IS the dictionary value of the verb key, in both tongues", () => {
+    for (const lang of LANGS) {
+      const { visible, aria } = al(lang, {
+        kind: "verb",
+        verb: "floor.verb.deactivate",
+        subject: "Daw Hla",
+      });
+      expect(visible).toBe(ts(lang, "floor.verb.deactivate"));
+      // The subject is rendered VERBATIM — a person's name is never translated, and never a count.
+      expect(aria).toBe(`${visible} — Daw Hla`);
+    }
+  });
+
+  it("every key the union will accept as a verb is in a `.verb.` namespace", () => {
+    // The type already refuses anything else; this asserts the namespace is POPULATED, so the
+    // constraint is a live rule rather than an empty one nobody could have violated yet.
+    const verbs = Object.keys(STAFF).filter((k) => k.split(".").includes("verb"));
+    expect(verbs.length).toBeGreaterThan(0);
+  });
+});
+
+describe("verb and subject are INVERSES, and which one a control needs is decided by the screen", () => {
+  // The two arms compose the same two pieces and differ only in which is `visible` — so a call site
+  // that picks the wrong one still produces a plausible-looking name. That is not hypothetical: the
+  // register's queue row shipped as `verb`, whose `visible` is the word "Resume", on a row that
+  // shows a guest's name and a line count and never shows that word. The pair went unexercised and
+  // the guard could not see it (`check-staff-lang.mjs` rule 3c searched only the attribute's own
+  // initializer, and the call was hoisted). Asserting the inversion here is what makes the two arms
+  // distinguishable by a value rather than by a reading.
+  const verb = "reg.verb.resume" as const;
+  const subject = "Daw Hla, 2 items";
+
+  for (const lang of LANGS) {
+    it(`${lang}: verb SHOWS the action; subject SHOWS the thing`, () => {
+      const v = al(lang, { kind: "verb", verb, subject });
+      const s = al(lang, { kind: "subject", verb, subject });
+      expect(v.visible).toBe(ts(lang, verb));
+      expect(s.visible).toBe(subject);
+      // …and they are genuinely different, so a swap cannot pass unnoticed.
+      expect(v.visible).not.toBe(s.visible);
+    });
+
+    it(`${lang}: BOTH lead the announcement with the action`, () => {
+      // The inversion is about the visible half only. A person must hear what the tap does first in
+      // either shape — that is the whole reason `recall` was written the way it was.
+      for (const control of [
+        { kind: "verb", verb, subject } as const,
+        { kind: "subject", verb, subject } as const,
+      ]) {
+        const { aria } = al(lang, control);
+        expect(aria.startsWith(ts(lang, verb))).toBe(true);
+        expect(aria).toContain(subject);
+      }
+    });
+  }
+
+  it("recall is the `subject` shape hard-coded for one control", () => {
+    // Stated as an assertion rather than a comment: if `recall` ever stops matching this shape, the
+    // claim in `subject`'s docblock has quietly become false.
+    const r = al("my", { kind: "recall", label: "#A12" });
+    const s = al("my", { kind: "subject", verb: "reg.verb.resume", subject: "#A12" });
+    expect(r.visible).toBe("#A12");
+    expect(s.visible).toBe("#A12");
+    expect(r.aria.endsWith("#A12")).toBe(true);
+    expect(s.aria.endsWith("#A12")).toBe(true);
   });
 });
