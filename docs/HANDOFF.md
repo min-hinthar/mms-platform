@@ -39,10 +39,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > (parses the stylesheet AND every customer `<main>`). **The fork for Min:** the reviewers' other
 > half — a two-column checkout / track / account — is the same decision as a true desktop shell
 > (OPEN-ITEMS F12); part 2 chose the centred column and capped those pages at 34rem. Retractions
-> (five "under 44px" claims that were paint, not hit boxes) are recorded in §18. Verify on the
-> preview at 820 and 1180 wide before the merge: the Express Checkout row on the pay step (one
-> reviewer saw it collapse to two 4px strips on iPad portrait — unconfirmed) and the item sheet's
-> footer at 375 (one reviewer saw an option row hit-testable under it — unconfirmed).
+> (five "under 44px" claims that were paint, not hit boxes) are recorded in §18. Verified on the
+> preview (d1120ad): the Express Checkout row is a 56px iframe at 820 and 1180 (not collapsed); the
+> item sheet's CTA bar DID sit 24px above the sheet edge at 375 (the sticky viewport is the content
+> box) and is flush now; the one phone sideways-scroll was the menu row's grid min-content under the
+> stepper, fixed. The staff reviewers (KDS · TV) are filed as K24–K29 — the console's own width tiers
+> are R1 part 3.
 >
 > ### ⚠️ THE ONE THING TO CARRY FORWARD: prod is charging cards (test mode) and never making an order
 >
@@ -638,7 +640,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1941 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
+> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1942 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1530,7 +1532,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1941 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1942 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

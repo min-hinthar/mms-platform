@@ -1962,7 +1962,8 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   gap: 12px;
   margin: 22px -20px 0;
-  padding: 12px 20px;
+  /* R1 — the bottom inset (home bar) rides HERE now, not on the sheet (see `.mms-sheet:has`). */
+  padding: 12px 20px calc(12px + env(safe-area-inset-bottom, 0px));
   background: var(--pg);
   border-top: 1px solid var(--bd);
 }
@@ -7293,6 +7294,16 @@ html[data-seen-surface] .mms-stagger {
   display: inline;
   font-size: inherit;
 }
+/* R1 — inside a CONTROL the echo takes the control's own ink. On an accent or green fill the muted
+   `--t2` grey was a ghost: "Send code" under ကုဒ် ပို့ on the login primary, "BUMP" under ပြီးပြီ on
+   the green bump, the expo verbs, the cash-settle primary — two reviewers (the KDS and the TV)
+   independently. A control that paints its own colour has already chosen the legible ink for that
+   fill; the echo's hierarchy is its size and weight, never a second colour. The door cards, the
+   More rows and the bar title keep their own, more specific, echo rules. */
+button .chrome-en,
+a .chrome-en {
+  color: inherit;
+}
 /* ── the language control ────────────────────────────────────────────────────────────────────────
    Two buttons reading as one object. The pressed state EXTENDS the console's existing selection
    vocabulary — the declarations are lifted from `.kds-chip[aria-pressed="true"]` rather than a new
@@ -9955,7 +9966,11 @@ html[data-fx="lite"] .mms-scrim {
   margin: 0 0 var(--s4);
   border-bottom: 1px solid var(--bd);
   /* paper with a hairline in light; the ground shows through faintly so the lines continue */
-  background: color-mix(in oklab, var(--pg) 88%, transparent);
+  /* R1 — OPAQUE in light. It was an 88% mix with no backdrop-filter (glass is Night-only, §13),
+     i.e. exactly the "translucent slab" M126 warns about: scrolled rows showed through the bar
+     unblurred, under the title (the KDS reviewer measured a "1× Balachaung $10.00" row behind
+     "စားပွဲ 5"). Light has no glass headroom, so the honest bar is a surface. */
+  background: var(--pg);
 }
 /* Night (the KDS): glass you look THROUGH, never a surface you read — the M126 dial decides how
    much. `--glass-chrome` is the ONE frosted-chrome pane, and `composite-contrast.test.ts` pins its
@@ -10476,6 +10491,22 @@ html[data-fx="lite"] .mms-scrim {
   .mms-sheet {
     animation: fade var(--dur-sheet) var(--ease-out);
   }
+}
+/* R1 — the one MEASURED sideways scroll on a phone, root-caused on the preview: after an add the
+   row's Add pill becomes the 110px stepper, and the row (`li`) is a GRID item, whose default
+   `min-width: auto` is its min-content width — so the implicit `auto` track grew to 361px inside a
+   335px column and the document scrolled 6px sideways (scrollWidth 381 on 375, held for the whole
+   1.7s sampled, not a transient). The row must be allowed to shrink; the name wraps instead. */
+.menu-list > li {
+  min-width: 0;
+}
+/* R1 — the sticky CTA bar sat 24px ABOVE the sheet's bottom edge on a phone (measured: bar bottom
+   643, sheet bottom 667), because the sticky viewport is the scroll container's CONTENT box and
+   the sheet carries a 24px + safe-area bottom padding — scrolled options showed through the band.
+   Where a sheet has a CTA bar, the bar owns the inset and the sheet's padding goes to zero, so the
+   bar lands flush at any scroll position. */
+.mms-sheet:has(.item-cta-bar) {
+  padding-bottom: 0;
 }
 /* The short tier. A landscape phone (844×390) gave the pinned toolbar 31% of the viewport and the
    diner about 145px of dishes. Reachability inverts, exactly as `.mms-sheet-head` does at 480px:

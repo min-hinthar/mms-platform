@@ -21,7 +21,7 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId, settled } = useCart();
+  const { count, totals, cartId, settled, items } = useCart();
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
@@ -49,7 +49,13 @@ export function CartBar() {
   // the amount slot shows a dash until a confirmed total exists (and the roll starts from the
   // first real value instead of from $0). The count stays instant — that half IS optimistic by
   // design.
-  const subtotalCents = totals ? totals.subtotalCents : null;
+  // Measured on the preview (the first draft only covered `totals === null`): a cart that already
+  // existed empty has a CONFIRMED total of $0.00, and the optimistic count of 1 rode beside it for
+  // the whole 1.7s the add took — the same wrong number by another route. A write is in flight
+  // exactly when the optimistic count differs from the sum of the confirmed lines (the provider
+  // commits `items` and `totals` in one apply, so the two are never half-updated).
+  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
+  const subtotalCents = totals && count === confirmedCount ? totals.subtotalCents : null;
   const dollars = subtotalCents === null ? "updating" : `$${(subtotalCents / 100).toFixed(2)}`;
 
   return (

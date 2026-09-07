@@ -163,6 +163,14 @@ describe("the responsive contract — the stylesheet half", () => {
     );
   });
 
+  it("lets the menu row shrink under its stepper, and lands the sheet's CTA bar flush", () => {
+    // The measured 6px sideways scroll (scrollWidth 381 on 375): a grid item's min-content width.
+    expect(one(".menu-list > li", "min-width")).toBe("0");
+    // The sticky viewport is the scroll container's CONTENT box; the bar owns the home-bar inset.
+    expect(one(".mms-sheet:has(.item-cta-bar)", "padding-bottom")).toBe("0");
+    expect(one(".item-cta-bar", "padding")).toContain("env(safe-area-inset-bottom");
+  });
+
   it("keeps ONE selection vocabulary on the modifier rows and docks the toast on the published band height", () => {
     const chosen = DECLS.filter((d) => d.selector === ".item-opt:has(.item-opt-input:checked)");
     expect(chosen.find((d) => d.prop === "border-color")?.value).toBe("var(--ac)");

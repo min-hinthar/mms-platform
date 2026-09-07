@@ -36,12 +36,30 @@ are recorded as retractions in `docs/DESIGN-LANGUAGE.md` §18. Nothing here chan
   pill inside a sentence. The Scan tab hides the 4:3 black viewfinder once the camera has refused.
   The grocery toast docks on the CTA band's published height. The account's empty-orders line no
   longer promises a dine-in-only path.
+- **Three more, root-caused on the preview instead of read off a screenshot.** The one measured
+  sideways scroll on a phone (scrollWidth 381 on 375 after an add) was the menu row's grid-item
+  min-content: with the 110px stepper in it the `li` grew to 361px inside a 335px column, and held
+  there — `min-width: 0` on the row, the name wraps. The sheet's sticky CTA bar sat 24px above the
+  sheet's edge with scrolled options showing through the band, because the sticky viewport is the
+  scroll container's content box and the sheet carried the home-bar padding — the bar owns the
+  inset now and the sheet's padding goes to zero where a bar exists. And the cart bar's `$0.00`
+  also happens with a CONFIRMED empty total beside an optimistic count of 1 — the dash now holds
+  whenever the count differs from the sum of the confirmed lines.
+- **Two staff-console findings from the KDS and TV reviewers, confirmed in source.** The bilingual
+  echo inside a filled control was painted `--t2` grey on the accent and green fills ("Send code"
+  a ghost under ကုဒ် ပို့, "BUMP" under ပြီးပြီ) — inside a control the echo takes the control's ink.
+  The light-mode staff bar was an 88% mix with no blur (glass is Night-only), so scrolled rows
+  showed through it under the title — opaque in light.
 - **Guard.** `apps/qr/lib/responsive-contract.test.ts` parses the stylesheet (every declaration
   bound to its `@media` block) and every customer `<main>` (TypeScript AST): the three tiers in
   order, the narrow cap between them, the sheet's two widths, the one rail/fan boundary, the
   height-keyed toolbar rule, and that no page carries a width of its own again — six inductions,
   each red on exactly its assertion.
-- **Filed, not built** (`docs/OPEN-ITEMS.md` F12–F17): the two-column checkout / track / account
+- **Retracted on the preview:** the Express Checkout row on iPad portrait (one reviewer saw two
+  4px strips) measures a 56px iframe at 820 and 1180 wide; the "Sides" heading after a category
+  tap lands 20px clear of the toolbar at 375, 820 and 1180 (the reviewers' deep shots were
+  mid-scroll).
+- **Filed, not built** (`docs/OPEN-ITEMS.md` F12–F17 · K24–K29): the two-column checkout / track / account
   is one decision with a true desktop shell and is Min's to make (F12); the menu's ASAP chip vs
   the cart's refusal (F13); the basket line at 375 (F14); a fluid display scale (F15); a compact
   portrait toolbar under 700px tall (F16); Stripe's typography via `appearance` (F17).

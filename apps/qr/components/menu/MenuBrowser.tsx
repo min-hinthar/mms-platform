@@ -767,7 +767,12 @@ export function MenuBrowser({
                         />
                       </span>
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ fontWeight: 600, display: "block" }}>
+                        {/* R1 — `overflowWrap` so a long name can never widen the row past the
+                            column once the stepper (110px) is in it: the li shrinks (`.menu-list
+                            > li { min-width: 0 }`) and the name wraps. */}
+                        <span
+                          style={{ fontWeight: 600, display: "block", overflowWrap: "anywhere" }}
+                        >
                           {i.name_en}
                           {/* R1 — the space is OUTSIDE the suffix and the suffix cannot break, so a
                               name that fills the line drops "· Sold out" whole onto the next one —
