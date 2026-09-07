@@ -10349,3 +10349,306 @@ html[data-fx="lite"] .mms-scrim {
 .entry-msg-warn {
   color: var(--warn);
 }
+
+/* ── P7·3 · the Help door ──────────────────────────────────────────────────────────────────────
+   ONE gold circle in the bar (`.staff-circ-gold`, the slot before the language switch) on the
+   three screens the parents run, opening ONE sheet with three views: the rows (the Settings idiom
+   More already uses), the four cards one at a time, the three sizes on a real dish word. Every
+   card's "picture" is the REAL control in its own classes, made inert here — a drawing would drift
+   the first time the button changed. The chosen size wears the lit-gold cap, the one selection
+   vocabulary (§2). */
+.help-glyph {
+  font-weight: 800;
+  font-size: var(--fs-h3);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.help-glyph-aa {
+  font-weight: 800;
+  font-size: var(--fs-body);
+  letter-spacing: -0.02em;
+}
+.help-sheet .mms-sheet-body,
+.help-menu,
+.help-how,
+.help-size {
+  padding-bottom: var(--s4);
+}
+.help-sub {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+/* A row is a <button> here, not a link: reset the button chrome so it wears the row's. */
+.help-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.help-row-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--t2);
+}
+.help-row-sub > .chrome-pair > [lang="my"] {
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 500;
+}
+.help-row-sub > .chrome-pair > .chrome-en {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+/* ── the cards ── */
+.help-card {
+  padding: var(--s5);
+  margin: 0 0 var(--s4);
+}
+.help-pic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin: 0 0 var(--s4);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--tx) 4%, var(--cd));
+  pointer-events: none;
+  user-select: none;
+}
+.help-pic > * {
+  flex: none;
+}
+.help-pic-bump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 56px;
+  padding: 0 22px;
+  font-size: var(--fs-h3);
+}
+/* `.kds-undo` is a FIXED bar at the bottom of the board; in a card it is a static pill. */
+.help-pic-undo {
+  position: static;
+  transform: none;
+  z-index: auto;
+  font-size: var(--fs-sm);
+}
+.help-pic-undo-btn {
+  padding: 6px 12px;
+  border-radius: var(--r-full);
+  background: var(--pg);
+  color: var(--tx);
+  font-weight: 700;
+}
+.help-pic-86 {
+  font-size: var(--fs-sm);
+}
+.help-pic-held {
+  display: inline-flex;
+  padding: 10px;
+  border: 2px dashed color-mix(in oklab, var(--tx) 30%, transparent);
+  border-radius: var(--r-card);
+  opacity: 0.85;
+}
+.help-pic-tile {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 10px 10px;
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--gold) 60%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 22%, var(--cd)), var(--cd));
+}
+.help-pic-tile-name {
+  font-size: var(--fs-h3);
+  font-weight: 800;
+  line-height: var(--lh-snug);
+}
+.help-pic-table {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+  padding: 12px 16px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  font-size: var(--fs-h3);
+}
+.help-pic-table-status {
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.help-pic-expo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: var(--r-sm);
+  font-weight: 800;
+  font-size: var(--fs-sm);
+}
+.help-pic-expo-ready {
+  background: var(--ok);
+  color: var(--oa);
+}
+.help-pic-expo-picked {
+  background: var(--tx);
+  color: var(--pg);
+}
+.help-pic-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.help-pic-arrow {
+  font-size: var(--fs-h3);
+  color: var(--t3);
+}
+.help-pic-strip {
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.help-lede {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-snug);
+  outline: none;
+}
+.help-lede > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.375rem; /* 22px */
+  line-height: var(--lh-my);
+}
+.help-lede > .chrome-pair > .chrome-en {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.help-more {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.help-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0 0 var(--s3);
+}
+.help-step {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.help-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 128px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.help-footer {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  text-align: center;
+}
+
+/* ── the sizes — a real dish word at each size, the chosen one under the gold cap ── */
+.help-size-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 var(--s4);
+}
+.help-size-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  min-height: 64px;
+  padding: 10px 16px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.help-size-row[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
+}
+.help-size-sample {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.help-size-sample > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+/* The three sample sizes are the board's own `--kfs-item-my` values (`.kds-root[data-size]`). */
+.help-size-sample[data-size="s"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="s"] {
+  font-size: 1.875rem; /* 30 */
+}
+.help-size-sample[data-size="m"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="m"] {
+  font-size: 2.125rem; /* 34 */
+}
+.help-size-sample[data-size="l"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="l"] {
+  font-size: 2.375rem; /* 38 */
+}
+.help-size-sample > .chrome-pair > .chrome-en {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.help-size-meta {
+  flex: none;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.help-size-across {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--t2);
+}
+.help-size-back {
+  width: 100%;
+  justify-content: center;
+}

@@ -22,6 +22,7 @@ import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
+import { HelpButton } from "./HelpButton";
 import { RoleBadge } from "./RoleBadge";
 import type { StaffRole } from "@/lib/staff";
 import { Chrome, OutageText } from "./Chrome";
@@ -168,6 +169,7 @@ export function ExpoBoard({
         titleRef={headingRef}
         titleTabIndex={-1}
         after={role ? <RoleBadge role={role} /> : undefined}
+        help={<HelpButton lang={lang} screen="expo" />}
         lock={hasPin}
       />
       <div className="staff-col" style={{ maxWidth: 1100, margin: "0 auto" }}>

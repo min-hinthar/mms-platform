@@ -4,6 +4,44 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
+
+**Min's B1 pick, on the anatomy 1b built.** ONE gold circle in the staff bar — the `help` slot,
+before the language switch — on the three screens the parents run (the kitchen board, the counter,
+the takeaway board), opening ONE sheet with three views: the rows (the Settings idiom More already
+uses), **"How this screen works"** — four cards, one at a time, Next becoming "Got it" — and, on the
+board, **the text size** shown on a real dish word at each of the three sizes (the F6 board), the
+chosen one under the gold cap. The 1b Aa circle is gone from the bar, as the F2 board drew it: the
+size lives inside Help now. The third row the canvas drew, "Something's wrong", waits for PR 4 —
+a row that leads nowhere is the dead control §16 forbids.
+
+**Every card's picture is the real control.** `HelpPicture` renders the bump button, the undo bar,
+the 86 chip, the dashed held card with its Fire button, the Register tile, a table card, the two
+circles, the two takeaway buttons and the frozen strip in their OWN classes, made inert
+(`.help-pic`, `aria-hidden`) — a drawing would drift the first time the button changed, and under
+Burmese the replica's label comes through `<Chrome>` like the original's. Every sentence was written
+against the component it explains (the undo card quotes the board's own `UNDO_MS`, handed in as a
+slot — never typed twice; the lock card says the circle shows only once you have a PIN, because it
+does). **"Opens itself the first time" is kept per DEVICE**: the first mount of a screen's door on a
+tablet opens the sheet straight onto the cards, once, marked at open (a reload mid-first-visit must
+not re-open it); storage refused means never auto-open. **Nothing is two dialogs deep** — views, not
+stacked sheets — and focus moves to each card's sentence as it changes.
+
+**42 `help.*` keys, every MY a Claude-authored draft pending K15, four marked K15-HIGH** (the bump,
+the 86 and the fire cards, and the takeaway board's paper card — band 50). `lib/help.ts` is the pure
+part: the screens, the card count, the device key, the key convention — held by `help.test.ts` (a
+missing fourth card would throw inside render with the sheet open). `KDS_SIZE_PX` is a transcription
+of `globals.css` held to the stylesheet by `kds-size.test.ts` (the Burmese item line at each dial
+position, and the sample word set at the same three sizes).
+
+**Guards.** `HelpButton.test.tsx` (7): the named gold circle, the rows, the first-visit auto-open
+once per device and per screen, paging with focus moved and Got it closing, Back's two meanings, the
+undo card's number in Burmese numerals, the size row and view (one pressed, a pick closes), the
+class carried through the portal, no live region of its own. `StaffBar.test` +2 (help before the
+switch; no slot → no circle). Three watched go red on induced defects (the auto-open removed, a
+size pixel changed, the help slot moved after the switch). The Sheet callers guard re-targets from
+`KdsBoard` to `HelpButton`. Counts re-measured (1876 qr + 142 ui tests, 467 mutants).
+
 ### The front door in Burmese (2026-09-07 · P7, PR 2)
 
 **The first thing Dad sees was the last English body on the console.** `/staff/login` and
