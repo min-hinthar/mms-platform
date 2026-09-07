@@ -4,6 +4,55 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A guard that merged cleanly and came out wrong (2026-09-07 · post-merge)
+
+**`check-docs.mjs` carried two copies of the same rule pair, and no conflict marker ever asked
+anyone to choose.** P5 (#263) and P6 (#262) independently wrote rules for the
+`A qr + B ui tests at the time (C + D today)` form within the same hour — and both independently
+found the deeper bug underneath, that `HISTORICAL` is tested from the match END so a rule running
+past its digits can be exempted by a _neighbouring_ clause's marker. The two edits sat far enough
+apart that git merged them **silently**: `main` came out with 15 rules where 13 suffice, and the one
+line in `docs/HANDOFF.md` that carries the `(C + D today)` pair had its stale number reported twice.
+
+**What this PR is worth, stated honestly:** the two pairs on `main` are complementary, and their
+**union covers all four shapes** — both left-half spellings, with and without a trailing `today`.
+So this is a **de-duplication, not a coverage fix**: it ends the double-reporting, leaves one
+mechanism where a future editor would otherwise have to notice two, and _then_ closes a hole and a
+false-positive class neither pair handled. The first attempt at it deleted the wrong pair; a blind
+adversarial pass returned REJECT and both findings held up under measurement:
+
+- **P6's pair is keyed on `qr\s*\+`, which matches only ONE of the two spellings the live-state
+  docs use.** `docs/HANDOFF.md` writes `1372 qr + 138 ui tests …`; `README.md` and `HANDOFF`'s gate
+  line write `1755 qr tests + 142 ui tests …`. After the literal `qr` the second spelling reads
+  `" tests"`, so there is no `+` to find and the rule cannot start. Keeping only P6's pair would
+  therefore have dropped that spelling, and the variant with no trailing `today`, from the guard.
+- **`statesItsOwnCurrency` does not protect every rule**, which the first attempt's own comment
+  claimed. It only helps a match whose own text contains `today` — **8 of the 13** rules here are
+  fully literal-plus-digits, with no wildcard gap and no literal `today`, and can never satisfy it.
+
+The surviving pair is anchored on **`ui tests`**, present in both spellings, and requires no trailing
+`today`. Two further changes came out of falsifying it:
+
+- **The parenthetical must now CLOSE right after the pair** (`\s*(?=\))`, with only an optional
+  `today` between). Without that, both pairs read the first two numbers of _any_ parenthetical
+  following `ui tests`: `142 ui tests (3 + 4 skipped)` was reported as a stale qr and ui count.
+- **`current: true` opts the pair out of the `HISTORICAL` exemption entirely**, and the flag has no
+  other use. Requiring the closing paren is what makes that sound — the parens can then hold nothing
+  but `C + D` or `C + D today`, so a historical marker is always outside them and always belongs to
+  a different clause. It is not cosmetic: on `… (1924 + 142)**, 69 target modules at the time (…)`
+  the neighbour's marker sits **23 characters** past the match, inside the 24-character window, and
+  silenced BOTH captures. No match extent fixes that — the window starts where the capture ends, and
+  the neighbour is nearer than 24 characters from there. Watched red with the flag removed.
+
+**The first attempt's falsification could not have caught any of this, and that is the lesson worth
+keeping.** It planted values on the one line whose spelling _both_ implementations match — so "each
+planted value is named exactly once" measured the de-duplication and was blind to the union
+difference by construction. A fixture on which two implementations agree cannot separate them; it is
+the same degenerate-fixture failure `verify:slice` reports as a surviving mutant, arriving in a guard
+about guards. The replacement is falsified across 17 fixtures: both spellings, with and without
+`today`, with and without a neighbouring `at the time`, three spacing variants, five parentheticals
+that must NOT match, and the neighbouring mutant/module counts held unchanged throughout.
+
 ### R1 — merged with Min's go; the desktop fork decided (2026-09-07)
 
 - **F12 closed — option A.** Min chose the centred column: checkout, /track and /account stay one

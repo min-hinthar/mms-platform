@@ -130,21 +130,13 @@ const COUNT_RULES = [
   // a paragraph advertising itself as measured-not-transcribed. The historical A and B stay exempt
   // (they are what was true then); C and D are current-state claims and are now measured. The
   // "tests at the time (" prefix is required so this cannot grab an unrelated parenthetical.
-  {
-    re: /tests?\s+at\s+the\s+time\s+\((\d+)\s*\+/gi,
-    key: "qr",
-    label: "qr tests (parenthetical 'today' form)",
-  },
-  {
-    // ⚠️ THE MATCH STOPS AT THE CAPTURED DIGITS, and that is load-bearing rather than tidiness.
-    // `HISTORICAL` is tested against the text following the match END, so a rule that ran on
-    // through `today)` put the NEXT clause's "at the time" (`…, 69 target modules at the time`)
-    // inside its 24-character window and exempted itself. Caught red-first: a planted `777` stayed
-    // green while the sibling qr rule — which happens to end sooner — reddened correctly.
-    re: /tests?\s+at\s+the\s+time\s+\(\d+\s*\+\s*(\d+)/gi,
-    key: "ui",
-    label: "ui tests (parenthetical 'today' form)",
-  },
+  // ⚠️ ONE PAIR ONLY. P5 (#263) and P6 (#262) each wrote a pair for this form, independently and
+  // within the hour, and `check-docs.mjs` did NOT conflict — the two edits sat far enough apart
+  // that git merged them silently, so main briefly carried BOTH and reported one stale number
+  // twice (measured: a planted value named at `HANDOFF.md:407` by two rules at once). A conflict
+  // marker would have forced someone to choose; a clean merge did not. P6's pair below is kept
+  // because `statesItsOwnCurrency` — also P6's, in `countFailures` — solves the exemption bug for
+  // EVERY rule, where P5's pair solved it only for itself by ending each match at its digits.
   // Same class, module side: "…74 under `apps/qr/lib` today, 81 in all)" — the `under apps/qr/lib`
   // rule reached the first number and nothing reached the second, so a resolver who fixes exactly
   // what the guard names leaves a wrong number on the line they just edited.
@@ -168,17 +160,47 @@ const COUNT_RULES = [
   // CURRENT pair inside the parentheses, but there is no digit adjacent to either `qr tests` or
   // `ui tests` — the counts sit on the far side of a `+` — so every rule above missed it, and 1558
   // rotted two lines from a measured 1560 while this script reported clean. Split in two so each
-  // rule keeps ONE capture and the existing single-key loop is untouched; both require the
-  // `qr + N ui tests` context so neither can grab an unrelated `(3 + 4 today)`.
+  // rule keeps ONE capture and the existing single-key loop is untouched.
+  //
+  // ⚠️ Three properties are load-bearing, and each was a real defect first — change one and
+  // re-run the fixture matrix in the PR that introduced it (#265), do not reason about it:
+  //
+  //   • THE ANCHOR is `ui tests`, NOT `qr + N ui tests`. The live-state docs spell the left half
+  //     two ways — `1372 qr + 138 ui tests` (docs/HANDOFF.md) and `1755 qr tests + 142 ui tests`
+  //     (README.md, docs/HANDOFF.md's gate line). A rule keyed on `qr\s*\+` matches only the first,
+  //     because after the literal `qr` the second spelling reads " tests" and there is no `+` to
+  //     find. `ui tests` is present in BOTH, so anchoring there covers the pair however the left
+  //     half is written. (P6's original note claimed the `qr + N ui tests` context was required and
+  //     kept the rules off an unrelated `(3 + 4 today)`. Neither half was true: the context was
+  //     never in the pattern, and what actually keeps them off an unrelated parenthetical is the
+  //     closing paren below — an adjacent `(3 + 4 today)` still matches by design.)
+  //   • THE PARENTHETICAL MUST CLOSE right after the pair, `\s*(?=\))`, with only an optional
+  //     `today` between. Without it the rules read the first two numbers of ANY parenthetical
+  //     following `ui tests` — `142 ui tests (3 + 4 skipped)` was reported as a stale qr and ui
+  //     count. `today` stays OPTIONAL because `(C + D)` with no trailing word is the same claim;
+  //     requiring it would trade one false positive for a false negative.
+  //   • `current: true` OPTS THESE TWO OUT OF THE HISTORICAL EXEMPTION, and it is the flag's only
+  //     use. `HISTORICAL` is tested against the text FOLLOWING the match, so on a line that chains
+  //     claims (`… (1924 + 142)**, 69 target modules at the time (…)`) the NEIGHBOUR's marker lands
+  //     inside the 24-character window and exempts the live number the rule exists to catch —
+  //     measured, at 23 characters, silencing BOTH captures. No match extent fixes it: the window
+  //     starts where the capture ends, and the neighbour is closer than 24 characters from there.
+  //     `statesItsOwnCurrency`'s `\btoday\b` test does not cover it either — it only helps a match
+  //     whose own text contains `today`, which 8 of the 13 rules here can never do (measured), and
+  //     the bare `(C + D)` spelling has no `today` to find. The flag is sound precisely BECAUSE of
+  //     the closing paren: the parens can hold nothing but `C + D` or `C + D today`, so a
+  //     historical marker is always outside them and always belongs to a different clause.
   {
-    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\((\d+)\s*\+\s*\d+\s+today\)/gi,
+    re: /ui\s+tests[^.\n]{0,24}?\(\s*(\d+)\s*\+\s*\d+(?:\s+today)?\s*(?=\))/gi,
     key: "qr",
-    label: "qr tests",
+    label: "qr tests (parenthetical 'today' form)",
+    current: true,
   },
   {
-    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\(\d+\s*\+\s*(\d+)\s+today\)/gi,
+    re: /ui\s+tests[^.\n]{0,24}?\(\s*\d+\s*\+\s*(\d+)(?:\s+today)?\s*(?=\))/gi,
     key: "ui",
-    label: "ui tests",
+    label: "ui tests (parenthetical 'today' form)",
+    current: true,
   },
 ];
 
@@ -279,7 +301,16 @@ export function countFailures(text, truth, name = "<doc>") {
       // the NEIGHBOUR's marker and exempted a live number. The `(375 today)` on the very same line
       // escaped only because its own neighbour's marker happened to sit 40 characters away. That is
       // how P6's blind pass found HANDOFF stating 1558 where two other measured lines said 1560.
-      const statesItsOwnCurrency = /\btoday\b/i.test(m[0]);
+      // ⚠️ …and unless the rule's SHAPE makes it current. `current: true` is for a rule whose match
+      // can only be the live half of an `A at the time (C today)` pair — the parenthetical rules,
+      // whose closing-paren requirement means the parens can hold nothing but `C + D` or
+      // `C + D today`. A historical marker is by construction OUTSIDE those parens, so any marker
+      // the window reaches belongs to a NEIGHBOURING clause. Measured, before this flag existed:
+      // on `… (1924 + 142)**, 69 target modules at the time (…)` the neighbour's marker sits 23
+      // characters past the match and exempted BOTH captures — the guard went silent on exactly
+      // the stale number it was written for. `statesItsOwnCurrency` cannot cover it, because the
+      // bare `(C + D)` spelling has no `today` to test for.
+      const statesItsOwnCurrency = rule.current === true || /\btoday\b/i.test(m[0]);
       if (!statesItsOwnCurrency && HISTORICAL.test(scan.slice(m.index + m[0].length))) continue;
       out.push(
         `${name}:${lineNo} — says ${stated} ${rule.label}, measured ${truth[rule.key]}\n` +
