@@ -15,8 +15,8 @@ are recorded as retractions in `docs/DESIGN-LANGUAGE.md` §18. Nothing here chan
   `≥ 48em` is 46rem (736); desktop `≥ 64em` is 52rem (832). `.page-col-narrow` (34rem) caps the
   money and status columns — cart, track, account — because a receipt reads best near 65ch.
 - **Width is spent on one thing per surface.** Three doors across on the front door; two menu
-  rows per line; three, then four, SKUs across the market; 124px table tiles five and six across
-  (ten tables were 3+3+3+1 at every wide width); chip rails wrap where a mouse cannot swipe them;
+  rows per line; three, then four, SKUs across the market; 124px table tiles five across at both wide
+  tiers (ten tables were 3+3+3+1 at every wide width); chip rails wrap where a mouse cannot swipe them;
   the horizontal rails fade at both edges instead of cutting through a card; the app header aligns
   with the column; the aisle fan hugs the column's gutter instead of the screen's far edge, and the
   rail/fan boundary moves to the desktop tier with it (an iPad's 42px gutter could not hold it).
@@ -50,6 +50,19 @@ are recorded as retractions in `docs/DESIGN-LANGUAGE.md` §18. Nothing here chan
   a ghost under ကုဒ် ပို့, "BUMP" under ပြီးပြီ) — inside a control the echo takes the control's ink.
   The light-mode staff bar was an 88% mix with no blur (glass is Night-only), so scrolled rows
   showed through it under the title — opaque in light.
+- **The blind pass (REJECT, five findings, every one real and every one fixed in the same
+  branch).** The auditor read the CASCADE the guard could not: part 1's hero fold sat ABOVE the bare
+  rules it had to beat (an `@media` block adds no weight, so it never shipped — moved after them);
+  the tablet tier's `left` on the pause coin dropped the safe-area term a landscape phone needs
+  (restored); the door tile's `align-items` lost to ModeCard's inline `alignItems` (the alignment is
+  CSS now); the cart bar unmounted NumberFlow under the dash, so its roll never ran for this
+  device's own writes (it stays mounted, hidden, and rolls when the confirmed value lands); and a
+  zero flex basis took the staff title out of line-breaking, so the phone bar's two rows could not
+  occur (`auto`). Three transcribed numbers corrected (five table tiles across at both wide tiers,
+  not "five and six"; the toast fallback is 56 + 16 = 72, computed and pinned against both
+  sources; the pause coin leaves the content from 872px wide, not "from the tablet tier"). The
+  guard now pins declaration ORDER for the fold, parses the door's inline style, and checks the
+  safe-area term on every tier — each induced red first.
 - **Guard.** `apps/qr/lib/responsive-contract.test.ts` parses the stylesheet (every declaration
   bound to its `@media` block) and every customer `<main>` (TypeScript AST): the three tiers in
   order, the narrow cap between them, the sheet's two widths, the one rail/fan boundary, the

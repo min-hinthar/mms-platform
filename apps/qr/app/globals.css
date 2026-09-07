@@ -3347,24 +3347,6 @@ html[data-fx="off"] .pa-pause {
   position: relative;
   text-align: center;
 }
-/* R1 — a LANDSCAPE phone (844×390) showed the emblem and the wordmark alone: all three doors sat
-   below the fold, and the screen's only job is the doors. Under 500px of height the hero folds to a
-   small mark and an h1-sized wordmark so the first door is visible without a scroll. Height-keyed,
-   not width-keyed, so a tall narrow phone keeps the full hero. */
-@media (max-height: 500px) {
-  .home-hero-badge {
-    width: 76px;
-    height: 76px;
-    margin-bottom: 0;
-  }
-  .home-hero-mark svg {
-    width: 32px;
-    height: 32px;
-  }
-  .home-wordmark {
-    font-size: var(--fs-h1);
-  }
-}
 .home-hero-badge {
   position: relative;
   width: 132px;
@@ -3402,6 +3384,28 @@ html[data-fx="off"] .pa-pause {
   color: var(--t2);
   margin: var(--s3) 0 0;
   text-wrap: pretty;
+}
+/* R1 — a LANDSCAPE phone (844×390) showed the emblem and the wordmark alone: all three doors sat
+   below the fold, and the screen's only job is the doors. Under 500px of height the hero folds to a
+   small mark and an h1-sized wordmark so the first door is visible without a scroll. Height-keyed,
+   not width-keyed, so a tall narrow phone keeps the full hero.
+   ⚠️ AFTER the bare rules it overrides, never before: an @media block adds no cascade weight, so
+   where this first sat (above `.home-hero-badge`) every declaration in it lost to the bare rule
+   that followed at equal specificity and the fold never shipped — the blind pass on #271 read the
+   cascade the guard could not. lib/responsive-contract.test.ts now pins the ORDER. */
+@media (max-height: 500px) {
+  .home-hero-badge {
+    width: 76px;
+    height: 76px;
+    margin-bottom: 0;
+  }
+  .home-hero-mark svg {
+    width: 32px;
+    height: 32px;
+  }
+  .home-wordmark {
+    font-size: var(--fs-h1);
+  }
 }
 .home-hero-back {
   position: absolute;
@@ -6348,8 +6352,9 @@ html[data-seen-surface] .mms-stagger {
      .grocery-cta-bar) already do; a bare 90px sat the toast ON the CTA on every notched iPhone.
      R1 — the band's REAL height rides `--cta-dock-h` (useCtaDock publishes it: height + 16px gap),
      so a wrapped label or a larger system font can no longer push the CTA up under the toast;
-     the 74px fallback is the 56px band plus its gap when nothing is docked. */
-  bottom: calc(var(--cta-dock-h, 74px) + 16px + env(safe-area-inset-bottom, 0px));
+     the fallback is the 56px band (`.grocery-basket-btn` min-height) + useCtaDock's 16px gap = 72
+     — computed, and pinned by the guard against both sources. */
+  bottom: calc(var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: var(--z-toast);
   padding: 10px 18px;
@@ -10042,8 +10047,13 @@ html[data-fx="lite"] .mms-scrim {
     flex-wrap: wrap;
     row-gap: var(--s2);
   }
+  /* `auto` basis, never `0`: flex breaks lines on the hypothetical main size, and a zero basis
+     took the title OUT of line-breaking — leading + tail fit one row and the title was ellipsized
+     into what was left instead of the tail wrapping under it (blind pass on #271). With its natural
+     width counted, a title that does not fit beside the tail pushes the page control and the
+     utilities onto the second row; a short one keeps everything on one. */
   .staff-bar-title {
-    flex: 1 1 0;
+    flex: 1 1 auto;
     min-width: 0;
   }
   .staff-bar-title > .chrome-pair {
@@ -10053,6 +10063,8 @@ html[data-fx="lite"] .mms-scrim {
   .staff-bar-title > .chrome-pair > [lang="my"] {
     display: block;
     font-size: 1.5rem; /* 24px on a phone — one step under the tablet's 30 */
+    /* Myanmar stacks above and below the x-height; the ellipsis clip needs the Burmese leading. */
+    line-height: var(--lh-my);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -10361,6 +10373,12 @@ html[data-fx="lite"] .mms-scrim {
     --w-page: 52rem;
   }
 }
+/* R1 — the door row's cross-axis alignment lives HERE, not inline on the Link: an inline
+   `alignItems` beats any tier rule, and did — the tablet tier's `flex-start` below was dead until
+   the blind pass on #271 read it against ModeCard.tsx. The guard parses the Link's style. */
+.door {
+  align-items: center;
+}
 /* R1 (part 2) — what the wider column is FOR. Each rule is the one thing a surface does with the
    width it now has; nothing here changes a phone. */
 @media (min-width: 48em) {
@@ -10400,7 +10418,9 @@ html[data-fx="lite"] .mms-scrim {
   /* The ambient's pause coin moves into the gutter the column no longer covers — OFF the content
      (F11's complaint) — and stays in the corner only where there is no gutter to take. */
   .pa-pause {
-    left: max(12px, calc(50% - var(--w-page) / 2 - 56px));
+    /* The safe-area term stays on the tablet tier too — a landscape phone IS ≥ 48em, and without
+       it the coin sat inside the 44–59px sensor strip (blind pass on #271). */
+    left: max(12px, env(safe-area-inset-left, 0px), calc(50% - var(--w-page) / 2 - 56px));
   }
   /* The category rail WRAPS instead of scrolling: a mouse has no sideways swipe, and at 736px
      every category fits in two rows (three reviewers, three viewports, one finding). The snap and

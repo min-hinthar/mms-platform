@@ -726,8 +726,8 @@ width from 375 to 1920, and that one number lived in fourteen places. These are 
 - **Width is spent on ONE thing per surface, and nothing changes on a phone.** The front door lays
   its three doors across as stacked tiles; the menu lists two rows per line (342px each at the
   tablet width, wider than the phone's 335 — no row loses a pixel of name); the market shows three
-  SKUs across, four at the desktop; the table picker fills 124px tiles five and six across (ten
-  tables were 3+3+3+1 at every wide width); the chip rails WRAP where a mouse cannot swipe them; the
+  SKUs across, four at the desktop; the table picker fills 124px tiles five across at both wide tiers (ten
+  tables were 3+3+3+1 at every wide width; 792 ÷ 134 is still five); the chip rails WRAP where a mouse cannot swipe them; the
   horizontal rails fade at both edges so the column's edge reads as "this scrolls", never as a cut
   through a card. The app header's brand and utilities align with the column's edges rather than
   the screen's corners.
@@ -743,9 +743,10 @@ width from 375 to 1920, and that one number lived in fourteen places. These are 
   key on height alone, so a tall narrow phone keeps its pinned rail. When the toolbar is static the
   jump offset is re-measured against the app header alone — a static toolbar's `top` is `auto`, and
   a phantom offset would have parked every landed heading 120px low.
-- **The ambient's pause coin takes the gutter where there is one.** From the tablet tier it sits
-  56px outside the column, off the content; on a phone it keeps the corner it had (F11 stays open
-  there).
+- **The ambient's pause coin takes the gutter where there is one.** From 872px wide (the tablet
+  column plus 56px each side) it sits outside the column, off the content; below that — every phone,
+  and a tablet between 768 and 872 — it keeps the corner it had, with its safe-area term on every
+  tier (F11 stays open there).
 - **What stays fixed, deliberately.** The cart bar and the grocery CTA band keep their 416px pill
   width at every viewport — a pinned money control should not stretch to a screen's width. The
   display type scale is the phone's at every width (a reviewers' nice-to-do, filed). The checkout

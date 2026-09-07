@@ -100,10 +100,11 @@ export function ModeCard({
       href={href}
       // card-interactive = hover-lift + press settle (this card IS clickable); mms-stagger = entrance.
       className="card card-interactive mms-stagger door"
+      // R1 — no `alignItems` here: the cross-axis alignment is `.door`'s in globals.css, so the
+      // tablet tier can re-stack the tile (an inline value would beat it — and did).
       style={{
         display: "flex",
         gap: "var(--s4)", // W16e — was 14/18, off the spacing grid
-        alignItems: "center",
         padding: "var(--s5)",
         textDecoration: "none",
         color: "inherit",

@@ -39,7 +39,9 @@ const TOKENS = readFileSync(join(QR, "..", "..", "packages", "ui", "src", "token
 /** Comments name selectors and values in prose; a guard a comment can satisfy reads the wrong thing. */
 const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
 
-type Decl = { media: string | null; selector: string; prop: string; value: string };
+/** `i` is the declaration's ORDER in the file — the cascade tiebreak at equal specificity, which is
+ *  what an `@media` block relies on: it adds no weight, so a bare rule written AFTER it wins. */
+type Decl = { media: string | null; selector: string; prop: string; value: string; i: number };
 
 /**
  * A declaration walker that binds every `prop: value` to the selector block it sits in AND to the
@@ -68,6 +70,7 @@ function declarations(css: string): Decl[] {
       selector: head.replace(/\s+/g, " "),
       prop: text.slice(0, colon).trim(),
       value: text.slice(colon + 1).trim(),
+      i: out.length,
     });
   };
   for (const ch of code) {
@@ -109,6 +112,8 @@ describe("the responsive contract — the stylesheet half", () => {
   const TABLET = "@media (min-width: 48em)";
   const DESKTOP = "@media (min-width: 64em)";
   const SHORT = "@media (max-height: 520px)";
+  const HERO_SHORT = "@media (max-height: 500px)";
+  const PHONE_STAFF = "@media (max-width: 720px)";
 
   it("sets --w-page in exactly three tiers, in ascending order, from the content column up", () => {
     const tiers = DECLS.filter((d) => d.prop === "--w-page");
@@ -175,7 +180,47 @@ describe("the responsive contract — the stylesheet half", () => {
     const chosen = DECLS.filter((d) => d.selector === ".item-opt:has(.item-opt-input:checked)");
     expect(chosen.find((d) => d.prop === "border-color")?.value).toBe("var(--ac)");
     expect(chosen.some((d) => /jade/.test(d.value))).toBe(false);
-    expect(one(".grocery-toast", "bottom")).toContain("var(--cta-dock-h, 74px)");
+    // The fallback is COMPUTED from its two sources — the band's height and useCtaDock's gap — so it
+    // can never again be a number back-solved from an older constant (blind pass on #271: 74).
+    const band = Number(/^([\d.]+)px$/.exec(one(".grocery-basket-btn", "min-height"))![1]);
+    const hook = readFileSync(join(QR, "lib", "hooks", "useCtaDock.ts"), "utf8");
+    const gap = Number(/\bgap = (\d+)\b/.exec(hook)![1]);
+    expect(one(".grocery-toast", "bottom")).toContain(`var(--cta-dock-h, ${band + gap}px)`);
+  });
+
+  it("places the short-tier hero fold AFTER the bare rules it must beat (an @media adds no cascade weight)", () => {
+    // The blind pass on #271 read this off the cascade: the fold block sat ABOVE `.home-hero-badge`
+    // and lost every property to the bare rule at equal specificity — a dead fix that had been
+    // announced as landed. Order is the tiebreak, so order is what is pinned.
+    for (const [sel, prop] of [
+      [".home-hero-badge", "width"],
+      [".home-hero-mark svg", "width"],
+      [".home-wordmark", "font-size"],
+    ] as const) {
+      const bare = find(sel, prop);
+      const fold = find(sel, prop, HERO_SHORT);
+      expect(bare, `${sel} ${prop} bare`).toHaveLength(1);
+      expect(fold, `${sel} ${prop} fold`).toHaveLength(1);
+      expect(fold[0]!.i, `${sel} ${prop}: the fold must come AFTER the bare rule`).toBeGreaterThan(
+        bare[0]!.i,
+      );
+    }
+  });
+
+  it("keeps the pause coin's safe-area term on every tier, and the door's alignment in CSS", () => {
+    expect(one(".pa-pause", "left")).toContain("env(safe-area-inset-left");
+    expect(one(".pa-pause", "left", TABLET)).toContain("env(safe-area-inset-left");
+    expect(one(".door", "align-items")).toBe("center");
+    expect(one(".home-doors .door", "align-items", TABLET)).toBe("flex-start");
+  });
+
+  it("lets the staff title keep its natural width in line-breaking on a phone", () => {
+    // `flex: 1 1 0` took the title out of line collection (basis 0 → it never forced the wrap),
+    // so the two-row bar the phone tier promises could not occur (blind pass on #271).
+    expect(one(".staff-bar-title", "flex", PHONE_STAFF)).toBe("1 1 auto");
+    expect(one('.staff-bar-title > .chrome-pair > [lang="my"]', "line-height", PHONE_STAFF)).toBe(
+      "var(--lh-my)",
+    );
   });
 
   it("spends the tablet width on the surfaces that earn it, and nowhere on a phone", () => {
@@ -344,6 +389,47 @@ describe("the responsive contract — the pages half", () => {
     ];
     const offenders = all.filter((m) => m.styleKeys.some((k) => own.includes(k)));
     expect(offenders.map((m) => `${m.file} {${m.styleKeys.join(",")}}`)).toEqual([]);
+  });
+
+  it("gives the door Link no inline cross-axis alignment (an inline value would beat the tier rule)", () => {
+    const file = "components/ModeCard.tsx";
+    const src = readFileSync(join(QR, file), "utf8");
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const doors: string[][] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+        const cls = node.attributes.properties.find(
+          (a) => ts.isJsxAttribute(a) && ts.isIdentifier(a.name) && a.name.text === "className",
+        ) as ts.JsxAttribute | undefined;
+        const clsText =
+          cls?.initializer && ts.isStringLiteral(cls.initializer) ? cls.initializer.text : "";
+        if (clsText.split(/\s+/).includes("door")) {
+          const style = node.attributes.properties.find(
+            (a) => ts.isJsxAttribute(a) && ts.isIdentifier(a.name) && a.name.text === "style",
+          ) as ts.JsxAttribute | undefined;
+          const obj =
+            style?.initializer && ts.isJsxExpression(style.initializer)
+              ? style.initializer.expression
+              : undefined;
+          expect(
+            obj && ts.isObjectLiteralExpression(obj),
+            `${file}: the door's style must be an object literal`,
+          ).toBe(true);
+          doors.push(
+            (obj as ts.ObjectLiteralExpression).properties.map((p) =>
+              p.name && ts.isIdentifier(p.name) ? p.name.text : "?",
+            ),
+          );
+        }
+      }
+      ts.forEachChild(node, (c) => {
+        visit(c);
+      });
+    };
+    visit(sf);
+    expect(doors).toHaveLength(1); // the floor: the Link exists and carries the class
+    expect(doors[0]).not.toContain("alignItems");
+    expect(doors[0]).toContain("display"); // the flex container itself is still declared inline
   });
 
   it("caps exactly the money and status columns (cart · track · account) and nothing else", () => {

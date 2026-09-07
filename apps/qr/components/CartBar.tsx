@@ -55,8 +55,8 @@ export function CartBar() {
   // exactly when the optimistic count differs from the sum of the confirmed lines (the provider
   // commits `items` and `totals` in one apply, so the two are never half-updated).
   const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
-  const subtotalCents = totals && count === confirmedCount ? totals.subtotalCents : null;
-  const dollars = subtotalCents === null ? "updating" : `$${(subtotalCents / 100).toFixed(2)}`;
+  const pending = totals === null || count !== confirmedCount;
+  const dollars = pending || !totals ? "updating" : `$${(totals.subtotalCents / 100).toFixed(2)}`;
 
   return (
     <button
@@ -113,12 +113,28 @@ export function CartBar() {
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
           above (read on focus) — the rolling figure is presentation, not a per-tap announcement.
           `.vt-cart-total` (J1): on the menu→cart cut this figure MORPHS into the checkout hero total —
-          the money the diner is watching never blinks out of existence. */}
-      <span className="vt-cart-total" style={{ fontVariantNumeric: "tabular-nums" }}>
-        {subtotalCents === null ? (
-          <span aria-hidden>—</span>
-        ) : (
-          <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
+          the money the diner is watching never blinks out of existence.
+          R1 — NumberFlow stays MOUNTED through a pending write, hidden under the dash, so the roll
+          plays the moment the confirmed value lands: the first draft swapped it out for the dash and
+          re-created it at the settled value, and the roll never ran for this device's own writes
+          (blind pass on #271). It first mounts only once a confirmed total exists, so it never
+          rolls up from a placeholder $0. */}
+      <span
+        className="vt-cart-total"
+        style={{ fontVariantNumeric: "tabular-nums", position: "relative", display: "inline-grid" }}
+      >
+        {totals && (
+          <span style={{ gridArea: "1 / 1", visibility: pending ? "hidden" : "visible" }}>
+            <NumberFlow
+              value={totals.subtotalCents / 100}
+              format={{ style: "currency", currency: "USD" }}
+            />
+          </span>
+        )}
+        {pending && (
+          <span aria-hidden style={{ gridArea: "1 / 1", textAlign: "center" }}>
+            —
+          </span>
         )}
       </span>
     </button>
