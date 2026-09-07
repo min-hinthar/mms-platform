@@ -25,7 +25,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `20260907082543`) and every object verified before anything else — the row in OPEN-ITEMS lists
 > the probes. Prod deploy of `068e575` is READY on `qr.mandalaymorningstar.com`.
 >
-> ### R1 — the responsive pass is on `claude/qr-app-backlog-cj2t0m` as draft PR #271 (awaiting Min's go)
+> ### R1 — the responsive pass, PR #271 — Min's go and the F12 pick (option A) came 2026-09-07; merged with the docs commit that records them
 >
 > Min's next brief was "UI/UX still needing refinements… and dynamic aspect ratios — mobiles,
 > tablets, desktop." The app was MEASURED first: 261 screenshot states at thirteen viewports
@@ -36,9 +36,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > surface for what the width is for, the sheet as a centred dialog from the tablet tier, the short
 > (height-keyed) tier for landscape phones — plus the reviewer findings the source confirmed. The
 > rules are `docs/DESIGN-LANGUAGE.md` §18; the guard is `apps/qr/lib/responsive-contract.test.ts`
-> (parses the stylesheet AND every customer `<main>`). **The fork for Min:** the reviewers' other
+> (parses the stylesheet AND every customer `<main>`). **The fork, decided:** the reviewers' other
 > half — a two-column checkout / track / account — is the same decision as a true desktop shell
-> (OPEN-ITEMS F12); part 2 chose the centred column and capped those pages at 34rem. Retractions
+> (OPEN-ITEMS F12); part 2 chose the centred column and capped those pages at 34rem, and Min chose
+> that option (A) on 2026-09-07 — F12 is closed and the two-column shell is not planned. Retractions
 > (five "under 44px" claims that were paint, not hit boxes) are recorded in §18. Verified on the
 > preview (d1120ad): the Express Checkout row is a 56px iframe at 820 and 1180 (not collapsed); the
 > item sheet's CTA bar DID sit 24px above the sheet edge at 375 (the sticky viewport is the content

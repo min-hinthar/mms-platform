@@ -751,7 +751,9 @@ width from 375 to 1920, and that one number lived in fourteen places. These are 
   width at every viewport — a pinned money control should not stretch to a screen's width. The
   display type scale is the phone's at every width (a reviewers' nice-to-do, filed). The checkout
   stays one narrow column: the two-column checkout and the two-column /track and /account are the
-  same decision as a true desktop shell, and that decision is Min's (F12).
+  same decision as a true desktop shell, and Min made it on 2026-09-07 — option A, the centred
+  column, so the money and status pages keep the 34rem cap and a two-column shell is not planned
+  (F12 closed).
 - **Reviewer claims that did not survive the source.** Five of the eleven reviewers measured
   controls under 44px from screenshots — the sheet's ✕ (32px disc), the rail's pause coin (26px),
   the ambient's pause coin, the promo Apply and the slot pills (~42px), the menu Add pills (~41px).

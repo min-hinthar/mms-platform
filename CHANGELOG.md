@@ -4,6 +4,16 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### R1 — merged with Min's go; the desktop fork decided (2026-09-07)
+
+- **F12 closed — option A.** Min chose the centred column: checkout, /track and /account stay one
+  narrow column (34rem) at every width, exactly as R1 part 2 shipped it in #271. The two-column
+  desktop shell (option B) is not planned; the row records the original ask for the trail.
+  `docs/DESIGN-LANGUAGE.md` §18 and `docs/HANDOFF.md` say so in the same words.
+- **#271 merged** on this docs commit's head (a merge commit, as #264–#270 were), with the blind
+  adversarial pass and the full local gate as the review — the Codex connector answered "usage
+  limits reached" on every ask on this PR, so the `codex-review` check could not clear on its own.
+
 ### R1 — the responsive pass, part 2: one column knob, three tiers, and what each surface does with the width (2026-09-07)
 
 **The layout system the sweep argued for, verified finding by finding.** Eleven blind reviewers
