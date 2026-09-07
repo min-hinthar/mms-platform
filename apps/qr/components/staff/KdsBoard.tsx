@@ -26,6 +26,8 @@ import type {
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffLangSwitch } from "./StaffLangSwitch";
+import { ScreensLink } from "./ScreensLink";
+import { KDS_SIZES, KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -44,7 +46,8 @@ import type { StaffLang } from "@/lib/staff-lang";
  * with urgency — only the header strip ages.
  */
 
-const PAGE_SIZE = 8; // the 2×4 landscape envelope (SPEC-KDS §2); smaller screens page the same set
+// The page size follows the TEXT SIZE dial (P7 · lib/kds-size.ts): 8 at small (the 2×4 landscape
+// envelope, SPEC-KDS §2), 6 at medium and large, where the CSS drops the wide grid to three columns.
 const STATION_KEY = "mms.kds.station";
 const RAIL_KEY = "mms.kds.rail";
 const UNDO_MS = 6_000;
@@ -145,6 +148,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   // Board controls (persisted per device).
   const [station, setStation] = useState<"all" | KitchenStation>("all");
   const [railOpen, setRailOpen] = useState(false);
+  const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
   const [volume, setVolume] = useState(0.8);
@@ -184,12 +188,14 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       .then(() => ({
         station: localStorage.getItem(STATION_KEY),
         rail: localStorage.getItem(RAIL_KEY),
+        size: localStorage.getItem(KDS_SIZE_KEY),
         volume: getKdsVolume(),
       }))
-      .then(({ station: s, rail, volume: v }) => {
+      .then(({ station: s, rail, size: sz, volume: v }) => {
         if (!active) return;
         if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
         if (rail === "1") setRailOpen(true);
+        setSize(parseKdsSize(sz));
         setVolume(v);
       })
       .catch(() => {
@@ -340,14 +346,15 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   }, [snap.tickets, station]);
 
   const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageSize = kdsPageSize(size);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const safePage = Math.min(page, pageCount - 1);
-  const visible = filtered.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
-  const moreAfter = filtered.length - (safePage + 1) * PAGE_SIZE;
+  const visible = filtered.slice(safePage * pageSize, (safePage + 1) * pageSize);
+  const moreAfter = filtered.length - (safePage + 1) * pageSize;
   // New LIVE tickets land at the tail of the live SECTION — which sorts BEFORE the held cards, so
   // "last page" is the wrong jump target when holds exist (adversarial MED-1: the pill would send the
   // cook to a page of held cards). The live tail's page is where an arrival actually renders.
-  const liveTailPage = Math.floor(Math.max(0, live.length - 1) / PAGE_SIZE);
+  const liveTailPage = Math.floor(Math.max(0, live.length - 1) / pageSize);
 
   const lateCount = live.filter(
     (t) => urgency(t, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
@@ -367,6 +374,18 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
     try {
       if (key === "all") localStorage.removeItem(STATION_KEY);
       else localStorage.setItem(STATION_KEY, key);
+    } catch {
+      /* private mode */
+    }
+  };
+  // P7 — the text-size dial. Page 0 on change because the page size changes with it and a page
+  // index past the new count would show an empty board.
+  const pickSize = (next: KdsSize) => {
+    setSize(next);
+    setPage(0);
+    try {
+      if (next === "s") localStorage.removeItem(KDS_SIZE_KEY);
+      else localStorage.setItem(KDS_SIZE_KEY, next);
     } catch {
       /* private mode */
     }
@@ -434,25 +453,20 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const heldCount = filtered.length - live.length;
 
   return (
-    <section className="kds-root dark" aria-labelledby="kds-h" onFocusCapture={markFocus}>
+    <section
+      className="kds-root dark"
+      data-size={size}
+      aria-labelledby="kds-h"
+      onFocusCapture={markFocus}
+    >
       <header className="kds-head">
         <h1 id="kds-h" ref={headingRef} tabIndex={-1} className="kds-title">
           <Chrome lang={lang} k="kds.title" echo="stack" />
         </h1>
-        <a
-          href="/staff"
-          style={{
-            color: "var(--t2)",
-            fontSize: "var(--kfs-meta)",
-            fontWeight: 700,
-            textDecoration: "none",
-            minHeight: 44,
-            display: "inline-flex",
-            alignItems: "center",
-          }}
-        >
-          <Chrome lang={lang} k="kds.back" />
-        </a>
+        {/* P7 — "← Floor" became the Screens chip: on a kitchen tablet `/staff` is not a floor but
+            the doors, and the chip's `?doors=1` says so honestly (resolveStaffHome honours it over a
+            remembered door, so the board can always be left). */}
+        <ScreensLink lang={lang} kds />
 
         {/* `role="group"`: a bare <div> is the `generic` role, which prohibits an author name — the
             `aria-label` below was silently discarded until rule 3d went in. */}
@@ -531,6 +545,21 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
           <button type="button" className="kds-chip" aria-pressed={railOpen} onClick={toggleRail}>
             <Chrome lang={lang} k="kds.allday.chip" />
           </button>
+          {/* P7 — the text-size dial: three 44px chips, aria-only group name (`sx`), the pressed one
+              wearing the same recipe as the station chips. Persisted per device like the station. */}
+          <div className="kds-size-group" role="group" aria-label={sx(lang, "kds.a11y.size")}>
+            {KDS_SIZES.map((sz) => (
+              <button
+                key={sz}
+                type="button"
+                className="kds-chip"
+                aria-pressed={size === sz}
+                onClick={() => pickSize(sz)}
+              >
+                <Chrome lang={lang} k={`kds.size.${sz}`} />
+              </button>
+            ))}
+          </div>
           {soundOn ? (
             <label
               style={{

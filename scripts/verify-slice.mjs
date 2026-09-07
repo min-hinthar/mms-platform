@@ -3899,6 +3899,99 @@ const MUTANTS = [
     find: "    settlePromoCents = settleTotals.promoCents;\n",
     replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
+  // ── P7 · the doors (a REDIRECT decision) and the KDS text dial (a PAGE-SIZE decision) ───────────
+  // Neither moves money, but both are authority: the first decides where a tablet lands and whether
+  // it can ever leave, the second decides which tickets a page shows. Each rule is falsified by a
+  // value in its own suite; a guard here that survives is a tablet that can be trapped.
+  {
+    id: "staff-door/doors-param-loses-to-remembered-door",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — `?doors=1` is the Screens chip, the ONLY way off a remembered door. If a remembered kitchen door outranks it, Mom's tablet redirects onto the board from the very chip that exists to leave it — a trap with no in-app exit, only a cookie clear",
+    find: '  if (input.doorsParam) return { view: "doors" };',
+    replace: '  if (input.doorsParam && input.door === null) return { view: "doors" };',
+  },
+  {
+    id: "staff-door/warm-navigation-redirects-too",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — the redirect is for a COLD start (icon, bookmark). An in-app tap that lands on /staff from a kitchen device (an '← Floor' link on the expo page) must show the doors: redirecting every arrival makes 'Floor' mean 'Kitchen' on that tablet and the word a lie",
+    find: '    return input.coldStart ? { redirect: "/staff/kitchen" } : { view: "doors" };',
+    replace: '    return { redirect: "/staff/kitchen" };',
+  },
+  {
+    id: "staff-door/cold-start-ignores-origin",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — 'cold' is NO SAME-ORIGIN referer, not 'no referer'. Treating any referer as warm means a link from another site (or a phishing page) into /staff on a kitchen tablet shows the doors instead of the board — harmless-looking, but it is the bound that makes the redirect a device behaviour rather than a request-shaped one. Treating none as warm is the trap the other way",
+    find: "  if (from.host.toLowerCase() !== own.host.toLowerCase()) return true;",
+    replace: "  void own;",
+  },
+  {
+    id: "staff-door/origin-check-by-suffix",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — the same-origin test is EQUALITY of hosts. A suffix match admits `evil-mms.example` as ours; the suite carries exactly that host so this cannot regress to `endsWith` the way host checks usually do",
+    find: "  if (from.host.toLowerCase() !== own.host.toLowerCase()) return true;",
+    replace: "  if (!from.host.toLowerCase().endsWith(own.host.toLowerCase())) return true;",
+  },
+  {
+    id: "staff-door/front-door-referer-reads-as-warm",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7, blind pass CRITICAL 4 — the lock (`PinUnlock` → `router.replace('/staff')`) and the login (`next` defaults to /staff) re-enter /staff through a SAME-ORIGIN client navigation, and a locked kitchen tablet begins every day exactly that way. Read as warm, the cold-start redirect never fires on the mornings it exists for: unlock → doors → tap, daily. A front-door referer is a start",
+    find: "  return isFrontDoor(from.pathname);",
+    replace: "  return false;",
+  },
+  {
+    id: "staff-door/front-door-matched-by-prefix",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — the two page front doors match EXACTLY and only the auth callback matches by prefix; a bare `startsWith` turns any page whose name begins with `lock` or `login` into a start, so an in-app tap from it redirects a kitchen tablet onto the board with no way back but the Screens chip",
+    find: '  return STAFF_FRONT_DOORS.some((d) => (d.endsWith("/") ? pathname.startsWith(d) : pathname === d));',
+    replace: "  return STAFF_FRONT_DOORS.some((d) => pathname.startsWith(d));",
+  },
+  {
+    id: "staff-door/multi-valued-host-reads-as-cold",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7, blind pass open question — behind two proxies `x-forwarded-host` is `a, b`; `new URL('https://a, b')` throws and a throw reads as cold, so EVERY in-app arrival on a kitchen tablet redirects onto the board. The header is read by its first value",
+    find: '  const first = host.split(",")[0]?.trim() ?? "";',
+    replace: "  const first = host;",
+  },
+  {
+    id: "staff-door/floor-param-only-for-a-counter-device",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7, blind pass CRITICAL 2 — `?floor=1` is the Counter door's own href, and it exists so the door opens the FLOOR when the cookie was refused or JavaScript is off. Gating it on the cookie having been written is the exact failure it was added to remove: the tap lands back on the doors",
+    find: '  if (input.floorParam) return { view: "floor" };',
+    replace: '  if (input.floorParam && input.door === "counter") return { view: "floor" };',
+  },
+  {
+    id: "staff-door/parser-case-folds",
+    file: "apps/qr/lib/staff-door.ts",
+    suite: "lib/staff-door.test.ts",
+    why: "P7 — EXACT equality, like the language cookie. A lax parse turns a QA session's leftover `Kitchen` into a remembered door on a counter tablet, and the doors screen — the honest fallback for garbage — never shows",
+    find: '  return value === "kitchen" || value === "counter" ? value : null;',
+    replace:
+      '  const v = value?.toLowerCase();\n  return v === "kitchen" || v === "counter" ? (v as StaffDoor) : null;',
+  },
+  {
+    id: "kds-size/page-size-ignores-the-dial",
+    file: "apps/qr/lib/kds-size.ts",
+    suite: "lib/kds-size.test.ts",
+    why: "P7 — the CSS drops medium and large to THREE columns; a page of eight there is two tickets below the fold on every page, and they are exactly the tickets nobody bumps. 'One page' has to stay 'one screen' at every size",
+    find: '  return size === "s" ? 8 : 6;',
+    replace: "  return 8;",
+  },
+  {
+    id: "kds-size/parser-admits-any-value",
+    file: "apps/qr/lib/kds-size.ts",
+    suite: "lib/kds-size.test.ts",
+    why: "P7 — a stored value from an older build or a hand-edit must fall to the size every ticket has always rendered at, never to a size the CSS has no rule for (which renders at small type on a three-column grid — the worst of both)",
+    find: '  return value === "m" || value === "l" ? value : KDS_SIZE_DEFAULT;',
+    replace: "  return (value as KdsSize) ?? KDS_SIZE_DEFAULT;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
