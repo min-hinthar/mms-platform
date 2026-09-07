@@ -1840,9 +1840,15 @@ html[data-fx="off"] .pa-pause {
     border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out);
 }
+/* R1 — the chosen option wears the SAME quiet gold the slot grid's chosen time wears
+   (`.slot-time-on`): an accent hairline over a 10% accent wash on the card ground. It was a jade
+   tint — a second selection vocabulary on the one flow whose every other chosen thing (mode pill,
+   slot, tip, category chip) is gold (three reviewers, independently). Jade stays what it was for:
+   the EBT and allergen INFORMATION chips, never a choice. */
 .item-opt:has(.item-opt-input:checked) {
-  border-color: var(--jade);
-  background: color-mix(in srgb, var(--jade) 10%, transparent);
+  border-color: var(--ac);
+  background: color-mix(in srgb, var(--ac) 10%, var(--cd));
+  box-shadow: inset 0 1px 0 var(--sheen);
 }
 .item-opt:focus-within {
   outline: 2px solid var(--ac);
@@ -6338,8 +6344,11 @@ html[data-seen-surface] .mms-stagger {
   position: fixed;
   left: 50%;
   /* W9e (J12) — compose the home-bar inset like the pinned bars it floats above (CartBar,
-     .grocery-cta-bar) already do; a bare 90px sat the toast ON the CTA on every notched iPhone. */
-  bottom: calc(90px + env(safe-area-inset-bottom, 0px));
+     .grocery-cta-bar) already do; a bare 90px sat the toast ON the CTA on every notched iPhone.
+     R1 — the band's REAL height rides `--cta-dock-h` (useCtaDock publishes it: height + 16px gap),
+     so a wrapped label or a larger system font can no longer push the CTA up under the toast;
+     the 74px fallback is the 56px band plus its gap when nothing is docked. */
+  bottom: calc(var(--cta-dock-h, 74px) + 16px + env(safe-area-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: var(--z-toast);
   padding: 10px 18px;
@@ -6399,8 +6408,11 @@ html[data-seen-surface] .mms-stagger {
   display: none;
 }
 /* Desktop: a normal in-flow row — no sticky, no full-bleed, no bar chrome (the fan-nav owns
-   jump-navigation there). */
-@media (min-width: 768px) {
+   jump-navigation there). R1 moved this boundary from 768px to the desktop tier (64em): the
+   tablet column is 736 wide, so an iPad's 42px gutter cannot hold the fan, and the sticky rail
+   stays the category nav there. ONE boundary — the fan's `display: none` below and the card
+   controls' scroll-margin share it. */
+@media (min-width: 64em) {
   .aisle-rail {
     position: static;
     margin: 14px 0 0;
@@ -6492,9 +6504,9 @@ html[data-seen-surface] .mms-stagger {
   pointer-events: none;
 }
 /* Desktop-only: on mobile the sticky horizontal filter rail is the category nav; the fan would
-   float over the narrow card column with no gutter to live in. Shows from the md breakpoint where
-   the centred 440 column leaves real gutter for it. */
-@media (max-width: 767.98px) {
+   float over the narrow card column with no gutter to live in. Shows from the desktop tier (64em),
+   where the centred column leaves ≥96px of real gutter for it (R1: the tablet tier's 42px did not). */
+@media (max-width: 63.98em) {
   .aisle-fan {
     display: none;
   }
@@ -6679,8 +6691,9 @@ html[data-seen-surface] .mms-stagger {
 /* WCAG 2.4.11 — on mobile the FILTER rail is sticky, so header + rail form ~140px of pinned chrome.
    Focus-scroll keys off the focused element's OWN scroll-margin, so the in-card Add / stepper buttons
    need one too, or Shift+Tabbing up the grid parks a focused control behind the pinned bar. Only on
-   mobile (the rail is static ≥ md, where these reset to 0). ~90px ≈ the rail's height. */
-@media (max-width: 767.98px) {
+   phone + tablet (the rail is static from the desktop tier, where these reset to 0). ~90px ≈ the
+   rail's height. */
+@media (max-width: 63.98em) {
   .gcard-fab,
   .gcard-open,
   .gcard-stepper .grocery-step-btn {
@@ -10296,10 +10309,22 @@ html[data-fx="lite"] .mms-scrim {
    control keeps its place and says so (`aria-disabled`), which is the language switch's rule. */
 /* R1 — THE customer page column, named once. Fourteen pages carried their own inline
    `maxWidth: 440; margin: 0 auto` (nine as the literal, five as the token) — the shape a responsive
-   pass must change in one place. `--w-page` is the column's width and the ONLY knob: today it is the
-   440 content column at every viewport (no visual change in this commit); the tablet and desktop
-   widths land on this same variable, per breakpoint, so no page needs touching again. Padding stays
-   the page's own (each page kept its inline padding — the rhythm differs by screen on purpose). */
+   pass must change in one place. `--w-page` is the column's width and the ONLY knob, and the tiers
+   below are the whole responsive system for the customer surfaces (docs/DESIGN-LANGUAGE.md §18):
+
+     phone    < 48em          --w-page = --w-content (27.5rem · 440) — one column, the shipped design
+     tablet   ≥ 48em          --w-page = 46rem (736) — two menu columns · three doors · three SKUs
+     desktop  ≥ 64em          --w-page = 52rem (832) — four SKUs; everything else as tablet
+     short    ≤ 520px TALL    a landscape phone: height-keyed, never width-keyed (see below)
+
+   Boundaries in em, not px, for the reason `.mms-sheet`'s float threshold gives: `--w-page` is rem,
+   and a px boundary would desync from it under Android large-font / browser min-font settings.
+   48em/64em are the 768/1024 the aisle rail and fan switch on. `.page-col-narrow` is the second
+   and LAST knob: a money or status column (cart · track · account) reads best near 65ch, so it caps
+   at 34rem (544) instead of taking the tier — the phone is untouched (min(440, 544) = 440). Padding
+   stays the page's own (each page kept its inline padding — the rhythm differs by screen on
+   purpose). Pinned by lib/responsive-contract.test.ts: the three tiers, their order, the cap, and
+   that no customer <main> carries an inline width of its own again. */
 :root {
   --w-page: var(--w-content);
 }
@@ -10307,6 +10332,160 @@ html[data-fx="lite"] .mms-scrim {
   width: 100%;
   max-width: var(--w-page);
   margin-inline: auto;
+}
+.page-col-narrow {
+  max-width: min(var(--w-page), 34rem);
+}
+@media (min-width: 48em) {
+  :root {
+    --w-page: 46rem;
+  }
+}
+@media (min-width: 64em) {
+  :root {
+    --w-page: 52rem;
+  }
+}
+/* R1 (part 2) — what the wider column is FOR. Each rule is the one thing a surface does with the
+   width it now has; nothing here changes a phone. */
+@media (min-width: 48em) {
+  /* The front door: three doors side by side as stacked tiles (emoji · name · description · the
+     arrow at the foot), so the whole choice is one fold on a tablet or a landscape phone. */
+  .home-doors {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+  }
+  .home-doors .door {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .home-doors .door-body {
+    flex: 1;
+  }
+  .home-doors .door-arrow {
+    margin-left: auto;
+    margin-top: var(--s2);
+  }
+  /* The menu: two columns of rows. Each column is 342px at the tablet width — wider than the
+     phone's 335 — so no row loses a pixel of name. */
+  .menu-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* The pinned toolbar no longer spans the viewport, so its square-cornered slab read as a stray
+     card floating on the paper (the landscape review's word). Side hairlines + a rounded foot:
+     a deliberate pinned tray, the column's width. */
+  .menu-toolbar {
+    border-inline: 1px solid var(--bd);
+    border-radius: 0 0 var(--r-card) var(--r-card);
+  }
+  /* The market: three SKUs per row (227px each at the tablet width; the phone's are 163). */
+  .gcard-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  /* The ambient's pause coin moves into the gutter the column no longer covers — OFF the content
+     (F11's complaint) — and stays in the corner only where there is no gutter to take. */
+  .pa-pause {
+    left: max(12px, calc(50% - var(--w-page) / 2 - 56px));
+  }
+  /* The category rail WRAPS instead of scrolling: a mouse has no sideways swipe, and at 736px
+     every category fits in two rows (three reviewers, three viewports, one finding). The snap and
+     the JS centring are harmless on a wrapped row. */
+  .menu-rail {
+    flex-wrap: wrap;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  /* The table picker: ten tables were 3 + 3 + 3 + 1 with the tenth alone on its row at every
+     wide viewport. 124px tiles fill five across at the tablet width and six at the desktop's —
+     two even rows either way. The phone keeps its 94px three-up. */
+  .table-grid {
+    grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  }
+  /* The horizontal rails bleed 20px past the column and stop — on a phone that is the screen's
+     edge, on a tablet it is a hard cut through a card in the middle of the viewport. An edge fade
+     on both sides says "this scrolls" the way `.aisle-rail-scroll` already does; dropped while a
+     card inside has keyboard focus so the ring is never clipped (WCAG 2.4.7). */
+  .start-here-rail:not(:focus-within),
+  .taste-rail:not(:focus-within) {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 20px,
+      #000 calc(100% - 28px),
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 20px,
+      #000 calc(100% - 28px),
+      transparent
+    );
+  }
+  /* The app header's brand and utilities line up with the column's edges instead of the screen's
+     corners (on a 1920 display the wordmark sat 700px from anything it belongs to). `100%` here
+     is the header's own containing block, so a desktop scrollbar cannot skew it. */
+  .app-header {
+    padding-inline: calc((100% - var(--w-page)) / 2 + 14px);
+  }
+}
+@media (min-width: 64em) {
+  .gcard-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  /* The aisle rail is static from this tier (see `.aisle-rail`), so its chips wrap too — no
+     sideways scroll for a mouse, no fade to hide a half word. */
+  .aisle-rail-scroll {
+    flex-wrap: wrap;
+    overflow: visible;
+    padding-right: 0;
+  }
+  .aisle-rail-scroll:not(:focus-within) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  /* The aisle fan hugs the column's gutter rather than the screen's far edge (735px from the grid
+     it navigates at 1920); the 160px keeps its hover labels clear of the cards, and the `max`
+     returns it to the edge where the gutter is too thin to hold it. */
+  .aisle-fan {
+    right: max(8px, calc(50% - var(--w-page) / 2 - 160px));
+  }
+}
+/* The sheet from the tablet tier: a centred dialog, not a phone tray parked at the foot of a
+   1180px screen (six reviewers, every wide viewport). Same width as the money column (34rem — one
+   measure for "a reading column"), centred on the part of the viewport the keyboard is not
+   covering, and the grab handle goes with the bottom edge it belonged to: the drag is
+   handle-initiated (`dragListener=false`), so hiding the handle is what disables it. Everything
+   else about the sheet — the sticky head, the ✕, the scroll padding, the CTA bar — is unchanged.
+   The slide-up becomes a fade, under `no-preference` so the reduced-motion rule above still wins. */
+@media (min-width: 48em) {
+  .mms-sheet {
+    bottom: auto;
+    top: 50%;
+    top: calc((100dvh - var(--kb-inset, 0px)) / 2);
+    translate: 0 -50%;
+    max-width: 34rem;
+    max-height: min(calc(var(--sheet-max-h) - var(--kb-inset, 0px)), 88dvh);
+    border-radius: var(--r-sheet);
+  }
+  .mms-grab-zone {
+    display: none;
+  }
+}
+@media (min-width: 48em) and (prefers-reduced-motion: no-preference) {
+  .mms-sheet {
+    animation: fade var(--dur-sheet) var(--ease-out);
+  }
+}
+/* The short tier. A landscape phone (844×390) gave the pinned toolbar 31% of the viewport and the
+   diner about 145px of dishes. Reachability inverts, exactly as `.mms-sheet-head` does at 480px:
+   the toolbar returns to flow, the rail scrolls with the page, and every pixel under the header is
+   menu (MenuBrowser re-measures the jump offset against the header alone). Height-keyed, so a tall
+   narrow phone keeps the pinned rail. */
+@media (max-height: 520px) {
+  .menu-toolbar {
+    position: static;
+  }
 }
 .entry-col {
   max-width: 440px;

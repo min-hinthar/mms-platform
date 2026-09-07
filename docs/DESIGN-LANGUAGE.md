@@ -703,3 +703,57 @@ built.
   the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
   back on the field, success announced by moving focus to the sent card. The gate answers KEYS
   (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.
+
+## 18 · Aspect ratios — the page column and its tiers (R1)
+
+Min's brief was one line — "dynamic aspect ratios: mobiles, tablets, desktop" — and the app was
+measured before it was touched: 261 states across thirteen viewports, then eleven blind reviewers
+over the screenshots, then every finding checked against the stylesheet before it became a rule.
+What the sweep proved is that the QR app had exactly one layout, the 440px phone column, at every
+width from 375 to 1920, and that one number lived in fourteen places. These are the rules as built.
+
+- **One knob, three tiers, and the tiers are the whole system.** `--w-page` is the customer page
+  column's width and is set in ONE place per tier: the phone (`< 48em`) keeps `--w-content` (440,
+  the shipped design, untouched); the tablet (`≥ 48em`) takes 46rem (736); the desktop (`≥ 64em`)
+  takes 52rem (832). `.page-col` reads it; no page carries a width of its own again, and
+  `lib/responsive-contract.test.ts` parses every customer `<main>` to keep it that way. Boundaries
+  are em, not px, for the reason the sheet's float threshold already gives: the column is rem, and a
+  px boundary desyncs from it under Android large-font and browser min-font settings.
+- **`.page-col-narrow` is the second and last knob.** A money or status column — cart, track,
+  account — reads best near 65ch, so it caps at 34rem (544) instead of taking the tier. The phone
+  is untouched (min(440, 544) = 440). The same 34rem is the sheet's dialog width: one measure for
+  "a reading column", used twice.
+- **Width is spent on ONE thing per surface, and nothing changes on a phone.** The front door lays
+  its three doors across as stacked tiles; the menu lists two rows per line (342px each at the
+  tablet width, wider than the phone's 335 — no row loses a pixel of name); the market shows three
+  SKUs across, four at the desktop; the table picker fills 124px tiles five and six across (ten
+  tables were 3+3+3+1 at every wide width); the chip rails WRAP where a mouse cannot swipe them; the
+  horizontal rails fade at both edges so the column's edge reads as "this scrolls", never as a cut
+  through a card. The app header's brand and utilities align with the column's edges rather than
+  the screen's corners.
+- **The sheet is a bottom sheet on a phone and a centred dialog from the tablet tier.** Same
+  component, same sticky head, ✕, CTA bar and scroll padding; the grab handle goes with the bottom
+  edge it belonged to, and because the swipe is handle-initiated, hiding it is what disables the
+  drag. The slide-up becomes a fade, under `no-preference`, so the reduced-motion rule keeps its
+  `none`. The dialog centres on the part of the viewport the keyboard is not covering
+  (`--kb-inset`).
+- **The short tier is height-keyed, never width-keyed.** A landscape phone (844×390) is wider than
+  a tablet's threshold and shorter than anything; the rules that fold the hero (`≤ 500px`) and
+  return the menu toolbar to flow (`≤ 520px`, the same inversion `.mms-sheet-head` makes at 480)
+  key on height alone, so a tall narrow phone keeps its pinned rail. When the toolbar is static the
+  jump offset is re-measured against the app header alone — a static toolbar's `top` is `auto`, and
+  a phantom offset would have parked every landed heading 120px low.
+- **The ambient's pause coin takes the gutter where there is one.** From the tablet tier it sits
+  56px outside the column, off the content; on a phone it keeps the corner it had (F11 stays open
+  there).
+- **What stays fixed, deliberately.** The cart bar and the grocery CTA band keep their 416px pill
+  width at every viewport — a pinned money control should not stretch to a screen's width. The
+  display type scale is the phone's at every width (a reviewers' nice-to-do, filed). The checkout
+  stays one narrow column: the two-column checkout and the two-column /track and /account are the
+  same decision as a true desktop shell, and that decision is Min's (F12).
+- **Reviewer claims that did not survive the source.** Five of the eleven reviewers measured
+  controls under 44px from screenshots — the sheet's ✕ (32px disc), the rail's pause coin (26px),
+  the ambient's pause coin, the promo Apply and the slot pills (~42px), the menu Add pills (~41px).
+  Every one is a 44px box in the stylesheet or the inline style, with the smaller disc painted
+  inside (`background-clip: content-box`, an inner `span`, or padding). A screenshot measures paint,
+  not the hit box; the source is the number.

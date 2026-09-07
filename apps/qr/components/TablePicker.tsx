@@ -54,8 +54,12 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
       <p className="eyebrow">Dine-in</p>
       <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 4 }}>Which table are you at?</h1>
       <p style={{ color: "var(--t2)", marginTop: 0, lineHeight: 1.5 }}>
-        Scan your table’s sticker, or pick your number.{" "}
-        <span lang="my" style={{ fontFamily: "var(--font-my)" }}>
+        Scan your table’s sticker, or pick your number.
+        {/* R1 — the Burmese echo on its OWN line (the /cart heading's idiom), never inline after
+            the sentence: at every width from 375 to 1920 the English filled the line and left
+            "ရွေးပါ" orphaned alone on the next one — five reviewers, five viewports, one finding.
+            A block never splits the pair. */}
+        <span lang="my" style={{ display: "block", fontFamily: "var(--font-my)", marginTop: 2 }}>
           စားပွဲနံပါတ် ရွေးပါ
         </span>
       </p>

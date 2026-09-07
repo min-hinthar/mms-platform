@@ -36,10 +36,10 @@ function DoorFace({
 }) {
   return (
     <>
-      <span aria-hidden style={tileStyle}>
+      <span aria-hidden className="door-tile" style={tileStyle}>
         {emoji}
       </span>
-      <span style={{ minWidth: 0 }}>
+      <span className="door-body" style={{ minWidth: 0 }}>
         <b style={{ fontSize: "var(--fs-h3)" }}>
           {name}
           {my ? (
@@ -57,8 +57,12 @@ function DoorFace({
         <br />
         <small style={{ color: "var(--t2)" }}>{description}</small>
       </span>
+      {/* R1 — the three class hooks (`door-tile` · `door-body` · `door-arrow`) are what lets the
+          tablet tier re-stack this row into a tile (emoji, then the words, the arrow at the foot)
+          in CSS alone; on a phone they style nothing. */}
       <span
         aria-hidden
+        className="door-arrow"
         style={{ marginLeft: "auto", color: "var(--ac)", fontSize: "var(--fs-h2)" }}
       >
         ›
@@ -95,7 +99,7 @@ export function ModeCard({
     <Link
       href={href}
       // card-interactive = hover-lift + press settle (this card IS clickable); mms-stagger = entrance.
-      className="card card-interactive mms-stagger"
+      className="card card-interactive mms-stagger door"
       style={{
         display: "flex",
         gap: "var(--s4)", // W16e — was 14/18, off the spacing grid

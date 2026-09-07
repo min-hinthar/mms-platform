@@ -685,18 +685,22 @@ export default function Grocery() {
         <p className="grocery-sub">Browse the aisles or scan shelf barcodes as you shop.</p>
         {/* W20 (owner: "To-go and groceries should also have leave options") — the named exit the
             menu's arrival beat carries, on the market's masthead: leaving is a navigation (the
-            per-device scango session rejoins this same open basket), never a basket mutation. */}
-        <p className="grocery-sub" style={{ marginTop: 2 }}>
-          Switching how you’re ordering?{" "}
-          <TransitionLink href={menuHref(null)} className="nav-link" style={{ minHeight: 44 }}>
-            Back to the start
-            <span aria-hidden className="nav-arrow nav-arrow-fwd">
-              {" "}
-              →
+            per-device scango session rejoins this same open basket), never a basket mutation.
+            R1 — the SAME tile the menu's arrival beat uses (`.arrival-exit-link`: title + promise),
+            not a 44px pill dropped into a running sentence: that inline link stretched its line box
+            to 67px and stranded "your" after the dash at 375/390/430 (three reviewers, one finding).
+            One exit vocabulary on both doors. */}
+        <div style={{ marginTop: 10, maxWidth: 260 }}>
+          <TransitionLink href={menuHref(null)} className="arrival-exit-link">
+            <span className="arrival-exit-title">
+              Back to the start
+              <span aria-hidden className="nav-arrow nav-arrow-fwd">
+                →
+              </span>
             </span>
-          </TransitionLink>{" "}
-          — your basket stays saved on this phone.
-        </p>
+            <span className="arrival-exit-note">your basket stays saved on this device</span>
+          </TransitionLink>
+        </div>
       </header>
 
       {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the

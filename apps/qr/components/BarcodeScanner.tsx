@@ -101,10 +101,16 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
 
   return (
     <div>
+      {/* R1 — once the camera has refused, the 4:3 black viewfinder is the largest thing on the
+          screen and does nothing (a 400×300 slab on a laptop, and on a 667px phone it pushed the
+          only recovery copy under the fixed checkout band). `hidden` keeps the element for the ref
+          and the stream teardown; the alert below is the whole Scan tab until the shopper searches
+          by name instead. Four reviewers, three viewports. */}
       <video
         ref={videoRef}
         muted
         playsInline
+        hidden={Boolean(err)}
         aria-label="Barcode scanner viewfinder"
         style={{
           width: "100%",

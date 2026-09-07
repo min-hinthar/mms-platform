@@ -75,7 +75,9 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
             🧾
           </div>
           <p style={emptyTitle}>No orders yet</p>
-          <p style={emptySub}>When you order at the table, your receipts live here.</p>
+          <p style={emptySub}>
+            When you order — at the table, for pickup or from the market — your receipts live here.
+          </p>
           {/* W9a — an empty history has no mode to carry; the door picker is the honest destination
               (and the only one that can offer the market as well as the dish menu). */}
           <Link href={menuHref(null)} className="nav-link">

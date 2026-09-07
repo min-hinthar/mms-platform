@@ -42,6 +42,8 @@ export default function Entry() {
       <HomeSessionCard />
       <nav
         aria-label="Order type"
+        // R1 — `.home-doors`: one column on a phone; three tiles across from the tablet tier.
+        className="home-doors"
         style={{ marginTop: "var(--s6)", display: "grid", gap: "var(--s3)" }}
       >
         {/* Indices continue HomeHero's stagger wave (40/100/160 → wordmark 90 → doors 210/280/350ms). */}

@@ -42,8 +42,15 @@ export function CartBar() {
     if (href) router.prefetch(href);
   }, [href, router]);
   if (!cartId || !href || count === 0) return null;
-  const subtotalCents = totals?.subtotalCents ?? 0;
-  const dollars = `$${(subtotalCents / 100).toFixed(2)}`;
+  // R1 (the viewport sweep, two reviewers independently) — `totals` is null until the FIRST
+  // server read lands, and the count flips optimistically before it: for that beat the bar read
+  // "1 · View order · $0.00" beside a row showing the dish at $14.00. A zero is a wrong money
+  // number on a money surface, not a wait. The doctrine is that amounts are never optimistic, so
+  // the amount slot shows a dash until a confirmed total exists (and the roll starts from the
+  // first real value instead of from $0). The count stays instant — that half IS optimistic by
+  // design.
+  const subtotalCents = totals ? totals.subtotalCents : null;
+  const dollars = subtotalCents === null ? "updating" : `$${(subtotalCents / 100).toFixed(2)}`;
 
   return (
     <button
@@ -102,7 +109,11 @@ export function CartBar() {
           `.vt-cart-total` (J1): on the menu→cart cut this figure MORPHS into the checkout hero total —
           the money the diner is watching never blinks out of existence. */}
       <span className="vt-cart-total" style={{ fontVariantNumeric: "tabular-nums" }}>
-        <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
+        {subtotalCents === null ? (
+          <span aria-hidden>—</span>
+        ) : (
+          <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
+        )}
       </span>
     </button>
   );

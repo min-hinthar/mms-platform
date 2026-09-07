@@ -309,7 +309,9 @@ export const GroceryBrowse = memo(function GroceryBrowse({
                           alt=""
                           width={160}
                           height={160}
-                          sizes="(max-width: 440px) 45vw, 160px"
+                          // R1 — the grid is 2 · 3 · 4 across by tier (`.gcard-grid`); the hint
+                          // follows the card's real width at each so the photo is never served soft.
+                          sizes="(max-width: 47.99em) 45vw, (max-width: 63.99em) 228px, 192px"
                           fallback={<PhotoPlaceholder icon={a!.icon} variant="hero" />}
                         />
                       ) : (

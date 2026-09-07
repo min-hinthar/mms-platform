@@ -4,6 +4,48 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### R1 — the responsive pass, part 2: one column knob, three tiers, and what each surface does with the width (2026-09-07)
+
+**The layout system the sweep argued for, verified finding by finding.** Eleven blind reviewers
+read the 261 screenshots (one per viewport, the same rubric); every finding was checked against the
+stylesheet or the component before it became a rule, and the ones that did not survive the source
+are recorded as retractions in `docs/DESIGN-LANGUAGE.md` §18. Nothing here changes a phone.
+
+- **`--w-page` per tier, in one place.** Phone `< 48em` keeps the 440 content column; tablet
+  `≥ 48em` is 46rem (736); desktop `≥ 64em` is 52rem (832). `.page-col-narrow` (34rem) caps the
+  money and status columns — cart, track, account — because a receipt reads best near 65ch.
+- **Width is spent on one thing per surface.** Three doors across on the front door; two menu
+  rows per line; three, then four, SKUs across the market; 124px table tiles five and six across
+  (ten tables were 3+3+3+1 at every wide width); chip rails wrap where a mouse cannot swipe them;
+  the horizontal rails fade at both edges instead of cutting through a card; the app header aligns
+  with the column; the aisle fan hugs the column's gutter instead of the screen's far edge, and the
+  rail/fan boundary moves to the desktop tier with it (an iPad's 42px gutter could not hold it).
+- **The sheet is a centred 34rem dialog from the tablet tier** — same head, ✕, CTA bar and scroll
+  padding; the grab handle (and with it the swipe) goes with the bottom edge; a fade instead of
+  the slide, under `no-preference`. The item-sheet photos' `sizes` hints follow the new widths.
+- **The short tier (≤ 520px tall):** the menu toolbar returns to flow on a landscape phone, where
+  it held 31% of the viewport; the jump offset re-measures against the header alone there.
+- **Point fixes the reviewers found and the source confirmed.** The cart bar read
+  "1 · View order · $0.00" before the first server total — a dash now until a confirmed amount
+  exists, and the roll starts from the real value. "· Sold out" no longer orphans its dot on line
+  one. The chosen modifier wore a jade tint — a second selection vocabulary — and wears the slot
+  grid's quiet gold now. The table picker's Burmese echo sits on its own line (it was orphaned
+  mid-phrase at every width). "Not sent yet — on your bill" on a to-go line reads "goes to the
+  kitchen when you pay", and "In your basket" on grocery. "Saved on this phone" says "device" on
+  the iPads and desktops that also show it. The market's exit is the menu's exit tile, not a 44px
+  pill inside a sentence. The Scan tab hides the 4:3 black viewfinder once the camera has refused.
+  The grocery toast docks on the CTA band's published height. The account's empty-orders line no
+  longer promises a dine-in-only path.
+- **Guard.** `apps/qr/lib/responsive-contract.test.ts` parses the stylesheet (every declaration
+  bound to its `@media` block) and every customer `<main>` (TypeScript AST): the three tiers in
+  order, the narrow cap between them, the sheet's two widths, the one rail/fan boundary, the
+  height-keyed toolbar rule, and that no page carries a width of its own again — six inductions,
+  each red on exactly its assertion.
+- **Filed, not built** (`docs/OPEN-ITEMS.md` F12–F17): the two-column checkout / track / account
+  is one decision with a true desktop shell and is Min's to make (F12); the menu's ASAP chip vs
+  the cart's refusal (F13); the basket line at 375 (F14); a fluid display scale (F15); a compact
+  portrait toolbar under 700px tall (F16); Stripe's typography via `appearance` (F17).
+
 ### R1 — the responsive pass, part 1: what the viewport sweep proved at once (2026-09-07)
 
 **Min's brief: "UI/UX still needing refinements… and dynamic aspect ratios — mobiles, tablets,
