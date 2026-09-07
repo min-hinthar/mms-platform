@@ -1958,6 +1958,10 @@ export const STAFF = {
     my: "အခု မပို့နိုင်ပါ — ခဏနေ ထပ်ကြိုးစားပါ။",
   }, // K15-HIGH — a failure sentence on the screen that reports failures
   "report.err.auth": { en: "Sign in again to send this.", my: "ဒါကို ပို့ဖို့ ပြန်ဝင်ပါ။" },
+  "report.err.rate": {
+    en: "You’ve sent a few just now — give it a moment.",
+    my: "ခုနကပဲ အနည်းငယ် ပို့ထားပြီးပြီ — ခဏ စောင့်ပါ။",
+  },
   "report.err.save": {
     en: "Couldn’t save the report — try again.",
     my: "အစီရင်ခံစာ မသိမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",

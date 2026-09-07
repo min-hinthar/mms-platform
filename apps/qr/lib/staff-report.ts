@@ -15,6 +15,9 @@ import type { HelpScreen } from "@/lib/help";
 export const REPORT_MESSAGE_MAX = 2000;
 /** How many of the reporter's own reports the sheet lists — "a row you can see". */
 export const REPORT_LIST_LIMIT = 10;
+/** A stuck tap or a bored thumb must not flood the team's list: this many per person per window. */
+export const REPORT_RATE_MAX = 5;
+export const REPORT_RATE_WINDOW_MS = 10 * 60_000;
 
 export const REPORT_CONNECTIONS = ["live", "not_updating", "page"] as const;
 export type ReportConnection = (typeof REPORT_CONNECTIONS)[number];
@@ -115,9 +118,26 @@ export function staffReportFacts(r: StaffReportRecord): [label: string, value: s
   return facts;
 }
 
-/** The GitHub issue, derived once. */
+/**
+ * What the ISSUE carries. The repository is PUBLIC, so an issue is public: only what a bug needs —
+ * the report id, the screen, the path, the connection state, the version. The staff name, the
+ * device, the clock and the PostHog ids stay in the row and the email (`staffReportFacts`).
+ */
+export function staffReportIssueFacts(
+  r: Pick<StaffReportRecord, "id" | "screen" | "path" | "connection" | "appVersion">,
+): [label: string, value: string][] {
+  return [
+    ["Report", shortReportId(r.id)],
+    ["Screen", r.screen],
+    ["Path", r.path],
+    ["Connection", r.connection],
+    ["Version", r.appVersion ?? "unknown"],
+  ];
+}
+
+/** The GitHub issue, derived once — from the PUBLIC facts only. */
 export function staffReportIssue(r: StaffReportRecord): { title: string; body: string } {
-  const rows = staffReportFacts(r)
+  const rows = staffReportIssueFacts(r)
     .map(([k, v]) => `| ${k} | ${v.replace(/\|/g, "\\|").replace(/\r?\n/g, " ")} |`)
     .join("\n");
   const body = [
@@ -131,7 +151,7 @@ export function staffReportIssue(r: StaffReportRecord): { title: string; body: s
     "| --- | --- |",
     rows,
     "",
-    `Row \`${r.id}\` in \`qr_staff_reports\` (status \`open\`). Filed automatically from the staff console's Help sheet.`,
+    `Row \`${r.id}\` in \`qr_staff_reports\` (status \`open\`; who filed it, the device and the session ids are on the row and in the email, not here — this repository is public). Filed automatically from the staff console's Help sheet.`,
   ].join("\n");
   return { title: staffReportTitle(r), body };
 }

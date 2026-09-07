@@ -16,14 +16,18 @@ sent, the device (UA · viewport · online · timezone · clock) and the PostHog
 captured exceptions be found. It is filed THREE ways, each honest about what it is: **the row**
 (`qr_staff_reports`, written FIRST, behind the staff gate, identity from the verified session),
 **the email** (Resend, to the admin address, after the row), **the issue** (a GitHub issue on this
-repository with the diagnostics table, label `staff-report`, best-effort on the owner's token —
-C17). Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
+repository, label `staff-report`, best-effort on the owner's token — C17). **This repository is
+PUBLIC, so the issue is public**: it carries the person's words and the five facts a bug needs
+(report id · screen · path · connection · version) and NOTHING about the person or the device —
+the staff name, the user agent, the clock and the PostHog ids go to the row and the email alone,
+pinned by a test that greps the issue body for each of them. Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
 report whose deliveries both failed is still a report, and the person's own list under the form
 — "Your reports", newest first, with a status chip (Received · Being looked at · Fixed) and an
 "On the team's list" chip only when an issue really opened — shows only what the row says.
 
 **The gate is keyed, not sentenced.** `submitStaffReport` answers `outage` (the W10b unknowable
-answer — never a sign-in ask to a cook mid-outage), `auth`, `invalid` or `save`, so the sheet
+answer — never a sign-in ask to a cook mid-outage), `auth`, `invalid`, `rate` (five per person per
+ten minutes — a public list and a stuck tap; a failed COUNT never blocks a report) or `save`, so the sheet
 renders each refusal in the device language; the Zod rail (`staffReportInput`, no identity field
 to forge, `.strict()` device) mirrors every bound as a CHECK on the table (`supabase/tests/`
 `p7_staff_reports_test.sql` watches seven refusals and that a 2000-character report still passes),
@@ -35,7 +39,7 @@ focus to the sent card ("Got it — we're on it. Report 9F1C2A3B is saved.") and
 The field is 17px so iOS never zooms into it. `after()` runs the deliveries post-response; the
 issue goes first so the email can link it.
 
-**31 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
+**32 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
 sentence that tells Mom the problem is ours now; the failure sentence on the screen that reports
 failures — band 52). `lib/staff-report.ts` is the pure part (bounds · the short id a person reads
 back · exact status parse · the issue title and body derived ONCE, the words fenced so their
@@ -49,18 +53,20 @@ on the one-file MCP path (M159); until then the row insert fails and the sheet s
 "Couldn't save the report — try again", honestly. The owner config (the GitHub token, the label,
 the commit-SHA exposure) is **C17**.
 
-**Guards.** `staff-report.test.ts` (7) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
-(10: the keyed gate; a forged staff id stripped; the row before any delivery, with `after()`
+**Guards.** `staff-report.test.ts` (8) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
+(12: the keyed gate; the ceiling at exactly five and a failed count never blocking; a forged staff id stripped; the row before any delivery, with `after()`
 queued and run on demand so "nothing delivered at answer time" is a measurement; both outcomes
 recorded as they were; a blocked delivery record logged; the list scoped to the caller) ·
 `HelpButton.test.tsx` +5 (the row on every screen; the field, the facts, ONE live region, the
 list with its chips; the empty refusal; the send with the draft's shape and the focus move; a keyed
 refusal with the words kept; Burmese with the Latin values marked and the screen's word not) ·
 `help.test` +1 (the screen's name key is the door's word) · the M82 busy-callers guard moves
-`HelpButton` to GUARDED. Four `verify:slice` mutants on the action (outage read as sign-in · the
-gate admitting anon · identity from the client · a failed email recorded as sent) — **471** now,
-93 target modules (83 under `apps/qr/lib`). Eight watched go red on induced defects. Counts
-re-measured (1914 qr + 142 ui tests).
+`HelpButton` to GUARDED. Five `verify:slice` mutants on the action (outage read as sign-in · the
+gate admitting anon · identity from the client · a failed email recorded as sent · the ceiling
+off by one) — **472** now, 93 target modules (83 under `apps/qr/lib`). Eleven watched go red on
+induced defects (the three after the public-repo re-read: the issue naming the person; the
+ceiling admitting a sixth; a failed count blocking a report). Counts re-measured (1917 qr + 142
+ui tests).
 
 ### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
 

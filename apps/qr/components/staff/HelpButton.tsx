@@ -195,7 +195,7 @@ export function HelpButton(props: HelpProps) {
       screen,
       message: text,
       lang,
-      path: window.location.pathname,
+      path: window.location.pathname.slice(0, 200),
       connection,
       appVersion: APP_VERSION,
       device: {
@@ -227,7 +227,9 @@ export function HelpButton(props: HelpProps) {
             ? "report.err.outage"
             : res.reason === "auth"
               ? "report.err.auth"
-              : "report.err.save",
+              : res.reason === "rate"
+                ? "report.err.rate"
+                : "report.err.save",
         );
         return;
       }

@@ -6,6 +6,7 @@ import {
   shortReportId,
   staffReportFacts,
   staffReportIssue,
+  staffReportIssueFacts,
   staffReportTitle,
   type StaffReportRecord,
 } from "./staff-report";
@@ -64,16 +65,51 @@ describe("staff-report — the issue, derived once", () => {
     expect(body).toContain("```text\n## not a heading\n` ` `\nrm -rf\n` ` `\n```");
     expect(body.match(/```/g)?.length).toBe(2);
   });
-  it("carries the facts as a table — the report id, no email address, pipes escaped", () => {
-    const rec = { ...base, device: { ua: "Safari | iPad", viewport: "1024×768", online: true } };
+  it("the issue is PUBLIC: it carries the five bug facts and NOTHING about the person or the device", () => {
+    const rec = {
+      ...base,
+      path: "/staff/kitchen?x=a|b",
+      device: {
+        ua: "Safari | iPad",
+        viewport: "1024×768",
+        online: true,
+        posthogDistinctId: "d-1",
+        posthogSessionId: "s-1",
+        tz: "America/Los_Angeles",
+      },
+    };
     const { body } = staffReportIssue(rec);
     expect(body).toContain("| Report | 9F1C2A3B |");
+    expect(body).toContain("| Screen | kitchen |");
+    expect(body).toContain("| Path | /staff/kitchen?x=a\\|b |");
     expect(body).toContain("| Connection | not_updating |");
-    expect(body).toContain("| Reported by | Daw Aye |");
-    expect(body).toContain("| User agent | Safari \\| iPad |");
-    expect(body).toContain("| Online | yes |");
+    expect(body).toContain("| Version | 7640e01 |");
+    for (const secret of [
+      "Daw Aye",
+      "Safari",
+      "1024×768",
+      "d-1",
+      "s-1",
+      "America/Los_Angeles",
+      "Online",
+    ])
+      expect(body).not.toContain(secret);
     expect(body).toContain("Row `9f1c2a3b-4d5e-4f60-8a7b-0c1d2e3f4a5b` in `qr_staff_reports`");
-    expect(staffReportFacts(rec).map(([k]) => k)).not.toContain("Email");
+    expect(staffReportIssueFacts(rec).map(([k]) => k)).toEqual([
+      "Report",
+      "Screen",
+      "Path",
+      "Connection",
+      "Version",
+    ]);
+  });
+  it("the EMAIL's facts carry the person and the device — the row and the inbox are private", () => {
+    const rec = { ...base, device: { ua: "Safari | iPad", online: true } };
+    const facts = staffReportFacts(rec);
+    expect(facts).toContainEqual(["Reported by", "Daw Aye"]);
+    expect(facts).toContainEqual(["User agent", "Safari | iPad"]);
+    expect(facts).toContainEqual(["Online", "yes"]);
+    expect(facts.map(([k]) => k)).not.toContain("Email");
   });
   it("optional device facts appear only when present; a missing version reads as unknown", () => {
     const labels = staffReportFacts({ ...base, appVersion: null }).map(([k]) => k);

@@ -32,6 +32,7 @@ const calls: Call[] = [];
 let insertResult: { data: unknown; error: { message: string } | null };
 let updateResult: { data: unknown; error: { message: string } | null };
 let listResult: { data: unknown; error: { message: string } | null };
+let countResult: { count: number | null; error: { message: string } | null };
 function from(table: string) {
   return {
     insert: (row: unknown) => {
@@ -47,12 +48,18 @@ function from(table: string) {
         },
       };
     },
-    select: (cols: string) => {
-      calls.push({ table, op: "select", args: cols });
+    select: (cols: string, opts?: { count?: string; head?: boolean }) => {
+      calls.push({ table, op: opts?.head ? "count" : "select", args: cols });
       return {
         eq: (col: string, val: string) => {
-          calls.push({ table, op: "select.eq", args: [col, val] });
-          return { order: () => ({ limit: async () => listResult }) };
+          calls.push({ table, op: opts?.head ? "count.eq" : "select.eq", args: [col, val] });
+          return {
+            order: () => ({ limit: async () => listResult }),
+            gte: async (gcol: string, gval: string) => {
+              calls.push({ table, op: "count.gte", args: [gcol, gval] });
+              return countResult;
+            },
+          };
         },
       };
     },
@@ -86,6 +93,7 @@ beforeEach(() => {
   insertResult = { data: { id: ID, created_at: "2026-09-07T05:30:00.000Z" }, error: null };
   updateResult = { data: [{ id: ID }], error: null };
   listResult = { data: [], error: null };
+  countResult = { count: 0, error: null };
   createStaffReportIssue.mockResolvedValue({
     ok: true,
     url: "https://github.com/min-hinthar/mms-platform/issues/300",
@@ -120,6 +128,29 @@ describe("submitStaffReport — the gate, keyed", () => {
   });
 });
 
+describe("submitStaffReport — the ceiling", () => {
+  it("refuses the SIXTH report in ten minutes with `rate`, counted per staff row, and never writes it", async () => {
+    getStaffAuth.mockResolvedValue(staff);
+    countResult = { count: 5, error: null };
+    await expect(submitStaffReport(draft)).resolves.toEqual({ ok: false, reason: "rate" });
+    expect(calls.find((c) => c.op === "count.eq")!.args).toEqual(["staff_id", "s-1"]);
+    const gte = calls.find((c) => c.op === "count.gte")!.args as [string, string];
+    expect(gte[0]).toBe("created_at");
+    expect(Date.now() - new Date(gte[1]).getTime()).toBeGreaterThanOrEqual(10 * 60_000 - 1000);
+    expect(calls.some((c) => c.op === "insert")).toBe(false);
+    // The fifth is still allowed.
+    calls.length = 0;
+    countResult = { count: 4, error: null };
+    expect((await submitStaffReport(draft)).ok).toBe(true);
+  });
+  it("a failed COUNT never blocks a report — the row matters more than the ceiling", async () => {
+    getStaffAuth.mockResolvedValue(staff);
+    countResult = { count: null, error: { message: "boom" } };
+    expect((await submitStaffReport(draft)).ok).toBe(true);
+    expect(calls.some((c) => c.op === "insert")).toBe(true);
+  });
+});
+
 describe("submitStaffReport — the row, then the deliveries", () => {
   it("writes the row under the SESSION's identity (a forged staff id is stripped), trimmed, and answers the short id", async () => {
     getStaffAuth.mockResolvedValue(staff);
@@ -148,7 +179,10 @@ describe("submitStaffReport — the row, then the deliveries", () => {
     expect(createStaffReportIssue).toHaveBeenCalledTimes(1);
     const issueArg = createStaffReportIssue.mock.calls[0]![0] as { title: string; body: string };
     expect(issueArg.title).toBe("[staff report] kitchen: Bump did nothing on T4");
-    expect(issueArg.body).toContain("| Reported by | Daw Aye |");
+    // The repository is public: the issue names the report, never the person.
+    expect(issueArg.body).toContain("| Report | 9F1C2A3B |");
+    expect(issueArg.body).not.toContain("Daw Aye");
+    expect(issueArg.body).not.toContain("Safari");
     expect(sendStaffReportEmail).toHaveBeenCalledTimes(1);
     expect(sendStaffReportEmail.mock.calls[0]![0]).toMatchObject({
       id: ID,

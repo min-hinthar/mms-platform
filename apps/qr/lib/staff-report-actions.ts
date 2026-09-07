@@ -7,6 +7,8 @@ import { sendStaffReportEmail } from "./email";
 import { createStaffReportIssue } from "./github-issues";
 import {
   REPORT_LIST_LIMIT,
+  REPORT_RATE_MAX,
+  REPORT_RATE_WINDOW_MS,
   shortReportId,
   staffReportIssue,
   type StaffReportRecord,
@@ -23,11 +25,16 @@ import {
  * The reporter's identity comes from the VERIFIED session (`getStaffAuth`), never from the input —
  * `staffReportInput` has no identity field to forge. The three refusals are keyed, not sentences,
  * so the sheet renders them in the device language: `outage` (the answer is unknowable — the same
- * W10b distinction every staff arm keeps), `auth` (no staff session), `invalid` / `save`.
+ * W10b distinction every staff arm keeps), `auth` (no staff session), `invalid`, `rate` (five per
+ * person per ten minutes — the list is public and a stuck tap must not flood it), `save`.
+ *
+ * THE ISSUE IS PUBLIC: this repository is public on GitHub, so the issue carries only the words and
+ * the five facts a bug needs (`staffReportIssueFacts`); the reporter's name, the device and the
+ * PostHog ids go to the row and the email alone.
  */
 export type SubmitStaffReportResult =
   | { ok: true; id: string; shortId: string }
-  | { ok: false; reason: "outage" | "auth" | "invalid" | "save" };
+  | { ok: false; reason: "outage" | "auth" | "invalid" | "rate" | "save" };
 
 export type StaffReportRow = {
   id: string;
@@ -49,8 +56,19 @@ export async function submitStaffReport(input: unknown): Promise<SubmitStaffRepo
   const parsed = staffReportInput.safeParse(input);
   if (!parsed.success) return { ok: false, reason: "invalid" };
   const d = parsed.data;
+  const db = serviceClient();
 
-  const { data: row, error } = await serviceClient()
+  // The ceiling: a stuck tap or a bored thumb must not flood the team's list. A failed COUNT never
+  // blocks a report — the row matters more than the ceiling — so only a real count refuses.
+  const since = new Date(Date.now() - REPORT_RATE_WINDOW_MS).toISOString();
+  const { count, error: countErr } = await db
+    .from("qr_staff_reports")
+    .select("id", { count: "exact", head: true })
+    .eq("staff_id", auth.caller.staffId)
+    .gte("created_at", since);
+  if (!countErr && (count ?? 0) >= REPORT_RATE_MAX) return { ok: false, reason: "rate" };
+
+  const { data: row, error } = await db
     .from("qr_staff_reports")
     .insert({
       staff_id: auth.caller.staffId,

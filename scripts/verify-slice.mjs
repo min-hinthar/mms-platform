@@ -3931,6 +3931,15 @@ const MUTANTS = [
       "      staff_id: (input as { staff_id?: string }).staff_id ?? auth.caller.staffId,\n      staff_name: auth.caller.displayName,",
   },
   {
+    id: "staff-report/ceiling-off-by-one",
+    file: "apps/qr/lib/staff-report-actions.ts",
+    suite: "lib/staff-report-actions.test.ts",
+    why: "P7·4 — the ceiling is FIVE per person per ten minutes: the issue list is public and a stuck tap files a report per repaint. `>` admits a sixth, and every one after it — the suite carries exactly five already sent",
+    find: '  if (!countErr && (count ?? 0) >= REPORT_RATE_MAX) return { ok: false, reason: "rate" };',
+    replace:
+      '  if (!countErr && (count ?? 0) > REPORT_RATE_MAX) return { ok: false, reason: "rate" };',
+  },
+  {
     id: "staff-report/email-recorded-as-sent-when-it-failed",
     file: "apps/qr/lib/staff-report-actions.ts",
     suite: "lib/staff-report-actions.test.ts",
