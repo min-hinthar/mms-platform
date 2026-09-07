@@ -5,10 +5,12 @@ import { staffReportInput } from "@mms/db/schemas";
 import { getStaffAuth } from "./staff";
 import { sendStaffReportEmail } from "./email";
 import { createStaffReportIssue } from "./github-issues";
+import { APP_VERSION } from "./app-version";
 import {
   REPORT_LIST_LIMIT,
   REPORT_RATE_MAX,
   REPORT_RATE_WINDOW_MS,
+  isTableMissing,
   shortReportId,
   staffReportIssue,
   type StaffReportRecord,
@@ -34,7 +36,7 @@ import {
  */
 export type SubmitStaffReportResult =
   | { ok: true; id: string; shortId: string }
-  | { ok: false; reason: "outage" | "auth" | "invalid" | "rate" | "save" };
+  | { ok: false; reason: "outage" | "auth" | "invalid" | "rate" | "off" | "save" };
 
 export type StaffReportRow = {
   id: string;
@@ -47,7 +49,7 @@ export type StaffReportRow = {
 
 export type ListMyStaffReportsResult =
   | { ok: true; rows: StaffReportRow[] }
-  | { ok: false; reason: "outage" | "auth" | "read" };
+  | { ok: false; reason: "outage" | "auth" | "off" | "read" };
 
 export async function submitStaffReport(input: unknown): Promise<SubmitStaffReportResult> {
   const auth = await getStaffAuth();
@@ -66,6 +68,7 @@ export async function submitStaffReport(input: unknown): Promise<SubmitStaffRepo
     .select("id", { count: "exact", head: true })
     .eq("staff_id", auth.caller.staffId)
     .gte("created_at", since);
+  if (countErr && isTableMissing(countErr)) return { ok: false, reason: "off" };
   if (!countErr && (count ?? 0) >= REPORT_RATE_MAX) return { ok: false, reason: "rate" };
 
   const { data: row, error } = await db
@@ -78,12 +81,16 @@ export async function submitStaffReport(input: unknown): Promise<SubmitStaffRepo
       message: d.message,
       lang: d.lang,
       connection: d.connection,
-      app_version: d.appVersion,
+      // The deployed build, stamped HERE — a build fact, never the client's word for it.
+      app_version: APP_VERSION,
       device: d.device,
     })
     .select("id, created_at")
     .single();
   if (error || !row) {
+    // Before M159 the table does not exist on prod: say the door is not switched on, never "try
+    // again" for a failure that cannot succeed on retry.
+    if (isTableMissing(error)) return { ok: false, reason: "off" };
     console.error("[staff-report] insert failed", error?.message);
     return { ok: false, reason: "save" };
   }
@@ -93,6 +100,7 @@ export async function submitStaffReport(input: unknown): Promise<SubmitStaffRepo
     id: row.id,
     createdAt: row.created_at,
     staffName: auth.caller.displayName,
+    appVersion: APP_VERSION,
   };
   // Post-response: the person has their id already; delivery cannot make the report un-happen.
   after(() => deliverStaffReport(record));
@@ -101,26 +109,37 @@ export async function submitStaffReport(input: unknown): Promise<SubmitStaffRepo
 
 /**
  * Best-effort delivery, recorded honestly. The issue goes first so the email can link it; each
- * step's outcome is written to the row as it was, not as it was hoped. Never throws.
+ * step's outcome is written to the row as it was, not as it was hoped. Never throws — each step is
+ * its own try, so a template that throws or a client that cannot be built still leaves the steps
+ * before it recorded (an opened issue must never go unrecorded because the email blew up).
  */
 async function deliverStaffReport(r: StaffReportRecord): Promise<void> {
-  const issue = await createStaffReportIssue(staffReportIssue(r));
-  const email = await sendStaffReportEmail({
-    ...r,
-    shortId: shortReportId(r.id),
-    issueUrl: issue.ok ? issue.url : null,
-  });
-  const { data, error } = await serviceClient()
-    .from("qr_staff_reports")
-    .update({
-      issue_url: issue.ok ? issue.url : null,
-      emailed_at: email.ok ? new Date().toISOString() : null,
-    })
-    .eq("id", r.id)
-    .select("id");
-  // `.update()` reports no row count — a blocked write would read as success without this.
-  if (error || !data || data.length === 0)
-    console.error("[staff-report] could not record delivery", r.id, error?.message ?? "no row");
+  let issueUrl: string | null = null;
+  let emailedAt: string | null = null;
+  try {
+    const issue = await createStaffReportIssue(staffReportIssue(r));
+    if (issue.ok) issueUrl = issue.url;
+  } catch (e) {
+    console.error("[staff-report] issue step threw", r.id, (e as Error).message);
+  }
+  try {
+    const email = await sendStaffReportEmail({ ...r, shortId: shortReportId(r.id), issueUrl });
+    if (email.ok) emailedAt = new Date().toISOString();
+  } catch (e) {
+    console.error("[staff-report] email step threw", r.id, (e as Error).message);
+  }
+  try {
+    const { data, error } = await serviceClient()
+      .from("qr_staff_reports")
+      .update({ issue_url: issueUrl, emailed_at: emailedAt })
+      .eq("id", r.id)
+      .select("id");
+    // `.update()` reports no row count — a blocked write would read as success without this.
+    if (error || !data || data.length === 0)
+      console.error("[staff-report] could not record delivery", r.id, error?.message ?? "no row");
+  } catch (e) {
+    console.error("[staff-report] could not record delivery", r.id, (e as Error).message);
+  }
 }
 
 /** The reporter's own reports, newest first — "a row you can see". */
@@ -134,7 +153,7 @@ export async function listMyStaffReports(): Promise<ListMyStaffReportsResult> {
     .eq("staff_id", auth.caller.staffId)
     .order("created_at", { ascending: false })
     .limit(REPORT_LIST_LIMIT);
-  if (error || !data) return { ok: false, reason: "read" };
+  if (error || !data) return { ok: false, reason: isTableMissing(error) ? "off" : "read" };
   return {
     ok: true,
     rows: data.map((r) => ({

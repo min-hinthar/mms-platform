@@ -43,16 +43,28 @@ export type StaffReportDraft = {
   lang: "en" | "my";
   path: string;
   connection: ReportConnection;
-  appVersion: string | null;
   device: StaffReportDevice;
 };
 
-/** A saved report as the three deliveries see it: the draft plus what the server knows. */
+/** A saved report as the three deliveries see it: the draft plus what the SERVER knows — the id,
+ *  the reporter, and the deployed version (stamped server-side: a build fact, never client input). */
 export type StaffReportRecord = StaffReportDraft & {
   id: string;
   createdAt: string;
   staffName: string;
+  appVersion: string | null;
 };
+
+/**
+ * The table is not there yet: PostgREST answers `PGRST205` (not in its schema cache) and Postgres
+ * `42P01` (undefined_table). Before M159 applies the migration to prod that is the state of the
+ * world, and "try again" would be a lie — the sheet says the door is not switched on instead.
+ */
+export function isTableMissing(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  return error?.code === "42P01" || error?.code === "PGRST205";
+}
 
 /** The id a person reads back to us: the first eight hex characters, upper-cased. */
 export function shortReportId(id: string): string {
@@ -135,10 +147,17 @@ export function staffReportIssueFacts(
   ];
 }
 
-/** The GitHub issue, derived once — from the PUBLIC facts only. */
+/** A table cell as a CODE SPAN, so a client-shaped value (the path) cannot render as markdown —
+ *  an image, a link — inside a table the issue presents as machine-collected. Backticks and line
+ *  breaks become spaces; pipes are escaped for the table. */
+function cell(v: string): string {
+  return "`" + v.replace(/[`\r\n]+/g, " ").replace(/\|/g, "\\|") + "`";
+}
+
+/** The GitHub issue, derived once — from the PUBLIC facts only, every value a code span. */
 export function staffReportIssue(r: StaffReportRecord): { title: string; body: string } {
   const rows = staffReportIssueFacts(r)
-    .map(([k, v]) => `| ${k} | ${v.replace(/\|/g, "\\|").replace(/\r?\n/g, " ")} |`)
+    .map(([k, v]) => `| ${k} | ${cell(v)} |`)
     .join("\n");
   const body = [
     "## What happened",

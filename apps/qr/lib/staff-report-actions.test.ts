@@ -29,10 +29,11 @@ const runAfters = () => Promise.all(afters.splice(0).map((fn) => fn()));
 
 type Call = { table: string; op: string; args: unknown };
 const calls: Call[] = [];
-let insertResult: { data: unknown; error: { message: string } | null };
-let updateResult: { data: unknown; error: { message: string } | null };
-let listResult: { data: unknown; error: { message: string } | null };
-let countResult: { count: number | null; error: { message: string } | null };
+type Err = { message: string; code?: string } | null;
+let insertResult: { data: unknown; error: Err };
+let updateResult: { data: unknown; error: Err };
+let listResult: { data: unknown; error: Err };
+let countResult: { count: number | null; error: Err };
 function from(table: string) {
   return {
     insert: (row: unknown) => {
@@ -80,7 +81,6 @@ const draft = {
   lang: "my",
   path: "/staff/kitchen",
   connection: "not_updating",
-  appVersion: "7640e01",
   device: { ua: "Safari", online: true, posthogDistinctId: "d-1" },
 };
 
@@ -166,9 +166,29 @@ describe("submitStaffReport — the row, then the deliveries", () => {
       message: "Bump did nothing on T4",
       lang: "my",
       connection: "not_updating",
-      app_version: "7640e01",
+      // The build is stamped by the SERVER (`dev` here — no commit SHA in the test env), never
+      // taken from the client: a version is a fact about the deployment, not a field to fill in.
+      app_version: "dev",
       device: { ua: "Safari", online: true, posthogDistinctId: "d-1" },
     });
+  });
+  it("a client-sent version is ignored — the row carries the server's own build", async () => {
+    getStaffAuth.mockResolvedValue(staff);
+    await submitStaffReport({ ...draft, appVersion: "9.9.9-forged" });
+    const insert = calls.find((c) => c.op === "insert")!;
+    expect((insert.args as { app_version: string }).app_version).toBe("dev");
+  });
+  it("a missing table is `off` — never `save` — at the count, the insert and the list", async () => {
+    getStaffAuth.mockResolvedValue(staff);
+    countResult = { count: null, error: { message: "Could not find the table", code: "PGRST205" } };
+    await expect(submitStaffReport(draft)).resolves.toEqual({ ok: false, reason: "off" });
+    expect(calls.some((c) => c.op === "insert")).toBe(false);
+    countResult = { count: 0, error: null };
+    insertResult = { data: null, error: { message: "relation does not exist", code: "42P01" } };
+    await expect(submitStaffReport(draft)).resolves.toEqual({ ok: false, reason: "off" });
+    expect(afters.length).toBe(0);
+    listResult = { data: null, error: { message: "Could not find the table", code: "PGRST205" } };
+    await expect(listMyStaffReports()).resolves.toEqual({ ok: false, reason: "off" });
   });
   it("delivers AFTER the answer — issue first so the email can link it — and records both outcomes", async () => {
     getStaffAuth.mockResolvedValue(staff);
@@ -180,7 +200,7 @@ describe("submitStaffReport — the row, then the deliveries", () => {
     const issueArg = createStaffReportIssue.mock.calls[0]![0] as { title: string; body: string };
     expect(issueArg.title).toBe("[staff report] kitchen: Bump did nothing on T4");
     // The repository is public: the issue names the report, never the person.
-    expect(issueArg.body).toContain("| Report | 9F1C2A3B |");
+    expect(issueArg.body).toContain("| Report | `9F1C2A3B` |");
     expect(issueArg.body).not.toContain("Daw Aye");
     expect(issueArg.body).not.toContain("Safari");
     expect(sendStaffReportEmail).toHaveBeenCalledTimes(1);
@@ -207,6 +227,22 @@ describe("submitStaffReport — the row, then the deliveries", () => {
     expect(sendStaffReportEmail.mock.calls[0]![0]).toMatchObject({ issueUrl: null });
     const update = calls.find((c) => c.op === "update")!;
     expect(update.args).toEqual({ issue_url: null, emailed_at: null });
+  });
+  it("an email step that THROWS still leaves the opened issue recorded — each step is its own try", async () => {
+    getStaffAuth.mockResolvedValue(staff);
+    sendStaffReportEmail.mockRejectedValue(new Error("template blew up"));
+    await submitStaffReport(draft);
+    await runAfters();
+    const update = calls.find((c) => c.op === "update")!;
+    expect(update.args).toEqual({
+      issue_url: "https://github.com/min-hinthar/mms-platform/issues/300",
+      emailed_at: null,
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "[staff-report] email step threw",
+      ID,
+      "template blew up",
+    );
   });
   it("a blocked delivery record is logged, not hidden (an update reports no row count)", async () => {
     getStaffAuth.mockResolvedValue(staff);

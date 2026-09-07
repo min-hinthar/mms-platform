@@ -11,7 +11,8 @@ phone").** The Help sheet gets its third row on every screen: **Something's wron
 from the person, and the app sends what it can see with them — the screen (by the door's own word,
 never the how-view's sentence), the time, what the board believes about its feed (`live` ·
 `not_updating` · `page`, handed in by the board, never guessed), the deployed version
-(`NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, `dev` when unset — never a fabricated one), and, unlisted but
+(`NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, `dev` when unset — never a fabricated one, and stamped by the
+SERVER on the row: a build fact, not a field the client fills in), and, unlisted but
 sent, the device (UA · viewport · online · timezone · clock) and the PostHog ids that let the
 captured exceptions be found. It is filed THREE ways, each honest about what it is: **the row**
 (`qr_staff_reports`, written FIRST, behind the staff gate, identity from the verified session),
@@ -20,7 +21,9 @@ repository, label `staff-report`, best-effort on the owner's token — C17). **T
 PUBLIC, so the issue is public**: it carries the person's words and the five facts a bug needs
 (report id · screen · path · connection · version) and NOTHING about the person or the device —
 the staff name, the user agent, the clock and the PostHog ids go to the row and the email alone,
-pinned by a test that greps the issue body for each of them. Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
+pinned by a test that greps the issue body for each of them — and every cell of that table is a
+CODE SPAN, so a client-shaped value (the path) cannot render as an image or a link inside a table
+the issue presents as machine-collected. Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
 report whose deliveries both failed is still a report, and the person's own list under the form
 — "Your reports", newest first, with a status chip (Received · Being looked at · Fixed) and an
 "On the team's list" chip only when an issue really opened — shows only what the row says.
@@ -39,7 +42,7 @@ focus to the sent card ("Got it — we're on it. Report 9F1C2A3B is saved.") and
 The field is 17px so iOS never zooms into it. `after()` runs the deliveries post-response; the
 issue goes first so the email can link it.
 
-**32 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
+**33 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
 sentence that tells Mom the problem is ours now; the failure sentence on the screen that reports
 failures — band 52). `lib/staff-report.ts` is the pure part (bounds · the short id a person reads
 back · exact status parse · the issue title and body derived ONCE, the words fenced so their
@@ -49,24 +52,51 @@ anything but a 201 carrying a `github.com` URL → `failed`); `emails/StaffRepor
 the same facts table.
 
 **Prod: the migration is NOT applied.** `20260907000000_p7_staff_reports.sql` waits for Min's go
-on the one-file MCP path (M159); until then the row insert fails and the sheet says
-"Couldn't save the report — try again", honestly. The owner config (the GitHub token, the label,
-the commit-SHA exposure) is **C17**.
+on the one-file MCP path (M159). Until then the door says so: PostgREST's `PGRST205` (and Postgres's
+`42P01`) at the count, the insert or the list is answered `off`, and the sheet replaces the form
+with ONE sentence — "Reports aren't switched on for this app yet — tell a manager in person" —
+never "try again" for a failure that cannot succeed on retry (the blind pass's second CRITICAL:
+the first draft said exactly that). The owner config (the GitHub token, the label, the commit-SHA
+exposure) is **C17**.
 
-**Guards.** `staff-report.test.ts` (8) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
-(12: the keyed gate; the ceiling at exactly five and a failed count never blocking; a forged staff id stripped; the row before any delivery, with `after()`
+**Guards.** `staff-report.test.ts` (10) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
+(15: the keyed gate; the ceiling at exactly five and a failed count never blocking; a forged staff id stripped; a client-sent version ignored; a missing table `off` at the count, the insert and the list; an email step that throws leaving the opened issue recorded; the row before any delivery, with `after()`
 queued and run on demand so "nothing delivered at answer time" is a measurement; both outcomes
 recorded as they were; a blocked delivery record logged; the list scoped to the caller) ·
-`HelpButton.test.tsx` +5 (the row on every screen; the field, the facts, ONE live region, the
-list with its chips; the empty refusal; the send with the draft's shape and the focus move; a keyed
+`HelpButton.test.tsx` +7 (the row on every screen; the field, the facts under their heading, ONE
+live region, the list arriving AFTER "Loading…" through a fixture that settles a macrotask later
+— the first draft's same-tick fixture hid a list stuck on "Loading…" forever, because the effect
+was keyed on the state it set and its own `loading` commit cancelled the read; the door not
+switched on, at open and on a send; the empty refusal; the send with the draft's shape and the focus move; a keyed
 refusal with the words kept; Burmese with the Latin values marked and the screen's word not) ·
 `help.test` +1 (the screen's name key is the door's word) · the M82 busy-callers guard moves
 `HelpButton` to GUARDED. Five `verify:slice` mutants on the action (outage read as sign-in · the
 gate admitting anon · identity from the client · a failed email recorded as sent · the ceiling
-off by one) — **472** now, 93 target modules (83 under `apps/qr/lib`). Eleven watched go red on
+off by one) — **472** now, 93 target modules (83 under `apps/qr/lib`). Seventeen watched go red on
 induced defects (the three after the public-repo re-read: the issue naming the person; the
-ceiling admitting a sixth; a failed count blocking a report). Counts re-measured (1917 qr + 142
-ui tests).
+ceiling admitting a sixth; a failed count blocking a report; and the six after the blind pass:
+the list effect keyed on its own state; a missing table read as "try again"; the version taken
+from the client; an email throw taking the issue record with it; table cells rendered raw; a form
+shown with no table behind it). Counts re-measured (1924 qr + 142 ui tests).
+
+**Blind pass** (`pnpm review:bundle --base claude/feat/p7-3-help` → `adversarial-auditor`,
+lenses: security/privacy · product truth · concurrency/lifecycle) — **REJECT on `7f46cea`, two
+CRITICALs, both verified real and fixed:** (1) "Your reports" never finished loading in a real
+deployment — the list effect was keyed on `mine.state`, so its own `loading` commit ran the cleanup
+and dropped the read; the suite's same-tick fixture could not see it. Re-keyed on a generation
+counter; the fixture now settles after a macrotask. (2) The door shipped with "try again" copy for a
+table that does not exist on prod — now `off`, one honest sentence. Its security findings: the flood
+cap was already in `8ca43fd` (five per person per ten minutes, counted on the row); the markdown
+injection through the facts table was real for the client-shaped path even after the public-facts
+cut — every cell is a code span now. Its guard-integrity findings: the degenerate fixture (fixed as
+above); "handed in, never guessed" versus the counter's `page` default — re-worded (the counter home
+renders the door server-side with no feed state to hand in; `page` names that, it does not guess);
+the unrendered `report.attached` key — rendered now, as the facts list's heading; "never throws" on
+`deliverStaffReport` — each step is its own try, and an email template that throws leaves the opened
+issue recorded. Its open questions: the repository IS public (already handled in `8ca43fd`); the
+GitHub timeout is 6 s so the `after()` budget covers the email and the row update; `display_name`
+is bounded 1..80 on the staff table; the PostHog ids are cut to the rail's 120. Hand-triaged after
+the fixes; no second agent round.
 
 ### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
 

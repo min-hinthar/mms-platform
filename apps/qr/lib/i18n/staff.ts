@@ -1962,6 +1962,10 @@ export const STAFF = {
     en: "You’ve sent a few just now — give it a moment.",
     my: "ခုနကပဲ အနည်းငယ် ပို့ထားပြီးပြီ — ခဏ စောင့်ပါ။",
   },
+  "report.off": {
+    en: "Reports aren’t switched on for this app yet — tell a manager in person.",
+    my: "ဒီအက်ပ်မှာ အစီရင်ခံစာ မဖွင့်ရသေးပါ — မန်နေဂျာကို လူချင်း ပြောပါ။",
+  },
   "report.err.save": {
     en: "Couldn’t save the report — try again.",
     my: "အစီရင်ခံစာ မသိမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",

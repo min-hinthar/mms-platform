@@ -32,8 +32,11 @@ beforeEach(() => {
   localStorage.clear();
   submitStaffReport.mockReset();
   listMyStaffReports.mockReset();
-  listMyStaffReports.mockResolvedValue({ ok: true, rows: [] });
+  // Settles after a MACROTASK, the way a real round-trip does. A same-tick fixture hid the first
+  // draft's stuck list: the effect keyed on the state it set cancelled its own read.
+  listMyStaffReports.mockImplementation(() => later({ ok: true, rows: [] }));
 });
+const later = <T,>(value: T) => new Promise<T>((r) => setTimeout(() => r(value), 0));
 
 const seen = (screen: "kitchen" | "counter" | "expo") =>
   localStorage.setItem(helpSeenKey(screen), "1");
@@ -252,29 +255,32 @@ describe("HelpButton", () => {
     };
 
     it("opens onto a labelled field, the facts sent with it, ONE live region, and loads the reporter's list", async () => {
-      listMyStaffReports.mockResolvedValue({
-        ok: true,
-        rows: [
-          {
-            id: "9f1c2a3b-4d5e-4f60-8a7b-0c1d2e3f4a5b",
-            shortId: "9F1C2A3B",
-            createdAt: "2026-09-07T05:30:00.000Z",
-            message: "Bump did nothing",
-            status: "triaged",
-            issueUrl: "https://github.com/min-hinthar/mms-platform/issues/300",
-          },
-          {
-            id: "abcdef01-2345-4789-abcd-ef0123456789",
-            shortId: "ABCDEF01",
-            createdAt: "2026-09-06T05:30:00.000Z",
-            message: "Old one",
-            status: "open",
-            issueUrl: null,
-          },
-        ],
-      });
+      listMyStaffReports.mockImplementation(() =>
+        later({
+          ok: true,
+          rows: [
+            {
+              id: "9f1c2a3b-4d5e-4f60-8a7b-0c1d2e3f4a5b",
+              shortId: "9F1C2A3B",
+              createdAt: "2026-09-07T05:30:00.000Z",
+              message: "Bump did nothing",
+              status: "triaged",
+              issueUrl: "https://github.com/min-hinthar/mms-platform/issues/300",
+            },
+            {
+              id: "abcdef01-2345-4789-abcd-ef0123456789",
+              shortId: "ABCDEF01",
+              createdAt: "2026-09-06T05:30:00.000Z",
+              message: "Old one",
+              status: "open",
+              issueUrl: null,
+            },
+          ],
+        }),
+      );
       const field = await openReport({ connection: "not_updating" });
       expect((field as HTMLTextAreaElement).maxLength).toBe(2000);
+      expect(screen.getByText("Sent with it")).not.toBeNull();
       const facts = screen.getByRole("list", { name: "Sent with the report" });
       expect(facts.textContent).toMatch(/Screen: Takeaway bags/);
       expect(facts.textContent).toMatch(/Connection: not updating/);
@@ -283,7 +289,8 @@ describe("HelpButton", () => {
       const regions = dialog().querySelectorAll('[role="status"], [aria-live]');
       expect(regions.length).toBe(1);
       expect(regions[0]!.textContent).toBe("");
-      // The reporter's own list, with the status chips and the issue chip.
+      // The reporter's own list arrives AFTER "Loading…" — the round-trip settles a macrotask later.
+      expect(screen.getByText("Loading…")).not.toBeNull();
       const mine = await screen.findByRole("list", { name: "Your reports" });
       expect(mine.querySelectorAll("li").length).toBe(2);
       expect(mine.textContent).toContain("Being looked at");
@@ -318,8 +325,8 @@ describe("HelpButton", () => {
         message: "Bump did nothing on T4",
         lang: "en",
         connection: "live",
-        appVersion: "dev",
       });
+      expect("appVersion" in draft).toBe(false); // the server stamps its own build
       expect(typeof draft.path).toBe("string");
       expect(draft.device).toMatchObject({ posthogDistinctId: "ph-d1", posthogSessionId: "ph-s1" });
       const card = await screen.findByText("Got it — we’re on it.");
@@ -327,6 +334,27 @@ describe("HelpButton", () => {
       expect(screen.getByText(/Report 9F1C2A3B is saved/)).not.toBeNull();
       expect(screen.queryByRole("textbox")).toBeNull();
       await waitFor(() => expect(listMyStaffReports).toHaveBeenCalledTimes(2));
+    });
+
+    it("before the table exists the door says it is not switched on — no form, no 'try again'", async () => {
+      listMyStaffReports.mockImplementation(() => later({ ok: false, reason: "off" }));
+      seen("expo");
+      render(<HelpButton lang="en" screen="expo" />);
+      fireEvent.click(circle());
+      fireEvent.click(await screen.findByRole("button", { name: /Something’s wrong/ }));
+      await screen.findByText(/Reports aren’t switched on for this app yet/);
+      expect(screen.queryByRole("textbox")).toBeNull();
+      expect(screen.queryByText("Your reports")).toBeNull();
+      expect(screen.queryByText(/try again/)).toBeNull();
+    });
+
+    it("a send answered `off` gives the form up for the same sentence", async () => {
+      submitStaffReport.mockResolvedValue({ ok: false, reason: "off" });
+      const field = await openReport();
+      fireEvent.change(field, { target: { value: "T4" } });
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
+      await screen.findByText(/Reports aren’t switched on for this app yet/);
+      expect(screen.queryByRole("textbox")).toBeNull();
     });
 
     it("a keyed refusal renders in the region and the words are kept", async () => {

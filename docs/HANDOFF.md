@@ -91,7 +91,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    keys, every MY a draft.** **PR 4 — "Something's wrong": the sheet's third row → a row in
 >    `qr_staff_reports` (written first, identity from the session) + a Resend email + a GitHub issue
 >    with the diagnostics, outcomes recorded on the row, the person's reports listed back — is BUILT
->    on `claude/feat/p7-4-report`, stacked on PR 3; 32 `report.*` keys, every MY a draft. ⚠️ The
+>    on `claude/feat/p7-4-report`, stacked on PR 3; 33 `report.*` keys, every MY a draft. ⚠️ The
 >    migration is NOT applied to prod (M159 — one-file MCP path, Min's go) and the GitHub token is
 >    owner config (C17).** Merge order is the stack order: #264 → #266 → #267 → #268 → PR 4, each base flipped to `main`
 >    after the one beneath merges (`git merge` main in, never rebase). The build order and every
@@ -107,7 +107,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    (the doors, More, Screens, the three sizes, two tiles), the four PR 1b added (Lock, Locking…,
 >    Console tools, Text size), the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN
 >    vocabulary and the error boundary, the first thing Dad reads — the **42 PR 3 added**, the
->    twelve help cards and the sheet around them — and the **32 PR 4 added**, the report row, its
+>    twelve help cards and the sheet around them — and the **33 PR 4 added**, the report row, its
 >    field, the facts sent with it, the outcomes and the status chips. All marked in
 >    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
 > 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
@@ -521,7 +521,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1917 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
+> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1924 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1413,7 +1413,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1917 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1924 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

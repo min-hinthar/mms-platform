@@ -293,7 +293,6 @@ export const staffReportInput = z.object({
   lang: z.enum(["en", "my"]),
   path: z.string().min(1).max(200),
   connection: z.enum(["live", "not_updating", "page"]),
-  appVersion: z.string().max(64).nullable(),
   device: z
     .object({
       ua: z.string().max(400).optional(),

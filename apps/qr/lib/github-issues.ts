@@ -36,7 +36,10 @@ export async function createStaffReportIssue(issue: {
         "User-Agent": "mms-qr-staff-report",
       },
       body: JSON.stringify({ title: issue.title, body: issue.body, labels: [STAFF_REPORT_LABEL] }),
-      signal: AbortSignal.timeout(10_000),
+      // Inside the function's `after()` budget with the email and the row update still to run
+      // (no `maxDuration` is set, so the platform default — 10–15 s — is the ceiling): a slow GitHub
+      // must not leave an opened issue unrecorded because the function was reaped before the update.
+      signal: AbortSignal.timeout(6_000),
     });
     if (res.status !== 201) {
       console.error("[staff-report] GitHub refused the issue", res.status);

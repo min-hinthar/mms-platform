@@ -3944,8 +3944,8 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-report-actions.ts",
     suite: "lib/staff-report-actions.test.ts",
     why: "P7·4 — delivery outcomes are RECORDED as they were; stamping `emailed_at` on a failed send tells the next reader an owner was told when nobody was",
-    find: "      emailed_at: email.ok ? new Date().toISOString() : null,",
-    replace: "      emailed_at: new Date().toISOString(),",
+    find: "    if (email.ok) emailedAt = new Date().toISOString();",
+    replace: "    emailedAt = new Date().toISOString();",
   },
   {
     id: "staff-door/doors-param-loses-to-remembered-door",

@@ -60,9 +60,7 @@ type HelpProps = {
 /** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
 const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
 
-type MineState =
-  | { state: "idle" | "loading" | "failed"; rows: StaffReportRow[] }
-  | { state: "ready"; rows: StaffReportRow[] };
+type MineState = { state: "idle" | "loading" | "failed" | "off" | "ready"; rows: StaffReportRow[] };
 
 /** A getter that may throw before PostHog is up (tests, a blocked script) → simply absent. */
 function safe(read: () => string | undefined): string | undefined {
@@ -117,6 +115,9 @@ export function HelpButton(props: HelpProps) {
   const [err, setErr] = useState<StaffKey | null>(null);
   const [sent, setSent] = useState<{ shortId: string } | null>(null);
   const [mine, setMine] = useState<MineState>({ state: "idle", rows: [] });
+  // Bumped to re-read the list (after a send). NOT `mine.state`: an effect keyed on the state it
+  // sets cancels its own read — the blind pass found the list stuck on "Loading…" that way.
+  const [mineGen, setMineGen] = useState(0);
   const [pending, startTransition] = useTransition();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const sentRef = useRef<HTMLDivElement>(null);
@@ -154,24 +155,30 @@ export function HelpButton(props: HelpProps) {
     if (open && view === "how") ledeRef.current?.focus();
   }, [open, view, step]);
 
-  // The reporter's own list loads when the report view opens (once per open; a send refreshes it).
-  // The load is a callback, not the effect body, so the first render of the view is honest about
-  // being empty-and-loading rather than flashing "none yet".
+  // The reporter's own list loads when the report view opens, and again when `mineGen` bumps
+  // (after a send). The loading flip and the read live in callbacks, not the effect body; the
+  // effect's deps are the VIEW and the generation only — never the state this effect writes, or
+  // its own `loading` commit would run the cleanup and drop the read (pinned by a fixture that
+  // settles after a macrotask, the way a real round-trip does).
   useEffect(() => {
-    if (!open || view !== "report" || mine.state !== "idle") return;
+    if (!open || view !== "report") return;
     let active = true;
     void Promise.resolve().then(() => {
       if (!active) return;
       setMine((m) => ({ state: "loading", rows: m.rows }));
       void listMyStaffReports().then((res) => {
         if (!active) return;
-        setMine(res.ok ? { state: "ready", rows: res.rows } : { state: "failed", rows: [] });
+        setMine(
+          res.ok
+            ? { state: "ready", rows: res.rows }
+            : { state: res.reason === "off" ? "off" : "failed", rows: [] },
+        );
       });
     });
     return () => {
       active = false;
     };
-  }, [open, view, mine.state]);
+  }, [open, view, mineGen]);
 
   // The sent card takes focus: the send button that had it is gone with the form.
   useEffect(() => {
@@ -187,6 +194,7 @@ export function HelpButton(props: HelpProps) {
       setErr(null);
       setSent(null);
       setMine({ state: "idle", rows: [] });
+      setMineGen(0);
     }
   }
 
@@ -197,15 +205,17 @@ export function HelpButton(props: HelpProps) {
       lang,
       path: window.location.pathname.slice(0, 200),
       connection,
-      appVersion: APP_VERSION,
+      // Every bound here is the rail's (`staffReportInput`) — a value over it would turn the whole
+      // report into `invalid`, so the client cuts, never the server refuses. The version is NOT
+      // sent: the server stamps its own build.
       device: {
         ua: navigator.userAgent.slice(0, 400),
-        viewport: `${window.innerWidth}×${window.innerHeight}`,
+        viewport: `${window.innerWidth}×${window.innerHeight}`.slice(0, 40),
         online: navigator.onLine,
-        tz: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+        tz: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone)?.slice(0, 80),
         clientTime: new Date().toISOString(),
-        posthogDistinctId: safe(() => posthog.get_distinct_id()),
-        posthogSessionId: safe(() => posthog.get_session_id()),
+        posthogDistinctId: safe(() => posthog.get_distinct_id())?.slice(0, 120),
+        posthogSessionId: safe(() => posthog.get_session_id())?.slice(0, 120),
       },
     };
   }
@@ -222,6 +232,11 @@ export function HelpButton(props: HelpProps) {
     startTransition(async () => {
       const res = await submitStaffReport(draft());
       if (!res.ok) {
+        if (res.reason === "off") {
+          // The door is not switched on (no table yet): the form gives way to the one sentence.
+          setMine({ state: "off", rows: [] });
+          return;
+        }
         setErr(
           res.reason === "outage"
             ? "report.err.outage"
@@ -235,7 +250,7 @@ export function HelpButton(props: HelpProps) {
       }
       setText("");
       setSent({ shortId: res.shortId });
-      setMine({ state: "idle", rows: [] }); // re-read: the new row must appear in the list
+      setMineGen((g) => g + 1); // re-read: the new row must appear in the list
     });
   }
 
@@ -463,7 +478,11 @@ export function HelpButton(props: HelpProps) {
 
         {view === "report" && (
           <div className="help-report">
-            {sent ? (
+            {mine.state === "off" ? (
+              <p className="help-report-mine-note">
+                <Chrome lang={lang} k="report.off" echo="stack" />
+              </p>
+            ) : sent ? (
               <div ref={sentRef} tabIndex={-1} className="help-report-sent">
                 <p className="help-report-sent-title">
                   <Chrome lang={lang} k="report.sent" echo="stack" />
@@ -493,6 +512,9 @@ export function HelpButton(props: HelpProps) {
                     if (err === "report.empty") setErr(null);
                   }}
                 />
+                <p className="help-report-mine-title">
+                  <Chrome lang={lang} k="report.attached" echo="inline" />
+                </p>
                 <ul
                   className="help-report-attached"
                   role="list"
@@ -560,10 +582,12 @@ export function HelpButton(props: HelpProps) {
               </>
             )}
 
-            <p className="help-report-mine-title">
-              <Chrome lang={lang} k="report.mine" echo="inline" />
-            </p>
-            {mine.state === "failed" ? (
+            {mine.state !== "off" && (
+              <p className="help-report-mine-title">
+                <Chrome lang={lang} k="report.mine" echo="inline" />
+              </p>
+            )}
+            {mine.state === "off" ? null : mine.state === "failed" ? (
               <p className="help-report-mine-note">
                 <Chrome lang={lang} k="report.mine.failed" echo="stack" />
               </p>

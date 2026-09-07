@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   connectionKey,
+  isTableMissing,
   parseReportStatus,
   reportStatusKey,
   shortReportId,
@@ -79,11 +80,11 @@ describe("staff-report — the issue, derived once", () => {
       },
     };
     const { body } = staffReportIssue(rec);
-    expect(body).toContain("| Report | 9F1C2A3B |");
-    expect(body).toContain("| Screen | kitchen |");
-    expect(body).toContain("| Path | /staff/kitchen?x=a\\|b |");
-    expect(body).toContain("| Connection | not_updating |");
-    expect(body).toContain("| Version | 7640e01 |");
+    expect(body).toContain("| Report | `9F1C2A3B` |");
+    expect(body).toContain("| Screen | `kitchen` |");
+    expect(body).toContain("| Path | `/staff/kitchen?x=a\\|b` |");
+    expect(body).toContain("| Connection | `not_updating` |");
+    expect(body).toContain("| Version | `7640e01` |");
     for (const secret of [
       "Daw Aye",
       "Safari",
@@ -102,6 +103,22 @@ describe("staff-report — the issue, derived once", () => {
       "Connection",
       "Version",
     ]);
+  });
+  it("a client-shaped fact cannot render as markdown inside the table — every cell is a code span", () => {
+    const evil = "[open](https://evil.example) ![](https://evil.example/p.png)";
+    const { body } = staffReportIssue({ ...base, path: evil });
+    expect(body).toContain("| Path | `" + evil + "` |");
+    expect(body).not.toContain("| Path | [open]");
+    // A backtick inside the value cannot close the span; a line break cannot break the table.
+    expect(staffReportIssue({ ...base, path: "a`b\nc" }).body).toContain("| Path | `a b c` |");
+  });
+  it("knows a missing table by either code PostgREST or Postgres answers with", () => {
+    expect(isTableMissing({ code: "PGRST205", message: "Could not find the table" })).toBe(true);
+    expect(isTableMissing({ code: "42P01", message: "relation does not exist" })).toBe(true);
+    expect(isTableMissing({ code: "23514", message: "check_violation" })).toBe(false);
+    expect(isTableMissing({ message: "boom" })).toBe(false);
+    expect(isTableMissing(null)).toBe(false);
+    expect(isTableMissing(undefined)).toBe(false);
   });
   it("the EMAIL's facts carry the person and the device — the row and the inbox are private", () => {
     const rec = { ...base, device: { ua: "Safari | iPad", online: true } };
