@@ -500,6 +500,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             // The sheet portals to <body>, outside `.kds-root.dark`: without this it paints in the
             // document's theme — light on a light-OS tablet — over the Night board.
             sheetClassName="dark"
+            // What the board believes about its feed, for a report's diagnostics — never guessed.
+            connection={degraded ? "not_updating" : "live"}
           />
         }
       />

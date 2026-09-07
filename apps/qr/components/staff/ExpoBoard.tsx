@@ -170,7 +170,9 @@ export function ExpoBoard({
         titleRef={headingRef}
         titleTabIndex={-1}
         after={role ? <RoleBadge role={role} /> : undefined}
-        help={<HelpButton lang={lang} screen="expo" />}
+        help={
+          <HelpButton lang={lang} screen="expo" connection={degraded ? "not_updating" : "live"} />
+        }
         lock={hasPin}
       />
       <div className="staff-col" style={{ maxWidth: 1100, margin: "0 auto" }}>

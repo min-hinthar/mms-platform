@@ -283,6 +283,29 @@ export const staffDoorInput = z.object({
   door: z.enum(["kitchen", "counter"]).nullable(),
 });
 
+/** submitStaffReport (P7·4) — the "Something's wrong" row from the console Help sheet. The
+ *  transport rail: every bound here is ALSO a CHECK on `qr_staff_reports`. The reporter's identity is
+ *  never part of the input — the action takes it from the verified session. `device` is strict so a
+ *  client cannot smuggle extra keys into the jsonb (bounded at the DB as a whole). */
+export const staffReportInput = z.object({
+  screen: z.enum(["kitchen", "counter", "expo"]),
+  message: z.string().trim().min(1).max(2000),
+  lang: z.enum(["en", "my"]),
+  path: z.string().min(1).max(200),
+  connection: z.enum(["live", "not_updating", "page"]),
+  device: z
+    .object({
+      ua: z.string().max(400).optional(),
+      viewport: z.string().max(40).optional(),
+      online: z.boolean().optional(),
+      tz: z.string().max(80).optional(),
+      clientTime: z.string().max(40).optional(),
+      posthogDistinctId: z.string().max(120).optional(),
+      posthogSessionId: z.string().max(120).optional(),
+    })
+    .strict(),
+});
+
 /** setStaffActive (S1.1a) — an owner offboards/reinstates a staff member (never deletes the audit
  *  trail; flips `active`, which is_staff/is_staff_at_least gate on). Owner-gated server-side. */
 export const setStaffActiveInput = z.object({
@@ -751,3 +774,4 @@ export type ReleaseAttemptInput = z.infer<typeof releaseAttemptInput>;
 export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
 export type StaffLangInput = z.infer<typeof staffLangInput>;
 export type StaffDoorInput = z.infer<typeof staffDoorInput>;
+export type StaffReportInput = z.infer<typeof staffReportInput>;

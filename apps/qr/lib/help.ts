@@ -32,6 +32,16 @@ export function helpSeenKey(screen: HelpScreen): string {
 }
 
 /** The sheet's title for a screen's "How this works" view. */
+/** The screen's NAME as the doors and the boards already say it (owner-verified where it is) —
+ *  what a report quotes as "Screen: …". Never the how-view's title, which is a sentence. */
+export function helpScreenNameKey(screen: HelpScreen): StaffKey {
+  return screen === "kitchen"
+    ? "kds.title"
+    : screen === "counter"
+      ? "floor.door.counter"
+      : "expo.title";
+}
+
 export function helpTitleKey(screen: HelpScreen): StaffKey {
   return `help.how.title.${screen}`;
 }

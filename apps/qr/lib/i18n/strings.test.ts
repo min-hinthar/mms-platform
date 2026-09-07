@@ -247,7 +247,7 @@ describe("the dictionary guards", () => {
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
     // like an identifier.
     const SURFACES =
-      /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help)$/;
+      /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

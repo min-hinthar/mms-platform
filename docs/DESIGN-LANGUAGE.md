@@ -693,3 +693,13 @@ built.
   only inside the board's fixed envelope). "Opens itself the first time" is a DEVICE fact
   (localStorage, per screen) kept at open, not at close — written by the pass that opens, so
   StrictMode's discarded first pass cannot spend it.
+- **"Something's wrong" is the sheet's third row, and it files a report three ways without
+  pretending** (P7·4). The row is written FIRST, behind the gate, with the reporter's identity from
+  the verified session (the input has no identity field to forge); the email and the GitHub issue
+  run post-response and what they achieved is RECORDED on the row — the person's own list shows a
+  status chip from the row and an "On the team's list" chip only when an issue really opened. The facts sent are the ones the app can SEE (the screen by the door's own word, the time, the board's own connection state handed in — or `page` where the door is rendered server-side with no feed state to hand in, the counter home; the deployed version stamped by the server, or `dev`), never a guess; the words are
+  fenced in the issue so a person's markdown cannot restyle it — and the issue, on a PUBLIC repository, carries only the words and five bug facts; the person, the device and the ids stay on the row and in the email. A per-person ceiling (five in ten minutes) keeps a stuck tap off the public list. Before the table exists on prod the door says it is not switched on — one sentence in place of the form, never "try again" for a failure that cannot succeed on retry. The send is the sheet's one
+  irreversible write: `busy` while in flight, Send `aria-disabled` with the refusal in the handler,
+  the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
+  back on the field, success announced by moving focus to the sent card. The gate answers KEYS
+  (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.
