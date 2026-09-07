@@ -4,6 +4,48 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The front door in Burmese (2026-09-07 · P7, PR 2)
+
+**The first thing Dad sees was the last English body on the console.** `/staff/login` and
+`/staff/lock` carried the language control since P2 PR A, and tapping မြန်မာ on them visibly changed
+nothing but the two buttons — the sign-in form, the PIN screen, the manager step-up's fields and every
+failure sentence stayed English (OPEN-ITEMS P2m). PR 2 converts all of it, on the anatomy PR 1b built.
+
+**One vocabulary, three namespaces — 67 keys, every MY a Claude-authored draft pending K15, six
+marked K15-HIGH.** `entry.*` is the sign-in and the lock screen (36); `pin.*` is ONE set of PIN words
+(24) read by the lock screen (your own PIN) AND the loss sheet and the approvals queue (a manager's
+PIN), so "wrong PIN — 2 tries left" is the same sentence on every screen that says it, with the count
+in the device's numerals; `out.err.*` is the staff error boundary (7). The step-up's lockout is
+formatted ONCE (`lockoutDuration`: "1m 05s" / "၁ မိနစ် ၀၅ စက္ကန့်") from two unit keys, because a
+countdown is a duration and the dictionary's `{t}` slot is a clock, always Latin.
+
+**A live region takes a KEY now.** The three surfaces held `msg: string | null` and rendered it
+through `<OutageText>`, which can only swap the one outage sentence — so nothing could ever hand the
+region Burmese. `StaffMsg` (`components/staff/StaffMsg.tsx`) is a key with its slots OR a server
+sentence, and `<MsgText>` renders whichever it is, marked, with no echo. The PIN arms of both step-up
+switches use it; the sixteen non-PIN client literals beside them are filed as **P2t** (each is one key
+away now) with `PinManager`, the profile's set-a-PIN form.
+
+**The two front-door pages wear the bar** — a static glyph mark where the Screens circle would be
+(the people mark, a lock; there is nothing behind either door yet), the title, the switch; never Lock
+— and ONE textured card beneath it, top-aligned under the bar the way iOS sets a form (the old grid
+centring slid the card under the keyboard on a landscape tablet). `StaffLangShell` is deleted: the
+`100dvh` arithmetic it existed to state once is the bar's now. **Nothing on the front door is natively
+`disabled`** — a 429 used to disable Send under a message telling the person to tap it; every gate is
+`aria-disabled` with the refusal inside the handler, and a lockout makes the PIN field `readOnly`, so
+focus stays where `submit` just put it while the countdown speaks. **The error boundary speaks the
+device language and mounts the switch** (it is a takeover, like the outage shell — the page it
+replaced took its bar with it), and its way out is the doors by name (`/staff?doors=1`, a hard link,
+because the router may be what failed), never "the floor".
+
+**Guards.** `StaffLogin.test.tsx` (10) · `PinUnlock.test.tsx` (9) · `ManagerPinStepUp.test.tsx` (9)
+pin the marked Burmese and the UNmarked interpolated address/name, every refusal as `aria-disabled`
+(never `disabled`), the W10b attribution in both tongues, the numerals in the countdowns, the
+read-only lockout with focus kept, and one polite region per view — two of them watched go red on
+induced defects before the commit. `StaffBar.test` gains the glyph mark. `strings.test` admits the
+two new surface prefixes; the dictionary's own rules (no bare Latin in a MY value, slot parity,
+same-surface collisions, plural pairs, K15 parity) held the 67 keys with no exemption added.
+
 ### One bar on every staff page, and the console learns to feel like a tablet (2026-09-07 · P7, PR 1b)
 
 **Min's brief, mid-arc: "the UI/UX flow, feel, textures, navigation, positions need to be thoughtful

@@ -1,6 +1,12 @@
 "use client";
 import { useEffect, useState, type CSSProperties } from "react";
 import type { Approver } from "@/lib/voids";
+import { plural, tf } from "@/lib/i18n/fill";
+import { ts } from "@/lib/i18n/staff";
+import type { StaffLang } from "@/lib/staff-lang";
+import { Chrome } from "./Chrome";
+import { useStaffLang } from "./StaffLangProvider";
+import type { StaffMsg } from "./StaffMsg";
 
 /**
  * Shared manager-PIN step-up (S2-audit S13). Both loss sites — the LossActionSheet (void/comp) and the
@@ -10,10 +16,25 @@ import type { Approver } from "@/lib/voids";
  *   • `useLockout()` — the lockout countdown (server seconds → a local tick, self-stops at 0).
  *   • `pinFailureCopy()` — the pin_wrong / pin_locked / pin_no_pin → honest microcopy mapping.
  * The server stays authoritative (role + self + lockout); these are the affordance + the shared strings.
+ *
+ * P7·2 — the strings are `pin.*` dictionary KEYS now, not English. Every failure this module names is
+ * a `StaffMsg` (a key with its slots) that the caller's live region renders through `<MsgText>`, and
+ * the lock screen — a person's OWN PIN, not a manager's — reads the same vocabulary. The lockout's
+ * remaining time is pre-formatted in the device language by `lockoutDuration`, because "1m 05s" is a
+ * DURATION and the dictionary's `{t}` slot is a clock, always Latin.
  */
 
-/** The lockout countdown shared by both PIN sites. */
-export function useLockout() {
+/** "1m 05s" / "45s" — or "၁ မိနစ် ၀၅ စက္ကန့်" / "၄၅ စက္ကန့်": the two unit keys, composed. */
+export function lockoutDuration(lang: StaffLang, seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  // Seconds are zero-padded only beside a minute figure, so a countdown does not jump width.
+  const s = tf(lang, "pin.unit.sec", { n: mins > 0 ? String(secs).padStart(2, "0") : secs });
+  return mins > 0 ? `${tf(lang, "pin.unit.min", { n: mins })} ${s}` : s;
+}
+
+/** The lockout countdown shared by both PIN sites and the lock screen. */
+export function useLockout(lang: StaffLang) {
   const [lockLeft, setLockLeft] = useState(0);
   const locked = lockLeft > 0;
   useEffect(() => {
@@ -21,9 +42,9 @@ export function useLockout() {
     const id = setInterval(() => setLockLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
     return () => clearInterval(id);
   }, [locked]);
-  const mins = Math.floor(lockLeft / 60);
-  const secs = lockLeft % 60;
-  const lockCopy = locked ? `Locked — try again in ${mins > 0 ? `${mins}m ` : ""}${secs}s.` : null;
+  const lockCopy: StaffMsg | null = locked
+    ? { k: "pin.lockedFor", vars: { x: lockoutDuration(lang, lockLeft) } }
+    : null;
   return { lockLeft, setLockLeft, locked, lockCopy };
 }
 
@@ -33,24 +54,29 @@ export type SharedPinFailure =
   | { reason: "pin_wrong"; attemptsRemaining: number }
   | { reason: "pin_locked"; lockedUntil: string };
 
-export const PIN_NO_PIN_COPY = "That manager hasn’t set a PIN yet.";
+export const PIN_NO_PIN_COPY: StaffMsg = { k: "pin.noPin.manager" };
+
+/** Seconds until `lockedUntil`, floored at zero — shared by the step-up and the lock screen. */
+export function secondsUntil(lockedUntil: string, now = Date.now()): number {
+  return Math.max(0, Math.ceil((new Date(lockedUntil).getTime() - now) / 1000));
+}
 
 /**
  * Map the field-carrying PIN failures to honest copy. `pin_locked` also seeds the lockout countdown via
- * `setLockLeft` (server `lockedUntil` → remaining seconds), so the caller just shows the returned string.
+ * `setLockLeft` (server `lockedUntil` → remaining seconds), so the caller just shows the returned message.
  */
 export function pinFailureCopy(
   res: SharedPinFailure,
   setLockLeft: (seconds: number) => void,
-): string {
+): StaffMsg {
   if (res.reason === "pin_wrong") {
-    return res.attemptsRemaining > 0
-      ? `Wrong PIN — ${res.attemptsRemaining} ${res.attemptsRemaining === 1 ? "try" : "tries"} left.`
-      : "Wrong PIN.";
+    const n = res.attemptsRemaining;
+    return n > 0
+      ? { k: plural(n, "pin.wrong.one", "pin.wrong.many"), vars: { n } }
+      : { k: "pin.wrong" };
   }
-  const left = Math.max(0, Math.ceil((new Date(res.lockedUntil).getTime() - Date.now()) / 1000));
-  setLockLeft(left);
-  return "Too many tries on that PIN.";
+  setLockLeft(secondsUntil(res.lockedUntil));
+  return { k: "pin.tooManyThat" };
 }
 
 /**
@@ -75,6 +101,7 @@ export function ManagerPinFields({
   onPinChange: (pin: string) => void;
   locked: boolean;
 }) {
+  const lang = useStaffLang();
   const managers = approvers ?? [];
   const loading = approvers === null;
   const noManagers = !loading && managers.length === 0;
@@ -82,7 +109,7 @@ export function ManagerPinFields({
   return (
     <>
       <label htmlFor={`${idPrefix}-mgr`} style={label}>
-        Manager
+        <Chrome lang={lang} k="pin.manager.label" echo="stack" />
       </label>
       <select
         id={`${idPrefix}-mgr`}
@@ -91,8 +118,13 @@ export function ManagerPinFields({
         disabled={locked || noManagers}
         style={select}
       >
-        <option value="">
-          {loading ? "Loading…" : noManagers ? "No managers available" : "Tap your name"}
+        {/* An <option> can hold only text, so the mark rides the element itself (rule 5). */}
+        <option value="" lang={lang}>
+          {loading
+            ? ts(lang, "pin.manager.loading")
+            : noManagers
+              ? ts(lang, "pin.manager.none")
+              : ts(lang, "pin.manager.pick")}
         </option>
         {managers.map((m) => (
           <option key={m.staffId} value={m.staffId}>
@@ -102,10 +134,12 @@ export function ManagerPinFields({
       </select>
       {noManagers && (
         // Honest dead-end note: this action needs a manager and none are signed in.
-        <p style={noteCopy}>A manager has to approve this — none are signed in right now.</p>
+        <p style={noteCopy}>
+          <Chrome lang={lang} k="pin.manager.noneNote" echo="stack" />
+        </p>
       )}
       <label htmlFor={`${idPrefix}-pin`} style={{ ...label, marginTop: 12 }}>
-        PIN
+        <Chrome lang={lang} k="pin.label" echo="stack" />
       </label>
       <input
         id={`${idPrefix}-pin`}

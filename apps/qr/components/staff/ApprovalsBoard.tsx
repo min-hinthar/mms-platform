@@ -17,6 +17,7 @@ import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
@@ -227,8 +228,8 @@ function RequestCard({
   const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
-  const [msg, setMsg] = useState<string | null>(null);
-  const { setLockLeft, locked, lockCopy } = useLockout();
+  const [msg, setMsg] = useState<StaffMsg | null>(null);
+  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const [pending, startTransition] = useTransition();
 
   // `comp` / `void` are DB values, so each gets its own key rather than riding a slot: an English
@@ -279,10 +280,10 @@ function RequestCard({
           setMsg(PIN_NO_PIN_COPY);
           break;
         case "bad_approver":
-          setMsg("Pick a manager other than whoever requested this.");
+          setMsg({ k: "pin.badApprover.requester" });
           break;
         case "step_up_rate_limited":
-          setMsg("Too many PIN attempts — wait a few minutes, then try again.");
+          setMsg({ k: "pin.rateLimited" });
           break;
         case "already":
           setMsg("Already resolved — refreshing.");
@@ -313,6 +314,8 @@ function RequestCard({
     });
   }
 
+  // The lockout countdown takes precedence over a transient message.
+  const shown = lockCopy ?? msg;
   return (
     <article
       className="card card-textured"
@@ -443,8 +446,10 @@ function RequestCard({
       )}
 
       <p id={`appr-msg-${request.id}`} role="status" style={{ margin: "8px 0 0", minHeight: 16 }}>
-        {(lockCopy ?? msg) && (
-          <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>{lockCopy ?? msg}</span>
+        {shown && (
+          <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+            <MsgText lang={lang} msg={shown} />
+          </span>
         )}
       </p>
     </article>

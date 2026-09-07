@@ -1567,6 +1567,190 @@ export const STAFF = {
     en: "Print the word-check sheet",
     my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်",
   },
+  // ═══ P7 · PR 2 · the front door ═══════════════════════════════════════════════
+  // `entry.*` — the sign-in and the lock screen: the two surfaces a person reaches BEFORE any gate,
+  // so the bar's language control is the only control on the tablet that works for them, and the
+  // copy beneath it was the last English body under a Burmese switch (OPEN-ITEMS P2m). EN values
+  // are the shipped sentences verbatim; every MY value is a Claude-authored draft pending K15.
+  // Register: the same terse operational voice — ပါတယ် endings, no softeners.
+  "entry.login.title": { en: "Staff sign-in", my: "ဝန်ထမ်း အကောင့်ဝင်ရန်" },
+  "entry.login.head": { en: "Sign in to the floor", my: "ခန်းမသို့ ဝင်ပါ" },
+  "entry.login.sub.email": {
+    en: "Enter your staff email and we’ll send a one-time code.",
+    my: "ဝန်ထမ်း အီးမေးလ် ရိုက်ထည့်ပါ — တစ်ခါသုံး ကုဒ် ပို့ပေးပါမယ်။",
+  },
+  "entry.login.sub.code": {
+    en: "Enter the code we emailed you.",
+    my: "အီးမေးလ်ထဲက ကုဒ်ကို ရိုက်ထည့်ပါ။",
+  },
+  "entry.login.denied": {
+    en: "You’re signed in, but this account isn’t set up as staff. Ask an owner to add you — or sign out and use another email.",
+    my: "အကောင့် ဝင်ထားပေမယ့် ဒီအကောင့်ကို ဝန်ထမ်းအဖြစ် မသတ်မှတ်ရသေးပါ။ ပိုင်ရှင်ကို ထည့်ပေးဖို့ ပြောပါ — ဒါမှမဟုတ် အကောင့်ထွက်ပြီး တခြား အီးမေးလ်နဲ့ ဝင်ပါ။",
+  }, // K15-HIGH — the one sentence a wrong account sees, and its only way out
+  "entry.signOut": { en: "Sign out", my: "အကောင့် ထွက်" },
+  // {x} is the provider's own name ("Google") — a brand term handed in by the component, never a
+  // dictionary value, so <Chrome> wraps it lang="en" inside the Burmese run.
+  "entry.login.google": { en: "Continue with {x}", my: "{x} နဲ့ ဆက်လုပ်" },
+  "entry.login.starting": { en: "Starting…", my: "စတင်နေပါတယ်…" },
+  "entry.login.or": { en: "or use your email", my: "ဒါမှမဟုတ် အီးမေးလ်နဲ့ ဝင်ပါ" },
+  "entry.login.email.label": { en: "Staff email", my: "ဝန်ထမ်း အီးမေးလ်" },
+  "entry.login.send": { en: "Send code", my: "ကုဒ် ပို့" },
+  "entry.login.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" },
+  "entry.login.useGoogle": { en: "Use {x} instead", my: "{x} နဲ့ ဝင်ပါ" },
+  // {n} is a COUNT (seconds), so it takes the device's numerals — "၄၅ စက္ကန့်" beside "45s".
+  "entry.login.resendIn": { en: "Resend in {n}s", my: "{n} စက္ကန့်အကြာ ပြန်ပို့နိုင်" },
+  "entry.login.code.label": { en: "Sign-in code", my: "ဝင်ရန် ကုဒ်" },
+  "entry.login.code.placeholder": { en: "Code from your email", my: "အီးမေးလ်ထဲက ကုဒ်" },
+  "entry.login.verify": { en: "Sign in", my: "ဝင်ပါ" },
+  // ONE busy word for the code check and the PIN check: two keys on one surface may not share a
+  // Burmese value while their English differs (strings.test), and "Verifying…" / "Checking…"
+  // would have.
+  "entry.checking": { en: "Checking…", my: "စစ်နေပါတယ်…" },
+  "entry.login.otherEmail": { en: "Use a different email", my: "တခြား အီးမေးလ် သုံးမယ်" },
+  "entry.login.sent": {
+    en: "We sent a sign-in code to {x}.",
+    my: "{x} သို့ ဝင်ရန် ကုဒ် ပို့လိုက်ပါပြီ။",
+  },
+  // W10b's attribution rule, kept: a transport shape names the SERVICE, never the person's address
+  // or code. Three outage twins for three moments, because each says what is still fine.
+  "entry.login.err.googleOutage": {
+    en: "We can’t reach the sign-in service right now — it’s not you. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်အမှား မဟုတ်ပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.google": {
+    en: "Couldn’t start {x} sign-in. Try again.",
+    my: "{x} နဲ့ ဝင်ခြင်း မစနိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.rateLimited": {
+    en: "Too many code requests right now. Use “Continue with {x}” above, or try again later.",
+    my: "ကုဒ် တောင်းတာ များနေပါပြီ။ အပေါ်က {x} ခလုတ်ကို သုံးပါ၊ ဒါမှမဟုတ် နောက်မှ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.sendOutage": {
+    en: "We can’t reach the sign-in service right now — your email is fine. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်အီးမေးလ်က မှန်ပါတယ်။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.send": {
+    en: "We couldn’t send a code to that email. Check it’s your staff address and try again.",
+    my: "ဒီအီးမေးလ်သို့ ကုဒ် မပို့နိုင်ပါ။ ဝန်ထမ်း အီးမေးလ် ဟုတ်မဟုတ် စစ်ပြီး ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.verifyOutage": {
+    en: "We can’t reach the sign-in service right now — your code may still be good. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်ကုဒ်က အသုံးဝင်နေနိုင်ပါသေးတယ်။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.verify": {
+    en: "That code didn’t match or has expired. Request a new one.",
+    my: "ကုဒ် မကိုက်ပါ ဒါမှမဟုတ် သက်တမ်း ကုန်သွားပါပြီ။ အသစ် ထပ်တောင်းပါ။",
+  },
+  // ONE sign-out failure pair for the login's wrong-account escape AND the lock screen's
+  // forgotten-PIN escape — the same sentence on the same surface must be the same key.
+  "entry.err.signOutOutage": {
+    en: "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ဆက်သွယ်မရလို့ အခု အကောင့် မထွက်နိုင်သေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.err.signOut": {
+    en: "Couldn’t sign out just now — try again.",
+    my: "အခု အကောင့် မထွက်နိုင်သေးပါ — ထပ်စမ်းပါ။",
+  },
+  // the lock screen — the one screen a person can reach without being able to change anything else
+  "entry.lock.title": { en: "Tablet locked", my: "တက်ဘလက် လော့ခ်ချထား" },
+  "entry.lock.hi": { en: "Welcome back, {x}", my: "ပြန်လာတာ ကြိုဆိုပါတယ် {x}" },
+  "entry.lock.sub": { en: "Enter your PIN to resume.", my: "ဆက်လုပ်ဖို့ ပင်နံပါတ် ရိုက်ထည့်ပါ။" },
+  "entry.lock.unlock": { en: "Unlock", my: "လော့ခ်ဖွင့်" },
+  "entry.lock.forgot": {
+    en: "Forgot PIN? Sign out",
+    my: "ပင်နံပါတ် မေ့သွားရင် — အကောင့် ထွက်ပါ",
+  }, // K15-HIGH — the only way off a locked tablet without the PIN
+
+  // ═══ P7 · PR 2 · PIN — one vocabulary ════════════════════════════════════════
+  // `pin.*` is read on THREE surfaces — the lock screen (your own PIN), the loss sheet and the
+  // approvals queue (a manager's PIN) — so it is its own namespace rather than a copy under each,
+  // which is the "name it ONCE" rule applied to words. `ManagerPinStepUp.tsx` renders every failure
+  // through these keys; the lock screen reads the same ones.
+  "pin.label": { en: "PIN", my: "ပင်နံပါတ်" },
+  "pin.wrong.one": {
+    en: "Wrong PIN — {n} try left.",
+    my: "ပင်နံပါတ် မှားပါတယ် — {n} ကြိမ် ကျန်ပါသေးတယ်။",
+  },
+  "pin.wrong.many": {
+    en: "Wrong PIN — {n} tries left.",
+    my: "ပင်နံပါတ် မှားပါတယ် — {n} ကြိမ် ကျန်ပါသေးတယ်။",
+  },
+  "pin.wrong": { en: "Wrong PIN.", my: "ပင်နံပါတ် မှားပါတယ်။" },
+  "pin.tooMany": { en: "Too many tries.", my: "စမ်းတာ များသွားပါပြီ။" },
+  "pin.tooManyThat": {
+    en: "Too many tries on that PIN.",
+    my: "ဒီပင်နံပါတ်ကို စမ်းတာ များသွားပါပြီ။",
+  },
+  // {x} is the remaining time, PRE-FORMATTED in the device language by `lockoutDuration` from the
+  // two unit keys below — so under `my` it arrives as Burmese script ("၁ မိနစ် ၅ စက္ကန့်") and needs
+  // no wrap, and under `en` as "1m 05s". A `{t}` slot would be wrong: that is a CLOCK, always Latin.
+  "pin.lockedFor": {
+    en: "Locked — try again in {x}.",
+    my: "ခဏ ပိတ်ထားပါတယ် — {x} အကြာမှာ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — a lockout misread as "the tablet is locked" sends someone to sign out
+  "pin.unit.min": { en: "{n}m", my: "{n} မိနစ်" },
+  "pin.unit.sec": { en: "{n}s", my: "{n} စက္ကန့်" },
+  "pin.noPin.self": {
+    en: "No PIN is set on this account. Sign out to continue.",
+    my: "ဒီအကောင့်မှာ ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ဆက်လုပ်ဖို့ အကောင့် ထွက်ပါ။",
+  },
+  "pin.noPin.manager": {
+    en: "That manager hasn’t set a PIN yet.",
+    my: "အဲဒီ မန်နေဂျာက ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။",
+  },
+  "pin.outage": {
+    en: "We can’t reach the ordering system — your PIN wasn’t checked, and no attempt was used. Try again in a moment.",
+    my: "အော်ဒါ စနစ်နဲ့ ဆက်သွယ်မရပါ — ပင်နံပါတ်ကို မစစ်ရသေးပါ၊ အကြိမ်လည်း မကုန်ပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an outage must never read as a wrong PIN
+  "pin.checkFailed": {
+    en: "Couldn’t check that PIN. Try again.",
+    my: "ပင်နံပါတ်ကို မစစ်နိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "pin.rateLimited": {
+    en: "Too many PIN attempts — wait a few minutes, then try again.",
+    my: "ပင်နံပါတ် စမ်းတာ များနေပါပြီ — မိနစ်အနည်းငယ် စောင့်ပြီး ထပ်စမ်းပါ။",
+  },
+  "pin.needsManager": {
+    en: "A manager needs to approve this — tap your name and enter your PIN.",
+    my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — ကိုယ့်နာမည်ကို နှိပ်ပြီး ပင်နံပါတ် ရိုက်ထည့်ပါ။",
+  },
+  "pin.manager.label": { en: "Manager", my: "မန်နေဂျာ" },
+  "pin.manager.loading": { en: "Loading…", my: "ဖွင့်နေပါတယ်…" },
+  "pin.manager.none": { en: "No managers available", my: "မန်နေဂျာ မရှိပါ" },
+  "pin.manager.pick": { en: "Tap your name", my: "ကိုယ့်နာမည်ကို နှိပ်ပါ" },
+  "pin.manager.noneNote": {
+    en: "A manager has to approve this — none are signed in right now.",
+    my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — အခု ဘယ်မန်နေဂျာမှ အကောင့် မဝင်ထားပါ။",
+  },
+  "pin.badApprover.self": {
+    en: "Pick a manager other than yourself to approve.",
+    my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
+  },
+  "pin.badApprover.requester": {
+    en: "Pick a manager other than whoever requested this.",
+    my: "တောင်းဆိုသူ မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
+  },
+
+  // ═══ P7 · PR 2 · the staff error boundary ════════════════════════════════════
+  // `app/staff/error.tsx` — the "couldn't load" voice beside the outage shell's "can't reach"
+  // voice. It catches what a page throws, so it is the screen a kitchen tablet shows when a deploy
+  // replaced its chunks — and it was the last English takeover in the console.
+  "out.err.title": { en: "This screen couldn’t load", my: "ဒီစခရင် မဖွင့်နိုင်ပါ" },
+  "out.err.body": {
+    en: "It’s on our end — your sign-in is fine. Try again in a moment; if it keeps failing, take new orders on paper. Everything already recorded is safe.",
+    my: "ကျွန်တော်တို့ဘက်က ပြဿနာပါ — သင့်အကောင့် ဝင်ထားဆဲပါ။ ခဏနေ ထပ်စမ်းပါ၊ ဆက်မရရင် အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူပါ။ မှတ်ထားပြီးသမျှ လုံခြုံပါတယ်။",
+  }, // K15-HIGH — the paper instruction, and "you're not logged out"
+  "out.err.bodySustained": {
+    en: "This keeps failing — your sign-in is fine, it’s on our end. Take new orders on paper; everything already recorded is safe.",
+    my: "ဆက်တိုက် မရဖြစ်နေပါတယ် — သင့်အကောင့် ဝင်ထားဆဲပါ၊ ကျွန်တော်တို့ဘက်က ပြဿနာပါ။ အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူပါ၊ မှတ်ထားပြီးသမျှ လုံခြုံပါတယ်။",
+  }, // K15-HIGH — the same instruction once "in a moment" has stopped being true
+  "out.err.escalated": {
+    en: "Still failing — keep running on paper. Nothing recorded is lost; this screen comes back as soon as our side does.",
+    my: "မရသေးပါ — စာရွက်နဲ့ ဆက်လုပ်ပါ။ မှတ်ထားသမျှ မပျောက်ပါ၊ ကျွန်တော်တို့ဘက် ပြန်ကောင်းတာနဲ့ ဒီစခရင် ပြန်လာပါမယ်။",
+  },
+  // The way out is the DOORS by name (`?doors=1` always wins over a remembered door) — never
+  // "the floor", which on a kitchen tablet is the P7a mislabel this arc removed.
+  "out.err.back": { en: "← Screens", my: "← စခရင်များ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -1592,6 +1776,7 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["reg.day.orders.one", "reg.day.orders.many"],
   ["reg.day.refunded.one", "reg.day.refunded.many"],
   ["settle.merge.move.one", "settle.merge.move.many"],
+  ["pin.wrong.one", "pin.wrong.many"],
 ];
 
 /**
@@ -1622,7 +1807,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
 /**
  * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
  *
- * These are the 40 the printed word-check sheet puts in its first band, so that ten minutes with
+ * These are the 46 the printed word-check sheet puts in its first band, so that ten minutes with
  * the sheet buys the corrections that matter most: a held ticket read as live is food cooked an hour
  * early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences are
  * the only instruction anyone has when nothing else on the tablet works.
@@ -1648,6 +1833,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.price.live.saved",
   "browse.price.set",
   "browse.price.verb.confirm",
+  "entry.lock.forgot",
+  "entry.login.denied",
   "floor.orders.sub",
   "floor.tabOverLimit",
   "kds.86",
@@ -1660,9 +1847,13 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.slot",
   "kds.stat.late",
   "kds.undo",
+  "out.err.body",
+  "out.err.bodySustained",
   "out.shell.body",
   "out.tail.paper",
   "out.write.failed",
+  "pin.lockedFor",
+  "pin.outage",
   "promo.err.locked",
   "promo.worth",
   "settle.card.chargeQ",

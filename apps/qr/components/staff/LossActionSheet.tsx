@@ -8,7 +8,8 @@ import type { TableLineView } from "@/lib/floor-types";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
-import { Chrome, OutageText } from "./Chrome";
+import { Chrome } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -99,9 +100,9 @@ export function LossActionSheet({
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [stepUp, setStepUp] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const { setLockLeft, locked, lockCopy } = useLockout();
+  const [msg, setMsg] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
+  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const [pending, startTransition] = useTransition();
 
   // The kitchen has started/finished this line → a void of it (and any comp) is a loss → manager-gated.
@@ -151,7 +152,7 @@ export function LossActionSheet({
     switch (res.reason) {
       case "needs_pin":
         setStepUp(true);
-        setMsg("A manager needs to approve this — tap your name and enter your PIN.");
+        setMsg({ k: "pin.needsManager" });
         break;
       case "pin_wrong":
       case "pin_locked":
@@ -161,10 +162,10 @@ export function LossActionSheet({
         setMsg(PIN_NO_PIN_COPY);
         break;
       case "bad_approver":
-        setMsg("Pick a manager other than yourself to approve.");
+        setMsg({ k: "pin.badApprover.self" });
         break;
       case "step_up_rate_limited":
-        setMsg("Too many PIN attempts — wait a few minutes, then try again.");
+        setMsg({ k: "pin.rateLimited" });
         break;
       case "in_flight":
         setMsg("This table is mid-payment — wait until they’ve finished.");
@@ -282,6 +283,8 @@ export function LossActionSheet({
   // is a `packages/ui` change this slice does not make. Everything INSIDE the sheet is converted.
   const titleVerb = action === "comp" ? "Comp" : "Void";
 
+  // The lockout countdown takes precedence over a transient message.
+  const shown = lockCopy ?? msg;
   return (
     // M82 — `busy` while a void/comp or an approval request is in flight. This sheet had NO guard at
     // all while its sibling `RefundActionSheet` did, and it is the worse case of the two: `voidLine`
@@ -448,11 +451,11 @@ export function LossActionSheet({
 
         {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
         <p id="loss-msg" role="status" style={{ margin: "12px 0 0", minHeight: 18 }}>
-          {(lockCopy ?? msg) && (
+          {shown && (
             <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-              {/* P2 — the ONE staff sentence with an authored Burmese twin. Everything else this
-                  region shows (a lockout countdown, a PIN failure) stays English until P2c. */}
-              <OutageText lang={lang} error={lockCopy ?? msg ?? ""} />
+              {/* P7·2 — a `pin.*` key renders through <Chrome>; a server sentence passes through
+                  <OutageText>, which swaps in the one twin that exists (the rest is P2i). */}
+              <MsgText lang={lang} msg={shown} />
             </span>
           )}
         </p>

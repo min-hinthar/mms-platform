@@ -665,3 +665,16 @@ built.
   `StaffBar.test.tsx` and `StaffDoors.test.tsx` extract every selector naming the title from
   `globals.css` and `querySelector` it against the rendered component, in the language it is written
   for. A dead selector is a red test, not a title at body size.
+- **The front door wears the bar too** (P7·2). `/staff/login` and `/staff/lock` are a static glyph
+  mark where the Screens circle would be (`{ kind: "here", icon }` — the people mark, a lock: there
+  is nothing behind either door yet), the title, and the switch; never Lock, never a control that
+  leads nowhere. Beneath it ONE textured card, top-aligned the way iOS sets a form — never centred in
+  the viewport, which slid the card under the keyboard on a landscape tablet. The primary is the
+  accent pill; the escape ("Sign out", "Use a different email") is a quiet link, LAST. `.entry-*` in
+  `globals.css` is the whole vocabulary.
+- **A live region takes a KEY, never only a string.** `StaffMsg` is a dictionary key with its slots
+  OR a server sentence; `<MsgText>` renders whichever it is, marked, with no echo. A `msg: string`
+  state is a wall against localization — the region can only ever show text, so nothing can hand it
+  Burmese — and that is exactly how the PIN failures stayed English under a Burmese switch for two
+  slices. Refusals are `aria-disabled` here as everywhere; a lockout makes a field `readOnly`, not
+  `disabled`, because `submit` just moved focus into it.
