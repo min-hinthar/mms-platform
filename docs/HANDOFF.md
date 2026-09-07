@@ -78,22 +78,28 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    picked A1 two doors · B1 "How this works" sheet · C1 "Something's wrong" report · D1 text-size
 >    dial, then answered: email + a row for the report, the front door in Burmese in the same
 >    slice, NO phone button — the report opens a GitHub issue with the diagnostics instead).**
->    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch (#264, blind-audited, awaiting Min's go) and **PR 1b — the premium
->    feel Min picked, one staff bar on all sixteen pages — is BUILT on
->    `claude/feat/p7-1b-premium-feel`, stacked on it**; PR 2 (login /
->    lock / PIN / error in Burmese), PR 3 (the one gold Help chip + "How this screen works" sheets),
->    PR 4 (the report: migration + Resend + GitHub issue) follow, smallest first, one at a time on
->    this branch name. The build order and every decision are in `docs/PILOT_PLAN.md` §Code P7.
+>    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch (#264,
+>    blind-audited, awaiting Min's go); **PR 1b — the premium feel Min picked, one staff bar on all
+>    sixteen pages — is BUILT on `claude/feat/p7-1b-premium-feel`, stacked on it (#266, blind
+>    REJECT → fixed in `5043014`)**; **PR 2 — the front door in Burmese (login · lock · PIN ·
+>    error; 59 new keys under `entry.*` / `pin.*` / `out.err.*`, every MY a draft) — is BUILT on
+>    `claude/feat/p7-2-front-door`, stacked on 1b.** PR 3 (the one gold Help chip + "How this
+>    screen works" sheets) and PR 4 (the report: migration + Resend + GitHub issue) follow,
+>    smallest first, one at a time. Merge order is the stack order: #264 → #266 → PR 2, each base
+>    flipped to `main` after the one beneath merges (`git merge` main in, never rebase). The build
+>    order and every decision are in `docs/PILOT_PLAN.md` §Code P7.
 > 2. **P4 — the Day-0 walkthrough — is the only other `docs/PILOT_PLAN.md` §Code row still unbuilt.**
 >    It is a fix PR, not a build: walk the §D edge-case matrix (`QA-CHECKLIST`) and fix what it
 >    finds — and it now also answers P7c/P7d (the referer on the real tablet; the shortcut names).
 > 3. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
 >    money gate. It is the exception that keeps P2e from being fully closed.
-> 4. **The K15 native check has a queue now** — the 40-key first band on `/staff/glossary`, plus two
->    MY values the merge train authored as drafts (`floor.fb.unavailable`, `what.glossary`) and the
->    thirteen P7 PR 1 added (the doors, More, Screens, the three sizes, two tiles) and four PR 1b
->    added (Lock, Locking…, Console tools, Text size). All marked in
->    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
+> 4. **The K15 native check has a queue now** — the 46-key first band on `/staff/glossary` (40 until
+>    PR 2 marked six front-door sentences), plus two MY values the merge train authored as drafts
+>    (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added (the doors, More, Screens,
+>    the three sizes, two tiles), the four PR 1b added (Lock, Locking…, Console tools, Text size)
+>    and the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN vocabulary and the error
+>    boundary, the first thing Dad reads. All marked in `lib/i18n/staff.ts` as pending Min's read;
+>    the sheet derives them at render.
 > 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
 >    M158). Sweep it before claiming anything is done.
 >
@@ -234,8 +240,9 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 > ### Also worth knowing
 >
 > - **`/staff/login` shipped the same viewport overflow as `/staff/lock`** — a 44px control stacked
->   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owns the height
->   once; both surfaces render through it, and the two components' roots are `flex: 1`.
+>   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owned the height
+>   at the time; both surfaces rendered through it and their roots were `flex: 1` (retired in P7·2 —
+>   the bar owns the front door now and the cards are ordinary flow beneath it).
 > - **Do not quote a foil number that drifts.** `staff-outage.ts` said the unanchored grep "returns
 >   28"; it was 30 by the time a reviewer re-measured, because documenting it added mentions. Only the
 >   anchored form (→ 27) is quoted now.
@@ -504,7 +511,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1825 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1862 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1396,7 +1403,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1825 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1862 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

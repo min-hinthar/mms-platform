@@ -1,6 +1,6 @@
 import type { ReactNode, Ref } from "react";
 import Link from "next/link";
-import { Icon } from "@mms/ui";
+import { Icon, type IconName } from "@mms/ui";
 import { Chrome } from "./Chrome";
 import { StaffLangSwitch } from "./StaffLangSwitch";
 import { LockButton } from "./LockButton";
@@ -29,8 +29,11 @@ import type { StaffLang } from "@/lib/staff-lang";
 export type StaffBarLeading =
   /** The Screens circle → `/staff?doors=1`, honoured over any remembered door (the default). */
   | { kind: "screens" }
-  /** The doors themselves: the same mark, static — never a control that does nothing. */
-  | { kind: "here" }
+  /**
+   * Where you ARE, static — never a control that does nothing. The doors themselves wear the grid;
+   * the two front-door screens (P7·2) name their own place with a glyph: a lock, the people mark.
+   */
+  | { kind: "here"; icon?: IconName }
   /** A sub-page: the way back UP (a table's add page → the table; the counter order → the register). */
   | { kind: "back"; href: string; k: StaffKey; vars?: Record<string, string | number> };
 
@@ -85,7 +88,7 @@ export function StaffBar({
       )}
       {leading.kind === "here" && (
         <span className="staff-circ staff-circ-here" aria-hidden>
-          <Icon name="grid" size={20} />
+          <Icon name={leading.icon ?? "grid"} size={20} />
         </span>
       )}
       {leading.kind === "back" && (

@@ -1966,3 +1966,27 @@ one-liner `const h1 = {…};` alternative sat AFTER the multi-line one, so the m
 ran past the one-liner to the next `\n};\n` and took two later consts with it (`tsc` caught it as
 two missing names). Put the narrower alternative FIRST, or make the multi-line one refuse a `};` on
 the same line.
+
+## #103
+
+**A `string` live-region state is a wall against localization, and it hides as "already converted".**
+Three staff surfaces held `msg: string | null` and rendered it through `<OutageText>`, whose
+passthrough arm returns a bare text node. Every render site LOOKED converted — the region went
+through the staff renderer — while the only sentence it could ever say in Burmese was the one outage
+twin; the PIN failures, the lockout countdown and the step-up notes stayed English for two slices
+(OPEN-ITEMS P2m/P2p). The fix is a TYPE, not more keys: `StaffMsg = { k, vars } | string` and one
+`<MsgText>`, after which each arm is one key away. Corollary for the dictionary: a duration is not a
+`{t}` clock — format it once from unit keys (`lockoutDuration`) so the numerals follow the device;
+and an `<option>` can hold only text, so under rule 5 the `lang` mark rides the element itself.
+
+## #104
+
+**`git checkout -- <file>` restores the INDEX, not the work you are trying to keep — and a
+red-first proof is exactly when you reach for it.** The rule says induce the defect, watch the guard
+go red, restore. On PR 2 the second proof restored `StaffLogin.tsx` with `git checkout --` while the
+rewrite was still unstaged, so the restore was HEAD's English component; the md5 comparison that
+was supposed to catch that sat behind `&&` and simply printed nothing, and the next four checks ran
+green on the old file (rule 5 has nothing to say about English JSX) until the full gate's own suite
+failed six times. Two rules: **stage (or commit) before mutating**, so the restore point is the work
+and not its ancestor; and a restore check must FAIL LOUDLY — `[ md5 = md5 ] || { echo MISMATCH; exit 1; }`
+— never `&& echo ok`, whose silence reads as nothing happened.

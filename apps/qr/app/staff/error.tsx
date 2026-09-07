@@ -3,6 +3,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 import posthog from "posthog-js";
 import { OutageState } from "@mms/ui";
 import { bumpErrorCount, tryChunkReload } from "@/lib/error-recovery";
+import { Chrome } from "@/components/staff/Chrome";
+import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { useStaffLang } from "@/components/staff/StaffLangProvider";
 
 /**
  * W10b — the staff-voiced error boundary for every /staff route. Catches what the pages throw —
@@ -10,14 +13,24 @@ import { bumpErrorCount, tryChunkReload } from "@/lib/error-recovery";
  * (listStaff, getStaffOrders, listPendingApprovals) — and renders operational truth instead of the
  * diner-voiced root boundary. Prod REDACTS server error messages (digest only), so the copy never
  * asserts a cause it can't see: it owns the failure, protects the sign-in ("you're not logged
- * out"), and names the fallback (paper). English-only (`titleMy={null}`) per the console's
- * convention; `reset()` re-renders the route in place, so recovery keeps the URL.
+ * out"), and names the fallback (paper). `reset()` re-renders the route in place, so recovery keeps
+ * the URL.
  *
  * A segment boundary SHADOWS the root one, so it must carry the root's recovery itself (pre-merge
  * review, HIGH): the stale-deploy chunk reload — `reset()` would just re-request the dead chunk URL
  * and loop — and the explicit capture React's boundary swallows. Both are shared via
  * lib/error-recovery. This matters most HERE: the KDS/expo tablets are the longest-lived tabs in
  * the building, so they are the likeliest to be holding chunk URLs a deploy has replaced.
+ *
+ * P7·2 — it speaks the device language, the way `StaffOutageShell` does: every sentence through
+ * `<Chrome>` (`out.err.*`), the retry pair the shell's own, and it MOUNTS THE LANGUAGE CONTROL,
+ * because it is a takeover — the page it replaces took its bar with it, and this is exactly the
+ * screen where a person who cannot read English needs the switch most. The language comes from the
+ * provider: `app/staff/error.tsx` renders INSIDE `app/staff/layout.tsx` (a segment boundary catches
+ * its page, never its own layout), so `useStaffLang()` always has one.
+ *
+ * The way out is the DOORS by name (`?doors=1` wins over a remembered door), as a hard link: the
+ * router may be the thing that failed.
  */
 export default function StaffError({
   error,
@@ -26,6 +39,7 @@ export default function StaffError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const lang = useStaffLang();
   // Lazy init, not an effect (the setState-in-effect lint): one bump per boundary mount.
   const [attempts] = useState(() => bumpErrorCount());
   useEffect(() => {
@@ -38,40 +52,43 @@ export default function StaffError({
   const sustained = attempts >= 3;
 
   return (
-    <main style={wrap}>
-      <OutageState
-        focusOnMount
-        headingLevel="h1"
-        titleMy={null}
-        title="This screen couldn’t load"
-        body={
-          sustained
-            ? "This keeps failing — your sign-in is fine, it’s on our end. Take new orders on paper; everything already recorded is safe."
-            : "It’s on our end — your sign-in is fine. Try again in a moment; if it keeps failing, take new orders on paper. Everything already recorded is safe."
-        }
-        escalatedBody="Still failing — keep running on paper. Nothing recorded is lost; this screen comes back as soon as our side does."
-        onRetry={reset}
-        exit={
-          <a href="/staff" style={exitLink}>
-            ← Back to the floor
-          </a>
-        }
-      />
+    <main className="staff-main">
+      <div className="staff-col" style={wrap}>
+        {/* Above the card, trailing edge — the shell's placement: the control is the one thing on
+            this screen that still works, and it must not sit between the focused heading and Retry. */}
+        <div style={switchRow}>
+          <StaffLangSwitch lang={lang} />
+        </div>
+        <OutageState
+          focusOnMount
+          headingLevel="h1"
+          titleMy={null}
+          title={<Chrome lang={lang} k="out.err.title" echo="stack" />}
+          body={
+            <Chrome
+              lang={lang}
+              k={sustained ? "out.err.bodySustained" : "out.err.body"}
+              echo="stack"
+            />
+          }
+          escalatedBody={<Chrome lang={lang} k="out.err.escalated" echo="stack" />}
+          retryLabel={<Chrome lang={lang} k="out.shell.retry" echo="stack" />}
+          retryBusyLabel={<Chrome lang={lang} k="out.shell.retrying" echo="stack" />}
+          onRetry={reset}
+          exit={
+            <a href="/staff?doors=1" className="staff-back staff-press">
+              <Chrome lang={lang} k="out.err.back" />
+            </a>
+          }
+        />
+      </div>
     </main>
   );
 }
 
-const wrap: CSSProperties = {
-  maxWidth: 640,
-  margin: "0 auto",
-  padding: "var(--s8) var(--s6)",
-};
-const exitLink: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
+const wrap: CSSProperties = { maxWidth: 640, paddingTop: "var(--s4)" };
+const switchRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "flex-end",
+  marginBottom: "var(--s4)",
 };

@@ -35,6 +35,17 @@ describe("StaffBar", () => {
     expect(screen.queryByRole("link")).toBeNull();
     expect(container.querySelector(".staff-circ-here")?.getAttribute("aria-hidden")).toBe("true");
   });
+  it("a front door names its own place with a glyph — still static, still hidden from assistive tech", () => {
+    const { container } = render(
+      <StaffBar lang="my" title="entry.lock.title" leading={{ kind: "here", icon: "lock" }} />,
+    );
+    expect(screen.queryByRole("link")).toBeNull();
+    const mark = container.querySelector(".staff-circ-here");
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.querySelector("svg")?.getAttribute("class")).toMatch(/lock/);
+    // Never Lock on a front door: the default is off, and neither page asks for it.
+    expect(screen.queryByRole("button", { name: /လော့ခ်ချ/ })).toBeNull();
+  });
   it("a sub-page leads with the way back UP, named by the dictionary, the arrow inside the label", () => {
     render(
       <StaffBar

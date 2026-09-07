@@ -10205,3 +10205,147 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 700;
   color: var(--t2);
 }
+
+/* ── P7·2 · the front door ─────────────────────────────────────────────────────────────────────
+   The sign-in and the lock screen wear the same bar as every other page — a static mark, the
+   title, the language control; never Lock, never the Screens circle, because there is nothing
+   behind either door yet — and ONE textured card beneath it, top-aligned under the bar the way iOS
+   sets a form, never centred in the viewport (the old grid centring slid the card under the
+   keyboard on a landscape tablet). Fields are 52px so a thumb finds them; the primary is the accent
+   pill every staff commit uses; the escape ("Sign out", "Use a different email") is a quiet link,
+   LAST, because a mis-tap on it costs a login. Nothing here is natively disabled — a refused
+   control keeps its place and says so (`aria-disabled`), which is the language switch's rule. */
+.entry-col {
+  max-width: 440px;
+  padding-top: var(--s4);
+}
+.entry-card {
+  padding: var(--s6);
+}
+.entry-brand {
+  margin: 0 0 var(--s3);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.entry-h {
+  margin: 0 0 4px;
+  font-size: var(--fs-h2);
+  line-height: var(--lh-snug);
+}
+.entry-sub {
+  margin: 0 0 var(--s5);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.entry-alert {
+  margin: 0 0 var(--s5);
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--warnb);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.entry-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx);
+}
+.entry-input {
+  width: 100%;
+  min-height: 52px;
+  box-sizing: border-box;
+  margin-bottom: var(--s4);
+  padding: 0 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-size: var(--fs-body); /* ≥16px so iOS doesn't zoom the field on focus */
+}
+.entry-input-code {
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+.entry-input-pin {
+  letter-spacing: 0.35em;
+  font-size: var(--fs-h3);
+  text-align: center;
+}
+.entry-primary,
+.entry-secondary {
+  display: inline-flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: var(--r-full);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.entry-primary {
+  border: 0;
+  background: var(--ac);
+  color: var(--oa);
+}
+.entry-secondary {
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: 600;
+}
+.entry-primary[aria-disabled="true"],
+.entry-secondary[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+.entry-link {
+  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ac);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.entry-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: var(--s4) 0;
+  font-size: var(--fs-sm);
+  color: var(--t3);
+}
+.entry-divider::before,
+.entry-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+.entry-msg {
+  margin: var(--s4) 0 0;
+  min-height: 20px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.entry-msg-warn {
+  color: var(--warn);
+}

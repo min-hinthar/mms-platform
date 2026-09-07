@@ -76,6 +76,28 @@ export async function lockConsole(): Promise<PinActionResult> {
   return { ok: true };
 }
 
+/**
+ * P7·2 — release the device lock once the session that locked it is GONE.
+ *
+ * The lock is an httpOnly device cookie (`lockConsole` above), not a property of the session:
+ * `browserClient().auth.signOut()` clears the auth cookies it set and cannot touch this one. So a
+ * tablet stayed locked through a sign-out, the next sign-in landed on `/staff/lock` (`requireStaffPage`
+ * redirects there before any page), and a person without a working PIN had no way in — "Forgot PIN?
+ * Sign out", the escape the lock screen names, was a loop (blind pass, CRITICAL).
+ *
+ * This is a public POST, so it releases ONLY when the server itself can see no session: a live
+ * session keeps its lock (calling this from a locked, signed-in tablet changes nothing), and an
+ * unknowable answer keeps it too — an outage must never read as "signed out". The lock guards a
+ * session's data from the next pair of hands; with the session destroyed there is nothing left to
+ * guard, which is why the release is safe and the loop was not.
+ */
+export async function releaseLockAfterSignOut(): Promise<{ released: boolean }> {
+  const auth = await getStaffAuth();
+  if (auth.kind !== "anon") return { released: false };
+  (await cookies()).delete({ name: LOCK_COOKIE, path: "/staff" });
+  return { released: true };
+}
+
 export type UnlockResult =
   | { ok: true }
   | { ok: false; reason: "wrong"; attemptsRemaining: number }
