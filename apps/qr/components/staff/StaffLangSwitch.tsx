@@ -3,6 +3,7 @@ import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ts } from "@/lib/i18n/staff";
 import { setStaffLang } from "@/lib/staff-lang-actions";
+import { haptic } from "@/lib/haptics";
 import type { StaffLang } from "@/lib/staff-lang";
 
 /**
@@ -41,6 +42,7 @@ export function StaffLangSwitch({ lang }: { lang: StaffLang }) {
 
   function choose(next: StaffLang) {
     if (next === lang || pending) return;
+    haptic("pick"); // a reversible choice; the pressed label moving is the visible half
     setFailed(false);
     startTransition(async () => {
       const res = await setStaffLang({ lang: next });

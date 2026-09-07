@@ -18,6 +18,7 @@ import {
   CupSoda,
   Croissant,
   Flame,
+  ChevronRight,
   LayoutGrid,
   Printer,
   Tv,
@@ -67,7 +68,8 @@ const ICONS = {
   card: CreditCard,
   cash: Banknote,
   flame: Flame,
-  // P7 — the staff doors' Screens chip and the TV-board tile.
+  // P7 — the staff doors' Screens chip and the TV-board tile; 1b — the inset rows' disclosure.
+  chevron: ChevronRight,
   grid: LayoutGrid,
   print: Printer,
   tv: Tv,

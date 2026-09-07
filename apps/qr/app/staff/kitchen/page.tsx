@@ -3,6 +3,7 @@ import { requireStaffPage } from "@/lib/staff";
 import { getKitchenQueue } from "@/lib/kitchen";
 import { KdsBoard } from "@/components/staff/KdsBoard";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { staffHasPin } from "@/lib/staff-pin";
 
 export const metadata = { title: "Kitchen — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ export default async function KitchenPage() {
   // W10b: an unknowable gate keeps the URL — the outage shell's retry re-enters right here, so the
   // kitchen tablet is one tap from its board the moment the platform returns.
   if (!caller) return <StaffOutageShell what="what.kitchen" />;
+  const hasPin = await staffHasPin(caller.staffId);
   const res = await getKitchenQueue();
   if (!res.ok) {
     if (res.reason === "outage") return <StaffOutageShell what="what.kitchen" />;
@@ -28,7 +30,7 @@ export default async function KitchenPage() {
 
   return (
     <main>
-      <KdsBoard initial={res.queue} />
+      <KdsBoard initial={res.queue} hasPin={hasPin} />
     </main>
   );
 }

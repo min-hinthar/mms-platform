@@ -1263,13 +1263,20 @@ function mountsSwitchHere(file, srcOverride) {
  */
 const SWITCH_WALK_EXCLUDED = new Set([join(QR, "components/staff/StaffOutageShell.tsx")]);
 
-/** …or does any module it transitively imports, within apps/qr, other than the excluded surfaces? */
-function reachesSwitch(root) {
+/**
+ * …or does any module it transitively imports, within apps/qr, other than the excluded surfaces?
+ * Returns EVERY module on the walk that mounts one — not a boolean — because P7·1b put the control
+ * in the shared `StaffBar` and a board that still mounted its own then reached TWO on one page
+ * (`/staff/expo`: four language buttons, two writes racing for the cookie). A presence check was
+ * green over that. A page must reach exactly one.
+ */
+function switchMounts(root) {
   const seen = new Set([root]);
   const queue = [root];
+  const mounts = [];
   while (queue.length) {
     const file = queue.shift();
-    if (mountsSwitchHere(file)) return true;
+    if (mountsSwitchHere(file)) mounts.push(file);
     for (const dep of importsOf(file)) {
       if (!seen.has(dep) && dep.startsWith(QR) && !SWITCH_WALK_EXCLUDED.has(dep)) {
         seen.add(dep);
@@ -1277,7 +1284,10 @@ function reachesSwitch(root) {
       }
     }
   }
-  return false;
+  return mounts;
+}
+function reachesSwitch(root) {
+  return switchMounts(root).length > 0;
 }
 
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY mounts a switch.
@@ -1291,10 +1301,15 @@ for (const f of SWITCH_WALK_EXCLUDED)
 
 for (const file of staffPages) {
   const listed = SWITCH_TODO.has(file);
-  const reaches = reachesSwitch(file);
+  const mounts = switchMounts(file);
+  const reaches = mounts.length > 0;
   if (!listed && !reaches)
     failures.push(
       `rule 4: ${relative(ROOT, file)} never reaches <StaffLangSwitch>. One of the two people who read this console cannot change its language here.`,
+    );
+  if (mounts.length > 1)
+    failures.push(
+      `rule 4: ${relative(ROOT, file)} reaches <StaffLangSwitch> through ${mounts.length} modules (${mounts.map((m) => relative(QR, m)).join(", ")}). Two controls on one page are two writes racing for one cookie, and two groups with one name. The bar carries it; the board must not.`,
     );
   if (listed && reaches)
     failures.push(

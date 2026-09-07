@@ -607,3 +607,61 @@ someone's money.
   wandering scroll discards a half-filled form. It belongs next to the policy it serves, with a test
   — including that it is **downward only**, since an upward tug is someone pulling the sheet further
   open, and a sheet that closes when you try to see more of it is the opposite of the gesture.
+
+## 17 · The staff console — one bar, every page (P7·1b)
+
+The parents' console was rebuilt to feel like a tablet, not a web page, on a direction Min picked
+from the canvas: the app's own paper-and-gold vocabulary, iOS STRUCTURE. These are the rules as
+built.
+
+- **One chrome, fixed positions.** `StaffBar` is the h1 of every console page. Leading = where you
+  are: the Screens circle (`/staff?doors=1`, which `resolveStaffHome` honours over any remembered
+  door) — a static `aria-hidden` mark on the doors themselves, and the way back UP on a sub-page
+  (`{ kind: "back" }`, the arrow inside the dictionary label). Title = Burmese 30px with the English
+  echo beneath, the ONLY English in the bar. Middle = the page's own control. Trailing = utilities in
+  one order, the language switch then **Lock, last** — the thing you do on the way out. Sign out is
+  never a bar control (a mis-tap costs a login; Lock costs a PIN); it ends the profile page. Help
+  (the gold circle) takes the slot before the switch when PR 3 lands — not before, because a
+  control that does nothing is forbidden by §16.
+- **The bar spans the viewport; the page's column sits beneath it.** `.staff-main` is the
+  full-bleed ground (the LINES) with NO horizontal padding; the bar is its first child; the page's
+  own max-width and inset live on a `.staff-col` wrapper under the bar. A bar inside a centred
+  640px column is a strip, not a bar — the blind pass on PR 1b asked, and the mock had answered.
+  Inside the KDS root the bar cancels the root's `--kds-pad` exactly, so it is flush without
+  overhanging the root (an overhang past a bare `<main>` is a horizontal scroll on the board).
+- **The bar is chrome you look through in Night** — `--glass-chrome`, the ONE frosted pane whose
+  floor `composite-contrast.test.ts` pins over white; never a second alpha nobody measured. Paper
+  with a hairline in light. Sticky, and it clears `env(safe-area-inset-top)`; it is the ONLY sticky
+  element on a page (a page-level sticky wrapper around it paid the notch inset twice).
+- **A sheet opened from a class-themed subtree carries the theme itself** — `Sheet` portals to
+  `<body>`, so `.kds-root.dark`'s Night never reaches it; the KDS passes `className="dark"`. A
+  light sheet over a Night board is what "the sheet paints in the document's theme" looks like.
+- **Circles are named by sr-only dictionary text through `<Chrome>`, never `aria-label`.** Rule 3
+  of `check-staff-lang` refuses `sx()` on a control that has children, and it is right: the name is
+  DOM text so the Burmese arrives marked and the {visible, aria} pair cannot drift. The busy state
+  of the Lock circle is spoken through the same text.
+- **Lines on the page, dots on the card** (§1), now on the staff surfaces too: `.staff-main` carries
+  the 28px groove, `.card-textured` rides the doors, the counter row and every KDS ticket. The two
+  never share an element.
+- **Press = you committed.** `.staff-press` (scale .985 + one sheen sweep on release, transform and
+  opacity only). A door is `haptic("commit")`; a station, a size or a language is `haptic("pick")`.
+  Each ships its visible half — the press, the moving gold cap, the sheet — never the buzz alone
+  (§12). The doors premiere once per session (`mms-stagger`, J1's SurfaceMemory zeroes the revisit).
+- **The segmented control** (`.staff-seg`) is one track; the chosen segment wears the gold cap — the
+  same selection vocabulary as everywhere (§2), never a second one. That rule now reaches EVERY
+  pressed `.kds-chip` (the all-day rail, the sizes in the sheet): the accent-filled pressed chip the
+  board used before was a second vocabulary, and the first 1b draft had both on one screen.
+  Segments never drop under 44px (O-E): the thumb IS the target.
+- **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
+  real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
+  states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
+- **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
+  tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
+  of real links, named by its visible heading.
+- **Sheets, not chip rows, for settings** — the KDS text size opens from the bar's Aa circle into a
+  `Sheet` (§16 owns its four exits); `Sheet.title` is a `ReactNode` so a dictionary title arrives
+  marked.
+- **The CSS a component's DOM is written against is held to a render** (LEARNINGS #101):
+  `StaffBar.test.tsx` and `StaffDoors.test.tsx` extract every selector naming the title from
+  `globals.css` and `querySelector` it against the rendered component, in the language it is written
+  for. A dead selector is a red test, not a title at body size.

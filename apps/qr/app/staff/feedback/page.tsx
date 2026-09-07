@@ -1,11 +1,11 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -24,6 +24,7 @@ export default async function FeedbackPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.feedback" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const lang = await readStaffLang();
   // P5 — the read reports its OUTCOME now (lib/feedback.ts): a failed read must not render as
@@ -34,17 +35,10 @@ export default async function FeedbackPage() {
   const lowCount = rows.filter((r) => r.rating <= 3).length;
 
   return (
-    <main style={wrap}>
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          {/* The arrow is part of the label and lives INSIDE the dictionary value (`floor.back`), so
-              a Burmese console gets "← ခန်းမ" rather than an English word behind a glyph. The
-              visible text is an adequate accessible name on its own — no aria-label to keep in sync. */}
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
+    <main className="staff-main">
+      <StaffBar lang={lang} title="floor.fb.title" lock={hasPin} />
+      <div className="staff-col" style={wrap}>
+        {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
           the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
 
           ⚠️ THE SHEET RE-CHECKS THE MANAGER FLOOR ITSELF rather than trusting this page's, and the
@@ -54,136 +48,115 @@ export default async function FeedbackPage() {
           inside `getStaffFeedback`: a gate that lives only at the mount point is a gate that a later
           re-mount, or a lowered floor on this page, silently removes. `getPilotNight` carries its
           own, so the component is safe to mount anywhere. */}
-      <PilotNightSheet />
-      <h1 style={h1}>
-        <Chrome lang={lang} k="floor.fb.title" echo="stack" />
-      </h1>
-      <p style={sub}>
-        {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
+        <PilotNightSheet />
+        <p style={sub}>
+          {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
             `floor.fb.empty`: "No feedback yet" on a read that never happened is the exact fabricated
             verdict M116/M119 were filed for, and it is worse here because the arm sits under a sheet
             whose own numbers failed loud. Bilingual like every other arm — a manager who reads
             Burmese must not be the only one told nothing went wrong. */}
-        {!feedback.ok ? (
-          <Chrome lang={lang} k="floor.fb.unavailable" echo="stack" />
-        ) : rows.length === 0 ? (
-          <Chrome lang={lang} k="floor.fb.empty" echo="stack" />
-        ) : lowCount > 0 ? (
-          <Chrome
-            lang={lang}
-            k={plural(lowCount, "floor.fb.low.one", "floor.fb.low.many")}
-            vars={{ n: lowCount }}
-            echo="stack"
-          />
-        ) : (
-          <Chrome lang={lang} k="floor.fb.allGood" echo="stack" />
-        )}
-      </p>
+          {!feedback.ok ? (
+            <Chrome lang={lang} k="floor.fb.unavailable" echo="stack" />
+          ) : rows.length === 0 ? (
+            <Chrome lang={lang} k="floor.fb.empty" echo="stack" />
+          ) : lowCount > 0 ? (
+            <Chrome
+              lang={lang}
+              k={plural(lowCount, "floor.fb.low.one", "floor.fb.low.many")}
+              vars={{ n: lowCount }}
+              echo="stack"
+            />
+          ) : (
+            <Chrome lang={lang} k="floor.fb.allGood" echo="stack" />
+          )}
+        </p>
 
-      {rows.length > 0 && (
-        <ul
-          role="list"
-          // QA §A: a `role="list"` with `list-style: none` needs a name. It has no visible label of
-          // its own, so the name is aria-only — `sx()`, never `al()`.
-          aria-label={sx(lang, "floor.fb.a11y.list")}
-          style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}
-        >
-          {rows.map((r) => {
-            const low = r.rating <= 3;
-            return (
-              <Card
-                as="li"
-                key={r.id}
-                style={{ ...rowCard, borderColor: low ? "var(--warn)" : "var(--bd)" }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
+        {rows.length > 0 && (
+          <ul
+            role="list"
+            // QA §A: a `role="list"` with `list-style: none` needs a name. It has no visible label of
+            // its own, so the name is aria-only — `sx()`, never `al()`.
+            aria-label={sx(lang, "floor.fb.a11y.list")}
+            style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}
+          >
+            {rows.map((r) => {
+              const low = r.rating <= 3;
+              return (
+                <Card
+                  as="li"
+                  key={r.id}
+                  style={{ ...rowCard, borderColor: low ? "var(--warn)" : "var(--bd)" }}
                 >
-                  <span
-                    role="img"
-                    // Two runtime counts, so this is `tf` and not `sx` — `sx()` takes no vars. Both
-                    // ride count slots, so a Burmese console announces "ကြယ် ၅ ထဲမှ ၄ ကြယ်".
-                    aria-label={tf(lang, "floor.fb.a11y.stars", { n: r.rating, total: 5 })}
+                  <div
                     style={{
-                      display: "inline-flex",
+                      display: "flex",
+                      justifyContent: "space-between",
                       alignItems: "center",
-                      gap: 2,
-                      color: low ? "var(--warn)" : "var(--ac)",
+                      gap: 10,
                     }}
                   >
-                    {Array.from({ length: 5 }, (_, i) => (
-                      <Icon
-                        key={i}
-                        name="star"
-                        size={15}
-                        fill={i < r.rating ? "currentColor" : "none"}
-                      />
-                    ))}
-                  </span>
-                  {/* A badge, not a control — echo={false}: two scripts cannot legibly stack in a chip. */}
-                  {low && (
-                    <span style={followChip}>
-                      <Chrome lang={lang} k="floor.fb.followUp" />
+                    <span
+                      role="img"
+                      // Two runtime counts, so this is `tf` and not `sx` — `sx()` takes no vars. Both
+                      // ride count slots, so a Burmese console announces "ကြယ် ၅ ထဲမှ ၄ ကြယ်".
+                      aria-label={tf(lang, "floor.fb.a11y.stars", { n: r.rating, total: 5 })}
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 2,
+                        color: low ? "var(--warn)" : "var(--ac)",
+                      }}
+                    >
+                      {Array.from({ length: 5 }, (_, i) => (
+                        <Icon
+                          key={i}
+                          name="star"
+                          size={15}
+                          fill={i < r.rating ? "currentColor" : "none"}
+                        />
+                      ))}
                     </span>
+                    {/* A badge, not a control — echo={false}: two scripts cannot legibly stack in a chip. */}
+                    {low && (
+                      <span style={followChip}>
+                        <Chrome lang={lang} k="floor.fb.followUp" />
+                      </span>
+                    )}
+                    <span
+                      style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
+                    >
+                      {new Date(r.createdAt).toLocaleString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  </div>
+                  {r.comment && (
+                    <p
+                      style={{
+                        margin: "6px 0 0",
+                        fontSize: "var(--fs-sm)",
+                        color: "var(--tx)",
+                        lineHeight: 1.5,
+                      }}
+                    >
+                      “{r.comment}”
+                    </p>
                   )}
-                  <span
-                    style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
-                  >
-                    {new Date(r.createdAt).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-                {r.comment && (
-                  <p
-                    style={{
-                      margin: "6px 0 0",
-                      fontSize: "var(--fs-sm)",
-                      color: "var(--tx)",
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    “{r.comment}”
-                  </p>
-                )}
-              </Card>
-            );
-          })}
-        </ul>
-      )}
+                </Card>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </main>
   );
 }
 
-const wrap: CSSProperties = { padding: 24, maxWidth: 560, margin: "0 auto" };
-// The back link and the language control share one row, so the control costs no vertical space on a
-// surface whose card list is what a manager actually scans.
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-};
-const back: CSSProperties = {
-  color: "var(--ac)",
-  fontWeight: 700,
-  display: "inline-block",
-  padding: "12px 0",
-};
-const h1: CSSProperties = {
-  fontSize: "var(--fs-h1)",
-  fontWeight: 900,
-  margin: "4px 0 2px",
-  color: "var(--tx)",
-};
+const wrap: CSSProperties = { maxWidth: 560, margin: "0 auto" };
+// P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
 const rowCard: CSSProperties = {
