@@ -4,7 +4,8 @@ import { requireStaffPage } from "@/lib/staff";
 import { getDayCashSummary, getRegisterQueue, type RegisterQueueRow } from "@/lib/register";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { ts } from "@/lib/i18n/staff";
@@ -64,21 +65,14 @@ function rowSubject(lang: StaffLang, r: RegisterQueueRow): string {
 export default async function RegisterPage() {
   const caller = await requireStaffPage("server");
   if (!caller) return <StaffOutageShell what="what.register" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const lang = await readStaffLang();
   const [queue, day] = await Promise.all([getRegisterQueue(), getDayCashSummary()]);
 
   return (
-    <main style={wrap}>
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          <Chrome lang={lang} k="reg.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      <h1 style={h1}>
-        <Chrome lang={lang} k="reg.title" echo="stack" />
-      </h1>
+    <main className="staff-main" style={wrap}>
+      <StaffBar lang={lang} title="reg.title" lock={hasPin} />
       <p style={sub}>
         <Chrome lang={lang} k="reg.sub" echo="stack" />
       </p>
@@ -255,30 +249,6 @@ export default async function RegisterPage() {
 const wrap: CSSProperties = {
   maxWidth: 760,
   margin: "0 auto",
-  padding: "var(--s5) var(--s4) var(--s8)",
-};
-/** The exit link and the language control share one row — the switch is the counter's, not a strip. */
-const topRow: CSSProperties = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-};
-const back: CSSProperties = {
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  color: "var(--ac-strong)",
-  textDecoration: "none",
-  minHeight: 44,
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--s1)",
-};
-const h1: CSSProperties = {
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h1)",
-  margin: "var(--s2) 0 0",
 };
 const sub: CSSProperties = {
   color: "var(--t2)",

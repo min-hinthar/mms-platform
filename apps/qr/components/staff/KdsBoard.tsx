@@ -23,10 +23,10 @@ import type {
   KitchenStation,
   KitchenTicket,
 } from "@/lib/kitchen-types";
-import { EmptyState, Icon } from "@mms/ui";
+import { EmptyState, Icon, Sheet } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
-import { StaffLangSwitch } from "./StaffLangSwitch";
-import { ScreensLink } from "./ScreensLink";
+import { StaffBar } from "./StaffBar";
+import { haptic } from "@/lib/haptics";
 import { KDS_SIZES, KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
@@ -115,7 +115,7 @@ function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "am
   return "ok";
 }
 
-export function KdsBoard({ initial }: { initial: KitchenQueue }) {
+export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; hasPin?: boolean }) {
   // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
   const lang = useStaffLang();
@@ -149,6 +149,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   const [station, setStation] = useState<"all" | KitchenStation>("all");
   const [railOpen, setRailOpen] = useState(false);
   const [size, setSize] = useState<KdsSize>("s");
+  const [sizeOpen, setSizeOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
   const [volume, setVolume] = useState(0.8);
@@ -369,6 +370,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
 
   // ── Control handlers ───────────────────────────────────────────────────────────────────────────
   const pickStation = (key: "all" | KitchenStation) => {
+    haptic("pick"); // a reversible filter — the gold cap moving IS the visible half
     setStation(key);
     setPage(0);
     try {
@@ -381,6 +383,7 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
   // P7 — the text-size dial. Page 0 on change because the page size changes with it and a page
   // index past the new count would show an empty board.
   const pickSize = (next: KdsSize) => {
+    haptic("pick"); // every `--kfs-*` tier re-sizing under the thumb is the visible half
     setSize(next);
     setPage(0);
     try {
@@ -459,15 +462,79 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
       aria-labelledby="kds-h"
       onFocusCapture={markFocus}
     >
-      <header className="kds-head">
-        <h1 id="kds-h" ref={headingRef} tabIndex={-1} className="kds-title">
-          <Chrome lang={lang} k="kds.title" echo="stack" />
-        </h1>
-        {/* P7 — "← Floor" became the Screens chip: on a kitchen tablet `/staff` is not a floor but
-            the doors, and the chip's `?doors=1` says so honestly (resolveStaffHome honours it over a
-            remembered door, so the board can always be left). */}
-        <ScreensLink lang={lang} kds />
-
+      {/* P7·1b — the ONE staff bar: the Screens circle (on a kitchen tablet `/staff` is not a floor
+          but the doors, and `?doors=1` wins over the remembered door, so the board can always be
+          left), the title as the board's h1 (focus lands here after a bump/recall), the station
+          filter as a segmented control in the middle, and Aa — the text-size sheet — trailing. In
+          Night the bar is glass the tickets scroll under. */}
+      <StaffBar
+        lang={lang}
+        title="kds.title"
+        titleId="kds-h"
+        titleRef={headingRef}
+        titleTabIndex={-1}
+        lock={hasPin}
+        middle={
+          <div className="staff-seg" role="group" aria-label={sx(lang, "kds.a11y.stationFilter")}>
+            {STATIONS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className="kds-chip"
+                aria-pressed={station === s.key}
+                onClick={() => pickStation(s.key)}
+              >
+                <Chrome lang={lang} k={s.k} />
+              </button>
+            ))}
+          </div>
+        }
+        trailing={
+          <button
+            type="button"
+            className="staff-circ staff-press"
+            aria-haspopup="dialog"
+            aria-expanded={sizeOpen}
+            onClick={() => setSizeOpen(true)}
+          >
+            <span
+              aria-hidden
+              style={{ fontWeight: 800, fontSize: "var(--fs-body)", letterSpacing: "-0.02em" }}
+            >
+              Aa
+            </span>
+            <span className="sr-only">
+              <Chrome lang={lang} k="kds.size.title" />
+            </span>
+          </button>
+        }
+      />
+      {/* P7·1b — the three sizes live in a SHEET (P7b): a 44px choice each, the current one pressed;
+          choosing closes it. `Sheet` owns the four exits (§16); nothing here is an irreversible
+          write, so no `busy`. */}
+      <Sheet
+        open={sizeOpen}
+        onOpenChange={setSizeOpen}
+        title={<Chrome lang={lang} k="kds.size.title" echo="stack" />}
+      >
+        <div className="kds-size-group" role="group" aria-label={sx(lang, "kds.a11y.size")}>
+          {KDS_SIZES.map((sz) => (
+            <button
+              key={sz}
+              type="button"
+              className="kds-chip staff-press"
+              aria-pressed={size === sz}
+              onClick={() => {
+                pickSize(sz);
+                setSizeOpen(false);
+              }}
+            >
+              <Chrome lang={lang} k={`kds.size.${sz}`} />
+            </button>
+          ))}
+        </div>
+      </Sheet>
+      <div className="kds-head">
         {/* `role="group"`: a bare <div> is the `generic` role, which prohibits an author name — the
             `aria-label` below was silently discarded until rule 3d went in. */}
         <div className="kds-stats" role="group" aria-label={sx(lang, "kds.a11y.stats")}>
@@ -525,41 +592,11 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
         </p>
 
         <div className="kds-controls">
-          <div
-            role="group"
-            aria-label={sx(lang, "kds.a11y.stationFilter")}
-            style={{ display: "flex", gap: 8 }}
-          >
-            {STATIONS.map((s) => (
-              <button
-                key={s.key}
-                type="button"
-                className="kds-chip"
-                aria-pressed={station === s.key}
-                onClick={() => pickStation(s.key)}
-              >
-                <Chrome lang={lang} k={s.k} />
-              </button>
-            ))}
-          </div>
+          {/* The station filter and the text size moved into the bar (P7·1b); the all-day rail, the
+              sound control and the arrival pill stay here — they are the board's, not the chrome's. */}
           <button type="button" className="kds-chip" aria-pressed={railOpen} onClick={toggleRail}>
             <Chrome lang={lang} k="kds.allday.chip" />
           </button>
-          {/* P7 — the text-size dial: three 44px chips, aria-only group name (`sx`), the pressed one
-              wearing the same recipe as the station chips. Persisted per device like the station. */}
-          <div className="kds-size-group" role="group" aria-label={sx(lang, "kds.a11y.size")}>
-            {KDS_SIZES.map((sz) => (
-              <button
-                key={sz}
-                type="button"
-                className="kds-chip"
-                aria-pressed={size === sz}
-                onClick={() => pickSize(sz)}
-              >
-                <Chrome lang={lang} k={`kds.size.${sz}`} />
-              </button>
-            ))}
-          </div>
           {soundOn ? (
             <label
               style={{
@@ -594,15 +631,10 @@ export function KdsBoard({ initial }: { initial: KitchenQueue }) {
               <Chrome lang={lang} k="kds.new" vars={{ n: newCount }} />
             </button>
           )}
-          {/* P2 — last in the control row, after the station chips and the sound control. Mounted
-              per surface rather than by the layout: a layout-owned strip would steal height from
-              `.kds-root { min-height: 100dvh }`, which is exactly what P4 measures on the real
-              15.6" tablet ("count how many tickets scroll"). `check-staff-lang.mjs` rule 4 holds
-              THIS surface and `/staff/login` to that mount and reddens if either loses it; the
-              other 13 staff pages are on its ratchet, un-converted, and PR B takes them. */}
-          <StaffLangSwitch lang={lang} />
+          {/* P2/1b — the language control is in the staff bar above (rule 4 reaches it through
+              `StaffBar`); the bar is sticky and 68px, and P4 measures the board under it. */}
         </div>
-      </header>
+      </div>
 
       <div className="kds-body">
         {filtered.length === 0 ? (
@@ -819,7 +851,7 @@ function TicketCard({
     // The <li> IS the card (never display:contents — Safari drops listitem semantics). Long tickets
     // span two grid rows so text never shrinks to fit a slot (Toast Grid rule).
     <li
-      className={`kds-ticket${ticket.held ? " kds-ticket-held" : ""}`}
+      className={`kds-ticket card-textured${ticket.held ? " kds-ticket-held" : ""}`}
       aria-label={`${id.main} — ${ts(lang, STAFF_CHANNEL_KEY[ticket.channel])}${ticket.held ? `, ${ts(lang, "kds.held").trim().replace(/ ·$/, "")}` : ""}`}
       style={ticket.lines.length > 5 ? { gridRow: "span 2" } : undefined}
     >

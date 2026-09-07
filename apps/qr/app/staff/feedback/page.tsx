@@ -1,11 +1,11 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffFeedback } from "@/lib/feedback";
 import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -24,6 +24,7 @@ export default async function FeedbackPage() {
   const caller = await requireStaffPage("manager");
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.feedback" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const lang = await readStaffLang();
   // P5 — the read reports its OUTCOME now (lib/feedback.ts): a failed read must not render as
@@ -34,16 +35,8 @@ export default async function FeedbackPage() {
   const lowCount = rows.filter((r) => r.rating <= 3).length;
 
   return (
-    <main style={wrap}>
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          {/* The arrow is part of the label and lives INSIDE the dictionary value (`floor.back`), so
-              a Burmese console gets "← ခန်းမ" rather than an English word behind a glyph. The
-              visible text is an adequate accessible name on its own — no aria-label to keep in sync. */}
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
+    <main className="staff-main" style={wrap}>
+      <StaffBar lang={lang} title="floor.fb.title" lock={hasPin} />
       {/* P5 — tonight's pilot numbers sit ABOVE the feedback list because they are the other half of
           the same 9pm read, and because the feedback list below is unbounded while the sheet is not.
 
@@ -55,9 +48,6 @@ export default async function FeedbackPage() {
           re-mount, or a lowered floor on this page, silently removes. `getPilotNight` carries its
           own, so the component is safe to mount anywhere. */}
       <PilotNightSheet />
-      <h1 style={h1}>
-        <Chrome lang={lang} k="floor.fb.title" echo="stack" />
-      </h1>
       <p style={sub}>
         {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
             `floor.fb.empty`: "No feedback yet" on a read that never happened is the exact fabricated
@@ -163,27 +153,9 @@ export default async function FeedbackPage() {
   );
 }
 
-const wrap: CSSProperties = { padding: 24, maxWidth: 560, margin: "0 auto" };
+const wrap: CSSProperties = { maxWidth: 560, margin: "0 auto" };
 // The back link and the language control share one row, so the control costs no vertical space on a
 // surface whose card list is what a manager actually scans.
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: 12,
-};
-const back: CSSProperties = {
-  color: "var(--ac)",
-  fontWeight: 700,
-  display: "inline-block",
-  padding: "12px 0",
-};
-const h1: CSSProperties = {
-  fontSize: "var(--fs-h1)",
-  fontWeight: 900,
-  margin: "4px 0 2px",
-  color: "var(--tx)",
-};
 const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
 const rowCard: CSSProperties = {

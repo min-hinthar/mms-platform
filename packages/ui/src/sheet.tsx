@@ -33,7 +33,7 @@ export function Sheet({
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
   /**
    * M82 — an irreversible write is in flight; refuse every way of closing until it settles.
@@ -121,7 +121,7 @@ function SheetContent({
   children,
   onCloseAutoFocus,
 }: {
-  title: string;
+  title: React.ReactNode;
   busy: boolean;
   onClose: () => void;
   children: React.ReactNode;

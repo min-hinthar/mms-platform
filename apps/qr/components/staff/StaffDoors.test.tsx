@@ -148,18 +148,23 @@ describe("the door-title CSS matches the DOM the doors render", () => {
   // Rule selectors that name the title, wherever they sit (the register row reuses the title
   // structure under `.staff-counter-primary`, whose prefix is dropped so the tail is held to the
   // same DOM). `@media` blocks contain no `.staff-door-name` rule, so a flat scan is exact here.
-  const selectors = [...css.matchAll(/([^{}]*\.staff-door-name[^{}]*)\{/g)]
+  // P7·1b widened this to the More rows' name (`.staff-row-name`), which render the same
+  // `<Chrome echo="stack">` pair — so the guard renders ONE tile beneath the doors.
+  const selectors = [...css.matchAll(/([^{}]*\.staff-(?:door|row)-name[^{}]*)\{/g)]
     .map((m) => m[1]!.trim())
     .filter((s) => !s.startsWith("@"))
     .map((s) => s.replace(/^\.staff-counter-primary\s+/, ""));
-  it("names at least the title, its Burmese, its echo and its sub-line", () => {
-    expect(selectors.length).toBeGreaterThanOrEqual(4);
+  const oneTile = [{ href: "/board", k: "floor.nav.board", icon: "tv" } as const];
+  it("names at least the title, its Burmese, its echo, its sub-line and the row name", () => {
+    expect(selectors.length).toBeGreaterThanOrEqual(5);
   });
   it.each(selectors)("%s matches a rendered door", (selector) => {
     // A selector about the Burmese span or its echo is held to the Burmese render; the rest to both.
     const langs: ("my" | "en")[] = /\[lang="my"\]|\.chrome-/.test(selector) ? ["my"] : ["my", "en"];
     for (const lang of langs) {
-      const { container, unmount } = render(<StaffDoors lang={lang} current={null} more={[]} />);
+      const { container, unmount } = render(
+        <StaffDoors lang={lang} current={null} more={oneTile} />,
+      );
       expect(container.querySelector(selector), `${selector} under lang=${lang}`).not.toBeNull();
       unmount();
     }

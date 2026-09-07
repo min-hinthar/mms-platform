@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Icon, type IconName } from "@mms/ui";
 import { setStaffDoor } from "@/lib/staff-door-actions";
 import { STAFF_DOOR_TARGET, type StaffDoor, parseStaffDoor } from "@/lib/staff-door";
+import { haptic } from "@/lib/haptics";
 import type { StaffLang } from "@/lib/staff-lang";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
@@ -68,6 +69,9 @@ export function StaffDoors({
     if (inFlight.current) return; // one navigation is already coming; a second tap adds nothing
     inFlight.current = door;
     setBusy(door);
+    // A door is a COMMIT (W22c vocabulary): the tablet is being told what it is. The visible half is
+    // the press itself (`.staff-press` scale + sheen) and the page that opens — never the buzz alone.
+    haptic("commit");
     try {
       await setStaffDoor({ door });
     } catch {
@@ -86,7 +90,7 @@ export function StaffDoors({
       <nav className="staff-doors" aria-label={sx(lang, "floor.a11y.doors")}>
         <Link
           href={STAFF_DOOR_TARGET.kitchen}
-          className="staff-door"
+          className="staff-door card-textured staff-press mms-stagger"
           aria-current={current === "kitchen" ? "true" : undefined}
           aria-busy={busy === "kitchen" || undefined}
           data-door="kitchen"
@@ -110,7 +114,7 @@ export function StaffDoors({
         </Link>
         <Link
           href={STAFF_DOOR_TARGET.counter}
-          className="staff-door"
+          className="staff-door card-textured staff-press mms-stagger"
           aria-current={current === "counter" ? "true" : undefined}
           aria-busy={busy === "counter" || undefined}
           data-door="counter"
@@ -138,10 +142,13 @@ export function StaffDoors({
 }
 
 /**
- * The manager pages as small tiles — Approvals, Feedback, Orders, Menu, Tips, PIN, Team — plus the
- * two surfaces that were reachable only by bookmark (the TV board) or from the manager-only pilot
- * sheet (the word-check sheet). Every tile is a 44px+ link whose visible text IS its name (no echo:
- * a tile is a chip's size). Role gating happens in the server page that builds `more`.
+ * The manager pages beneath the doors — Approvals, Feedback, Orders, Menu, Tips, PIN, Team — plus
+ * the two surfaces that were reachable only by bookmark (the TV board) or from the manager-only
+ * pilot sheet (the word-check sheet). P7·1b: INSET GROUPED ROWS (the iOS Settings idiom, Burmese
+ * first) rather than a tile wall — a 62px row with a tinted glyph square, the name with its English
+ * echo beneath, and a disclosure chevron; two columns on a tablet, one on a phone, hairlines drawn
+ * once. Still one `role="list"` of real links, named by the visible "More" heading. Role gating
+ * happens in the server page that builds `more`.
  */
 export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) {
   if (more.length === 0) return null;
@@ -150,15 +157,18 @@ export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) 
       <h2 id="staff-more-h" className="staff-more-head">
         <Chrome lang={lang} k="floor.door.more" />
       </h2>
-      <ul className="staff-more" role="list" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+      <ul className="staff-inset" role="list">
         {more.map((t) => (
           <li key={t.href}>
-            <Link href={t.href} className="staff-tile">
-              <span className="staff-tile-icon" aria-hidden>
-                <Icon name={t.icon} size={28} />
+            <Link href={t.href} className="staff-row staff-press">
+              <span className="staff-row-glyph" aria-hidden>
+                <Icon name={t.icon} size={22} />
               </span>
-              <span className="staff-tile-name">
-                <Chrome lang={lang} k={t.k} vars={t.vars} />
+              <span className="staff-row-name">
+                <Chrome lang={lang} k={t.k} vars={t.vars} echo="stack" />
+              </span>
+              <span className="staff-row-chev" aria-hidden>
+                <Icon name="chevron" size={18} />
               </span>
             </Link>
           </li>

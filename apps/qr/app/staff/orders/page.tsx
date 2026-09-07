@@ -1,11 +1,11 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getStaffOrders } from "@/lib/refunds";
 import { StaffOrdersBoard } from "@/components/staff/StaffOrdersBoard";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Orders — Mandalay Morning Star" };
@@ -25,24 +25,15 @@ export default async function OrdersPage() {
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   // (getStaffOrders below throws 503 on an unreadable list — the staff error boundary catches it.)
   if (!caller) return <StaffOutageShell what="what.orders" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   // Next request-memoizes `cookies()`, so this costs one read even though the layout read it too.
   const lang = await readStaffLang();
   const orders = await getStaffOrders();
 
   return (
-    <main style={wrap}>
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          {/* The arrow lives INSIDE the dictionary value (`floor.back`), the way `kds.back` does —
-              it is part of the label, not a decorative glyph beside it. */}
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      <h1 style={h1}>
-        <Chrome lang={lang} k="floor.orders.title" echo="stack" />
-      </h1>
+    <main className="staff-main" style={wrap}>
+      <StaffBar lang={lang} title="floor.orders.title" lock={hasPin} />
       <p style={sub}>
         <Chrome lang={lang} k="floor.orders.sub" echo="stack" />
       </p>
@@ -54,28 +45,6 @@ export default async function OrdersPage() {
 const wrap: CSSProperties = {
   maxWidth: 760,
   margin: "0 auto",
-  padding: "var(--s5) var(--s4) var(--s8)",
-};
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s4)",
-  flexWrap: "wrap",
-};
-const back: CSSProperties = {
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  color: "var(--ac-strong)",
-  textDecoration: "none",
-  minHeight: 44,
-  display: "inline-flex",
-  alignItems: "center",
-};
-const h1: CSSProperties = {
-  margin: "var(--s3) 0 0",
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h1)",
 };
 const sub: CSSProperties = {
   color: "var(--t2)",

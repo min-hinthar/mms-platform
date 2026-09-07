@@ -26,7 +26,7 @@ import { StaffPromoControl } from "./StaffPromoControl";
 import { OpenTabButton } from "./OpenTabButton";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
 import { useStaffLang } from "./StaffLangProvider";
-import { StaffLangSwitch } from "./StaffLangSwitch";
+import { StaffBar } from "./StaffBar";
 import { Chrome, OutageText } from "./Chrome";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
@@ -55,9 +55,12 @@ export function FloorDetailLive({
   initial,
   sessionId,
   terminalReady = false,
+  hasPin = false,
 }: {
   initial: TableDetail;
   sessionId: string;
+  /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
+  hasPin?: boolean;
   /** W6c: STRIPE_TERMINAL_READER_ID is configured (server-checked by the page) — the Card settle
    *  renders. Unset = feature-off: no button, and the action refuses independently. */
   terminalReady?: boolean;
@@ -227,35 +230,20 @@ export function FloorDetailLive({
 
   return (
     <main style={wrap} onFocusCapture={markFocus}>
-      {/* P2 — the language control is mounted PER SURFACE (see KdsBoard): the staff layout owns no
-          strip, so this row is where the person looking at this table changes its language.
-          `check-staff-lang.mjs` rule 4 holds this page to that mount. The arrow belongs to the
-          label and lives inside the dictionary value (precedent: `kds.back`). */}
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
+      {/* P7·1b — the staff bar is the h1 and the language control (rule 4 reaches the switch
+          through `StaffBar`). K2: the real table number; an unregistered/legacy sticker shows its
+          raw token + flag. W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table —
+          name it so, and never wave the unregistered-sticker warning at it. */}
+      <StaffBar
+        lang={lang}
+        title={isCounter ? "floor.counter" : "floor.table"}
+        titleVars={isCounter ? undefined : { id: tableDisplay(detail).text }}
+        lock={hasPin}
+      />
 
-      <header style={header}>
+      <div style={header}>
         <div style={{ minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {/* K2: the real table number; an unregistered/legacy sticker shows its raw token + flag.
-                W6a: a register (`reg-`) session is a COUNTER ORDER, not a broken table — name it so,
-                and never wave the unregistered-sticker warning at it. */}
-            <h1 style={h1}>
-              {isCounter ? (
-                <Chrome lang={lang} k="floor.counter" echo="stack" />
-              ) : (
-                <Chrome
-                  lang={lang}
-                  k="floor.table"
-                  vars={{ id: tableDisplay(detail).text }}
-                  echo="stack"
-                />
-              )}
-            </h1>
             {!isCounter && tableDisplay(detail).unregistered && (
               // A badge is a 44px object: two scripts cannot legibly stack inside one, so no echo.
               <Badge tone="warn" bordered>
@@ -301,7 +289,7 @@ export function FloorDetailLive({
             )}
           </p>
         </div>
-      </header>
+      </div>
 
       {/* Server-discretion gating (S3.3). Advisory only — never an auto-charge/auto-convert (T11), never
           per-customer judgment (T12). The path to secure is the diner's "Secure your tab" on /cart; staff
@@ -762,25 +750,7 @@ const addLink: CSSProperties = {
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
 // The back link and the language control share one row: the link keeps its own bottom margin, so
 // the space below the row is unchanged from before the control was added.
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-};
-const back: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
-  marginBottom: "var(--s3)",
-};
 const header: CSSProperties = { marginBottom: "var(--s5)" };
-const h1: CSSProperties = { fontSize: "var(--fs-h1)", margin: 0 };
 const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "6px 0 0" };
 const ceilingBanner: CSSProperties = {
   display: "flex",

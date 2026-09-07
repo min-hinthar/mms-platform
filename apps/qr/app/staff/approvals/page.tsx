@@ -1,5 +1,4 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { listPendingApprovals, listRefundsNeeded, resolveRefundNeeded } from "@/lib/approvals";
 import { listApprovers } from "@/lib/voids";
@@ -7,7 +6,8 @@ import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { al, sx } from "@/lib/staff-labels";
 import { ts } from "@/lib/i18n/staff";
 import { plural } from "@/lib/i18n/fill";
@@ -33,6 +33,7 @@ export default async function ApprovalsPage() {
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   // (The list reads below throw 503 on an unreadable queue — the staff error boundary catches it.)
   if (!caller) return <StaffOutageShell what="what.approvals" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   // Next request-memoizes `cookies()`, so this costs one read even though the shell above reads it too.
   const lang = await readStaffLang();
@@ -43,28 +44,13 @@ export default async function ApprovalsPage() {
   ]);
 
   return (
-    <main style={wrap}>
-      <header style={header}>
-        <div>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>
-            {/* `inline` rather than `stack`: a kicker one line above the h1, where a stacked pair
-                would read as two headings. */}
-            <Chrome lang={lang} k="table.appr.eyebrow" echo="inline" />
-          </p>
-          <h1 style={h1}>
-            <Chrome lang={lang} k="table.appr.title" echo="stack" />
-            <RoleBadge role={caller.role} />
-          </h1>
-        </div>
-        <div style={headerTail}>
-          <StaffLangSwitch lang={lang} />
-          <Link href="/staff" style={backLink}>
-            {/* The arrow lives INSIDE the dictionary value (`floor.back`), the way `kds.back` does —
-                it is part of the label, not a decorative glyph beside it. */}
-            <Chrome lang={lang} k="floor.back" />
-          </Link>
-        </div>
-      </header>
+    <main className="staff-main" style={wrap}>
+      <StaffBar
+        lang={lang}
+        title="table.appr.title"
+        after={<RoleBadge role={caller.role} />}
+        lock={hasPin}
+      />
 
       {refunds.length > 0 && (
         <section aria-label={sx(lang, "table.appr.a11y.refunds")} style={refundsStrip}>
@@ -180,38 +166,6 @@ const refundsRow: CSSProperties = { fontSize: "var(--fs-sm)" };
 const wrap: CSSProperties = {
   maxWidth: 820,
   margin: "0 auto",
-  padding: "var(--s5) var(--s4) var(--s8)",
-};
-const header: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "var(--s4)",
-  marginBottom: "var(--s5)",
-  flexWrap: "wrap",
 };
 // The language control and the way out share the header's trailing corner. Wrapping so a Burmese
 // switch plus the back link never squeeze the title on a narrow tablet.
-const headerTail: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-};
-const h1: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h1)",
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--s3)",
-};
-const backLink: CSSProperties = {
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  color: "var(--ac-strong)",
-  textDecoration: "none",
-  minHeight: 44,
-  display: "inline-flex",
-  alignItems: "center",
-};

@@ -9768,27 +9768,6 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 800;
   line-height: var(--lh-snug);
 }
-/* The Screens chip (`ScreensLink`) on the counter home — the KDS variant reuses `.kds-chip`. */
-.staff-screens {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: var(--r-full);
-  border: 1px solid var(--bd);
-  background: var(--cd);
-  color: var(--tx);
-  font-size: var(--fs-sm);
-  font-weight: 700;
-  text-decoration: none;
-}
-.kds-chip-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  text-decoration: none;
-}
 /* The counter home's register-first row: the one action Dad takes most, gold-capped; two smaller
    tiles beside it. */
 .staff-counter-row {
@@ -9871,4 +9850,331 @@ html[data-fx="lite"] .mms-scrim {
   .staff-door:hover {
     transform: none;
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   P7·1b — the premium feel (Direction 1, "Paper & brass, iOS-shaped", owner pick 2026-09-07).
+   ONE staff bar on every page · the page carries LINES, every card carries DOTS (`.card-textured`)
+   · press = scale + sheen sweep · iOS structure (44px circles, a segmented control, inset grouped
+   rows, bottom sheets) in the app's own paper-and-gold vocabulary. Tokens only. Every transition
+   here is reduced-motion escorted at the bottom of this block.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* The page ground: LINES at a 28px rhythm, a groove not a ridge (a dark line darkens the pixel under
+   light text — the inversion that won the Night ambient its contrast, DESIGN-LANGUAGE §1). Applied to
+   the staff <main>, never to a card. */
+.staff-main {
+  margin: 0 auto;
+  padding: var(--s5) var(--s5) var(--s8);
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 27px,
+    color-mix(in oklab, var(--tx) 5%, transparent) 27px 28px
+  );
+}
+
+/* ── the bar ─────────────────────────────────────────────────────────────────────────────────── */
+.staff-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-toolbar);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 68px;
+  /* clears the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top */
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--s5) 10px;
+  margin: 0 calc(-1 * var(--s5)) var(--s4);
+  border-bottom: 1px solid var(--bd);
+  /* paper with a hairline in light; the ground shows through faintly so the lines continue */
+  background: color-mix(in oklab, var(--pg) 88%, transparent);
+}
+/* Night (the KDS): glass you look THROUGH, never a surface you read — the M126 dial decides how much. */
+.dark .staff-bar {
+  background: color-mix(in oklab, var(--sf) 62%, transparent);
+  -webkit-backdrop-filter: var(--fx-glass-mid);
+  backdrop-filter: var(--fx-glass-mid);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.staff-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  /* the English title (a bare text node from <Chrome>) is sized HERE; the Burmese pair below */
+  font-size: var(--fs-h2);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+}
+.staff-bar-title > .chrome-pair {
+  line-height: 1.05;
+}
+.staff-bar-title > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.875rem; /* 30px — the large-title idiom, one step under the doors' 38 */
+  font-weight: 700;
+  line-height: 1.3;
+}
+.staff-bar-title > .chrome-pair > .chrome-en {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+}
+.staff-bar-mid {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.staff-bar-tail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* A 44px circle: the bar's unit. Paper with the sheen lip; a link or a button, never a bare span
+   except the static "here" mark on the doors. */
+.staff-circ {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+.staff-circ:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.staff-circ-here {
+  cursor: default;
+  color: var(--t3);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+/* The gold circle — reserved for Help (PR 3), so "the gold one" stays a sentence with one answer. */
+.staff-circ-gold {
+  border-color: color-mix(in oklab, var(--gold) 60%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 22%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 16px -6px var(--glow-gold);
+}
+/* The back-up link on a sub-page: a pill in the leading slot, the arrow inside its label. */
+.staff-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  white-space: nowrap;
+}
+
+/* ── the segmented control (KDS stations): one track, the chosen segment wears the gold cap ──── */
+.staff-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: color-mix(in oklab, var(--sf) 85%, transparent);
+}
+.staff-seg > .kds-chip {
+  min-height: 44px; /* O-E: the thumb is the target, and it never drops under 44 */
+  border-color: transparent;
+  background: transparent;
+  color: var(--t2);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.staff-seg > .kds-chip[aria-pressed="true"] {
+  color: var(--tx);
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
+}
+
+/* ── press: you COMMITTED. scale + a one-sweep sheen on release, transform/opacity only ──────── */
+.staff-press {
+  position: relative;
+  overflow: hidden;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.staff-press:active {
+  transform: scale(0.985);
+}
+.staff-press::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, var(--sheen) 50%, transparent 65%);
+  transform: translateX(-120%);
+  opacity: 0;
+}
+.staff-press:active::after {
+  opacity: 1;
+  animation: staffSheen var(--dur-base) var(--ease-out) forwards;
+}
+@keyframes staffSheen {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+/* ── inset grouped rows (More): the iOS Settings idiom, Burmese first ───────────────────────── */
+.staff-inset {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bd);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--cd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+}
+.staff-inset > li {
+  /* hairlines between rows AND between the two columns, drawn once each so nothing doubles */
+  border-top: 1px solid var(--bd);
+  border-left: 1px solid var(--bd);
+  margin: -1px 0 0 -1px;
+}
+.staff-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 8px 14px 8px 12px;
+  color: var(--tx);
+  text-decoration: none;
+}
+.staff-row-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  color: var(--ac-strong);
+  background: color-mix(in oklab, var(--gold) 20%, var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.dark .staff-row-glyph {
+  color: var(--gold);
+}
+.staff-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-snug);
+}
+.staff-row-name > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.1875rem; /* 19px */
+  font-weight: 700;
+  line-height: 1.35;
+}
+.staff-row-name > .chrome-pair > .chrome-en {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--t2);
+}
+.staff-row-chev {
+  flex: none;
+  color: var(--t3);
+}
+
+/* ── the doors and tiles pick up the vocabulary ─────────────────────────────────────────────── */
+.staff-door,
+.staff-counter-primary,
+.staff-counter-side,
+.staff-tile {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper);
+}
+/* The door glyph sits in a tinted rounded square (the Settings-icon idiom), not bare on paper. */
+.staff-door-icon,
+.staff-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  color: var(--ac-strong);
+  background: color-mix(in oklab, var(--gold) 20%, var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.staff-tile-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+/* The doors PREMIERE — once per session (J1 SurfaceMemory zeroes the cascade on a revisit). */
+.staff-door.mms-stagger:nth-child(2) {
+  animation-delay: 60ms;
+}
+[data-seen-surface] .staff-door.mms-stagger {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staff-press,
+  .staff-seg > .kds-chip {
+    transition: none;
+  }
+  .staff-press:active::after {
+    animation: none;
+    opacity: 0;
+  }
+  .staff-door.mms-stagger {
+    animation: none;
+  }
+}
+
+/* P7·1b — the greeting beneath the bar on the console home (the bar names the page; this names you). */
+.staff-greeting {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  color: var(--t2);
 }

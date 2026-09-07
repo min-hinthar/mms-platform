@@ -1,10 +1,10 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { MenuPriceEditor, type PricedItem } from "@/components/staff/MenuPriceEditor";
 
@@ -38,6 +38,7 @@ export default async function StaffMenuPrices() {
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect
   // that destroys where you were mid-service.
   if (!caller) return <StaffOutageShell what="what.menuPrices" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const canEditPrice = caller.role !== "server";
   // Read AFTER the gate: the unknowable-gate branch above renders `StaffOutageShell`, which carries
@@ -67,22 +68,12 @@ export default async function StaffMenuPrices() {
   }));
 
   return (
-    <main style={wrap}>
-      <div style={headRow}>
-        {/* The arrow is part of the label and lives inside the dictionary value (`floor.back`), so
-            it travels with the word instead of being spliced in beside it. */}
-        <Link href="/staff" style={back}>
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 4px" }}>
-        <Chrome
-          lang={lang}
-          k={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
-          echo="stack"
-        />
-      </h1>
+    <main className="staff-main" style={wrap}>
+      <StaffBar
+        lang={lang}
+        title={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
+        lock={hasPin}
+      />
       <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
         <Chrome
           lang={lang}
@@ -95,22 +86,4 @@ export default async function StaffMenuPrices() {
   );
 }
 
-const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
-/** The back link and the language control share one row, so mounting the switch costs no height. */
-const headRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-  marginBottom: "var(--s4)",
-};
-const back: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
-};
+const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };

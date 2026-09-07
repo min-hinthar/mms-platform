@@ -6,7 +6,8 @@ import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
 import { StaffMenuBrowser, type StaffMenuItem } from "@/components/staff/StaffMenuBrowser";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { safeImageUrl } from "@/lib/media-url";
@@ -31,6 +32,7 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   // W10b: an unknowable gate/read keeps the URL and renders the outage shell — never a redirect
   // that pretends a verdict (the old `!detail → /staff` bounce fired on outage too).
   if (!caller) return <StaffOutageShell what="what.table" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const res = await getTableDetail(id);
   if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
@@ -83,8 +85,8 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const lang = await readStaffLang();
 
   return (
-    <main style={wrap}>
-      <header
+    <main className="staff-main" style={wrap}>
+      <div
         style={{
           position: "sticky",
           top: 0,
@@ -96,24 +98,18 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
           zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
         }}
       >
-        <div style={topRow}>
-          <Link href={backHref} style={back}>
-            {/* The arrow lives INSIDE the dictionary value, the way `kds.back` does. */}
-            {counterOrder ? (
-              <Chrome lang={lang} k="browse.back.register" />
-            ) : (
-              <Chrome lang={lang} k="browse.back.table" vars={{ id: detail.label }} />
-            )}
-          </Link>
-          <StaffLangSwitch lang={lang} />
-        </div>
-        <h1 style={{ fontSize: "var(--fs-h1)", margin: "var(--s3) 0 0" }}>
-          <Chrome
-            lang={lang}
-            k={counterOrder ? "browse.title.counter" : "browse.title.add"}
-            echo="stack"
-          />
-        </h1>
+        {/* A sub-page: the leading slot is the way back UP — the table, or the register for a
+            counter order — never the doors. The arrow lives INSIDE the dictionary value. */}
+        <StaffBar
+          lang={lang}
+          title={counterOrder ? "browse.title.counter" : "browse.title.add"}
+          leading={
+            counterOrder
+              ? { kind: "back", href: backHref, k: "browse.back.register" }
+              : { kind: "back", href: backHref, k: "browse.back.table", vars: { id: detail.label } }
+          }
+          lock={hasPin}
+        />
         <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
           {counterOrder ? (
             <Chrome lang={lang} k="browse.sub.counter" echo="stack" />
@@ -126,7 +122,7 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
             <Chrome lang={lang} k="browse.review" echo="stack" />
           </Link>
         )}
-      </header>
+      </div>
 
       <StaffMenuBrowser
         sessionId={id}
@@ -142,23 +138,6 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
 const wrap: CSSProperties = {
   maxWidth: 640,
   margin: "0 auto",
-  padding: "var(--s5) var(--s6) 96px",
-};
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-};
-const back: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
 };
 const reviewLink: CSSProperties = {
   display: "inline-flex",

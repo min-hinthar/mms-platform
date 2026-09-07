@@ -75,6 +75,8 @@ const UNGUARDED = [
   "grocery/GroceryItemSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
+  // P7·1b — the KDS text-size sheet: three chips, a localStorage write, nothing irreversible.
+  "staff/KdsBoard.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {

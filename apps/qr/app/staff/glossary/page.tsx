@@ -1,10 +1,10 @@
 import { Fragment } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { buildGlossary, scriptRuns, type GlossaryRow } from "@/lib/glossary";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { PrintSheetButton } from "@/components/staff/PrintSheetButton";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -59,6 +59,7 @@ export default async function GlossaryPage() {
   // W10b — an unknowable auth answer keeps the URL and renders the outage shell, never a login
   // redirect that costs the person their place.
   if (!caller) return <StaffOutageShell what="what.glossary" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const lang = await readStaffLang();
   const glossary = buildGlossary();
@@ -67,20 +68,19 @@ export default async function GlossaryPage() {
 
   return (
     <main className="pgl">
-      <div className="pgl-bar print-hide">
-        <Link href="/staff" className="pgl-back">
-          <Chrome lang={lang} k="kds.back" echo="inline" />
-        </Link>
-        <div className="pgl-bar-right">
-          <PrintSheetButton lang={lang} />
-          <StaffLangSwitch lang={lang} />
-        </div>
-      </div>
+      <StaffBar
+        lang={lang}
+        title="pilot.gloss.title"
+        trailing={<PrintSheetButton lang={lang} />}
+        lock={hasPin}
+        className="print-hide"
+      />
 
+      {/* The printed sheet keeps its own title (the bar is `print-hide`); on screen the bar is the h1. */}
       <header className="pgl-head">
-        <h1 className="pgl-title">
+        <p className="pgl-title print-only" aria-hidden>
           <Chrome lang={lang} k="pilot.gloss.title" echo="stack" />
-        </h1>
+        </p>
         <p className="pgl-lede">
           <Chrome lang={lang} k="pilot.gloss.lede" echo="stack" />
         </p>

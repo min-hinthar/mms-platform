@@ -1,11 +1,13 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getExpoQueue } from "@/lib/expo";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
+import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Expo — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -20,6 +22,8 @@ export default async function ExpoPage() {
   const caller = await requireStaffPage();
   // W10b: outage keeps the URL — one tap of retry re-enters the expo the moment we're back.
   if (!caller) return <StaffOutageShell what="what.expo" />;
+  const hasPin = await staffHasPin(caller.staffId);
+  const lang = await readStaffLang();
   const res = await getExpoQueue();
   if (!res.ok) {
     if (res.reason === "outage") return <StaffOutageShell what="what.expo" />;
@@ -27,20 +31,13 @@ export default async function ExpoPage() {
   }
 
   return (
-    <main style={wrap}>
-      <header style={header}>
-        <div>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>
-            Expo
-          </p>
-          <h1 style={h1}>
-            Takeaway bags <RoleBadge role={caller.role} />
-          </h1>
-        </div>
-        <Link href="/staff" style={backLink}>
-          <span aria-hidden>←</span> Floor
-        </Link>
-      </header>
+    <main className="staff-main" style={wrap}>
+      <StaffBar
+        lang={lang}
+        title="expo.title"
+        after={<RoleBadge role={caller.role} />}
+        lock={hasPin}
+      />
 
       <ExpoBoard initial={res.queue} />
     </main>
@@ -50,30 +47,4 @@ export default async function ExpoPage() {
 const wrap: CSSProperties = {
   maxWidth: 1100,
   margin: "0 auto",
-  padding: "var(--s5) var(--s4) var(--s8)",
-};
-const header: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "var(--s4)",
-  marginBottom: "var(--s5)",
-  flexWrap: "wrap",
-};
-const h1: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-display)",
-  fontSize: "var(--fs-h1)",
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--s3)",
-};
-const backLink: CSSProperties = {
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  color: "var(--ac-strong)",
-  textDecoration: "none",
-  minHeight: 44,
-  display: "inline-flex",
-  alignItems: "center",
 };
