@@ -1,9 +1,223 @@
-# Session Handoff — MMS Platform (2026-09-05)
+# Session Handoff — MMS Platform (2026-09-07)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-07 · the P7 stack is ALL on `main`, M159 is on prod, and the first production test pass found the Stripe webhook DEAD)
+>
+> **`main` is at `068e575`.** The five P7 PRs merged in order on Min's explicit go, each as a merge
+> commit (never a squash, so each stacked base flipped to `main` with no re-merge):
+>
+> | PR   | slice                                                             | merge     |
+> | ---- | ----------------------------------------------------------------- | --------- |
+> | #264 | PR 1 — two doors, device memory, text size, PWA shortcuts         | `d587fa6` |
+> | #266 | PR 1b — paper & brass, iOS-shaped, on every console page          | `a376a47` |
+> | #267 | PR 2 — the front door in Burmese (sign-in · lock · PIN · error)   | `4b5df2a` |
+> | #268 | PR 3 — the Help door, "How this screen works", the size on a word | `1adfd1a` |
+> | #269 | PR 4 — "Something's wrong": the row, the email, the GitHub issue  | `068e575` |
+>
+> Codex reviewed none of them (the connector's quota is exhausted account-wide; `codex-review` is
+> red on every head and is still not a required check — C16). Each got the blind adversarial pass
+> plus the full local gate; the merge commit messages say so. **M159 is DONE:** the staff-reports
+> migration was applied to prod by the one sanctioned path (`apply_migration`, history row
+> `20260907082543`) and every object verified before anything else — the row in OPEN-ITEMS lists
+> the probes. Prod deploy of `068e575` is READY on `qr.mandalaymorningstar.com`.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: prod is charging cards (test mode) and never making an order
+>
+> Min asked for "test all customers and staff flows, including stripe test cards", so the same
+> session drove the real production app with headless Chromium (the bridge it needed is described
+> below). **Four test-card payments SUCCEEDED on Stripe and `qr_orders` gained zero rows**, because
+> every Stripe event reaches `/api/stripe/webhook` and is answered **400 `Bad signature`** — the
+> `STRIPE_WEBHOOK_SECRET` in Vercel prod does not match the endpoint Stripe is calling. That is the
+> only status the route has ever returned in seven days of logs, and it logs at info level, so
+> Vercel's error view showed nothing. Everything downstream breaks with it: `/track` says
+> "Confirming…" forever, the cart stays locked on its `live_payment_intent_id`, the counter refuses
+> the table and cannot clear it, the promo never counts a use. **C18 (owner: the secret) and M160
+> (code: log it as an error, and build the reconcile) are the top of the backlog.** Also measured:
+> prod is on Stripe TEST keys (`pk_test_…`, `livemode: false`) — the test cards are safe there today
+> and C2 (the live cutover) now says so.
+>
+> ### What the pass measured (2026-09-07 · prod · `068e575`)
+>
+> Customer, all driven through the real UI on a 390×844 iPhone profile: home → dine-in picker → table
+> claim (seated tables refuse with the party-code sheet, as designed) → item sheet with a required
+> modifier → cart → Send to kitchen with the undo window → View bill → 20 % tip → Payment Element →
+> `4242` → `/track` ✓ · to-go: `WELCOME10` (−$1.40, tax on the discounted base $1.32, tip 15 % of
+> $12.60 = $1.89, total $15.81 ✓), the slot sheet (soonest 10:30 AM), name + phone, generic decline
+> → "Your card has been declined." inline, then `4242` on the SAME intent ✓ · 3DS `…3155` through
+> Stripe's challenge ✓ · insufficient funds `…9995` → "Your card has insufficient funds. Try a
+> different card." ✓ · grocery: browse, add, "Review basket" sheet, checkout at $0 tax, `4242` ✓ ·
+> the scan tab says "Camera unavailable — search by name" without a camera ✓ · kiosk: honest "This
+> kiosk isn't set up yet" (C20) · a second phone joining table 10 by sticker lands in the host's
+> session (2 `session_members`; "Just you" is presence-based, so it is right).
+>
+> Staff, as manager Min K (email OTP → the code arrived on `admin@` via the Gmail connector):
+> kitchen board with the three sent tickets, Help auto-opened once, bump + undo ✓, 86 (one tap — it
+> 86'd Tom-Yum, K22 — put back from `/staff/menu` ✓), counter floor + table page, cash settle on
+> table 7 (`b4d6392a`, $15.47 cash, `settled_by` Min K) ✓, the in-flight guard on card-paid table 4
+> ("Someone's already paying on their phone") ✓, Clear table ✓, expo stages ✓, Set a tablet PIN →
+> lock → wrong PIN ("၄ ကြိမ် ကျန်ပါသေးတယ်") → right PIN ✓ (K23: it resumed onto the kitchen),
+> "Something's wrong" report `E6F303D8` → row + email on `admin@` in ~1 s, no issue (C17) ✓.
+>
+> New rows: **C18 · C19 · C20 · M160 · M161 · M162 · K20 · K21 · K22 · K23 · F11** — every one
+> carries what was measured and how. K20 (July/August tickets with 50-day timers on the live boards)
+> and K21 (twelve `pickup-<uuid>` "tables" on the floor) will confuse the family on night one.
+>
+> ### ⚠️ What the pass LEFT on prod — cleanup needs Min's go
+>
+> - **23 sessions** minted today (7 dine-in on tables 4–10, 8 to-go, 4 scan-and-go); table 7 is
+>   `closed` (settled + cleared), the rest `active` until their TTL (~14:00Z). Tables 4, 5, 6 have a
+>   sent Mohinga ticket live on the KDS; 4, 5, 6 and eight phone carts are `locked` on a
+>   `live_payment_intent_id`.
+> - **Stripe (TEST mode — no real money):** succeeded `pi_3UCySDD7LsBxOcnN0mNpTgbC` $18.27 ·
+>   `pi_3UCyb9D7LsBxOcnN1OiflB5x` $15.81 · `pi_3UCypcD7LsBxOcnN0uR0EVSW` $10.40 ·
+>   `pi_3UCyyVD7LsBxOcnN16BzQzfe` $15.47 (all unfulfilled — C18); declined `pi_3UCyZcD7…` (generic)
+>   and `pi_3UCzLoD7…` (insufficient funds); five more created and never confirmed.
+> - **One order:** `b4d6392a` table 7, cash, $15.47. **Four August orders** advanced on the expo
+>   board (K20 names them). **One staff report** `E6F303D8`. **Manager Min K now has a tablet PIN
+>   (2468)** — change it from `/staff/profile`. Tom-Yum was 86'd and restored (audit rows).
+> - Fix C18 first, then resend the four succeeded events from the Stripe Dashboard so the stranded
+>   carts fulfil (or clear the tables from the counter once M160 gives them an exit); the 23 sessions
+>   can be closed with `update table_sessions set status='closed' where created_at::date = '2026-09-07'`
+>   after the resend — never before, or the fulfilment has no session to land on.
+>
+> ### How the pass was driven (so the next one costs an hour, not five)
+>
+> The cloud container's Chromium cannot reach the internet through the agent proxy — its TLS
+> ClientHello (~1.7 KB, ML-KEM) is dropped by the relay while curl/openssl succeed — so the session
+> ran a local Node MITM bridge (`http-mitm-proxy` + `https-proxy-agent`, the browser trusting only
+> the loopback hop) and Playwright against it; the harness lives in the session scratchpad
+> (`lib.mjs` · `pay.mjs` fills the Payment Element and takes the "Yes, pay" confirm). Three harness
+> lessons that looked like product bugs and were not: (1) a tap before hydration is a no-op — retry
+> until the expected text appears; (2) `waitUntil: 'load'` never fires through the bridge, use
+> `domcontentloaded` + a text wait; (3) a `page.route` retry layer breaks Next's RSC streams.
+> Reusing `storageState` keeps the anon seat and spares GoTrue's sign-up limit.
+>
+> ### What is actually next
+>
+> 1. **C18 → resend → M160.** Nothing else in the money path matters until a paid guest gets an order.
+> 2. **K20 · K21** before the pilot night; **C19** (six photos) and **C17** (the issue token) are
+>    ten-minute owner tasks.
+> 3. **P4** stays the only open pilot row; the K15 Burmese check now has 1 + 42 + 33 new keys waiting.
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-06 · the four parallel pilot slices are ALL on `main`, and P4 is the only row left)
+>
+> **`main` is at `f85649b`.** The four slices that three other sessions and this one built in
+> parallel landed in one serialized train, newest last:
+>
+> | PR   | slice                                                                | squash    |
+> | ---- | -------------------------------------------------------------------- | --------- |
+> | #260 | P2 PR B — the rest of the staff console                              | `28c1971` |
+> | #261 | P3 — the register can put `PILOT15` on a table, and take it off      | `70d0e6e` |
+> | #262 | P6 — one TV, two audiences (the kitchen pulse band)                  | `4f6e3cd` |
+> | #263 | P5 — the pilot loop (tagging · word-check sheet · tonight's numbers) | `f85649b` |
+>
+> Every one absorbed `main` first, and each of those four merge commits was gated in full — the
+> whole `turbo lint typecheck build test`, `verify:slice`, and all ten CI fast-lane guards — before
+> its PR merged. **`main`'s tree is byte-identical to the tree the last of those runs saw**
+> (`ed0a9d8`), so nothing about the combined state is unverified.
+>
+> ### ⚠️ CODEX REVIEWED NONE OF THESE FOUR HEADS, and could not
+>
+> The connector's code-review quota is exhausted account-wide — the bot said so itself on #259
+> through #263 — so `require-codex-review.yml` is RED on every head in the train and structurally
+> cannot go green. It is not wired into branch protection (**OPEN-ITEMS C16**, owner-only), which is
+> the only reason these merges were possible. What each slice actually got was **blind adversarial
+> passes plus an independent review from this session**, and that is one reviewer's worth of
+> independence, not two. Read the four PR comment threads before trusting any of it as reviewed.
+>
+> ### What the MERGES cost, which is the transferable part
+>
+> Nothing in the four slices conflicted on intent. Every real defect came from combining them, and
+> all three were invisible in either diff alone — a class worth naming, because the next parallel
+> fan-out will produce it again:
+>
+> 1. **A contract narrowed on one side and widened on the other.** `FloorDetailLive`'s `writeError`
+>    became a `ReactNode` in P3 (so `StaffPromoControl` can pass a localized `<Chrome>`) while P2 PR
+>    B routed the same channel through `<OutageText error: string>`. Both applied textually; the
+>    result did not typecheck. Same shape a second time: P2 PR B narrowed `StaffOutageShell`'s
+>    `what` to a `WhatKey`, and P5's new glossary page was passing an English literal.
+> 2. **A DERIVED set that one side had frozen.** `STAFF_K15_HIGH` was authored as thirteen KDS and
+>    outage keys because that was the whole `K15-HIGH` population at `5715781`. P2 PR B and P3 marked
+>    27 more. `autonyms.test.ts` asserts the set equals the parsed markers in BOTH directions and
+>    went red — the guard doing exactly its job. It is now regenerated by that same AST walk, 40 keys.
+> 3. **A count both parents got wrong, in opposite directions.** The `verify:slice` mutate-set
+>    inventory in CLAUDE.md and README is the operator's ONLY list of files that can be sitting on
+>    disk as deliberately-broken mutants after a killed run. P6 read it `70+3+5=78`; `main` read it
+>    `74+3+FIVE` while claiming 83 — and both enumerations had silently dropped
+>    `packages/db/src/schemas.ts`. Measured and corrected in the merge.
+>
+> The docs conflicts were all set operations and were resolved as such, never from memory
+> (LEARNINGS #61): LEARNINGS renumbered #93–#99 with both parents' seven entries kept and the
+> cross-references repointed; OPEN-ITEMS unioned by row id at each step (20 → 31 → 3 rows) with the
+> union asserted equal each time; every count re-measured and pasted rather than transcribed.
+>
+> ### Gate + prod state on `main`, measured 2026-09-06
+>
+> **472 `verify:slice` mutants** · **93 target modules** (83 under `apps/qr/lib`, 3 API routes,
+> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
+> `check:docs` clean · all ten fast-lane guards green.
+>
+> **Prod carries everything this code needs — verified against the live project, not from prose:**
+> `supabase_migrations.schema_migrations` holds `20260905103039 m151_live_payment_intent` and
+> `20260905220123 pilot15_promo` (the usual M125 stamp divergence from the repo filenames), and the
+> row itself reads `PILOT15 · kind pct · value 0.15 · active · max_uses 200 · used 0 ·
+per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`. **There is no
+> unapplied migration in this train** — `20260905120000_pilot15_promo.sql` is the only file added
+> since `5715781` and it is already on prod.
+>
+> ### What is actually next
+>
+> 1. **P7 — the parents' console — is in flight, four PRs decided on the design canvas
+>    (2026-09-06, "Staff Console for Mom and Dad": four forks, today beside three options each; Min
+>    picked A1 two doors · B1 "How this works" sheet · C1 "Something's wrong" report · D1 text-size
+>    dial, then answered: email + a row for the report, the front door in Burmese in the same
+>    slice, NO phone button — the report opens a GitHub issue with the diagnostics instead).**
+>    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch (#264,
+>    blind-audited, awaiting Min's go); **PR 1b — the premium feel Min picked, one staff bar on all
+>    sixteen pages — is BUILT on `claude/feat/p7-1b-premium-feel`, stacked on it (#266, blind
+>    REJECT → fixed in `5043014`)**; **PR 2 — the front door in Burmese (login · lock · PIN ·
+>    error; 59 new keys under `entry.*` / `pin.*` / `out.err.*`, every MY a draft) — is BUILT on
+>    `claude/feat/p7-2-front-door`, stacked on 1b (#267, blind REJECT → fixed in `8db3e7d`).**
+>    **PR 3 — the Help door: one gold circle on the board, the counter and expo → one sheet (the
+>    rows · "How this screen works", four cards per screen with the real control as the picture,
+>    opening itself once per device · the board's text size on a real dish word) — is BUILT on
+>    `claude/feat/p7-3-help`, stacked on PR 2 (#268, blind REJECT → fixed in `7640e01`); 42 `help.*`
+>    keys, every MY a draft.** **PR 4 — "Something's wrong": the sheet's third row → a row in
+>    `qr_staff_reports` (written first, identity from the session) + a Resend email + a GitHub issue
+>    with the diagnostics, outcomes recorded on the row, the person's reports listed back — is BUILT
+>    on `claude/feat/p7-4-report`, stacked on PR 3; 33 `report.*` keys, every MY a draft. ⚠️ The
+>    migration is NOT applied to prod (M159 — one-file MCP path, Min's go) and the GitHub token is
+>    owner config (C17).** Merge order is the stack order: #264 → #266 → #267 → #268 → PR 4, each base flipped to `main`
+>    after the one beneath merges (`git merge` main in, never rebase). The build order and every
+>    decision are in `docs/PILOT_PLAN.md` §Code P7.
+> 2. **P4 — the Day-0 walkthrough — is the only other `docs/PILOT_PLAN.md` §Code row still unbuilt.**
+>    It is a fix PR, not a build: walk the §D edge-case matrix (`QA-CHECKLIST`) and fix what it
+>    finds — and it now also answers P7c/P7d (the referer on the real tablet; the shortcut names).
+> 3. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
+>    money gate. It is the exception that keeps P2e from being fully closed.
+> 4. **The K15 native check has a queue now** — the 52-key first band on `/staff/glossary` (40 until
+>    PR 2 marked six front-door sentences, PR 3 four help cards and PR 4 two report sentences), plus two MY values the merge
+>    train authored as drafts (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added
+>    (the doors, More, Screens, the three sizes, two tiles), the four PR 1b added (Lock, Locking…,
+>    Console tools, Text size), the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN
+>    vocabulary and the error boundary, the first thing Dad reads — the **42 PR 3 added**, the
+>    twelve help cards and the sheet around them — and the **33 PR 4 added**, the report row, its
+>    field, the facts sent with it, the outcomes and the status chips. All marked in
+>    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
+> 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
+>    M158). Sweep it before claiming anything is done.
+>
+> The blocks below are the slices' own handoffs, written while each was still an open PR — P5 first,
+> then two from #260 (its author wrote a second after the pre-merge blind pass), then P3. **P6 wrote
+> none**, so #262's reasoning lives only in its PR thread and its CHANGELOG entry. All of them are
+> accurate about WHAT their slice ships and stale about its merge state — read them for the
+> reasoning, not for where the code is.
+
+---
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-05 · pilot P5 — the pilot can be measured, and the family can correct it)
 >
@@ -134,8 +348,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > ### Also worth knowing
 >
 > - **`/staff/login` shipped the same viewport overflow as `/staff/lock`** — a 44px control stacked
->   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owns the height
->   once; both surfaces render through it, and the two components' roots are `flex: 1`.
+>   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owned the height
+>   at the time; both surfaces rendered through it and their roots were `flex: 1` (retired in P7·2 —
+>   the bar owns the front door now and the cards are ordinary flow beneath it).
 > - **Do not quote a foil number that drifts.** `staff-outage.ts` said the unanchored grep "returns
 >   28"; it was 30 by the time a reviewer re-measured, because documenting it added mentions. Only the
 >   anchored form (→ 27) is quoted now.
@@ -404,7 +619,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (456 today)**, **1372 qr + 138 ui tests at the time (1755 + 142 today)**, 69 target modules at the time (80 under `apps/qr/lib` today, 90 in all), 97 local
+> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1924 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1296,7 +1511,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 456 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1755 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1924 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2018,7 +2233,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (456 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (472 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

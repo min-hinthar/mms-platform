@@ -246,7 +246,8 @@ describe("the dictionary guards", () => {
     // key would silently collapse them. A segment may LEAD with a digit — `kds.86` is the kitchen
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
     // like an identifier.
-    const SURFACES = /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot)$/;
+    const SURFACES =
+      /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

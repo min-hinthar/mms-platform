@@ -1877,3 +1877,136 @@ Two things that only showed up on the falsification run, and both are the same m
 
 Same lesson as #97 from the other side: a guard is only evidence once you have seen the exact edit it
 exists to catch turn it red.
+
+## #100 — the defects a parallel fan-out produces live in the MERGE, and no diff shows them (pilot merge train, 2026-09-06)
+
+Four sessions built four pilot slices off one base and each got its own blind adversarial pass, its
+own review, and a green gate. Serializing them into `main` — each PR absorbing `main` before its
+merge — produced **four real defects that existed in none of the four diffs**, and all four were
+caught by the gate rather than by anyone reading code:
+
+1. **`FloorDetailLive`'s `writeError`.** P3 retyped the state to `ReactNode` so a localized
+   `<Chrome>` could be pushed into it; P2 PR B routed the same channel through
+   `<OutageText error: string>`. Both edits applied textually and the merge did not typecheck.
+2. **`StaffOutageShell`'s `what`.** P2 PR B narrowed it from a free string to a `WhatKey`; P5's new
+   glossary page was passing `what="the word-check sheet"`.
+3. **`STAFF_K15_HIGH`.** P5 authored it as thirteen keys because that was the entire `K15-HIGH`
+   population at the shared base. P2 PR B and P3 marked 27 more. `autonyms.test.ts` asserts the set
+   EQUALS the parsed markers in both directions, so it went red.
+4. **The `verify:slice` mutate-set inventory.** P6 read it `70+3+5=78`; `main` read it `74+3+FIVE`
+   while claiming 83. Both had silently dropped `packages/db/src/schemas.ts`, so neither sum was the
+   set — in the one doc that is the operator's only list of files a killed run can leave broken.
+
+The shape is one thing said four ways: **a fact that two branches each hold a copy of will diverge,
+and the copies are consistent WITHIN each branch, so no reviewer of either diff can see it.** #1 and
+#2 are one type contract with a producer on each side. #3 is a derived set that one side froze as a
+literal. #4 is a count.
+
+Three things follow, and none of them is "review harder":
+
+- **The gate is the merge reviewer.** Run the FULL gate on the merge commit, not on the branch tip:
+  `turbo lint typecheck build test` plus `verify:slice` plus every fast-lane guard. Three of the
+  four above are invisible to `tsc` alone (#3 and #4 are tests and a doc guard). A merge whose
+  parents were both green is not green.
+- **A derived set must be derived at the seam too.** #3's fix was not to retype the thirteen plus
+  twenty-seven — it was to re-run the guard's own AST walk over the merged dictionary and paste the
+  output, which is the same rule as "never transcribe a number into an assertion" (#61) applied to a
+  merge. Anything a guard computes, recompute; anything two files must agree on, re-measure.
+- **The union is a set operation, and the assertion is cheap.** Every docs conflict here was
+  resolved by deriving both parents' row-id sets, taking the union, and ASSERTING the result equals
+  it — 20, then 31, then 3 rows, plus seven LEARNINGS entries renumbered #93–#99 with a duplicate
+  check. That is ten lines of Python per conflict and it is the only reason "nothing was lost" is a
+  claim rather than a hope.
+
+Corollary for the next fan-out: the parallel sessions were right to stay out of each other's files,
+and it did not help — every collision above was on a file each slice legitimately owned a corner of.
+Budget the merge as its own reviewed unit of work, with its own gate run, not as a formality after
+four green PRs.
+
+## #101 — CSS written against a component's DOM is a claim about a DOM nobody rendered (P7 PR 1, 2026-09-06)
+
+The doors' title CSS was `.staff-door-name > [lang="my"]` and `.staff-door-name > .staff-door-en`.
+`<Chrome echo="stack">` renders `<span class="chrome-pair"><span lang="my">…</span><span
+class="chrome-en">…</span></span>` — the span is a GRANDCHILD, and no component emits
+`.staff-door-en`. Both selectors matched nothing; the 38px doors the CHANGELOG described never
+shipped; every gate was green, because no gate renders CSS against DOM. The blind auditor found it by
+reading `Chrome.tsx` beside the stylesheet — the author, who wrote both, did not, because the author
+"knew" what Chrome renders.
+
+Rules. **(1) A selector is a claim about a DOM.** When the DOM comes from a component you did not
+write the same hour, hold the selector to a RENDER: `container.querySelector(selector)` in jsdom,
+driven by the selectors EXTRACTED from the stylesheet, never transcribed (`StaffDoors.test.tsx`'s
+last block; a dead selector is a red test now). **(2) Write the red case in the same suite** — the
+exact wrong shape (`> [lang="my"]`) asserted to match NOTHING, so the guard is seen to discriminate.
+**(3) The same head's other three CRITICALs were the same shape one level up.** An `aria-busy` flag
+latched forever, because no test tapped twice; a manager with no plain link to the board, because no
+test rendered the manager's floor; a cold-start promise that no test walked through the lock and the
+login the way a tablet does every morning. The first draft tested the modules' VALUES and never the
+surface's DAY. Before the blind pass, walk one real morning through the diff (locked tablet → PIN →
+where does it land?) and one real failure (the write is refused → what does the person see next?),
+and write each as a test that could only pass if the surface does what the copy says.
+
+## #102 — a scripted sweep is only as safe as its narrowest match; an optional prefix with a lazy any-match is not narrow (P7 PR 1b, 2026-09-07)
+
+The twelve-page header sweep ran as one script with exact-match assertions per snippet and an
+all-or-nothing write. Its `drop_const` regex allowed an OPTIONAL docblock before the const:
+`(?:/\*\*[\s\S]*?\*/\n)?const back…`. The lazy `[\s\S]*?` inside an optional group is not "the
+docblock right before this const" — it is "from the FIRST `/**` in the file to the first `*/` before
+this const", and on one page that span held the `wrap` const the next step needed. The step after it
+could not find `wrap` and the script aborted with nothing written; without that assertion the
+sweep would have deleted a page's whole top half and reported "converted 12 pages".
+
+Rules. **(1) A prefix that may be absent must be anchored to what it prefixes** — a docblock is
+`/\*\*(?:[^*]|\*(?!/))*\*/\n` (cannot cross a closer), never `[\s\S]*?`. **(2) Every scripted edit
+asserts its match count AND a downstream fact** (here: the const the next step edits still
+exists); a script that only asserts its own matches cannot see what it took with them. **(3)
+Compute everything, write nothing, until every page's edits are known** — the abort was free
+because the write had not happened. The same shape bit a second time in the same hour: the
+one-liner `const h1 = {…};` alternative sat AFTER the multi-line one, so the multi-line lazy match
+ran past the one-liner to the next `\n};\n` and took two later consts with it (`tsc` caught it as
+two missing names). Put the narrower alternative FIRST, or make the multi-line one refuse a `};` on
+the same line.
+
+## #103
+
+**A `string` live-region state is a wall against localization, and it hides as "already converted".**
+Three staff surfaces held `msg: string | null` and rendered it through `<OutageText>`, whose
+passthrough arm returns a bare text node. Every render site LOOKED converted — the region went
+through the staff renderer — while the only sentence it could ever say in Burmese was the one outage
+twin; the PIN failures, the lockout countdown and the step-up notes stayed English for two slices
+(OPEN-ITEMS P2m/P2p). The fix is a TYPE, not more keys: `StaffMsg = { k, vars } | string` and one
+`<MsgText>`, after which each arm is one key away. Corollary for the dictionary: a duration is not a
+`{t}` clock — format it once from unit keys (`lockoutDuration`) so the numerals follow the device;
+and an `<option>` can hold only text, so under rule 5 the `lang` mark rides the element itself.
+
+## #104
+
+**`git checkout -- <file>` restores the INDEX, not the work you are trying to keep — and a
+red-first proof is exactly when you reach for it.** The rule says induce the defect, watch the guard
+go red, restore. On PR 2 the second proof restored `StaffLogin.tsx` with `git checkout --` while the
+rewrite was still unstaged, so the restore was HEAD's English component; the md5 comparison that
+was supposed to catch that sat behind `&&` and simply printed nothing, and the next four checks ran
+green on the old file (rule 5 has nothing to say about English JSX) until the full gate's own suite
+failed six times. Two rules: **stage (or commit) before mutating**, so the restore point is the work
+and not its ancestor; and a restore check must FAIL LOUDLY — `[ md5 = md5 ] || { echo MISMATCH; exit 1; }`
+— never `&& echo ok`, whose silence reads as nothing happened.
+
+## #105
+
+**A "replica in the real control's classes" is only real if it shares the control's DECLARATION —
+a new class that copies the look IS the drift it was built to prevent, and it drifts on day one.**
+PR 3's help cards promised "the real control in its own classes" and the blind pass found four
+pictures of controls that do not exist: the takeaway stages drawn green and inverted (the board's are
+accent and plain, styled INLINE, so there was no class to borrow and a new one was invented), the
+undo pill in the bar's colours (a `.help-pic-undo-btn` beside `.kds-undo button`), the Screens circle
+in `.staff-circ-here` (the bar's static mark, dimmed and `cursor: default`), and the kitchen's amber
+strip on a board whose frozen state is a warn-coloured status line. Every one passed a suite that
+checked `aria-hidden` and nothing else. The rule: bind the replica to the SAME declaration — the
+class when there is one, the style object exported from a tiny shared module when the control is
+styled inline (`expo-stage.ts`, now spread by `ExpoBoard` too), or ONE CSS rule whose selector names
+both — and test the BINDING (the replica is inside `.kds-undo`; the rule naming `button` also names
+the replica and no rule names it alone; `ExpoBoard` parsed with `typescript` imports the objects and
+redeclares none), never the look. Two sentences on the same cards were also wrong for the same reason
+— written from a mental picture rather than the source: "the dark bar" (`--tx` on a Night board is
+the pale one) and "a manager puts it back" (`setItemSoldOut` is server-and-up). Read the control
+before describing it, and quote its colour token, not its colour.

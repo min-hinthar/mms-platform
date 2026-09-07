@@ -1,9 +1,17 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
+import { releaseLockAfterSignOut } from "@/lib/staff-pin-actions";
+import { BRAND_EMAIL, BRAND_NAME } from "@/lib/brand";
+import type { StaffLang } from "@/lib/staff-lang";
+import { Chrome } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
+
+/** The OAuth provider's own name — a brand term the sentences interpolate, never a dictionary value. */
+const GOOGLE = "Google";
 
 /**
  * Staff sign-in (S1.1a) — passwordless magic-link / email-OTP. Two steps: request a 6-digit code to
@@ -11,11 +19,23 @@ import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
  * has already provisioned can sign in — a stranger's email never mints a session. On success the
  * @supabase/ssr browser client persists the session to cookies, so the /staff server shell reads the
  * verified uid and the staff row gates the rest. The PIN fast-path on a shared tablet is S1.1b.
+ *
+ * P7·2 — the FIRST screen Dad sees, in Burmese. Every sentence is an `entry.*` key rendered through
+ * `<Chrome>`; the two live-region states (`error`, `notice`) are `StaffMsg`s so the region can carry a
+ * key with its slots — the sent-to address rides `{x}` and arrives wrapped `lang="en"`. The page owns
+ * the bar and the column; this is the card beneath them.
+ *
+ * ⚠️ NO CONTROL HERE IS EVER NATIVELY `disabled`. Disabling the button that was just tapped drops
+ * focus to `<body>` (the language switch's measured rule), and on THIS screen it also stranded the
+ * old copy: a 429 disabled Send under a message telling the person to tap it. Every gate is
+ * `aria-disabled` + a refusal inside the handler, so the button keeps its place and its name.
  */
 export function StaffLogin({
+  lang,
   denied = false,
   next = DEFAULT_NEXT,
 }: {
+  lang: StaffLang;
   denied?: boolean;
   /**
    * Where this sign-in is FOR — already validated by the page against the allowlist, so it is safe
@@ -30,14 +50,15 @@ export function StaffLogin({
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [error, setError] = useState<StaffMsg | null>(null);
+  const [notice, setNotice] = useState<StaffMsg | null>(null);
   // Resend cooldown (seconds): after a SUCCESSFUL send, Supabase's per-address window is ~60s, so the
   // "Resend in Ns" countdown is honest. A 429 is different — it's the hourly cap, which 60s won't
   // clear, so we DON'T arm a countdown that re-enables straight into another 429 (see `emailBlocked`).
   const [cooldown, setCooldown] = useState(0);
   // A 429 (`over_email_send_rate_limit`) hit for `sentTo`. Distinct from `cooldown`: there's no honest
-  // short timer to show (the cap is hourly), so the button stays disabled and points at Google rather
+  // short timer to show (the cap is hourly), so the button stays refused and points at Google rather
   // than dangling a "Resend in 60s" that just trips the limit again.
   const [emailBlocked, setEmailBlocked] = useState(false);
   // The address the active cooldown/block belongs to. Both are scoped to THIS address: switching to a
@@ -106,10 +127,15 @@ export function StaffLogin({
   const blockedThis = sameAddr && emailBlocked;
   const coolingThis = sameAddr && cooldown > 0;
   const rateLimited = blockedThis || coolingThis;
+  const emailTooShort = email.trim().length < 3;
+  const codeTooShort = code.trim().length < 6;
+  const sendRefused = busy || rateLimited || emailTooShort;
+  const verifyRefused = busy || codeTooShort;
 
   // "Continue with Google" — OAuth redirect flow. On success the browser leaves for Google and comes
   // back to /staff/auth/callback (which exchanges the code → /staff); only an error stays on this page.
   async function google() {
+    if (busy) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -123,15 +149,15 @@ export function StaffLogin({
       // W10b — a transport failure is not a Google problem or a you problem: say whose fault it is.
       setError(
         isRetryableAuthShape(err)
-          ? "We can’t reach the sign-in service right now — it’s not you. Try again in a moment."
-          : "Couldn’t start Google sign-in. Try again.",
+          ? { k: "entry.login.err.googleOutage" }
+          : { k: "entry.login.err.google", vars: { x: GOOGLE } },
       );
     }
   }
 
   async function sendCode(e: FormEvent) {
     e.preventDefault();
-    if (rateLimited) return;
+    if (sendRefused) return;
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -149,7 +175,7 @@ export function StaffLogin({
     });
     setBusy(false);
     if (err) {
-      // Move focus back to the editable field so a keyboard/SR user isn't stranded on the now-disabled
+      // Move focus back to the editable field so a keyboard/SR user isn't stranded on the refused
       // submit button, and lands on the control the error (via aria-describedby) describes.
       emailRef.current?.focus();
       // A 429 is the email rate limit (per-address + an HOURLY cap), NOT a bad address. 60s won't clear
@@ -157,34 +183,29 @@ export function StaffLogin({
       if (err.status === 429) {
         setSentTo(addr);
         setEmailBlocked(true);
-        setError(
-          "Too many code requests right now. Use “Continue with Google” above, or try again later.",
-        );
+        setError({ k: "entry.login.err.rateLimited", vars: { x: GOOGLE } });
         return;
       }
       // W10b — a transport failure is NOT a bad address: the old copy told staff to double-check an
       // email that was fine, mid-outage, on the login they'd just been (wrongly) redirected to.
       if (isRetryableAuthShape(err)) {
-        setError(
-          "We can’t reach the sign-in service right now — your email is fine. Try again in a moment.",
-        );
+        setError({ k: "entry.login.err.sendOutage" });
         return;
       }
       // Otherwise: a non-staff email or a typo — let them fix it and retry (no cooldown).
-      setError(
-        "We couldn’t send a code to that email. Check it’s your staff address and try again.",
-      );
+      setError({ k: "entry.login.err.send" });
       return;
     }
     setSentTo(addr);
     setEmailBlocked(false);
     setCooldown(60);
     setStep("code");
-    setNotice(`We sent a sign-in code to ${addr}.`);
+    setNotice({ k: "entry.login.sent", vars: { x: addr } });
   }
 
   async function verify(e: FormEvent) {
     e.preventDefault();
+    if (verifyRefused) return;
     setBusy(true);
     setError(null);
     const { error: err } = await browserClient().auth.verifyOtp({
@@ -198,8 +219,8 @@ export function StaffLogin({
       // budget against an outage the retry copy names instead.
       setError(
         isRetryableAuthShape(err)
-          ? "We can’t reach the sign-in service right now — your code may still be good. Try again in a moment."
-          : "That code didn’t match or has expired. Request a new one.",
+          ? { k: "entry.login.err.verifyOutage" }
+          : { k: "entry.login.err.verify" },
       );
       return;
     }
@@ -215,253 +236,187 @@ export function StaffLogin({
   // can be tried (otherwise the server would keep bouncing them here). W10b: a FAILED sign-out
   // (auth plane down) leaves the session live — say so instead of refreshing into the same bounce.
   async function signOutWrong() {
+    if (signingOut) return; // re-entry refused here, never by `disabled`
+    setSigningOut(true);
     const { error: err } = await browserClient().auth.signOut();
     if (err && isRetryableAuthShape(err)) {
-      setError(
-        "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment.",
-      );
+      setSigningOut(false);
+      setError({ k: "entry.err.signOutOutage" });
       return;
     }
+    // A wrong account can be signed in on a LOCKED tablet (the lock is a device cookie the browser
+    // sign-out cannot clear); release it now the session is gone, or the right account's first
+    // screen is the lock with no PIN to enter (blind pass, CRITICAL).
+    await releaseLockAfterSignOut();
     router.refresh();
   }
 
+  const shown = error ?? notice;
+
   return (
-    <main style={wrap}>
-      <div className="card" style={card}>
-        <p className="eyebrow" style={{ marginBottom: 6 }}>
-          Staff
-        </p>
-        <h1 style={h1}>Sign in to the floor</h1>
-        <p style={sub}>
-          {step === "email"
-            ? "Enter your staff email and we’ll send a one-time code."
-            : "Enter the code we emailed you."}
-        </p>
+    <section className="card card-textured entry-card" aria-labelledby="entry-h">
+      <p className="entry-brand">{BRAND_NAME}</p>
+      <h2 id="entry-h" className="entry-h">
+        <Chrome lang={lang} k="entry.login.head" echo="stack" />
+      </h2>
+      <p className="entry-sub">
+        <Chrome
+          lang={lang}
+          k={step === "email" ? "entry.login.sub.email" : "entry.login.sub.code"}
+          echo="stack"
+        />
+      </p>
 
-        {denied && (
-          // A discrete, important state reached via redirect — announce it (distinct from the polite
-          // status region below; QA §A's "one live region" guards against redundant aria-live on the
-          // SAME message, not an alert + a separate progress region).
-          <div role="alert" style={deniedBox}>
-            <p style={{ margin: "0 0 8px" }}>
-              You’re signed in, but this account isn’t set up as staff. Ask an owner to add you — or
-              sign out and use another email.
-            </p>
-            <button type="button" onClick={signOutWrong} style={linkBtn}>
-              Sign out
-            </button>
+      {denied && (
+        // A discrete, important state reached via redirect — announce it (distinct from the polite
+        // status region below; QA §A's "one live region" guards against redundant aria-live on the
+        // SAME message, not an alert + a separate progress region).
+        <div role="alert" className="entry-alert">
+          <p style={{ margin: "0 0 8px" }}>
+            <Chrome lang={lang} k="entry.login.denied" echo="stack" />
+          </p>
+          <button
+            type="button"
+            onClick={signOutWrong}
+            aria-disabled={signingOut || undefined}
+            className="entry-link"
+          >
+            <Chrome lang={lang} k="entry.signOut" echo="inline" />
+          </button>
+        </div>
+      )}
+
+      {step === "email" && (
+        <>
+          <button
+            type="button"
+            onClick={google}
+            aria-disabled={busy || undefined}
+            className="entry-secondary staff-press"
+          >
+            {/* The Google "G" uses Google's official brand colors by mandate — a sanctioned literal-
+                color exception (like email HTML), not a token miss. Decorative → aria-hidden. */}
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden focusable="false">
+              <path
+                fill="#4285F4"
+                d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"
+              />
+              <path
+                fill="#34A853"
+                d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"
+              />
+              <path
+                fill="#EA4335"
+                d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
+              />
+            </svg>
+            {busy ? (
+              <Chrome lang={lang} k="entry.login.starting" echo="inline" />
+            ) : (
+              <Chrome lang={lang} k="entry.login.google" vars={{ x: GOOGLE }} echo="inline" />
+            )}
+          </button>
+          <div className="entry-divider" aria-hidden>
+            <Chrome lang={lang} k="entry.login.or" echo="inline" />
           </div>
-        )}
+        </>
+      )}
 
-        {step === "email" && (
-          <>
-            <button type="button" onClick={google} disabled={busy} style={googleBtn}>
-              {/* The Google "G" uses Google's official brand colors by mandate — a sanctioned literal-
-                  color exception (like email HTML), not a token miss. Decorative → aria-hidden. */}
-              <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden focusable="false">
-                <path
-                  fill="#4285F4"
-                  d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.71-1.57 2.68-3.89 2.68-6.62z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.81.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M3.97 10.72a5.41 5.41 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.01-2.33z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
-                />
-              </svg>
-              {busy ? "Starting…" : "Continue with Google"}
-            </button>
-            <div style={dividerRow} aria-hidden>
-              <span style={dividerLine} />
-              <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-                or use your email
-              </span>
-              <span style={dividerLine} />
-            </div>
-          </>
-        )}
+      {step === "email" ? (
+        <form onSubmit={sendCode} noValidate>
+          <label htmlFor="staff-email" className="entry-label">
+            <Chrome lang={lang} k="entry.login.email.label" echo="stack" />
+          </label>
+          <input
+            ref={emailRef}
+            id="staff-email"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            autoCapitalize="none"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            // An example address on the restaurant's own domain — the brand singleton, not copy.
+            placeholder={`you@${BRAND_EMAIL.split("@")[1]}`}
+            // NOT described-by the live region (the step-up's S10 rule): focus returns here on a
+            // send error and the region announces the change itself — described-by would say it twice.
+            className="entry-input"
+          />
+          <button
+            type="submit"
+            aria-disabled={sendRefused || undefined}
+            className="entry-primary staff-press"
+          >
+            {busy ? (
+              <Chrome lang={lang} k="entry.login.sending" echo="inline" />
+            ) : blockedThis ? (
+              <Chrome lang={lang} k="entry.login.useGoogle" vars={{ x: GOOGLE }} echo="inline" />
+            ) : coolingThis ? (
+              <Chrome lang={lang} k="entry.login.resendIn" vars={{ n: cooldown }} echo="inline" />
+            ) : (
+              <Chrome lang={lang} k="entry.login.send" echo="inline" />
+            )}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={verify} noValidate>
+          <label htmlFor="staff-code" className="entry-label">
+            <Chrome lang={lang} k="entry.login.code.label" echo="stack" />
+          </label>
+          <input
+            ref={codeRef}
+            id="staff-code"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoCapitalize="none"
+            maxLength={12}
+            required
+            value={code}
+            // Accept the token AS ISSUED — only strip whitespace (autofill can paste "123 456").
+            // Do NOT strip non-digits or cap at 6: Supabase's OTP length is configurable, so assuming
+            // a 6-digit numeric code is what made a longer/other-format token never match.
+            onChange={(e) => setCode(e.target.value.replace(/\s/g, ""))}
+            // No placeholder: an attribute value carries no `lang` mark, so a Burmese one renders in
+            // the Latin face at 0.18em tracking (blind pass, CRITICAL). The label above says it.
+            className="entry-input entry-input-code"
+          />
+          <button
+            type="submit"
+            aria-disabled={verifyRefused || undefined}
+            className="entry-primary staff-press"
+          >
+            <Chrome lang={lang} k={busy ? "entry.checking" : "entry.login.verify"} echo="inline" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (busy) return; // a late verify verdict must not land under the email form
+              setStep("email");
+              setCode("");
+              setError(null);
+              setNotice(null);
+            }}
+            aria-disabled={busy || undefined}
+            className="entry-link"
+          >
+            <Chrome lang={lang} k="entry.login.otherEmail" echo="inline" />
+          </button>
+        </form>
+      )}
 
-        {step === "email" ? (
-          <form onSubmit={sendCode} noValidate>
-            <label htmlFor="staff-email" style={label}>
-              Staff email
-            </label>
-            <input
-              ref={emailRef}
-              id="staff-email"
-              type="email"
-              inputMode="email"
-              autoComplete="email"
-              autoCapitalize="none"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@mandalaymorningstar.com"
-              // Tie the status/error region to the field so it's read when focus lands here on a send
-              // error (the error/notice still live-announces independently for non-focused users).
-              aria-describedby="staff-auth-msg"
-              style={input}
-            />
-            <button
-              type="submit"
-              disabled={busy || rateLimited || email.trim().length < 3}
-              style={primaryBtn}
-            >
-              {busy
-                ? "Sending…"
-                : blockedThis
-                  ? "Use Google instead"
-                  : coolingThis
-                    ? `Resend in ${cooldown}s`
-                    : "Send code"}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={verify} noValidate>
-            <label htmlFor="staff-code" style={label}>
-              Sign-in code
-            </label>
-            <input
-              ref={codeRef}
-              id="staff-code"
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              autoCapitalize="none"
-              maxLength={12}
-              required
-              value={code}
-              // Accept the token AS ISSUED — only strip whitespace (autofill can paste "123 456").
-              // Do NOT strip non-digits or cap at 6: Supabase's OTP length is configurable, so assuming
-              // a 6-digit numeric code is what made a longer/other-format token never match.
-              onChange={(e) => setCode(e.target.value.replace(/\s/g, ""))}
-              placeholder="Code from your email"
-              style={{ ...input, letterSpacing: "0.18em", fontVariantNumeric: "tabular-nums" }}
-            />
-            <button type="submit" disabled={busy || code.trim().length < 6} style={primaryBtn}>
-              {busy ? "Verifying…" : "Sign in"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStep("email");
-                setCode("");
-                setError(null);
-                setNotice(null);
-              }}
-              style={linkBtn}
-            >
-              Use a different email
-            </button>
-          </form>
-        )}
-
-        {/* One live region for both the success notice and the error (QA §A: no redundant regions).
-            Also the email field's aria-describedby target — read on focus after a send error. */}
-        <p id="staff-auth-msg" role="status" style={{ margin: 0, minHeight: 20 }}>
-          {error ? (
-            <span style={{ color: "var(--warn)", fontSize: "var(--fs-sm)" }}>{error}</span>
-          ) : notice ? (
-            <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>{notice}</span>
-          ) : null}
-        </p>
-      </div>
-    </main>
+      {/* One live region for both the success notice and the error (QA §A: no redundant regions). */}
+      <p
+        id="staff-auth-msg"
+        role="status"
+        className={error ? "entry-msg entry-msg-warn" : "entry-msg"}
+      >
+        {shown && <MsgText lang={lang} msg={shown} />}
+      </p>
+    </section>
   );
 }
-
-const wrap: CSSProperties = {
-  // `flex: 1`, not a second `100dvh`: `StaffLangShell` owns the viewport height and this fills
-  // what the language strip leaves. Two competing `100dvh` boxes made the page overflow.
-  flex: 1,
-  minHeight: 0,
-  display: "grid",
-  placeItems: "center",
-  padding: "var(--s6)",
-};
-const card: CSSProperties = { width: "100%", maxWidth: 380, padding: "var(--s6)" };
-const googleBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: 10,
-  border: "1px solid var(--bd)",
-  borderRadius: "var(--r-full)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-body)",
-  fontWeight: 600,
-  cursor: "pointer",
-};
-const dividerRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  margin: "var(--s4) 0",
-};
-const dividerLine: CSSProperties = { flex: 1, height: 1, background: "var(--bd)" };
-const deniedBox: CSSProperties = {
-  background: "var(--warnb)",
-  color: "var(--warn)",
-  border: "1px solid var(--bd)",
-  borderRadius: "var(--r-sm)",
-  padding: "12px 14px",
-  marginBottom: "var(--s5)",
-  fontSize: "var(--fs-sm)",
-  lineHeight: 1.5,
-};
-const h1: CSSProperties = { fontSize: "var(--fs-h1)", margin: "0 0 6px" };
-const sub: CSSProperties = {
-  color: "var(--t2)",
-  fontSize: "var(--fs-sm)",
-  margin: "0 0 var(--s5)",
-};
-const label: CSSProperties = {
-  display: "block",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  marginBottom: 6,
-  color: "var(--tx)",
-};
-const input: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 14px",
-  fontSize: "var(--fs-body)", // ≥16px so iOS doesn't zoom the field on focus
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  marginBottom: "var(--s4)",
-};
-const primaryBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  border: "none",
-  borderRadius: "var(--r-full)",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontSize: "var(--fs-body)",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-const linkBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 44,
-  marginTop: 4,
-  border: "none",
-  background: "transparent",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};

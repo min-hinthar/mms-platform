@@ -1,45 +1,51 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { Icon } from "@mms/ui";
-import { unlockConsole } from "@/lib/staff-pin-actions";
+import { releaseLockAfterSignOut, unlockConsole } from "@/lib/staff-pin-actions";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
+import { plural } from "@/lib/i18n/fill";
+import type { StaffLang } from "@/lib/staff-lang";
+import { Chrome } from "./Chrome";
+import { secondsUntil, useLockout } from "./ManagerPinStepUp";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 
 /**
  * Shared-tablet unlock (S1.1b) — the SAME staff member who locked re-enters their PIN to resume. The
  * verify + lockout are entirely server-side (unlockConsole → mms_staff_verify_pin); this surface only
  * shows honest state: remaining attempts on a miss, a live countdown while locked out, and a sign-out
  * escape for a forgotten PIN (the deliberate way back, which ends the session the lock sits on).
+ *
+ * P7·2 — in Burmese, through the `pin.*` vocabulary the manager step-up already reads (one word for
+ * "wrong PIN" on every screen that says it) and `useLockout` from the same module, so the countdown
+ * is formatted once. The page owns the bar and the column; this is the card beneath them.
+ *
+ * ⚠️ NOTHING HERE IS NATIVELY `disabled`. The input is `readOnly` during a lockout — it keeps focus
+ * (which `submit` just moved there) and refuses keys — and the button is `aria-disabled` with the
+ * refusal inside the handler, so a locked-out person keeps their place while the countdown speaks.
  */
-export function PinUnlock({ displayName }: { displayName: string }) {
+export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName: string }) {
   const router = useRouter();
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  // Seconds left on a lockout; 0 = not locked. Drives the disabled state + the countdown copy.
-  const [lockLeft, setLockLeft] = useState(0);
+  const [signingOut, setSigningOut] = useState(false);
+  const [msg, setMsg] = useState<StaffMsg | null>(null);
+  // Seconds left on a lockout; 0 = not locked. Drives the refused state + the countdown copy.
+  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
-  // Tick the lockout countdown to zero (interval created once while locked; self-stops at 0).
-  const locked = lockLeft > 0;
-  useEffect(() => {
-    if (!locked) return;
-    const id = setInterval(() => setLockLeft((s) => (s <= 1 ? 0 : s - 1)), 1000);
-    return () => clearInterval(id);
-  }, [locked]);
-
   const onlyDigits = (s: string) => s.replace(/\D/g, "").slice(0, PIN_MAX_LENGTH);
   const lengthOk = pin.length >= PIN_MIN_LENGTH;
+  const refused = busy || locked || !lengthOk;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (locked) return;
+    if (refused) return;
     setBusy(true);
     setMsg(null);
     const res = await unlockConsole({ pin });
@@ -52,164 +58,109 @@ export function PinUnlock({ displayName }: { displayName: string }) {
     setPin("");
     inputRef.current?.focus();
     if (res.reason === "wrong") {
+      const n = res.attemptsRemaining;
       setMsg(
-        res.attemptsRemaining > 0
-          ? `Wrong PIN — ${res.attemptsRemaining} ${res.attemptsRemaining === 1 ? "try" : "tries"} left.`
-          : "Wrong PIN.",
+        n > 0
+          ? { k: plural(n, "pin.wrong.one", "pin.wrong.many"), vars: { n } }
+          : { k: "pin.wrong" },
       );
       return;
     }
     if (res.reason === "locked") {
-      const left = Math.max(
-        0,
-        Math.ceil((new Date(res.lockedUntil).getTime() - Date.now()) / 1000),
-      );
-      setLockLeft(left);
-      setMsg("Too many tries.");
+      // The countdown IS the message ("Too many tries — try again in {x}."); nothing else is set,
+      // so when it reaches zero the region empties over the re-opened field (blind pass, CRITICAL).
+      setLockLeft(secondsUntil(res.lockedUntil));
       return;
     }
     if (res.reason === "no_pin") {
       // The PIN was removed elsewhere while locked — sign out is the honest way back.
-      setMsg("No PIN is set on this account. Sign out to continue.");
+      setMsg({ k: "pin.noPin.self" });
       return;
     }
     if (res.reason === "outage") {
       // W10b — the gate refused BEFORE the PIN was checked: no attempt was burned, and the PIN is
       // not the problem. Never let an outage read as a wrong PIN.
-      setMsg(
-        "We can’t reach the ordering system — your PIN wasn’t checked, and no attempt was used. Try again in a moment.",
-      );
+      setMsg({ k: "pin.outage" });
       return;
     }
-    setMsg("Couldn’t check that PIN. Try again.");
+    setMsg({ k: "pin.checkFailed" });
   }
 
   async function signOut() {
+    if (signingOut) return; // re-entry refused here, never by `disabled` (a double-tap is two sign-outs)
+    setSigningOut(true);
     setMsg(null);
     const { error } = await browserClient().auth.signOut();
     if (error) {
+      setSigningOut(false);
       // W10b — blame the connection only on a transport shape (the audit found six surfaces
       // asserting "check your connection" with zero evidence).
       setMsg(
-        isRetryableAuthShape(error)
-          ? "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment."
-          : "Couldn’t sign out just now — try again.",
+        isRetryableAuthShape(error) ? { k: "entry.err.signOutOutage" } : { k: "entry.err.signOut" },
       );
       return;
     }
+    // The lock is a DEVICE cookie, httpOnly, that the browser sign-out cannot touch — left in place
+    // it met the next sign-in with this same screen and no PIN to enter, so "Forgot PIN? Sign out"
+    // was a loop (blind pass, CRITICAL). The server releases it only once it can see no session.
+    await releaseLockAfterSignOut();
     router.replace("/staff/login");
     router.refresh();
   }
 
-  const mins = Math.floor(lockLeft / 60);
-  const secs = lockLeft % 60;
-  const lockCopy = locked ? `Locked — try again in ${mins > 0 ? `${mins}m ` : ""}${secs}s.` : null;
+  // One live region (QA §A): the lockout countdown takes precedence over a transient message.
+  const shown = lockCopy ?? msg;
 
   return (
-    <main style={wrap}>
-      <div className="card" style={card}>
-        <p className="eyebrow" style={{ marginBottom: 6 }}>
-          <Icon name="lock" size={14} style={{ verticalAlign: "-2px", marginRight: 4 }} />
-          Tablet locked
-        </p>
-        <h1 style={h1}>Welcome back, {displayName}</h1>
-        <p style={sub}>Enter your PIN to resume.</p>
+    <section className="card card-textured entry-card" aria-labelledby="entry-h">
+      <h2 id="entry-h" className="entry-h">
+        <Chrome lang={lang} k="entry.lock.hi" vars={{ x: displayName }} echo="stack" />
+      </h2>
+      <p className="entry-sub">
+        <Chrome lang={lang} k="entry.lock.sub" echo="stack" />
+      </p>
 
-        <form onSubmit={submit} noValidate>
-          <label htmlFor="unlock-pin" style={label}>
-            PIN
-          </label>
-          <input
-            ref={inputRef}
-            id="unlock-pin"
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            maxLength={PIN_MAX_LENGTH}
-            value={pin}
-            onChange={(e) => setPin(onlyDigits(e.target.value))}
-            placeholder="••••"
-            disabled={locked}
-            aria-describedby="unlock-msg"
-            style={input}
-          />
-          <button type="submit" disabled={busy || locked || !lengthOk} style={primaryBtn}>
-            {busy ? "Checking…" : "Unlock"}
-          </button>
-        </form>
-
-        <button type="button" onClick={signOut} style={linkBtn}>
-          Forgot PIN? Sign out
+      <form onSubmit={submit} noValidate>
+        <label htmlFor="unlock-pin" className="entry-label">
+          <Chrome lang={lang} k="pin.label" echo="stack" />
+        </label>
+        <input
+          ref={inputRef}
+          id="unlock-pin"
+          type="password"
+          inputMode="numeric"
+          autoComplete="off"
+          maxLength={PIN_MAX_LENGTH}
+          value={pin}
+          onChange={(e) => setPin(onlyDigits(e.target.value))}
+          placeholder="••••"
+          readOnly={locked}
+          aria-disabled={locked || undefined}
+          // NOT described-by the live region (the step-up's S10 rule): a node cannot be both a
+          // field description and a transactional live region without announcing twice.
+          className="entry-input entry-input-pin"
+        />
+        <button
+          type="submit"
+          aria-disabled={refused || undefined}
+          className="entry-primary staff-press"
+        >
+          <Chrome lang={lang} k={busy ? "entry.checking" : "entry.lock.unlock"} echo="inline" />
         </button>
+      </form>
 
-        {/* One live region (QA §A): the lockout countdown takes precedence over a transient message. */}
-        <p id="unlock-msg" role="status" style={{ margin: "var(--s4) 0 0", minHeight: 20 }}>
-          {(lockCopy ?? msg) && (
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-              {lockCopy ?? msg}
-            </span>
-          )}
-        </p>
-      </div>
-    </main>
+      <button
+        type="button"
+        onClick={signOut}
+        aria-disabled={signingOut || undefined}
+        className="entry-link"
+      >
+        <Chrome lang={lang} k="entry.lock.forgot" echo="inline" />
+      </button>
+
+      <p id="unlock-msg" role="status" className="entry-msg entry-msg-warn">
+        {shown && <MsgText lang={lang} msg={shown} />}
+      </p>
+    </section>
   );
 }
-
-const wrap: CSSProperties = {
-  // `flex: 1`, not a second `100dvh`: `StaffLangShell` owns the viewport height and this fills
-  // what the language strip leaves. Two competing `100dvh` boxes made the page overflow.
-  flex: 1,
-  minHeight: 0,
-  display: "grid",
-  placeItems: "center",
-  padding: "var(--s6)",
-};
-const card: CSSProperties = { width: "100%", maxWidth: 360, padding: "var(--s6)" };
-const h1: CSSProperties = { fontSize: "var(--fs-h2)", margin: "0 0 6px" };
-const sub: CSSProperties = {
-  color: "var(--t2)",
-  fontSize: "var(--fs-sm)",
-  margin: "0 0 var(--s5)",
-};
-const label: CSSProperties = {
-  display: "block",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  marginBottom: 6,
-  color: "var(--tx)",
-};
-const input: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  boxSizing: "border-box",
-  padding: "0 14px",
-  fontSize: "var(--fs-body)",
-  letterSpacing: "0.3em",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  marginBottom: "var(--s4)",
-};
-const primaryBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 48,
-  border: "none",
-  borderRadius: "var(--r-full)",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontSize: "var(--fs-body)",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-const linkBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 44,
-  marginTop: 4,
-  border: "none",
-  background: "transparent",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  cursor: "pointer",
-};

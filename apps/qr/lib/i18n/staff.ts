@@ -37,6 +37,18 @@ export const STAFF = {
   // control unusable for the person who cannot read the other label.
   "shell.lang.group": { en: "Console language", my: "စက်၏ ဘာသာစကား" },
   "shell.lang.failed": { en: "Couldn’t save that — tap again.", my: "မသိမ်းနိုင်ပါ — ထပ်နှိပ်ပါ။" },
+  // P7 — the way back to the DOORS from any staff screen: the staff bar's leading circle (1b), its
+  // sr-only name; and the doors' own title. A 44px control: no echo.
+  "shell.screens": { en: "Screens", my: "စခရင်များ" },
+  // P7·1b — the staff bar's icon circles are NAMED by sr-only dictionary text (the glyph is the
+  // visible half; a circle with no name is a button nobody can find by voice). Rendered through
+  // <Chrome> so the Burmese arrives marked — never an aria-label, which rule 3 rightly refuses on a
+  // control that has children. The Screens circle reuses `shell.screens`.
+  "shell.lock": { en: "Lock this tablet", my: "ဒီတက်ဘလက်ကို လော့ခ်ချ" },
+  "shell.locking": { en: "Locking…", my: "လော့ခ်ချနေသည်…" },
+  "shell.a11y.tools": { en: "Console tools", my: "စက် ကိရိယာများ" },
+  // P7·1b — the KDS text-size SHEET (the three chips left the header for the bar's Aa circle).
+  "kds.size.title": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
 
   // ── outage nouns (the `what` slot of every frozen-board and shell sentence) ─
   "what.console": { en: "the console", my: "ဒီစက်" },
@@ -225,6 +237,12 @@ export const STAFF = {
   "kds.a11y.prevPage": { en: "Previous page", my: "ရှေ့ စာမျက်နှာ" },
   "kds.a11y.nextPage": { en: "Next page", my: "နောက် စာမျက်နှာ" },
   "kds.a11y.recall": { en: "Recall a bumped ticket", my: "ပြီးသွားတဲ့ အော်ဒါ ပြန်ခေါ်" },
+  // P7 — the TEXT SIZE dial (aria-only group name + three 44px chips, so no echo on the chips).
+  // 30px was derived from the font files; the right size is Mom's eyes at the pass, picked once.
+  "kds.a11y.size": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
+  "kds.size.s": { en: "Small", my: "သေး" },
+  "kds.size.m": { en: "Medium", my: "အလယ်" },
+  "kds.size.l": { en: "Large", my: "ကြီး" },
 
   // ── the floor: the console home and the live table board ──────────────────
   // `floor.back` carries the same two words as `kds.back`. They are separate keys because K15 is a
@@ -641,6 +659,28 @@ export const STAFF = {
   "floor.nav.pin": { en: "Your PIN →", my: "ကိုယ့် ပင်နံပါတ် →" },
   "floor.nav.pinSet": { en: "Set a tablet PIN →", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ် →" },
   "floor.nav.team": { en: "Manage staff →", my: "ဝန်ထမ်း စီမံ →" },
+  // ── P7 — the two DOORS `/staff` opens on, and the More grid beneath them ──────────────────────
+  // The kitchen door's title is `kds.title` itself (မီးဖိုချောင်, owner-verified in W21): the wall,
+  // the pass and the door must say ONE word for the kitchen, so no second key exists for it. The
+  // counter door names both of Dad's rooms — the register AND the tables — because that is what it
+  // opens on. Every MY value here is a Claude-authored draft pending Min's native check (K15).
+  "floor.door.counter": { en: "Counter & tables", my: "ကောင်တာနဲ့ စားပွဲများ" },
+  "floor.door.kitchen.sub": {
+    en: "The pass · tickets, bump, 86",
+    my: "ဟင်းထွက်တဲ့နေရာ · တစ်ကတ်၊ ပြီးပြီ၊ ဖြုတ်",
+  },
+  "floor.door.counter.sub": {
+    en: "Register · take an order, settle a table, apply a promo code",
+    my: "ကောင်တာ · အော်ဒါယူ၊ စားပွဲ ငွေရှင်း၊ လျှော့ကုဒ် ထည့်",
+  },
+  // A tablet that has walked through a door says so on that door, and opens there next time.
+  "floor.door.here": { en: "This tablet opens here", my: "ဒီတက်ဘလက် ဖွင့်တိုင်း ဒီစခရင် ရောက်မယ်" },
+  "floor.door.more": { en: "More", my: "နောက်ထပ်" },
+  "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
+  // Two surfaces that were reachable only by bookmark (the wall TV) or from the manager-only pilot
+  // sheet (the word-check sheet): Mom on the kitchen tablet could never reach the sheet at all.
+  "floor.nav.board": { en: "TV board →", my: "တီဗီ ဘုတ် →" },
+  "floor.nav.glossary": { en: "Word check →", my: "စာလုံး စစ်ဆေးစာရွက် →" },
 
   // ── the floor board: a region name with no visible label to pair with ─────
   "floor.a11y.tables": { en: "Active tables", my: "အသုံးပြုနေတဲ့ စားပွဲများ" },
@@ -1527,6 +1567,414 @@ export const STAFF = {
     en: "Print the word-check sheet",
     my: "စာလုံး စစ်ဆေးစာရွက် ပုံနှိပ်ရန်",
   },
+  // ═══ P7 · PR 2 · the front door ═══════════════════════════════════════════════
+  // `entry.*` — the sign-in and the lock screen: the two surfaces a person reaches BEFORE any gate,
+  // so the bar's language control is the only control on the tablet that works for them, and the
+  // copy beneath it was the last English body under a Burmese switch (OPEN-ITEMS P2m). EN values
+  // are the shipped sentences verbatim; every MY value is a Claude-authored draft pending K15.
+  // Register: the same terse operational voice — ပါတယ် endings, no softeners.
+  "entry.login.title": { en: "Staff sign-in", my: "ဝန်ထမ်း အကောင့်ဝင်ရန်" },
+  "entry.login.head": { en: "Sign in to the floor", my: "ခန်းမသို့ ဝင်ပါ" },
+  "entry.login.sub.email": {
+    en: "Enter your staff email and we’ll send a one-time code.",
+    my: "ဝန်ထမ်း အီးမေးလ် ရိုက်ထည့်ပါ — တစ်ခါသုံး ကုဒ် ပို့ပေးပါမယ်။",
+  },
+  "entry.login.sub.code": {
+    en: "Enter the code we emailed you.",
+    my: "အီးမေးလ်ထဲက ကုဒ်ကို ရိုက်ထည့်ပါ။",
+  },
+  "entry.login.denied": {
+    en: "You’re signed in, but this account isn’t set up as staff. Ask an owner to add you — or sign out and use another email.",
+    my: "အကောင့် ဝင်ထားပေမယ့် ဒီအကောင့်ကို ဝန်ထမ်းအဖြစ် မသတ်မှတ်ရသေးပါ။ ပိုင်ရှင်ကို ထည့်ပေးဖို့ ပြောပါ — ဒါမှမဟုတ် အကောင့်ထွက်ပြီး တခြား အီးမေးလ်နဲ့ ဝင်ပါ။",
+  }, // K15-HIGH — the one sentence a wrong account sees, and its only way out
+  "entry.signOut": { en: "Sign out", my: "အကောင့် ထွက်" },
+  // {x} is the provider's own name ("Google") — a brand term handed in by the component, never a
+  // dictionary value, so <Chrome> wraps it lang="en" inside the Burmese run.
+  "entry.login.google": { en: "Continue with {x}", my: "{x} နဲ့ ဆက်လုပ်" },
+  "entry.login.starting": { en: "Starting…", my: "စတင်နေပါတယ်…" },
+  "entry.login.or": { en: "or use your email", my: "ဒါမှမဟုတ် အီးမေးလ်နဲ့ ဝင်ပါ" },
+  "entry.login.email.label": { en: "Staff email", my: "ဝန်ထမ်း အီးမေးလ်" },
+  "entry.login.send": { en: "Send code", my: "ကုဒ် ပို့" },
+  "entry.login.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" },
+  "entry.login.useGoogle": { en: "Use {x} instead", my: "{x} နဲ့ ဝင်ပါ" },
+  // {n} is a COUNT (seconds), so it takes the device's numerals — "၄၅ စက္ကန့်" beside "45s".
+  "entry.login.resendIn": { en: "Resend in {n}s", my: "{n} စက္ကန့်အကြာ ပြန်ပို့နိုင်" },
+  "entry.login.code.label": { en: "Sign-in code", my: "ဝင်ရန် ကုဒ်" },
+  "entry.login.verify": { en: "Sign in", my: "ဝင်ပါ" },
+  // ONE busy word for the code check and the PIN check: two keys on one surface may not share a
+  // Burmese value while their English differs (strings.test), and "Verifying…" / "Checking…"
+  // would have.
+  "entry.checking": { en: "Checking…", my: "စစ်နေပါတယ်…" },
+  "entry.login.otherEmail": { en: "Use a different email", my: "တခြား အီးမေးလ် သုံးမယ်" },
+  "entry.login.sent": {
+    en: "We sent a sign-in code to {x}.",
+    my: "{x} သို့ ဝင်ရန် ကုဒ် ပို့လိုက်ပါပြီ။",
+  },
+  // W10b's attribution rule, kept: a transport shape names the SERVICE, never the person's address
+  // or code. Three outage twins for three moments, because each says what is still fine.
+  "entry.login.err.googleOutage": {
+    en: "We can’t reach the sign-in service right now — it’s not you. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်အမှား မဟုတ်ပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.google": {
+    en: "Couldn’t start {x} sign-in. Try again.",
+    my: "{x} နဲ့ ဝင်ခြင်း မစနိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.rateLimited": {
+    en: "Too many code requests right now. Use “Continue with {x}” above, or try again later.",
+    my: "ကုဒ် တောင်းတာ များနေပါပြီ။ အပေါ်က {x} ခလုတ်ကို သုံးပါ၊ ဒါမှမဟုတ် နောက်မှ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.sendOutage": {
+    en: "We can’t reach the sign-in service right now — your email is fine. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်အီးမေးလ်က မှန်ပါတယ်။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.send": {
+    en: "We couldn’t send a code to that email. Check it’s your staff address and try again.",
+    my: "ဒီအီးမေးလ်သို့ ကုဒ် မပို့နိုင်ပါ။ ဝန်ထမ်း အီးမေးလ် ဟုတ်မဟုတ် စစ်ပြီး ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.verifyOutage": {
+    en: "We can’t reach the sign-in service right now — your code may still be good. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ခဏ ဆက်သွယ်မရပါ — သင့်ကုဒ်က အသုံးဝင်နေနိုင်ပါသေးတယ်။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.login.err.verify": {
+    en: "That code didn’t match or has expired. Request a new one.",
+    my: "ကုဒ် မကိုက်ပါ ဒါမှမဟုတ် သက်တမ်း ကုန်သွားပါပြီ။ အသစ် ထပ်တောင်းပါ။",
+  },
+  // ONE sign-out failure pair for the login's wrong-account escape AND the lock screen's
+  // forgotten-PIN escape — the same sentence on the same surface must be the same key.
+  "entry.err.signOutOutage": {
+    en: "We can’t reach the sign-in service — couldn’t sign out just now. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ဆက်သွယ်မရလို့ အခု အကောင့် မထွက်နိုင်သေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.err.signOut": {
+    en: "Couldn’t sign out just now — try again.",
+    my: "အခု အကောင့် မထွက်နိုင်သေးပါ — ထပ်စမ်းပါ။",
+  },
+  // the lock screen — the one screen a person can reach without being able to change anything else
+  "entry.lock.title": { en: "Tablet locked", my: "တက်ဘလက် လော့ခ်ချထား" },
+  "entry.lock.hi": { en: "Welcome back, {x}", my: "ပြန်လာတာ ကြိုဆိုပါတယ် {x}" },
+  "entry.lock.sub": { en: "Enter your PIN to resume.", my: "ဆက်လုပ်ဖို့ ပင်နံပါတ် ရိုက်ထည့်ပါ။" },
+  "entry.lock.unlock": { en: "Unlock", my: "လော့ခ်ဖွင့်" },
+  "entry.lock.forgot": {
+    en: "Forgot PIN? Sign out",
+    my: "ပင်နံပါတ် မေ့သွားရင် — အကောင့် ထွက်ပါ",
+  }, // K15-HIGH — the only way off a locked tablet without the PIN
+
+  // ═══ P7 · PR 2 · PIN — one vocabulary ════════════════════════════════════════
+  // `pin.*` is read on THREE surfaces — the lock screen (your own PIN), the loss sheet and the
+  // approvals queue (a manager's PIN) — so it is its own namespace rather than a copy under each,
+  // which is the "name it ONCE" rule applied to words. `ManagerPinStepUp.tsx` renders every failure
+  // through these keys; the lock screen reads the same ones.
+  "pin.label": { en: "PIN", my: "ပင်နံပါတ်" },
+  "pin.wrong.one": {
+    en: "Wrong PIN — {n} try left.",
+    my: "ပင်နံပါတ် မှားပါတယ် — {n} ကြိမ် ကျန်ပါသေးတယ်။",
+  },
+  "pin.wrong.many": {
+    en: "Wrong PIN — {n} tries left.",
+    my: "ပင်နံပါတ် မှားပါတယ် — {n} ကြိမ် ကျန်ပါသေးတယ်။",
+  },
+  "pin.wrong": { en: "Wrong PIN.", my: "ပင်နံပါတ် မှားပါတယ်။" },
+  // {x} is the remaining time, PRE-FORMATTED in the device language by `lockoutDuration` from the
+  // two unit keys below — so under `my` it arrives as Burmese script ("၁ မိနစ် ၀၅ စက္ကန့်") and needs
+  // no wrap, and under `en` as "1m 05s". A `{t}` slot would be wrong: that is a CLOCK, always Latin.
+  // This ONE sentence is the whole lockout: it says "too many" itself and it IS the countdown, so
+  // when the countdown reaches zero the region EMPTIES — nothing stays behind claiming a refusal
+  // over a field that just re-opened (blind pass, CRITICAL: a separate "Too many tries." did).
+  "pin.lockedFor": {
+    en: "Too many tries — try again in {x}.",
+    my: "စမ်းတာ များသွားပါပြီ — {x} အကြာမှာ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — a lockout misread as "the tablet is locked" sends someone to sign out
+  "pin.unit.min": { en: "{n}m", my: "{n} မိနစ်" },
+  "pin.unit.sec": { en: "{n}s", my: "{n} စက္ကန့်" },
+  "pin.noPin.self": {
+    en: "No PIN is set on this account. Sign out to continue.",
+    my: "ဒီအကောင့်မှာ ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ဆက်လုပ်ဖို့ အကောင့် ထွက်ပါ။",
+  },
+  "pin.noPin.profile": {
+    en: "You don’t have a PIN set. Set one in your profile first.",
+    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ အရင် သတ်မှတ်ပါ။",
+  },
+  "pin.noPin.manager": {
+    en: "That manager hasn’t set a PIN yet.",
+    my: "အဲဒီ မန်နေဂျာက ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။",
+  },
+  "pin.outage": {
+    en: "We can’t reach the ordering system — your PIN wasn’t checked, and no attempt was used. Try again in a moment.",
+    my: "အော်ဒါ စနစ်နဲ့ ဆက်သွယ်မရပါ — ပင်နံပါတ်ကို မစစ်ရသေးပါ၊ အကြိမ်လည်း မကုန်ပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an outage must never read as a wrong PIN
+  "pin.checkFailed": {
+    en: "Couldn’t check that PIN. Try again.",
+    my: "ပင်နံပါတ်ကို မစစ်နိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "pin.rateLimited": {
+    en: "Too many PIN attempts — wait a few minutes, then try again.",
+    my: "ပင်နံပါတ် စမ်းတာ များနေပါပြီ — မိနစ်အနည်းငယ် စောင့်ပြီး ထပ်စမ်းပါ။",
+  },
+  "pin.needsManager": {
+    en: "A manager needs to approve this — tap your name and enter your PIN.",
+    my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — ကိုယ့်နာမည်ကို နှိပ်ပြီး ပင်နံပါတ် ရိုက်ထည့်ပါ။",
+  },
+  "pin.manager.label": { en: "Manager", my: "မန်နေဂျာ" },
+  "pin.manager.loading": { en: "Loading…", my: "ဖွင့်နေပါတယ်…" },
+  "pin.manager.none": { en: "No managers available", my: "မန်နေဂျာ မရှိပါ" },
+  "pin.manager.pick": { en: "Tap your name", my: "ကိုယ့်နာမည်ကို နှိပ်ပါ" },
+  "pin.manager.noneNote": {
+    en: "A manager has to approve this — none are signed in right now.",
+    my: "မန်နေဂျာ ခွင့်ပြုဖို့ လိုပါတယ် — အခု ဘယ်မန်နေဂျာမှ အကောင့် မဝင်ထားပါ။",
+  },
+  "pin.badApprover.self": {
+    en: "Pick a manager other than yourself to approve.",
+    my: "ခွင့်ပြုဖို့ ကိုယ်တိုင် မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
+  },
+  "pin.badApprover.requester": {
+    en: "Pick a manager other than whoever requested this.",
+    my: "တောင်းဆိုသူ မဟုတ်တဲ့ တခြား မန်နေဂျာကို ရွေးပါ။",
+  },
+
+  // ═══ P7 · PR 2 · the staff error boundary ════════════════════════════════════
+  // `app/staff/error.tsx` — the "couldn't load" voice beside the outage shell's "can't reach"
+  // voice. It catches what a page throws, so it is the screen a kitchen tablet shows when a deploy
+  // replaced its chunks — and it was the last English takeover in the console.
+  "out.err.title": { en: "This screen couldn’t load", my: "ဒီစခရင် မဖွင့်နိုင်ပါ" },
+  "out.err.body": {
+    en: "It’s on our end — your sign-in is fine. Try again in a moment; if it keeps failing, take new orders on paper. Everything already recorded is safe.",
+    my: "ကျွန်တော်တို့ဘက်က ပြဿနာပါ — သင့်အကောင့် ဝင်ထားဆဲပါ။ ခဏနေ ထပ်စမ်းပါ၊ ဆက်မရရင် အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူပါ။ မှတ်ထားပြီးသမျှ လုံခြုံပါတယ်။",
+  }, // K15-HIGH — the paper instruction, and "you're not logged out"
+  "out.err.bodySustained": {
+    en: "This keeps failing — your sign-in is fine, it’s on our end. Take new orders on paper; everything already recorded is safe.",
+    my: "ဆက်တိုက် မရဖြစ်နေပါတယ် — သင့်အကောင့် ဝင်ထားဆဲပါ၊ ကျွန်တော်တို့ဘက်က ပြဿနာပါ။ အော်ဒါအသစ်တွေကို စာရွက်နဲ့ ယူပါ၊ မှတ်ထားပြီးသမျှ လုံခြုံပါတယ်။",
+  }, // K15-HIGH — the same instruction once "in a moment" has stopped being true
+  "out.err.escalated": {
+    en: "Still failing — keep running on paper. Nothing recorded is lost; this screen comes back as soon as our side does.",
+    my: "မရသေးပါ — စာရွက်နဲ့ ဆက်လုပ်ပါ။ မှတ်ထားသမျှ မပျောက်ပါ၊ ကျွန်တော်တို့ဘက် ပြန်ကောင်းတာနဲ့ ဒီစခရင် ပြန်လာပါမယ်။",
+  },
+  // The way out is the DOORS by name (`?doors=1` always wins over a remembered door) — never
+  // "the floor", which on a kitchen tablet is the P7a mislabel this arc removed.
+  "out.err.back": { en: "← Screens", my: "← စခရင်များ" },
+  // ═══ P7 · PR 3 · the Help door ════════════════════════════════════════════
+  // `help.*` — ONE gold circle in the bar on the kitchen board, the counter and the takeaway board,
+  // opening one sheet: "How this screen works" (four cards with pictures, opening itself the first
+  // time a device sees the screen), the board's text size, and — PR 4 — "Something's wrong". The
+  // cards are named by convention (`lib/help.ts`): `help.how.<screen>.<n>` is the sentence,
+  // `.more` the line beneath. Every MY value is a Claude-authored draft pending K15. Every sentence
+  // states what the CODE does — a card that promised a control the screen does not have would be
+  // the worst copy on the console, so each was written against the component it explains.
+  "help.title": { en: "Help", my: "အကူအညီ" },
+  "help.sub": {
+    en: "One door for everything that isn’t cooking",
+    my: "ချက်တာကလွဲပြီး ကျန်တာအားလုံး ဒီတစ်နေရာတည်း",
+  },
+  "help.row.how": { en: "How this screen works", my: "ဒီစခရင် ဘယ်လို သုံးရမလဲ" },
+  "help.row.how.sub": {
+    en: "{n} things, with pictures — it opens itself the first time",
+    my: "{n} ချက် · ပုံနဲ့ — ပထမဆုံးအကြိမ် သူ့ဘာသာ ပွင့်ပါမယ်",
+  },
+  // {x} is the size's own name (a dictionary value, Burmese under my); {px} is "34 px", Latin by
+  // nature (a measurement), which <Chrome> wraps lang="en" inside the Burmese run.
+  "help.row.size.sub": {
+    en: "Now: {x} · {px} — this tablet remembers",
+    my: "အခု · {x} · {px} — ဒီတက်ဘလက် မှတ်ထားပါမယ်",
+  },
+  "help.size.lede": {
+    en: "Pick once — this tablet remembers. The whole board changes behind this sheet.",
+    my: "တစ်ခါ ရွေးလိုက်ပါ — ဒီတက်ဘလက် မှတ်ထားပါမယ်။ ဒီစာရွက်နောက်ကွယ်မှာ ဘုတ်တစ်ခုလုံး ပြောင်းသွားပါမယ်။",
+  },
+  // {n} is a COUNT (tickets across the board) — Burmese numerals under my.
+  "help.size.across": { en: "{px} · {n} across", my: "{px} · တစ်တန်း {n} ခု" },
+  // The sample word the three sizes are shown on: a dish every cook here reads a hundred times a day.
+  "help.size.sample": { en: "Mohinga", my: "မုန့်ဟင်းခါး" },
+  "help.how.title.kitchen": {
+    en: "How the kitchen board works",
+    my: "မီးဖိုချောင် ဘုတ် ဘယ်လို သုံးရမလဲ",
+  },
+  "help.how.title.counter": { en: "How the counter works", my: "ကောင်တာ ဘယ်လို သုံးရမလဲ" },
+  "help.how.title.expo": {
+    en: "How the takeaway board works",
+    my: "ပါဆယ်ဘုတ် ဘယ်လို သုံးရမလဲ",
+  },
+  // the kitchen board — bump · undo · 86 · fire (the canvas's four, verified against KdsBoard.tsx)
+  "help.how.kitchen.1": {
+    en: "Food up? Tap the green button. The ticket clears.",
+    my: "ဟင်းထွက်ပြီလား? အစိမ်းရောင် ခလုတ်ကို နှိပ်ပါ။ တစ်ကတ် ပျောက်သွားပါမယ်။",
+  }, // K15-HIGH — the one instruction the pass runs on
+  "help.how.kitchen.1.more": {
+    en: "Every line on the ticket goes at once.",
+    my: "တစ်ကတ်ပေါ်က ဟင်းအားလုံး တစ်ပြိုင်နက် ထွက်သွားပါမယ်။",
+  },
+  // {n} is the undo window in seconds, handed in from the board's own constant — never typed here.
+  "help.how.kitchen.2": {
+    en: "Tapped by mistake? You have {n} seconds to undo.",
+    my: "မှားနှိပ်မိရင် {n} စက္ကန့်အတွင်း ပြန်ဖျက်လို့ ရပါတယ်။",
+  },
+  // Not "the dark bar": `.kds-undo` is `--tx` on `--pg`, and the board is always Night, so the bar
+  // is the PALE one on that screen. The sentence names its place, not a colour it does not have.
+  "help.how.kitchen.2.more": {
+    en: "The bar at the bottom brings the ticket back.",
+    my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
+  },
+  "help.how.kitchen.3": {
+    en: "Out of a dish? 86 it — guests can’t order it any more.",
+    my: "ဟင်းကုန်ရင် ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
+  }, // K15-HIGH — a wrong word here hides a dish from every guest, or keeps selling one that is gone
+  // `setItemSoldOut` is server-and-up (app/staff/menu), so the put-back is not a manager's job —
+  // the first draft said it was, and would have had Mom wait for someone she did not need.
+  "help.how.kitchen.3.more": {
+    en: "Anyone can put it back from the Menu page.",
+    my: "မီနူး စာမျက်နှာကနေ ဘယ်သူမဆို ပြန်တင်လို့ ရပါတယ်။",
+  },
+  "help.how.kitchen.4": {
+    en: "A dashed card is a scheduled pickup. Fire it when it’s time.",
+    my: "အစက်အပြောက် ကတ်က ကြိုမှာထားတဲ့ အော်ဒါပါ။ ချက်ချိန်ရောက်မှ နှိပ်ပါ။",
+  }, // K15-HIGH — fired an hour early is food cooked an hour early
+  "help.how.kitchen.4.more": {
+    en: "Until then it waits — nothing is cooking.",
+    my: "အဲဒီအထိ စောင့်နေပါမယ် — ဘာမှ မချက်ရသေးပါ။",
+  },
+  // the counter — register · a table · the doors · the lock (verified against app/staff/page.tsx)
+  "help.how.counter.1": {
+    en: "Someone at the counter? Tap Register to start their order.",
+    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ ကောင်တာ ခလုတ်ကို နှိပ်ပါ။",
+  },
+  "help.how.counter.1.more": {
+    en: "Walk-up, phone, or a table — it asks which.",
+    my: "လမ်းလျှောက်လာ၊ ဖုန်း ဒါမှမဟုတ် စားပွဲ — ဘယ်ဟာလဲ မေးပါမယ်။",
+  },
+  "help.how.counter.2": {
+    en: "Tap a table to see its order.",
+    my: "စားပွဲတစ်ခုကို နှိပ်ရင် အော်ဒါကို မြင်ရပါမယ်။",
+  },
+  "help.how.counter.2.more": {
+    en: "Add dishes, take payment, or merge it — all from there.",
+    my: "ဟင်း ထပ်ထည့်၊ ငွေ လက်ခံ၊ စားပွဲ ပေါင်း — အားလုံး အဲဒီကနေပါ။",
+  },
+  "help.how.counter.3": {
+    en: "The grid circle takes you to the two doors.",
+    my: "အကွက်ပုံ အဝိုင်းက တံခါးနှစ်ပေါက်ဆီ ခေါ်သွားပါမယ်။",
+  },
+  "help.how.counter.3.more": {
+    en: "Kitchen or Counter — this tablet remembers the last one.",
+    my: "မီးဖိုချောင် ဒါမှမဟုတ် ကောင်တာ — နောက်ဆုံး ရွေးထားတာကို ဒီတက်ဘလက် မှတ်ထားပါမယ်။",
+  },
+  "help.how.counter.4": {
+    en: "Stepping away? Tap the lock — it shows once you have a PIN.",
+    my: "ခဏ ထွက်မလား? သော့ပုံ အဝိုင်းကို နှိပ်ပါ — ပင်နံပါတ် ရှိမှ ပေါ်ပါမယ်။",
+  },
+  "help.how.counter.4.more": {
+    en: "Your PIN opens it again. Set one on your profile.",
+    my: "သင့်ပင်နံပါတ်နဲ့ ပြန်ဖွင့်လို့ ရပါတယ်။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ သတ်မှတ်ပါ။",
+  },
+  // the takeaway board — bagged · picked up · the scan-and-go pair · frozen (verified against ExpoBoard.tsx)
+  "help.how.expo.1": {
+    en: "Bag packed? Tap Bagged & ready.",
+    my: "ထုပ်ပြီးပြီလား? ထုပ်ပြီး၊ ယူလို့ရပြီ ကို နှိပ်ပါ။",
+  },
+  "help.how.expo.1.more": {
+    en: "The button changes to Picked up — the card stays until the guest has it.",
+    my: "ခလုတ်က ယူသွားပြီ ဖြစ်သွားပါမယ် — ဧည့်သည် ယူသွားတဲ့အထိ ကတ် ရှိနေပါမယ်။",
+  },
+  "help.how.expo.2": {
+    en: "Guest has it? Tap Picked up. The card clears.",
+    my: "ဧည့်သည် ယူသွားပြီလား? ယူသွားပြီ ကို နှိပ်ပါ။ ကတ် ပျောက်သွားပါမယ်။",
+  },
+  "help.how.expo.2.more": {
+    en: "The name on the card is who’s collecting.",
+    my: "ကတ်ပေါ်က နာမည်က ယူမယ့်သူပါ။",
+  },
+  "help.how.expo.3": {
+    en: "A scan-and-go basket says Verified, then Handed over.",
+    my: "စကင်န်ဖတ်ပြီး ယူသွားတဲ့ ခြင်းက စစ်ဆေးပြီး၊ ပြီးရင် လွှဲပေးပြီး လို့ ပြပါမယ်။",
+  },
+  "help.how.expo.3.more": {
+    en: "Check the bag against the list before you tap.",
+    my: "မနှိပ်ခင် အိတ်ထဲက ပစ္စည်းတွေကို စာရင်းနဲ့ တိုက်စစ်ပါ။",
+  },
+  "help.how.expo.4": {
+    en: "Board says it isn’t updating? Keep going on paper.",
+    my: "ဘုတ်က အသစ်မတက်ဘူးလို့ ပြရင် စာရွက်နဲ့ ဆက်လုပ်ပါ။",
+  }, // K15-HIGH — the paper instruction, on the screen that hands food to guests
+  "help.how.expo.4.more": {
+    en: "Nothing already recorded is lost — it catches up when we’re back.",
+    my: "မှတ်ထားပြီးသမျှ မပျောက်ပါ — ပြန်ကောင်းတာနဲ့ အလိုလို ပြန်တက်လာပါမယ်။",
+  },
+  // {n} and {total} are counts — "အဆင့် ၂ / ၄" under my.
+  "help.step": { en: "Step {n} of {total}", my: "အဆင့် {n} / {total}" },
+  "help.next": { en: "Next", my: "ရှေ့ဆက်" },
+  "help.back": { en: "Back", my: "နောက်သို့" },
+  "help.done": { en: "Got it", my: "ရပြီ" },
+  "help.footer": {
+    en: "Open this any time from the gold Help circle.",
+    my: "ရွှေရောင် အကူအညီ အဝိုင်းကနေ အချိန်မရွေး ပြန်ဖွင့်လို့ ရပါတယ်။",
+  },
+  "help.a11y.rows": { en: "Help topics", my: "အကူအညီ ခေါင်းစဉ်များ" },
+  "help.a11y.pager": { en: "Steps", my: "အဆင့်များ" },
+
+  // ── P7·4 — "Something's wrong": the report row in the Help sheet ─────────────────────────────
+  // Every MY value a Claude-authored draft pending K15. The row, the field, what is sent with it,
+  // the outcome sentences, the reporter's own list and its status chips.
+  "report.row": { en: "Something’s wrong", my: "တစ်ခုခု မှားနေတယ်" },
+  "report.row.sub": {
+    en: "A few words — it reaches the team",
+    my: "စကားလုံး အနည်းငယ် — အဖွဲ့ဆီ ရောက်ပါမယ်",
+  },
+  "report.lede": {
+    en: "What happened? A few words is enough — the rest is sent with it.",
+    my: "ဘာဖြစ်သွားလဲ? စကားလုံး အနည်းငယ်နဲ့ လုံလောက်ပါတယ် — ကျန်တာ အတူ ပို့ပေးပါမယ်။",
+  },
+  "report.field": { en: "What happened", my: "ဘာဖြစ်သွားလဲ" },
+  "report.attached": { en: "Sent with it", my: "အတူ ပို့မယ့် အချက်အလက်" },
+  "report.attached.screen": { en: "Screen: {x}", my: "စခရင် · {x}" },
+  "report.attached.time": { en: "Time: {t}", my: "အချိန် · {t}" },
+  "report.attached.connection": { en: "Connection: {x}", my: "ချိတ်ဆက်မှု · {x}" },
+  "report.attached.version": { en: "Version: {x}", my: "ဗားရှင်း · {x}" },
+  "report.attached.more": {
+    en: "Plus device details and this session’s ids.",
+    my: "ထပ်ပြီး စက်အချက်အလက်နဲ့ ခြေရာခံ နံပါတ်များ။",
+  },
+  "report.conn.live": { en: "updating", my: "အသစ်တက်နေ" },
+  "report.conn.notUpdating": { en: "not updating", my: "အသစ်မတက်ပါ" },
+  "report.conn.page": { en: "page loaded", my: "စာမျက်နှာ ဖွင့်ထား" },
+  "report.send": { en: "Send", my: "ပို့မယ်" },
+  "report.sending": { en: "Sending…", my: "ပို့နေသည်…" },
+  "report.empty": { en: "Write a few words first.", my: "စကားလုံး အနည်းငယ် အရင် ရေးပါ။" },
+  "report.sent": { en: "Got it — we’re on it.", my: "ရပြီ — ကျွန်တော်တို့ ကြည့်ပေးပါမယ်။" }, // K15-HIGH — the one sentence that tells Mom the problem is now ours
+  "report.sent.sub": {
+    en: "Report {x} is saved. Your reports are listed below.",
+    my: "အစီရင်ခံစာ {x} သိမ်းပြီးပါပြီ။ သင့်အစီရင်ခံစာတွေက အောက်မှာပါ။",
+  },
+  "report.mine": { en: "Your reports", my: "သင့် အစီရင်ခံစာများ" },
+  "report.mine.none": { en: "None yet.", my: "မရှိသေးပါ။" },
+  "report.mine.loading": { en: "Loading…", my: "ဖွင့်နေသည်…" },
+  "report.mine.failed": {
+    en: "Couldn’t load your reports — try again.",
+    my: "သင့်အစီရင်ခံစာတွေ မဖွင့်နိုင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "report.status.open": { en: "Received", my: "လက်ခံရရှိပြီ" },
+  "report.status.triaged": { en: "Being looked at", my: "ကြည့်နေပါပြီ" },
+  "report.status.fixed": { en: "Fixed", my: "ပြင်ပြီးပါပြီ" },
+  "report.issue": { en: "On the team’s list", my: "အဖွဲ့ စာရင်းထဲ ရောက်ပြီ" },
+  "report.err.outage": {
+    en: "Couldn’t send right now — try again in a moment.",
+    my: "အခု မပို့နိုင်ပါ — ခဏနေ ထပ်ကြိုးစားပါ။",
+  }, // K15-HIGH — a failure sentence on the screen that reports failures
+  "report.err.auth": { en: "Sign in again to send this.", my: "ဒါကို ပို့ဖို့ ပြန်ဝင်ပါ။" },
+  "report.err.rate": {
+    en: "You’ve sent a few just now — give it a moment.",
+    my: "ခုနကပဲ အနည်းငယ် ပို့ထားပြီးပြီ — ခဏ စောင့်ပါ။",
+  },
+  "report.off": {
+    en: "Reports aren’t switched on for this app yet — tell a manager in person.",
+    my: "ဒီအက်ပ်မှာ အစီရင်ခံစာ မဖွင့်ရသေးပါ — မန်နေဂျာကို လူချင်း ပြောပါ။",
+  },
+  "report.err.save": {
+    en: "Couldn’t save the report — try again.",
+    my: "အစီရင်ခံစာ မသိမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "report.a11y.attached": {
+    en: "Sent with the report",
+    my: "အစီရင်ခံစာနဲ့ အတူ ပို့မယ့် အချက်အလက်",
+  },
+  "report.a11y.mine": { en: "Your reports", my: "သင့် အစီရင်ခံစာများ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -1552,6 +2000,7 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["reg.day.orders.one", "reg.day.orders.many"],
   ["reg.day.refunded.one", "reg.day.refunded.many"],
   ["settle.merge.move.one", "settle.merge.move.many"],
+  ["pin.wrong.one", "pin.wrong.many"],
 ];
 
 /**
@@ -1582,7 +2031,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
 /**
  * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
  *
- * These are the 40 the printed word-check sheet puts in its first band, so that ten minutes with
+ * These are the 52 the printed word-check sheet puts in its first band, so that ten minutes with
  * the sheet buys the corrections that matter most: a held ticket read as live is food cooked an hour
  * early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences are
  * the only instruction anyone has when nothing else on the tablet works.
@@ -1608,8 +2057,14 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.price.live.saved",
   "browse.price.set",
   "browse.price.verb.confirm",
+  "entry.lock.forgot",
+  "entry.login.denied",
   "floor.orders.sub",
   "floor.tabOverLimit",
+  "help.how.expo.4",
+  "help.how.kitchen.1",
+  "help.how.kitchen.3",
+  "help.how.kitchen.4",
   "kds.86",
   "kds.86.done",
   "kds.bump",
@@ -1620,9 +2075,13 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.slot",
   "kds.stat.late",
   "kds.undo",
+  "out.err.body",
+  "out.err.bodySustained",
   "out.shell.body",
   "out.tail.paper",
   "out.write.failed",
+  "pin.lockedFor",
+  "pin.outage",
   "promo.err.locked",
   "promo.worth",
   "settle.card.chargeQ",
@@ -1642,6 +2101,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.loss.cooking",
   "table.loss.hint.comp",
   "table.loss.hint.void",
+  "report.err.outage",
+  "report.sent",
 ]);
 
 /**

@@ -1,0 +1,176 @@
+import type { StaffKey } from "@/lib/i18n/staff";
+import type { HelpScreen } from "@/lib/help";
+
+/**
+ * P7·4 — "Something's wrong": the pure part of the staff report. The shapes, the bounds (mirrored
+ * as CHECKs on `qr_staff_reports` and as the Zod rail `staffReportInput`), the short id the sheet
+ * and the email quote, the dictionary keys a status and a connection state render through, and the
+ * GitHub issue's title + body — derived ONCE here so the email, the issue and the row cannot
+ * describe the same report three different ways.
+ *
+ * Nothing here touches the network or the database; `lib/staff-report-actions.ts` does, behind the
+ * staff gate, and `lib/github-issues.ts` / `lib/email.tsx` deliver.
+ */
+
+export const REPORT_MESSAGE_MAX = 2000;
+/** How many of the reporter's own reports the sheet lists — "a row you can see". */
+export const REPORT_LIST_LIMIT = 10;
+/** A stuck tap or a bored thumb must not flood the team's list: this many per person per window. */
+export const REPORT_RATE_MAX = 5;
+export const REPORT_RATE_WINDOW_MS = 10 * 60_000;
+
+export const REPORT_CONNECTIONS = ["live", "not_updating", "page"] as const;
+export type ReportConnection = (typeof REPORT_CONNECTIONS)[number];
+
+export const REPORT_STATUSES = ["open", "triaged", "fixed"] as const;
+export type ReportStatus = (typeof REPORT_STATUSES)[number];
+
+/** What the client can see about itself. Every key optional; the Zod rail bounds each value. */
+export type StaffReportDevice = {
+  ua?: string;
+  viewport?: string;
+  online?: boolean;
+  tz?: string;
+  clientTime?: string;
+  posthogDistinctId?: string;
+  posthogSessionId?: string;
+};
+
+/** The client's half of a report. The reporter's identity is NOT here — the server adds it. */
+export type StaffReportDraft = {
+  screen: HelpScreen;
+  message: string;
+  lang: "en" | "my";
+  path: string;
+  connection: ReportConnection;
+  device: StaffReportDevice;
+};
+
+/** A saved report as the three deliveries see it: the draft plus what the SERVER knows — the id,
+ *  the reporter, and the deployed version (stamped server-side: a build fact, never client input). */
+export type StaffReportRecord = StaffReportDraft & {
+  id: string;
+  createdAt: string;
+  staffName: string;
+  appVersion: string | null;
+};
+
+/**
+ * The table is not there yet: PostgREST answers `PGRST205` (not in its schema cache) and Postgres
+ * `42P01` (undefined_table). Before M159 applies the migration to prod that is the state of the
+ * world, and "try again" would be a lie — the sheet says the door is not switched on instead.
+ */
+export function isTableMissing(
+  error: { code?: string | null; message?: string | null } | null | undefined,
+): boolean {
+  return error?.code === "42P01" || error?.code === "PGRST205";
+}
+
+/** The id a person reads back to us: the first eight hex characters, upper-cased. */
+export function shortReportId(id: string): string {
+  return id.replace(/-/g, "").slice(0, 8).toUpperCase();
+}
+
+/** EXACT equality; anything else — an older build's value, a hand edit — reads as open. */
+export function parseReportStatus(value: string): ReportStatus {
+  return value === "triaged" || value === "fixed" ? value : "open";
+}
+
+export function reportStatusKey(value: string): StaffKey {
+  const status = parseReportStatus(value);
+  return status === "triaged"
+    ? "report.status.triaged"
+    : status === "fixed"
+      ? "report.status.fixed"
+      : "report.status.open";
+}
+
+export function connectionKey(connection: ReportConnection): StaffKey {
+  return connection === "live"
+    ? "report.conn.live"
+    : connection === "not_updating"
+      ? "report.conn.notUpdating"
+      : "report.conn.page";
+}
+
+/** The issue title: the screen and the first line of the person's words, bounded. */
+export function staffReportTitle(r: Pick<StaffReportRecord, "screen" | "message">): string {
+  const first = r.message.split(/\r?\n/, 1)[0]!.trim();
+  const head = first.length > 72 ? `${first.slice(0, 71).trimEnd()}…` : first;
+  return `[staff report] ${r.screen}: ${head}`;
+}
+
+/** Fence the person's words so a message that happens to contain markdown cannot restyle the issue
+ *  — and a message that contains a fence cannot close ours. */
+function fenced(text: string): string {
+  return "```text\n" + text.replace(/```/g, "` ` `") + "\n```";
+}
+
+/** The diagnostics as label/value pairs, ONE order for the issue and the email. No email address,
+ *  no secret: the staff name and the ids the app already holds. */
+export function staffReportFacts(r: StaffReportRecord): [label: string, value: string][] {
+  const d = r.device;
+  const facts: [string, string][] = [
+    ["Report", shortReportId(r.id)],
+    ["Created", r.createdAt],
+    ["Screen", r.screen],
+    ["Path", r.path],
+    ["Connection", r.connection],
+    ["Language", r.lang],
+    ["Version", r.appVersion ?? "unknown"],
+    ["Reported by", r.staffName],
+  ];
+  if (d.online !== undefined) facts.push(["Online", d.online ? "yes" : "no"]);
+  if (d.viewport) facts.push(["Viewport", d.viewport]);
+  if (d.tz) facts.push(["Timezone", d.tz]);
+  if (d.clientTime) facts.push(["Device clock", d.clientTime]);
+  if (d.ua) facts.push(["User agent", d.ua]);
+  if (d.posthogDistinctId) facts.push(["PostHog distinct id", d.posthogDistinctId]);
+  if (d.posthogSessionId) facts.push(["PostHog session id", d.posthogSessionId]);
+  return facts;
+}
+
+/**
+ * What the ISSUE carries. The repository is PUBLIC, so an issue is public: only what a bug needs —
+ * the report id, the screen, the path, the connection state, the version. The staff name, the
+ * device, the clock and the PostHog ids stay in the row and the email (`staffReportFacts`).
+ */
+export function staffReportIssueFacts(
+  r: Pick<StaffReportRecord, "id" | "screen" | "path" | "connection" | "appVersion">,
+): [label: string, value: string][] {
+  return [
+    ["Report", shortReportId(r.id)],
+    ["Screen", r.screen],
+    ["Path", r.path],
+    ["Connection", r.connection],
+    ["Version", r.appVersion ?? "unknown"],
+  ];
+}
+
+/** A table cell as a CODE SPAN, so a client-shaped value (the path) cannot render as markdown —
+ *  an image, a link — inside a table the issue presents as machine-collected. Backticks and line
+ *  breaks become spaces; pipes are escaped for the table. */
+function cell(v: string): string {
+  return "`" + v.replace(/[`\r\n]+/g, " ").replace(/\|/g, "\\|") + "`";
+}
+
+/** The GitHub issue, derived once — from the PUBLIC facts only, every value a code span. */
+export function staffReportIssue(r: StaffReportRecord): { title: string; body: string } {
+  const rows = staffReportIssueFacts(r)
+    .map(([k, v]) => `| ${k} | ${cell(v)} |`)
+    .join("\n");
+  const body = [
+    "## What happened",
+    "",
+    fenced(r.message),
+    "",
+    "## Diagnostics",
+    "",
+    "| Field | Value |",
+    "| --- | --- |",
+    rows,
+    "",
+    `Row \`${r.id}\` in \`qr_staff_reports\` (status \`open\`; who filed it, the device and the session ids are on the row and in the email, not here — this repository is public). Filed automatically from the staff console's Help sheet.`,
+  ].join("\n");
+  return { title: staffReportTitle(r), body };
+}

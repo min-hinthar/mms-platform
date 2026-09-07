@@ -21,7 +21,11 @@ import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
-import { StaffLangSwitch } from "./StaffLangSwitch";
+import { StaffBar } from "./StaffBar";
+import { HelpButton } from "./HelpButton";
+import { RoleBadge } from "./RoleBadge";
+import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
+import type { StaffRole } from "@/lib/staff";
 import { Chrome, OutageText } from "./Chrome";
 
 /**
@@ -34,7 +38,17 @@ import { Chrome, OutageText } from "./Chrome";
  * pinned; pickup/scango bags headline the first name + short code. K10: an expired staff cookie or a
  * locked console redirects honestly instead of wearing "Reconnecting…" forever.
  */
-export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
+export function ExpoBoard({
+  initial,
+  hasPin = false,
+  role,
+}: {
+  initial: ExpoQueue;
+  /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
+  hasPin?: boolean;
+  /** The caller's role, for the badge beside the title (the page used to render it). */
+  role?: StaffRole;
+}) {
   // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
   const lang = useStaffLang();
@@ -144,115 +158,126 @@ export function ExpoBoard({ initial }: { initial: ExpoQueue }) {
   const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
   return (
-    <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
-      <div style={headRow}>
-        <h2
-          id="expo-h"
-          ref={headingRef}
-          tabIndex={-1}
-          style={{ fontSize: "var(--fs-body)", margin: 0 }}
-        >
-          {/* `echo={false}`: this heading is the `aria-labelledby` target for the whole section, and
-              a `chrome-pair` echo would name it "ပါဆယ်ထုပ်များTakeaway bags". */}
-          <Chrome lang={lang} k="expo.title" />
-        </h2>
-        {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
+    <>
+      {/* P7·1b — the board OWNS the staff bar (the KDS pattern): its h1 is the section's
+          `aria-labelledby` target and the focus target after a bump, and it carries the language
+          control — so the board mounts NONE of its own (rule 4 now counts, and two on one page were
+          two writes racing for one cookie). */}
+      <StaffBar
+        lang={lang}
+        title="expo.title"
+        titleId="expo-h"
+        titleRef={headingRef}
+        titleTabIndex={-1}
+        after={role ? <RoleBadge role={role} /> : undefined}
+        help={
+          <HelpButton lang={lang} screen="expo" connection={degraded ? "not_updating" : "live"} />
+        }
+        lock={hasPin}
+      />
+      <div className="staff-col" style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
+          <div style={headRow}>
+            {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
               returns a flat STRING and `<OutageText>`'s passthrough arm returns a bare text node, so
               those two branches have nowhere else to carry a mark. Every other branch renders
               <Chrome>, which marks itself. (It used to be conditional because the other branches
               were English literals "until PR B converts them" — this is PR B.) */}
-        <p
-          role="status"
-          lang={!err && degraded ? lang : undefined}
-          style={{
-            margin: 0,
-            fontSize: "var(--fs-sm)",
-            color: err || degraded ? "var(--warn)" : "var(--t2)",
-          }}
-        >
-          {err !== null ? (
-            // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
-            // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
-            // counter reads when a bump did not save) and passes every other error through verbatim.
-            <OutageText lang={lang} error={err} />
-          ) : degraded ? (
-            frozenBoardCopy(
-              lang,
-              snap.serverNow,
-              nowMs - degraded.since,
-              "what.bags",
-              degraded.cause,
-            )
-          ) : count === 0 ? (
-            <Chrome lang={lang} k="expo.none" />
-          ) : (
-            // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
-            // line: the middot is rendered between the surviving segments instead. Same output,
-            // same order, and each segment carries its own `lang` mark.
-            [
-              bagCount > 0 ? (
-                <Chrome
-                  key="bags"
-                  lang={lang}
-                  k={bagCount === 1 ? "expo.count.one" : "expo.count.many"}
-                  vars={{ n: bagCount }}
-                />
-              ) : null,
-              verifyCount > 0 ? (
-                <Chrome key="verify" lang={lang} k="expo.count.verify" vars={{ n: verifyCount }} />
-              ) : null,
-              handOverCount > 0 ? (
-                <Chrome
-                  key="hand"
-                  lang={lang}
-                  k="expo.count.handOver"
-                  vars={{ n: handOverCount }}
-                />
-              ) : null,
-            ]
-              .filter(Boolean)
-              .map((seg, i) => (
-                <Fragment key={i}>
-                  {i > 0 ? " · " : null}
-                  {seg}
-                </Fragment>
-              ))
-          )}
-        </p>
-        {/* P2 — mounted per SURFACE, never by app/staff/layout.tsx: a layout-owned strip would add
-            height to every staff board, including the measured ones. Last in the head row so it
-            never precedes the live region in the reading order. `check-staff-lang.mjs` rule 4 holds
-            this mount and reddens if the expo ever loses it. */}
-        <StaffLangSwitch lang={lang} />
-      </div>
+            <p
+              role="status"
+              lang={!err && degraded ? lang : undefined}
+              className={err || degraded ? "expo-status expo-status-warn" : "expo-status"}
+            >
+              {err !== null ? (
+                // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
+                // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
+                // counter reads when a bump did not save) and passes every other error through verbatim.
+                <OutageText lang={lang} error={err} />
+              ) : degraded ? (
+                frozenBoardCopy(
+                  lang,
+                  snap.serverNow,
+                  nowMs - degraded.since,
+                  "what.bags",
+                  degraded.cause,
+                )
+              ) : count === 0 ? (
+                <Chrome lang={lang} k="expo.none" />
+              ) : (
+                // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
+                // line: the middot is rendered between the surviving segments instead. Same output,
+                // same order, and each segment carries its own `lang` mark.
+                [
+                  bagCount > 0 ? (
+                    <Chrome
+                      key="bags"
+                      lang={lang}
+                      k={bagCount === 1 ? "expo.count.one" : "expo.count.many"}
+                      vars={{ n: bagCount }}
+                    />
+                  ) : null,
+                  verifyCount > 0 ? (
+                    <Chrome
+                      key="verify"
+                      lang={lang}
+                      k="expo.count.verify"
+                      vars={{ n: verifyCount }}
+                    />
+                  ) : null,
+                  handOverCount > 0 ? (
+                    <Chrome
+                      key="hand"
+                      lang={lang}
+                      k="expo.count.handOver"
+                      vars={{ n: handOverCount }}
+                    />
+                  ) : null,
+                ]
+                  .filter(Boolean)
+                  .map((seg, i) => (
+                    <Fragment key={i}>
+                      {i > 0 ? " · " : null}
+                      {seg}
+                    </Fragment>
+                  ))
+              )}
+            </p>
+          </div>
 
-      {count === 0 ? (
-        // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
-        <EmptyState
-          title={
-            <Chrome lang={lang} k={degraded ? "expo.emptyFrozen" : "expo.empty"} echo="stack" />
-          }
-          subtitle={
-            <Chrome
-              lang={lang}
-              k={degraded ? "expo.emptyFrozenSub" : "expo.emptySub"}
-              echo="stack"
+          {count === 0 ? (
+            // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
+            <EmptyState
+              title={
+                <Chrome lang={lang} k={degraded ? "expo.emptyFrozen" : "expo.empty"} echo="stack" />
+              }
+              subtitle={
+                <Chrome
+                  lang={lang}
+                  k={degraded ? "expo.emptyFrozenSub" : "expo.emptySub"}
+                  echo="stack"
+                />
+              }
+              icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
             />
-          }
-          icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
-        />
-      ) : (
-        <StaggerList
-          items={tickets}
-          getKey={(t) => t.orderId}
-          ariaLabel={sx(lang, "expo.a11y.bags")}
-          style={grid}
-          renderItem={(t) => (
-            <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
+          ) : (
+            <StaggerList
+              items={tickets}
+              getKey={(t) => t.orderId}
+              ariaLabel={sx(lang, "expo.a11y.bags")}
+              style={grid}
+              renderItem={(t) => (
+                <ExpoCard
+                  ticket={t}
+                  serverNow={snap.serverNow}
+                  onBumped={refresh}
+                  onError={setErr}
+                />
+              )}
+            />
           )}
-        />
-      )}
-    </section>
+        </section>
+      </div>
+    </>
   );
 }
 
@@ -495,8 +520,7 @@ const headRow: CSSProperties = {
   justifyContent: "space-between",
   gap: "var(--s4)",
   marginBottom: "var(--s4)",
-  // P2 — three children now (heading · live region · language control); wrap rather than crush
-  // the 44px switch on a narrow counter tablet.
+  // P7·1b — the live region alone now (the heading and the language control are the bar's).
   flexWrap: "wrap",
 };
 const grid: CSSProperties = {
@@ -557,17 +581,3 @@ const destTag: CSSProperties = {
   letterSpacing: "0.04em",
   color: "var(--t2)",
 };
-const bumpBtn: CSSProperties = {
-  minHeight: 44,
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  fontWeight: 700,
-  fontSize: "var(--fs-sm)",
-  cursor: "pointer",
-};
-const readyBtn: CSSProperties = {
-  background: "var(--ac)",
-  color: "var(--oa)",
-  borderColor: "var(--ac)",
-};
-const pickedBtn: CSSProperties = { background: "var(--cd)", color: "var(--tx)" };

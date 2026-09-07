@@ -16,11 +16,12 @@
  * mechanism that proves it.
  *
  * RULE 1 — transitive unreachability. Walk the import graph from every non-staff, non-board route
- * root and assert the two reader modules are unreachable at ANY depth. A membership check ("is this
+ * root and assert every staff-device cookie's reader and action modules are unreachable at ANY
+ * depth (the language cookie's since P2, the door cookie's since P7). A membership check ("is this
  * file under app/staff?") would pass a diner page that imports a shared component that imports the
  * reader, which is the realistic way this breaks.
  *
- * RULE 2 — literal uniqueness. The cookie NAME may appear in exactly one file. This closes the
+ * RULE 2 — literal uniqueness. Each cookie's NAME may appear in exactly one file. This closes the
  * evasion rule 1 structurally cannot see: `cookies().get("mms_staff_lang")` written inline in a
  * diner server component, with no import to walk. A literal inside dead code still counts — the
  * guard errs red, because a parked copy is the next reader's template.
@@ -38,10 +39,27 @@ const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const QR = join(ROOT, "apps/qr");
 const APP = join(QR, "app");
 
-const COOKIE_LITERAL = "mms_staff_lang";
-const COOKIE_CONSTANT = "STAFF_LANG_COOKIE";
-const COOKIE_HOME = join(QR, "lib/staff-lang.ts");
-const GUARDED = [join(QR, "lib/staff-lang-server.ts"), join(QR, "lib/staff-lang-actions.ts")];
+/**
+ * The staff DEVICE cookies rules 1 and 2 defend. P7 added a second one beside the language — the
+ * remembered door — with the same three-module shape (a pure carrier, a `server-only` reader, an
+ * ungated action), so both rules run over a LIST rather than a second copy of themselves. A third
+ * device cookie joins here, nowhere else.
+ */
+const COOKIES = [
+  {
+    literal: "mms_staff_lang",
+    constant: "STAFF_LANG_COOKIE",
+    home: join(QR, "lib/staff-lang.ts"),
+    guarded: [join(QR, "lib/staff-lang-server.ts"), join(QR, "lib/staff-lang-actions.ts")],
+  },
+  {
+    literal: "mms_staff_door",
+    constant: "STAFF_DOOR_COOKIE",
+    home: join(QR, "lib/staff-door.ts"),
+    guarded: [join(QR, "lib/staff-door-server.ts"), join(QR, "lib/staff-door-actions.ts")],
+  },
+];
+const GUARDED = COOKIES.flatMap((c) => c.guarded);
 
 /** Directories whose route roots are ALLOWED to reach the readers. */
 const STAFF_AREAS = [join(APP, "staff"), join(APP, "board")];
@@ -185,7 +203,7 @@ for (const root of routeRoots) {
       if (GUARDED.includes(dep)) {
         const chain = [...path, dep].map((f) => relative(ROOT, f)).join("\n      → ");
         failures.push(
-          `rule 1: a NON-STAFF route reaches the staff-locale reader.\n      ${chain}\n      The staff device cookie is for /staff and /board only.`,
+          `rule 1: a NON-STAFF route reaches a staff-device cookie module (${relative(ROOT, dep)}).\n      ${chain}\n      The staff device cookies are for /staff and /board only.`,
         );
         queue.length = 0;
         break;
@@ -198,9 +216,7 @@ for (const root of routeRoots) {
   }
 }
 
-// ── Rule 2 — the cookie name literal lives in exactly one file ───────────────────────────────────
-const literalHomes = [];
-const constantHomes = [];
+// ── Rule 2 — each cookie's name literal lives in exactly one file ────────────────────────────────
 /**
  * The scan set. `apps/qr`'s ROOT modules are in it deliberately: `proxy.ts` is where the retired
  * `mms_locale` cookie was read, so it is the single likeliest place for the next inline
@@ -216,6 +232,9 @@ const RULE2_FILES = [
     .map((n) => join(QR, n))
     .filter((f) => EXTS.some((e) => f.endsWith(e)) && statSync(f).isFile()),
 ];
+// One parse per file; every cookie's literal and constant are looked for in the same walk.
+const literalHomes = new Map(COOKIES.map((c) => [c.literal, []]));
+const constantHomes = new Map(COOKIES.map((c) => [c.constant, []]));
 for (const file of RULE2_FILES) {
   if (file.endsWith(".test.ts") || file.endsWith(".test.tsx")) continue;
   let sf;
@@ -224,41 +243,45 @@ for (const file of RULE2_FILES) {
   } catch {
     continue;
   }
-  let found = false;
-  let usesConstant = false;
+  const foundLiterals = new Set();
+  const usedConstants = new Set();
   function visit(node) {
     // A StringLiteral or a no-substitution template — never a comment, which is not an AST node.
     if (
       (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) &&
-      node.text === COOKIE_LITERAL
+      literalHomes.has(node.text)
     )
-      found = true;
+      foundLiterals.add(node.text);
     // …and the same name reached through the EXPORTED constant, which carries no literal for the
-    // check above to see. `staff-lang.ts` is pure and must stay importable from anywhere, so rule 1
-    // cannot guard it — a diner server component importing STAFF_LANG_COOKIE and calling
+    // check above to see. The carrier modules are pure and must stay importable from anywhere, so
+    // rule 1 cannot guard them — a diner server component importing STAFF_LANG_COOKIE and calling
     // `cookies().get()` with it would have passed both rules.
-    if (ts.isIdentifier(node) && node.text === COOKIE_CONSTANT) usesConstant = true;
+    if (ts.isIdentifier(node) && constantHomes.has(node.text)) usedConstants.add(node.text);
     ts.forEachChild(node, (c) => {
       visit(c);
     });
   }
   visit(sf);
-  if (found) literalHomes.push(file);
-  if (usesConstant) constantHomes.push(file);
+  for (const l of foundLiterals) literalHomes.get(l).push(file);
+  for (const c of usedConstants) constantHomes.get(c).push(file);
 }
 
-const CONSTANT_HOMES = [COOKIE_HOME, ...GUARDED];
-const strayConstant = constantHomes.filter((f) => !CONSTANT_HOMES.includes(f));
-if (strayConstant.length) {
-  failures.push(
-    `rule 2: ${COOKIE_CONSTANT} may only be referenced by ${CONSTANT_HOMES.map((f) => relative(ROOT, f)).join(", ")}.\n      Found in: ${strayConstant.map((f) => relative(ROOT, f)).join(", ")}\n      Reading the staff cookie through the constant bypasses the literal check above.`,
-  );
-}
-
-if (literalHomes.length !== 1 || literalHomes[0] !== COOKIE_HOME) {
-  failures.push(
-    `rule 2: the cookie name "${COOKIE_LITERAL}" must appear in exactly one file (${relative(ROOT, COOKIE_HOME)}).\n      Found in: ${literalHomes.map((f) => relative(ROOT, f)).join(", ") || "(nowhere)"}\n      An inline cookies().get() elsewhere has no import for rule 1 to walk.`,
-  );
+for (const cookie of COOKIES) {
+  const allowedConstantHomes = [cookie.home, ...cookie.guarded];
+  const strayConstant = constantHomes
+    .get(cookie.constant)
+    .filter((f) => !allowedConstantHomes.includes(f));
+  if (strayConstant.length) {
+    failures.push(
+      `rule 2: ${cookie.constant} may only be referenced by ${allowedConstantHomes.map((f) => relative(ROOT, f)).join(", ")}.\n      Found in: ${strayConstant.map((f) => relative(ROOT, f)).join(", ")}\n      Reading the staff cookie through the constant bypasses the literal check above.`,
+    );
+  }
+  const homes = literalHomes.get(cookie.literal);
+  if (homes.length !== 1 || homes[0] !== cookie.home) {
+    failures.push(
+      `rule 2: the cookie name "${cookie.literal}" must appear in exactly one file (${relative(ROOT, cookie.home)}).\n      Found in: ${homes.map((f) => relative(ROOT, f)).join(", ") || "(nowhere)"}\n      An inline cookies().get() elsewhere has no import for rule 1 to walk.`,
+    );
+  }
 }
 
 // ── Rule 3 — no LITERAL aria-label on a staff surface ───────────────────────────────────────────
@@ -1240,13 +1263,20 @@ function mountsSwitchHere(file, srcOverride) {
  */
 const SWITCH_WALK_EXCLUDED = new Set([join(QR, "components/staff/StaffOutageShell.tsx")]);
 
-/** …or does any module it transitively imports, within apps/qr, other than the excluded surfaces? */
-function reachesSwitch(root) {
+/**
+ * …or does any module it transitively imports, within apps/qr, other than the excluded surfaces?
+ * Returns EVERY module on the walk that mounts one — not a boolean — because P7·1b put the control
+ * in the shared `StaffBar` and a board that still mounted its own then reached TWO on one page
+ * (`/staff/expo`: four language buttons, two writes racing for the cookie). A presence check was
+ * green over that. A page must reach exactly one.
+ */
+function switchMounts(root) {
   const seen = new Set([root]);
   const queue = [root];
+  const mounts = [];
   while (queue.length) {
     const file = queue.shift();
-    if (mountsSwitchHere(file)) return true;
+    if (mountsSwitchHere(file)) mounts.push(file);
     for (const dep of importsOf(file)) {
       if (!seen.has(dep) && dep.startsWith(QR) && !SWITCH_WALK_EXCLUDED.has(dep)) {
         seen.add(dep);
@@ -1254,7 +1284,10 @@ function reachesSwitch(root) {
       }
     }
   }
-  return false;
+  return mounts;
+}
+function reachesSwitch(root) {
+  return switchMounts(root).length > 0;
 }
 
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY mounts a switch.
@@ -1268,10 +1301,15 @@ for (const f of SWITCH_WALK_EXCLUDED)
 
 for (const file of staffPages) {
   const listed = SWITCH_TODO.has(file);
-  const reaches = reachesSwitch(file);
+  const mounts = switchMounts(file);
+  const reaches = mounts.length > 0;
   if (!listed && !reaches)
     failures.push(
       `rule 4: ${relative(ROOT, file)} never reaches <StaffLangSwitch>. One of the two people who read this console cannot change its language here.`,
+    );
+  if (mounts.length > 1)
+    failures.push(
+      `rule 4: ${relative(ROOT, file)} reaches <StaffLangSwitch> through ${mounts.length} modules (${mounts.map((m) => relative(QR, m)).join(", ")}). Two controls on one page are two writes racing for one cookie, and two groups with one name. The bar carries it; the board must not.`,
     );
   if (listed && reaches)
     failures.push(
@@ -1607,5 +1645,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · cookie name in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert · ${marked} marked dictionary renders)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert · ${marked} marked dictionary renders)\x1b[0m`,
 );

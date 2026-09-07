@@ -3,7 +3,8 @@ import { useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
 import { refundLine, type StaffOrderLine } from "@/lib/refunds";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
-import { OutageText } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
+import { pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
 
 const REASONS: [value: string, label: string][] = [
@@ -39,8 +40,11 @@ export function RefundActionSheet({
 }) {
   const [reason, setReason] = useState<string>("unhappy");
   const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
+  // P7·2 — the same `pin.*` sentences the loss sheet, the approvals queue and the lock screen say,
+  // and the same countdown: "wrong PIN — 2 tries left" is ONE sentence on every screen that says it.
+  const { setLockLeft, lockCopy } = useLockout(lang);
   const [pending, startTransition] = useTransition();
   // The server-derived refundable amount (discounted goods + the line's share of order tax) — computed in
   // getStaffOrders to mirror mms_refund_authorize, so the figure shown IS what the server will refund.
@@ -57,15 +61,11 @@ export function RefundActionSheet({
         }
         switch (res.reason) {
           case "pin_wrong":
-            setError(
-              `Wrong PIN — ${res.attemptsRemaining} ${res.attemptsRemaining === 1 ? "try" : "tries"} left.`,
-            );
-            break;
           case "pin_locked":
-            setError("Too many tries — locked for a few minutes.");
+            setError(pinFailureCopy(res, setLockLeft)); // the shared PIN-failure copy (S13, P7·2)
             break;
           case "pin_no_pin":
-            setError("You don’t have a PIN set. Set one in your profile first.");
+            setError({ k: "pin.noPin.profile" });
             break;
           case "already_refunded":
             // It's already refunded — refresh the board (the line will show "Refunded") + close. No dead
@@ -102,6 +102,8 @@ export function RefundActionSheet({
     });
   };
 
+  // The lockout countdown takes precedence over a transient message.
+  const shown = lockCopy ?? error;
   return (
     // W22c — the canonical `Sheet` migration this file's own `overlay` comment has been asking for
     // since P1-5. The hand-roll carried FOUR real defects, and one migration closes all four:
@@ -201,7 +203,7 @@ export function RefundActionSheet({
             color: "var(--warn)",
           }}
         >
-          {error === null ? null : <OutageText lang={lang} error={error} />}
+          {shown === null ? null : <MsgText lang={lang} msg={shown} />}
         </p>
 
         <div style={{ display: "flex", gap: 10, marginTop: 12 }}>

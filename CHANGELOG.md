@@ -41,6 +41,404 @@ them; it is the same degenerate-fixture failure `verify:slice` reports as a surv
 arriving in a guard about guards. The replacement is falsified across both spellings, with and
 without `today`, with and without `at the time`.
 
+### The P7 stack on `main`, M159 on prod, and the first production test pass (2026-09-07)
+
+**Merged, in order, on Min's go:** #264 · #266 · #267 · #268 · #269 (merge commits; `main` at
+`068e575`; Codex unavailable, blind passes + the full gate on every head). **M159 applied** to prod by
+`apply_migration` (row `20260907082543`) and verified object by object. **Then the app was driven for
+real** — every customer flow through the production UI with headless Chromium and the Stripe test
+cards, and every staff flow as manager Min K — and the findings went into `docs/OPEN-ITEMS.md`
+(C18 · C19 · C20 · M160 · M161 · M162 · K20 · K21 · K22 · K23 · F11) and the HANDOFF top block.
+The one that matters: **the Stripe webhook on prod answers 400 `Bad signature` to every event**, so
+four succeeded test payments produced zero orders — an owner config (C18) with a code half (M160:
+the failure was logged at info level, and nothing reconciles a paid cart). Also measured: prod is on
+Stripe TEST keys today (C2 updated), six menu photos point at missing objects (C19), the kiosk needs
+its device token (C20), the boards show 50-day-old tickets (K20), the floor lists phone sessions as
+tables (K21). Docs only — no code changed in this entry.
+
+### Something's wrong — the report row, the email and the issue (2026-09-07 · P7, PR 4)
+
+**Min's C1 pick — "Email + a row you can see", no phone button ("nothing to explain over the
+phone").** The Help sheet gets its third row on every screen: **Something's wrong**. A few words
+from the person, and the app sends what it can see with them — the screen (by the door's own word,
+never the how-view's sentence), the time, what the board believes about its feed (`live` ·
+`not_updating` · `page`, handed in by the board, never guessed), the deployed version
+(`NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, `dev` when unset — never a fabricated one, and stamped by the
+SERVER on the row: a build fact, not a field the client fills in), and, unlisted but
+sent, the device (UA · viewport · online · timezone · clock) and the PostHog ids that let the
+captured exceptions be found. It is filed THREE ways, each honest about what it is: **the row**
+(`qr_staff_reports`, written FIRST, behind the staff gate, identity from the verified session),
+**the email** (Resend, to the admin address, after the row), **the issue** (a GitHub issue on this
+repository, label `staff-report`, best-effort on the owner's token — C17). **This repository is
+PUBLIC, so the issue is public**: it carries the person's words and the five facts a bug needs
+(report id · screen · path · connection · version) and NOTHING about the person or the device —
+the staff name, the user agent, the clock and the PostHog ids go to the row and the email alone,
+pinned by a test that greps the issue body for each of them — and every cell of that table is a
+CODE SPAN, so a client-shaped value (the path) cannot render as an image or a link inside a table
+the issue presents as machine-collected. Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
+report whose deliveries both failed is still a report, and the person's own list under the form
+— "Your reports", newest first, with a status chip (Received · Being looked at · Fixed) and an
+"On the team's list" chip only when an issue really opened — shows only what the row says.
+
+**The gate is keyed, not sentenced.** `submitStaffReport` answers `outage` (the W10b unknowable
+answer — never a sign-in ask to a cook mid-outage), `auth`, `invalid`, `rate` (five per person per
+ten minutes — a public list and a stuck tap; a failed COUNT never blocks a report) or `save`, so the sheet
+renders each refusal in the device language; the Zod rail (`staffReportInput`, no identity field
+to forge, `.strict()` device) mirrors every bound as a CHECK on the table (`supabase/tests/`
+`p7_staff_reports_test.sql` watches seven refusals and that a 2000-character report still passes),
+and a diner cannot read the table by either mechanism. The send is the sheet's one IRREVERSIBLE
+write, so the Sheet is `busy` while it is in flight (a transition's `pending`, §16); Send is
+`aria-disabled` while empty or in flight with the refusal in the handler and the field kept; an
+empty tap says so in the view's ONE live region and returns focus to the field; success moves
+focus to the sent card ("Got it — we're on it. Report 9F1C2A3B is saved.") and re-reads the list.
+The field is 17px so iOS never zooms into it. `after()` runs the deliveries post-response; the
+issue goes first so the email can link it.
+
+**33 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
+sentence that tells Mom the problem is ours now; the failure sentence on the screen that reports
+failures — band 52). `lib/staff-report.ts` is the pure part (bounds · the short id a person reads
+back · exact status parse · the issue title and body derived ONCE, the words fenced so their
+markdown cannot restyle the issue and a fence inside them cannot close ours); `lib/github-issues.ts`
+is one `fetch` that never throws and never pretends (unset token → `unconfigured`, no request;
+anything but a 201 carrying a `github.com` URL → `failed`); `emails/StaffReportEmail.tsx` carries
+the same facts table.
+
+**Prod: the migration is NOT applied.** `20260907000000_p7_staff_reports.sql` waits for Min's go
+on the one-file MCP path (M159). Until then the door says so: PostgREST's `PGRST205` (and Postgres's
+`42P01`) at the count, the insert or the list is answered `off`, and the sheet replaces the form
+with ONE sentence — "Reports aren't switched on for this app yet — tell a manager in person" —
+never "try again" for a failure that cannot succeed on retry (the blind pass's second CRITICAL:
+the first draft said exactly that). The owner config (the GitHub token, the label, the commit-SHA
+exposure) is **C17**.
+
+**Guards.** `staff-report.test.ts` (10) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
+(15: the keyed gate; the ceiling at exactly five and a failed count never blocking; a forged staff id stripped; a client-sent version ignored; a missing table `off` at the count, the insert and the list; an email step that throws leaving the opened issue recorded; the row before any delivery, with `after()`
+queued and run on demand so "nothing delivered at answer time" is a measurement; both outcomes
+recorded as they were; a blocked delivery record logged; the list scoped to the caller) ·
+`HelpButton.test.tsx` +7 (the row on every screen; the field, the facts under their heading, ONE
+live region, the list arriving AFTER "Loading…" through a fixture that settles a macrotask later
+— the first draft's same-tick fixture hid a list stuck on "Loading…" forever, because the effect
+was keyed on the state it set and its own `loading` commit cancelled the read; the door not
+switched on, at open and on a send; the empty refusal; the send with the draft's shape and the focus move; a keyed
+refusal with the words kept; Burmese with the Latin values marked and the screen's word not) ·
+`help.test` +1 (the screen's name key is the door's word) · the M82 busy-callers guard moves
+`HelpButton` to GUARDED. Five `verify:slice` mutants on the action (outage read as sign-in · the
+gate admitting anon · identity from the client · a failed email recorded as sent · the ceiling
+off by one) — **472** now, 93 target modules (83 under `apps/qr/lib`). Seventeen watched go red on
+induced defects (the three after the public-repo re-read: the issue naming the person; the
+ceiling admitting a sixth; a failed count blocking a report; and the six after the blind pass:
+the list effect keyed on its own state; a missing table read as "try again"; the version taken
+from the client; an email throw taking the issue record with it; table cells rendered raw; a form
+shown with no table behind it). Counts re-measured (1924 qr + 142 ui tests).
+
+**Blind pass** (`pnpm review:bundle --base claude/feat/p7-3-help` → `adversarial-auditor`,
+lenses: security/privacy · product truth · concurrency/lifecycle) — **REJECT on `7f46cea`, two
+CRITICALs, both verified real and fixed:** (1) "Your reports" never finished loading in a real
+deployment — the list effect was keyed on `mine.state`, so its own `loading` commit ran the cleanup
+and dropped the read; the suite's same-tick fixture could not see it. Re-keyed on a generation
+counter; the fixture now settles after a macrotask. (2) The door shipped with "try again" copy for a
+table that does not exist on prod — now `off`, one honest sentence. Its security findings: the flood
+cap was already in `8ca43fd` (five per person per ten minutes, counted on the row); the markdown
+injection through the facts table was real for the client-shaped path even after the public-facts
+cut — every cell is a code span now. Its guard-integrity findings: the degenerate fixture (fixed as
+above); "handed in, never guessed" versus the counter's `page` default — re-worded (the counter home
+renders the door server-side with no feed state to hand in; `page` names that, it does not guess);
+the unrendered `report.attached` key — rendered now, as the facts list's heading; "never throws" on
+`deliverStaffReport` — each step is its own try, and an email template that throws leaves the opened
+issue recorded. Its open questions: the repository IS public (already handled in `8ca43fd`); the
+GitHub timeout is 6 s so the `after()` budget covers the email and the row update; `display_name`
+is bounded 1..80 on the staff table; the PostHog ids are cut to the rail's 120. Hand-triaged after
+the fixes; no second agent round.
+
+### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
+
+**Min's B1 pick, on the anatomy 1b built.** ONE gold circle in the staff bar — the `help` slot,
+before the language switch — on the three screens the parents run (the kitchen board, the counter,
+the takeaway board), opening ONE sheet with three views: the rows (the Settings idiom More already
+uses), **"How this screen works"** — four cards, one at a time, Next becoming "Got it" — and, on the
+board, **the text size** shown on a real dish word at each of the three sizes (the F6 board), the
+chosen one under the gold cap. The 1b Aa circle is gone from the bar, as the F2 board drew it: the
+size lives inside Help now. The third row the canvas drew, "Something's wrong", waits for PR 4 —
+a row that leads nowhere is the dead control §16 forbids.
+
+**Every card's picture is the real control's own DECLARATION.** `HelpPicture` renders the bump
+button, the undo bar, the 86 chip, the dashed held card with its Fire button, the Register tile, a
+table card, the two circles, the two takeaway stages and the takeaway board's status line in the
+control's own class where it has one (`.kds-bump`, `.kds-line-86`, `.staff-circ`,
+`.staff-counter-primary`), its exported style object where it is styled inline (`expo-stage.ts`,
+now shared by `ExpoBoard`; `tableCardStyle` from `TableCard`), and for the undo pill the ONE CSS
+rule that names both the button and the replica — never a new class that copies the look, because
+that copy is the drift the picture exists to prevent, and the blind pass found it had already
+happened: the first draft drew the takeaway stages green and inverted (the board's are accent and
+plain), the undo pill in the bar's colours, the Screens circle in the bar's STATIC mark's class, and
+the kitchen's amber strip on a board that has no strip. Inert (`.help-pic`, `aria-hidden`); under
+Burmese the replica's label comes through `<Chrome>` like the original's. Every sentence was written
+against the component it explains and two were still wrong: the undo bar is `--tx` on `--pg` on a
+board that is always Night, so it is the PALE bar, not "the dark bar"; and `setItemSoldOut` is
+server-and-up, so "a manager puts it back" would have had Mom wait for someone she did not need —
+both re-written. The undo card quotes the board's own `UNDO_MS`, handed in as a slot the kitchen
+door now REQUIRES by type (`Record<SlotsOf<"help.how.kitchen.2">, number>`); the lock card says the
+circle shows only once you have a PIN, because it does. **"Opens itself the first time" is kept per DEVICE**: the first mount of a screen's door on a
+tablet opens the sheet straight onto the cards, once, marked at open (a reload mid-first-visit must
+not re-open it); storage refused means never auto-open. The mark is written by the pass that OPENS,
+after the liveness check — the first draft wrote it in the read, which StrictMode's discarded first
+pass would leave behind for the live one, so dev would never have shown the first morning at all.
+**Nothing is two dialogs deep** — views, not stacked sheets. On the auto-open the SHEET's initial
+focus stands (the dialog announced with its title — the content mounts a commit after the open, so
+the W9e policy applies as on every sheet); from the first Next on, focus moves to each card's
+sentence (the step count is its description); and when a view change unmounts the button that had
+focus, the sheet's trap re-parks it on the sheet itself, never on `<body>` behind the scrim — all
+three measured in jsdom and pinned. **"{n} across" is quoted only in the board's fixed envelope**
+(`KDS_WIDE_MIN_PX`, held to the `@media` rule): below 1200px the grid is auto-fill at every size, so
+a 1024px tablet was being told "4 across" for a layout it never draws; there the rows say only the
+size.
+
+**42 `help.*` keys, every MY a Claude-authored draft pending K15, four marked K15-HIGH** (the bump,
+the 86 and the fire cards, and the takeaway board's paper card — band 50). `lib/help.ts` is the pure
+part: the screens, the card count, the device key, the key convention — held by `help.test.ts` (a
+missing fourth card would throw inside render with the sheet open). `KDS_SIZE_PX` is a transcription
+of `globals.css` held to the stylesheet by `kds-size.test.ts` (the Burmese item line at each dial
+position, and the sample word set at the same three sizes).
+
+**Guards.** `HelpButton.test.tsx` (9): the named gold circle, the rows, the first-visit auto-open
+once per device and per screen — and under `StrictMode`, with the sheet's own focus standing and the
+sentence taking it from the first Next — paging with focus moved (the step count as the sentence's
+description) and Got it closing, Back's two meanings with focus kept inside the dialog, the undo
+card's number in Burmese numerals, the size row and view (one pressed, a pick closes, focus kept,
+"4 across" in the envelope), the sizes below the envelope saying only the size (with and without
+`matchMedia`), the class carried through the portal, no live region of its own.
+`HelpPicture.test.tsx` (6) checks the BINDINGS, not the look: the undo replica inside the real bar
+sharing the button's one rule with no rule of its own, the Screens circle in the control's class and
+never the static mark's, Register the real tile, the table a real textured card with the real chip,
+the takeaway stages spreading the board's own style objects (accent, then plain), the frozen card
+the board's status line with no strip — and `ExpoBoard` parsed with `typescript` to prove it imports
+those three objects, redeclares none, and classes its status line with no inline colour.
+`kds-size.test` +3: the pixel table and the sample word held to `globals.css`, and the "N across"
+the sheet quotes held to the wide grid's `repeat(N, 1fr)` at each size, the envelope width from
+`KDS_WIDE_MIN_PX`. `help.test` demands EXACTLY one `{n}` in the undo sentence. `StaffBar.test` +1
+(no slot → no circle; the order test now places help before the switch). Thirteen watched go red on
+induced defects (the auto-open removed, a size pixel changed, the help slot moved after the switch,
+the mark written in the read, the description dropped, the wide grid at five columns, a second undo
+rule, the static mark's class, a green first stage, an inline warn colour on the board, a second
+`{n}`, "across" on every viewport, the envelope constant drifting). The Sheet callers guard
+re-targets from `KdsBoard` to `HelpButton`. Counts re-measured (1885 qr + 142 ui tests, 467
+mutants).
+
+**Blind pass** (`pnpm review:bundle --base claude/feat/p7-2-front-door` → `adversarial-auditor`,
+lenses: product truth · a11y · lifecycle) — **REJECT on `74ad26c`, five CRITICALs.** Every one was
+verified against source before acting: (1) the takeaway pictures' colours and the kitchen strip —
+real, fixed by sharing the board's declarations; (2) the undo pill's colours and the Screens circle
+in the static mark's class — real, fixed the same way; (3) "{n} across" false below 1200px — real,
+gated on the envelope; (4) the seen mark burned by StrictMode's discarded pass — real, and already
+fixed in the hand-read commit before the verdict landed; (5) focus dropped to `<body>` on three view
+changes — FALSE as stated (the sheet's Radix trap re-parks focus on the container; measured), but
+the suite never asserted it, so it is pinned now. Its open questions were all answered by the
+diff: the "dark bar" was wrong (re-written), the "manager" sentence was wrong (re-written), the
+kitchen door's `cardVars` is now required by type, and the auto-open focus is the sheet's own by
+policy. Hand-triaged after the fixes, no second agent round (the HARD CAP).
+
+### The front door in Burmese (2026-09-07 · P7, PR 2)
+
+**The first thing Dad sees was the last English body on the console.** `/staff/login` and
+`/staff/lock` carried the language control since P2 PR A, and tapping မြန်မာ on them visibly changed
+nothing but the two buttons — the sign-in form, the PIN screen, the manager step-up's fields and every
+failure sentence stayed English (OPEN-ITEMS P2m). PR 2 converts all of it, on the anatomy PR 1b built.
+
+**One vocabulary, three namespaces — 59 keys, every MY a Claude-authored draft pending K15, six
+marked K15-HIGH.** `entry.*` is the sign-in and the lock screen (33); `pin.*` is ONE set of PIN words
+(21) read by the lock screen (your own PIN) AND the loss sheet, the approvals queue and the refund
+sheet (a manager's PIN), so "wrong PIN — 2 tries left" is the same sentence on every screen that says
+it, with the count in the device's numerals; `out.err.*` is the staff error boundary (5). The step-up's lockout is
+formatted ONCE (`lockoutDuration`: "1m 05s" / "၁ မိနစ် ၀၅ စက္ကန့်") from two unit keys, because a
+countdown is a duration and the dictionary's `{t}` slot is a clock, always Latin.
+
+**A live region takes a KEY now.** The three surfaces held `msg: string | null` and rendered it
+through `<OutageText>`, which can only swap the one outage sentence — so nothing could ever hand the
+region Burmese. `StaffMsg` (`components/staff/StaffMsg.tsx`) is a key with its slots OR a server
+sentence, and `<MsgText>` renders whichever it is, marked, with no echo. The PIN arms of both step-up
+switches use it; the sixteen non-PIN client literals beside them are filed as **P2t** (each is one key
+away now) with `PinManager`, the profile's set-a-PIN form.
+
+**The two front-door pages wear the bar** — a static glyph mark where the Screens circle would be
+(the people mark, a lock; there is nothing behind either door yet), the title, the switch; never Lock
+— and ONE textured card beneath it, top-aligned under the bar the way iOS sets a form (the old grid
+centring slid the card under the keyboard on a landscape tablet). `StaffLangShell` is deleted: the
+`100dvh` arithmetic it existed to state once is the bar's now. **Nothing on the front door is natively
+`disabled`** — a 429 used to disable Send under a message telling the person to tap it; every gate is
+`aria-disabled` with the refusal inside the handler, and a lockout makes the PIN field `readOnly`, so
+focus stays where `submit` just put it while the countdown speaks. **The error boundary speaks the
+device language and mounts the switch** (it is a takeover, like the outage shell — the page it
+replaced took its bar with it), and its way out is the doors by name (`/staff?doors=1`, a hard link,
+because the router may be what failed), never "the floor".
+
+**The blind pass REJECTED the first head with three CRITICALs, every one real.** The lock screen's
+"Too many tries." was set as a message and the countdown laid over it — so when the countdown reached
+zero the region announced a refusal at the exact moment the PIN field re-opened (the same shape on
+both manager step-ups): the lockout is ONE sentence now ("Too many tries — try again in {x}."), which
+IS the countdown and leaves with it; `pinFailureCopy` returns no message for a lockout, and the suite
+walks the clock to zero and looks. The K15-HIGH escape "Forgot PIN? Sign out" was a LOOP: the lock is
+an httpOnly device cookie the browser sign-out cannot clear, so a signed-out tablet stayed locked and
+the next sign-in — the same person without their PIN, or a colleague with none — landed straight
+back on the lock screen with `requireStaffPage` redirecting there before any page; `releaseLockAfterSignOut`
+(a server action that deletes the cookie ONLY when the server can see no session — a live session
+keeps its lock, an unknowable answer keeps it too) runs after a successful sign-out on the lock screen
+and the login's wrong-account escape, four-way pinned in `staff-pin-actions.test.ts`. And the code
+field's Burmese placeholder shipped unmarked — an attribute value carries no `lang`, so it rendered in
+the Latin face at the field's own 0.18em tracking, a rule 5 blind spot the guard states — the
+placeholder is gone (the label says it). Also from the pass: the two sign-out escapes had no busy
+gate (a double-tap was two sign-outs), "Use a different email" was live mid-verify, both front-door
+fields were `aria-describedby` their own live region (the step-up's S10 rule forbids it — twice
+announced), the refund sheet still said "Wrong PIN" in English beside the converted screens (converted),
+and the key counts in this entry were transcribed and wrong (61 measured, then 59 after the fixes)
+— counted by parsing the module now.
+
+**Guards.** `StaffLogin.test.tsx` (12) · `PinUnlock.test.tsx` (11) · `ManagerPinStepUp.test.tsx` (9) · `staff-pin-actions.test.ts` (4)
+pin the marked Burmese and the UNmarked interpolated address/name, every refusal as `aria-disabled`
+(never `disabled`), the W10b attribution in both tongues, the numerals in the countdowns, the
+read-only lockout with focus kept, and one polite region per view — two of them watched go red on
+induced defects before the commit. `StaffBar.test` gains the glyph mark. `strings.test` admits the
+two new surface prefixes; the dictionary's own rules (no bare Latin in a MY value, slot parity,
+same-surface collisions, plural pairs, K15 parity) held the 59 keys with no exemption added.
+
+### One bar on every staff page, and the console learns to feel like a tablet (2026-09-07 · P7, PR 1b)
+
+**Min's brief, mid-arc: "the UI/UX flow, feel, textures, navigation, positions need to be thoughtful
+design-thinking — iOS premium."** Three directions went onto the canvas on the same anatomy, copy
+and tokens (paper-and-brass with iOS structure · a tab-bar console · a Night control room), each
+across the doors, the counter floor and the kitchen board, with the tab bar shown costing the board
+its 2×4 envelope and the glass one breaking two of the language's own rules where money is read.
+Min picked **Direction 1**, landing as its own PR on all sixteen staff pages.
+
+**The staff bar (`StaffBar`)** is ONE chrome, and positions are the promise: leading = where you
+are (a 44px Screens circle → `/staff?doors=1`, the one way to the doors; on the doors themselves a
+static mark, never a dead control; on a sub-page the way back UP — the table, or the register for a
+counter order); title = the page's own name as its h1, Burmese 30px first with the English echo
+beneath, the only English in the bar; middle = the page's own control (the KDS stations as a
+segmented control whose chosen segment wears the gold cap); trailing = utilities in one order, the
+language switch and **Lock last**, a circle, the thing you do on the way out. Sign out is on no bar
+— a mis-tap on it costs a login where Lock costs a PIN — it ends the profile page the way iOS ends
+Settings. Help (the gold circle) is deliberately absent until PR 3 builds the sheet behind it. The
+bar is sticky, clears the notch, and in Night is **glass you look through** (`--fx-glass-mid`, the
+M126 dial) over the tickets. Fourteen console pages mount it — thirteen of them lose their own
+"← Floor" link and top row (P7a closed); the two front-door screens keep `StaffLangShell` until PR 2
+rewrites them in Burmese. `check-staff-lang` rule 4 reaches every page's language control THROUGH
+the bar, the way it already followed `kitchen/page.tsx` into `KdsBoard`.
+
+**Feel.** The page carries LINES (`.staff-main`, a 28px groove), every card carries DOTS
+(`.card-textured` on the doors, the counter row, the tickets), with the two-tier `--sh-paper` and
+the sheen lip. **Press = you committed**: `.staff-press` scales to .985 and sweeps a sheen on
+release; a door is a haptic `commit`, a station, a size or a language is a haptic `pick` — each with
+its visible half, never the buzz alone (W22c). The doors PREMIERE once per session
+(`mms-stagger`, 60ms apart, zeroed on a revisit by J1's SurfaceMemory). More is **inset grouped
+rows** — the Settings idiom, Burmese first, a tinted glyph square, a disclosure chevron, hairlines
+drawn once — in place of the tile wall. The KDS text size left the header for the bar's **Aa
+circle**, which opens a sheet with the three 44px choices (P7b closed); the size chips no longer
+wrap the header on a 1280px tablet. Icon circles are NAMED by sr-only dictionary text rendered
+through `<Chrome>`, never an aria-label on a control with children (rule 3 refuses exactly that).
+Every transition here is reduced-motion escorted in the same block that declares it.
+
+**Guards.** `StaffBar.test.tsx` (15) pins the leading link, the static mark, the back-up label, the
+h1 marking (and its spoken separator before a badge), the id/ref/tabIndex hand-off the KDS focuses
+through, the trailing ORDER (utilities · language · Lock last), that Night's bar is the repo's one
+`--glass-chrome` pane — and holds every `globals.css` selector naming `.staff-bar-title` to the
+rendered DOM (LEARNINGS #101, applied before the auditor could); `StaffDoors.test.tsx`'s selector
+guard widened to the More rows. `check-staff-lang` rule 4 now COUNTS the language controls a page
+reaches and refuses two. `Sheet.title` is a `ReactNode` now (Radix's `Dialog.Title` always was), so
+a dictionary title arrives marked, and `Sheet` takes a `className` so a class-themed caller can
+carry its theme through the portal.
+
+**The blind pass REJECTED the first head with seven CRITICALs, every one real.** The expo page
+reached TWO language controls (the bar's and the board's own — four buttons, two writes racing for
+one cookie): the board owns the bar now, as the KDS does, and rule 4 counts. The glossary painted
+its title twice through a `.print-only` class no stylesheet defined. The live table view kept its
+inline padding, so the bar sat 4px inset on the busiest console page, and the add page nested the
+bar inside its own sticky wrapper and paid the notch inset twice — so the bar became a full-bleed
+first child of `.staff-main` with the page's column beneath it, on every page, and it is the only
+sticky element. The bar's negative margins overhung the KDS root by 6–12px (a horizontal scroll on
+the board): inside the root it now cancels the root's own `--kds-pad` exactly. The Lock circle was
+natively `disabled` while busy, which drops focus to `<body>` — the language switch's own measured
+rule — so it is `aria-disabled` with the handler refusing re-entry. And the board carried two
+selection vocabularies (gold segments beside accent-filled chips) while its new sheet, portalled to
+`<body>`, painted LIGHT over the Night board on a light-OS tablet: every pressed chip wears the gold
+cap now, and the sheet carries `dark` through the portal. The pass also caught a test pinning
+"Daw Ayeowner" (a badge with no spoken separator), a bar glass at a custom alpha outside the
+contrast guard (it is `--glass-chrome` now), the register tile losing its gold glow to a shared
+shadow rule, and the doors dropping their sheen on hover. Filed, not fixed: P7h (a serial
+`staffHasPin` round-trip on each page) and P7i (a swallowed PIN read hides Lock silently).
+
+### Two doors, and a tablet that remembers which one it walked through (2026-09-06 · P7, PR 1 of 4)
+
+**`/staff` opened on a wrapping row of thirteen 13px text pills, Burmese only, no icons — for two
+people who each have exactly one job.** Mom's tablet is the kitchen board; Dad's is the counter. The
+console now opens on **two doors** (Kitchen · Counter & tables — 38px Burmese with the English
+beneath, 240px tall, the word for kitchen being `kds.title`'s owner-verified မီးဖိုချောင် and no
+second one), and the tablet **remembers** the one it walked through in a device cookie
+(`mms_staff_door`) shaped exactly like the language cookie: a pure carrier, one `server-only` reader,
+one **ungated** action (the value carries no authority — every page behind a door still runs
+`requireStaffPage`), `path: "/"`, 400 days, EXACT-equality parse with the doors as the fallback for
+anything else. `resolveStaffHome` is the one decision: a kitchen device on a **cold start** (the app
+icon, a bookmark — no same-origin referer — or the lock, the login or the auth callback handing the
+tablet back, which are same-origin client navigations and how a locked tablet begins every day) goes
+straight onto its board; any in-app arrival shows the doors, because a tablet with no floor has
+nowhere honest to send an "← Floor" tap; `?doors=1` (the new **Screens** chip on the board and the
+counter home) wins over every remembered door, so no tablet can be trapped; and the Counter door
+asks for the floor BY NAME (`/staff?floor=1`), so it opens the floor with JavaScript off and on a
+device whose cookie write was refused. Every half is pure and mutated (nine mutants): the trap, the
+warm-redirect, the front doors read as warm, a front door matched by prefix, the origin check as
+EQUALITY (a suffix match admits `evil-mms.example`; the suite carries that host), a proxy's
+multi-valued host read whole, `?floor=1` gated on the cookie, and the parser's exactness.
+
+The **counter door is the floor itself, register first**: the one action Dad takes most as a
+gold-capped row (the lit-gold cap — the app's one selection vocabulary — never a second one),
+Approvals and Expo beside it, the live table grid, and every remaining page under **More** as a
+tile with an icon. Two of those were reachable from nowhere in-app before this: the **TV board**
+(bookmark only) and the **word-check sheet** (only from the manager-only pilot sheet — Mom could
+never print her own).
+
+The **kitchen board's text size is a dial now** (`lib/kds-size.ts`): three 44px chips, Small /
+Medium / Large — 30 / 34 / 38px Burmese with every `--kfs-*` tier scaled together so the table
+number never drops below the dish line — remembered per device in storage like the station filter.
+Medium and large drop the wide grid to **three columns**, and the page size follows
+(`kdsPageSize`: 8 → 6), so "one page" stays "one screen" — mutated, because a page of eight at three
+across hides two tickets below the fold on every page, and they are exactly the ones nobody bumps.
+P1's 30px was arithmetic from the font files; the right number is Mom's eyes at the pass, and this
+lets her set it on Day 0.
+
+**The blind pass REJECTED the first head with four CRITICALs, every one real, and every one now a
+guard as well as a fix.** The door title's CSS was written as `.staff-door-name > [lang="my"]`
+against a DOM where that span is a GRANDCHILD of `<Chrome>`'s pair wrapper, plus a class no
+component emits — the 38px doors had not shipped, and `StaffDoors.test.tsx` now holds every selector
+naming `.staff-door-name` to the rendered DOM through jsdom's own matcher (LEARNINGS #101). The
+doors' in-flight flag was never released, so ONE refused write on Counter left two dead links until
+a reload — a ref guard now, released before the navigation, and a suite that taps again after a
+refusal. A manager's floor had no plain link to the kitchen board: the only route was the Kitchen
+DOOR, which re-doored the counter tablet as a kitchen one — a Kitchen tile under More for managers,
+dropped where the row already shows it. And the cold-start promise never held on a locked or
+signed-out tablet, because the lock and the login re-enter `/staff` through same-origin client
+navigations — the front doors are starts now. The pass also asked what a proxy's
+`x-forwarded-host: a, b` does (`new URL` threw → cold → every in-app arrival redirected; read by its
+first value now) and why the tab said "Floor" over the doors (`generateMetadata` says Screens). Two
+are filed, not fixed: the guest install's jump list carries Kitchen and Counter (P7e — a product
+call for the walkthrough) and `page.tsx`'s wiring has no suite of its own (P7f).
+
+**PWA:** the manifest's jump list gains **Kitchen** and **Counter** — before this, "add to home
+screen" on a staff tablet landed on the guest menu with no staff entry anywhere.
+
+**Guards:** `check-staff-lang.mjs` rules 1 and 2 now run over a LIST of device cookies rather than a
+second copy of themselves — the door reader and action are unreachable from every non-staff route
+root, and `mms_staff_door` may appear in exactly one file — and all three evasions were induced and
+watched go red before the guard was trusted (a diner page importing the reader; an inline literal;
+the exported constant). Two new icons in `@mms/ui` (`grid`, `tv`, `print`).
+
+**Every new Burmese string is a Claude draft for the K15 sheet** (13 keys: the doors, More, the
+Screens chip, the three sizes and their group name, the two new tiles). Two first drafts carried
+Latin inside a Burmese run (`PILOT15`, `TV`) and the dictionary guard refused them; they now read
+လျှော့ကုဒ် and တီဗီ.
+
+Residuals filed as **P7a–P7d**. This is PR 1 of the four decided on the design canvas (the doors ·
+the front door in Burmese · the Help door with "How this screen works" · the "Something's wrong"
+report); the text-size chips move behind the Help door in PR 3.
+
 ### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
 
 **Three things the two-week pilot needs and did not have: a way to tell its orders apart from the

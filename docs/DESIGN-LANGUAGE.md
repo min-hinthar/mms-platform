@@ -607,3 +607,99 @@ someone's money.
   wandering scroll discards a half-filled form. It belongs next to the policy it serves, with a test
   — including that it is **downward only**, since an upward tug is someone pulling the sheet further
   open, and a sheet that closes when you try to see more of it is the opposite of the gesture.
+
+## 17 · The staff console — one bar, every page (P7·1b)
+
+The parents' console was rebuilt to feel like a tablet, not a web page, on a direction Min picked
+from the canvas: the app's own paper-and-gold vocabulary, iOS STRUCTURE. These are the rules as
+built.
+
+- **One chrome, fixed positions.** `StaffBar` is the h1 of every console page. Leading = where you
+  are: the Screens circle (`/staff?doors=1`, which `resolveStaffHome` honours over any remembered
+  door) — a static `aria-hidden` mark on the doors themselves, and the way back UP on a sub-page
+  (`{ kind: "back" }`, the arrow inside the dictionary label). Title = Burmese 30px with the English
+  echo beneath, the ONLY English in the bar. Middle = the page's own control. Trailing = utilities in
+  one order, the language switch then **Lock, last** — the thing you do on the way out. Sign out is
+  never a bar control (a mis-tap costs a login; Lock costs a PIN); it ends the profile page. Help
+  (the gold circle) takes the slot before the switch when PR 3 lands — not before, because a
+  control that does nothing is forbidden by §16.
+- **The bar spans the viewport; the page's column sits beneath it.** `.staff-main` is the
+  full-bleed ground (the LINES) with NO horizontal padding; the bar is its first child; the page's
+  own max-width and inset live on a `.staff-col` wrapper under the bar. A bar inside a centred
+  640px column is a strip, not a bar — the blind pass on PR 1b asked, and the mock had answered.
+  Inside the KDS root the bar cancels the root's `--kds-pad` exactly, so it is flush without
+  overhanging the root (an overhang past a bare `<main>` is a horizontal scroll on the board).
+- **The bar is chrome you look through in Night** — `--glass-chrome`, the ONE frosted pane whose
+  floor `composite-contrast.test.ts` pins over white; never a second alpha nobody measured. Paper
+  with a hairline in light. Sticky, and it clears `env(safe-area-inset-top)`; it is the ONLY sticky
+  element on a page (a page-level sticky wrapper around it paid the notch inset twice).
+- **A sheet opened from a class-themed subtree carries the theme itself** — `Sheet` portals to
+  `<body>`, so `.kds-root.dark`'s Night never reaches it; the KDS passes `className="dark"`. A
+  light sheet over a Night board is what "the sheet paints in the document's theme" looks like.
+- **Circles are named by sr-only dictionary text through `<Chrome>`, never `aria-label`.** Rule 3
+  of `check-staff-lang` refuses `sx()` on a control that has children, and it is right: the name is
+  DOM text so the Burmese arrives marked and the {visible, aria} pair cannot drift. The busy state
+  of the Lock circle is spoken through the same text.
+- **Lines on the page, dots on the card** (§1), now on the staff surfaces too: `.staff-main` carries
+  the 28px groove, `.card-textured` rides the doors, the counter row and every KDS ticket. The two
+  never share an element.
+- **Press = you committed.** `.staff-press` (scale .985 + one sheen sweep on release, transform and
+  opacity only). A door is `haptic("commit")`; a station, a size or a language is `haptic("pick")`.
+  Each ships its visible half — the press, the moving gold cap, the sheet — never the buzz alone
+  (§12). The doors premiere once per session (`mms-stagger`, J1's SurfaceMemory zeroes the revisit).
+- **The segmented control** (`.staff-seg`) is one track; the chosen segment wears the gold cap — the
+  same selection vocabulary as everywhere (§2), never a second one. That rule now reaches EVERY
+  pressed `.kds-chip` (the all-day rail, the sizes in the sheet): the accent-filled pressed chip the
+  board used before was a second vocabulary, and the first 1b draft had both on one screen.
+  Segments never drop under 44px (O-E): the thumb IS the target.
+- **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
+  real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
+  states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
+- **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
+  tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
+  of real links, named by its visible heading.
+- **Sheets, not chip rows, for settings** — the KDS text size opens from the bar's Aa circle into a
+  `Sheet` (§16 owns its four exits); `Sheet.title` is a `ReactNode` so a dictionary title arrives
+  marked.
+- **The CSS a component's DOM is written against is held to a render** (LEARNINGS #101):
+  `StaffBar.test.tsx` and `StaffDoors.test.tsx` extract every selector naming the title from
+  `globals.css` and `querySelector` it against the rendered component, in the language it is written
+  for. A dead selector is a red test, not a title at body size.
+- **The front door wears the bar too** (P7·2). `/staff/login` and `/staff/lock` are a static glyph
+  mark where the Screens circle would be (`{ kind: "here", icon }` — the people mark, a lock: there
+  is nothing behind either door yet), the title, and the switch; never Lock, never a control that
+  leads nowhere. Beneath it ONE textured card, top-aligned the way iOS sets a form — never centred in
+  the viewport, which slid the card under the keyboard on a landscape tablet. The primary is the
+  accent pill; the escape ("Sign out", "Use a different email") is a quiet link, LAST. `.entry-*` in
+  `globals.css` is the whole vocabulary.
+- **A live region takes a KEY, never only a string.** `StaffMsg` is a dictionary key with its slots
+  OR a server sentence; `<MsgText>` renders whichever it is, marked, with no echo. A `msg: string`
+  state is a wall against localization — the region can only ever show text, so nothing can hand it
+  Burmese — and that is exactly how the PIN failures stayed English under a Burmese switch for two
+  slices. Refusals are `aria-disabled` here as everywhere; a lockout makes a field `readOnly`, not
+  `disabled`, because `submit` just moved focus into it.
+- **The Help door is ONE gold circle and ONE sheet** (P7·3). The circle rides the bar's `help` slot
+  — before the language switch, after the page's own utilities — on the screens that have something
+  to explain (the board, the counter, the takeaway board), and nowhere else: a page passes the node
+  or nothing, so no circle is ever parked dead. Behind it one sheet with views, never a second dialog
+  over the first: the rows (the Settings idiom More uses), the four cards one at a time (Next → Got
+  it, focus moved to each card's sentence from the first Next — on the auto-open the sheet's own
+  initial focus stands, as on every sheet), the board's sizes on a real dish word with the chosen one
+  under the gold cap. Every card's picture is the REAL control's own DECLARATION, made inert
+  (`.help-pic`): the control's class where it has one, its exported style object where it is styled
+  inline, or the one CSS rule naming both — never a new class that copies the look, which is the
+  drift the picture exists to prevent (the first draft shipped four of them; the blind pass caught
+  every one). A number the sheet quotes is true where it is shown or not shown at all ("{n} across"
+  only inside the board's fixed envelope). "Opens itself the first time" is a DEVICE fact
+  (localStorage, per screen) kept at open, not at close — written by the pass that opens, so
+  StrictMode's discarded first pass cannot spend it.
+- **"Something's wrong" is the sheet's third row, and it files a report three ways without
+  pretending** (P7·4). The row is written FIRST, behind the gate, with the reporter's identity from
+  the verified session (the input has no identity field to forge); the email and the GitHub issue
+  run post-response and what they achieved is RECORDED on the row — the person's own list shows a
+  status chip from the row and an "On the team's list" chip only when an issue really opened. The facts sent are the ones the app can SEE (the screen by the door's own word, the time, the board's own connection state handed in — or `page` where the door is rendered server-side with no feed state to hand in, the counter home; the deployed version stamped by the server, or `dev`), never a guess; the words are
+  fenced in the issue so a person's markdown cannot restyle it — and the issue, on a PUBLIC repository, carries only the words and five bug facts; the person, the device and the ids stay on the row and in the email. A per-person ceiling (five in ten minutes) keeps a stuck tap off the public list. Before the table exists on prod the door says it is not switched on — one sentence in place of the form, never "try again" for a failure that cannot succeed on retry. The send is the sheet's one
+  irreversible write: `busy` while in flight, Send `aria-disabled` with the refusal in the handler,
+  the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
+  back on the field, success announced by moving focus to the sent card. The gate answers KEYS
+  (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.

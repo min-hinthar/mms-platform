@@ -205,3 +205,9 @@ const bottomRow: CSSProperties = {
   gap: 10,
   marginTop: 2,
 };
+
+/**
+ * P7·3 — the card's own surface, exported for the help picture that teaches it: `HelpPicture`
+ * renders a `<Card textured>` in exactly these styles, so the replica cannot drift from the card.
+ */
+export const tableCardStyle = { card, topRow, label, metaRow } as const;

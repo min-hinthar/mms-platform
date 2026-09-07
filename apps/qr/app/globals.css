@@ -7316,7 +7316,8 @@ html[data-seen-surface] .mms-stagger {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
-  padding: clamp(8px, 1vw, 16px);
+  --kds-pad: clamp(8px, 1vw, 16px);
+  padding: var(--kds-pad);
 }
 .kds-head {
   display: flex;
@@ -7375,10 +7376,17 @@ html[data-seen-surface] .mms-stagger {
   font-size: var(--kfs-meta);
   cursor: pointer;
 }
+/* P7·1b — the gold cap (the app's ONE selection vocabulary, §2), on every pressed chip of the
+   board: the stations in the bar, the all-day rail, the sizes in the sheet. The accent-filled
+   pressed chip this replaced was the console's second vocabulary, and the blind pass saw both on
+   one screen. */
 .kds-chip[aria-pressed="true"] {
-  background: var(--ac);
-  border-color: var(--ac);
-  color: var(--oa);
+  color: var(--tx);
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
 }
 .kds-vol {
   accent-color: var(--ac);
@@ -7881,7 +7889,10 @@ html[data-seen-surface] .mms-stagger {
   font-weight: 700;
   box-shadow: var(--sh-md);
 }
-.kds-undo button {
+/* ONE rule for the pill: the board's real button and the help card's inert replica
+   (`.help-pic-undo-btn`, P7·3) — a second declaration would drift, and did. */
+.kds-undo button,
+.kds-undo .help-pic-undo-btn {
   min-height: 44px;
   padding: 0 16px;
   border-radius: var(--r-full);
@@ -8556,6 +8567,15 @@ html[data-seen-surface] .mms-stagger {
    block). Literal white/ink here is the PRINT exception, not a token violation: paper has one
    theme, and print output must never depend on the viewer's dark mode. Everything interactive
    or chrome carries `.print-hide` (or is the app header/nav, hidden wholesale). */
+/* P7·1b — the glossary's own title exists for PAPER only; on screen the staff bar is the h1. */
+.print-only {
+  display: none;
+}
+@media print {
+  .print-only {
+    display: block;
+  }
+}
 @media print {
   /* Review HIGH — paper has ONE theme, but the receipt's text resolves the LIVE tokens, and the
      `.dark` class stamped on <html> never re-evaluates for print: without this re-pin a dark-mode
@@ -9625,4 +9645,1116 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--ac);
   font-weight: 700;
   text-decoration: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   P7 — the parents' console. Doors on /staff, the counter home, the Screens chip, the KDS text size.
+   Tokens only; every new surface extends the lit-gold cap for "this tablet opens here" rather than
+   inventing a second selection vocabulary (docs/DESIGN-LANGUAGE.md §2).
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+.staff-doors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s5);
+}
+@media (max-width: 720px) {
+  .staff-doors {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+/* A door is one <a>: icon, the Burmese word, the English beneath, and — on the door this tablet
+   walked through — the "opens here" line. Big on purpose: ≥240px tall, 38px Burmese, because the
+   doors are read once a night from across a counter, not scanned. */
+.staff-door {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--s4);
+  min-height: 240px;
+  padding: var(--s6) 28px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  text-decoration: none;
+  box-shadow: var(--sh-paper);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.staff-door:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper-hover);
+}
+.staff-door:active {
+  transform: translateY(0);
+}
+.staff-door-icon {
+  color: var(--ac);
+}
+/* The title. In English <Chrome> renders a BARE TEXT NODE, so the title's size lives on the name
+   box itself; in Burmese it renders <Chrome echo="stack">'s `.chrome-pair` — the Burmese span and the
+   English echo TWO levels down — so the Burmese rules are child CHAINS through the pair, never a
+   single `>`. The first draft wrote `.staff-door-name > [lang="my"]` and a `.staff-door-en` class no
+   component emits: both matched nothing, and the 38px doors never shipped (blind pass CRITICAL 1).
+   `StaffDoors.test.tsx` now holds every selector naming `.staff-door-name` to the rendered DOM. The
+   sub-line and the "opens here" line beneath are `.chrome-pair`s too; the chains do not reach them. */
+.staff-door-name {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-h1);
+  font-weight: 800;
+  line-height: 1.2;
+}
+.staff-door-name > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 2.375rem; /* 38px — the biggest Burmese on any staff surface but the ticket */
+  font-weight: 700; /* Padauk's heaviest cut; 800 would silently match the same face */
+  line-height: 1.35;
+}
+.staff-door-name > .chrome-pair > .chrome-en {
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  color: var(--t2);
+}
+.staff-door-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--t2);
+}
+/* The door this tablet walked through wears the lit-gold cap — the app's ONE selection vocabulary
+   (the same recipe as `.app-header-order-open`), never a second one. */
+.staff-door[aria-current="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 18px -8px var(--glow-gold);
+}
+.staff-door-here {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--gold-strong);
+}
+/* The More grid: the eight manager pages as small tiles beneath the doors. */
+.staff-more-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s2);
+  font-size: var(--fs-h3);
+  font-weight: 800;
+}
+.staff-more-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+.staff-more {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+  gap: var(--s3);
+}
+.staff-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 116px;
+  padding: var(--s4) 18px;
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  text-decoration: none;
+  box-shadow: var(--sh);
+}
+.staff-tile:hover {
+  box-shadow: var(--sh-md);
+}
+.staff-tile-icon {
+  color: var(--ac);
+}
+/* The tile's script comes from <Chrome>'s own mark (`.chrome-my` sets Padauk); this only sizes. */
+.staff-tile-name {
+  font-size: var(--fs-h2);
+  font-weight: 800;
+  line-height: var(--lh-snug);
+}
+/* The counter home's register-first row: the one action Dad takes most, gold-capped; two smaller
+   tiles beside it. */
+.staff-counter-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr;
+  gap: var(--s3);
+  margin-bottom: var(--s6);
+}
+@media (max-width: 720px) {
+  .staff-counter-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.staff-counter-primary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-height: 96px;
+  padding: var(--s5) var(--s6);
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 18px -8px var(--glow-gold);
+  color: var(--tx);
+  text-decoration: none;
+}
+/* Register's title reuses the door structure one step smaller: h2 in English, h1 Burmese. */
+.staff-counter-primary .staff-door-name {
+  font-size: var(--fs-h2);
+}
+.staff-counter-primary .staff-door-name > .chrome-pair > [lang="my"] {
+  font-size: var(--fs-h1);
+}
+.staff-counter-side {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 96px;
+  padding: var(--s5);
+  border-radius: var(--r-card);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: var(--sh);
+  color: var(--tx);
+  text-decoration: none;
+}
+
+/* KDS TEXT SIZE — three steps, the middle two derived by scaling every `--kfs-*` together so the
+   identity tier (table number) never drops below the dish line. Medium and large also drop the wide
+   envelope to THREE columns: bigger type at four across would wrap every Burmese line. The page size
+   follows the column count in `KdsBoard.tsx` (`kdsPageSize`), so "one page" stays "one screen". */
+.kds-root[data-size="m"] {
+  --kfs-id: 2.25rem; /* 36 */
+  --kfs-item: 2rem; /* 32 */
+  --kfs-item-my: 2.125rem; /* 34 */
+  --kfs-mod: 1.5rem; /* 24 */
+}
+.kds-root[data-size="l"] {
+  --kfs-id: 2.5rem; /* 40 */
+  --kfs-item: 2.25rem; /* 36 */
+  --kfs-item-my: 2.375rem; /* 38 */
+  --kfs-mod: 1.6875rem; /* 27 */
+}
+@media (min-width: 1200px) {
+  .kds-root[data-size="m"] .kds-grid,
+  .kds-root[data-size="l"] .kds-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.kds-size-group {
+  display: flex;
+  gap: 8px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .staff-door {
+    transition: none;
+  }
+  .staff-door:hover {
+    transform: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════
+   P7·1b — the premium feel (Direction 1, "Paper & brass, iOS-shaped", owner pick 2026-09-07).
+   ONE staff bar on every page · the page carries LINES, every card carries DOTS (`.card-textured`)
+   · press = scale + sheen sweep · iOS structure (44px circles, a segmented control, inset grouped
+   rows, bottom sheets) in the app's own paper-and-gold vocabulary. Tokens only. Every transition
+   here is reduced-motion escorted at the bottom of this block.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/* The page ground: LINES at a 28px rhythm, a groove not a ridge (a dark line darkens the pixel under
+   light text — the inversion that won the Night ambient its contrast, DESIGN-LANGUAGE §1). Applied to
+   the staff <main>, never to a card. */
+.staff-main {
+  padding: 0 0 var(--s8);
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 27px,
+    color-mix(in oklab, var(--tx) 5%, transparent) 27px 28px
+  );
+}
+/* The page's content column. The bar is a direct child of `.staff-main` and spans the viewport
+   (an iOS bar is never a strip in a centred column — the blind pass asked); the column carries
+   the page's own max-width (inline, per page) and the horizontal padding. */
+.staff-col {
+  margin: 0 auto;
+  padding: 0 var(--s5);
+}
+
+/* ── the bar ─────────────────────────────────────────────────────────────────────────────────── */
+.staff-bar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-toolbar);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-height: 68px;
+  /* clears the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top */
+  padding: calc(10px + env(safe-area-inset-top, 0px)) var(--s5) 10px;
+  margin: 0 0 var(--s4);
+  border-bottom: 1px solid var(--bd);
+  /* paper with a hairline in light; the ground shows through faintly so the lines continue */
+  background: color-mix(in oklab, var(--pg) 88%, transparent);
+}
+/* Night (the KDS): glass you look THROUGH, never a surface you read — the M126 dial decides how
+   much. `--glass-chrome` is the ONE frosted-chrome pane, and `composite-contrast.test.ts` pins its
+   floor (every Night text token clears AA on it over white); a custom alpha here would be a second
+   pane nobody measured. */
+.dark .staff-bar {
+  background: var(--glass-chrome);
+  -webkit-backdrop-filter: var(--fx-glass-mid);
+  backdrop-filter: var(--fx-glass-mid);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+/* Inside the KDS root the bar cancels the root's own padding EXACTLY (`--kds-pad`), so it is
+   flush without ever overhanging the root — an overhang past a bare <main> is a horizontal
+   scroll on the board (the blind pass measured 6–12px). */
+.kds-root > .staff-bar {
+  margin: calc(-1 * var(--kds-pad)) calc(-1 * var(--kds-pad)) var(--s3);
+}
+.staff-bar-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  /* the English title (a bare text node from <Chrome>) is sized HERE; the Burmese pair below */
+  font-size: var(--fs-h1);
+  font-weight: 800;
+  line-height: var(--lh-tight);
+}
+.staff-bar-title > .chrome-pair {
+  line-height: 1.05;
+}
+.staff-bar-title > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.875rem; /* 30px — the large-title idiom, one step under the doors' 38 */
+  font-weight: 700;
+  line-height: 1.3;
+}
+.staff-bar-title > .chrome-pair > .chrome-en {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--t2);
+}
+.staff-bar-mid {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex-wrap: wrap;
+}
+.staff-bar-tail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* A 44px circle: the bar's unit. Paper with the sheen lip; a link or a button, never a bare span
+   except the static "here" mark on the doors. */
+.staff-circ {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  padding: 0;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+.staff-circ:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.staff-circ-here {
+  cursor: default;
+  color: var(--t3);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+/* The gold circle — reserved for Help (PR 3), so "the gold one" stays a sentence with one answer. */
+.staff-circ-gold {
+  border-color: color-mix(in oklab, var(--gold) 60%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 22%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 0 16px -6px var(--glow-gold);
+}
+/* The back-up link on a sub-page: a pill in the leading slot, the arrow inside its label. */
+.staff-back {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  text-decoration: none;
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+  white-space: nowrap;
+}
+
+/* ── the segmented control (KDS stations): one track, the chosen segment wears the gold cap ──── */
+.staff-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 4px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--bd);
+  background: color-mix(in oklab, var(--sf) 85%, transparent);
+}
+.staff-seg > .kds-chip {
+  min-height: 44px; /* O-E: the thumb is the target, and it never drops under 44 */
+  border-color: transparent;
+  background: transparent;
+  color: var(--t2);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+/* ── press: you COMMITTED. scale + a one-sweep sheen on release, transform/opacity only ──────── */
+.staff-press {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
+}
+.staff-press:active {
+  transform: scale(0.985);
+}
+.staff-press::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 35%, var(--sheen) 50%, transparent 65%);
+  transform: translateX(-120%);
+  opacity: 0;
+}
+.staff-press:active::after {
+  opacity: 1;
+  animation: staffSheen var(--dur-base) var(--ease-out) forwards;
+}
+@keyframes staffSheen {
+  to {
+    transform: translateX(120%);
+  }
+}
+
+/* ── inset grouped rows (More): the iOS Settings idiom, Burmese first ───────────────────────── */
+.staff-inset {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--bd);
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--cd);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+}
+.staff-inset > li {
+  /* hairlines between rows AND between the two columns, drawn once each so nothing doubles */
+  border-top: 1px solid var(--bd);
+  border-left: 1px solid var(--bd);
+  margin: -1px 0 0 -1px;
+}
+.staff-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 62px;
+  padding: 8px 14px 8px 12px;
+  color: var(--tx);
+  text-decoration: none;
+}
+.staff-row-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 12px;
+  color: var(--ac-strong);
+  background: color-mix(in oklab, var(--gold) 20%, var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.dark .staff-row-glyph {
+  color: var(--gold);
+}
+.staff-row-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-snug);
+}
+.staff-row-name > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.1875rem; /* 19px */
+  font-weight: 700;
+  line-height: 1.35;
+}
+.staff-row-name > .chrome-pair > .chrome-en {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--t2);
+}
+.staff-row-chev {
+  flex: none;
+  color: var(--t3);
+}
+
+/* ── the doors and tiles pick up the vocabulary ─────────────────────────────────────────────── */
+.staff-door,
+.staff-counter-side,
+.staff-tile {
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper);
+}
+/* The door glyph sits in a tinted rounded square (the Settings-icon idiom), not bare on paper. */
+.staff-door-icon,
+.staff-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  color: var(--ac-strong);
+  background: color-mix(in oklab, var(--gold) 20%, var(--cd));
+  border: 1px solid color-mix(in oklab, var(--gold) 35%, transparent);
+  box-shadow: inset 0 1px 0 var(--sheen);
+}
+.staff-tile-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+/* The doors PREMIERE — once per session (J1 SurfaceMemory zeroes the cascade on a revisit). */
+.staff-door.mms-stagger:nth-child(2) {
+  animation-delay: 60ms;
+}
+[data-seen-surface] .staff-door.mms-stagger {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .staff-press,
+  .staff-seg > .kds-chip {
+    transition: none;
+  }
+  .staff-press:active::after {
+    animation: none;
+    opacity: 0;
+  }
+  .staff-door.mms-stagger {
+    animation: none;
+  }
+}
+
+/* P7·1b — the greeting beneath the bar on the console home (the bar names the page; this names you). */
+.staff-greeting {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  color: var(--t2);
+}
+
+/* ── P7·2 · the front door ─────────────────────────────────────────────────────────────────────
+   The sign-in and the lock screen wear the same bar as every other page — a static mark, the
+   title, the language control; never Lock, never the Screens circle, because there is nothing
+   behind either door yet — and ONE textured card beneath it, top-aligned under the bar the way iOS
+   sets a form, never centred in the viewport (the old grid centring slid the card under the
+   keyboard on a landscape tablet). Fields are 52px so a thumb finds them; the primary is the accent
+   pill every staff commit uses; the escape ("Sign out", "Use a different email") is a quiet link,
+   LAST, because a mis-tap on it costs a login. Nothing here is natively disabled — a refused
+   control keeps its place and says so (`aria-disabled`), which is the language switch's rule. */
+.entry-col {
+  max-width: 440px;
+  padding-top: var(--s4);
+}
+.entry-card {
+  padding: var(--s6);
+}
+.entry-brand {
+  margin: 0 0 var(--s3);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--t3);
+}
+.entry-h {
+  margin: 0 0 4px;
+  font-size: var(--fs-h2);
+  line-height: var(--lh-snug);
+}
+.entry-sub {
+  margin: 0 0 var(--s5);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.entry-alert {
+  margin: 0 0 var(--s5);
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--warnb);
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.entry-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--tx);
+}
+.entry-input {
+  width: 100%;
+  min-height: 52px;
+  box-sizing: border-box;
+  margin-bottom: var(--s4);
+  padding: 0 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-size: var(--fs-body); /* ≥16px so iOS doesn't zoom the field on focus */
+}
+.entry-input-code {
+  letter-spacing: 0.18em;
+  font-variant-numeric: tabular-nums;
+}
+.entry-input-pin {
+  letter-spacing: 0.35em;
+  font-size: var(--fs-h3);
+  text-align: center;
+}
+.entry-primary,
+.entry-secondary {
+  display: inline-flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: var(--r-full);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.entry-primary {
+  border: 0;
+  background: var(--ac);
+  color: var(--oa);
+}
+.entry-secondary {
+  border: 1px solid var(--bd);
+  background: var(--cd);
+  color: var(--tx);
+  font-weight: 600;
+}
+.entry-primary[aria-disabled="true"],
+.entry-secondary[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: default;
+}
+.entry-link {
+  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  margin-top: 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ac);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+.entry-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: var(--s4) 0;
+  font-size: var(--fs-sm);
+  color: var(--t3);
+}
+.entry-divider::before,
+.entry-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bd);
+}
+.entry-msg {
+  margin: var(--s4) 0 0;
+  min-height: 20px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.entry-msg-warn {
+  color: var(--warn);
+}
+
+/* ── P7·3 · the Help door ──────────────────────────────────────────────────────────────────────
+   ONE gold circle in the bar (`.staff-circ-gold`, the slot before the language switch) on the
+   three screens the parents run, opening ONE sheet with three views: the rows (the Settings idiom
+   More already uses), the four cards one at a time, the three sizes on a real dish word. Every
+   card's "picture" is the REAL control in its own classes, made inert here — a drawing would drift
+   the first time the button changed. The chosen size wears the lit-gold cap, the one selection
+   vocabulary (§2). */
+.help-glyph {
+  font-weight: 800;
+  font-size: var(--fs-h3);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.help-glyph-aa {
+  font-weight: 800;
+  font-size: var(--fs-body);
+  letter-spacing: -0.02em;
+}
+.help-sheet .mms-sheet-body,
+.help-menu,
+.help-how,
+.help-size {
+  padding-bottom: var(--s4);
+}
+.help-sub {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+/* A row is a <button> here, not a link: reset the button chrome so it wears the row's. */
+.help-row {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.help-row-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--t2);
+}
+.help-row-sub > .chrome-pair > [lang="my"] {
+  font-size: 0.9375rem; /* 15px */
+  font-weight: 500;
+}
+.help-row-sub > .chrome-pair > .chrome-en {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+
+/* ── the cards ── */
+.help-card {
+  padding: var(--s5);
+  margin: 0 0 var(--s4);
+}
+.help-pic {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  margin: 0 0 var(--s4);
+  padding: var(--s3);
+  border-radius: var(--r-sm);
+  background: color-mix(in oklab, var(--tx) 4%, var(--cd));
+  pointer-events: none;
+  user-select: none;
+}
+.help-pic > * {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+/* The takeaway stage replica is a <span> in the button's own style object (`expo-stage.ts`); this
+   only gives it a button's box. */
+.help-pic-stage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+}
+/* The takeaway board's status line, declared ONCE — `ExpoBoard` wears it live, the help card inert. */
+.expo-status {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.expo-status-warn {
+  color: var(--warn);
+}
+.help-pic-bump {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  min-height: 56px;
+  padding: 0 22px;
+  font-size: var(--fs-h3);
+}
+/* `.kds-undo` is a FIXED bar at the bottom of the board; in a card it is a static pill. */
+.help-pic-undo {
+  position: static;
+  transform: none;
+  z-index: auto;
+  font-size: var(--fs-sm);
+}
+.help-pic-86 {
+  font-size: var(--fs-sm);
+}
+.help-pic-held {
+  display: inline-flex;
+  padding: 10px;
+  border: 2px dashed color-mix(in oklab, var(--tx) 30%, transparent);
+  border-radius: var(--r-card);
+  opacity: 0.85;
+}
+.help-pic-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.help-pic-arrow {
+  font-size: var(--fs-h3);
+  color: var(--t3);
+}
+.help-lede {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-snug);
+  outline: none;
+}
+.help-lede > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  font-size: 1.375rem; /* 22px */
+  line-height: var(--lh-my);
+}
+.help-lede > .chrome-pair > .chrome-en {
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.help-more {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.help-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0 0 var(--s3);
+}
+.help-step {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--t2);
+  font-variant-numeric: tabular-nums;
+}
+.help-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  min-width: 128px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+.help-footer {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  text-align: center;
+}
+
+/* ── P7·4 — "Something's wrong": the report view ── */
+.help-glyph-warn {
+  color: var(--warn);
+}
+.help-report-label {
+  display: block;
+  margin: 0 0 var(--s2);
+  font-weight: 700;
+}
+/* 17px, not 14: iOS zooms into any field under 16px and never zooms back out. */
+.help-report-field {
+  display: block;
+  width: 100%;
+  min-height: 132px;
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-size: 1.0625rem;
+  line-height: var(--lh-normal);
+  resize: vertical;
+}
+.help-report-field:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.help-report-field[readonly] {
+  opacity: 0.7;
+}
+.help-report-attached {
+  list-style: none;
+  margin: var(--s3) 0 var(--s3);
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.help-report-status {
+  margin: 0 0 var(--s3);
+  min-height: 1.5em;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--warn);
+}
+.help-report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+}
+.help-report-actions .help-next[aria-disabled="true"] {
+  opacity: 0.55;
+}
+.help-report-sent {
+  margin: 0 0 var(--s4);
+  padding: var(--s4) var(--s5);
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--bd));
+  background: color-mix(in oklab, var(--ok) 10%, var(--cd));
+  outline: none;
+}
+.help-report-sent-title {
+  margin: 0 0 4px;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+}
+.help-report-sent-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.help-report-mine-title {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+}
+.help-report-mine {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.help-report-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+}
+.help-report-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.help-report-item-msg {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--tx);
+  overflow-wrap: anywhere;
+}
+.help-report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.help-report-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: color-mix(in oklab, var(--tx) 8%, var(--cd));
+  color: var(--t2);
+}
+.help-report-chip[data-status="triaged"] {
+  background: color-mix(in oklab, var(--ac) 18%, var(--cd));
+  color: var(--ac);
+}
+.help-report-chip[data-status="fixed"] {
+  background: color-mix(in oklab, var(--ok) 16%, var(--cd));
+  color: var(--ok);
+}
+.help-report-chip-issue {
+  background: color-mix(in oklab, var(--gold) 22%, var(--cd));
+  color: var(--tx);
+}
+.help-report-mine-note {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+
+/* ── the sizes — a real dish word at each size, the chosen one under the gold cap ── */
+.help-size-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 var(--s4);
+}
+.help-size-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  min-height: 64px;
+  padding: 10px 16px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-card);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.help-size-row[aria-pressed="true"] {
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
+}
+.help-size-sample {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.help-size-sample > .chrome-pair > [lang="my"] {
+  font-family: var(--font-my);
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+/* The three sample sizes are the board's own `--kfs-item-my` values (`.kds-root[data-size]`). */
+.help-size-sample[data-size="s"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="s"] {
+  font-size: 1.875rem; /* 30 */
+}
+.help-size-sample[data-size="m"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="m"] {
+  font-size: 2.125rem; /* 34 */
+}
+.help-size-sample[data-size="l"] > .chrome-pair > [lang="my"],
+.help-size-sample[data-size="l"] {
+  font-size: 2.375rem; /* 38 */
+}
+.help-size-sample > .chrome-pair > .chrome-en {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.help-size-meta {
+  flex: none;
+  text-align: right;
+  font-size: var(--fs-sm);
+  font-weight: 700;
+}
+.help-size-across {
+  display: block;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--t2);
+}
+.help-size-back {
+  width: 100%;
+  justify-content: center;
 }

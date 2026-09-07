@@ -30,11 +30,19 @@ export function Sheet({
   children,
   busy = false,
   onCloseAutoFocus,
+  className,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
-  title: string;
+  title: React.ReactNode;
   children: React.ReactNode;
+  /**
+   * Extra classes on the sheet's own root. The sheet PORTALS to <body>, so a theme carried by a
+   * class on an ancestor (the KDS's `.kds-root.dark`) never reaches it — a caller inside a
+   * class-themed subtree passes that class here, or the sheet paints in the document's theme over
+   * a board that is not in it.
+   */
+  className?: string;
   /**
    * M82 — an irreversible write is in flight; refuse every way of closing until it settles.
    *
@@ -83,6 +91,7 @@ export function Sheet({
           <SheetContent
             title={title}
             busy={busy}
+            className={className}
             // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
             // caller and it runs its own `sheetDismiss` — but handing the child a raw
             // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
@@ -118,12 +127,14 @@ function SheetContent({
   title,
   busy,
   onClose,
+  className,
   children,
   onCloseAutoFocus,
 }: {
-  title: string;
+  title: React.ReactNode;
   busy: boolean;
   onClose: () => void;
+  className?: string;
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
 }) {
@@ -207,7 +218,7 @@ function SheetContent({
       <m.div
         ref={contentRef}
         tabIndex={-1}
-        className="mms-sheet"
+        className={className ? `mms-sheet ${className}` : "mms-sheet"}
         // Handle-initiated drag only (dragListener=false): the body keeps its native scroll; the grab
         // handle's onPointerDown starts the drag. Downward-elastic, snaps back unless the release clears
         // the threshold. The CSS `up` entrance animation (.mms-sheet) still plays on open (and is itself
