@@ -190,6 +190,42 @@ const COUNT_RULES = [
   //     the bare `(C + D)` spelling has no `today` to find. The flag is sound precisely BECAUSE of
   //     the closing paren: the parens can hold nothing but `C + D` or `C + D today`, so a
   //     historical marker is always outside them and always belongs to a different clause.
+  // The tracked-docs-file count was MEASURED and PRINTED by this script from the day it was written
+  // and checked by nothing — `truth` carried mutants, modules, libModules, qr and ui, and no `files`.
+  // The docs quote it as measured truth (`check:docs` clean (98 files, …)), which is precisely the
+  // shape this guard exists for: a number a reader takes on the script's authority.
+  //
+  // ⚠️ These two are the FIRST rules here that must stay EXEMPTIBLE, and the reason is worth the
+  // paragraph. The parenthetical `ui tests` pair above carries `current: true` because its shape —
+  // parens that can hold nothing but `C + D` — makes a historical reading impossible. This phrasing
+  // is the opposite: `\`check:docs\` clean (98 files, …)` appears in docs/HANDOFF.md THREE times, once
+  // as live state under `**Gate today:**` and twice as point-in-time records of a past head, in
+  // IDENTICAL words. Nothing in the text distinguishes them, so the rule cannot; the marker has to,
+  // and the two records now carry `at the time` inside the parenthetical — after the number, which
+  // is the only position `HISTORICAL` reads. Copying `current: true` here would report both records
+  // as stale forever, i.e. it would punish the docs for keeping an honest history.
+  {
+    re: /`?check:docs`?[^.]{0,24}?\(\s*(\d+)\s+files\b/gi,
+    key: "files",
+    label: "tracked docs files",
+  },
+  // ⚠️ The gap is `[^.]`, NOT `[^.\n]` like every other rule here: prettier wraps prose, and it had
+  // already split one of the three instances so that `\`check:docs\` clean` ends line 462 and
+  // `(98 files, …)` opens line 463. A newline-excluding gap could not see it — measured, it was the
+  // one fixture of four that stayed silent — which would make coverage depend on where the
+  // formatter happened to break the line, i.e. a claim could drift out of the guard's reach with no
+  // edit to the claim at all. The sentence-ending `.` still bounds it, so it cannot wander into an
+  // unrelated statement.
+  //
+  // The other phrasing the docs use, and the one with no parenthetical to anchor on. `tracked docs
+  // files` is required in full: a bare `(\d+)\s+files` would grab `168 assertions across 8 files`,
+  // `15 controls across 6 files`, `64 files aria-clean` and `the repo (96 files)` — four live decoys
+  // in these same documents, three of which are counts of something else entirely.
+  {
+    re: /(\d+)\s+tracked\s+docs\s+files/gi,
+    key: "files",
+    label: "tracked docs files",
+  },
   {
     re: /ui\s+tests[^.\n]{0,24}?\(\s*(\d+)\s*\+\s*\d+(?:\s+today)?\s*(?=\))/gi,
     key: "qr",
@@ -203,6 +239,13 @@ const COUNT_RULES = [
     current: true,
   },
 ];
+
+/** `matchAll` with capture offsets. Memoised on the rule so the pattern is compiled once, not once
+ *  per document; `d` only adds `m.indices` and changes no matching behaviour. */
+function withIndices(rule) {
+  rule.reD ??= new RegExp(rule.re.source, rule.re.flags + "d");
+  return rule.reD;
+}
 
 /**
  * A historical marker qualifies the number it FOLLOWS ("88 mutants at the time"), so the exemption is
@@ -286,10 +329,18 @@ export function countFailures(text, truth, name = "<doc>") {
     }
   }
   for (const rule of COUNT_RULES) {
-    for (const m of scan.matchAll(rule.re)) {
+    for (const m of scan.matchAll(withIndices(rule))) {
       const stated = Number(m[1]);
       if (stated === truth[rule.key]) continue;
-      const lineNo = scan.slice(0, m.index).split("\n").length;
+      /** Report the line holding the NUMBER, not the line the match starts on. They differ whenever
+       *  a rule spans a prose wrap — which the `check:docs` file rule deliberately does, since
+       *  prettier had already split one claim across two lines. Pointing at the match start showed
+       *  a resolver a context line with no number in it (measured: `…:462` quoting the `verify:slice`
+       *  half while the stale `77` sat on 463), which is the failure message failing at its one
+       *  job. `d` gives the capture's own offset; every other rule is single-line, so this is a
+       *  no-op for them. */
+      const at = m.indices?.[1]?.[0] ?? m.index;
+      const lineNo = scan.slice(0, at).split("\n").length;
       const line = lines[lineNo - 1] ?? "";
       // Even inside a live-state doc, a number may deliberately record a past value ("88 mutants at
       // the time"). Deliberately NOT "was written": that phrase turned up in CLAUDE.md as ordinary
@@ -348,14 +399,37 @@ export function measure(root) {
 
 function main() {
   const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const docs = execFileSync("git", ["ls-files", "*.md", "docs/*.md"], {
-    cwd: ROOT,
-    encoding: "utf8",
-  })
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .filter((f) => !f.startsWith("node_modules/"));
+  /** ⚠️ DE-DUPLICATED, and that is not tidiness. `git ls-files` lists an UNMERGED path once per
+   *  merge stage — three entries for one conflicted file — and the two glob arguments overlap by
+   *  construction (`*.md` already matches at any depth, so `docs/*.md` re-matches every docs file
+   *  the moment git stops treating the first pattern as exhaustive). Measured on a throwaway repo:
+   *  clean `2 entries -> a.md b.md`, conflicted `4 entries -> a.md a.md a.md b.md`.
+   *
+   *  Three consequences, every one of them worst DURING a merge — precisely when someone runs this
+   *  script to decide whether their resolution is sound: the printed file count inflates by 2 per
+   *  conflicted doc; every conflicted doc is table-checked three times, so ONE broken table reports
+   *  as three failures; and a conflicted live-state doc is count-checked three times, so ONE stale
+   *  number reports as three. All three were watched red before this line was written.
+   *
+   *  It never produced a false PASS — duplicates only add work, never remove a check — which is
+   *  exactly why it survived: CI only ever runs this on a clean tree. It reached the record anyway.
+   *  PR #265 reported `100 files` in its body, its review comment and its merge message, because
+   *  both readings were taken with `CHANGELOG.md` still `UU` in the index. The real count was 98.
+   *  A number this script PRINTS is quoted into docs as measured truth, so an inflated one is not
+   *  cosmetic; and now that `truth.files` guards that number, an un-deduplicated list would fail
+   *  the guard against a count only a mid-merge index could produce. */
+  const docs = [
+    ...new Set(
+      execFileSync("git", ["ls-files", "*.md", "docs/*.md"], {
+        cwd: ROOT,
+        encoding: "utf8",
+      })
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .filter((f) => !f.startsWith("node_modules/")),
+    ),
+  ];
   /** Docs that assert the CURRENT state, and so must agree with what the repo measures right now.
    *  W22-docs: README joined the set the day it started quoting the gate's size — the front door is
    *  where a stale number is read most and noticed least (its "M0 scaffold" headline survived ~20
@@ -366,14 +440,17 @@ function main() {
   const failures = [];
   for (const rel of docs)
     failures.push(...tableFailures(readFileSync(path.join(ROOT, rel), "utf8"), rel));
-  const truth = measure(ROOT);
+  /** `files` is the length of the ONE list above, never a second `ls-files`: the count this script
+   *  PRINTS and the count it CHECKS must be the same number or the guard can pass while the banner
+   *  lies (the "name it ONCE" rule, applied to a count rather than an amount). */
+  const truth = { ...measure(ROOT), files: docs.length };
   for (const rel of liveState)
     failures.push(...countFailures(readFileSync(path.join(ROOT, rel), "utf8"), truth, rel));
 
   if (failures.length === 0) {
     console.log(
       c.green("clean") +
-        c.dim(` (${docs.length} files, ${truth.qr}+${truth.ui} tests, ${truth.mutants} mutants)`),
+        c.dim(` (${truth.files} files, ${truth.qr}+${truth.ui} tests, ${truth.mutants} mutants)`),
     );
     return 0;
   }

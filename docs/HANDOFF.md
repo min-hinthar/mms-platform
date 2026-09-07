@@ -180,7 +180,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
 > **472 `verify:slice` mutants** · **93 target modules** (83 under `apps/qr/lib`, 3 API routes,
-> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
+> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files at the time ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
 > **Prod carries everything this code needs — verified against the live project, not from prose:**
@@ -379,7 +379,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> `check:docs` clean (98 files, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
+> `check:docs` clean (98 files at the time, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
 > `turbo lint typecheck build test` **8/8** · `check:staff-lang` clean with its self-test green
 > (64 files aria-clean · 15/15 pages).
 >
@@ -460,7 +460,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 > ### Counts on this head, measured not transcribed
 >
 > `verify:slice` **362 mutants caught, 0 survived, 0 stale, no orphans** · `check:docs` clean
-> (98 files, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
+> (98 files at the time, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
 > `check:staff-lang` clean (63 files aria-clean 0 left · 15/15 pages 0 left · 32 marked renders).
 >
 > ### Next
