@@ -1600,7 +1600,6 @@ export const STAFF = {
   // {n} is a COUNT (seconds), so it takes the device's numerals — "၄၅ စက္ကန့်" beside "45s".
   "entry.login.resendIn": { en: "Resend in {n}s", my: "{n} စက္ကန့်အကြာ ပြန်ပို့နိုင်" },
   "entry.login.code.label": { en: "Sign-in code", my: "ဝင်ရန် ကုဒ်" },
-  "entry.login.code.placeholder": { en: "Code from your email", my: "အီးမေးလ်ထဲက ကုဒ်" },
   "entry.login.verify": { en: "Sign in", my: "ဝင်ပါ" },
   // ONE busy word for the code check and the PIN check: two keys on one surface may not share a
   // Burmese value while their English differs (strings.test), and "Verifying…" / "Checking…"
@@ -1676,23 +1675,25 @@ export const STAFF = {
     my: "ပင်နံပါတ် မှားပါတယ် — {n} ကြိမ် ကျန်ပါသေးတယ်။",
   },
   "pin.wrong": { en: "Wrong PIN.", my: "ပင်နံပါတ် မှားပါတယ်။" },
-  "pin.tooMany": { en: "Too many tries.", my: "စမ်းတာ များသွားပါပြီ။" },
-  "pin.tooManyThat": {
-    en: "Too many tries on that PIN.",
-    my: "ဒီပင်နံပါတ်ကို စမ်းတာ များသွားပါပြီ။",
-  },
   // {x} is the remaining time, PRE-FORMATTED in the device language by `lockoutDuration` from the
-  // two unit keys below — so under `my` it arrives as Burmese script ("၁ မိနစ် ၅ စက္ကန့်") and needs
+  // two unit keys below — so under `my` it arrives as Burmese script ("၁ မိနစ် ၀၅ စက္ကန့်") and needs
   // no wrap, and under `en` as "1m 05s". A `{t}` slot would be wrong: that is a CLOCK, always Latin.
+  // This ONE sentence is the whole lockout: it says "too many" itself and it IS the countdown, so
+  // when the countdown reaches zero the region EMPTIES — nothing stays behind claiming a refusal
+  // over a field that just re-opened (blind pass, CRITICAL: a separate "Too many tries." did).
   "pin.lockedFor": {
-    en: "Locked — try again in {x}.",
-    my: "ခဏ ပိတ်ထားပါတယ် — {x} အကြာမှာ ထပ်စမ်းပါ။",
+    en: "Too many tries — try again in {x}.",
+    my: "စမ်းတာ များသွားပါပြီ — {x} အကြာမှာ ထပ်စမ်းပါ။",
   }, // K15-HIGH — a lockout misread as "the tablet is locked" sends someone to sign out
   "pin.unit.min": { en: "{n}m", my: "{n} မိနစ်" },
   "pin.unit.sec": { en: "{n}s", my: "{n} စက္ကန့်" },
   "pin.noPin.self": {
     en: "No PIN is set on this account. Sign out to continue.",
     my: "ဒီအကောင့်မှာ ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ဆက်လုပ်ဖို့ အကောင့် ထွက်ပါ။",
+  },
+  "pin.noPin.profile": {
+    en: "You don’t have a PIN set. Set one in your profile first.",
+    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ အရင် သတ်မှတ်ပါ။",
   },
   "pin.noPin.manager": {
     en: "That manager hasn’t set a PIN yet.",

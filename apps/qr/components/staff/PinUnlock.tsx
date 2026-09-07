@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
-import { unlockConsole } from "@/lib/staff-pin-actions";
+import { releaseLockAfterSignOut, unlockConsole } from "@/lib/staff-pin-actions";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { PIN_MIN_LENGTH, PIN_MAX_LENGTH } from "@/lib/limits";
 import { plural } from "@/lib/i18n/fill";
@@ -29,6 +29,7 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
   const router = useRouter();
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [msg, setMsg] = useState<StaffMsg | null>(null);
   // Seconds left on a lockout; 0 = not locked. Drives the refused state + the countdown copy.
   const { setLockLeft, locked, lockCopy } = useLockout(lang);
@@ -66,8 +67,9 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
       return;
     }
     if (res.reason === "locked") {
+      // The countdown IS the message ("Too many tries — try again in {x}."); nothing else is set,
+      // so when it reaches zero the region empties over the re-opened field (blind pass, CRITICAL).
       setLockLeft(secondsUntil(res.lockedUntil));
-      setMsg({ k: "pin.tooMany" });
       return;
     }
     if (res.reason === "no_pin") {
@@ -85,9 +87,12 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
   }
 
   async function signOut() {
+    if (signingOut) return; // re-entry refused here, never by `disabled` (a double-tap is two sign-outs)
+    setSigningOut(true);
     setMsg(null);
     const { error } = await browserClient().auth.signOut();
     if (error) {
+      setSigningOut(false);
       // W10b — blame the connection only on a transport shape (the audit found six surfaces
       // asserting "check your connection" with zero evidence).
       setMsg(
@@ -95,6 +100,10 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
       );
       return;
     }
+    // The lock is a DEVICE cookie, httpOnly, that the browser sign-out cannot touch — left in place
+    // it met the next sign-in with this same screen and no PIN to enter, so "Forgot PIN? Sign out"
+    // was a loop (blind pass, CRITICAL). The server releases it only once it can see no session.
+    await releaseLockAfterSignOut();
     router.replace("/staff/login");
     router.refresh();
   }
@@ -127,7 +136,8 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
           placeholder="••••"
           readOnly={locked}
           aria-disabled={locked || undefined}
-          aria-describedby="unlock-msg"
+          // NOT described-by the live region (the step-up's S10 rule): a node cannot be both a
+          // field description and a transactional live region without announcing twice.
           className="entry-input entry-input-pin"
         />
         <button
@@ -139,7 +149,12 @@ export function PinUnlock({ lang, displayName }: { lang: StaffLang; displayName:
         </button>
       </form>
 
-      <button type="button" onClick={signOut} className="entry-link">
+      <button
+        type="button"
+        onClick={signOut}
+        aria-disabled={signingOut || undefined}
+        className="entry-link"
+      >
         <Chrome lang={lang} k="entry.lock.forgot" echo="inline" />
       </button>
 

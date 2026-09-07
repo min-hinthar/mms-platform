@@ -3,7 +3,11 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const unlockConsole = vi.fn();
-vi.mock("@/lib/staff-pin-actions", () => ({ unlockConsole: (v: unknown) => unlockConsole(v) }));
+const releaseLock = vi.fn();
+vi.mock("@/lib/staff-pin-actions", () => ({
+  unlockConsole: (v: unknown) => unlockConsole(v),
+  releaseLockAfterSignOut: () => releaseLock(),
+}));
 const signOut = vi.fn();
 vi.mock("@mms/db", () => ({ browserClient: () => ({ auth: { signOut } }) }));
 const replace = vi.fn();
@@ -21,6 +25,8 @@ const { PinUnlock } = await import("./PinUnlock");
 afterEach(cleanup);
 beforeEach(() => {
   unlockConsole.mockReset();
+  releaseLock.mockReset();
+  releaseLock.mockResolvedValue({ released: true });
   signOut.mockReset();
   replace.mockReset();
   refresh.mockReset();
@@ -75,13 +81,13 @@ describe("PinUnlock", () => {
     expect(region().querySelector(".chrome-en")).toBeNull(); // no echo in a live region
   });
 
-  it("a lockout: the countdown wins the region, the field turns READ-ONLY (focus kept), the button is refused", async () => {
+  it("a lockout: the countdown IS the region, the field turns READ-ONLY (focus kept), the button is refused", async () => {
     const lockedUntil = new Date(Date.now() + 65_000).toISOString();
     unlockConsole.mockResolvedValueOnce({ ok: false, reason: "locked", lockedUntil });
     render(<PinUnlock lang="en" displayName="Daw Aye" />);
     enter("1234");
     await waitFor(() =>
-      expect(region().textContent).toMatch(/^Locked — try again in 1m 0[45]s\.$/),
+      expect(region().textContent).toMatch(/^Too many tries — try again in 1m 0[45]s\.$/),
     );
     expect(pin().readOnly).toBe(true);
     expect(pin().disabled).toBe(false);
@@ -90,6 +96,24 @@ describe("PinUnlock", () => {
       "true",
     );
   });
+
+  it("when the lockout EXPIRES the region empties and the field re-opens — no refusal left behind", async () => {
+    // The blind pass caught the first draft leaving "Too many tries." in the region at the exact
+    // moment the field became usable again; this lets a real 2-second lockout run out and looks.
+    // Real timers on purpose: the interval is created inside the component from the server's
+    // `lockedUntil`, and RTL's `waitFor` does not drive vitest's fake clock.
+    const lockedUntil = new Date(Date.now() + 2_000).toISOString();
+    unlockConsole.mockResolvedValueOnce({ ok: false, reason: "locked", lockedUntil });
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    enter("1234");
+    await waitFor(() =>
+      expect(region().textContent).toMatch(/^Too many tries — try again in [12]s\.$/),
+    );
+    await waitFor(() => expect(region().textContent).toBe(""), { timeout: 4_000 });
+    expect(pin().readOnly).toBe(false);
+    fireEvent.change(pin(), { target: { value: "1234" } });
+    expect(screen.getByRole("button", { name: "Unlock" }).getAttribute("aria-disabled")).toBeNull();
+  }, 8_000);
 
   it("an outage never reads as a wrong PIN, and says no attempt was used", async () => {
     unlockConsole.mockResolvedValueOnce({ ok: false, reason: "outage" });
@@ -126,11 +150,25 @@ describe("PinUnlock", () => {
     fireEvent.click(escape);
     await waitFor(() => expect(region().textContent).toMatch(/couldn’t sign out just now/));
     expect(replace).not.toHaveBeenCalled();
+    expect(releaseLock).not.toHaveBeenCalled(); // the session survived — so does the lock
     signOut.mockResolvedValueOnce({ error: { status: 400, message: "nope" } });
     fireEvent.click(escape);
     await waitFor(() =>
       expect(region().textContent).toBe("Couldn’t sign out just now — try again."),
     );
+  });
+
+  it("a successful sign-out RELEASES the device lock before leaving — the escape is not a loop", async () => {
+    // The lock is an httpOnly cookie the browser sign-out cannot clear; left in place, the next
+    // sign-in landed straight back on this screen with no PIN to enter (blind pass, CRITICAL).
+    render(<PinUnlock lang="en" displayName="Daw Aye" />);
+    const escape = screen.getByRole("button", { name: /Forgot PIN\? Sign out/ });
+    fireEvent.click(escape);
+    fireEvent.click(escape); // a double-tap is refused in the handler, never by `disabled`
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff/login"));
+    expect(signOut).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+    expect((escape as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("ONE polite live region, and no aria-live written on it", () => {

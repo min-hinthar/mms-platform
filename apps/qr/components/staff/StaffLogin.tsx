@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { isRetryableAuthShape } from "@/lib/staff-outage";
 import { DEFAULT_NEXT, NEXT_COOKIE } from "@/lib/safe-next";
+import { releaseLockAfterSignOut } from "@/lib/staff-pin-actions";
 import { BRAND_EMAIL, BRAND_NAME } from "@/lib/brand";
-import { ts } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
@@ -50,6 +50,7 @@ export function StaffLogin({
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<StaffMsg | null>(null);
   const [notice, setNotice] = useState<StaffMsg | null>(null);
   // Resend cooldown (seconds): after a SUCCESSFUL send, Supabase's per-address window is ~60s, so the
@@ -235,11 +236,18 @@ export function StaffLogin({
   // can be tried (otherwise the server would keep bouncing them here). W10b: a FAILED sign-out
   // (auth plane down) leaves the session live — say so instead of refreshing into the same bounce.
   async function signOutWrong() {
+    if (signingOut) return; // re-entry refused here, never by `disabled`
+    setSigningOut(true);
     const { error: err } = await browserClient().auth.signOut();
     if (err && isRetryableAuthShape(err)) {
+      setSigningOut(false);
       setError({ k: "entry.err.signOutOutage" });
       return;
     }
+    // A wrong account can be signed in on a LOCKED tablet (the lock is a device cookie the browser
+    // sign-out cannot clear); release it now the session is gone, or the right account's first
+    // screen is the lock with no PIN to enter (blind pass, CRITICAL).
+    await releaseLockAfterSignOut();
     router.refresh();
   }
 
@@ -267,7 +275,12 @@ export function StaffLogin({
           <p style={{ margin: "0 0 8px" }}>
             <Chrome lang={lang} k="entry.login.denied" echo="stack" />
           </p>
-          <button type="button" onClick={signOutWrong} className="entry-link">
+          <button
+            type="button"
+            onClick={signOutWrong}
+            aria-disabled={signingOut || undefined}
+            className="entry-link"
+          >
             <Chrome lang={lang} k="entry.signOut" echo="inline" />
           </button>
         </div>
@@ -330,9 +343,8 @@ export function StaffLogin({
             onChange={(e) => setEmail(e.target.value)}
             // An example address on the restaurant's own domain — the brand singleton, not copy.
             placeholder={`you@${BRAND_EMAIL.split("@")[1]}`}
-            // Tie the status/error region to the field so it's read when focus lands here on a send
-            // error (the error/notice still live-announces independently for non-focused users).
-            aria-describedby="staff-auth-msg"
+            // NOT described-by the live region (the step-up's S10 rule): focus returns here on a
+            // send error and the region announces the change itself — described-by would say it twice.
             className="entry-input"
           />
           <button
@@ -369,7 +381,8 @@ export function StaffLogin({
             // Do NOT strip non-digits or cap at 6: Supabase's OTP length is configurable, so assuming
             // a 6-digit numeric code is what made a longer/other-format token never match.
             onChange={(e) => setCode(e.target.value.replace(/\s/g, ""))}
-            placeholder={ts(lang, "entry.login.code.placeholder")}
+            // No placeholder: an attribute value carries no `lang` mark, so a Burmese one renders in
+            // the Latin face at 0.18em tracking (blind pass, CRITICAL). The label above says it.
             className="entry-input entry-input-code"
           />
           <button
@@ -382,11 +395,13 @@ export function StaffLogin({
           <button
             type="button"
             onClick={() => {
+              if (busy) return; // a late verify verdict must not land under the email form
               setStep("email");
               setCode("");
               setError(null);
               setNotice(null);
             }}
+            aria-disabled={busy || undefined}
             className="entry-link"
           >
             <Chrome lang={lang} k="entry.login.otherEmail" echo="inline" />
@@ -394,8 +409,7 @@ export function StaffLogin({
         </form>
       )}
 
-      {/* One live region for both the success notice and the error (QA §A: no redundant regions).
-          Also the email field's aria-describedby target — read on focus after a send error. */}
+      {/* One live region for both the success notice and the error (QA §A: no redundant regions). */}
       <p
         id="staff-auth-msg"
         role="status"

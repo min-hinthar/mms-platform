@@ -12,6 +12,8 @@ vi.mock("@mms/db", () => ({ browserClient: () => ({ auth }) }));
 const replace = vi.fn();
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh }) }));
+const releaseLock = vi.fn();
+vi.mock("@/lib/staff-pin-actions", () => ({ releaseLockAfterSignOut: () => releaseLock() }));
 
 const { StaffLogin } = await import("./StaffLogin");
 
@@ -28,6 +30,8 @@ beforeEach(() => {
   for (const fn of Object.values(auth)) fn.mockReset();
   replace.mockReset();
   refresh.mockReset();
+  releaseLock.mockReset();
+  releaseLock.mockResolvedValue({ released: true });
   auth.signInWithOtp.mockResolvedValue({ error: null });
   auth.verifyOtp.mockResolvedValue({ error: null });
   auth.signOut.mockResolvedValue({ error: null });
@@ -154,6 +158,32 @@ describe("StaffLogin", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(status().textContent).toMatch(/couldn’t sign out just now/));
     expect(refresh).not.toHaveBeenCalled();
+    expect(releaseLock).not.toHaveBeenCalled(); // the session survived — so does the lock
+  });
+
+  it("denied: a successful sign-out releases the device lock, once, then re-gates", async () => {
+    // A wrong account can be signed in on a LOCKED tablet; the browser sign-out cannot clear the
+    // httpOnly lock, so the right account's first screen was the lock with no PIN to enter.
+    render(<StaffLogin lang="en" denied />);
+    const out = screen.getByRole("button", { name: "Sign out" });
+    fireEvent.click(out);
+    fireEvent.click(out); // refused in the handler — never `disabled`
+    await waitFor(() => expect(refresh).toHaveBeenCalledTimes(1));
+    expect(auth.signOut).toHaveBeenCalledTimes(1);
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+    expect((out as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("the code field carries NO Burmese placeholder — an attribute value cannot be marked", async () => {
+    // The first draft put `ts(lang, …)` in `placeholder`; under Burmese it rendered in the Latin
+    // face at 0.18em tracking and was voiced as English (blind pass, CRITICAL). The label says it.
+    render(<StaffLogin lang="my" />);
+    fireEvent.change(email(), { target: { value: "min@example.com" } });
+    submitOf(email());
+    const code = (await screen.findByLabelText(/Sign-in code/)) as HTMLInputElement;
+    expect(code.placeholder).toBe("");
+    expect(code.getAttribute("aria-describedby")).toBeNull();
+    expect(email).toBeDefined();
   });
 
   it("Google: an outage says it is not you; any other failure names the provider", async () => {

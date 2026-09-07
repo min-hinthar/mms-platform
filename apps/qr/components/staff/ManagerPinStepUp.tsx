@@ -62,13 +62,17 @@ export function secondsUntil(lockedUntil: string, now = Date.now()): number {
 }
 
 /**
- * Map the field-carrying PIN failures to honest copy. `pin_locked` also seeds the lockout countdown via
- * `setLockLeft` (server `lockedUntil` → remaining seconds), so the caller just shows the returned message.
+ * Map the field-carrying PIN failures to honest copy. `pin_locked` seeds the lockout countdown via
+ * `setLockLeft` (server `lockedUntil` → remaining seconds) and returns NO message of its own: the
+ * countdown (`useLockout().lockCopy`, "Too many tries — try again in {x}.") IS the lockout sentence,
+ * and it leaves the region when the lockout does. A separate "Too many tries." returned here stayed
+ * behind after expiry, announcing a refusal over a field that had just re-opened (blind pass,
+ * CRITICAL) — so a caller must render `lockCopy ?? msg`, and `msg` must be null for a lockout.
  */
 export function pinFailureCopy(
   res: SharedPinFailure,
   setLockLeft: (seconds: number) => void,
-): StaffMsg {
+): StaffMsg | null {
   if (res.reason === "pin_wrong") {
     const n = res.attemptsRemaining;
     return n > 0
@@ -76,7 +80,7 @@ export function pinFailureCopy(
       : { k: "pin.wrong" };
   }
   setLockLeft(secondsUntil(res.lockedUntil));
-  return { k: "pin.tooManyThat" };
+  return null;
 }
 
 /**

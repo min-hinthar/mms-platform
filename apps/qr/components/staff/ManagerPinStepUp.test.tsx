@@ -47,12 +47,12 @@ describe("pinFailureCopy", () => {
       k: "pin.wrong",
     });
   });
-  it("a lockout seeds the countdown from the server clock and names the PIN, not the person", () => {
+  it("a lockout seeds the countdown from the server clock and returns NO message — the countdown is the sentence", () => {
+    // A message returned here outlived the lockout: "Too many tries on that PIN." stayed in the
+    // region after the countdown reached zero (blind pass, CRITICAL). `lockCopy` says everything.
     const setLockLeft = vi.fn();
     const lockedUntil = new Date(Date.now() + 30_000).toISOString();
-    expect(pinFailureCopy({ reason: "pin_locked", lockedUntil }, setLockLeft)).toEqual({
-      k: "pin.tooManyThat",
-    });
+    expect(pinFailureCopy({ reason: "pin_locked", lockedUntil }, setLockLeft)).toBeNull();
     expect(setLockLeft).toHaveBeenCalledTimes(1);
     expect(setLockLeft.mock.calls[0]![0]).toBeGreaterThanOrEqual(29);
     expect(setLockLeft.mock.calls[0]![0]).toBeLessThanOrEqual(30);

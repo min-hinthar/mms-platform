@@ -11,11 +11,11 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 nothing but the two buttons — the sign-in form, the PIN screen, the manager step-up's fields and every
 failure sentence stayed English (OPEN-ITEMS P2m). PR 2 converts all of it, on the anatomy PR 1b built.
 
-**One vocabulary, three namespaces — 67 keys, every MY a Claude-authored draft pending K15, six
-marked K15-HIGH.** `entry.*` is the sign-in and the lock screen (36); `pin.*` is ONE set of PIN words
-(24) read by the lock screen (your own PIN) AND the loss sheet and the approvals queue (a manager's
-PIN), so "wrong PIN — 2 tries left" is the same sentence on every screen that says it, with the count
-in the device's numerals; `out.err.*` is the staff error boundary (7). The step-up's lockout is
+**One vocabulary, three namespaces — 59 keys, every MY a Claude-authored draft pending K15, six
+marked K15-HIGH.** `entry.*` is the sign-in and the lock screen (33); `pin.*` is ONE set of PIN words
+(21) read by the lock screen (your own PIN) AND the loss sheet, the approvals queue and the refund
+sheet (a manager's PIN), so "wrong PIN — 2 tries left" is the same sentence on every screen that says
+it, with the count in the device's numerals; `out.err.*` is the staff error boundary (5). The step-up's lockout is
 formatted ONCE (`lockoutDuration`: "1m 05s" / "၁ မိနစ် ၀၅ စက္ကန့်") from two unit keys, because a
 countdown is a duration and the dictionary's `{t}` slot is a clock, always Latin.
 
@@ -38,13 +38,34 @@ device language and mounts the switch** (it is a takeover, like the outage shell
 replaced took its bar with it), and its way out is the doors by name (`/staff?doors=1`, a hard link,
 because the router may be what failed), never "the floor".
 
-**Guards.** `StaffLogin.test.tsx` (10) · `PinUnlock.test.tsx` (9) · `ManagerPinStepUp.test.tsx` (9)
+**The blind pass REJECTED the first head with three CRITICALs, every one real.** The lock screen's
+"Too many tries." was set as a message and the countdown laid over it — so when the countdown reached
+zero the region announced a refusal at the exact moment the PIN field re-opened (the same shape on
+both manager step-ups): the lockout is ONE sentence now ("Too many tries — try again in {x}."), which
+IS the countdown and leaves with it; `pinFailureCopy` returns no message for a lockout, and the suite
+walks the clock to zero and looks. The K15-HIGH escape "Forgot PIN? Sign out" was a LOOP: the lock is
+an httpOnly device cookie the browser sign-out cannot clear, so a signed-out tablet stayed locked and
+the next sign-in — the same person without their PIN, or a colleague with none — landed straight
+back on the lock screen with `requireStaffPage` redirecting there before any page; `releaseLockAfterSignOut`
+(a server action that deletes the cookie ONLY when the server can see no session — a live session
+keeps its lock, an unknowable answer keeps it too) runs after a successful sign-out on the lock screen
+and the login's wrong-account escape, four-way pinned in `staff-pin-actions.test.ts`. And the code
+field's Burmese placeholder shipped unmarked — an attribute value carries no `lang`, so it rendered in
+the Latin face at the field's own 0.18em tracking, a rule 5 blind spot the guard states — the
+placeholder is gone (the label says it). Also from the pass: the two sign-out escapes had no busy
+gate (a double-tap was two sign-outs), "Use a different email" was live mid-verify, both front-door
+fields were `aria-describedby` their own live region (the step-up's S10 rule forbids it — twice
+announced), the refund sheet still said "Wrong PIN" in English beside the converted screens (converted),
+and the key counts in this entry were transcribed and wrong (61 measured, then 59 after the fixes)
+— counted by parsing the module now.
+
+**Guards.** `StaffLogin.test.tsx` (12) · `PinUnlock.test.tsx` (11) · `ManagerPinStepUp.test.tsx` (9) · `staff-pin-actions.test.ts` (4)
 pin the marked Burmese and the UNmarked interpolated address/name, every refusal as `aria-disabled`
 (never `disabled`), the W10b attribution in both tongues, the numerals in the countdowns, the
 read-only lockout with focus kept, and one polite region per view — two of them watched go red on
 induced defects before the commit. `StaffBar.test` gains the glyph mark. `strings.test` admits the
 two new surface prefixes; the dictionary's own rules (no bare Latin in a MY value, slot parity,
-same-surface collisions, plural pairs, K15 parity) held the 67 keys with no exemption added.
+same-surface collisions, plural pairs, K15 parity) held the 59 keys with no exemption added.
 
 ### One bar on every staff page, and the console learns to feel like a tablet (2026-09-07 · P7, PR 1b)
 

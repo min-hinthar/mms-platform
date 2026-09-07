@@ -82,7 +82,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    blind-audited, awaiting Min's go); **PR 1b — the premium feel Min picked, one staff bar on all
 >    sixteen pages — is BUILT on `claude/feat/p7-1b-premium-feel`, stacked on it (#266, blind
 >    REJECT → fixed in `5043014`)**; **PR 2 — the front door in Burmese (login · lock · PIN ·
->    error; 67 new keys under `entry.*` / `pin.*` / `out.err.*`, every MY a draft) — is BUILT on
+>    error; 59 new keys under `entry.*` / `pin.*` / `out.err.*`, every MY a draft) — is BUILT on
 >    `claude/feat/p7-2-front-door`, stacked on 1b.** PR 3 (the one gold Help chip + "How this
 >    screen works" sheets) and PR 4 (the report: migration + Resend + GitHub issue) follow,
 >    smallest first, one at a time. Merge order is the stack order: #264 → #266 → PR 2, each base
@@ -97,7 +97,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    PR 2 marked six front-door sentences), plus two MY values the merge train authored as drafts
 >    (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added (the doors, More, Screens,
 >    the three sizes, two tiles), the four PR 1b added (Lock, Locking…, Console tools, Text size)
->    and the **67 PR 2 added** — the whole sign-in, the lock screen, the PIN vocabulary and the error
+>    and the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN vocabulary and the error
 >    boundary, the first thing Dad reads. All marked in `lib/i18n/staff.ts` as pending Min's read;
 >    the sheet derives them at render.
 > 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
@@ -240,8 +240,9 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 > ### Also worth knowing
 >
 > - **`/staff/login` shipped the same viewport overflow as `/staff/lock`** — a 44px control stacked
->   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` (retired in P7·2 — the bar owns the front door now) owned the height
->   once; both surfaces render through it, and the two components' roots are `flex: 1`.
+>   above a `min-height: 100dvh` root, ~56px taller than the screen. `StaffLangShell` owned the height
+>   at the time; both surfaces rendered through it and their roots were `flex: 1` (retired in P7·2 —
+>   the bar owns the front door now and the cards are ordinary flow beneath it).
 > - **Do not quote a foil number that drifts.** `staff-outage.ts` said the unanchored grep "returns
 >   28"; it was 30 by the time a reviewer re-measured, because documenting it added mentions. Only the
 >   anchored form (→ 27) is quoted now.
@@ -510,7 +511,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1854 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1862 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1402,7 +1403,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1854 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1862 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
