@@ -140,7 +140,7 @@ function GroceryItemSheetBody({
           alt=""
           width={440}
           height={248}
-          sizes="(max-width: 440px) 100vw, 440px"
+          sizes="(max-width: 47.99em) min(100vw, 440px), 544px"
           fallback={<PhotoPlaceholder icon={aisle?.icon ?? "cat-grocery"} variant="hero" />}
         />
       </div>

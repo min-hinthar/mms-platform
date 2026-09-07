@@ -1124,7 +1124,7 @@ export function Checkout({
     const backHref = menuHref(sessionMode);
     const backLabel = menuLinkText(sessionMode, "browse");
     return (
-      <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+      <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
           {T("yourOrder")}
           <My k="yourOrder" size="var(--fs-sm)" />
@@ -1239,7 +1239,7 @@ export function Checkout({
   return (
     // W22a — the paper ambient behind the whole bill/pay column (no isolation: the page ground
     // lives on <html>, so the fixed z:-1 layer is visible without trapping fixed overlays).
-    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+    <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
       <PaperAmbient />
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
           outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
@@ -2804,10 +2804,19 @@ function BillLines({
             </span>
           )}
           <span style={{ display: "block", fontSize: "var(--fs-xs)", color: "var(--t3)" }}>
+            {/* R1 — "on your bill" is dine-in tab language (a running bill settled later); a
+                pickup line is paid now and reaches the kitchen through that payment, and a
+                grocery line never meets a kitchen at all. Two reviewers read the leak on the
+                to-go pay step. Branch on the line's OWN fulfillment, the same key BILL_GROUPS
+                uses — never on the session mode, since one basket can hold all three. */}
             {i.comped
               ? "Comped — on the house"
               : i.lineState === "draft"
-                ? "Not sent yet — on your bill"
+                ? i.fulfillment === "dinein"
+                  ? "Not sent yet — on your bill"
+                  : i.fulfillment === "grocery"
+                    ? "In your basket"
+                    : "Not sent yet — goes to the kitchen when you pay"
                 : DINER_STATE_COPY[i.lineState]}
             {owner ? ` · ${owner.seat === splitContext?.mySeat ? "You" : owner.name}` : ""}
           </span>

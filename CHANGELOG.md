@@ -53,6 +53,117 @@ about guards. The replacement is falsified across 17 fixtures: both spellings, w
 `today`, with and without a neighbouring `at the time`, three spacing variants, five parentheticals
 that must NOT match, and the neighbouring mutant/module counts held unchanged throughout.
 
+### R1 — merged with Min's go; the desktop fork decided (2026-09-07)
+
+- **F12 closed — option A.** Min chose the centred column: checkout, /track and /account stay one
+  narrow column (34rem) at every width, exactly as R1 part 2 shipped it in #271. The two-column
+  desktop shell (option B) is not planned; the row records the original ask for the trail.
+  `docs/DESIGN-LANGUAGE.md` §18 and `docs/HANDOFF.md` say so in the same words.
+- **#271 merged** on this docs commit's head (a merge commit, as #264–#270 were), with the blind
+  adversarial pass and the full local gate as the review — the Codex connector answered "usage
+  limits reached" on every ask on this PR, so the `codex-review` check could not clear on its own.
+
+### R1 — the responsive pass, part 2: one column knob, three tiers, and what each surface does with the width (2026-09-07)
+
+**The layout system the sweep argued for, verified finding by finding.** Eleven blind reviewers
+read the 261 screenshots (one per viewport, the same rubric); every finding was checked against the
+stylesheet or the component before it became a rule, and the ones that did not survive the source
+are recorded as retractions in `docs/DESIGN-LANGUAGE.md` §18. Nothing here changes a phone.
+
+- **`--w-page` per tier, in one place.** Phone `< 48em` keeps the 440 content column; tablet
+  `≥ 48em` is 46rem (736); desktop `≥ 64em` is 52rem (832). `.page-col-narrow` (34rem) caps the
+  money and status columns — cart, track, account — because a receipt reads best near 65ch.
+- **Width is spent on one thing per surface.** Three doors across on the front door; two menu
+  rows per line; three, then four, SKUs across the market; 124px table tiles five across at both wide
+  tiers (ten tables were 3+3+3+1 at every wide width); chip rails wrap where a mouse cannot swipe them;
+  the horizontal rails fade at both edges instead of cutting through a card; the app header aligns
+  with the column; the aisle fan hugs the column's gutter instead of the screen's far edge, and the
+  rail/fan boundary moves to the desktop tier with it (an iPad's 42px gutter could not hold it).
+- **The sheet is a centred 34rem dialog from the tablet tier** — same head, ✕, CTA bar and scroll
+  padding; the grab handle (and with it the swipe) goes with the bottom edge; a fade instead of
+  the slide, under `no-preference`. The item-sheet photos' `sizes` hints follow the new widths.
+- **The short tier (≤ 520px tall):** the menu toolbar returns to flow on a landscape phone, where
+  it held 31% of the viewport; the jump offset re-measures against the header alone there.
+- **Point fixes the reviewers found and the source confirmed.** The cart bar read
+  "1 · View order · $0.00" before the first server total — a dash now until a confirmed amount
+  exists, and the roll starts from the real value. "· Sold out" no longer orphans its dot on line
+  one. The chosen modifier wore a jade tint — a second selection vocabulary — and wears the slot
+  grid's quiet gold now. The table picker's Burmese echo sits on its own line (it was orphaned
+  mid-phrase at every width). "Not sent yet — on your bill" on a to-go line reads "goes to the
+  kitchen when you pay", and "In your basket" on grocery. "Saved on this phone" says "device" on
+  the iPads and desktops that also show it. The market's exit is the menu's exit tile, not a 44px
+  pill inside a sentence. The Scan tab hides the 4:3 black viewfinder once the camera has refused.
+  The grocery toast docks on the CTA band's published height. The account's empty-orders line no
+  longer promises a dine-in-only path.
+- **Three more, root-caused on the preview instead of read off a screenshot.** The one measured
+  sideways scroll on a phone (scrollWidth 381 on 375 after an add) was the menu row's grid-item
+  min-content: with the 110px stepper in it the `li` grew to 361px inside a 335px column, and held
+  there — `min-width: 0` on the row, the name wraps. The sheet's sticky CTA bar sat 24px above the
+  sheet's edge with scrolled options showing through the band, because the sticky viewport is the
+  scroll container's content box and the sheet carried the home-bar padding — the bar owns the
+  inset now and the sheet's padding goes to zero where a bar exists. And the cart bar's `$0.00`
+  also happens with a CONFIRMED empty total beside an optimistic count of 1 — the dash now holds
+  whenever the count differs from the sum of the confirmed lines.
+- **Two staff-console findings from the KDS and TV reviewers, confirmed in source.** The bilingual
+  echo inside a filled control was painted `--t2` grey on the accent and green fills ("Send code"
+  a ghost under ကုဒ် ပို့, "BUMP" under ပြီးပြီ) — inside a control the echo takes the control's ink.
+  The light-mode staff bar was an 88% mix with no blur (glass is Night-only), so scrolled rows
+  showed through it under the title — opaque in light.
+- **The blind pass (REJECT, five findings, every one real and every one fixed in the same
+  branch).** The auditor read the CASCADE the guard could not: part 1's hero fold sat ABOVE the bare
+  rules it had to beat (an `@media` block adds no weight, so it never shipped — moved after them);
+  the tablet tier's `left` on the pause coin dropped the safe-area term a landscape phone needs
+  (restored); the door tile's `align-items` lost to ModeCard's inline `alignItems` (the alignment is
+  CSS now); the cart bar unmounted NumberFlow under the dash, so its roll never ran for this
+  device's own writes (it stays mounted, hidden, and rolls when the confirmed value lands); and a
+  zero flex basis took the staff title out of line-breaking, so the phone bar's two rows could not
+  occur (`auto`). Three transcribed numbers corrected (five table tiles across at both wide tiers,
+  not "five and six"; the toast fallback is 56 + 16 = 72, computed and pinned against both
+  sources; the pause coin leaves the content from 872px wide, not "from the tablet tier"). The
+  guard now pins declaration ORDER for the fold, parses the door's inline style, and checks the
+  safe-area term on every tier — each induced red first.
+- **Guard.** `apps/qr/lib/responsive-contract.test.ts` parses the stylesheet (every declaration
+  bound to its `@media` block) and every customer `<main>` (TypeScript AST): the three tiers in
+  order, the narrow cap between them, the sheet's two widths, the one rail/fan boundary, the
+  height-keyed toolbar rule, and that no page carries a width of its own again — six inductions,
+  each red on exactly its assertion.
+- **Retracted on the preview:** the Express Checkout row on iPad portrait (one reviewer saw two
+  4px strips) measures a 56px iframe at 820 and 1180 wide; the "Sides" heading after a category
+  tap lands 20px clear of the toolbar at 375, 820 and 1180 (the reviewers' deep shots were
+  mid-scroll).
+- **Filed, not built** (`docs/OPEN-ITEMS.md` F12–F17 · K24–K29): the two-column checkout / track / account
+  is one decision with a true desktop shell and is Min's to make (F12); the menu's ASAP chip vs
+  the cart's refusal (F13); the basket line at 375 (F14); a fluid display scale (F15); a compact
+  portrait toolbar under 700px tall (F16); Stripe's typography via `appearance` (F17).
+
+### R1 — the responsive pass, part 1: what the viewport sweep proved at once (2026-09-07)
+
+**Min's brief: "UI/UX still needing refinements… and dynamic aspect ratios — mobiles, tablets,
+desktop."** The app was measured before it was touched: every customer screen at eight viewports
+(iPhone SE 375×667 · iPhone 390×844 · Pro Max 430×932 · a landscape phone 844×390 · iPad portrait
+820×1180 and landscape 1180×820 · laptop 1366×768 · desktop 1920×1080) and every staff screen at
+five (a server's phone · the counter iPad both ways · the 15.6" KDS · a 1080p TV), 261 states in
+all, driven through the production app by headless Chromium. Four defects needed no review to
+confirm, and they land here; the layout system the sweep argues for (the page column is 440px at
+every width — a phone floating in a desktop) follows in part 2 once the blind reviewers' findings
+are verified against the stylesheet.
+
+- **The staff bar on a phone** — one flex row at every width; at 390px the tail (Help · language ·
+  Lock, 161px) could not shrink, the Burmese title wrapped one glyph per line and the tail overhung
+  the viewport by 47px (`scrollWidth` 437 on a 390 kitchen board). Under 720px the bar is two rows
+  — leading + title, then the page control and the utilities — and the large title is one
+  ellipsized line, never a broken word. Every control keeps its place and its 44px.
+- **A landscape phone's entry screen** showed the emblem and the wordmark alone with all three doors
+  below the fold; under 500px of height the hero folds to a small mark and an h1 wordmark.
+- **Burmese inside a form field** ("Promo code · ပရိုမိုကုဒ်") rendered spaced out at every
+  viewport: an `<input>` cannot mark half its placeholder `lang="my"`, so the Myanmar glyphs fell
+  past Hanken to a system fallback. Fields now carry Padauk as their second family — fallback is
+  per glyph, so Latin stays in Hanken.
+- **One page column, named once.** Fourteen pages carried their own inline `maxWidth: 440; margin:
+0 auto` (nine as the literal, five as the token). They read `.page-col` now, whose width is the
+  single variable `--w-page` — 440 today (no visual change), the tablet and desktop widths in part 2
+  land on that one knob.
+
 ### The P7 stack on `main`, M159 on prod, and the first production test pass (2026-09-07)
 
 **Merged, in order, on Min's go:** #264 · #266 · #267 · #268 · #269 (merge commits; `main` at

@@ -9,7 +9,7 @@ import { Skeleton } from "@mms/ui";
  */
 export default function MenuLoading() {
   return (
-    <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
+    <main className="page-col" style={{ paddingBottom: 96 }}>
       <span className="sr-only">Loading the menu…</span>
       <div aria-hidden>
         <header style={{ padding: "44px 20px 4px" }}>

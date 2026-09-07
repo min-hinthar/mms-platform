@@ -384,14 +384,29 @@ export function MenuBrowser({
       const n = parseFloat(getComputedStyle(el).top);
       return Number.isFinite(n) ? n : 0;
     };
-    const measure = () => setToolbarH(el.getBoundingClientRect().height + stickyTop());
+    // R1 — under the short tier (`@media (max-height: 520px)`, a landscape phone) the toolbar
+    // returns to flow, so the only chrome pinned above a landed section is the app header: the
+    // reading line and the jump offset are ITS bottom edge, not a toolbar that scrolls away with
+    // the page. `getComputedStyle(el).top` is `auto` there (NaN → 0), which would otherwise leave
+    // the whole toolbar height standing as a phantom offset. Re-measured on the window's resize as
+    // well as the toolbar's own, because a rotation is what crosses the tier.
+    const measure = () => {
+      if (getComputedStyle(el).position === "sticky") {
+        setToolbarH(el.getBoundingClientRect().height + stickyTop());
+        return;
+      }
+      const header = document.querySelector(".app-header");
+      setToolbarH(header ? header.getBoundingClientRect().bottom : 0);
+    };
     measure();
     const ro = typeof ResizeObserver !== "undefined" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
     window.addEventListener(LEND_CHANGE_EVENT, measure);
+    window.addEventListener("resize", measure);
     return () => {
       ro?.disconnect();
       window.removeEventListener(LEND_CHANGE_EVENT, measure);
+      window.removeEventListener("resize", measure);
     };
   }, []);
 
@@ -501,7 +516,7 @@ export function MenuBrowser({
   return (
     // W22a — no isolation on purpose: the page ground lives on <html> (canvas), so the fixed
     // z:-1 PaperAmbient is visible without a stacking context that would trap fixed overlays.
-    <main style={{ maxWidth: 440, margin: "0 auto", paddingBottom: 96 }}>
+    <main className="page-col" style={{ paddingBottom: 96 }}>
       <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
@@ -701,6 +716,9 @@ export function MenuBrowser({
           <ul
             role="list"
             aria-label={`${c} items`}
+            // R1 — `.menu-list`: one column on a phone, two from the tablet tier (CSS owns the
+            // template; the grid itself stays here so the phone renders exactly as before).
+            className="menu-list"
             style={{ listStyle: "none", padding: 0, display: "grid", gap: 12 }}
           >
             {visible
@@ -749,10 +767,30 @@ export function MenuBrowser({
                         />
                       </span>
                       <span style={{ flex: 1, minWidth: 0 }}>
-                        <span style={{ fontWeight: 600, display: "block" }}>
+                        {/* R1 — `overflowWrap` so a long name can never widen the row past the
+                            column once the stepper (110px) is in it: the li shrinks (`.menu-list
+                            > li { min-width: 0 }`) and the name wraps. */}
+                        <span
+                          style={{ fontWeight: 600, display: "block", overflowWrap: "anywhere" }}
+                        >
                           {i.name_en}
+                          {/* R1 — the space is OUTSIDE the suffix and the suffix cannot break, so a
+                              name that fills the line drops "· Sold out" whole onto the next one —
+                              never a dot orphaned at the end of line one and "Sold out" under it
+                              (seen at 375 and 390 on Ohno Khao-Swe). */}
                           {i.is_sold_out && (
-                            <span style={{ color: "var(--t3)", fontWeight: 400 }}> · Sold out</span>
+                            <>
+                              {" "}
+                              <span
+                                style={{
+                                  color: "var(--t3)",
+                                  fontWeight: 400,
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                · Sold out
+                              </span>
+                            </>
                           )}
                         </span>
                         {i.name_my && (

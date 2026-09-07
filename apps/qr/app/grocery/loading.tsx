@@ -8,7 +8,7 @@ import { Skeleton } from "@mms/ui";
  */
 export default function GroceryLoading() {
   return (
-    <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
+    <main className="page-col" style={{ padding: 20, paddingBottom: 120 }}>
       <span className="sr-only">Loading your basket…</span>
       <div aria-hidden>
         <Skeleton width={70} height={12} radius={6} style={{ marginBottom: 12 }} />

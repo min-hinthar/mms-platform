@@ -49,10 +49,25 @@ describe("the overscroll contract", () => {
   it("keeps the 16px iOS input floor, which is the other rule no test could see", () => {
     // Ported from the delivery repo, where iOS auto-zooming on a <16px input — and never zooming
     // back out — was a real checkout defect. It has sat here unguarded since P5.2.
-    const inputRule = CODE.split("}").find((b) =>
-      /^\s*input,\s*\n?\s*textarea,\s*\n?\s*select/m.test(b),
+    // R1 — NOT `.find`, which returned the FIRST `input, textarea, select` block: the moment a
+    // second rule with that selector existed (the Padauk font-family fallback, part 1), the guard
+    // read a block with no font-size at all and went red for the wrong reason — a matcher
+    // satisfied by POSITION (LEARNINGS #60). The floor is the block that DECLARES it, and it must
+    // live inside the narrow-viewport media query the rule exists for.
+    const blocks = CODE.split("}");
+    const floors = blocks
+      .map((b, i) => ({ b, i }))
+      .filter(
+        ({ b }) =>
+          /^\s*input,\s*\n?\s*textarea,\s*\n?\s*select\s*\{/m.test(b) &&
+          /font-size:\s*16px\s*!important/.test(b),
+      );
+    expect(floors).toHaveLength(1);
+    // Splitting on `}` leaves the media head INSIDE the floor's own chunk (nothing closes between
+    // `@media … {` and the rule), so the chunk itself must open with it — a floor declared outside
+    // the narrow-viewport query would apply to every desktop field too.
+    expect(floors[0]!.b).toMatch(
+      /@media \(max-width: 639\.98px\) \{\s*input,\s*textarea,\s*select\s*\{/,
     );
-    expect(inputRule).toBeDefined();
-    expect(inputRule!).toMatch(/font-size:\s*16px/);
   });
 });
