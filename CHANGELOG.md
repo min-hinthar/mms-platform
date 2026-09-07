@@ -4,6 +4,28 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A guard that merged cleanly and came out wrong (2026-09-07 · post-merge)
+
+**`check-docs.mjs` carried two copies of the same rule pair, and no conflict marker ever asked
+anyone to choose.** P5 (#263) and P6 (#262) independently wrote rules for the `A qr + B ui tests at
+the time (C + D today)` form within the same hour — and both independently found the deeper bug
+underneath it, that `HISTORICAL` is tested from the match END and so a rule running past its digits
+can be exempted by a _neighbouring_ clause's marker. The two edits sat far enough apart in the file
+that git merged them **silently**: main came out with 15 rules where 13 suffice, and one stale
+number was reported twice (measured on `docs/HANDOFF.md:407` — a planted value named by two rules
+at once). This was predicted from `git merge-tree` before either PR landed and is fixed here rather
+than left as noise.
+
+P6's pair is kept, because P6 also fixed the exemption bug the general way — `statesItsOwnCurrency`
+sits in `countFailures` and protects **every** rule, including ones nobody has written yet, where
+P5's pair solved it only for itself by ending each match at its captured digits. P5's `N in all`
+module rule is kept too; P6 has no equivalent, and it covers the one case where a resolver who
+fixes exactly what the guard names still leaves a wrong number on the line they just edited.
+
+Each surviving rule was re-falsified after the de-duplication — a de-dupe that quietly drops
+coverage would be worse than the duplication: a planted qr count, ui count and `N in all` are each
+named exactly once, and the historical `1372 qr + 138 ui` stay exempt.
+
 ### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
 
 **Three things the two-week pilot needs and did not have: a way to tell its orders apart from the

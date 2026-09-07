@@ -130,21 +130,13 @@ const COUNT_RULES = [
   // a paragraph advertising itself as measured-not-transcribed. The historical A and B stay exempt
   // (they are what was true then); C and D are current-state claims and are now measured. The
   // "tests at the time (" prefix is required so this cannot grab an unrelated parenthetical.
-  {
-    re: /tests?\s+at\s+the\s+time\s+\((\d+)\s*\+/gi,
-    key: "qr",
-    label: "qr tests (parenthetical 'today' form)",
-  },
-  {
-    // ⚠️ THE MATCH STOPS AT THE CAPTURED DIGITS, and that is load-bearing rather than tidiness.
-    // `HISTORICAL` is tested against the text following the match END, so a rule that ran on
-    // through `today)` put the NEXT clause's "at the time" (`…, 69 target modules at the time`)
-    // inside its 24-character window and exempted itself. Caught red-first: a planted `777` stayed
-    // green while the sibling qr rule — which happens to end sooner — reddened correctly.
-    re: /tests?\s+at\s+the\s+time\s+\(\d+\s*\+\s*(\d+)/gi,
-    key: "ui",
-    label: "ui tests (parenthetical 'today' form)",
-  },
+  // ⚠️ ONE PAIR ONLY. P5 (#263) and P6 (#262) each wrote a pair for this form, independently and
+  // within the hour, and `check-docs.mjs` did NOT conflict — the two edits sat far enough apart
+  // that git merged them silently, so main briefly carried BOTH and reported one stale number
+  // twice (measured: a planted value named at `HANDOFF.md:407` by two rules at once). A conflict
+  // marker would have forced someone to choose; a clean merge did not. P6's pair below is kept
+  // because `statesItsOwnCurrency` — also P6's, in `countFailures` — solves the exemption bug for
+  // EVERY rule, where P5's pair solved it only for itself by ending each match at its digits.
   // Same class, module side: "…74 under `apps/qr/lib` today, 81 in all)" — the `under apps/qr/lib`
   // rule reached the first number and nothing reached the second, so a resolver who fixes exactly
   // what the guard names leaves a wrong number on the line they just edited.
