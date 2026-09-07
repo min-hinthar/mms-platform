@@ -1877,3 +1877,71 @@ Two things that only showed up on the falsification run, and both are the same m
 
 Same lesson as #97 from the other side: a guard is only evidence once you have seen the exact edit it
 exists to catch turn it red.
+
+## #100 — the defects a parallel fan-out produces live in the MERGE, and no diff shows them (pilot merge train, 2026-09-06)
+
+Four sessions built four pilot slices off one base and each got its own blind adversarial pass, its
+own review, and a green gate. Serializing them into `main` — each PR absorbing `main` before its
+merge — produced **four real defects that existed in none of the four diffs**, and all four were
+caught by the gate rather than by anyone reading code:
+
+1. **`FloorDetailLive`'s `writeError`.** P3 retyped the state to `ReactNode` so a localized
+   `<Chrome>` could be pushed into it; P2 PR B routed the same channel through
+   `<OutageText error: string>`. Both edits applied textually and the merge did not typecheck.
+2. **`StaffOutageShell`'s `what`.** P2 PR B narrowed it from a free string to a `WhatKey`; P5's new
+   glossary page was passing `what="the word-check sheet"`.
+3. **`STAFF_K15_HIGH`.** P5 authored it as thirteen keys because that was the entire `K15-HIGH`
+   population at the shared base. P2 PR B and P3 marked 27 more. `autonyms.test.ts` asserts the set
+   EQUALS the parsed markers in both directions, so it went red.
+4. **The `verify:slice` mutate-set inventory.** P6 read it `70+3+5=78`; `main` read it `74+3+FIVE`
+   while claiming 83. Both had silently dropped `packages/db/src/schemas.ts`, so neither sum was the
+   set — in the one doc that is the operator's only list of files a killed run can leave broken.
+
+The shape is one thing said four ways: **a fact that two branches each hold a copy of will diverge,
+and the copies are consistent WITHIN each branch, so no reviewer of either diff can see it.** #1 and
+#2 are one type contract with a producer on each side. #3 is a derived set that one side froze as a
+literal. #4 is a count.
+
+Three things follow, and none of them is "review harder":
+
+- **The gate is the merge reviewer.** Run the FULL gate on the merge commit, not on the branch tip:
+  `turbo lint typecheck build test` plus `verify:slice` plus every fast-lane guard. Three of the
+  four above are invisible to `tsc` alone (#3 and #4 are tests and a doc guard). A merge whose
+  parents were both green is not green.
+- **A derived set must be derived at the seam too.** #3's fix was not to retype the thirteen plus
+  twenty-seven — it was to re-run the guard's own AST walk over the merged dictionary and paste the
+  output, which is the same rule as "never transcribe a number into an assertion" (#61) applied to a
+  merge. Anything a guard computes, recompute; anything two files must agree on, re-measure.
+- **The union is a set operation, and the assertion is cheap.** Every docs conflict here was
+  resolved by deriving both parents' row-id sets, taking the union, and ASSERTING the result equals
+  it — 20, then 31, then 3 rows, plus seven LEARNINGS entries renumbered #93–#99 with a duplicate
+  check. That is ten lines of Python per conflict and it is the only reason "nothing was lost" is a
+  claim rather than a hope.
+
+Corollary for the next fan-out: the parallel sessions were right to stay out of each other's files,
+and it did not help — every collision above was on a file each slice legitimately owned a corner of.
+Budget the merge as its own reviewed unit of work, with its own gate run, not as a formality after
+four green PRs.
+
+## #101 — CSS written against a component's DOM is a claim about a DOM nobody rendered (P7 PR 1, 2026-09-06)
+
+The doors' title CSS was `.staff-door-name > [lang="my"]` and `.staff-door-name > .staff-door-en`.
+`<Chrome echo="stack">` renders `<span class="chrome-pair"><span lang="my">…</span><span
+class="chrome-en">…</span></span>` — the span is a GRANDCHILD, and no component emits
+`.staff-door-en`. Both selectors matched nothing; the 38px doors the CHANGELOG described never
+shipped; every gate was green, because no gate renders CSS against DOM. The blind auditor found it by
+reading `Chrome.tsx` beside the stylesheet — the author, who wrote both, did not, because the author
+"knew" what Chrome renders.
+
+Rules. **(1) A selector is a claim about a DOM.** When the DOM comes from a component you did not
+write the same hour, hold the selector to a RENDER: `container.querySelector(selector)` in jsdom,
+driven by the selectors EXTRACTED from the stylesheet, never transcribed (`StaffDoors.test.tsx`'s
+last block; a dead selector is a red test now). **(2) Write the red case in the same suite** — the
+exact wrong shape (`> [lang="my"]`) asserted to match NOTHING, so the guard is seen to discriminate.
+**(3) The same head's other three CRITICALs were the same shape one level up.** An `aria-busy` flag
+latched forever, because no test tapped twice; a manager with no plain link to the board, because no
+test rendered the manager's floor; a cold-start promise that no test walked through the lock and the
+login the way a tablet does every morning. The first draft tested the modules' VALUES and never the
+surface's DAY. Before the blind pass, walk one real morning through the diff (locked tablet → PIN →
+where does it land?) and one real failure (the write is refused → what does the person see next?),
+and write each as a test that could only pass if the surface does what the copy says.

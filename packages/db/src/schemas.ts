@@ -277,6 +277,12 @@ export const staffLangInput = z.object({
   lang: z.enum(["en", "my"]),
 });
 
+/** setStaffDoor (P7) — which of the two staff doors this DEVICE opens on; `null` forgets it. Same
+ *  ungated shape as `staffLangInput`: the value carries no authority, validation is the enum. */
+export const staffDoorInput = z.object({
+  door: z.enum(["kitchen", "counter"]).nullable(),
+});
+
 /** setStaffActive (S1.1a) — an owner offboards/reinstates a staff member (never deletes the audit
  *  trail; flips `active`, which is_staff/is_staff_at_least gate on). Owner-gated server-side. */
 export const setStaffActiveInput = z.object({
@@ -744,3 +750,4 @@ export type CartViewInput = z.infer<typeof cartViewInput>;
 export type ReleaseAttemptInput = z.infer<typeof releaseAttemptInput>;
 export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
 export type StaffLangInput = z.infer<typeof staffLangInput>;
+export type StaffDoorInput = z.infer<typeof staffDoorInput>;

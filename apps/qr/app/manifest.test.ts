@@ -78,9 +78,18 @@ describe("the PWA manifest", () => {
     }
   });
 
-  it("offers only the three doors as shortcuts, never a bare /track", () => {
+  it("offers the three guest doors and the two staff doors as shortcuts, never a bare /track", () => {
     const urls = (m.shortcuts ?? []).map((s) => s.url);
-    expect(urls).toEqual(["/dine-in", "/menu?mode=pickup&door=togo", "/grocery"]);
+    // P7 — the two staff doors joined the jump list: before that, "add to home screen" on a staff
+    // tablet landed on the guest menu with no staff entry anywhere. Both are complete routes behind
+    // `requireStaffPage`, so a guest who long-presses sees the sign-in, never a kitchen.
+    expect(urls).toEqual([
+      "/dine-in",
+      "/menu?mode=pickup&door=togo",
+      "/grocery",
+      "/staff/kitchen",
+      "/staff",
+    ]);
     // A bare /track renders a stub for anyone without a live order — a shortcut that usually leads
     // nowhere is the same broken promise as a fabricated status.
     expect(urls.some((u) => u.startsWith("/track"))).toBe(false);
