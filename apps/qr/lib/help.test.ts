@@ -32,10 +32,11 @@ describe("help — the door's pure part", () => {
     expect(() => helpCardKeys("kitchen", HELP_CARD_COUNT + 1)).toThrow(RangeError);
     expect(() => helpCardKeys("kitchen", 1.5)).toThrow(RangeError);
   });
-  it("the undo card's slot matches the board's contract — one {n}, both tongues", () => {
+  it("the undo card's slot matches the board's contract — EXACTLY one {n}, both tongues", () => {
     const { k } = helpCardKeys("kitchen", 2);
-    expect(STAFF[k].en).toContain("{n}");
-    expect(STAFF[k].my).toContain("{n}");
+    const count = (s: string) => (s.match(/\{n\}/g) ?? []).length;
+    expect(count(STAFF[k].en)).toBe(1);
+    expect(count(STAFF[k].my)).toBe(1);
   });
   it("seen is a per-screen DEVICE key under one prefix", () => {
     expect(helpSeenKey("kitchen")).toBe(`${HELP_SEEN_PREFIX}kitchen`);

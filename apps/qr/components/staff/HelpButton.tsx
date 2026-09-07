@@ -11,12 +11,36 @@ import {
   helpTitleKey,
   type HelpScreen,
 } from "@/lib/help";
-import { KDS_SIZES, KDS_SIZE_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
+import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
+import type { SlotsOf } from "@/lib/i18n/fill";
+import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
 
 type View = "menu" | "how" | "size";
+
+/** Slot values a card interpolates, keyed by card number. */
+type HelpCardVars = Partial<Record<number, Record<string, string | number>>>;
+
+type HelpProps = {
+  lang: StaffLang;
+  /** The board's text size — the row and the view render only when a screen has one to offer. */
+  size?: { value: KdsSize; onPick: (size: KdsSize) => void };
+  /** Carried onto the sheet's root — the Night board passes `dark` (the sheet portals past `.kds-root`). */
+  sheetClassName?: string;
+} & (
+  | {
+      screen: "kitchen";
+      /** The kitchen's undo card quotes the board's own window — REQUIRED, typed from the key's slot,
+       *  so a board that forgets it is a compile error rather than a literal `{n}` on the card. */
+      cardVars: { 2: Record<SlotsOf<"help.how.kitchen.2">, number> };
+    }
+  | { screen: Exclude<HelpScreen, "kitchen">; cardVars?: undefined }
+);
+
+/** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
+const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
 
 /**
  * P7·3 — the Help door: the ONE gold circle in the staff bar (its `help` slot, before the language
@@ -41,23 +65,13 @@ type View = "menu" | "how" | "size";
  * owns), so the sheet carries no `busy` (§16). The circle is icon-only to the eye and NAMED by
  * sr-only dictionary text through <Chrome> (rule 3), like every circle in the bar.
  */
-export function HelpButton({
-  lang,
-  screen,
-  size,
-  cardVars,
-  sheetClassName,
-}: {
-  lang: StaffLang;
-  screen: HelpScreen;
-  /** The board's text size — the row and the view render only when a screen has one to offer. */
-  size?: { value: KdsSize; onPick: (size: KdsSize) => void };
-  /** Slot values a card interpolates, keyed by card number — the board hands its undo window in. */
-  cardVars?: Partial<Record<number, Record<string, string | number>>>;
-  /** Carried onto the sheet's root — the Night board passes `dark` (the sheet portals past `.kds-root`). */
-  sheetClassName?: string;
-}) {
+export function HelpButton(props: HelpProps) {
+  const { lang, screen, size, sheetClassName } = props;
+  const cardVars: HelpCardVars | undefined = props.cardVars;
   const [open, setOpen] = useState(false);
+  // "{n} across" is true only in the board's fixed envelope (`KDS_WIDE_MIN_PX`); narrower, the grid
+  // is auto-fill at every size and the sheet says only the size.
+  const wide = useMediaQuery(`(min-width: ${KDS_WIDE_MIN_PX}px)`);
   const [view, setView] = useState<View>("menu");
   const [step, setStep] = useState(1);
   const ledeRef = useRef<HTMLParagraphElement>(null);
@@ -86,7 +100,11 @@ export function HelpButton({
   }, [screen]);
 
   // The view changed under the reader — move focus to what changed (QA §A), never leave it on a
-  // button that just re-labelled itself.
+  // button that just re-labelled itself. On the AUTO-open this finds no lede yet (the sheet mounts
+  // its content a commit later) and the sheet's own initial focus stands — the dialog announced
+  // with its title, the W9e policy for every sheet; from the first Next on, the sentence takes it.
+  // When a view change unmounts the button that had focus, the sheet's trap re-parks focus on the
+  // sheet itself (measured in jsdom, pinned in the suite) — never on <body> behind the scrim.
   useEffect(() => {
     if (open && view === "how") ledeRef.current?.focus();
   }, [open, view, step]);
@@ -184,7 +202,7 @@ export function HelpButton({
                           k="help.row.size.sub"
                           vars={{
                             x: ts(lang, `kds.size.${size.value}`),
-                            px: `${KDS_SIZE_PX[size.value]} px`,
+                            px: pxLabel(size.value),
                           }}
                           echo="stack"
                         />
@@ -267,11 +285,15 @@ export function HelpButton({
                   <span className="help-size-meta">
                     <Chrome lang={lang} k={`kds.size.${sz}`} echo="inline" />
                     <span className="help-size-across">
-                      <Chrome
-                        lang={lang}
-                        k="help.size.across"
-                        vars={{ px: `${KDS_SIZE_PX[sz]} px`, n: kdsPageSize(sz) / 2 }}
-                      />
+                      {wide ? (
+                        <Chrome
+                          lang={lang}
+                          k="help.size.across"
+                          vars={{ px: pxLabel(sz), n: kdsPageSize(sz) / 2 }}
+                        />
+                      ) : (
+                        <span lang="en">{pxLabel(sz)}</span>
+                      )}
                     </span>
                   </span>
                 </button>

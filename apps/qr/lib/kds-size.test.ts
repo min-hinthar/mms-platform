@@ -6,6 +6,7 @@ import {
   KDS_SIZE_DEFAULT,
   KDS_SIZE_KEY,
   KDS_SIZE_PX,
+  KDS_WIDE_MIN_PX,
   kdsPageSize,
   parseKdsSize,
 } from "./kds-size";
@@ -58,7 +59,9 @@ describe("P7·3 — the sizes the Help sheet quotes are the sizes the board rend
     // sheet quoting a layout the board no longer draws.
     const wide = (selectors: string) => {
       const block = css.match(
-        new RegExp(`@media \\(min-width: 1200px\\)\\s*\\{\\s*${selectors}\\s*\\{([^}]*)\\}`),
+        new RegExp(
+          `@media \\(min-width: ${KDS_WIDE_MIN_PX}px\\)\\s*\\{\\s*${selectors}\\s*\\{([^}]*)\\}`,
+        ),
       );
       const cols = block?.[1]?.match(/grid-template-columns:\s*repeat\((\d+), 1fr\)/);
       expect(cols, `wide columns for ${selectors}`).not.toBeUndefined();

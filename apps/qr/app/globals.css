@@ -7889,7 +7889,10 @@ html[data-seen-surface] .mms-stagger {
   font-weight: 700;
   box-shadow: var(--sh-md);
 }
-.kds-undo button {
+/* ONE rule for the pill: the board's real button and the help card's inert replica
+   (`.help-pic-undo-btn`, P7·3) — a second declaration would drift, and did. */
+.kds-undo button,
+.kds-undo .help-pic-undo-btn {
   min-height: 44px;
   padding: 0 16px;
   border-radius: var(--r-full);
@@ -10423,7 +10426,25 @@ html[data-fx="lite"] .mms-scrim {
   user-select: none;
 }
 .help-pic > * {
-  flex: none;
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+/* The takeaway stage replica is a <span> in the button's own style object (`expo-stage.ts`); this
+   only gives it a button's box. */
+.help-pic-stage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 14px;
+}
+/* The takeaway board's status line, declared ONCE — `ExpoBoard` wears it live, the help card inert. */
+.expo-status {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.expo-status-warn {
+  color: var(--warn);
 }
 .help-pic-bump {
   display: inline-flex;
@@ -10441,13 +10462,6 @@ html[data-fx="lite"] .mms-scrim {
   z-index: auto;
   font-size: var(--fs-sm);
 }
-.help-pic-undo-btn {
-  padding: 6px 12px;
-  border-radius: var(--r-full);
-  background: var(--pg);
-  color: var(--tx);
-  font-weight: 700;
-}
 .help-pic-86 {
   font-size: var(--fs-sm);
 }
@@ -10458,54 +10472,6 @@ html[data-fx="lite"] .mms-scrim {
   border-radius: var(--r-card);
   opacity: 0.85;
 }
-.help-pic-tile {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px 10px 10px;
-  border-radius: var(--r-card);
-  border: 1px solid color-mix(in oklab, var(--gold) 60%, var(--bd));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 22%, var(--cd)), var(--cd));
-}
-.help-pic-tile-name {
-  font-size: var(--fs-h3);
-  font-weight: 800;
-  line-height: var(--lh-snug);
-}
-.help-pic-table {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 120px;
-  padding: 12px 16px;
-  border-radius: var(--r-card);
-  border: 1px solid var(--bd);
-  background: var(--cd);
-  box-shadow: inset 0 1px 0 var(--sheen);
-  font-size: var(--fs-h3);
-}
-.help-pic-table-status {
-  font-size: var(--fs-sm);
-  color: var(--t2);
-}
-.help-pic-expo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 48px;
-  padding: 0 18px;
-  border-radius: var(--r-sm);
-  font-weight: 800;
-  font-size: var(--fs-sm);
-}
-.help-pic-expo-ready {
-  background: var(--ok);
-  color: var(--oa);
-}
-.help-pic-expo-picked {
-  background: var(--tx);
-  color: var(--pg);
-}
 .help-pic-pair {
   display: inline-flex;
   align-items: center;
@@ -10514,11 +10480,6 @@ html[data-fx="lite"] .mms-scrim {
 .help-pic-arrow {
   font-size: var(--fs-h3);
   color: var(--t3);
-}
-.help-pic-strip {
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
-  font-weight: 700;
 }
 .help-lede {
   margin: 0 0 var(--s2);

@@ -38,3 +38,11 @@ export const KDS_SIZES: readonly KdsSize[] = ["s", "m", "l"];
  * the sheet promising a dial position that does not exist.
  */
 export const KDS_SIZE_PX: Readonly<Record<KdsSize, number>> = { s: 30, m: 34, l: 38 };
+
+/**
+ * P7·3 — the viewport from which the board draws its FIXED envelope (four columns at small, three
+ * at medium and large — `@media (min-width: …)` on `.kds-grid` in globals.css). Below it the grid is
+ * auto-fill and the dial does not change the column count, so the Help sheet quotes "{n} across"
+ * only from here up; `kds-size.test.ts` holds this number to the stylesheet.
+ */
+export const KDS_WIDE_MIN_PX = 1200;

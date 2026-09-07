@@ -15,13 +15,35 @@ const { HelpButton } = await import("./HelpButton");
  * the size view shows the chosen size pressed and closes on a pick; and the undo card quotes the
  * number the board handed in, never a typed one.
  */
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  delete (window as { matchMedia?: unknown }).matchMedia;
+});
 beforeEach(() => {
   localStorage.clear();
 });
 
 const seen = (screen: "kitchen" | "counter" | "expo") =>
   localStorage.setItem(helpSeenKey(screen), "1");
+/** The board's undo window as the kitchen door requires it (typed from the key's slot). */
+const kitchenVars = { 2: { n: 6 } };
+/** jsdom has no `matchMedia`; stub the ONE query the sheet asks (the board's wide envelope). */
+function stubMatchMedia(matches: boolean) {
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    writable: true,
+    value: (media: string) => ({
+      matches,
+      media,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }),
+  });
+}
 const dialog = () => screen.getByRole("dialog");
 const circle = () => screen.getByRole("button", { name: "Help" });
 
@@ -42,13 +64,22 @@ describe("HelpButton", () => {
   });
 
   it("the first time a DEVICE mounts a screen's door, the cards open by themselves — once", async () => {
-    const { unmount } = render(<HelpButton lang="en" screen="kitchen" />);
+    const { unmount } = render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
     await screen.findByRole("dialog");
     expect(screen.getByText(/Food up\? Tap the green button/)).not.toBeNull();
+    // On the auto-open the SHEET's initial focus stands — the dialog, announced with its title (W9e):
+    // the content mounts a commit after the open, so nothing else could have focus yet. From the
+    // first Next on, the sentence takes it.
+    await waitFor(() =>
+      expect(dialog().closest(".mms-sheet")!.contains(document.activeElement)).toBe(true),
+    );
+    expect(document.activeElement?.id).not.toBe("help-lede");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(document.activeElement?.id).toBe("help-lede"));
     expect(localStorage.getItem(helpSeenKey("kitchen"))).toBe("1");
     unmount();
     // Second morning: nothing opens.
-    render(<HelpButton lang="en" screen="kitchen" />);
+    render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.queryByRole("dialog")).toBeNull();
     // …and a DIFFERENT screen on the same device still gets its own first time.
@@ -114,7 +145,7 @@ describe("HelpButton", () => {
 
   it("the undo card quotes the number the board handed in — Burmese numerals under my", async () => {
     seen("kitchen");
-    render(<HelpButton lang="my" screen="kitchen" cardVars={{ 2: { n: 6 } }} />);
+    render(<HelpButton lang="my" screen="kitchen" cardVars={kitchenVars} />);
     fireEvent.click(screen.getByRole("button", { name: "အကူအညီ" }));
     fireEvent.click(await screen.findByRole("button", { name: /ဒီစခရင် ဘယ်လို သုံးရမလဲ/ }));
     await screen.findByText(/အဆင့် ၁ \/ ၄/);
@@ -132,8 +163,16 @@ describe("HelpButton", () => {
 
   it("on the board the size row shows the current size, the view presses it, and a pick closes the sheet", async () => {
     seen("kitchen");
+    stubMatchMedia(true); // the pass tablet: the fixed envelope, where "N across" is true
     const onPick = vi.fn();
-    render(<HelpButton lang="en" screen="kitchen" size={{ value: "m", onPick }} />);
+    render(
+      <HelpButton
+        lang="en"
+        screen="kitchen"
+        size={{ value: "m", onPick }}
+        cardVars={kitchenVars}
+      />,
+    );
     fireEvent.click(circle());
     const row = await screen.findByRole("button", { name: /Text size/ });
     expect(row.textContent).toMatch(/Now: Medium · 34 px/);
@@ -145,14 +184,54 @@ describe("HelpButton", () => {
     expect(pressed.textContent).toMatch(/Medium/);
     expect(pressed.textContent).toMatch(/34 px · 3 across/);
     expect(sizes.querySelectorAll('[aria-pressed="true"]').length).toBe(1);
-    fireEvent.click(screen.getByRole("button", { name: /Large/ }));
+    expect(screen.getByRole("button", { name: /Small/ }).textContent).toMatch(/30 px · 4 across/);
+    // Back from the sizes returns to the rows with focus still inside the dialog.
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await screen.findByRole("list", { name: "Help topics" });
+    expect(dialog().closest(".mms-sheet")!.contains(document.activeElement)).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: /Text size/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Large/ }));
     expect(onPick).toHaveBeenCalledWith("l");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
+  it("narrower than the board's envelope the sizes say only the size — no column count the grid does not draw", async () => {
+    seen("kitchen");
+    stubMatchMedia(false);
+    render(
+      <HelpButton
+        lang="en"
+        screen="kitchen"
+        size={{ value: "m", onPick: vi.fn() }}
+        cardVars={kitchenVars}
+      />,
+    );
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /Text size/ }));
+    const sizes = await screen.findByRole("group", { name: "Text size" });
+    expect(sizes.textContent).toMatch(/34 px/);
+    expect(sizes.textContent).not.toMatch(/across/);
+    // …and a device with no matchMedia at all is treated the same way (never a claim by default).
+    cleanup();
+    delete (window as { matchMedia?: unknown }).matchMedia;
+    render(
+      <HelpButton
+        lang="en"
+        screen="kitchen"
+        size={{ value: "s", onPick: vi.fn() }}
+        cardVars={kitchenVars}
+      />,
+    );
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /Text size/ }));
+    expect((await screen.findByRole("group", { name: "Text size" })).textContent).not.toMatch(
+      /across/,
+    );
+  });
+
   it("carries a class through the portal for the Night board, and mounts NO live region of its own", async () => {
     seen("kitchen");
-    render(<HelpButton lang="en" screen="kitchen" sheetClassName="dark" />);
+    render(<HelpButton lang="en" screen="kitchen" sheetClassName="dark" cardVars={kitchenVars} />);
     fireEvent.click(circle());
     const d = await screen.findByRole("dialog");
     expect(d.closest(".mms-sheet")?.className).toContain("dark");

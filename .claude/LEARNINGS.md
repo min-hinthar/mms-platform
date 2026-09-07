@@ -1990,3 +1990,23 @@ green on the old file (rule 5 has nothing to say about English JSX) until the fu
 failed six times. Two rules: **stage (or commit) before mutating**, so the restore point is the work
 and not its ancestor; and a restore check must FAIL LOUDLY — `[ md5 = md5 ] || { echo MISMATCH; exit 1; }`
 — never `&& echo ok`, whose silence reads as nothing happened.
+
+## #105
+
+**A "replica in the real control's classes" is only real if it shares the control's DECLARATION —
+a new class that copies the look IS the drift it was built to prevent, and it drifts on day one.**
+PR 3's help cards promised "the real control in its own classes" and the blind pass found four
+pictures of controls that do not exist: the takeaway stages drawn green and inverted (the board's are
+accent and plain, styled INLINE, so there was no class to borrow and a new one was invented), the
+undo pill in the bar's colours (a `.help-pic-undo-btn` beside `.kds-undo button`), the Screens circle
+in `.staff-circ-here` (the bar's static mark, dimmed and `cursor: default`), and the kitchen's amber
+strip on a board whose frozen state is a warn-coloured status line. Every one passed a suite that
+checked `aria-hidden` and nothing else. The rule: bind the replica to the SAME declaration — the
+class when there is one, the style object exported from a tiny shared module when the control is
+styled inline (`expo-stage.ts`, now spread by `ExpoBoard` too), or ONE CSS rule whose selector names
+both — and test the BINDING (the replica is inside `.kds-undo`; the rule naming `button` also names
+the replica and no rule names it alone; `ExpoBoard` parsed with `typescript` imports the objects and
+redeclares none), never the look. Two sentences on the same cards were also wrong for the same reason
+— written from a mental picture rather than the source: "the dark bar" (`--tx` on a Night board is
+the pale one) and "a manager puts it back" (`setItemSoldOut` is server-and-up). Read the control
+before describing it, and quote its colour token, not its colour.

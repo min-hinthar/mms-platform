@@ -1807,17 +1807,21 @@ export const STAFF = {
     en: "Tapped by mistake? You have {n} seconds to undo.",
     my: "မှားနှိပ်မိရင် {n} စက္ကန့်အတွင်း ပြန်ဖျက်လို့ ရပါတယ်။",
   },
+  // Not "the dark bar": `.kds-undo` is `--tx` on `--pg`, and the board is always Night, so the bar
+  // is the PALE one on that screen. The sentence names its place, not a colour it does not have.
   "help.how.kitchen.2.more": {
-    en: "The dark bar at the bottom brings the ticket back.",
-    my: "အောက်ခြေက အမည်းရောင် ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
+    en: "The bar at the bottom brings the ticket back.",
+    my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
   },
   "help.how.kitchen.3": {
     en: "Out of a dish? 86 it — guests can’t order it any more.",
     my: "ဟင်းကုန်ရင် ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
   }, // K15-HIGH — a wrong word here hides a dish from every guest, or keeps selling one that is gone
+  // `setItemSoldOut` is server-and-up (app/staff/menu), so the put-back is not a manager's job —
+  // the first draft said it was, and would have had Mom wait for someone she did not need.
   "help.how.kitchen.3.more": {
-    en: "A manager puts it back from the menu page.",
-    my: "မန်နေဂျာက မီနူး စာမျက်နှာကနေ ပြန်တင်ပေးပါမယ်။",
+    en: "Anyone can put it back from the Menu page.",
+    my: "မီနူး စာမျက်နှာကနေ ဘယ်သူမဆို ပြန်တင်လို့ ရပါတယ်။",
   },
   "help.how.kitchen.4": {
     en: "A dashed card is a scheduled pickup. Fire it when it’s time.",
