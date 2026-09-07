@@ -9673,19 +9673,29 @@ html[data-fx="lite"] .mms-scrim {
 .staff-door-icon {
   color: var(--ac);
 }
+/* The title. In English <Chrome> renders a BARE TEXT NODE, so the title's size lives on the name
+   box itself; in Burmese it renders <Chrome echo="stack">'s `.chrome-pair` — the Burmese span and the
+   English echo TWO levels down — so the Burmese rules are child CHAINS through the pair, never a
+   single `>`. The first draft wrote `.staff-door-name > [lang="my"]` and a `.staff-door-en` class no
+   component emits: both matched nothing, and the 38px doors never shipped (blind pass CRITICAL 1).
+   `StaffDoors.test.tsx` now holds every selector naming `.staff-door-name` to the rendered DOM. The
+   sub-line and the "opens here" line beneath are `.chrome-pair`s too; the chains do not reach them. */
 .staff-door-name {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  font-size: var(--fs-h1);
+  font-weight: 800;
+  line-height: 1.2;
 }
-.staff-door-name > [lang="my"] {
+.staff-door-name > .chrome-pair > [lang="my"] {
   font-family: var(--font-my);
   font-synthesis: none;
   font-size: 2.375rem; /* 38px — the biggest Burmese on any staff surface but the ticket */
-  font-weight: 700;
+  font-weight: 700; /* Padauk's heaviest cut; 800 would silently match the same face */
   line-height: 1.35;
 }
-.staff-door-name > .staff-door-en {
+.staff-door-name > .chrome-pair > .chrome-en {
   font-size: var(--fs-h3);
   font-weight: 600;
   color: var(--t2);
@@ -9693,6 +9703,8 @@ html[data-fx="lite"] .mms-scrim {
 .staff-door-sub {
   margin: 0;
   font-size: var(--fs-sm);
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--t2);
 }
 /* The door this tablet walked through wears the lit-gold cap — the app's ONE selection vocabulary
@@ -9805,7 +9817,11 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--tx);
   text-decoration: none;
 }
-.staff-counter-primary .staff-door-name > [lang="my"] {
+/* Register's title reuses the door structure one step smaller: h2 in English, h1 Burmese. */
+.staff-counter-primary .staff-door-name {
+  font-size: var(--fs-h2);
+}
+.staff-counter-primary .staff-door-name > .chrome-pair > [lang="my"] {
   font-size: var(--fs-h1);
 }
 .staff-counter-side {

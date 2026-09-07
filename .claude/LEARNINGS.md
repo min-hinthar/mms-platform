@@ -1922,3 +1922,26 @@ Corollary for the next fan-out: the parallel sessions were right to stay out of 
 and it did not help — every collision above was on a file each slice legitimately owned a corner of.
 Budget the merge as its own reviewed unit of work, with its own gate run, not as a formality after
 four green PRs.
+
+## #101 — CSS written against a component's DOM is a claim about a DOM nobody rendered (P7 PR 1, 2026-09-06)
+
+The doors' title CSS was `.staff-door-name > [lang="my"]` and `.staff-door-name > .staff-door-en`.
+`<Chrome echo="stack">` renders `<span class="chrome-pair"><span lang="my">…</span><span
+class="chrome-en">…</span></span>` — the span is a GRANDCHILD, and no component emits
+`.staff-door-en`. Both selectors matched nothing; the 38px doors the CHANGELOG described never
+shipped; every gate was green, because no gate renders CSS against DOM. The blind auditor found it by
+reading `Chrome.tsx` beside the stylesheet — the author, who wrote both, did not, because the author
+"knew" what Chrome renders.
+
+Rules. **(1) A selector is a claim about a DOM.** When the DOM comes from a component you did not
+write the same hour, hold the selector to a RENDER: `container.querySelector(selector)` in jsdom,
+driven by the selectors EXTRACTED from the stylesheet, never transcribed (`StaffDoors.test.tsx`'s
+last block; a dead selector is a red test now). **(2) Write the red case in the same suite** — the
+exact wrong shape (`> [lang="my"]`) asserted to match NOTHING, so the guard is seen to discriminate.
+**(3) The same head's other three CRITICALs were the same shape one level up.** An `aria-busy` flag
+latched forever, because no test tapped twice; a manager with no plain link to the board, because no
+test rendered the manager's floor; a cold-start promise that no test walked through the lock and the
+login the way a tablet does every morning. The first draft tested the modules' VALUES and never the
+surface's DAY. Before the blind pass, walk one real morning through the diff (locked tablet → PIN →
+where does it land?) and one real failure (the write is refused → what does the person see next?),
+and write each as a test that could only pass if the surface does what the copy says.

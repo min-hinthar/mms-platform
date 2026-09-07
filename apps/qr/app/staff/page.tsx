@@ -1,4 +1,5 @@
 import { type CSSProperties } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -21,8 +22,31 @@ import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
 import { sx } from "@/lib/staff-labels";
 
-export const metadata = { title: "Floor — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
+
+type StaffHomeProps = { searchParams: Promise<{ doors?: string; floor?: string }> };
+
+/**
+ * The one decision, read once per request (Next memoizes `cookies()`/`headers()`/`searchParams`
+ * across the page and its metadata): which of the three things `/staff` is right now.
+ */
+async function staffHomeFor(searchParams: StaffHomeProps["searchParams"]) {
+  const [door, sp, hdrs] = await Promise.all([readStaffDoor(), searchParams, headers()]);
+  const home = resolveStaffHome({
+    door,
+    doorsParam: sp.doors === "1",
+    floorParam: sp.floor === "1",
+    coldStart: isColdStart(hdrs.get("referer"), hdrs.get("x-forwarded-host") ?? hdrs.get("host")),
+  });
+  return { door, home };
+}
+
+/** The tab reads what the page shows: the doors are "Screens", the counter home is "Floor". */
+export async function generateMetadata({ searchParams }: StaffHomeProps): Promise<Metadata> {
+  const { home } = await staffHomeFor(searchParams);
+  const what = "redirect" in home || home.view === "floor" ? "Floor" : "Screens";
+  return { title: `${what} — Mandalay Morning Star` };
+}
 
 /**
  * Staff console home (S1.1a shell · S1.2 floor · P7 doors). Gated by requireStaffPage (verified
@@ -40,27 +64,12 @@ export const dynamic = "force-dynamic";
  * The greeting, the switch, Lock and Sign out are the same header in every branch, mounted HERE
  * rather than by the layout (`check-staff-lang.mjs` rule 4 holds this page to the mount).
  */
-export default async function StaffHome({
-  searchParams,
-}: {
-  searchParams: Promise<{ doors?: string }>;
-}) {
+export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate renders the outage shell in place (URL kept) — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.floor" />;
   const isManager = roleAtLeast(caller.role, "manager");
-  // Next request-memoizes `cookies()` and `headers()`, so these cost one read each.
-  const [lang, door, sp, hdrs] = await Promise.all([
-    readStaffLang(),
-    readStaffDoor(),
-    searchParams,
-    headers(),
-  ]);
-  const home = resolveStaffHome({
-    door,
-    doorsParam: sp.doors === "1",
-    coldStart: isColdStart(hdrs.get("referer"), hdrs.get("x-forwarded-host") ?? hdrs.get("host")),
-  });
+  const [lang, { door, home }] = await Promise.all([readStaffLang(), staffHomeFor(searchParams)]);
   if ("redirect" in home) redirect(home.redirect);
 
   const [hasPin, pendingApprovals] = await Promise.all([
@@ -71,7 +80,12 @@ export default async function StaffHome({
   // The More grid — every page that is not a door, role-gated exactly as the old pill row was.
   // Two of these were reachable from nowhere in-app before P7: the TV board (bookmark only) and the
   // word-check sheet (only from the manager-only pilot sheet, so Mom could never print her own).
+  // The kitchen board is here as a PLAIN link too (blind pass CRITICAL 3): on the floor a manager's
+  // row slot holds Approvals, and the only other way to the board was the Kitchen DOOR — which
+  // remembers itself, so a manager peeking at the board re-doored the counter tablet as a kitchen
+  // one. A tile is a look; a door is a decision. Each view drops the entry its own surface carries.
   const more: MoreTile[] = [
+    { href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" },
     { href: "/staff/expo", k: "floor.nav.expo", icon: "bag" },
     { href: "/board", k: "floor.nav.board", icon: "tv" },
     ...(isManager
@@ -128,7 +142,14 @@ export default async function StaffHome({
     return (
       <main style={wrapWide}>
         {header}
-        <StaffDoors lang={lang} current={door} more={withApprovals(more, approvalsVars)} />
+        <StaffDoors
+          lang={lang}
+          current={door}
+          more={withApprovals(
+            more.filter((t) => t.href !== "/staff/kitchen"), // the Kitchen DOOR is above it
+            approvalsVars,
+          )}
+        />
       </main>
     );
   }
@@ -195,10 +216,17 @@ export default async function StaffHome({
       <FloorBoard initial={floor.snapshot} />
 
       <div style={{ marginTop: "var(--s6)" }}>
+        {/* The row above carries Register, Expo and — for a manager, Approvals; for anyone else,
+            Kitchen — so More drops exactly what the row shows. A manager keeps the Kitchen tile. */}
         <MoreGrid
           lang={lang}
           more={withApprovals(
-            more.filter((t) => t.href !== "/staff/expo" && t.href !== "/staff/approvals"),
+            more.filter(
+              (t) =>
+                t.href !== "/staff/expo" &&
+                t.href !== "/staff/approvals" &&
+                (isManager || t.href !== "/staff/kitchen"),
+            ),
             approvalsVars,
           )}
         />

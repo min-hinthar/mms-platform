@@ -15,12 +15,16 @@ second one), and the tablet **remembers** the one it walked through in a device 
 one **ungated** action (the value carries no authority — every page behind a door still runs
 `requireStaffPage`), `path: "/"`, 400 days, EXACT-equality parse with the doors as the fallback for
 anything else. `resolveStaffHome` is the one decision: a kitchen device on a **cold start** (the app
-icon, a bookmark — no same-origin referer) goes straight onto its board; any in-app arrival shows the
-doors, because a tablet with no floor has nowhere honest to send an "← Floor" tap; `?doors=1` (the
-new **Screens** chip on the board and the counter home) wins over every remembered door, so no
-tablet can be trapped. Both halves are pure and mutated: the trap, the warm-redirect, the origin
-check as EQUALITY (a suffix match admits `evil-mms.example`; the suite carries that host), and the
-parser's exactness.
+icon, a bookmark — no same-origin referer — or the lock, the login or the auth callback handing the
+tablet back, which are same-origin client navigations and how a locked tablet begins every day) goes
+straight onto its board; any in-app arrival shows the doors, because a tablet with no floor has
+nowhere honest to send an "← Floor" tap; `?doors=1` (the new **Screens** chip on the board and the
+counter home) wins over every remembered door, so no tablet can be trapped; and the Counter door
+asks for the floor BY NAME (`/staff?floor=1`), so it opens the floor with JavaScript off and on a
+device whose cookie write was refused. Every half is pure and mutated (nine mutants): the trap, the
+warm-redirect, the front doors read as warm, a front door matched by prefix, the origin check as
+EQUALITY (a suffix match admits `evil-mms.example`; the suite carries that host), a proxy's
+multi-valued host read whole, `?floor=1` gated on the cookie, and the parser's exactness.
 
 The **counter door is the floor itself, register first**: the one action Dad takes most as a
 gold-capped row (the lit-gold cap — the app's one selection vocabulary — never a second one),
@@ -37,6 +41,23 @@ Medium and large drop the wide grid to **three columns**, and the page size foll
 across hides two tickets below the fold on every page, and they are exactly the ones nobody bumps.
 P1's 30px was arithmetic from the font files; the right number is Mom's eyes at the pass, and this
 lets her set it on Day 0.
+
+**The blind pass REJECTED the first head with four CRITICALs, every one real, and every one now a
+guard as well as a fix.** The door title's CSS was written as `.staff-door-name > [lang="my"]`
+against a DOM where that span is a GRANDCHILD of `<Chrome>`'s pair wrapper, plus a class no
+component emits — the 38px doors had not shipped, and `StaffDoors.test.tsx` now holds every selector
+naming `.staff-door-name` to the rendered DOM through jsdom's own matcher (LEARNINGS #101). The
+doors' in-flight flag was never released, so ONE refused write on Counter left two dead links until
+a reload — a ref guard now, released before the navigation, and a suite that taps again after a
+refusal. A manager's floor had no plain link to the kitchen board: the only route was the Kitchen
+DOOR, which re-doored the counter tablet as a kitchen one — a Kitchen tile under More for managers,
+dropped where the row already shows it. And the cold-start promise never held on a locked or
+signed-out tablet, because the lock and the login re-enter `/staff` through same-origin client
+navigations — the front doors are starts now. The pass also asked what a proxy's
+`x-forwarded-host: a, b` does (`new URL` threw → cold → every in-app arrival redirected; read by its
+first value now) and why the tab said "Floor" over the doors (`generateMetadata` says Screens). Two
+are filed, not fixed: the guest install's jump list carries Kitchen and Counter (P7e — a product
+call for the walkthrough) and `page.tsx`'s wiring has no suite of its own (P7f).
 
 **PWA:** the manifest's jump list gains **Kitchen** and **Counter** — before this, "add to home
 screen" on a staff tablet landed on the guest menu with no staff entry anywhere.

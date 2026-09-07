@@ -1,10 +1,10 @@
 "use client";
 import { useRouter } from "next/navigation";
-import { type MouseEvent, useState } from "react";
+import { type MouseEvent, useRef, useState } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "@mms/ui";
 import { setStaffDoor } from "@/lib/staff-door-actions";
-import { STAFF_DOOR_TARGET, type StaffDoor } from "@/lib/staff-door";
+import { STAFF_DOOR_TARGET, type StaffDoor, parseStaffDoor } from "@/lib/staff-door";
 import type { StaffLang } from "@/lib/staff-lang";
 import type { StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
@@ -16,13 +16,18 @@ import { Chrome } from "./Chrome";
  * A door is a real link (its href is the page it opens), so it works with JavaScript off and reads
  * as a link to assistive tech. With JavaScript on, the click first REMEMBERS the door on this device
  * (`setStaffDoor`, a cookie) and then navigates — awaited, not fire-and-forget, because the counter
- * door's target is `/staff` itself: `resolveStaffHome` renders the floor there only once the cookie
- * exists, so a navigation that outran the write would land back on these doors.
+ * door's target is `/staff` itself: a navigation that outran the write would render `/staff` with no
+ * cookie yet. The counter href therefore asks for the floor BY NAME (`/staff?floor=1`, which
+ * `resolveStaffHome` honours whatever the cookie says), so the door opens the floor with JavaScript
+ * off and on a device whose cookie could not be written — the blind pass found the first draft's
+ * bare `/staff` landing a refused Counter tap back on these doors.
  *
  * If the write is refused, the door still opens: memory is a convenience, the page behind it is the
  * job, and a person standing at a counter must never be told "couldn't save that" instead of being
  * let through. The refusal is swallowed DELIBERATELY for that reason — the next open shows the
- * doors again, which is the honest fallback.
+ * doors again, which is the honest fallback. The in-flight flag is released BEFORE the navigation
+ * is asked for, because a navigation can land on this very route with the doors still mounted, and
+ * a flag latched on the way out left two dead links until a reload (blind pass CRITICAL 2).
  *
  * The door this tablet walked through wears the lit-gold cap (`aria-current="true"`) and says so in
  * words: a gold border alone is a status nobody can name.
@@ -45,19 +50,33 @@ export function StaffDoors({
   more: MoreTile[];
 }) {
   const router = useRouter();
+  // The in-flight guard is a REF, written synchronously: two taps in one frame both read the same
+  // stale render, so a state flag lets both through (two writes, two pushes). The state beside it
+  // exists only to say `aria-busy` on the door that is opening.
+  const inFlight = useRef<StaffDoor | null>(null);
   const [busy, setBusy] = useState<StaffDoor | null>(null);
 
-  const walk = (door: StaffDoor) => async (e: MouseEvent<HTMLAnchorElement>) => {
+  // ONE handler for both doors, the door read from the link's `data-door` — not a curried
+  // `walk(door)` factory, which runs during render and so puts the ref read under the compiler's
+  // "no refs during render" rule even though only the returned closure ever touches it.
+  const walk = async (e: MouseEvent<HTMLAnchorElement>) => {
+    const door = parseStaffDoor(e.currentTarget.dataset.door);
+    if (!door) return; // not a door — an ordinary link, left alone
     // Let modified clicks (new tab, middle click) behave as links.
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
     e.preventDefault();
-    if (busy) return; // a second tap while the first is in flight would race two writes
+    if (inFlight.current) return; // one navigation is already coming; a second tap adds nothing
+    inFlight.current = door;
     setBusy(door);
     try {
       await setStaffDoor({ door });
     } catch {
       // Deliberate: the door opens regardless (see the docblock). A thrown action is the same
       // outcome as a refused one — nothing remembered, page still reached.
+    } finally {
+      // Released here, not after the push: the push may leave these doors mounted (see docblock).
+      inFlight.current = null;
+      setBusy(null);
     }
     router.push(STAFF_DOOR_TARGET[door]);
   };
@@ -70,7 +89,8 @@ export function StaffDoors({
           className="staff-door"
           aria-current={current === "kitchen" ? "true" : undefined}
           aria-busy={busy === "kitchen" || undefined}
-          onClick={walk("kitchen")}
+          data-door="kitchen"
+          onClick={walk}
         >
           <span className="staff-door-icon" aria-hidden>
             <Icon name="flame" size={44} />
@@ -93,7 +113,8 @@ export function StaffDoors({
           className="staff-door"
           aria-current={current === "counter" ? "true" : undefined}
           aria-busy={busy === "counter" || undefined}
-          onClick={walk("counter")}
+          data-door="counter"
+          onClick={walk}
         >
           <span className="staff-door-icon" aria-hidden>
             <Icon name="cash" size={44} />

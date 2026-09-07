@@ -59,7 +59,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **463 `verify:slice` mutants** · **92 target modules** (82 under `apps/qr/lib`, 3 API routes,
+> **467 `verify:slice` mutants** · **92 target modules** (82 under `apps/qr/lib`, 3 API routes,
 > 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
@@ -501,7 +501,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (463 today)**, **1372 qr + 138 ui tests at the time (1787 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1807 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1393,7 +1393,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 463 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1787 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1807 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2115,7 +2115,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (463 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (467 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
