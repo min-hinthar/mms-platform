@@ -4,6 +4,21 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The P7 stack on `main`, M159 on prod, and the first production test pass (2026-09-07)
+
+**Merged, in order, on Min's go:** #264 · #266 · #267 · #268 · #269 (merge commits; `main` at
+`068e575`; Codex unavailable, blind passes + the full gate on every head). **M159 applied** to prod by
+`apply_migration` (row `20260907082543`) and verified object by object. **Then the app was driven for
+real** — every customer flow through the production UI with headless Chromium and the Stripe test
+cards, and every staff flow as manager Min K — and the findings went into `docs/OPEN-ITEMS.md`
+(C18 · C19 · C20 · M160 · M161 · M162 · K20 · K21 · K22 · K23 · F11) and the HANDOFF top block.
+The one that matters: **the Stripe webhook on prod answers 400 `Bad signature` to every event**, so
+four succeeded test payments produced zero orders — an owner config (C18) with a code half (M160:
+the failure was logged at info level, and nothing reconciles a paid cart). Also measured: prod is on
+Stripe TEST keys today (C2 updated), six menu photos point at missing objects (C19), the kiosk needs
+its device token (C20), the boards show 50-day-old tickets (K20), the floor lists phone sessions as
+tables (K21). Docs only — no code changed in this entry.
+
 ### Something's wrong — the report row, the email and the issue (2026-09-07 · P7, PR 4)
 
 **Min's C1 pick — "Email + a row you can see", no phone button ("nothing to explain over the

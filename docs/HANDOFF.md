@@ -1,9 +1,107 @@
-# Session Handoff — MMS Platform (2026-09-06)
+# Session Handoff — MMS Platform (2026-09-07)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-07 · the P7 stack is ALL on `main`, M159 is on prod, and the first production test pass found the Stripe webhook DEAD)
+>
+> **`main` is at `068e575`.** The five P7 PRs merged in order on Min's explicit go, each as a merge
+> commit (never a squash, so each stacked base flipped to `main` with no re-merge):
+>
+> | PR   | slice                                                             | merge     |
+> | ---- | ----------------------------------------------------------------- | --------- |
+> | #264 | PR 1 — two doors, device memory, text size, PWA shortcuts         | `d587fa6` |
+> | #266 | PR 1b — paper & brass, iOS-shaped, on every console page          | `a376a47` |
+> | #267 | PR 2 — the front door in Burmese (sign-in · lock · PIN · error)   | `4b5df2a` |
+> | #268 | PR 3 — the Help door, "How this screen works", the size on a word | `1adfd1a` |
+> | #269 | PR 4 — "Something's wrong": the row, the email, the GitHub issue  | `068e575` |
+>
+> Codex reviewed none of them (the connector's quota is exhausted account-wide; `codex-review` is
+> red on every head and is still not a required check — C16). Each got the blind adversarial pass
+> plus the full local gate; the merge commit messages say so. **M159 is DONE:** the staff-reports
+> migration was applied to prod by the one sanctioned path (`apply_migration`, history row
+> `20260907082543`) and every object verified before anything else — the row in OPEN-ITEMS lists
+> the probes. Prod deploy of `068e575` is READY on `qr.mandalaymorningstar.com`.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: prod is charging cards (test mode) and never making an order
+>
+> Min asked for "test all customers and staff flows, including stripe test cards", so the same
+> session drove the real production app with headless Chromium (the bridge it needed is described
+> below). **Four test-card payments SUCCEEDED on Stripe and `qr_orders` gained zero rows**, because
+> every Stripe event reaches `/api/stripe/webhook` and is answered **400 `Bad signature`** — the
+> `STRIPE_WEBHOOK_SECRET` in Vercel prod does not match the endpoint Stripe is calling. That is the
+> only status the route has ever returned in seven days of logs, and it logs at info level, so
+> Vercel's error view showed nothing. Everything downstream breaks with it: `/track` says
+> "Confirming…" forever, the cart stays locked on its `live_payment_intent_id`, the counter refuses
+> the table and cannot clear it, the promo never counts a use. **C18 (owner: the secret) and M160
+> (code: log it as an error, and build the reconcile) are the top of the backlog.** Also measured:
+> prod is on Stripe TEST keys (`pk_test_…`, `livemode: false`) — the test cards are safe there today
+> and C2 (the live cutover) now says so.
+>
+> ### What the pass measured (2026-09-07 · prod · `068e575`)
+>
+> Customer, all driven through the real UI on a 390×844 iPhone profile: home → dine-in picker → table
+> claim (seated tables refuse with the party-code sheet, as designed) → item sheet with a required
+> modifier → cart → Send to kitchen with the undo window → View bill → 20 % tip → Payment Element →
+> `4242` → `/track` ✓ · to-go: `WELCOME10` (−$1.40, tax on the discounted base $1.32, tip 15 % of
+> $12.60 = $1.89, total $15.81 ✓), the slot sheet (soonest 10:30 AM), name + phone, generic decline
+> → "Your card has been declined." inline, then `4242` on the SAME intent ✓ · 3DS `…3155` through
+> Stripe's challenge ✓ · insufficient funds `…9995` → "Your card has insufficient funds. Try a
+> different card." ✓ · grocery: browse, add, "Review basket" sheet, checkout at $0 tax, `4242` ✓ ·
+> the scan tab says "Camera unavailable — search by name" without a camera ✓ · kiosk: honest "This
+> kiosk isn't set up yet" (C20) · a second phone joining table 10 by sticker lands in the host's
+> session (2 `session_members`; "Just you" is presence-based, so it is right).
+>
+> Staff, as manager Min K (email OTP → the code arrived on `admin@` via the Gmail connector):
+> kitchen board with the three sent tickets, Help auto-opened once, bump + undo ✓, 86 (one tap — it
+> 86'd Tom-Yum, K22 — put back from `/staff/menu` ✓), counter floor + table page, cash settle on
+> table 7 (`b4d6392a`, $15.47 cash, `settled_by` Min K) ✓, the in-flight guard on card-paid table 4
+> ("Someone's already paying on their phone") ✓, Clear table ✓, expo stages ✓, Set a tablet PIN →
+> lock → wrong PIN ("၄ ကြိမ် ကျန်ပါသေးတယ်") → right PIN ✓ (K23: it resumed onto the kitchen),
+> "Something's wrong" report `E6F303D8` → row + email on `admin@` in ~1 s, no issue (C17) ✓.
+>
+> New rows: **C18 · C19 · C20 · M160 · M161 · M162 · K20 · K21 · K22 · K23 · F11** — every one
+> carries what was measured and how. K20 (July/August tickets with 50-day timers on the live boards)
+> and K21 (twelve `pickup-<uuid>` "tables" on the floor) will confuse the family on night one.
+>
+> ### ⚠️ What the pass LEFT on prod — cleanup needs Min's go
+>
+> - **23 sessions** minted today (7 dine-in on tables 4–10, 8 to-go, 4 scan-and-go); table 7 is
+>   `closed` (settled + cleared), the rest `active` until their TTL (~14:00Z). Tables 4, 5, 6 have a
+>   sent Mohinga ticket live on the KDS; 4, 5, 6 and eight phone carts are `locked` on a
+>   `live_payment_intent_id`.
+> - **Stripe (TEST mode — no real money):** succeeded `pi_3UCySDD7LsBxOcnN0mNpTgbC` $18.27 ·
+>   `pi_3UCyb9D7LsBxOcnN1OiflB5x` $15.81 · `pi_3UCypcD7LsBxOcnN0uR0EVSW` $10.40 ·
+>   `pi_3UCyyVD7LsBxOcnN16BzQzfe` $15.47 (all unfulfilled — C18); declined `pi_3UCyZcD7…` (generic)
+>   and `pi_3UCzLoD7…` (insufficient funds); five more created and never confirmed.
+> - **One order:** `b4d6392a` table 7, cash, $15.47. **Four August orders** advanced on the expo
+>   board (K20 names them). **One staff report** `E6F303D8`. **Manager Min K now has a tablet PIN
+>   (2468)** — change it from `/staff/profile`. Tom-Yum was 86'd and restored (audit rows).
+> - Fix C18 first, then resend the four succeeded events from the Stripe Dashboard so the stranded
+>   carts fulfil (or clear the tables from the counter once M160 gives them an exit); the 23 sessions
+>   can be closed with `update table_sessions set status='closed' where created_at::date = '2026-09-07'`
+>   after the resend — never before, or the fulfilment has no session to land on.
+>
+> ### How the pass was driven (so the next one costs an hour, not five)
+>
+> The cloud container's Chromium cannot reach the internet through the agent proxy — its TLS
+> ClientHello (~1.7 KB, ML-KEM) is dropped by the relay while curl/openssl succeed — so the session
+> ran a local Node MITM bridge (`http-mitm-proxy` + `https-proxy-agent`, the browser trusting only
+> the loopback hop) and Playwright against it; the harness lives in the session scratchpad
+> (`lib.mjs` · `pay.mjs` fills the Payment Element and takes the "Yes, pay" confirm). Three harness
+> lessons that looked like product bugs and were not: (1) a tap before hydration is a no-op — retry
+> until the expected text appears; (2) `waitUntil: 'load'` never fires through the bridge, use
+> `domcontentloaded` + a text wait; (3) a `page.route` retry layer breaks Next's RSC streams.
+> Reusing `storageState` keeps the anon seat and spares GoTrue's sign-up limit.
+>
+> ### What is actually next
+>
+> 1. **C18 → resend → M160.** Nothing else in the money path matters until a paid guest gets an order.
+> 2. **K20 · K21** before the pilot night; **C19** (six photos) and **C17** (the issue token) are
+>    ten-minute owner tasks.
+> 3. **P4** stays the only open pilot row; the K15 Burmese check now has 1 + 42 + 33 new keys waiting.
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-06 · the four parallel pilot slices are ALL on `main`, and P4 is the only row left)
 >
