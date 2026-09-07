@@ -67,7 +67,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
 
   if (!cart || !view)
     return (
-      <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
+      <main className="page-col page-col-narrow" style={{ padding: 24 }}>
         <h1 style={{ fontSize: "var(--fs-h1)" }}>
           {mine ? "This order is complete" : "Your order"}
         </h1>
@@ -133,7 +133,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // miss, surface an honest retry (reload re-runs getSplitContext server-side).
   if (view.settling && !split)
     return (
-      <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
+      <main className="page-col page-col-narrow" style={{ padding: 24 }}>
         <h1 style={{ fontSize: "var(--fs-h1)" }}>Your order</h1>
         <p style={{ color: "var(--t2)" }}>
           Your table is splitting the bill — we couldn’t load the split just now.

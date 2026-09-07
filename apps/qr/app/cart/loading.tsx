@@ -9,7 +9,7 @@ import { Skeleton } from "@mms/ui";
  */
 export default function CartLoading() {
   return (
-    <main style={{ padding: 24, maxWidth: 440, margin: "0 auto" }}>
+    <main className="page-col page-col-narrow" style={{ padding: 24 }}>
       <span className="sr-only">Loading your order…</span>
       <div aria-hidden>
         <Skeleton width={150} height={30} radius={8} style={{ margin: "0 0 22px" }} />

@@ -25,6 +25,28 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `20260907082543`) and every object verified before anything else — the row in OPEN-ITEMS lists
 > the probes. Prod deploy of `068e575` is READY on `qr.mandalaymorningstar.com`.
 >
+> ### R1 — the responsive pass, PR #271 — Min's go and the F12 pick (option A) came 2026-09-07; merged with the docs commit that records them
+>
+> Min's next brief was "UI/UX still needing refinements… and dynamic aspect ratios — mobiles,
+> tablets, desktop." The app was MEASURED first: 261 screenshot states at thirteen viewports
+> (customer at eight, staff at five) through the production app, then eleven blind reviewers over
+> the shots (one viewport each, one rubric), then every finding verified against source. Part 1
+> (`5efef96`) landed the four defects that needed no review; part 2 is the layout system — ONE
+> column knob (`--w-page`) in three tiers, `.page-col-narrow` for the money columns, one rule per
+> surface for what the width is for, the sheet as a centred dialog from the tablet tier, the short
+> (height-keyed) tier for landscape phones — plus the reviewer findings the source confirmed. The
+> rules are `docs/DESIGN-LANGUAGE.md` §18; the guard is `apps/qr/lib/responsive-contract.test.ts`
+> (parses the stylesheet AND every customer `<main>`). **The fork, decided:** the reviewers' other
+> half — a two-column checkout / track / account — is the same decision as a true desktop shell
+> (OPEN-ITEMS F12); part 2 chose the centred column and capped those pages at 34rem, and Min chose
+> that option (A) on 2026-09-07 — F12 is closed and the two-column shell is not planned. Retractions
+> (five "under 44px" claims that were paint, not hit boxes) are recorded in §18. Verified on the
+> preview (d1120ad): the Express Checkout row is a 56px iframe at 820 and 1180 (not collapsed); the
+> item sheet's CTA bar DID sit 24px above the sheet edge at 375 (the sticky viewport is the content
+> box) and is flush now; the one phone sideways-scroll was the menu row's grid min-content under the
+> stepper, fixed. The staff reviewers (KDS · TV) are filed as K24–K29 — the console's own width tiers
+> are R1 part 3.
+>
 > ### ⚠️ THE ONE THING TO CARRY FORWARD: prod is charging cards (test mode) and never making an order
 >
 > Min asked for "test all customers and staff flows, including stripe test cards", so the same
@@ -619,7 +641,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1924 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
+> **334 mutants at the time (472 today)**, **1372 qr + 138 ui tests at the time (1946 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1511,7 +1533,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1924 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 472 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1946 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

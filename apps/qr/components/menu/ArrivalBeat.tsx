@@ -124,7 +124,9 @@ export function ArrivalBeat({
             </span>
           </span>
           <span className="arrival-exit-note">
-            {mode === "dinein" ? "keeps your table" : "your order stays saved on this phone"}
+            {/* R1 — "device", not "phone": the same card renders on iPads and desktops (four
+                reviewers named the mismatch), and the promise is about the storage, not the shape. */}
+            {mode === "dinein" ? "keeps your table" : "your order stays saved on this device"}
           </span>
         </Link>
         {/* Dine-in only: "Leave this table" forgets it ON THIS PHONE (device-level only — the

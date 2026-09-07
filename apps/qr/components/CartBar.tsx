@@ -21,7 +21,7 @@ let cartBarSprung = false;
 export function CartBar() {
   const router = useRouter(); // prefetch only — the navigation itself rides the journey grammar below
   const journey = useJourneyRouter(); // J1: menu→cart is a FORWARD cut; the total morphs into the checkout hero
-  const { count, totals, cartId, settled } = useCart();
+  const { count, totals, cartId, settled, items } = useCart();
   // W21 (Codex P1 on #191) — one navigation at a time while the drain runs (see onClick).
   const [leaving, setLeaving] = useState(false);
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
@@ -42,8 +42,21 @@ export function CartBar() {
     if (href) router.prefetch(href);
   }, [href, router]);
   if (!cartId || !href || count === 0) return null;
-  const subtotalCents = totals?.subtotalCents ?? 0;
-  const dollars = `$${(subtotalCents / 100).toFixed(2)}`;
+  // R1 (the viewport sweep, two reviewers independently) — `totals` is null until the FIRST
+  // server read lands, and the count flips optimistically before it: for that beat the bar read
+  // "1 · View order · $0.00" beside a row showing the dish at $14.00. A zero is a wrong money
+  // number on a money surface, not a wait. The doctrine is that amounts are never optimistic, so
+  // the amount slot shows a dash until a confirmed total exists (and the roll starts from the
+  // first real value instead of from $0). The count stays instant — that half IS optimistic by
+  // design.
+  // Measured on the preview (the first draft only covered `totals === null`): a cart that already
+  // existed empty has a CONFIRMED total of $0.00, and the optimistic count of 1 rode beside it for
+  // the whole 1.7s the add took — the same wrong number by another route. A write is in flight
+  // exactly when the optimistic count differs from the sum of the confirmed lines (the provider
+  // commits `items` and `totals` in one apply, so the two are never half-updated).
+  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
+  const pending = totals === null || count !== confirmedCount;
+  const dollars = pending || !totals ? "updating" : `$${(totals.subtotalCents / 100).toFixed(2)}`;
 
   return (
     <button
@@ -100,9 +113,29 @@ export function CartBar() {
       {/* Roll the subtotal as it changes (R7a). The button's accessible name is the static aria-label
           above (read on focus) — the rolling figure is presentation, not a per-tap announcement.
           `.vt-cart-total` (J1): on the menu→cart cut this figure MORPHS into the checkout hero total —
-          the money the diner is watching never blinks out of existence. */}
-      <span className="vt-cart-total" style={{ fontVariantNumeric: "tabular-nums" }}>
-        <NumberFlow value={subtotalCents / 100} format={{ style: "currency", currency: "USD" }} />
+          the money the diner is watching never blinks out of existence.
+          R1 — NumberFlow stays MOUNTED through a pending write, hidden under the dash, so the roll
+          plays the moment the confirmed value lands: the first draft swapped it out for the dash and
+          re-created it at the settled value, and the roll never ran for this device's own writes
+          (blind pass on #271). It first mounts only once a confirmed total exists, so it never
+          rolls up from a placeholder $0. */}
+      <span
+        className="vt-cart-total"
+        style={{ fontVariantNumeric: "tabular-nums", position: "relative", display: "inline-grid" }}
+      >
+        {totals && (
+          <span style={{ gridArea: "1 / 1", visibility: pending ? "hidden" : "visible" }}>
+            <NumberFlow
+              value={totals.subtotalCents / 100}
+              format={{ style: "currency", currency: "USD" }}
+            />
+          </span>
+        )}
+        {pending && (
+          <span aria-hidden style={{ gridArea: "1 / 1", textAlign: "center" }}>
+            —
+          </span>
+        )}
       </span>
     </button>
   );

@@ -242,7 +242,7 @@ function ItemSheetBody({
           alt=""
           width={440}
           height={248}
-          sizes="(max-width: 440px) 100vw, 440px"
+          sizes="(max-width: 47.99em) min(100vw, 440px), 544px"
           fallback={<PhotoPlaceholder category={item.category} variant="hero" />}
         />
         {/* J5 — the heart (uid-scoped favorite). A true toggle (aria-pressed), 44px, optimistic via the
