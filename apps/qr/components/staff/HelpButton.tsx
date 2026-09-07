@@ -32,8 +32,10 @@ type View = "menu" | "how" | "size";
  * re-interrupt every morning) the sheet opens straight onto the cards, once, and the device is
  * marked seen at that moment, not on close — a reload mid-first-visit must not re-open it. The read
  * runs in a microtask after mount (the board's own hydration pattern) so the server render and the
- * first client render agree and no state is set in an effect body. Storage refused → never auto-open:
- * an interruption on every load is worse than none.
+ * first client render agree and no state is set in an effect body; the mark is written by the pass
+ * that OPENS, after the liveness check, so StrictMode's discarded first pass cannot mark the device
+ * seen for the live one. Storage refused → never auto-open: an interruption on every load is worse
+ * than none.
  *
  * Nothing here is an irreversible write (a size is a localStorage preference the board already
  * owns), so the sheet carries no `busy` (§16). The circle is icon-only to the eye and NAMED by
@@ -63,14 +65,14 @@ export function HelpButton({
   useEffect(() => {
     let active = true;
     void Promise.resolve()
-      .then(() => {
-        const key = helpSeenKey(screen);
-        if (localStorage.getItem(key) === "1") return false;
-        localStorage.setItem(key, "1");
-        return true;
-      })
+      .then(() => localStorage.getItem(helpSeenKey(screen)) !== "1")
       .then((first) => {
         if (!active || !first) return;
+        // The mark rides the OPEN, never the read: StrictMode runs this effect twice on mount and
+        // discards the first — a mark written by the discarded pass would be read as "seen" by the
+        // live one, and the sheet would never open itself in dev. Written BEFORE the state so a
+        // refused write (a full or private store) means no open at all, not an open every load.
+        localStorage.setItem(helpSeenKey(screen), "1");
         setView("how");
         setStep(1);
         setOpen(true);
@@ -200,7 +202,13 @@ export function HelpButton({
           <div className="help-how">
             <div className="help-card card card-textured" role="group" aria-labelledby="help-lede">
               <HelpPicture screen={screen} n={step} lang={lang} />
-              <p id="help-lede" ref={ledeRef} tabIndex={-1} className="help-lede">
+              <p
+                id="help-lede"
+                ref={ledeRef}
+                tabIndex={-1}
+                className="help-lede"
+                aria-describedby="help-step"
+              >
                 <Chrome lang={lang} k={card.k} vars={cardVars?.[step]} echo="stack" />
               </p>
               <p className="help-more">
@@ -215,7 +223,7 @@ export function HelpButton({
               >
                 <Chrome lang={lang} k="help.back" echo="inline" />
               </button>
-              <p className="help-step">
+              <p id="help-step" className="help-step">
                 <Chrome lang={lang} k="help.step" vars={{ n: step, total: HELP_CARD_COUNT }} />
               </p>
               <button

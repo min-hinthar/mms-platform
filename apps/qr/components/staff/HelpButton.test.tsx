@@ -1,4 +1,5 @@
 /** @vitest-environment jsdom */
+import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { HELP_CARD_COUNT, helpSeenKey } from "@/lib/help";
@@ -54,6 +55,19 @@ describe("HelpButton", () => {
     expect(localStorage.getItem(helpSeenKey("counter"))).toBeNull();
   });
 
+  it("still opens itself under StrictMode — the seen mark rides the open, not the read", async () => {
+    // StrictMode mounts, unmounts and re-mounts every effect; a mark written by the DISCARDED first
+    // pass is read as "seen" by the live one and the first morning shows nothing. Dev runs
+    // StrictMode (`reactStrictMode: true`), so that is where the promise would silently break.
+    render(
+      <StrictMode>
+        <HelpButton lang="en" screen="expo" />
+      </StrictMode>,
+    );
+    await screen.findByRole("dialog");
+    expect(localStorage.getItem(helpSeenKey("expo"))).toBe("1");
+  });
+
   it("pages the cards one at a time, moves focus to each, and Got it closes on the last", async () => {
     seen("counter");
     render(<HelpButton lang="en" screen="counter" />);
@@ -62,7 +76,9 @@ describe("HelpButton", () => {
     const lede = () => document.getElementById("help-lede")!;
     await waitFor(() => expect(lede().textContent).toMatch(/Tap Register/));
     expect(document.activeElement).toBe(lede());
-    expect(screen.getByText(`Step 1 of ${HELP_CARD_COUNT}`)).not.toBeNull();
+    // Focus lands on the sentence; the step count is its DESCRIPTION, so "Step 1 of 4" is read too.
+    expect(lede().getAttribute("aria-describedby")).toBe("help-step");
+    expect(document.getElementById("help-step")!.textContent).toBe(`Step 1 of ${HELP_CARD_COUNT}`);
     for (let n = 2; n <= HELP_CARD_COUNT; n++) {
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       await waitFor(() =>
@@ -90,6 +106,10 @@ describe("HelpButton", () => {
     await screen.findByText(/Step 1 of/);
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     await screen.findByRole("list", { name: "Help topics" });
+    // The Back button that had focus is gone with the view; focus must still be INSIDE the dialog
+    // (the trap re-parks it on the sheet), never dropped on <body> behind the scrim.
+    const sheet = dialog().closest(".mms-sheet")!;
+    expect(sheet.contains(document.activeElement)).toBe(true);
   });
 
   it("the undo card quotes the number the board handed in — Burmese numerals under my", async () => {
@@ -119,6 +139,8 @@ describe("HelpButton", () => {
     expect(row.textContent).toMatch(/Now: Medium · 34 px/);
     fireEvent.click(row);
     const sizes = await screen.findByRole("group", { name: "Text size" });
+    // The row that was tapped unmounted with the view; focus stays inside the dialog.
+    expect(dialog().closest(".mms-sheet")!.contains(document.activeElement)).toBe(true);
     const pressed = sizes.querySelector('[aria-pressed="true"]')!;
     expect(pressed.textContent).toMatch(/Medium/);
     expect(pressed.textContent).toMatch(/34 px · 3 across/);

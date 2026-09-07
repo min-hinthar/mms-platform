@@ -24,8 +24,12 @@ against the component it explains (the undo card quotes the board's own `UNDO_MS
 slot — never typed twice; the lock card says the circle shows only once you have a PIN, because it
 does). **"Opens itself the first time" is kept per DEVICE**: the first mount of a screen's door on a
 tablet opens the sheet straight onto the cards, once, marked at open (a reload mid-first-visit must
-not re-open it); storage refused means never auto-open. **Nothing is two dialogs deep** — views, not
-stacked sheets — and focus moves to each card's sentence as it changes.
+not re-open it); storage refused means never auto-open. The mark is written by the pass that OPENS,
+after the liveness check — the first draft wrote it in the read, which StrictMode's discarded first
+pass would leave behind for the live one, so dev would never have shown the first morning at all.
+**Nothing is two dialogs deep** — views, not stacked sheets — focus moves to each card's sentence as
+it changes (the step count is its description), and when a view change unmounts the button that had
+focus, the sheet's trap re-parks it on the sheet itself, never on `<body>` behind the scrim.
 
 **42 `help.*` keys, every MY a Claude-authored draft pending K15, four marked K15-HIGH** (the bump,
 the 86 and the fire cards, and the takeaway board's paper card — band 50). `lib/help.ts` is the pure
@@ -34,13 +38,17 @@ missing fourth card would throw inside render with the sheet open). `KDS_SIZE_PX
 of `globals.css` held to the stylesheet by `kds-size.test.ts` (the Burmese item line at each dial
 position, and the sample word set at the same three sizes).
 
-**Guards.** `HelpButton.test.tsx` (7): the named gold circle, the rows, the first-visit auto-open
-once per device and per screen, paging with focus moved and Got it closing, Back's two meanings, the
-undo card's number in Burmese numerals, the size row and view (one pressed, a pick closes), the
-class carried through the portal, no live region of its own. `StaffBar.test` +2 (help before the
-switch; no slot → no circle). Three watched go red on induced defects (the auto-open removed, a
-size pixel changed, the help slot moved after the switch). The Sheet callers guard re-targets from
-`KdsBoard` to `HelpButton`. Counts re-measured (1876 qr + 142 ui tests, 467 mutants).
+**Guards.** `HelpButton.test.tsx` (8): the named gold circle, the rows, the first-visit auto-open
+once per device and per screen — and under `StrictMode`, paging with focus moved (the step count as
+the sentence's description) and Got it closing, Back's two meanings with focus kept inside the
+dialog, the undo card's number in Burmese numerals, the size row and view (one pressed, a pick
+closes, focus kept), the class carried through the portal, no live region of its own.
+`kds-size.test` +3: the pixel table and the sample word held to `globals.css`, and the "N across"
+the sheet quotes held to the wide grid's `repeat(N, 1fr)` at each size. `StaffBar.test` +2 (help
+before the switch; no slot → no circle). Six watched go red on induced defects (the auto-open
+removed, a size pixel changed, the help slot moved after the switch, the mark written in the read,
+the description dropped, the wide grid at five columns). The Sheet callers guard re-targets from
+`KdsBoard` to `HelpButton`. Counts re-measured (1878 qr + 142 ui tests, 467 mutants).
 
 ### The front door in Burmese (2026-09-07 · P7, PR 2)
 

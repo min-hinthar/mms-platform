@@ -51,6 +51,27 @@ describe("P7·3 — the sizes the Help sheet quotes are the sizes the board rend
     expect(KDS_SIZE_PX.m).toBe(px('.kds-root[data-size="m"]'));
     expect(KDS_SIZE_PX.l).toBe(px('.kds-root[data-size="l"]'));
   });
+  it("the '{n} across' the sheet quotes is the wide grid's column count at each size", () => {
+    // The sheet derives "across" as kdsPageSize / 2 (a two-row envelope). The columns actually LIVE
+    // in the 1200px media rules on `.kds-grid` — four at small, three under the m/l overrides — so
+    // the derivation is held to the stylesheet: a column count changed in CSS alone would leave the
+    // sheet quoting a layout the board no longer draws.
+    const wide = (selectors: string) => {
+      const block = css.match(
+        new RegExp(`@media \\(min-width: 1200px\\)\\s*\\{\\s*${selectors}\\s*\\{([^}]*)\\}`),
+      );
+      const cols = block?.[1]?.match(/grid-template-columns:\s*repeat\((\d+), 1fr\)/);
+      expect(cols, `wide columns for ${selectors}`).not.toBeUndefined();
+      return Number(cols![1]);
+    };
+    const small = wide("\\.kds-grid");
+    const large = wide(
+      '\\.kds-root\\[data-size="m"\\] \\.kds-grid,\\s*\\.kds-root\\[data-size="l"\\] \\.kds-grid',
+    );
+    expect(small).toBe(kdsPageSize("s") / 2);
+    expect(large).toBe(kdsPageSize("m") / 2);
+    expect(large).toBe(kdsPageSize("l") / 2);
+  });
   it("the sample word in the sheet is set at those same three sizes", () => {
     for (const sz of KDS_SIZES) {
       const block = css.match(
