@@ -7,6 +7,7 @@ import {
   helpCardKeys,
   helpSeenKey,
   helpTitleKey,
+  helpScreenNameKey,
 } from "./help";
 
 /**
@@ -37,6 +38,14 @@ describe("help — the door's pure part", () => {
     const count = (s: string) => (s.match(/\{n\}/g) ?? []).length;
     expect(count(STAFF[k].en)).toBe(1);
     expect(count(STAFF[k].my)).toBe(1);
+  });
+  it("each screen's NAME key exists and is the door's word, never the how-view's sentence", () => {
+    for (const screen of HELP_SCREENS) {
+      const k = helpScreenNameKey(screen);
+      expect(k in STAFF).toBe(true);
+      expect(k).not.toBe(helpTitleKey(screen));
+      expect(STAFF[k].en).not.toMatch(/^How /);
+    }
   });
   it("seen is a per-screen DEVICE key under one prefix", () => {
     expect(helpSeenKey("kitchen")).toBe(`${HELP_SEEN_PREFIX}kitchen`);

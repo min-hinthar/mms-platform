@@ -1,12 +1,14 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
-import { ts } from "@/lib/i18n/staff";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
 import {
   HELP_CARD_COUNT,
   helpCardKeys,
+  helpScreenNameKey,
   helpSeenKey,
   helpTitleKey,
   type HelpScreen,
@@ -14,11 +16,24 @@ import {
 import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
 import type { SlotsOf } from "@/lib/i18n/fill";
 import { useMediaQuery } from "@/lib/hooks/useMediaQuery";
+import { APP_VERSION } from "@/lib/app-version";
+import {
+  REPORT_MESSAGE_MAX,
+  connectionKey,
+  reportStatusKey,
+  type ReportConnection,
+  type StaffReportDraft,
+} from "@/lib/staff-report";
+import {
+  listMyStaffReports,
+  submitStaffReport,
+  type StaffReportRow,
+} from "@/lib/staff-report-actions";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
 
-type View = "menu" | "how" | "size";
+type View = "menu" | "how" | "size" | "report";
 
 /** Slot values a card interpolates, keyed by card number. */
 type HelpCardVars = Partial<Record<number, Record<string, string | number>>>;
@@ -29,6 +44,9 @@ type HelpProps = {
   size?: { value: KdsSize; onPick: (size: KdsSize) => void };
   /** Carried onto the sheet's root — the Night board passes `dark` (the sheet portals past `.kds-root`). */
   sheetClassName?: string;
+  /** What the screen believes about its feed, for the report's diagnostics. A server-rendered page
+   *  has no feed to speak of (`page`); a board says whether it is updating. */
+  connection?: ReportConnection;
 } & (
   | {
       screen: "kitchen";
@@ -42,14 +60,30 @@ type HelpProps = {
 /** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
 const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
 
+type MineState =
+  | { state: "idle" | "loading" | "failed"; rows: StaffReportRow[] }
+  | { state: "ready"; rows: StaffReportRow[] };
+
+/** A getter that may throw before PostHog is up (tests, a blocked script) → simply absent. */
+function safe(read: () => string | undefined): string | undefined {
+  try {
+    const v = read();
+    return typeof v === "string" && v ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * P7·3 — the Help door: the ONE gold circle in the staff bar (its `help` slot, before the language
  * switch) on the kitchen board, the counter and the takeaway board, and the sheet behind it.
  *
- * ONE sheet, three views, so the person is never two dialogs deep: `menu` is the rows (the Settings
+ * ONE sheet, four views, so the person is never two dialogs deep: `menu` is the rows (the Settings
  * idiom, like More); `how` is the four cards, one at a time with a Next that becomes "Got it" —
  * one thing to read per screen is the whole point for a first morning; `size` (the board only) is
- * the three sizes shown on a real dish word at each size, the chosen one wearing the gold cap.
+ * the three sizes shown on a real dish word at each size, the chosen one wearing the gold cap;
+ * `report` (P7·4) is "Something's wrong" — a few words from the person, the facts the app can see
+ * sent with them, and the person's own reports listed back with their status.
  *
  * "OPENS ITSELF THE FIRST TIME" is a promise the copy makes, so it is kept here: the first time a
  * DEVICE mounts a screen's door (localStorage, like the station and the size — a session fact would
@@ -61,12 +95,14 @@ const pxLabel = (size: KdsSize) => `${KDS_SIZE_PX[size]} px`;
  * seen for the live one. Storage refused → never auto-open: an interruption on every load is worse
  * than none.
  *
- * Nothing here is an irreversible write (a size is a localStorage preference the board already
- * owns), so the sheet carries no `busy` (§16). The circle is icon-only to the eye and NAMED by
- * sr-only dictionary text through <Chrome> (rule 3), like every circle in the bar.
+ * The report is the one IRREVERSIBLE write behind this sheet (a row, an email, an issue), so the
+ * sheet is `busy` while it is in flight (§16 — a transition's `pending`, never a hand-rolled
+ * boolean); the size is a localStorage preference and the cards are reading. The circle is
+ * icon-only to the eye and NAMED by sr-only dictionary text through <Chrome> (rule 3), like every
+ * circle in the bar.
  */
 export function HelpButton(props: HelpProps) {
-  const { lang, screen, size, sheetClassName } = props;
+  const { lang, screen, size, sheetClassName, connection = "page" } = props;
   const cardVars: HelpCardVars | undefined = props.cardVars;
   const [open, setOpen] = useState(false);
   // "{n} across" is true only in the board's fixed envelope (`KDS_WIDE_MIN_PX`); narrower, the grid
@@ -75,6 +111,15 @@ export function HelpButton(props: HelpProps) {
   const [view, setView] = useState<View>("menu");
   const [step, setStep] = useState(1);
   const ledeRef = useRef<HTMLParagraphElement>(null);
+
+  // ── the report ──
+  const [text, setText] = useState("");
+  const [err, setErr] = useState<StaffKey | null>(null);
+  const [sent, setSent] = useState<{ shortId: string } | null>(null);
+  const [mine, setMine] = useState<MineState>({ state: "idle", rows: [] });
+  const [pending, startTransition] = useTransition();
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const sentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -109,18 +154,100 @@ export function HelpButton(props: HelpProps) {
     if (open && view === "how") ledeRef.current?.focus();
   }, [open, view, step]);
 
+  // The reporter's own list loads when the report view opens (once per open; a send refreshes it).
+  // The load is a callback, not the effect body, so the first render of the view is honest about
+  // being empty-and-loading rather than flashing "none yet".
+  useEffect(() => {
+    if (!open || view !== "report" || mine.state !== "idle") return;
+    let active = true;
+    void Promise.resolve().then(() => {
+      if (!active) return;
+      setMine((m) => ({ state: "loading", rows: m.rows }));
+      void listMyStaffReports().then((res) => {
+        if (!active) return;
+        setMine(res.ok ? { state: "ready", rows: res.rows } : { state: "failed", rows: [] });
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, view, mine.state]);
+
+  // The sent card takes focus: the send button that had it is gone with the form.
+  useEffect(() => {
+    if (sent) sentRef.current?.focus();
+  }, [sent]);
+
   function show(next: boolean) {
+    if (!next && pending) return; // the sheet is busy — the choke point refuses too; belt and brace
     setOpen(next);
     if (!next) {
       setView("menu");
       setStep(1);
+      setErr(null);
+      setSent(null);
+      setMine({ state: "idle", rows: [] });
     }
+  }
+
+  function draft(): StaffReportDraft {
+    return {
+      screen,
+      message: text,
+      lang,
+      path: window.location.pathname,
+      connection,
+      appVersion: APP_VERSION,
+      device: {
+        ua: navigator.userAgent.slice(0, 400),
+        viewport: `${window.innerWidth}×${window.innerHeight}`,
+        online: navigator.onLine,
+        tz: safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+        clientTime: new Date().toISOString(),
+        posthogDistinctId: safe(() => posthog.get_distinct_id()),
+        posthogSessionId: safe(() => posthog.get_session_id()),
+      },
+    };
+  }
+
+  function send() {
+    if (pending) return; // one report per tap; the button says so through aria-disabled
+    if (!text.trim()) {
+      setErr("report.empty");
+      fieldRef.current?.focus();
+      return;
+    }
+    haptic("commit");
+    setErr(null);
+    startTransition(async () => {
+      const res = await submitStaffReport(draft());
+      if (!res.ok) {
+        setErr(
+          res.reason === "outage"
+            ? "report.err.outage"
+            : res.reason === "auth"
+              ? "report.err.auth"
+              : "report.err.save",
+        );
+        return;
+      }
+      setText("");
+      setSent({ shortId: res.shortId });
+      setMine({ state: "idle", rows: [] }); // re-read: the new row must appear in the list
+    });
   }
 
   const card = helpCardKeys(screen, step);
   const last = step === HELP_CARD_COUNT;
   const title =
-    view === "how" ? helpTitleKey(screen) : view === "size" ? "kds.size.title" : "help.title";
+    view === "how"
+      ? helpTitleKey(screen)
+      : view === "size"
+        ? "kds.size.title"
+        : view === "report"
+          ? "report.row"
+          : "help.title";
+  const clock = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   return (
     <>
@@ -145,6 +272,7 @@ export function HelpButton(props: HelpProps) {
       <Sheet
         open={open}
         onOpenChange={show}
+        busy={pending}
         title={<Chrome lang={lang} k={title} echo="stack" />}
         className={sheetClassName ? `help-sheet ${sheetClassName}` : "help-sheet"}
       >
@@ -212,6 +340,28 @@ export function HelpButton(props: HelpProps) {
                   </button>
                 </li>
               )}
+              <li>
+                <button
+                  type="button"
+                  className="staff-row help-row staff-press"
+                  onClick={() => {
+                    haptic("pick");
+                    setErr(null);
+                    setView("report");
+                  }}
+                >
+                  <span className="staff-row-glyph help-glyph-warn" aria-hidden>
+                    <Icon name="alert" size={20} />
+                  </span>
+                  <span className="staff-row-name">
+                    <Chrome lang={lang} k="report.row" echo="stack" />
+                    <span className="help-row-sub">
+                      <Chrome lang={lang} k="report.row.sub" echo="stack" />
+                    </span>
+                  </span>
+                  <Icon name="chevron" size={20} className="staff-row-chev" aria-hidden />
+                </button>
+              </li>
             </ul>
           </div>
         )}
@@ -306,6 +456,162 @@ export function HelpButton(props: HelpProps) {
             >
               <Chrome lang={lang} k="help.back" echo="inline" />
             </button>
+          </div>
+        )}
+
+        {view === "report" && (
+          <div className="help-report">
+            {sent ? (
+              <div ref={sentRef} tabIndex={-1} className="help-report-sent">
+                <p className="help-report-sent-title">
+                  <Chrome lang={lang} k="report.sent" echo="stack" />
+                </p>
+                <p className="help-report-sent-sub">
+                  <Chrome lang={lang} k="report.sent.sub" vars={{ x: sent.shortId }} echo="stack" />
+                </p>
+              </div>
+            ) : (
+              <>
+                <p className="help-sub">
+                  <Chrome lang={lang} k="report.lede" echo="stack" />
+                </p>
+                <label htmlFor="help-report-field" className="help-report-label">
+                  <Chrome lang={lang} k="report.field" echo="stack" />
+                </label>
+                <textarea
+                  id="help-report-field"
+                  ref={fieldRef}
+                  className="help-report-field"
+                  value={text}
+                  maxLength={REPORT_MESSAGE_MAX}
+                  rows={4}
+                  readOnly={pending}
+                  onChange={(e) => {
+                    setText(e.target.value);
+                    if (err === "report.empty") setErr(null);
+                  }}
+                />
+                <ul
+                  className="help-report-attached"
+                  role="list"
+                  aria-label={sx(lang, "report.a11y.attached")}
+                >
+                  <li>
+                    <Chrome
+                      lang={lang}
+                      k="report.attached.screen"
+                      vars={{ x: ts(lang, helpScreenNameKey(screen)) }}
+                    />
+                  </li>
+                  <li>
+                    <Chrome lang={lang} k="report.attached.time" vars={{ t: clock }} />
+                  </li>
+                  <li>
+                    <Chrome
+                      lang={lang}
+                      k="report.attached.connection"
+                      vars={{ x: ts(lang, connectionKey(connection)) }}
+                    />
+                  </li>
+                  <li>
+                    <Chrome lang={lang} k="report.attached.version" vars={{ x: APP_VERSION }} />
+                  </li>
+                  <li>
+                    <Chrome lang={lang} k="report.attached.more" />
+                  </li>
+                </ul>
+                {/* The ONE live region of this sheet: the send's failure, or that it is sending. A
+                    success moves focus to the sent card instead, which announces itself. */}
+                <p role="status" className="help-report-status">
+                  {err ? (
+                    <Chrome lang={lang} k={err} />
+                  ) : pending ? (
+                    <Chrome lang={lang} k="report.sending" />
+                  ) : null}
+                </p>
+                <div className="help-report-actions">
+                  <button
+                    type="button"
+                    className="staff-back staff-press"
+                    aria-disabled={pending || undefined}
+                    onClick={() => {
+                      if (pending) return;
+                      setErr(null);
+                      setView("menu");
+                    }}
+                  >
+                    <Chrome lang={lang} k="help.back" echo="inline" />
+                  </button>
+                  <button
+                    type="button"
+                    className="help-next staff-press"
+                    aria-disabled={pending || !text.trim() || undefined}
+                    onClick={send}
+                  >
+                    <Chrome
+                      lang={lang}
+                      k={pending ? "report.sending" : "report.send"}
+                      echo="inline"
+                    />
+                  </button>
+                </div>
+              </>
+            )}
+
+            <p className="help-report-mine-title">
+              <Chrome lang={lang} k="report.mine" echo="inline" />
+            </p>
+            {mine.state === "failed" ? (
+              <p className="help-report-mine-note">
+                <Chrome lang={lang} k="report.mine.failed" echo="stack" />
+              </p>
+            ) : mine.state === "ready" && mine.rows.length === 0 ? (
+              <p className="help-report-mine-note">
+                <Chrome lang={lang} k="report.mine.none" echo="stack" />
+              </p>
+            ) : mine.state !== "ready" ? (
+              <p className="help-report-mine-note">
+                <Chrome lang={lang} k="report.mine.loading" />
+              </p>
+            ) : (
+              <ul
+                className="help-report-mine"
+                role="list"
+                aria-label={sx(lang, "report.a11y.mine")}
+              >
+                {mine.rows.map((r) => (
+                  <li key={r.id} className="help-report-item">
+                    <div className="help-report-item-head">
+                      <span lang="en">{r.shortId}</span>
+                      <span lang="en">{new Date(r.createdAt).toLocaleDateString()}</span>
+                    </div>
+                    <p className="help-report-item-msg">{r.message}</p>
+                    <div className="help-report-chips">
+                      <span className="help-report-chip" data-status={r.status}>
+                        <Chrome lang={lang} k={reportStatusKey(r.status)} />
+                      </span>
+                      {r.issueUrl && (
+                        <span className="help-report-chip help-report-chip-issue">
+                          <Chrome lang={lang} k="report.issue" />
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {sent && (
+              <button
+                type="button"
+                className="staff-back staff-press help-size-back"
+                onClick={() => {
+                  setSent(null);
+                  setView("menu");
+                }}
+              >
+                <Chrome lang={lang} k="help.back" echo="inline" />
+              </button>
+            )}
           </div>
         )}
       </Sheet>

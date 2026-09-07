@@ -10541,6 +10541,151 @@ html[data-fx="lite"] .mms-scrim {
   text-align: center;
 }
 
+/* ── P7·4 — "Something's wrong": the report view ── */
+.help-glyph-warn {
+  color: var(--warn);
+}
+.help-report-label {
+  display: block;
+  margin: 0 0 var(--s2);
+  font-weight: 700;
+}
+/* 17px, not 14: iOS zooms into any field under 16px and never zooms back out. */
+.help-report-field {
+  display: block;
+  width: 100%;
+  min-height: 132px;
+  padding: 12px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-size: 1.0625rem;
+  line-height: var(--lh-normal);
+  resize: vertical;
+}
+.help-report-field:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 2px;
+}
+.help-report-field[readonly] {
+  opacity: 0.7;
+}
+.help-report-attached {
+  list-style: none;
+  margin: var(--s3) 0 var(--s3);
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.help-report-status {
+  margin: 0 0 var(--s3);
+  min-height: 1.5em;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--warn);
+}
+.help-report-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: 0 0 var(--s4);
+}
+.help-report-actions .help-next[aria-disabled="true"] {
+  opacity: 0.55;
+}
+.help-report-sent {
+  margin: 0 0 var(--s4);
+  padding: var(--s4) var(--s5);
+  border-radius: var(--r-card);
+  border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--bd));
+  background: color-mix(in oklab, var(--ok) 10%, var(--cd));
+  outline: none;
+}
+.help-report-sent-title {
+  margin: 0 0 4px;
+  font-size: var(--fs-h3);
+  font-weight: 700;
+}
+.help-report-sent-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.help-report-mine-title {
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--t2);
+}
+.help-report-mine {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.help-report-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+}
+.help-report-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  font-size: var(--fs-xs);
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.help-report-item-msg {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--tx);
+  overflow-wrap: anywhere;
+}
+.help-report-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.help-report-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-full);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  background: color-mix(in oklab, var(--tx) 8%, var(--cd));
+  color: var(--t2);
+}
+.help-report-chip[data-status="triaged"] {
+  background: color-mix(in oklab, var(--ac) 18%, var(--cd));
+  color: var(--ac);
+}
+.help-report-chip[data-status="fixed"] {
+  background: color-mix(in oklab, var(--ok) 16%, var(--cd));
+  color: var(--ok);
+}
+.help-report-chip-issue {
+  background: color-mix(in oklab, var(--gold) 22%, var(--cd));
+  color: var(--tx);
+}
+.help-report-mine-note {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+
 /* ── the sizes — a real dish word at each size, the chosen one under the gold cap ── */
 .help-size-list {
   display: grid;

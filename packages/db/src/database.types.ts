@@ -1624,6 +1624,57 @@ export type Database = {
         }
         Relationships: []
       }
+      qr_staff_reports: {
+        Row: {
+          app_version: string | null
+          connection: string
+          created_at: string
+          device: Json
+          emailed_at: string | null
+          id: string
+          issue_url: string | null
+          lang: string
+          message: string
+          path: string
+          screen: string
+          staff_id: string
+          staff_name: string
+          status: string
+        }
+        Insert: {
+          app_version?: string | null
+          connection: string
+          created_at?: string
+          device?: Json
+          emailed_at?: string | null
+          id?: string
+          issue_url?: string | null
+          lang: string
+          message: string
+          path: string
+          screen: string
+          staff_id: string
+          staff_name: string
+          status?: string
+        }
+        Update: {
+          app_version?: string | null
+          connection?: string
+          created_at?: string
+          device?: Json
+          emailed_at?: string | null
+          id?: string
+          issue_url?: string | null
+          lang?: string
+          message?: string
+          path?: string
+          screen?: string
+          staff_id?: string
+          staff_name?: string
+          status?: string
+        }
+        Relationships: []
+      }
       qr_tables: {
         Row: {
           active: boolean

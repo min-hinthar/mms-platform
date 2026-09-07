@@ -4,6 +4,64 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Something's wrong — the report row, the email and the issue (2026-09-07 · P7, PR 4)
+
+**Min's C1 pick — "Email + a row you can see", no phone button ("nothing to explain over the
+phone").** The Help sheet gets its third row on every screen: **Something's wrong**. A few words
+from the person, and the app sends what it can see with them — the screen (by the door's own word,
+never the how-view's sentence), the time, what the board believes about its feed (`live` ·
+`not_updating` · `page`, handed in by the board, never guessed), the deployed version
+(`NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, `dev` when unset — never a fabricated one), and, unlisted but
+sent, the device (UA · viewport · online · timezone · clock) and the PostHog ids that let the
+captured exceptions be found. It is filed THREE ways, each honest about what it is: **the row**
+(`qr_staff_reports`, written FIRST, behind the staff gate, identity from the verified session),
+**the email** (Resend, to the admin address, after the row), **the issue** (a GitHub issue on this
+repository with the diagnostics table, label `staff-report`, best-effort on the owner's token —
+C17). Delivery outcomes are RECORDED on the row (`emailed_at`, `issue_url`), never assumed; a
+report whose deliveries both failed is still a report, and the person's own list under the form
+— "Your reports", newest first, with a status chip (Received · Being looked at · Fixed) and an
+"On the team's list" chip only when an issue really opened — shows only what the row says.
+
+**The gate is keyed, not sentenced.** `submitStaffReport` answers `outage` (the W10b unknowable
+answer — never a sign-in ask to a cook mid-outage), `auth`, `invalid` or `save`, so the sheet
+renders each refusal in the device language; the Zod rail (`staffReportInput`, no identity field
+to forge, `.strict()` device) mirrors every bound as a CHECK on the table (`supabase/tests/`
+`p7_staff_reports_test.sql` watches seven refusals and that a 2000-character report still passes),
+and a diner cannot read the table by either mechanism. The send is the sheet's one IRREVERSIBLE
+write, so the Sheet is `busy` while it is in flight (a transition's `pending`, §16); Send is
+`aria-disabled` while empty or in flight with the refusal in the handler and the field kept; an
+empty tap says so in the view's ONE live region and returns focus to the field; success moves
+focus to the sent card ("Got it — we're on it. Report 9F1C2A3B is saved.") and re-reads the list.
+The field is 17px so iOS never zooms into it. `after()` runs the deliveries post-response; the
+issue goes first so the email can link it.
+
+**31 `report.*` keys**, every MY a Claude-authored draft pending K15, two marked K15-HIGH (the
+sentence that tells Mom the problem is ours now; the failure sentence on the screen that reports
+failures — band 52). `lib/staff-report.ts` is the pure part (bounds · the short id a person reads
+back · exact status parse · the issue title and body derived ONCE, the words fenced so their
+markdown cannot restyle the issue and a fence inside them cannot close ours); `lib/github-issues.ts`
+is one `fetch` that never throws and never pretends (unset token → `unconfigured`, no request;
+anything but a 201 carrying a `github.com` URL → `failed`); `emails/StaffReportEmail.tsx` carries
+the same facts table.
+
+**Prod: the migration is NOT applied.** `20260907000000_p7_staff_reports.sql` waits for Min's go
+on the one-file MCP path (M159); until then the row insert fails and the sheet says
+"Couldn't save the report — try again", honestly. The owner config (the GitHub token, the label,
+the commit-SHA exposure) is **C17**.
+
+**Guards.** `staff-report.test.ts` (7) · `github-issues.test.ts` (5) · `staff-report-actions.test.ts`
+(10: the keyed gate; a forged staff id stripped; the row before any delivery, with `after()`
+queued and run on demand so "nothing delivered at answer time" is a measurement; both outcomes
+recorded as they were; a blocked delivery record logged; the list scoped to the caller) ·
+`HelpButton.test.tsx` +5 (the row on every screen; the field, the facts, ONE live region, the
+list with its chips; the empty refusal; the send with the draft's shape and the focus move; a keyed
+refusal with the words kept; Burmese with the Latin values marked and the screen's word not) ·
+`help.test` +1 (the screen's name key is the door's word) · the M82 busy-callers guard moves
+`HelpButton` to GUARDED. Four `verify:slice` mutants on the action (outage read as sign-in · the
+gate admitting anon · identity from the client · a failed email recorded as sent) — **471** now,
+93 target modules (83 under `apps/qr/lib`). Eight watched go red on induced defects. Counts
+re-measured (1914 qr + 142 ui tests).
+
 ### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
 
 **Min's B1 pick, on the anatomy 1b built.** ONE gold circle in the staff bar — the `help` slot,

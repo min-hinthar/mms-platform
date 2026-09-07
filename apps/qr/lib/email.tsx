@@ -5,6 +5,8 @@ import { AuthCodeEmail } from "@/emails/AuthCodeEmail";
 import { StaffInviteEmail } from "@/emails/StaffInviteEmail";
 import { StaffDeactivatedEmail } from "@/emails/StaffDeactivatedEmail";
 import { OrderReceiptEmail } from "@/emails/OrderReceiptEmail";
+import { StaffReportEmail } from "@/emails/StaffReportEmail";
+import { staffReportFacts, type StaffReportRecord } from "@/lib/staff-report";
 import type { ReceiptEntry } from "@/lib/receipt-entry";
 import { siteUrl } from "@/lib/site-url";
 import { BRAND_EMAIL } from "@/lib/brand";
@@ -82,6 +84,27 @@ export async function sendStaffInviteEmail(opts: {
 export async function sendStaffDeactivatedEmail(opts: { to: string }): Promise<EmailResult> {
   const html = await render(<StaffDeactivatedEmail />);
   return sendEmail(opts.to, "Your Mandalay Morning Star staff access is paused", html);
+}
+
+/**
+ * P7·4 — a staff report, to the restaurant's admin address (`STAFF_REPORT_TO` overrides it). Sent
+ * AFTER the row exists and after the GitHub issue attempt, so the email can say where it went.
+ * Best-effort like every sender here: `{ok:false}` is recorded on the row, never thrown.
+ */
+export async function sendStaffReportEmail(
+  report: StaffReportRecord & { shortId: string; issueUrl: string | null },
+): Promise<EmailResult> {
+  const to = process.env.STAFF_REPORT_TO || BRAND_EMAIL;
+  const html = await render(
+    <StaffReportEmail
+      shortId={report.shortId}
+      screen={report.screen}
+      message={report.message}
+      facts={staffReportFacts(report)}
+      issueUrl={report.issueUrl}
+    />,
+  );
+  return sendEmail(to, `[MMS QR] Something's wrong on ${report.screen} — ${report.shortId}`, html);
 }
 
 /** W7a — is the DINER receipt sender configured? (C8: `RESEND_RECEIPT_FROM` is the diner-facing

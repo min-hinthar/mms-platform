@@ -3904,6 +3904,41 @@ const MUTANTS = [
   // it can ever leave, the second decides which tickets a page shows. Each rule is falsified by a
   // value in its own suite; a guard here that survives is a tablet that can be trapped.
   {
+    id: "staff-report/outage-reads-as-sign-in",
+    file: "apps/qr/lib/staff-report-actions.ts",
+    suite: "lib/staff-report-actions.test.ts",
+    why: "P7·4 — an UNKNOWABLE auth answer (transport failed) must be `outage`, never `auth`: `auth` tells a signed-in cook mid-outage to sign in again — the W10b loop that ends in a destroyed board — when the honest sentence is 'try again in a moment'",
+    find: '  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };\n  if (auth.kind !== "staff") return { ok: false, reason: "auth" };\n  const parsed = staffReportInput.safeParse(input);',
+    replace:
+      '  if (auth.kind !== "staff") return { ok: false, reason: "auth" };\n  const parsed = staffReportInput.safeParse(input);',
+  },
+  {
+    id: "staff-report/gate-admits-anon",
+    file: "apps/qr/lib/staff-report-actions.ts",
+    suite: "lib/staff-report-actions.test.ts",
+    why: "P7·4 — the report is written service-role; the ONLY thing between an anonymous POST and a row under a fabricated identity is this refusal. Narrowing it to `not_staff` admits `anon`",
+    find: '  if (auth.kind !== "staff") return { ok: false, reason: "auth" };\n  const parsed = staffReportInput.safeParse(input);',
+    replace:
+      '  if (auth.kind === "not_staff") return { ok: false, reason: "auth" };\n  const parsed = staffReportInput.safeParse(input);',
+  },
+  {
+    id: "staff-report/identity-from-the-client",
+    file: "apps/qr/lib/staff-report-actions.ts",
+    suite: "lib/staff-report-actions.test.ts",
+    why: "P7·4 — the reporter is the VERIFIED session, never the input: a client that names a staff id files reports under someone else, and the email and the issue would carry that name as fact",
+    find: "      staff_id: auth.caller.staffId,\n      staff_name: auth.caller.displayName,",
+    replace:
+      "      staff_id: (input as { staff_id?: string }).staff_id ?? auth.caller.staffId,\n      staff_name: auth.caller.displayName,",
+  },
+  {
+    id: "staff-report/email-recorded-as-sent-when-it-failed",
+    file: "apps/qr/lib/staff-report-actions.ts",
+    suite: "lib/staff-report-actions.test.ts",
+    why: "P7·4 — delivery outcomes are RECORDED as they were; stamping `emailed_at` on a failed send tells the next reader an owner was told when nobody was",
+    find: "      emailed_at: email.ok ? new Date().toISOString() : null,",
+    replace: "      emailed_at: new Date().toISOString(),",
+  },
+  {
     id: "staff-door/doors-param-loses-to-remembered-door",
     file: "apps/qr/lib/staff-door.ts",
     suite: "lib/staff-door.test.ts",

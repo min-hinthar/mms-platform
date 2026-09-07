@@ -59,7 +59,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **467 `verify:slice` mutants** · **92 target modules** (82 under `apps/qr/lib`, 3 API routes,
+> **471 `verify:slice` mutants** · **93 target modules** (83 under `apps/qr/lib`, 3 API routes,
 > 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
@@ -87,9 +87,13 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    **PR 3 — the Help door: one gold circle on the board, the counter and expo → one sheet (the
 >    rows · "How this screen works", four cards per screen with the real control as the picture,
 >    opening itself once per device · the board's text size on a real dish word) — is BUILT on
->    `claude/feat/p7-3-help`, stacked on PR 2; 42 `help.*` keys, every MY a draft.** PR 4 (the
->    report: migration + Resend + GitHub issue — it adds the sheet's third row, "Something's wrong")
->    is next. Merge order is the stack order: #264 → #266 → #267 → PR 3, each base flipped to `main`
+>    `claude/feat/p7-3-help`, stacked on PR 2 (#268, blind REJECT → fixed in `7640e01`); 42 `help.*`
+>    keys, every MY a draft.** **PR 4 — "Something's wrong": the sheet's third row → a row in
+>    `qr_staff_reports` (written first, identity from the session) + a Resend email + a GitHub issue
+>    with the diagnostics, outcomes recorded on the row, the person's reports listed back — is BUILT
+>    on `claude/feat/p7-4-report`, stacked on PR 3; 31 `report.*` keys, every MY a draft. ⚠️ The
+>    migration is NOT applied to prod (M159 — one-file MCP path, Min's go) and the GitHub token is
+>    owner config (C17).** Merge order is the stack order: #264 → #266 → #267 → #268 → PR 4, each base flipped to `main`
 >    after the one beneath merges (`git merge` main in, never rebase). The build order and every
 >    decision are in `docs/PILOT_PLAN.md` §Code P7.
 > 2. **P4 — the Day-0 walkthrough — is the only other `docs/PILOT_PLAN.md` §Code row still unbuilt.**
@@ -97,14 +101,15 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    finds — and it now also answers P7c/P7d (the referer on the real tablet; the shortcut names).
 > 3. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
 >    money gate. It is the exception that keeps P2e from being fully closed.
-> 4. **The K15 native check has a queue now** — the 50-key first band on `/staff/glossary` (40 until
->    PR 2 marked six front-door sentences and PR 3 four help cards), plus two MY values the merge
+> 4. **The K15 native check has a queue now** — the 52-key first band on `/staff/glossary` (40 until
+>    PR 2 marked six front-door sentences, PR 3 four help cards and PR 4 two report sentences), plus two MY values the merge
 >    train authored as drafts (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added
 >    (the doors, More, Screens, the three sizes, two tiles), the four PR 1b added (Lock, Locking…,
 >    Console tools, Text size), the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN
->    vocabulary and the error boundary, the first thing Dad reads — and the **42 PR 3 added**, the
->    twelve help cards and the sheet around them. All marked in `lib/i18n/staff.ts` as pending Min's
->    read; the sheet derives them at render.
+>    vocabulary and the error boundary, the first thing Dad reads — the **42 PR 3 added**, the
+>    twelve help cards and the sheet around them — and the **31 PR 4 added**, the report row, its
+>    field, the facts sent with it, the outcomes and the status chips. All marked in
+>    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
 > 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
 >    M158). Sweep it before claiming anything is done.
 >
@@ -516,7 +521,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1885 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (471 today)**, **1372 qr + 138 ui tests at the time (1914 + 142 today)**, 69 target modules at the time (83 under `apps/qr/lib` today, 93 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1408,7 +1413,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1885 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 471 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1914 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2130,7 +2135,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (467 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (471 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

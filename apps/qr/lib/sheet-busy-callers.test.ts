@@ -62,6 +62,9 @@ const GUARDED: [file: string, because: string][] = [
   ],
   ["staff/StaffModSheet.tsx", "the add's refusal renders only inside this sheet, behind the scrim"],
   ["staff/RefundActionSheet.tsx", "real money leaves the account"],
+  // P7·4 — "Something's wrong": a row, an email and a GitHub issue leave on Send; dismissing
+  // mid-flight would hide how it ended (the id the person reads back to us).
+  ["staff/HelpButton.tsx", "a report is filed three ways on Send"],
 ];
 
 /** Sheets that must stay dismissible — pickers, viewers, and writes that land above the sheet. */
@@ -75,8 +78,6 @@ const UNGUARDED = [
   "grocery/GroceryItemSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
-  // P7·3 — the Help door: four cards, a localStorage preference (the size), nothing irreversible.
-  "staff/HelpButton.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {

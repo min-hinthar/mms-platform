@@ -1908,6 +1908,65 @@ export const STAFF = {
   },
   "help.a11y.rows": { en: "Help topics", my: "အကူအညီ ခေါင်းစဉ်များ" },
   "help.a11y.pager": { en: "Steps", my: "အဆင့်များ" },
+
+  // ── P7·4 — "Something's wrong": the report row in the Help sheet ─────────────────────────────
+  // Every MY value a Claude-authored draft pending K15. The row, the field, what is sent with it,
+  // the outcome sentences, the reporter's own list and its status chips.
+  "report.row": { en: "Something’s wrong", my: "တစ်ခုခု မှားနေတယ်" },
+  "report.row.sub": {
+    en: "A few words — it reaches the team",
+    my: "စကားလုံး အနည်းငယ် — အဖွဲ့ဆီ ရောက်ပါမယ်",
+  },
+  "report.lede": {
+    en: "What happened? A few words is enough — the rest is sent with it.",
+    my: "ဘာဖြစ်သွားလဲ? စကားလုံး အနည်းငယ်နဲ့ လုံလောက်ပါတယ် — ကျန်တာ အတူ ပို့ပေးပါမယ်။",
+  },
+  "report.field": { en: "What happened", my: "ဘာဖြစ်သွားလဲ" },
+  "report.attached": { en: "Sent with it", my: "အတူ ပို့မယ့် အချက်အလက်" },
+  "report.attached.screen": { en: "Screen: {x}", my: "စခရင် · {x}" },
+  "report.attached.time": { en: "Time: {t}", my: "အချိန် · {t}" },
+  "report.attached.connection": { en: "Connection: {x}", my: "ချိတ်ဆက်မှု · {x}" },
+  "report.attached.version": { en: "Version: {x}", my: "ဗားရှင်း · {x}" },
+  "report.attached.more": {
+    en: "Plus device details and this session’s ids.",
+    my: "ထပ်ပြီး စက်အချက်အလက်နဲ့ ခြေရာခံ နံပါတ်များ။",
+  },
+  "report.conn.live": { en: "updating", my: "အသစ်တက်နေ" },
+  "report.conn.notUpdating": { en: "not updating", my: "အသစ်မတက်ပါ" },
+  "report.conn.page": { en: "page loaded", my: "စာမျက်နှာ ဖွင့်ထား" },
+  "report.send": { en: "Send", my: "ပို့မယ်" },
+  "report.sending": { en: "Sending…", my: "ပို့နေသည်…" },
+  "report.empty": { en: "Write a few words first.", my: "စကားလုံး အနည်းငယ် အရင် ရေးပါ။" },
+  "report.sent": { en: "Got it — we’re on it.", my: "ရပြီ — ကျွန်တော်တို့ ကြည့်ပေးပါမယ်။" }, // K15-HIGH — the one sentence that tells Mom the problem is now ours
+  "report.sent.sub": {
+    en: "Report {x} is saved. Your reports are listed below.",
+    my: "အစီရင်ခံစာ {x} သိမ်းပြီးပါပြီ။ သင့်အစီရင်ခံစာတွေက အောက်မှာပါ။",
+  },
+  "report.mine": { en: "Your reports", my: "သင့် အစီရင်ခံစာများ" },
+  "report.mine.none": { en: "None yet.", my: "မရှိသေးပါ။" },
+  "report.mine.loading": { en: "Loading…", my: "ဖွင့်နေသည်…" },
+  "report.mine.failed": {
+    en: "Couldn’t load your reports — try again.",
+    my: "သင့်အစီရင်ခံစာတွေ မဖွင့်နိုင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "report.status.open": { en: "Received", my: "လက်ခံရရှိပြီ" },
+  "report.status.triaged": { en: "Being looked at", my: "ကြည့်နေပါပြီ" },
+  "report.status.fixed": { en: "Fixed", my: "ပြင်ပြီးပါပြီ" },
+  "report.issue": { en: "On the team’s list", my: "အဖွဲ့ စာရင်းထဲ ရောက်ပြီ" },
+  "report.err.outage": {
+    en: "Couldn’t send right now — try again in a moment.",
+    my: "အခု မပို့နိုင်ပါ — ခဏနေ ထပ်ကြိုးစားပါ။",
+  }, // K15-HIGH — a failure sentence on the screen that reports failures
+  "report.err.auth": { en: "Sign in again to send this.", my: "ဒါကို ပို့ဖို့ ပြန်ဝင်ပါ။" },
+  "report.err.save": {
+    en: "Couldn’t save the report — try again.",
+    my: "အစီရင်ခံစာ မသိမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "report.a11y.attached": {
+    en: "Sent with the report",
+    my: "အစီရင်ခံစာနဲ့ အတူ ပို့မယ့် အချက်အလက်",
+  },
+  "report.a11y.mine": { en: "Your reports", my: "သင့် အစီရင်ခံစာများ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -1964,7 +2023,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
 /**
  * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
  *
- * These are the 50 the printed word-check sheet puts in its first band, so that ten minutes with
+ * These are the 52 the printed word-check sheet puts in its first band, so that ten minutes with
  * the sheet buys the corrections that matter most: a held ticket read as live is food cooked an hour
  * early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences are
  * the only instruction anyone has when nothing else on the tablet works.
@@ -2034,6 +2093,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.loss.cooking",
   "table.loss.hint.comp",
   "table.loss.hint.void",
+  "report.err.outage",
+  "report.sent",
 ]);
 
 /**

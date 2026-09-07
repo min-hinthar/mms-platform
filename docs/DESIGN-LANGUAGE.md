@@ -693,3 +693,15 @@ built.
   only inside the board's fixed envelope). "Opens itself the first time" is a DEVICE fact
   (localStorage, per screen) kept at open, not at close — written by the pass that opens, so
   StrictMode's discarded first pass cannot spend it.
+- **"Something's wrong" is the sheet's third row, and it files a report three ways without
+  pretending** (P7·4). The row is written FIRST, behind the gate, with the reporter's identity from
+  the verified session (the input has no identity field to forge); the email and the GitHub issue
+  run post-response and what they achieved is RECORDED on the row — the person's own list shows a
+  status chip from the row and an "On the team's list" chip only when an issue really opened. The
+  facts sent are the ones the app can SEE (the screen by the door's own word, the time, the board's
+  own connection state handed in, the deployed version or `dev`), never a guess; the words are
+  fenced in the issue so a person's markdown cannot restyle it. The send is the sheet's one
+  irreversible write: `busy` while in flight, Send `aria-disabled` with the refusal in the handler,
+  the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
+  back on the field, success announced by moving focus to the sent card. The gate answers KEYS
+  (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.
