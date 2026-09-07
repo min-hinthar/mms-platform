@@ -83,23 +83,28 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    sixteen pages — is BUILT on `claude/feat/p7-1b-premium-feel`, stacked on it (#266, blind
 >    REJECT → fixed in `5043014`)**; **PR 2 — the front door in Burmese (login · lock · PIN ·
 >    error; 59 new keys under `entry.*` / `pin.*` / `out.err.*`, every MY a draft) — is BUILT on
->    `claude/feat/p7-2-front-door`, stacked on 1b.** PR 3 (the one gold Help chip + "How this
->    screen works" sheets) and PR 4 (the report: migration + Resend + GitHub issue) follow,
->    smallest first, one at a time. Merge order is the stack order: #264 → #266 → PR 2, each base
->    flipped to `main` after the one beneath merges (`git merge` main in, never rebase). The build
->    order and every decision are in `docs/PILOT_PLAN.md` §Code P7.
+>    `claude/feat/p7-2-front-door`, stacked on 1b (#267, blind REJECT → fixed in `8db3e7d`).**
+>    **PR 3 — the Help door: one gold circle on the board, the counter and expo → one sheet (the
+>    rows · "How this screen works", four cards per screen with the real control as the picture,
+>    opening itself once per device · the board's text size on a real dish word) — is BUILT on
+>    `claude/feat/p7-3-help`, stacked on PR 2; 42 `help.*` keys, every MY a draft.** PR 4 (the
+>    report: migration + Resend + GitHub issue — it adds the sheet's third row, "Something's wrong")
+>    is next. Merge order is the stack order: #264 → #266 → #267 → PR 3, each base flipped to `main`
+>    after the one beneath merges (`git merge` main in, never rebase). The build order and every
+>    decision are in `docs/PILOT_PLAN.md` §Code P7.
 > 2. **P4 — the Day-0 walkthrough — is the only other `docs/PILOT_PLAN.md` §Code row still unbuilt.**
 >    It is a fix PR, not a build: walk the §D edge-case matrix (`QA-CHECKLIST`) and fix what it
 >    finds — and it now also answers P7c/P7d (the referer on the real tablet; the shortcut names).
 > 3. **P3b (high) is the live money row**: a Stripe Terminal charge is invisible to every cart-level
 >    money gate. It is the exception that keeps P2e from being fully closed.
-> 4. **The K15 native check has a queue now** — the 46-key first band on `/staff/glossary` (40 until
->    PR 2 marked six front-door sentences), plus two MY values the merge train authored as drafts
->    (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added (the doors, More, Screens,
->    the three sizes, two tiles), the four PR 1b added (Lock, Locking…, Console tools, Text size)
->    and the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN vocabulary and the error
->    boundary, the first thing Dad reads. All marked in `lib/i18n/staff.ts` as pending Min's read;
->    the sheet derives them at render.
+> 4. **The K15 native check has a queue now** — the 50-key first band on `/staff/glossary` (40 until
+>    PR 2 marked six front-door sentences and PR 3 four help cards), plus two MY values the merge
+>    train authored as drafts (`floor.fb.unavailable`, `what.glossary`), the thirteen P7 PR 1 added
+>    (the doors, More, Screens, the three sizes, two tiles), the four PR 1b added (Lock, Locking…,
+>    Console tools, Text size), the **59 PR 2 added** — the whole sign-in, the lock screen, the PIN
+>    vocabulary and the error boundary, the first thing Dad reads — and the **42 PR 3 added**, the
+>    twelve help cards and the sheet around them. All marked in `lib/i18n/staff.ts` as pending Min's
+>    read; the sheet derives them at render.
 > 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
 >    M158). Sweep it before claiming anything is done.
 >
@@ -511,7 +516,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1862 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1885 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1403,7 +1408,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1862 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1885 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

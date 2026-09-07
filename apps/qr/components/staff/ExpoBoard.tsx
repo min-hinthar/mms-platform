@@ -22,7 +22,9 @@ import { StaggerList } from "./StaggerList";
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
+import { HelpButton } from "./HelpButton";
 import { RoleBadge } from "./RoleBadge";
+import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
 import type { StaffRole } from "@/lib/staff";
 import { Chrome, OutageText } from "./Chrome";
 
@@ -168,6 +170,7 @@ export function ExpoBoard({
         titleRef={headingRef}
         titleTabIndex={-1}
         after={role ? <RoleBadge role={role} /> : undefined}
+        help={<HelpButton lang={lang} screen="expo" />}
         lock={hasPin}
       />
       <div className="staff-col" style={{ maxWidth: 1100, margin: "0 auto" }}>
@@ -181,11 +184,7 @@ export function ExpoBoard({
             <p
               role="status"
               lang={!err && degraded ? lang : undefined}
-              style={{
-                margin: 0,
-                fontSize: "var(--fs-sm)",
-                color: err || degraded ? "var(--warn)" : "var(--t2)",
-              }}
+              className={err || degraded ? "expo-status expo-status-warn" : "expo-status"}
             >
               {err !== null ? (
                 // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
@@ -580,17 +579,3 @@ const destTag: CSSProperties = {
   letterSpacing: "0.04em",
   color: "var(--t2)",
 };
-const bumpBtn: CSSProperties = {
-  minHeight: 44,
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  fontWeight: 700,
-  fontSize: "var(--fs-sm)",
-  cursor: "pointer",
-};
-const readyBtn: CSSProperties = {
-  background: "var(--ac)",
-  color: "var(--oa)",
-  borderColor: "var(--ac)",
-};
-const pickedBtn: CSSProperties = { background: "var(--cd)", color: "var(--tx)" };

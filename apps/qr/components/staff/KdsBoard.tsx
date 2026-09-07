@@ -23,11 +23,12 @@ import type {
   KitchenStation,
   KitchenTicket,
 } from "@/lib/kitchen-types";
-import { EmptyState, Icon, Sheet } from "@mms/ui";
+import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
-import { KDS_SIZES, KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
+import { KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
+import { HelpButton } from "./HelpButton";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
@@ -149,7 +150,6 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [station, setStation] = useState<"all" | KitchenStation>("all");
   const [railOpen, setRailOpen] = useState(false);
   const [size, setSize] = useState<KdsSize>("s");
-  const [sizeOpen, setSizeOpen] = useState(false);
   const [page, setPage] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
   const [volume, setVolume] = useState(0.8);
@@ -465,7 +465,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       {/* P7·1b — the ONE staff bar: the Screens circle (on a kitchen tablet `/staff` is not a floor
           but the doors, and `?doors=1` wins over the remembered door, so the board can always be
           left), the title as the board's h1 (focus lands here after a bump/recall), the station
-          filter as a segmented control in the middle, and Aa — the text-size sheet — trailing. In
+          filter as a segmented control in the middle, and the Help door (P7·3 — the text size lives
+          inside it) before the switch. In
           Night the bar is glass the tickets scroll under. */}
       <StaffBar
         lang={lang}
@@ -489,54 +490,19 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             ))}
           </div>
         }
-        trailing={
-          <button
-            type="button"
-            className="staff-circ staff-press"
-            aria-haspopup="dialog"
-            aria-expanded={sizeOpen}
-            onClick={() => setSizeOpen(true)}
-          >
-            <span
-              aria-hidden
-              style={{ fontWeight: 800, fontSize: "var(--fs-body)", letterSpacing: "-0.02em" }}
-            >
-              Aa
-            </span>
-            <span className="sr-only">
-              <Chrome lang={lang} k="kds.size.title" />
-            </span>
-          </button>
+        help={
+          <HelpButton
+            lang={lang}
+            screen="kitchen"
+            size={{ value: size, onPick: pickSize }}
+            // The undo window the second card quotes is the board's OWN constant, never typed twice.
+            cardVars={{ 2: { n: UNDO_MS / 1000 } }}
+            // The sheet portals to <body>, outside `.kds-root.dark`: without this it paints in the
+            // document's theme — light on a light-OS tablet — over the Night board.
+            sheetClassName="dark"
+          />
         }
       />
-      {/* P7·1b — the three sizes live in a SHEET (P7b): a 44px choice each, the current one pressed;
-          choosing closes it. `Sheet` owns the four exits (§16); nothing here is an irreversible
-          write, so no `busy`. */}
-      <Sheet
-        open={sizeOpen}
-        onOpenChange={setSizeOpen}
-        title={<Chrome lang={lang} k="kds.size.title" echo="stack" />}
-        // The sheet portals to <body>, outside `.kds-root.dark`: without this it paints in the
-        // document's theme — light on a light-OS tablet — over the Night board.
-        className="dark"
-      >
-        <div className="kds-size-group" role="group" aria-label={sx(lang, "kds.a11y.size")}>
-          {KDS_SIZES.map((sz) => (
-            <button
-              key={sz}
-              type="button"
-              className="kds-chip staff-press"
-              aria-pressed={size === sz}
-              onClick={() => {
-                pickSize(sz);
-                setSizeOpen(false);
-              }}
-            >
-              <Chrome lang={lang} k={`kds.size.${sz}`} />
-            </button>
-          ))}
-        </div>
-      </Sheet>
       <div className="kds-head">
         {/* `role="group"`: a bare <div> is the `generic` role, which prohibits an author name — the
             `aria-label` below was silently discarded until rule 3d went in. */}

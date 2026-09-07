@@ -4,6 +4,93 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The Help door — one gold circle, one sheet, four cards per screen (2026-09-07 · P7, PR 3)
+
+**Min's B1 pick, on the anatomy 1b built.** ONE gold circle in the staff bar — the `help` slot,
+before the language switch — on the three screens the parents run (the kitchen board, the counter,
+the takeaway board), opening ONE sheet with three views: the rows (the Settings idiom More already
+uses), **"How this screen works"** — four cards, one at a time, Next becoming "Got it" — and, on the
+board, **the text size** shown on a real dish word at each of the three sizes (the F6 board), the
+chosen one under the gold cap. The 1b Aa circle is gone from the bar, as the F2 board drew it: the
+size lives inside Help now. The third row the canvas drew, "Something's wrong", waits for PR 4 —
+a row that leads nowhere is the dead control §16 forbids.
+
+**Every card's picture is the real control's own DECLARATION.** `HelpPicture` renders the bump
+button, the undo bar, the 86 chip, the dashed held card with its Fire button, the Register tile, a
+table card, the two circles, the two takeaway stages and the takeaway board's status line in the
+control's own class where it has one (`.kds-bump`, `.kds-line-86`, `.staff-circ`,
+`.staff-counter-primary`), its exported style object where it is styled inline (`expo-stage.ts`,
+now shared by `ExpoBoard`; `tableCardStyle` from `TableCard`), and for the undo pill the ONE CSS
+rule that names both the button and the replica — never a new class that copies the look, because
+that copy is the drift the picture exists to prevent, and the blind pass found it had already
+happened: the first draft drew the takeaway stages green and inverted (the board's are accent and
+plain), the undo pill in the bar's colours, the Screens circle in the bar's STATIC mark's class, and
+the kitchen's amber strip on a board that has no strip. Inert (`.help-pic`, `aria-hidden`); under
+Burmese the replica's label comes through `<Chrome>` like the original's. Every sentence was written
+against the component it explains and two were still wrong: the undo bar is `--tx` on `--pg` on a
+board that is always Night, so it is the PALE bar, not "the dark bar"; and `setItemSoldOut` is
+server-and-up, so "a manager puts it back" would have had Mom wait for someone she did not need —
+both re-written. The undo card quotes the board's own `UNDO_MS`, handed in as a slot the kitchen
+door now REQUIRES by type (`Record<SlotsOf<"help.how.kitchen.2">, number>`); the lock card says the
+circle shows only once you have a PIN, because it does. **"Opens itself the first time" is kept per DEVICE**: the first mount of a screen's door on a
+tablet opens the sheet straight onto the cards, once, marked at open (a reload mid-first-visit must
+not re-open it); storage refused means never auto-open. The mark is written by the pass that OPENS,
+after the liveness check — the first draft wrote it in the read, which StrictMode's discarded first
+pass would leave behind for the live one, so dev would never have shown the first morning at all.
+**Nothing is two dialogs deep** — views, not stacked sheets. On the auto-open the SHEET's initial
+focus stands (the dialog announced with its title — the content mounts a commit after the open, so
+the W9e policy applies as on every sheet); from the first Next on, focus moves to each card's
+sentence (the step count is its description); and when a view change unmounts the button that had
+focus, the sheet's trap re-parks it on the sheet itself, never on `<body>` behind the scrim — all
+three measured in jsdom and pinned. **"{n} across" is quoted only in the board's fixed envelope**
+(`KDS_WIDE_MIN_PX`, held to the `@media` rule): below 1200px the grid is auto-fill at every size, so
+a 1024px tablet was being told "4 across" for a layout it never draws; there the rows say only the
+size.
+
+**42 `help.*` keys, every MY a Claude-authored draft pending K15, four marked K15-HIGH** (the bump,
+the 86 and the fire cards, and the takeaway board's paper card — band 50). `lib/help.ts` is the pure
+part: the screens, the card count, the device key, the key convention — held by `help.test.ts` (a
+missing fourth card would throw inside render with the sheet open). `KDS_SIZE_PX` is a transcription
+of `globals.css` held to the stylesheet by `kds-size.test.ts` (the Burmese item line at each dial
+position, and the sample word set at the same three sizes).
+
+**Guards.** `HelpButton.test.tsx` (9): the named gold circle, the rows, the first-visit auto-open
+once per device and per screen — and under `StrictMode`, with the sheet's own focus standing and the
+sentence taking it from the first Next — paging with focus moved (the step count as the sentence's
+description) and Got it closing, Back's two meanings with focus kept inside the dialog, the undo
+card's number in Burmese numerals, the size row and view (one pressed, a pick closes, focus kept,
+"4 across" in the envelope), the sizes below the envelope saying only the size (with and without
+`matchMedia`), the class carried through the portal, no live region of its own.
+`HelpPicture.test.tsx` (6) checks the BINDINGS, not the look: the undo replica inside the real bar
+sharing the button's one rule with no rule of its own, the Screens circle in the control's class and
+never the static mark's, Register the real tile, the table a real textured card with the real chip,
+the takeaway stages spreading the board's own style objects (accent, then plain), the frozen card
+the board's status line with no strip — and `ExpoBoard` parsed with `typescript` to prove it imports
+those three objects, redeclares none, and classes its status line with no inline colour.
+`kds-size.test` +3: the pixel table and the sample word held to `globals.css`, and the "N across"
+the sheet quotes held to the wide grid's `repeat(N, 1fr)` at each size, the envelope width from
+`KDS_WIDE_MIN_PX`. `help.test` demands EXACTLY one `{n}` in the undo sentence. `StaffBar.test` +1
+(no slot → no circle; the order test now places help before the switch). Thirteen watched go red on
+induced defects (the auto-open removed, a size pixel changed, the help slot moved after the switch,
+the mark written in the read, the description dropped, the wide grid at five columns, a second undo
+rule, the static mark's class, a green first stage, an inline warn colour on the board, a second
+`{n}`, "across" on every viewport, the envelope constant drifting). The Sheet callers guard
+re-targets from `KdsBoard` to `HelpButton`. Counts re-measured (1885 qr + 142 ui tests, 467
+mutants).
+
+**Blind pass** (`pnpm review:bundle --base claude/feat/p7-2-front-door` → `adversarial-auditor`,
+lenses: product truth · a11y · lifecycle) — **REJECT on `74ad26c`, five CRITICALs.** Every one was
+verified against source before acting: (1) the takeaway pictures' colours and the kitchen strip —
+real, fixed by sharing the board's declarations; (2) the undo pill's colours and the Screens circle
+in the static mark's class — real, fixed the same way; (3) "{n} across" false below 1200px — real,
+gated on the envelope; (4) the seen mark burned by StrictMode's discarded pass — real, and already
+fixed in the hand-read commit before the verdict landed; (5) focus dropped to `<body>` on three view
+changes — FALSE as stated (the sheet's Radix trap re-parks focus on the container; measured), but
+the suite never asserted it, so it is pinned now. Its open questions were all answered by the
+diff: the "dark bar" was wrong (re-written), the "manager" sentence was wrong (re-written), the
+kitchen door's `cardVars` is now required by type, and the auto-open focus is the sheet's own by
+policy. Hand-triaged after the fixes, no second agent round (the HARD CAP).
+
 ### The front door in Burmese (2026-09-07 · P7, PR 2)
 
 **The first thing Dad sees was the last English body on the console.** `/staff/login` and

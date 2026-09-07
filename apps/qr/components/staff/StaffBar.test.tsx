@@ -88,18 +88,31 @@ describe("StaffBar", () => {
     expect(h1.tabIndex).toBe(-1);
     expect(ref.current).toBe(h1);
   });
-  it("trailing order is a contract: page utilities, then the language switch, then Lock LAST", () => {
+  it("trailing order is a contract: page utilities, then Help, then the language switch, then Lock LAST", () => {
     const { container } = render(
-      <StaffBar lang="my" title="kds.title" lock trailing={<span data-testid="tail">Aa</span>} />,
+      <StaffBar
+        lang="my"
+        title="kds.title"
+        lock
+        trailing={<span data-testid="tail">Aa</span>}
+        help={<span data-testid="help">?</span>}
+      />,
     );
     const tail = screen.getByTestId("tail");
+    const help = screen.getByTestId("help");
     const lang = container.querySelector(".staff-lang")!;
     const lock = screen.getByRole("button", { name: "ဒီတက်ဘလက်ကို လော့ခ်ချ" });
     const before = (a: Element, b: Element) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(before(tail, lang)).toBe(true);
+    expect(before(tail, help)).toBe(true);
+    expect(before(help, lang)).toBe(true);
     expect(before(lang, lock)).toBe(true);
     expect(lock.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+    expect(help.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+  });
+  it("a page with no help door renders no help slot at all — never a parked control", () => {
+    const { container } = render(<StaffBar lang="en" title="kds.title" />);
+    expect(container.querySelector(".staff-circ-gold")).toBeNull();
   });
   it("Night: the bar's glass is the repo's ONE frosted-chrome pane, whose floor is pinned elsewhere", () => {
     const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8");

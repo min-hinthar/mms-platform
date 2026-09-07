@@ -678,3 +678,18 @@ built.
   Burmese — and that is exactly how the PIN failures stayed English under a Burmese switch for two
   slices. Refusals are `aria-disabled` here as everywhere; a lockout makes a field `readOnly`, not
   `disabled`, because `submit` just moved focus into it.
+- **The Help door is ONE gold circle and ONE sheet** (P7·3). The circle rides the bar's `help` slot
+  — before the language switch, after the page's own utilities — on the screens that have something
+  to explain (the board, the counter, the takeaway board), and nowhere else: a page passes the node
+  or nothing, so no circle is ever parked dead. Behind it one sheet with views, never a second dialog
+  over the first: the rows (the Settings idiom More uses), the four cards one at a time (Next → Got
+  it, focus moved to each card's sentence from the first Next — on the auto-open the sheet's own
+  initial focus stands, as on every sheet), the board's sizes on a real dish word with the chosen one
+  under the gold cap. Every card's picture is the REAL control's own DECLARATION, made inert
+  (`.help-pic`): the control's class where it has one, its exported style object where it is styled
+  inline, or the one CSS rule naming both — never a new class that copies the look, which is the
+  drift the picture exists to prevent (the first draft shipped four of them; the blind pass caught
+  every one). A number the sheet quotes is true where it is shown or not shown at all ("{n} across"
+  only inside the board's fixed envelope). "Opens itself the first time" is a DEVICE fact
+  (localStorage, per screen) kept at open, not at close — written by the pass that opens, so
+  StrictMode's discarded first pass cannot spend it.

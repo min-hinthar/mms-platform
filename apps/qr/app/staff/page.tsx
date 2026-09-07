@@ -14,6 +14,7 @@ import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid, type MoreTile } from "@/components/staff/StaffDoors";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { HelpButton } from "@/components/staff/HelpButton";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
@@ -122,6 +123,10 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       title={home.view === "floor" ? "floor.eyebrow" : "shell.screens"}
       leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
       after={<RoleBadge role={caller.role} />}
+      // P7·3 — the Help door rides the counter's bar, not the doors': the doors explain themselves
+      // (two named tiles), and a help circle beside a static mark would be a control that leads
+      // somewhere from a screen that has nothing to explain.
+      help={home.view === "floor" ? <HelpButton lang={lang} screen="counter" /> : undefined}
       lock={hasPin}
     />
   );

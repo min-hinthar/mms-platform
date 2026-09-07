@@ -1752,6 +1752,162 @@ export const STAFF = {
   // The way out is the DOORS by name (`?doors=1` always wins over a remembered door) — never
   // "the floor", which on a kitchen tablet is the P7a mislabel this arc removed.
   "out.err.back": { en: "← Screens", my: "← စခရင်များ" },
+  // ═══ P7 · PR 3 · the Help door ════════════════════════════════════════════
+  // `help.*` — ONE gold circle in the bar on the kitchen board, the counter and the takeaway board,
+  // opening one sheet: "How this screen works" (four cards with pictures, opening itself the first
+  // time a device sees the screen), the board's text size, and — PR 4 — "Something's wrong". The
+  // cards are named by convention (`lib/help.ts`): `help.how.<screen>.<n>` is the sentence,
+  // `.more` the line beneath. Every MY value is a Claude-authored draft pending K15. Every sentence
+  // states what the CODE does — a card that promised a control the screen does not have would be
+  // the worst copy on the console, so each was written against the component it explains.
+  "help.title": { en: "Help", my: "အကူအညီ" },
+  "help.sub": {
+    en: "One door for everything that isn’t cooking",
+    my: "ချက်တာကလွဲပြီး ကျန်တာအားလုံး ဒီတစ်နေရာတည်း",
+  },
+  "help.row.how": { en: "How this screen works", my: "ဒီစခရင် ဘယ်လို သုံးရမလဲ" },
+  "help.row.how.sub": {
+    en: "{n} things, with pictures — it opens itself the first time",
+    my: "{n} ချက် · ပုံနဲ့ — ပထမဆုံးအကြိမ် သူ့ဘာသာ ပွင့်ပါမယ်",
+  },
+  // {x} is the size's own name (a dictionary value, Burmese under my); {px} is "34 px", Latin by
+  // nature (a measurement), which <Chrome> wraps lang="en" inside the Burmese run.
+  "help.row.size.sub": {
+    en: "Now: {x} · {px} — this tablet remembers",
+    my: "အခု · {x} · {px} — ဒီတက်ဘလက် မှတ်ထားပါမယ်",
+  },
+  "help.size.lede": {
+    en: "Pick once — this tablet remembers. The whole board changes behind this sheet.",
+    my: "တစ်ခါ ရွေးလိုက်ပါ — ဒီတက်ဘလက် မှတ်ထားပါမယ်။ ဒီစာရွက်နောက်ကွယ်မှာ ဘုတ်တစ်ခုလုံး ပြောင်းသွားပါမယ်။",
+  },
+  // {n} is a COUNT (tickets across the board) — Burmese numerals under my.
+  "help.size.across": { en: "{px} · {n} across", my: "{px} · တစ်တန်း {n} ခု" },
+  // The sample word the three sizes are shown on: a dish every cook here reads a hundred times a day.
+  "help.size.sample": { en: "Mohinga", my: "မုန့်ဟင်းခါး" },
+  "help.how.title.kitchen": {
+    en: "How the kitchen board works",
+    my: "မီးဖိုချောင် ဘုတ် ဘယ်လို သုံးရမလဲ",
+  },
+  "help.how.title.counter": { en: "How the counter works", my: "ကောင်တာ ဘယ်လို သုံးရမလဲ" },
+  "help.how.title.expo": {
+    en: "How the takeaway board works",
+    my: "ပါဆယ်ဘုတ် ဘယ်လို သုံးရမလဲ",
+  },
+  // the kitchen board — bump · undo · 86 · fire (the canvas's four, verified against KdsBoard.tsx)
+  "help.how.kitchen.1": {
+    en: "Food up? Tap the green button. The ticket clears.",
+    my: "ဟင်းထွက်ပြီလား? အစိမ်းရောင် ခလုတ်ကို နှိပ်ပါ။ တစ်ကတ် ပျောက်သွားပါမယ်။",
+  }, // K15-HIGH — the one instruction the pass runs on
+  "help.how.kitchen.1.more": {
+    en: "Every line on the ticket goes at once.",
+    my: "တစ်ကတ်ပေါ်က ဟင်းအားလုံး တစ်ပြိုင်နက် ထွက်သွားပါမယ်။",
+  },
+  // {n} is the undo window in seconds, handed in from the board's own constant — never typed here.
+  "help.how.kitchen.2": {
+    en: "Tapped by mistake? You have {n} seconds to undo.",
+    my: "မှားနှိပ်မိရင် {n} စက္ကန့်အတွင်း ပြန်ဖျက်လို့ ရပါတယ်။",
+  },
+  // Not "the dark bar": `.kds-undo` is `--tx` on `--pg`, and the board is always Night, so the bar
+  // is the PALE one on that screen. The sentence names its place, not a colour it does not have.
+  "help.how.kitchen.2.more": {
+    en: "The bar at the bottom brings the ticket back.",
+    my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
+  },
+  "help.how.kitchen.3": {
+    en: "Out of a dish? 86 it — guests can’t order it any more.",
+    my: "ဟင်းကုန်ရင် ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
+  }, // K15-HIGH — a wrong word here hides a dish from every guest, or keeps selling one that is gone
+  // `setItemSoldOut` is server-and-up (app/staff/menu), so the put-back is not a manager's job —
+  // the first draft said it was, and would have had Mom wait for someone she did not need.
+  "help.how.kitchen.3.more": {
+    en: "Anyone can put it back from the Menu page.",
+    my: "မီနူး စာမျက်နှာကနေ ဘယ်သူမဆို ပြန်တင်လို့ ရပါတယ်။",
+  },
+  "help.how.kitchen.4": {
+    en: "A dashed card is a scheduled pickup. Fire it when it’s time.",
+    my: "အစက်အပြောက် ကတ်က ကြိုမှာထားတဲ့ အော်ဒါပါ။ ချက်ချိန်ရောက်မှ နှိပ်ပါ။",
+  }, // K15-HIGH — fired an hour early is food cooked an hour early
+  "help.how.kitchen.4.more": {
+    en: "Until then it waits — nothing is cooking.",
+    my: "အဲဒီအထိ စောင့်နေပါမယ် — ဘာမှ မချက်ရသေးပါ။",
+  },
+  // the counter — register · a table · the doors · the lock (verified against app/staff/page.tsx)
+  "help.how.counter.1": {
+    en: "Someone at the counter? Tap Register to start their order.",
+    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ ကောင်တာ ခလုတ်ကို နှိပ်ပါ။",
+  },
+  "help.how.counter.1.more": {
+    en: "Walk-up, phone, or a table — it asks which.",
+    my: "လမ်းလျှောက်လာ၊ ဖုန်း ဒါမှမဟုတ် စားပွဲ — ဘယ်ဟာလဲ မေးပါမယ်။",
+  },
+  "help.how.counter.2": {
+    en: "Tap a table to see its order.",
+    my: "စားပွဲတစ်ခုကို နှိပ်ရင် အော်ဒါကို မြင်ရပါမယ်။",
+  },
+  "help.how.counter.2.more": {
+    en: "Add dishes, take payment, or merge it — all from there.",
+    my: "ဟင်း ထပ်ထည့်၊ ငွေ လက်ခံ၊ စားပွဲ ပေါင်း — အားလုံး အဲဒီကနေပါ။",
+  },
+  "help.how.counter.3": {
+    en: "The grid circle takes you to the two doors.",
+    my: "အကွက်ပုံ အဝိုင်းက တံခါးနှစ်ပေါက်ဆီ ခေါ်သွားပါမယ်။",
+  },
+  "help.how.counter.3.more": {
+    en: "Kitchen or Counter — this tablet remembers the last one.",
+    my: "မီးဖိုချောင် ဒါမှမဟုတ် ကောင်တာ — နောက်ဆုံး ရွေးထားတာကို ဒီတက်ဘလက် မှတ်ထားပါမယ်။",
+  },
+  "help.how.counter.4": {
+    en: "Stepping away? Tap the lock — it shows once you have a PIN.",
+    my: "ခဏ ထွက်မလား? သော့ပုံ အဝိုင်းကို နှိပ်ပါ — ပင်နံပါတ် ရှိမှ ပေါ်ပါမယ်။",
+  },
+  "help.how.counter.4.more": {
+    en: "Your PIN opens it again. Set one on your profile.",
+    my: "သင့်ပင်နံပါတ်နဲ့ ပြန်ဖွင့်လို့ ရပါတယ်။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ သတ်မှတ်ပါ။",
+  },
+  // the takeaway board — bagged · picked up · the scan-and-go pair · frozen (verified against ExpoBoard.tsx)
+  "help.how.expo.1": {
+    en: "Bag packed? Tap Bagged & ready.",
+    my: "ထုပ်ပြီးပြီလား? ထုပ်ပြီး၊ ယူလို့ရပြီ ကို နှိပ်ပါ။",
+  },
+  "help.how.expo.1.more": {
+    en: "The button changes to Picked up — the card stays until the guest has it.",
+    my: "ခလုတ်က ယူသွားပြီ ဖြစ်သွားပါမယ် — ဧည့်သည် ယူသွားတဲ့အထိ ကတ် ရှိနေပါမယ်။",
+  },
+  "help.how.expo.2": {
+    en: "Guest has it? Tap Picked up. The card clears.",
+    my: "ဧည့်သည် ယူသွားပြီလား? ယူသွားပြီ ကို နှိပ်ပါ။ ကတ် ပျောက်သွားပါမယ်။",
+  },
+  "help.how.expo.2.more": {
+    en: "The name on the card is who’s collecting.",
+    my: "ကတ်ပေါ်က နာမည်က ယူမယ့်သူပါ။",
+  },
+  "help.how.expo.3": {
+    en: "A scan-and-go basket says Verified, then Handed over.",
+    my: "စကင်န်ဖတ်ပြီး ယူသွားတဲ့ ခြင်းက စစ်ဆေးပြီး၊ ပြီးရင် လွှဲပေးပြီး လို့ ပြပါမယ်။",
+  },
+  "help.how.expo.3.more": {
+    en: "Check the bag against the list before you tap.",
+    my: "မနှိပ်ခင် အိတ်ထဲက ပစ္စည်းတွေကို စာရင်းနဲ့ တိုက်စစ်ပါ။",
+  },
+  "help.how.expo.4": {
+    en: "Board says it isn’t updating? Keep going on paper.",
+    my: "ဘုတ်က အသစ်မတက်ဘူးလို့ ပြရင် စာရွက်နဲ့ ဆက်လုပ်ပါ။",
+  }, // K15-HIGH — the paper instruction, on the screen that hands food to guests
+  "help.how.expo.4.more": {
+    en: "Nothing already recorded is lost — it catches up when we’re back.",
+    my: "မှတ်ထားပြီးသမျှ မပျောက်ပါ — ပြန်ကောင်းတာနဲ့ အလိုလို ပြန်တက်လာပါမယ်။",
+  },
+  // {n} and {total} are counts — "အဆင့် ၂ / ၄" under my.
+  "help.step": { en: "Step {n} of {total}", my: "အဆင့် {n} / {total}" },
+  "help.next": { en: "Next", my: "ရှေ့ဆက်" },
+  "help.back": { en: "Back", my: "နောက်သို့" },
+  "help.done": { en: "Got it", my: "ရပြီ" },
+  "help.footer": {
+    en: "Open this any time from the gold Help circle.",
+    my: "ရွှေရောင် အကူအညီ အဝိုင်းကနေ အချိန်မရွေး ပြန်ဖွင့်လို့ ရပါတယ်။",
+  },
+  "help.a11y.rows": { en: "Help topics", my: "အကူအညီ ခေါင်းစဉ်များ" },
+  "help.a11y.pager": { en: "Steps", my: "အဆင့်များ" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -1808,7 +1964,7 @@ export function ts(lang: "en" | "my", key: StaffKey): string {
 /**
  * P5 — the strings a wrong word takes SERVICE down over, not just legibility.
  *
- * These are the 46 the printed word-check sheet puts in its first band, so that ten minutes with
+ * These are the 50 the printed word-check sheet puts in its first band, so that ten minutes with
  * the sheet buys the corrections that matter most: a held ticket read as live is food cooked an hour
  * early, a bump misread is a ticket cleared with a 6-second way back, and the outage sentences are
  * the only instruction anyone has when nothing else on the tablet works.
@@ -1838,6 +1994,10 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "entry.login.denied",
   "floor.orders.sub",
   "floor.tabOverLimit",
+  "help.how.expo.4",
+  "help.how.kitchen.1",
+  "help.how.kitchen.3",
+  "help.how.kitchen.4",
   "kds.86",
   "kds.86.done",
   "kds.bump",

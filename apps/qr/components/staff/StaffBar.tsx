@@ -17,9 +17,10 @@ import type { StaffLang } from "@/lib/staff-lang";
  * on the way out. Sign out is not a bar button on any page — a mis-tap on it costs a login, a
  * mis-tap on Lock costs a PIN — it lives on the profile page.
  *
- * Help (the gold circle, PR 3) is deliberately absent here rather than parked as a dead control: a
- * circle that does nothing is the exact thing DESIGN-LANGUAGE §16 forbids. It takes the slot before
- * the language switch when it lands.
+ * Help (the gold circle, P7·3) rides the `help` slot — BEFORE the language switch, after the page's
+ * own utilities — on the three screens the parents run; a page that has no help door passes nothing
+ * and no circle renders. A circle that does nothing is the exact thing DESIGN-LANGUAGE §16 forbids,
+ * which is why the slot is a node the page supplies, never a default.
  *
  * This is plain JSX — no `server-only`, no hooks — so a server page and the client KDS board render
  * the SAME component. `check-staff-lang.mjs` rule 4 (every staff page reaches the language control)
@@ -49,6 +50,7 @@ export function StaffBar({
   leading = { kind: "screens" },
   middle,
   trailing,
+  help,
   lock = false,
   className,
 }: {
@@ -68,8 +70,10 @@ export function StaffBar({
   leading?: StaffBarLeading;
   /** The page's own control (the KDS station filter). */
   middle?: ReactNode;
-  /** Page utilities rendered BEFORE the language switch (KDS: text size, sound). */
+  /** Page utilities rendered BEFORE the help door and the language switch. */
   trailing?: ReactNode;
+  /** The gold Help circle (`<HelpButton>`), on the screens that have a help door. */
+  help?: ReactNode;
   /** Mount the Lock circle — only when the caller has a PIN (locking without one strands the device). */
   lock?: boolean;
   className?: string;
@@ -109,6 +113,7 @@ export function StaffBar({
       {/* `role="group"`: a bare <div> is `generic`, which prohibits an author name (rule 3d). */}
       <div className="staff-bar-tail" role="group" aria-label={sx(lang, "shell.a11y.tools")}>
         {trailing}
+        {help}
         <StaffLangSwitch lang={lang} />
         {lock && <LockButton lang={lang} />}
       </div>
