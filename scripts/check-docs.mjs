@@ -162,15 +162,31 @@ const COUNT_RULES = [
   // rotted two lines from a measured 1560 while this script reported clean. Split in two so each
   // rule keeps ONE capture and the existing single-key loop is untouched; both require the
   // `qr + N ui tests` context so neither can grab an unrelated `(3 + 4 today)`.
+  //
+  // ⚠️ ANCHORED ON `ui tests`, NOT ON `qr + N ui tests`, and the match STOPS AT THE CAPTURED DIGITS.
+  // Both properties are load-bearing and each was a real defect first:
+  //
+  //   • THE ANCHOR. The live-state docs spell the left half two ways — `1372 qr + 138 ui tests`
+  //     (docs/HANDOFF.md) and `1755 qr tests + 142 ui tests` (README.md, docs/HANDOFF.md's gate
+  //     line). A rule keyed on `qr\s*\+` matches only the first, because after the literal `qr` the
+  //     second spelling reads " tests" and there is no `+` to find. `ui tests` is present in BOTH,
+  //     so anchoring there covers the pair however the left half is written. `today` is likewise
+  //     NOT required: `(C + D)` with no trailing word is the same claim.
+  //   • THE MATCH EXTENT. `HISTORICAL` is tested against the text FOLLOWING the match, so a rule
+  //     running on through `today)` puts the NEXT clause's marker (`…, 69 target modules at the
+  //     time`) inside its 24-character window and exempts the live number it exists to catch.
+  //     Ending at the captured digits keeps that window on this clause. `statesItsOwnCurrency`
+  //     below does NOT cover this in general — it only helps a match whose own text contains
+  //     `today`, which 8 of the 13 rules here can never do (measured).
   {
-    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\((\d+)\s*\+\s*\d+\s+today\)/gi,
+    re: /ui\s+tests[^.\n]{0,24}?\((\d+)\s*\+/gi,
     key: "qr",
-    label: "qr tests",
+    label: "qr tests (parenthetical 'today' form)",
   },
   {
-    re: /qr\s*\+\s*\d+\s+ui\s+tests[^.\n]{0,24}?\(\d+\s*\+\s*(\d+)\s+today\)/gi,
+    re: /ui\s+tests[^.\n]{0,24}?\(\d+\s*\+\s*(\d+)/gi,
     key: "ui",
-    label: "ui tests",
+    label: "ui tests (parenthetical 'today' form)",
   },
 ];
 

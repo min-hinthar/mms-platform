@@ -7,24 +7,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### A guard that merged cleanly and came out wrong (2026-09-07 · post-merge)
 
 **`check-docs.mjs` carried two copies of the same rule pair, and no conflict marker ever asked
-anyone to choose.** P5 (#263) and P6 (#262) independently wrote rules for the `A qr + B ui tests at
-the time (C + D today)` form within the same hour — and both independently found the deeper bug
-underneath it, that `HISTORICAL` is tested from the match END and so a rule running past its digits
-can be exempted by a _neighbouring_ clause's marker. The two edits sat far enough apart in the file
-that git merged them **silently**: main came out with 15 rules where 13 suffice, and one stale
-number was reported twice (measured on `docs/HANDOFF.md:407` — a planted value named by two rules
-at once). This was predicted from `git merge-tree` before either PR landed and is fixed here rather
-than left as noise.
+anyone to choose.** P5 (#263) and P6 (#262) independently wrote rules for the
+`A qr + B ui tests at the time (C + D today)` form within the same hour — and both independently
+found the deeper bug underneath, that `HISTORICAL` is tested from the match END so a rule running
+past its digits can be exempted by a _neighbouring_ clause's marker. The two edits sat far enough
+apart that git merged them **silently**: main came out with 15 rules where 13 suffice, and one stale
+number was reported twice (measured on `docs/HANDOFF.md:407`).
 
-P6's pair is kept, because P6 also fixed the exemption bug the general way — `statesItsOwnCurrency`
-sits in `countFailures` and protects **every** rule, including ones nobody has written yet, where
-P5's pair solved it only for itself by ending each match at its captured digits. P5's `N in all`
-module rule is kept too; P6 has no equivalent, and it covers the one case where a resolver who
-fixes exactly what the guard names still leaves a wrong number on the line they just edited.
+**Neither pair was right to keep, and the first attempt at this fix kept the wrong one.** A blind
+adversarial pass on that attempt returned REJECT, and both findings held up under measurement:
 
-Each surviving rule was re-falsified after the de-duplication — a de-dupe that quietly drops
-coverage would be worse than the duplication: a planted qr count, ui count and `N in all` are each
-named exactly once, and the historical `1372 qr + 138 ui` stay exempt.
+- **P6's pair is keyed on `qr\s*\+`, which matches only ONE of the two spellings the live-state
+  docs use.** `docs/HANDOFF.md:407` writes `1372 qr + 138 ui tests …`; `README.md:17` and
+  `docs/HANDOFF.md`'s gate line write `1755 qr tests + 142 ui tests …`. After the literal `qr` the
+  second spelling reads `" tests"`, so there is no `+` to find and the rule cannot start. Deleting
+  P5's pair therefore removed the guard's only coverage of that spelling, and of the variant with
+  no trailing `today`. Verified: on `1755 qr tests + 142 ui tests at the time (1800 + 145 today)`
+  the surviving pair captured nothing and the deleted pair captured `1800` / `145`.
+- **`statesItsOwnCurrency` does not protect every rule**, which the first fix's own comment claimed.
+  It only helps a match whose own text contains `today` — **8 of the 13** rules here are fully
+  literal-plus-digits and can never satisfy it (measured, not estimated; two more satisfy it only
+  when a doc happens to put the word inside a wildcard gap).
+
+So the surviving pair is anchored on **`ui tests`** — present in both spellings — requires no
+trailing `today`, and **stops at the captured digits** so the exemption window stays on its own
+clause. That is P5's mechanism with an anchor that covers P6's reach as well; one pair, not two.
+
+**The first fix's falsification could not have caught this, and that is the lesson worth keeping.**
+It planted values on `docs/HANDOFF.md:407` — the one line whose spelling _both_ implementations
+match — so "each planted value is named exactly once" measured the de-duplication and was blind to
+the union difference by construction. A fixture on which two implementations agree cannot separate
+them; it is the same degenerate-fixture failure `verify:slice` reports as a surviving mutant,
+arriving in a guard about guards. The replacement is falsified across both spellings, with and
+without `today`, with and without `at the time`.
 
 ### The pilot can be measured, and the family can correct it (2026-09-05 · pilot P5)
 
