@@ -1945,3 +1945,24 @@ login the way a tablet does every morning. The first draft tested the modules' V
 surface's DAY. Before the blind pass, walk one real morning through the diff (locked tablet → PIN →
 where does it land?) and one real failure (the write is refused → what does the person see next?),
 and write each as a test that could only pass if the surface does what the copy says.
+
+## #102 — a scripted sweep is only as safe as its narrowest match; an optional prefix with a lazy any-match is not narrow (P7 PR 1b, 2026-09-07)
+
+The twelve-page header sweep ran as one script with exact-match assertions per snippet and an
+all-or-nothing write. Its `drop_const` regex allowed an OPTIONAL docblock before the const:
+`(?:/\*\*[\s\S]*?\*/\n)?const back…`. The lazy `[\s\S]*?` inside an optional group is not "the
+docblock right before this const" — it is "from the FIRST `/**` in the file to the first `*/` before
+this const", and on one page that span held the `wrap` const the next step needed. The step after it
+could not find `wrap` and the script aborted with nothing written; without that assertion the
+sweep would have deleted a page's whole top half and reported "converted 12 pages".
+
+Rules. **(1) A prefix that may be absent must be anchored to what it prefixes** — a docblock is
+`/\*\*(?:[^*]|\*(?!/))*\*/\n` (cannot cross a closer), never `[\s\S]*?`. **(2) Every scripted edit
+asserts its match count AND a downstream fact** (here: the const the next step edits still
+exists); a script that only asserts its own matches cannot see what it took with them. **(3)
+Compute everything, write nothing, until every page's edits are known** — the abort was free
+because the write had not happened. The same shape bit a second time in the same hour: the
+one-liner `const h1 = {…};` alternative sat AFTER the multi-line one, so the multi-line lazy match
+ran past the one-liner to the next `\n};\n` and took two later consts with it (`tsc` caught it as
+two missing names). Put the narrower alternative FIRST, or make the multi-line one refuse a `};` on
+the same line.

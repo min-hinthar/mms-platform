@@ -37,8 +37,18 @@ export const STAFF = {
   // control unusable for the person who cannot read the other label.
   "shell.lang.group": { en: "Console language", my: "စက်၏ ဘာသာစကား" },
   "shell.lang.failed": { en: "Couldn’t save that — tap again.", my: "မသိမ်းနိုင်ပါ — ထပ်နှိပ်ပါ။" },
-  // P7 — the way back to the DOORS from any staff screen (`ScreensLink`). A 44px chip: no echo.
+  // P7 — the way back to the DOORS from any staff screen: the staff bar's leading circle (1b), its
+  // sr-only name; and the doors' own title. A 44px control: no echo.
   "shell.screens": { en: "Screens", my: "စခရင်များ" },
+  // P7·1b — the staff bar's icon circles are NAMED by sr-only dictionary text (the glyph is the
+  // visible half; a circle with no name is a button nobody can find by voice). Rendered through
+  // <Chrome> so the Burmese arrives marked — never an aria-label, which rule 3 rightly refuses on a
+  // control that has children. The Screens circle reuses `shell.screens`.
+  "shell.lock": { en: "Lock this tablet", my: "ဒီတက်ဘလက်ကို လော့ခ်ချ" },
+  "shell.locking": { en: "Locking…", my: "လော့ခ်ချနေသည်…" },
+  "shell.a11y.tools": { en: "Console tools", my: "စက် ကိရိယာများ" },
+  // P7·1b — the KDS text-size SHEET (the three chips left the header for the bar's Aa circle).
+  "kds.size.title": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
 
   // ── outage nouns (the `what` slot of every frozen-board and shell sentence) ─
   "what.console": { en: "the console", my: "ဒီစက်" },

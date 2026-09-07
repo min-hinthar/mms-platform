@@ -4,6 +4,49 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### One bar on every staff page, and the console learns to feel like a tablet (2026-09-07 · P7, PR 1b)
+
+**Min's brief, mid-arc: "the UI/UX flow, feel, textures, navigation, positions need to be thoughtful
+design-thinking — iOS premium."** Three directions went onto the canvas on the same anatomy, copy
+and tokens (paper-and-brass with iOS structure · a tab-bar console · a Night control room), each
+across the doors, the counter floor and the kitchen board, with the tab bar shown costing the board
+its 2×4 envelope and the glass one breaking two of the language's own rules where money is read.
+Min picked **Direction 1**, landing as its own PR on all sixteen staff pages.
+
+**The staff bar (`StaffBar`)** is ONE chrome, and positions are the promise: leading = where you
+are (a 44px Screens circle → `/staff?doors=1`, the one way to the doors; on the doors themselves a
+static mark, never a dead control; on a sub-page the way back UP — the table, or the register for a
+counter order); title = the page's own name as its h1, Burmese 30px first with the English echo
+beneath, the only English in the bar; middle = the page's own control (the KDS stations as a
+segmented control whose chosen segment wears the gold cap); trailing = utilities in one order, the
+language switch and **Lock last**, a circle, the thing you do on the way out. Sign out is on no bar
+— a mis-tap on it costs a login where Lock costs a PIN — it ends the profile page the way iOS ends
+Settings. Help (the gold circle) is deliberately absent until PR 3 builds the sheet behind it. The
+bar is sticky, clears the notch, and in Night is **glass you look through** (`--fx-glass-mid`, the
+M126 dial) over the tickets. Fourteen console pages mount it — thirteen of them lose their own
+"← Floor" link and top row (P7a closed); the two front-door screens keep `StaffLangShell` until PR 2
+rewrites them in Burmese. `check-staff-lang` rule 4 reaches every page's language control THROUGH
+the bar, the way it already followed `kitchen/page.tsx` into `KdsBoard`.
+
+**Feel.** The page carries LINES (`.staff-main`, a 28px groove), every card carries DOTS
+(`.card-textured` on the doors, the counter row, the tickets), with the two-tier `--sh-paper` and
+the sheen lip. **Press = you committed**: `.staff-press` scales to .985 and sweeps a sheen on
+release; a door is a haptic `commit`, a station, a size or a language is a haptic `pick` — each with
+its visible half, never the buzz alone (W22c). The doors PREMIERE once per session
+(`mms-stagger`, 60ms apart, zeroed on a revisit by J1's SurfaceMemory). More is **inset grouped
+rows** — the Settings idiom, Burmese first, a tinted glyph square, a disclosure chevron, hairlines
+drawn once — in place of the tile wall. The KDS text size left the header for the bar's **Aa
+circle**, which opens a sheet with the three 44px choices (P7b closed); the size chips no longer
+wrap the header on a 1280px tablet. Icon circles are NAMED by sr-only dictionary text rendered
+through `<Chrome>`, never an aria-label on a control with children (rule 3 refuses exactly that).
+Every transition here is reduced-motion escorted in the same block that declares it.
+
+**Guards.** `StaffBar.test.tsx` (12) pins the leading link, the static mark, the back-up label, the
+h1 marking, the named trailing group with Lock only when asked — and holds every `globals.css`
+selector naming `.staff-bar-title` to the rendered DOM (LEARNINGS #101, applied before the auditor
+could); `StaffDoors.test.tsx`'s selector guard widened to the More rows. `Sheet.title` is a
+`ReactNode` now (Radix's `Dialog.Title` always was), so a dictionary title arrives marked.
+
 ### Two doors, and a tablet that remembers which one it walked through (2026-09-06 · P7, PR 1 of 4)
 
 **`/staff` opened on a wrapping row of thirteen 13px text pills, Burmese only, no icons — for two

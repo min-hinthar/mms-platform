@@ -78,7 +78,9 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    picked A1 two doors · B1 "How this works" sheet · C1 "Something's wrong" report · D1 text-size
 >    dial, then answered: email + a row for the report, the front door in Burmese in the same
 >    slice, NO phone button — the report opens a GitHub issue with the diagnostics instead).**
->    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch; PR 2 (login /
+>    PR 1 (doors · device memory · text size · PWA shortcuts) is BUILT on this branch (#264, blind-audited, awaiting Min's go) and **PR 1b — the premium
+>    feel Min picked, one staff bar on all sixteen pages — is BUILT on
+>    `claude/feat/p7-1b-premium-feel`, stacked on it**; PR 2 (login /
 >    lock / PIN / error in Burmese), PR 3 (the one gold Help chip + "How this screen works" sheets),
 >    PR 4 (the report: migration + Resend + GitHub issue) follow, smallest first, one at a time on
 >    this branch name. The build order and every decision are in `docs/PILOT_PLAN.md` §Code P7.
@@ -89,9 +91,10 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >    money gate. It is the exception that keeps P2e from being fully closed.
 > 4. **The K15 native check has a queue now** — the 40-key first band on `/staff/glossary`, plus two
 >    MY values the merge train authored as drafts (`floor.fb.unavailable`, `what.glossary`) and the
->    thirteen P7 PR 1 added (the doors, More, Screens, the three sizes, two tiles). All marked in
+>    thirteen P7 PR 1 added (the doors, More, Screens, the three sizes, two tiles) and four PR 1b
+>    added (Lock, Locking…, Console tools, Text size). All marked in
 >    `lib/i18n/staff.ts` as pending Min's read; the sheet derives them at render.
-> 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7d** (P2i–P2s, P3a–P3f, P6a–P6k, M157,
+> 5. **`docs/OPEN-ITEMS.md` grew by 31 rows across the train, plus P7a–P7g** (P7a/P7b closed by PR 1b) (P2i–P2s, P3a–P3f, P6a–P6k, M157,
 >    M158). Sweep it before claiming anything is done.
 >
 > The blocks below are the slices' own handoffs, written while each was still an open PR — P5 first,
@@ -501,7 +504,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1807 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
+> **334 mutants at the time (467 today)**, **1372 qr + 138 ui tests at the time (1822 + 142 today)**, 69 target modules at the time (82 under `apps/qr/lib` today, 92 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1393,7 +1396,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1807 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 467 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 1822 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

@@ -1,9 +1,9 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { getDayTips } from "@/lib/register";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { plural } from "@/lib/i18n/fill";
@@ -34,6 +34,7 @@ export default async function StaffTipsPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.tips" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const res = await getDayTips();
   // A failed read must never render as "you were tipped nothing" — the worst false verdict on a
@@ -54,16 +55,8 @@ export default async function StaffTipsPage() {
     names[id] ?? <Chrome lang={lang} k="floor.tips.staffFallback" vars={{ x: id.slice(0, 8) }} />;
 
   return (
-    <main style={wrap}>
-      <div style={topRow}>
-        <Link href="/staff" style={back}>
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 4px" }}>
-        <Chrome lang={lang} k="floor.tips.title" echo="stack" />
-      </h1>
+    <main className="staff-main" style={wrap}>
+      <StaffBar lang={lang} title="floor.tips.title" lock={hasPin} />
       {/* TWO keys, not one merged paragraph: the honesty sentence is shared by both scopes, and
           folding it into each scope key would duplicate a sentence K15 then has to correct twice.
           Both stack, so under Burmese this reads as two MY/EN pairs rather than one interleaved
@@ -177,24 +170,8 @@ export default async function StaffTipsPage() {
   );
 }
 
-const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
+const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 // The back link and the language control share one row — no vertical cost on a money screen.
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-  marginBottom: "var(--s4)",
-};
-const back: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
-};
 const h2: CSSProperties = { fontSize: "var(--fs-h3)", margin: "0 0 var(--s3)" };
 const totalCard: CSSProperties = { padding: "var(--s5)" };
 const bigNumber: CSSProperties = { fontSize: "var(--fs-h1)", fontWeight: 800, margin: 0 };

@@ -1,9 +1,9 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage, listStaff } from "@/lib/staff";
 import { TeamManager } from "@/components/staff/TeamManager";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
+import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
@@ -26,44 +26,26 @@ export default async function TeamPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.team" />;
+  const hasPin = await staffHasPin(caller.staffId);
 
   const lang = await readStaffLang();
 
   if (caller.role !== "owner") {
     return (
-      <main style={wrap}>
-        {/* `justify-content: flex-end` explicitly: `space-between` with a SINGLE child parks it at
-            the start, which would put the control where the back link sits on the owner arm. */}
-        <div style={{ ...topRow, justifyContent: "flex-end", marginBottom: "var(--s4)" }}>
-          <StaffLangSwitch lang={lang} />
-        </div>
-        <h1 style={{ fontSize: "var(--fs-h2)", margin: "0 0 8px" }}>
-          <Chrome lang={lang} k="floor.team.ownersOnly" echo="stack" />
-        </h1>
+      <main className="staff-main" style={wrap}>
+        {/* The bar's Screens circle is the way back; the old "← Back to the floor" link is gone. */}
+        <StaffBar lang={lang} title="floor.team.ownersOnly" lock={hasPin} />
         <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginBottom: "var(--s5)" }}>
           <Chrome lang={lang} k="floor.team.ownersOnly.body" echo="stack" />
         </p>
-        <Link href="/staff" style={back}>
-          {/* The arrow is part of the label and lives inside the dictionary value. The visible text
-              is an adequate accessible name on its own — no aria-label to keep in sync. */}
-          <Chrome lang={lang} k="floor.team.backToFloor" />
-        </Link>
       </main>
     );
   }
 
   const staff = await listStaff();
   return (
-    <main style={wrap}>
-      <div style={{ ...topRow, marginBottom: "var(--s4)" }}>
-        <Link href="/staff" style={back}>
-          <Chrome lang={lang} k="floor.back" />
-        </Link>
-        <StaffLangSwitch lang={lang} />
-      </div>
-      <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 4px" }}>
-        <Chrome lang={lang} k="floor.team.title" echo="stack" />
-      </h1>
+    <main className="staff-main" style={wrap}>
+      <StaffBar lang={lang} title="floor.team.title" lock={hasPin} />
       <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
         <Chrome lang={lang} k="floor.team.sub" echo="stack" />
       </p>
@@ -72,22 +54,7 @@ export default async function TeamPage() {
   );
 }
 
-const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto", padding: "var(--s6)" };
+const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 // The back link and the language control share one row. On the "Owners only" arm the back link sits
 // BELOW the copy (it is the only way out and reads as the action), so that row carries the control
 // alone and overrides `justify-content` to keep it on the right.
-const topRow: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-};
-const back: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 600,
-  textDecoration: "none",
-};

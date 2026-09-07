@@ -1,13 +1,11 @@
 import { type CSSProperties } from "react";
-import Link from "next/link";
 import { requireStaffPage } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { PinManager } from "@/components/staff/PinManager";
-import { LockButton } from "@/components/staff/LockButton";
+import { StaffSignOut } from "@/components/staff/StaffSignOut";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Your PIN — Mandalay Morning Star" };
@@ -30,50 +28,23 @@ export default async function StaffProfile() {
   const hasPin = await staffHasPin(caller.staffId);
 
   return (
-    <main style={wrap}>
-      <header style={header}>
-        <div>
-          <p className="eyebrow" style={{ marginBottom: 4 }}>
-            <Link href="/staff" style={{ color: "var(--t2)", textDecoration: "none" }}>
-              {/* The arrow is part of the label and lives inside the dictionary value
-                  (`floor.back`), the way `kds.back` does. */}
-              <Chrome lang={lang} k="floor.back" />
-            </Link>
-          </p>
-          <h1 style={h1}>
-            {caller.displayName} <RoleBadge role={caller.role} />
-          </h1>
-        </div>
-        <div style={headerTail}>
-          <StaffLangSwitch lang={lang} />
-          {hasPin && <LockButton />}
-        </div>
-      </header>
+    <main className="staff-main" style={wrap}>
+      <StaffBar
+        lang={lang}
+        titleNode={<span>{caller.displayName}</span>}
+        after={<RoleBadge role={caller.role} />}
+        lock={hasPin}
+      />
 
       <PinManager hasPin={hasPin} />
+
+      {/* P7·1b — Sign out lives HERE, never in the bar: a mis-tap on it costs a login, where a
+          mis-tap on Lock costs a PIN. Last on the page, the way iOS ends Settings. */}
+      <div style={{ marginTop: "var(--s8)" }}>
+        <StaffSignOut />
+      </div>
     </main>
   );
 }
 
-const wrap: CSSProperties = { maxWidth: 480, margin: "0 auto", padding: "var(--s6)" };
-const header: CSSProperties = {
-  display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "var(--s4)",
-  marginBottom: "var(--s6)",
-};
-const headerTail: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  gap: "var(--s3)",
-  flexWrap: "wrap",
-  justifyContent: "flex-end",
-};
-const h1: CSSProperties = {
-  fontSize: "var(--fs-h2)",
-  margin: 0,
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-};
+const wrap: CSSProperties = { maxWidth: 480, margin: "0 auto" };
