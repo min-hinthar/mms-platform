@@ -15,7 +15,7 @@ import { awaitingManualCapture } from "@/lib/manual-capture-mode";
 // Element return_url; for succeeded/processing we mount the Realtime <OrderTracker> (the order shows
 // the moment the signature-verified webhook fulfills, no manual refresh). The kitchen lifecycle +
 // ETA arrive with S2's KDS / M2.2 — the same subscription carries them.
-const wrap = { padding: 24, maxWidth: 440, margin: "0 auto" } as const;
+const wrap = { padding: 24 } as const; // the column itself is `.page-col` (R1)
 
 type SearchParams = Promise<{
   redirect_status?: string;
@@ -78,7 +78,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     const entry = orderId ? await getReceiptEntry(orderId) : null;
     if (!entry)
       return (
-        <main style={wrap}>
+        <main className="page-col" style={wrap}>
           <PaperAmbient />
           <div className="card card-textured track-notice">
             <div className="track-notice-medallion" aria-hidden>
@@ -103,7 +103,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
       );
     const again = reorderLink(entry);
     return (
-      <main style={{ ...wrap, maxWidth: 480 }}>
+      <main className="page-col" style={{ ...wrap, maxWidth: 480 }}>
         {/* W22a — screen-only ambient (print-hidden in CSS); the receipt keeps its clean paper. */}
         <PaperAmbient />
         <ReceiptCard entry={entry} />
@@ -137,7 +137,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
     if (orderId)
       return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (
-      <main style={wrap}>
+      <main className="page-col" style={wrap}>
         <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
@@ -183,7 +183,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         />
       );
     return (
-      <main style={wrap}>
+      <main className="page-col" style={wrap}>
         <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion" aria-hidden>
@@ -211,7 +211,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
 
   if (status)
     return (
-      <main style={wrap}>
+      <main className="page-col" style={wrap}>
         <PaperAmbient />
         <div className="card card-textured track-notice">
           <div className="track-notice-medallion track-notice-medallion-warn" aria-hidden>
@@ -234,7 +234,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
 
   // Direct visit (no payment redirect) — stub until an order exists.
   return (
-    <main style={wrap}>
+    <main className="page-col" style={wrap}>
       <PaperAmbient />
       <div className="card card-textured track-notice">
         <div className="track-notice-medallion" aria-hidden>

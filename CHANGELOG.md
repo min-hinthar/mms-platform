@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### R1 — the responsive pass, part 1: what the viewport sweep proved at once (2026-09-07)
+
+**Min's brief: "UI/UX still needing refinements… and dynamic aspect ratios — mobiles, tablets,
+desktop."** The app was measured before it was touched: every customer screen at eight viewports
+(iPhone SE 375×667 · iPhone 390×844 · Pro Max 430×932 · a landscape phone 844×390 · iPad portrait
+820×1180 and landscape 1180×820 · laptop 1366×768 · desktop 1920×1080) and every staff screen at
+five (a server's phone · the counter iPad both ways · the 15.6" KDS · a 1080p TV), 261 states in
+all, driven through the production app by headless Chromium. Four defects needed no review to
+confirm, and they land here; the layout system the sweep argues for (the page column is 440px at
+every width — a phone floating in a desktop) follows in part 2 once the blind reviewers' findings
+are verified against the stylesheet.
+
+- **The staff bar on a phone** — one flex row at every width; at 390px the tail (Help · language ·
+  Lock, 161px) could not shrink, the Burmese title wrapped one glyph per line and the tail overhung
+  the viewport by 47px (`scrollWidth` 437 on a 390 kitchen board). Under 720px the bar is two rows
+  — leading + title, then the page control and the utilities — and the large title is one
+  ellipsized line, never a broken word. Every control keeps its place and its 44px.
+- **A landscape phone's entry screen** showed the emblem and the wordmark alone with all three doors
+  below the fold; under 500px of height the hero folds to a small mark and an h1 wordmark.
+- **Burmese inside a form field** ("Promo code · ပရိုမိုကုဒ်") rendered spaced out at every
+  viewport: an `<input>` cannot mark half its placeholder `lang="my"`, so the Myanmar glyphs fell
+  past Hanken to a system fallback. Fields now carry Padauk as their second family — fallback is
+  per glyph, so Latin stays in Hanken.
+- **One page column, named once.** Fourteen pages carried their own inline `maxWidth: 440; margin:
+0 auto` (nine as the literal, five as the token). They read `.page-col` now, whose width is the
+  single variable `--w-page` — 440 today (no visual change), the tablet and desktop widths in part 2
+  land on that one knob.
+
 ### The P7 stack on `main`, M159 on prod, and the first production test pass (2026-09-07)
 
 **Merged, in order, on Min's go:** #264 · #266 · #267 · #268 · #269 (merge commits; `main` at

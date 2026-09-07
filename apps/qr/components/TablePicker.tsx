@@ -50,7 +50,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
   }
 
   return (
-    <main style={{ maxWidth: 440, margin: "0 auto", padding: "28px 20px 40px" }}>
+    <main className="page-col" style={{ padding: "28px 20px 40px" }}>
       <p className="eyebrow">Dine-in</p>
       <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 4 }}>Which table are you at?</h1>
       <p style={{ color: "var(--t2)", marginTop: 0, lineHeight: 1.5 }}>

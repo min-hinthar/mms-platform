@@ -1124,7 +1124,7 @@ export function Checkout({
     const backHref = menuHref(sessionMode);
     const backLabel = menuLinkText(sessionMode, "browse");
     return (
-      <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+      <main className="page-col" style={{ padding: "24px 20px 40px" }}>
         <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
           {T("yourOrder")}
           <My k="yourOrder" size="var(--fs-sm)" />
@@ -1239,7 +1239,7 @@ export function Checkout({
   return (
     // W22a — the paper ambient behind the whole bill/pay column (no isolation: the page ground
     // lives on <html>, so the fixed z:-1 layer is visible without trapping fixed overlays).
-    <main style={{ padding: "24px 20px 40px", maxWidth: "var(--w-content)", margin: "0 auto" }}>
+    <main className="page-col" style={{ padding: "24px 20px 40px" }}>
       <PaperAmbient />
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
           outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in

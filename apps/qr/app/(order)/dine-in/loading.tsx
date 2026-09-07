@@ -7,7 +7,7 @@ import { Skeleton } from "@mms/ui";
  */
 export default function DineInLoading() {
   return (
-    <main style={{ maxWidth: 440, margin: "0 auto", padding: "28px 20px 40px" }}>
+    <main className="page-col" style={{ padding: "28px 20px 40px" }}>
       <span className="sr-only">Loading tables…</span>
       <div aria-hidden>
         <Skeleton width={70} height={12} radius={6} style={{ marginBottom: 12 }} />

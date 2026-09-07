@@ -19,11 +19,10 @@ import { HomeSessionCard } from "@/components/HomeSessionCard";
 export default function Entry() {
   return (
     <main
+      className="page-col"
       style={{
         // Spacing from the token grid (--s*), not off-grid magic numbers (rubric #4).
         padding: "var(--s15) var(--s6)",
-        maxWidth: "var(--w-content)",
-        margin: "0 auto",
         // Establish a stacking context so the `.home-bg` negative-z layer paints WITHIN main (above body's
         // opaque bg), not escaping to the root context below it — the MenuPageAmbient occlusion gotcha.
         isolation: "isolate",

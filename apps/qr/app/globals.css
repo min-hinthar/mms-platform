@@ -52,6 +52,15 @@ h3 {
    unless it may break anywhere. Scoped to MY subtrees — and the tracking reset rides here too
    (review LOW-6): a Burmese ACCENT span inside an h1 otherwise inherits Fraunces' -0.02em,
    exactly the stacked-glyph collision this rule exists to prevent. */
+/* R1 — form fields take Padauk as the SECOND family. A placeholder or a value that mixes English and
+   Burmese ("Promo code · ပရိုမိုကုဒ်") cannot mark its Burmese half with lang="my", so without this the
+   Myanmar glyphs fell past Hanken to a system fallback and rendered spaced out (measured on /cart at
+   every viewport). Font fallback is per-glyph: Latin stays in Hanken, Myanmar code points reach Padauk. */
+input,
+textarea,
+select {
+  font-family: var(--font-hanken), var(--font-padauk), system-ui, sans-serif;
+}
 [lang="my"] {
   overflow-wrap: anywhere;
   letter-spacing: normal;
@@ -3330,6 +3339,24 @@ html[data-fx="off"] .pa-pause {
 .home-hero {
   position: relative;
   text-align: center;
+}
+/* R1 — a LANDSCAPE phone (844×390) showed the emblem and the wordmark alone: all three doors sat
+   below the fold, and the screen's only job is the doors. Under 500px of height the hero folds to a
+   small mark and an h1-sized wordmark so the first door is visible without a scroll. Height-keyed,
+   not width-keyed, so a tall narrow phone keeps the full hero. */
+@media (max-height: 500px) {
+  .home-hero-badge {
+    width: 76px;
+    height: 76px;
+    margin-bottom: 0;
+  }
+  .home-hero-mark svg {
+    width: 32px;
+    height: 32px;
+  }
+  .home-wordmark {
+    font-size: var(--fs-h1);
+  }
 }
 .home-hero-badge {
   position: relative;
@@ -9975,6 +10002,55 @@ html[data-fx="lite"] .mms-scrim {
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+/* R1 (responsive pass, 2026-09-07) — a server's PHONE. The bar was one flex row at every width; at
+   390px the tail (Help · language · Lock = 161px) could not shrink, the title was squeezed to a
+   letter-per-line column ("မီးဖိုချောင်" wrapped one glyph at a time) and the tail overhung the
+   viewport by 47px (measured: scrollWidth 437 on a 390 board). Under 720px the bar becomes TWO rows:
+   leading + title on the first, the page control and the utilities on the second, right-aligned. The
+   Burmese title is one line, ellipsized — a large title never breaks inside a word (iOS large-title
+   rule). Nothing is hidden: every control keeps its place and its 44px. */
+@media (max-width: 720px) {
+  .staff-bar {
+    flex-wrap: wrap;
+    row-gap: var(--s2);
+  }
+  .staff-bar-title {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .staff-bar-title > .chrome-pair {
+    display: block;
+    min-width: 0;
+  }
+  .staff-bar-title > .chrome-pair > [lang="my"] {
+    display: block;
+    font-size: 1.5rem; /* 24px on a phone — one step under the tablet's 30 */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .staff-bar-title > .chrome-pair > .chrome-en {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .staff-bar-mid {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .staff-bar-tail {
+    order: 3;
+    flex: 0 1 auto;
+    margin-left: auto;
+    flex-wrap: nowrap;
+  }
+  .staff-lang-btn {
+    min-width: 0;
+    padding: 0 12px;
+  }
+}
 /* A 44px circle: the bar's unit. Paper with the sheen lip; a link or a button, never a bare span
    except the static "here" mark on the doors. */
 .staff-circ {
@@ -10218,6 +10294,20 @@ html[data-fx="lite"] .mms-scrim {
    pill every staff commit uses; the escape ("Sign out", "Use a different email") is a quiet link,
    LAST, because a mis-tap on it costs a login. Nothing here is natively disabled — a refused
    control keeps its place and says so (`aria-disabled`), which is the language switch's rule. */
+/* R1 — THE customer page column, named once. Fourteen pages carried their own inline
+   `maxWidth: 440; margin: 0 auto` (nine as the literal, five as the token) — the shape a responsive
+   pass must change in one place. `--w-page` is the column's width and the ONLY knob: today it is the
+   440 content column at every viewport (no visual change in this commit); the tablet and desktop
+   widths land on this same variable, per breakpoint, so no page needs touching again. Padding stays
+   the page's own (each page kept its inline padding — the rhythm differs by screen on purpose). */
+:root {
+  --w-page: var(--w-content);
+}
+.page-col {
+  width: 100%;
+  max-width: var(--w-page);
+  margin-inline: auto;
+}
 .entry-col {
   max-width: 440px;
   padding-top: var(--s4);

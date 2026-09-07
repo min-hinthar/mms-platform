@@ -668,7 +668,7 @@ export default function Grocery() {
   return (
     // W22a — the paper ambient behind the aisle (no isolation: the page ground lives on <html>,
     // so the fixed z:-1 layer is visible without trapping the .grocery-toast under the sheet).
-    <main style={{ maxWidth: 440, margin: "0 auto", padding: 20, paddingBottom: 120 }}>
+    <main className="page-col" style={{ padding: 20, paddingBottom: 120 }}>
       <PaperAmbient />
       {/* W4g — editorial masthead: display-serif title + one quiet subline. The EBT disclaimer
           moved off the top (it lived here as a text-wall) — the honest "SNAP coming; pay by card
