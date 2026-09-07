@@ -85,52 +85,46 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const lang = await readStaffLang();
 
   return (
-    <main className="staff-main" style={wrap}>
-      <div
-        style={{
-          position: "sticky",
-          top: 0,
-          background: "var(--pg)",
-          // clear the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top
-          padding: "calc(8px + env(safe-area-inset-top, 0px)) 0 10px",
-          // token scale: must exceed the textured rows' children (z1 via .card-textured > *), or the
-          // rows would paint over the pinned header (same z, later in DOM wins)
-          zIndex: "var(--z-toolbar)" as CSSProperties["zIndex"],
-        }}
-      >
-        {/* A sub-page: the leading slot is the way back UP — the table, or the register for a
-            counter order — never the doors. The arrow lives INSIDE the dictionary value. */}
-        <StaffBar
-          lang={lang}
-          title={counterOrder ? "browse.title.counter" : "browse.title.add"}
-          leading={
-            counterOrder
-              ? { kind: "back", href: backHref, k: "browse.back.register" }
-              : { kind: "back", href: backHref, k: "browse.back.table", vars: { id: detail.label } }
-          }
-          lock={hasPin}
-        />
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "4px 0 0" }}>
+    <main className="staff-main">
+      {/* A sub-page: the leading slot is the way back UP — the table, or the register for a
+          counter order — never the doors. The arrow lives INSIDE the dictionary value. The bar is
+          the ONLY sticky element (the first draft nested it in the page's own sticky wrapper and
+          paid the notch inset twice); a counter order's "Review order" rides its trailing slot so
+          it stays reachable while the menu scrolls — the job the old pinned header did. */}
+      <StaffBar
+        lang={lang}
+        title={counterOrder ? "browse.title.counter" : "browse.title.add"}
+        leading={
+          counterOrder
+            ? { kind: "back", href: backHref, k: "browse.back.register" }
+            : { kind: "back", href: backHref, k: "browse.back.table", vars: { id: detail.label } }
+        }
+        trailing={
+          counterOrder ? (
+            <Link href={`/staff/table/${id}`} className="staff-back staff-press">
+              <Chrome lang={lang} k="browse.review" />
+            </Link>
+          ) : undefined
+        }
+        lock={hasPin}
+      />
+      <div className="staff-col" style={wrap}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s4)" }}>
           {counterOrder ? (
             <Chrome lang={lang} k="browse.sub.counter" echo="stack" />
           ) : (
             <Chrome lang={lang} k="browse.sub.table" vars={{ id: detail.label }} echo="stack" />
           )}
         </p>
-        {counterOrder && (
-          <Link href={`/staff/table/${id}`} style={reviewLink}>
-            <Chrome lang={lang} k="browse.review" echo="stack" />
-          </Link>
-        )}
-      </div>
 
-      <StaffMenuBrowser
-        sessionId={id}
-        items={items}
-        categories={categories}
-        counterOrder={counterOrder}
-        initialName={cartRow?.customer_name ?? null}
-      />
+        <StaffMenuBrowser
+          sessionId={id}
+          items={items}
+          categories={categories}
+          counterOrder={counterOrder}
+          initialName={cartRow?.customer_name ?? null}
+        />
+      </div>
     </main>
   );
 }
@@ -138,13 +132,6 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
 const wrap: CSSProperties = {
   maxWidth: 640,
   margin: "0 auto",
-};
-const reviewLink: CSSProperties = {
-  display: "inline-flex",
-  minHeight: 44,
-  alignItems: "center",
-  color: "var(--ac-strong)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 700,
-  textDecoration: "none",
+  // the 96px the old header cleared beneath the browser stays: nothing measured says it was idle
+  paddingBottom: 96,
 };

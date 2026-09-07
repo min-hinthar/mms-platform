@@ -55,123 +55,125 @@ export default async function StaffTipsPage() {
     names[id] ?? <Chrome lang={lang} k="floor.tips.staffFallback" vars={{ x: id.slice(0, 8) }} />;
 
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar lang={lang} title="floor.tips.title" lock={hasPin} />
-      {/* TWO keys, not one merged paragraph: the honesty sentence is shared by both scopes, and
+      <div className="staff-col" style={wrap}>
+        {/* TWO keys, not one merged paragraph: the honesty sentence is shared by both scopes, and
           folding it into each scope key would duplicate a sentence K15 then has to correct twice.
           Both stack, so under Burmese this reads as two MY/EN pairs rather than one interleaved
           run — `.chrome-pair` is `display: block`, so each pair takes its own two lines. */}
-      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
-        <Chrome
-          lang={lang}
-          k={scope === "all" ? "floor.tips.sub.all" : "floor.tips.sub.self"}
-          echo="stack"
-        />{" "}
-        <Chrome lang={lang} k="floor.tips.sub.real" echo="stack" />
-      </p>
-
-      <section aria-labelledby="tips-total-h" className="card" style={totalCard}>
-        <h2 id="tips-total-h" style={h2}>
-          {/* echo={false} — an aria-labelledby target; see the module docblock. */}
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
           <Chrome
             lang={lang}
-            k={scope === "all" ? "floor.tips.total.all" : "floor.tips.total.self"}
-          />
-        </h2>
-        {/* A server's headline is THEIR money only — folding the shared pool in would tell them
+            k={scope === "all" ? "floor.tips.sub.all" : "floor.tips.sub.self"}
+            echo="stack"
+          />{" "}
+          <Chrome lang={lang} k="floor.tips.sub.real" echo="stack" />
+        </p>
+
+        <section aria-labelledby="tips-total-h" className="card" style={totalCard}>
+          <h2 id="tips-total-h" style={h2}>
+            {/* echo={false} — an aria-labelledby target; see the module docblock. */}
+            <Chrome
+              lang={lang}
+              k={scope === "all" ? "floor.tips.total.all" : "floor.tips.total.self"}
+            />
+          </h2>
+          {/* A server's headline is THEIR money only — folding the shared pool in would tell them
             it is theirs. A manager's is the day's whole take. */}
-        <p style={bigNumber}>
-          {dollars(scope === "all" ? report.totalCents : report.attributedCents)}
-        </p>
-      </section>
-
-      {/* Attributed — someone was handed this money. */}
-      <section aria-labelledby="tips-people-h" style={{ marginTop: "var(--s6)" }}>
-        <h2 id="tips-people-h" style={h2}>
-          {/* echo={false} — an aria-labelledby target; see the module docblock. */}
-          <Chrome lang={lang} k="floor.tips.people" />
-        </h2>
-        {report.attributed.length === 0 ? (
-          <p style={muted}>
-            <Chrome
-              lang={lang}
-              k={scope === "all" ? "floor.tips.people.empty.all" : "floor.tips.people.empty.self"}
-              echo="stack"
-            />
+          <p style={bigNumber}>
+            {dollars(scope === "all" ? report.totalCents : report.attributedCents)}
           </p>
-        ) : (
-          <ul role="list" aria-label={sx(lang, "floor.tips.a11y.people")} style={list}>
-            {report.attributed.map((a) => (
-              <li key={a.staffId} className="card" style={row}>
-                <div style={{ minWidth: 0 }}>
-                  <p style={name}>
-                    {nameFor(a.staffId)}
-                    {a.staffId === caller.staffId && (
-                      <span style={youTag}>
-                        <Chrome lang={lang} k="floor.tips.you" />
-                      </span>
-                    )}
-                  </p>
-                  <p style={muted}>
-                    <Chrome
-                      lang={lang}
-                      k={plural(a.orderCount, "floor.tips.orders.one", "floor.tips.orders.many")}
-                      vars={{ n: a.orderCount }}
-                    />
-                  </p>
-                </div>
-                <span style={amount}>{dollars(a.tipCents)}</span>
-              </li>
-            ))}
-          </ul>
+        </section>
+
+        {/* Attributed — someone was handed this money. */}
+        <section aria-labelledby="tips-people-h" style={{ marginTop: "var(--s6)" }}>
+          <h2 id="tips-people-h" style={h2}>
+            {/* echo={false} — an aria-labelledby target; see the module docblock. */}
+            <Chrome lang={lang} k="floor.tips.people" />
+          </h2>
+          {report.attributed.length === 0 ? (
+            <p style={muted}>
+              <Chrome
+                lang={lang}
+                k={scope === "all" ? "floor.tips.people.empty.all" : "floor.tips.people.empty.self"}
+                echo="stack"
+              />
+            </p>
+          ) : (
+            <ul role="list" aria-label={sx(lang, "floor.tips.a11y.people")} style={list}>
+              {report.attributed.map((a) => (
+                <li key={a.staffId} className="card" style={row}>
+                  <div style={{ minWidth: 0 }}>
+                    <p style={name}>
+                      {nameFor(a.staffId)}
+                      {a.staffId === caller.staffId && (
+                        <span style={youTag}>
+                          <Chrome lang={lang} k="floor.tips.you" />
+                        </span>
+                      )}
+                    </p>
+                    <p style={muted}>
+                      <Chrome
+                        lang={lang}
+                        k={plural(a.orderCount, "floor.tips.orders.one", "floor.tips.orders.many")}
+                        vars={{ n: a.orderCount }}
+                      />
+                    </p>
+                  </div>
+                  <span style={amount}>{dollars(a.tipCents)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        {/* Shared — nobody took this money from a guest's hand, so it belongs to nobody in particular. */}
+        <section aria-labelledby="tips-shared-h" style={{ marginTop: "var(--s6)" }}>
+          <h2 id="tips-shared-h" style={h2}>
+            {/* echo={false} — an aria-labelledby target; see the module docblock. */}
+            <Chrome lang={lang} k="floor.tips.phone" />
+          </h2>
+          {report.unattributedCount === 0 ? (
+            // The zero state is an ABSENCE, not a verdict — "tipped $0.00 across 0 orders" reads like
+            // a measured judgement of the day, when nothing has happened yet.
+            <p style={muted}>
+              <Chrome lang={lang} k="floor.tips.phone.empty" echo="stack" />
+            </p>
+          ) : (
+            // ONE sentence, split at the <strong> that emphasises the amount: Chrome's slot filler
+            // emits text and <span lang="en">, never arbitrary markup, so the emphasis survives only
+            // as a split. Both halves are echo={false} ON PURPOSE — a stacked or inline English echo
+            // between the two halves would cut BOTH sentences in half, and the amount between them is
+            // Latin and identical either way. The heading above carries this section's meaning.
+            <p style={muted}>
+              <Chrome lang={lang} k="floor.tips.shared.lead" />{" "}
+              <strong style={{ color: "var(--tx)" }}>{dollars(report.unattributedCents)}</strong>{" "}
+              <Chrome
+                lang={lang}
+                k={plural(
+                  report.unattributedCount,
+                  "floor.tips.shared.tail.one",
+                  "floor.tips.shared.tail.many",
+                )}
+                vars={{ n: report.unattributedCount }}
+              />
+            </p>
+          )}
+        </section>
+
+        {scope === "self" && (
+          <p style={{ ...muted, marginTop: "var(--s6)" }}>
+            <Chrome lang={lang} k="floor.tips.selfNote" echo="stack" />
+          </p>
         )}
-      </section>
-
-      {/* Shared — nobody took this money from a guest's hand, so it belongs to nobody in particular. */}
-      <section aria-labelledby="tips-shared-h" style={{ marginTop: "var(--s6)" }}>
-        <h2 id="tips-shared-h" style={h2}>
-          {/* echo={false} — an aria-labelledby target; see the module docblock. */}
-          <Chrome lang={lang} k="floor.tips.phone" />
-        </h2>
-        {report.unattributedCount === 0 ? (
-          // The zero state is an ABSENCE, not a verdict — "tipped $0.00 across 0 orders" reads like
-          // a measured judgement of the day, when nothing has happened yet.
-          <p style={muted}>
-            <Chrome lang={lang} k="floor.tips.phone.empty" echo="stack" />
-          </p>
-        ) : (
-          // ONE sentence, split at the <strong> that emphasises the amount: Chrome's slot filler
-          // emits text and <span lang="en">, never arbitrary markup, so the emphasis survives only
-          // as a split. Both halves are echo={false} ON PURPOSE — a stacked or inline English echo
-          // between the two halves would cut BOTH sentences in half, and the amount between them is
-          // Latin and identical either way. The heading above carries this section's meaning.
-          <p style={muted}>
-            <Chrome lang={lang} k="floor.tips.shared.lead" />{" "}
-            <strong style={{ color: "var(--tx)" }}>{dollars(report.unattributedCents)}</strong>{" "}
-            <Chrome
-              lang={lang}
-              k={plural(
-                report.unattributedCount,
-                "floor.tips.shared.tail.one",
-                "floor.tips.shared.tail.many",
-              )}
-              vars={{ n: report.unattributedCount }}
-            />
-          </p>
-        )}
-      </section>
-
-      {scope === "self" && (
-        <p style={{ ...muted, marginTop: "var(--s6)" }}>
-          <Chrome lang={lang} k="floor.tips.selfNote" echo="stack" />
-        </p>
-      )}
+      </div>
     </main>
   );
 }
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
-// The back link and the language control share one row — no vertical cost on a money screen.
+// P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const h2: CSSProperties = { fontSize: "var(--fs-h3)", margin: "0 0 var(--s3)" };
 const totalCard: CSSProperties = { padding: "var(--s5)" };
 const bigNumber: CSSProperties = { fontSize: "var(--fs-h1)", fontWeight: 800, margin: 0 };

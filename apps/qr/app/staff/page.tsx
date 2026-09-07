@@ -58,8 +58,8 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  *            tablet opens on her board with nothing to tap. Never on an in-app tap, so a tablet can
  *            always reach the doors (`isColdStart` reads the referer).
  *
- * The greeting, the switch, Lock and Sign out are the same header in every branch, mounted HERE
- * rather than by the layout (`check-staff-lang.mjs` rule 4 holds this page to the mount).
+ * The staff bar (P7·1b) is the header in every branch — the switch and Lock ride in it, Sign out
+ * lives on the profile page — and `check-staff-lang.mjs` rule 4 reaches the switch through the bar.
  */
 export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const caller = await requireStaffPage();
@@ -117,32 +117,35 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // person's name is a `{x}`, rendered verbatim in whatever script it arrives in and marked
   // `lang="en"` by <Chrome> when it is Latin. Sign out is on the profile page, not in any bar.
   const header = (
-    <>
-      <StaffBar
-        lang={lang}
-        title={home.view === "floor" ? "floor.eyebrow" : "shell.screens"}
-        leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
-        after={<RoleBadge role={caller.role} />}
-        lock={hasPin}
-      />
-      <p className="staff-greeting">
-        <Chrome lang={lang} k="floor.hi" vars={{ x: caller.displayName }} echo="inline" />
-      </p>
-    </>
+    <StaffBar
+      lang={lang}
+      title={home.view === "floor" ? "floor.eyebrow" : "shell.screens"}
+      leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
+      after={<RoleBadge role={caller.role} />}
+      lock={hasPin}
+    />
+  );
+  const greeting = (
+    <p className="staff-greeting">
+      <Chrome lang={lang} k="floor.hi" vars={{ x: caller.displayName }} echo="inline" />
+    </p>
   );
 
   if (home.view === "doors") {
     return (
-      <main className="staff-main" style={wrapWide}>
+      <main className="staff-main">
         {header}
-        <StaffDoors
-          lang={lang}
-          current={door}
-          more={withApprovals(
-            more.filter((t) => t.href !== "/staff/kitchen"), // the Kitchen DOOR is above it
-            approvalsVars,
-          )}
-        />
+        <div className="staff-col" style={wrapWide}>
+          {greeting}
+          <StaffDoors
+            lang={lang}
+            current={door}
+            more={withApprovals(
+              more.filter((t) => t.href !== "/staff/kitchen"), // the Kitchen DOOR is above it
+              approvalsVars,
+            )}
+          />
+        </div>
       </main>
     );
   }
@@ -156,73 +159,76 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   }
 
   return (
-    <main className="staff-main" style={wrapWide}>
+    <main className="staff-main">
       {header}
-      {/* Register first — the one action Dad takes most, gold-capped; Approvals and Expo beside it.
+      <div className="staff-col" style={wrapWide}>
+        {greeting}
+        {/* Register first — the one action Dad takes most, gold-capped; Approvals and Expo beside it.
           The remaining pages sit under More below the floor, so nothing the old pill row reached is
           further than one screen away. */}
-      <nav className="staff-counter-row" aria-label={sx(lang, "floor.a11y.tools")}>
-        <Link href="/staff/register" className="staff-counter-primary card-textured staff-press">
-          <span className="staff-door-icon" aria-hidden>
-            <Icon name="cash" size={36} />
-          </span>
-          <span className="staff-door-name">
-            <Chrome lang={lang} k="floor.nav.register" echo="stack" />
-            <span className="staff-door-sub">
-              <Chrome lang={lang} k="floor.door.counter.sub" echo="stack" />
+        <nav className="staff-counter-row" aria-label={sx(lang, "floor.a11y.tools")}>
+          <Link href="/staff/register" className="staff-counter-primary card-textured staff-press">
+            <span className="staff-door-icon" aria-hidden>
+              <Icon name="cash" size={36} />
             </span>
-          </span>
-        </Link>
-        {isManager ? (
-          <Link href="/staff/approvals" className="staff-counter-side card-textured staff-press">
-            <span className="staff-tile-icon" aria-hidden>
-              <Icon name="check" size={30} />
-            </span>
-            <span className="staff-tile-name">
-              {pendingApprovals > 0 ? (
-                <Chrome lang={lang} k="floor.nav.approvalsCount" vars={{ n: pendingApprovals }} />
-              ) : (
-                <Chrome lang={lang} k="floor.nav.approvals" />
-              )}
+            <span className="staff-door-name">
+              <Chrome lang={lang} k="floor.nav.register" echo="stack" />
+              <span className="staff-door-sub">
+                <Chrome lang={lang} k="floor.door.counter.sub" echo="stack" />
+              </span>
             </span>
           </Link>
-        ) : (
-          <Link href="/staff/kitchen" className="staff-counter-side card-textured staff-press">
-            <span className="staff-tile-icon" aria-hidden>
-              <Icon name="flame" size={30} />
-            </span>
-            <span className="staff-tile-name">
-              <Chrome lang={lang} k="floor.nav.kitchen" />
-            </span>
-          </Link>
-        )}
-        <Link href="/staff/expo" className="staff-counter-side card-textured staff-press">
-          <span className="staff-tile-icon" aria-hidden>
-            <Icon name="bag" size={30} />
-          </span>
-          <span className="staff-tile-name">
-            <Chrome lang={lang} k="floor.nav.expo" />
-          </span>
-        </Link>
-      </nav>
-
-      <FloorBoard initial={floor.snapshot} />
-
-      <div style={{ marginTop: "var(--s6)" }}>
-        {/* The row above carries Register, Expo and — for a manager, Approvals; for anyone else,
-            Kitchen — so More drops exactly what the row shows. A manager keeps the Kitchen tile. */}
-        <MoreGrid
-          lang={lang}
-          more={withApprovals(
-            more.filter(
-              (t) =>
-                t.href !== "/staff/expo" &&
-                t.href !== "/staff/approvals" &&
-                (isManager || t.href !== "/staff/kitchen"),
-            ),
-            approvalsVars,
+          {isManager ? (
+            <Link href="/staff/approvals" className="staff-counter-side card-textured staff-press">
+              <span className="staff-tile-icon" aria-hidden>
+                <Icon name="check" size={30} />
+              </span>
+              <span className="staff-tile-name">
+                {pendingApprovals > 0 ? (
+                  <Chrome lang={lang} k="floor.nav.approvalsCount" vars={{ n: pendingApprovals }} />
+                ) : (
+                  <Chrome lang={lang} k="floor.nav.approvals" />
+                )}
+              </span>
+            </Link>
+          ) : (
+            <Link href="/staff/kitchen" className="staff-counter-side card-textured staff-press">
+              <span className="staff-tile-icon" aria-hidden>
+                <Icon name="flame" size={30} />
+              </span>
+              <span className="staff-tile-name">
+                <Chrome lang={lang} k="floor.nav.kitchen" />
+              </span>
+            </Link>
           )}
-        />
+          <Link href="/staff/expo" className="staff-counter-side card-textured staff-press">
+            <span className="staff-tile-icon" aria-hidden>
+              <Icon name="bag" size={30} />
+            </span>
+            <span className="staff-tile-name">
+              <Chrome lang={lang} k="floor.nav.expo" />
+            </span>
+          </Link>
+        </nav>
+
+        <FloorBoard initial={floor.snapshot} />
+
+        <div style={{ marginTop: "var(--s6)" }}>
+          {/* The row above carries Register, Expo and — for a manager, Approvals; for anyone else,
+            Kitchen — so More drops exactly what the row shows. A manager keeps the Kitchen tile. */}
+          <MoreGrid
+            lang={lang}
+            more={withApprovals(
+              more.filter(
+                (t) =>
+                  t.href !== "/staff/expo" &&
+                  t.href !== "/staff/approvals" &&
+                  (isManager || t.href !== "/staff/kitchen"),
+              ),
+              approvalsVars,
+            )}
+          />
+        </div>
       </div>
     </main>
   );

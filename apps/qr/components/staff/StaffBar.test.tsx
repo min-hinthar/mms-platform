@@ -60,10 +60,43 @@ describe("StaffBar", () => {
     expect(h1.querySelector('[lang="my"]')?.textContent).toBe("မီးဖိုချောင်");
     expect(h1.querySelector(".chrome-en")?.textContent).toBe("Kitchen");
   });
-  it("a real name replaces the dictionary title, and `after` rides inside the h1", () => {
+  it("a real name replaces the dictionary title, and `after` rides inside the h1 — SEPARATED", () => {
     render(<StaffBar lang="en" titleNode={<span>Daw Aye</span>} after={<em>owner</em>} />);
     const h1 = screen.getByRole("heading", { level: 1 });
-    expect(h1.textContent).toBe("Daw Ayeowner");
+    // The accessible name is built by adjacency; a flex gap alone yields "Daw Ayeowner" (the blind
+    // pass caught the first draft pinning exactly that). The separator is sr-only text.
+    expect(h1.textContent).toBe("Daw Aye, owner");
+  });
+  it("the h1 takes the page's id, ref and tabIndex — the KDS focuses its board here after a bump", () => {
+    const ref = { current: null as HTMLHeadingElement | null };
+    render(
+      <StaffBar lang="en" title="kds.title" titleId="kds-h" titleRef={ref} titleTabIndex={-1} />,
+    );
+    const h1 = screen.getByRole("heading", { level: 1 });
+    expect(h1.id).toBe("kds-h");
+    expect(h1.tabIndex).toBe(-1);
+    expect(ref.current).toBe(h1);
+  });
+  it("trailing order is a contract: page utilities, then the language switch, then Lock LAST", () => {
+    const { container } = render(
+      <StaffBar lang="my" title="kds.title" lock trailing={<span data-testid="tail">Aa</span>} />,
+    );
+    const tail = screen.getByTestId("tail");
+    const lang = container.querySelector(".staff-lang")!;
+    const lock = screen.getByRole("button", { name: "ဒီတက်ဘလက်ကို လော့ခ်ချ" });
+    const before = (a: Element, b: Element) =>
+      Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(before(tail, lang)).toBe(true);
+    expect(before(lang, lock)).toBe(true);
+    expect(lock.parentElement).toBe(container.querySelector(".staff-bar-tail"));
+  });
+  it("Night: the bar's glass is the repo's ONE frosted-chrome pane, whose floor is pinned elsewhere", () => {
+    const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8");
+    const rule = css.match(/\.dark \.staff-bar \{([^}]*)\}/);
+    expect(rule, ".dark .staff-bar rule").not.toBeNull();
+    // `composite-contrast.test.ts` pins every Night text token AA over `--glass-chrome`; a custom
+    // alpha here would be a second pane that no guard measures.
+    expect(rule![1]).toMatch(/background:\s*var\(--glass-chrome\)/);
   });
   it("the trailing group is named, always has the language control, and Lock only when asked", () => {
     const { rerender } = render(<StaffBar lang="my" title="kds.title" />);

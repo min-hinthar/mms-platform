@@ -32,12 +32,14 @@ export default async function OrdersPage() {
   const orders = await getStaffOrders();
 
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar lang={lang} title="floor.orders.title" lock={hasPin} />
-      <p style={sub}>
-        <Chrome lang={lang} k="floor.orders.sub" echo="stack" />
-      </p>
-      <StaffOrdersBoard initial={orders} />
+      <div className="staff-col" style={wrap}>
+        <p style={sub}>
+          <Chrome lang={lang} k="floor.orders.sub" echo="stack" />
+        </p>
+        <StaffOrdersBoard initial={orders} />
+      </div>
     </main>
   );
 }

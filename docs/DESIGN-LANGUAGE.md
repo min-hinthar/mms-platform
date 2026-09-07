@@ -623,9 +623,19 @@ built.
   never a bar control (a mis-tap costs a login; Lock costs a PIN); it ends the profile page. Help
   (the gold circle) takes the slot before the switch when PR 3 lands — not before, because a
   control that does nothing is forbidden by §16.
-- **The bar is chrome you look through in Night** (`--fx-glass-mid`, the M126 dial), paper with a
-  hairline in light. Sticky, and it clears `env(safe-area-inset-top)`. Its negative margins assume
-  `.staff-main` owns the page padding — a page that sets its own inline padding misaligns the bar.
+- **The bar spans the viewport; the page's column sits beneath it.** `.staff-main` is the
+  full-bleed ground (the LINES) with NO horizontal padding; the bar is its first child; the page's
+  own max-width and inset live on a `.staff-col` wrapper under the bar. A bar inside a centred
+  640px column is a strip, not a bar — the blind pass on PR 1b asked, and the mock had answered.
+  Inside the KDS root the bar cancels the root's `--kds-pad` exactly, so it is flush without
+  overhanging the root (an overhang past a bare `<main>` is a horizontal scroll on the board).
+- **The bar is chrome you look through in Night** — `--glass-chrome`, the ONE frosted pane whose
+  floor `composite-contrast.test.ts` pins over white; never a second alpha nobody measured. Paper
+  with a hairline in light. Sticky, and it clears `env(safe-area-inset-top)`; it is the ONLY sticky
+  element on a page (a page-level sticky wrapper around it paid the notch inset twice).
+- **A sheet opened from a class-themed subtree carries the theme itself** — `Sheet` portals to
+  `<body>`, so `.kds-root.dark`'s Night never reaches it; the KDS passes `className="dark"`. A
+  light sheet over a Night board is what "the sheet paints in the document's theme" looks like.
 - **Circles are named by sr-only dictionary text through `<Chrome>`, never `aria-label`.** Rule 3
   of `check-staff-lang` refuses `sx()` on a control that has children, and it is right: the name is
   DOM text so the Burmese arrives marked and the {visible, aria} pair cannot drift. The busy state
@@ -638,8 +648,13 @@ built.
   Each ships its visible half — the press, the moving gold cap, the sheet — never the buzz alone
   (§12). The doors premiere once per session (`mms-stagger`, J1's SurfaceMemory zeroes the revisit).
 - **The segmented control** (`.staff-seg`) is one track; the chosen segment wears the gold cap — the
-  same selection vocabulary as everywhere (§2), never a second one. Segments never drop under 44px
-  (O-E): the thumb IS the target.
+  same selection vocabulary as everywhere (§2), never a second one. That rule now reaches EVERY
+  pressed `.kds-chip` (the all-day rail, the sizes in the sheet): the accent-filled pressed chip the
+  board used before was a second vocabulary, and the first 1b draft had both on one screen.
+  Segments never drop under 44px (O-E): the thumb IS the target.
+- **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
+  real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
+  states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
 - **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
   tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
   of real links, named by its visible heading.

@@ -7316,7 +7316,8 @@ html[data-seen-surface] .mms-stagger {
   display: flex;
   flex-direction: column;
   gap: var(--s3);
-  padding: clamp(8px, 1vw, 16px);
+  --kds-pad: clamp(8px, 1vw, 16px);
+  padding: var(--kds-pad);
 }
 .kds-head {
   display: flex;
@@ -7375,10 +7376,17 @@ html[data-seen-surface] .mms-stagger {
   font-size: var(--kfs-meta);
   cursor: pointer;
 }
+/* P7·1b — the gold cap (the app's ONE selection vocabulary, §2), on every pressed chip of the
+   board: the stations in the bar, the all-day rail, the sizes in the sheet. The accent-filled
+   pressed chip this replaced was the console's second vocabulary, and the blind pass saw both on
+   one screen. */
 .kds-chip[aria-pressed="true"] {
-  background: var(--ac);
-  border-color: var(--ac);
-  color: var(--oa);
+  color: var(--tx);
+  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
 }
 .kds-vol {
   accent-color: var(--ac);
@@ -8556,6 +8564,15 @@ html[data-seen-surface] .mms-stagger {
    block). Literal white/ink here is the PRINT exception, not a token violation: paper has one
    theme, and print output must never depend on the viewer's dark mode. Everything interactive
    or chrome carries `.print-hide` (or is the app header/nav, hidden wholesale). */
+/* P7·1b — the glossary's own title exists for PAPER only; on screen the staff bar is the h1. */
+.print-only {
+  display: none;
+}
+@media print {
+  .print-only {
+    display: block;
+  }
+}
 @media print {
   /* Review HIGH — paper has ONE theme, but the receipt's text resolves the LIVE tokens, and the
      `.dark` class stamped on <html> never re-evaluates for print: without this re-pin a dark-mode
@@ -9665,7 +9682,9 @@ html[data-fx="lite"] .mms-scrim {
 }
 .staff-door:hover {
   transform: translateY(-2px);
-  box-shadow: var(--sh-paper-hover);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-paper-hover);
 }
 .staff-door:active {
   transform: translateY(0);
@@ -9864,13 +9883,19 @@ html[data-fx="lite"] .mms-scrim {
    light text — the inversion that won the Night ambient its contrast, DESIGN-LANGUAGE §1). Applied to
    the staff <main>, never to a card. */
 .staff-main {
-  margin: 0 auto;
-  padding: var(--s5) var(--s5) var(--s8);
+  padding: 0 0 var(--s8);
   background-image: repeating-linear-gradient(
     180deg,
     transparent 0 27px,
     color-mix(in oklab, var(--tx) 5%, transparent) 27px 28px
   );
+}
+/* The page's content column. The bar is a direct child of `.staff-main` and spans the viewport
+   (an iOS bar is never a strip in a centred column — the blind pass asked); the column carries
+   the page's own max-width (inline, per page) and the horizontal padding. */
+.staff-col {
+  margin: 0 auto;
+  padding: 0 var(--s5);
 }
 
 /* ── the bar ─────────────────────────────────────────────────────────────────────────────────── */
@@ -9884,17 +9909,26 @@ html[data-fx="lite"] .mms-scrim {
   min-height: 68px;
   /* clears the iOS notch under viewport-fit=cover — sticky top:0 pins to the true viewport top */
   padding: calc(10px + env(safe-area-inset-top, 0px)) var(--s5) 10px;
-  margin: 0 calc(-1 * var(--s5)) var(--s4);
+  margin: 0 0 var(--s4);
   border-bottom: 1px solid var(--bd);
   /* paper with a hairline in light; the ground shows through faintly so the lines continue */
   background: color-mix(in oklab, var(--pg) 88%, transparent);
 }
-/* Night (the KDS): glass you look THROUGH, never a surface you read — the M126 dial decides how much. */
+/* Night (the KDS): glass you look THROUGH, never a surface you read — the M126 dial decides how
+   much. `--glass-chrome` is the ONE frosted-chrome pane, and `composite-contrast.test.ts` pins its
+   floor (every Night text token clears AA on it over white); a custom alpha here would be a second
+   pane nobody measured. */
 .dark .staff-bar {
-  background: color-mix(in oklab, var(--sf) 62%, transparent);
+  background: var(--glass-chrome);
   -webkit-backdrop-filter: var(--fx-glass-mid);
   backdrop-filter: var(--fx-glass-mid);
   box-shadow: inset 0 1px 0 var(--sheen);
+}
+/* Inside the KDS root the bar cancels the root's own padding EXACTLY (`--kds-pad`), so it is
+   flush without ever overhanging the root — an overhang past a bare <main> is a horizontal
+   scroll on the board (the blind pass measured 6–12px). */
+.kds-root > .staff-bar {
+  margin: calc(-1 * var(--kds-pad)) calc(-1 * var(--kds-pad)) var(--s3);
 }
 .staff-bar-title {
   flex: 1 1 auto;
@@ -9904,7 +9938,7 @@ html[data-fx="lite"] .mms-scrim {
   gap: 10px;
   margin: 0;
   /* the English title (a bare text node from <Chrome>) is sized HERE; the Burmese pair below */
-  font-size: var(--fs-h2);
+  font-size: var(--fs-h1);
   font-weight: 800;
   line-height: var(--lh-tight);
 }
@@ -10013,20 +10047,14 @@ html[data-fx="lite"] .mms-scrim {
     background var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
 }
-.staff-seg > .kds-chip[aria-pressed="true"] {
-  color: var(--tx);
-  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
-}
 
 /* ── press: you COMMITTED. scale + a one-sweep sheen on release, transform/opacity only ──────── */
 .staff-press {
   position: relative;
   overflow: hidden;
-  transition: transform var(--dur-fast) var(--ease-out);
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out);
 }
 .staff-press:active {
   transform: scale(0.985);
@@ -10123,7 +10151,6 @@ html[data-fx="lite"] .mms-scrim {
 
 /* ── the doors and tiles pick up the vocabulary ─────────────────────────────────────────────── */
 .staff-door,
-.staff-counter-primary,
 .staff-counter-side,
 .staff-tile {
   box-shadow:

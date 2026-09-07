@@ -1,13 +1,9 @@
-import { type CSSProperties } from "react";
 import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getExpoQueue } from "@/lib/expo";
-import { RoleBadge } from "@/components/staff/RoleBadge";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
-import { StaffBar } from "@/components/staff/StaffBar";
 import { staffHasPin } from "@/lib/staff-pin";
-import { readStaffLang } from "@/lib/staff-lang-server";
 
 export const metadata = { title: "Expo — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -23,7 +19,6 @@ export default async function ExpoPage() {
   // W10b: outage keeps the URL — one tap of retry re-enters the expo the moment we're back.
   if (!caller) return <StaffOutageShell what="what.expo" />;
   const hasPin = await staffHasPin(caller.staffId);
-  const lang = await readStaffLang();
   const res = await getExpoQueue();
   if (!res.ok) {
     if (res.reason === "outage") return <StaffOutageShell what="what.expo" />;
@@ -31,20 +26,9 @@ export default async function ExpoPage() {
   }
 
   return (
-    <main className="staff-main" style={wrap}>
-      <StaffBar
-        lang={lang}
-        title="expo.title"
-        after={<RoleBadge role={caller.role} />}
-        lock={hasPin}
-      />
-
-      <ExpoBoard initial={res.queue} />
+    <main className="staff-main">
+      {/* The board owns the staff bar (its h1 is the board's focus + label target). */}
+      <ExpoBoard initial={res.queue} hasPin={hasPin} role={caller.role} />
     </main>
   );
 }
-
-const wrap: CSSProperties = {
-  maxWidth: 1100,
-  margin: "0 auto",
-};

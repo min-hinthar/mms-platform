@@ -68,20 +68,22 @@ export default async function StaffMenuPrices() {
   }));
 
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar
         lang={lang}
         title={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
         lock={hasPin}
       />
-      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
-        <Chrome
-          lang={lang}
-          k={canEditPrice ? "browse.price.leadManager" : "browse.price.leadServer"}
-          echo="stack"
-        />
-      </p>
-      <MenuPriceEditor items={items} canEditPrice={canEditPrice} />
+      <div className="staff-col" style={wrap}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
+          <Chrome
+            lang={lang}
+            k={canEditPrice ? "browse.price.leadManager" : "browse.price.leadServer"}
+            echo="stack"
+          />
+        </p>
+        <MenuPriceEditor items={items} canEditPrice={canEditPrice} />
+      </div>
     </main>
   );
 }

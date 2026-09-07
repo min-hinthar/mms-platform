@@ -44,59 +44,63 @@ export default async function ApprovalsPage() {
   ]);
 
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar
         lang={lang}
         title="table.appr.title"
         after={<RoleBadge role={caller.role} />}
         lock={hasPin}
       />
-
-      {refunds.length > 0 && (
-        <section aria-label={sx(lang, "table.appr.a11y.refunds")} style={refundsStrip}>
-          <p style={refundsHead}>
-            <strong>
+      <div className="staff-col" style={wrap}>
+        {refunds.length > 0 && (
+          <section aria-label={sx(lang, "table.appr.a11y.refunds")} style={refundsStrip}>
+            <p style={refundsHead}>
+              <strong>
+                <Chrome
+                  lang={lang}
+                  k={plural(refunds.length, "table.appr.refunds.one", "table.appr.refunds.many")}
+                  vars={{ n: refunds.length }}
+                  echo="inline"
+                />
+              </strong>{" "}
               <Chrome
                 lang={lang}
-                k={plural(refunds.length, "table.appr.refunds.one", "table.appr.refunds.many")}
-                vars={{ n: refunds.length }}
-                echo="inline"
+                k="table.appr.refundsHint"
+                vars={{ x: ts(lang, "table.appr.stripe") }}
+                echo="stack"
               />
-            </strong>{" "}
-            <Chrome
-              lang={lang}
-              k="table.appr.refundsHint"
-              vars={{ x: ts(lang, "table.appr.stripe") }}
-              echo="stack"
-            />
-          </p>
-          <ul role="list" aria-label={sx(lang, "table.appr.a11y.refundsList")} style={refundsList}>
-            {refunds.map((r) => (
-              <li key={r.id} style={refundsRow}>
-                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
-                  {r.amountCents != null ? (
-                    `$${(r.amountCents / 100).toFixed(2)}`
-                  ) : (
-                    <Chrome lang={lang} k="table.appr.amountUnknown" />
-                  )}
-                </span>{" "}
-                {/* ⚠️ `r.reason` is the RAW `qr_refunds_needed.reason` column with its underscores
+            </p>
+            <ul
+              role="list"
+              aria-label={sx(lang, "table.appr.a11y.refundsList")}
+              style={refundsList}
+            >
+              {refunds.map((r) => (
+                <li key={r.id} style={refundsRow}>
+                  <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                    {r.amountCents != null ? (
+                      `$${(r.amountCents / 100).toFixed(2)}`
+                    ) : (
+                      <Chrome lang={lang} k="table.appr.amountUnknown" />
+                    )}
+                  </span>{" "}
+                  {/* ⚠️ `r.reason` is the RAW `qr_refunds_needed.reason` column with its underscores
                     swapped for spaces — a database status key printed to a manager, which is the
                     OPEN-ITEMS P2g shape (a raw key where a label belongs). It is NOT localized here
                     on purpose: guessing a Burmese word per undeclared code would invent a label,
                     and the fix is a `what.*`-style key map over the column's real domain. Filed. */}
-                · {r.reason.replaceAll("_", " ")} ·{" "}
-                <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
-                  {r.paymentIntent}
-                </code>
-                <form
-                  action={async () => {
-                    "use server";
-                    await resolveRefundNeeded(r.id);
-                  }}
-                  style={{ display: "inline-block", marginLeft: 8 }}
-                >
-                  {/* Every row shows the same two words, so the visible label alone names nothing —
+                  · {r.reason.replaceAll("_", " ")} ·{" "}
+                  <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
+                    {r.paymentIntent}
+                  </code>
+                  <form
+                    action={async () => {
+                      "use server";
+                      await resolveRefundNeeded(r.id);
+                    }}
+                    style={{ display: "inline-block", marginLeft: 8 }}
+                  >
+                    {/* Every row shows the same two words, so the visible label alone names nothing —
                       the name carries the payment intent, which is what the manager matches against
                       the processor.
 
@@ -108,28 +112,29 @@ export default async function ApprovalsPage() {
                       the Burmese half. What holds it now is `al()` taking the same `echo` this
                       button renders and composing through `chromeVisible()`, plus rule 3c comparing
                       the two echoes, plus a test that mounts the control and reads its text. */}
-                  <button
-                    type="submit"
-                    style={resolveBtn}
-                    aria-label={
-                      al(lang, {
-                        kind: "verb",
-                        echo: "stack",
-                        verb: "table.appr.verb.markRefunded",
-                        subject: r.paymentIntent,
-                      }).aria
-                    }
-                  >
-                    <Chrome lang={lang} k="table.appr.verb.markRefunded" echo="stack" />
-                  </button>
-                </form>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+                    <button
+                      type="submit"
+                      style={resolveBtn}
+                      aria-label={
+                        al(lang, {
+                          kind: "verb",
+                          echo: "stack",
+                          verb: "table.appr.verb.markRefunded",
+                          subject: r.paymentIntent,
+                        }).aria
+                      }
+                    >
+                      <Chrome lang={lang} k="table.appr.verb.markRefunded" echo="stack" />
+                    </button>
+                  </form>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-      <ApprovalsBoard initial={pending} approvers={approvers} />
+        <ApprovalsBoard initial={pending} approvers={approvers} />
+      </div>
     </main>
   );
 }

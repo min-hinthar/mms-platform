@@ -28,20 +28,21 @@ export default async function StaffProfile() {
   const hasPin = await staffHasPin(caller.staffId);
 
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar
         lang={lang}
         titleNode={<span>{caller.displayName}</span>}
         after={<RoleBadge role={caller.role} />}
         lock={hasPin}
       />
+      <div className="staff-col" style={wrap}>
+        <PinManager hasPin={hasPin} />
 
-      <PinManager hasPin={hasPin} />
-
-      {/* P7·1b — Sign out lives HERE, never in the bar: a mis-tap on it costs a login, where a
+        {/* P7·1b — Sign out lives HERE, never in the bar: a mis-tap on it costs a login, where a
           mis-tap on Lock costs a PIN. Last on the page, the way iOS ends Settings. */}
-      <div style={{ marginTop: "var(--s8)" }}>
-        <StaffSignOut />
+        <div style={{ marginTop: "var(--s8)" }}>
+          <StaffSignOut />
+        </div>
       </div>
     </main>
   );

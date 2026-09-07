@@ -516,6 +516,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         open={sizeOpen}
         onOpenChange={setSizeOpen}
         title={<Chrome lang={lang} k="kds.size.title" echo="stack" />}
+        // The sheet portals to <body>, outside `.kds-root.dark`: without this it paints in the
+        // document's theme — light on a light-OS tablet — over the Night board.
+        className="dark"
       >
         <div className="kds-size-group" role="group" aria-label={sx(lang, "kds.a11y.size")}>
           {KDS_SIZES.map((sz) => (

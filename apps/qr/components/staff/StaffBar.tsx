@@ -97,6 +97,9 @@ export function StaffBar({
       <h1 id={titleId} ref={titleRef} tabIndex={titleTabIndex} className="staff-bar-title">
         {titleNode ??
           (title ? <Chrome lang={lang} k={title} vars={titleVars} echo="stack" /> : null)}
+        {/* The badge is set off by a visible gap AND a spoken separator: the h1's accessible name
+            is built by adjacency, and "Daw Ayeowner" is what a flex gap alone produces. */}
+        {after && <span className="sr-only">, </span>}
         {after}
       </h1>
       {middle && <div className="staff-bar-mid">{middle}</div>}

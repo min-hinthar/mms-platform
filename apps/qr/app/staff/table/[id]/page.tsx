@@ -34,11 +34,13 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
     // would otherwise have no way to change the language of the only screen in front of them.
     const lang = await readStaffLang();
     return (
-      <main className="staff-main" style={wrap}>
+      <main className="staff-main">
         <StaffBar lang={lang} title="table.detail.closed.title" lock={hasPin} />
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
-          <Chrome lang={lang} k="table.detail.closed.body" echo="stack" />
-        </p>
+        <div className="staff-col" style={wrap}>
+          <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
+            <Chrome lang={lang} k="table.detail.closed.body" echo="stack" />
+          </p>
+        </div>
       </main>
     );
   }

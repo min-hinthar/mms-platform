@@ -41,11 +41,34 @@ wrap the header on a 1280px tablet. Icon circles are NAMED by sr-only dictionary
 through `<Chrome>`, never an aria-label on a control with children (rule 3 refuses exactly that).
 Every transition here is reduced-motion escorted in the same block that declares it.
 
-**Guards.** `StaffBar.test.tsx` (12) pins the leading link, the static mark, the back-up label, the
-h1 marking, the named trailing group with Lock only when asked — and holds every `globals.css`
-selector naming `.staff-bar-title` to the rendered DOM (LEARNINGS #101, applied before the auditor
-could); `StaffDoors.test.tsx`'s selector guard widened to the More rows. `Sheet.title` is a
-`ReactNode` now (Radix's `Dialog.Title` always was), so a dictionary title arrives marked.
+**Guards.** `StaffBar.test.tsx` (15) pins the leading link, the static mark, the back-up label, the
+h1 marking (and its spoken separator before a badge), the id/ref/tabIndex hand-off the KDS focuses
+through, the trailing ORDER (utilities · language · Lock last), that Night's bar is the repo's one
+`--glass-chrome` pane — and holds every `globals.css` selector naming `.staff-bar-title` to the
+rendered DOM (LEARNINGS #101, applied before the auditor could); `StaffDoors.test.tsx`'s selector
+guard widened to the More rows. `check-staff-lang` rule 4 now COUNTS the language controls a page
+reaches and refuses two. `Sheet.title` is a `ReactNode` now (Radix's `Dialog.Title` always was), so
+a dictionary title arrives marked, and `Sheet` takes a `className` so a class-themed caller can
+carry its theme through the portal.
+
+**The blind pass REJECTED the first head with seven CRITICALs, every one real.** The expo page
+reached TWO language controls (the bar's and the board's own — four buttons, two writes racing for
+one cookie): the board owns the bar now, as the KDS does, and rule 4 counts. The glossary painted
+its title twice through a `.print-only` class no stylesheet defined. The live table view kept its
+inline padding, so the bar sat 4px inset on the busiest console page, and the add page nested the
+bar inside its own sticky wrapper and paid the notch inset twice — so the bar became a full-bleed
+first child of `.staff-main` with the page's column beneath it, on every page, and it is the only
+sticky element. The bar's negative margins overhung the KDS root by 6–12px (a horizontal scroll on
+the board): inside the root it now cancels the root's own `--kds-pad` exactly. The Lock circle was
+natively `disabled` while busy, which drops focus to `<body>` — the language switch's own measured
+rule — so it is `aria-disabled` with the handler refusing re-entry. And the board carried two
+selection vocabularies (gold segments beside accent-filled chips) while its new sheet, portalled to
+`<body>`, painted LIGHT over the Night board on a light-OS tablet: every pressed chip wears the gold
+cap now, and the sheet carries `dark` through the portal. The pass also caught a test pinning
+"Daw Ayeowner" (a badge with no spoken separator), a bar glass at a custom alpha outside the
+contrast guard (it is `--glass-chrome` now), the register tile losing its gold glow to a shared
+shadow rule, and the doors dropping their sheen on hover. Filed, not fixed: P7h (a serial
+`staffHasPin` round-trip on each page) and P7i (a swallowed PIN read hides Lock silently).
 
 ### Two doors, and a tablet that remembers which one it walked through (2026-09-06 · P7, PR 1 of 4)
 

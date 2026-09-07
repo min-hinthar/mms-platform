@@ -22,6 +22,7 @@ export function LockButton({ lang }: { lang: StaffLang }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   async function lock() {
+    if (busy) return; // re-entry is refused HERE, never by `disabled` (see below)
     setBusy(true);
     setErr(null);
     const res = await lockConsole();
@@ -35,11 +36,15 @@ export function LockButton({ lang }: { lang: StaffLang }) {
   }
   return (
     <>
+      {/* NEVER native `disabled` while busy: disabling the button that was just tapped drops focus
+          to <body> in a real browser (StaffLangSwitch's measured rule), so the busy name below would
+          be spoken from a node nobody is on and a failure's alert would fire with the place lost.
+          `aria-disabled` states it; the handler refuses re-entry. */}
       <button
         type="button"
         className="staff-circ"
         onClick={lock}
-        disabled={busy}
+        aria-disabled={busy || undefined}
         aria-busy={busy || undefined}
       >
         {/* Decorative lock glyph — the sr-only text carries the meaning. */}

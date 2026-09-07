@@ -32,29 +32,31 @@ export default async function TeamPage() {
 
   if (caller.role !== "owner") {
     return (
-      <main className="staff-main" style={wrap}>
+      <main className="staff-main">
         {/* The bar's Screens circle is the way back; the old "← Back to the floor" link is gone. */}
         <StaffBar lang={lang} title="floor.team.ownersOnly" lock={hasPin} />
-        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginBottom: "var(--s5)" }}>
-          <Chrome lang={lang} k="floor.team.ownersOnly.body" echo="stack" />
-        </p>
+        <div className="staff-col" style={wrap}>
+          <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", marginBottom: "var(--s5)" }}>
+            <Chrome lang={lang} k="floor.team.ownersOnly.body" echo="stack" />
+          </p>
+        </div>
       </main>
     );
   }
 
   const staff = await listStaff();
   return (
-    <main className="staff-main" style={wrap}>
+    <main className="staff-main">
       <StaffBar lang={lang} title="floor.team.title" lock={hasPin} />
-      <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
-        <Chrome lang={lang} k="floor.team.sub" echo="stack" />
-      </p>
-      <TeamManager initial={staff} selfUid={caller.uid} selfEmail={caller.email} />
+      <div className="staff-col" style={wrap}>
+        <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "0 0 var(--s6)" }}>
+          <Chrome lang={lang} k="floor.team.sub" echo="stack" />
+        </p>
+        <TeamManager initial={staff} selfUid={caller.uid} selfEmail={caller.email} />
+      </div>
     </main>
   );
 }
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
-// The back link and the language control share one row. On the "Owners only" arm the back link sits
-// BELOW the copy (it is the only way out and reads as the action), so that row carries the control
-// alone and overrides `justify-content` to keep it on the right.
+// P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
