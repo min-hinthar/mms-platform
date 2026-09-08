@@ -4036,6 +4036,91 @@ const MUTANTS = [
     find: '  return value === "m" || value === "l" ? value : KDS_SIZE_DEFAULT;',
     replace: "  return (value as KdsSize) ?? KDS_SIZE_DEFAULT;",
   },
+  {
+    id: "stripe-env/winner-not-trimmed",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: 'A signing secret pasted through a dashboard field carries a trailing newline, and Stripe\'s SDK answers with "the provided signing secret contains whitespace" appended to a signature failure \u2014 i.e. every delivery rejected, reported as a bad signature. Trimming here is the difference between C18 and a working webhook, so it is a money rule, not tidiness',
+    find: "    const trimmed = value.trim();\n    if (!trimmed) continue;\n    return { name, value: trimmed };",
+    replace:
+      "    const trimmed = value.trim();\n    if (!trimmed) continue;\n    return { name, value };",
+  },
+  {
+    id: "stripe-env/blank-var-counts-as-set",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "A Vercel variable created and left EMPTY is present to `process.env` and useless to Stripe. Without the blank check the empty name wins and the real value one line below it is never reached \u2014 the credential is 'set' and every Stripe call fails",
+    find: '    if (typeof value !== "string") continue;\n    const trimmed = value.trim();\n    if (!trimmed) continue;',
+    replace: '    if (typeof value !== "string") continue;\n    const trimmed = value.trim();',
+  },
+  {
+    id: "stripe-env/unsuffixed-wins-over-test",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "WHICH candidate wins decides the Stripe MODE the deployment runs in. Reversed, a Production environment holding both keys mounts the LIVE card form while the server signs with the test secret \u2014 a real guest shown a real Stripe form whose fulfilment webhook can never verify",
+    find: '    [\n      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST",\n      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST,\n    ],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],',
+    replace:
+      '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],\n    [\n      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST",\n      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST,\n    ],',
+  },
+  {
+    id: "stripe-env/live-key-read-as-test",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The mode marker is the ONLY evidence either key carries about which Stripe account it talks to. Read a live key as test and `modeDisagreement` sees agreement where there is none \u2014 the guard that exists to stop a live charge with a test webhook secret waves it through",
+    find: '  if (/^[sprk]{2}_test_/.test(k)) return "test";\n  if (/^[sprk]{2}_live_/.test(k)) return "live";',
+    replace:
+      '  if (/^[sprk]{2}_test_/.test(k)) return "test";\n  if (/^[sprk]{2}_live_/.test(k)) return "test";',
+  },
+  {
+    id: "stripe-env/disagreement-never-refuses",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The whole gate. With the comparison inverted every mismatched pair reports agreement, and `getStripe()` constructs a LIVE client whose fulfilment webhook is signed by a TEST secret \u2014 C18 with real guests' money instead of test cards",
+    find: '  if (secret === "unknown" || publishable === "unknown") return null;\n  if (secret === publishable) return null;',
+    replace:
+      '  if (secret === "unknown" || publishable === "unknown") return null;\n  if (secret !== publishable) return null;',
+  },
+  {
+    id: "stripe/mode-gate-skipped",
+    file: "apps/qr/lib/stripe.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The refusal has to happen BEFORE the client is constructed. Dropped, a mismatched pair builds a working live Stripe client and the first charge is real money whose fulfilment can never be verified \u2014 the failure C18 was, with the guard sitting one function away doing nothing",
+    find: "  const mismatch = modeDisagreement(key, resolvePublishableKey()?.value);\n  if (mismatch) throw new Error(mismatch);\n",
+    replace: "",
+  },
+  {
+    id: "stripe-env/live-mode-keeps-the-test-webhook-secret",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Codex P1 on #274. The live cutover removes the two _TEST KEY variables and can leave STRIPE_WEBHOOK_SECRET_TEST behind; getStripe() then sees a live secret and a live publishable key, they AGREE, and it raises nothing, while the webhook picks the TEST signing secret. Every live delivery fails constructEvent: real cards captured, zero orders \u2014 C18 with real money. modeDisagreement structurally cannot catch it, because a whsec_ is identical in both modes and the NAME is the only evidence",
+    find: '  if (mode !== "live") return candidates;\n  return candidates.filter(([name]) => !name.endsWith("_TEST"));',
+    replace: "  return candidates;",
+  },
+  {
+    id: "stripe-env/test-mode-drops-the-base-webhook-name",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The asymmetry is the point, and the other direction is a real regression rather than extra safety: the BASE name legitimately holds a TEST signing secret in local dev, in .env.example, and in every deployment predating the per-mode rename. Filtering it out in test mode breaks all of those to guard a hazard that exists only in live mode \u2014 over-blocking is as bad as under-blocking",
+    find: '  if (mode !== "live") return candidates;',
+    replace: '  if (mode === "live") return candidates;',
+  },
+  {
+    id: "stripe-env/diagnostic-hides-the-ignored-name",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Codex P2 on #274. Selection reads the mode-FILTERED candidates and the diagnostic must not: during the live cutover the filter drops STRIPE_WEBHOOK_SECRET_TEST, so a message built from the filtered list says only 'Looked for: STRIPE_WEBHOOK_SECRET' while the variable actually holding a secret sits populated and unmentioned. The operator then hunts for a name they already set, under the one name the filter deliberately refused, and the webhook stays down. Dropping this clause reinstates exactly that silence",
+    find: "  if (ignored.length === 0) return base;",
+    replace: "  if (ignored.length >= 0) return base;",
+  },
+  {
+    id: "stripe-env/diagnostic-set-ness-skips-the-trim",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Set-ness in the diagnostic must be decided by pickEnv's own trim rule. A whitespace-only leftover is 'not set' for SELECTION, so reporting it as SET gives the operator two contradictory answers to the same question and sends them hunting for a variable this module already considers empty \u2014 the same class of misdirection the diagnostic exists to remove",
+    find: '    .map(([name, value]) => `${name} (${pickEnv([[name, value]]) ? "SET" : "not set"})`)',
+    replace:
+      '    .map(([name, value]) => `${name} (${typeof value === "string" ? "SET" : "not set"})`)',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

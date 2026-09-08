@@ -1,6 +1,7 @@
 "use client";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import type { Appearance } from "@stripe/stripe-js";
+import { resolvePublishableKey } from "./stripe-env";
 
 // Build the Payment/Setup Element appearance from the document's resolved design tokens (light =
 // editorial, .dark = Night) — the iframe can't read our CSS vars, so we pass resolved values. Shared by
@@ -56,7 +57,10 @@ export function stripeAppearance(): Appearance {
 let _promise: Promise<Stripe | null> | null = null;
 
 export function getStripePromise(): Promise<Stripe | null> | null {
-  const key = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+  // Resolved through `stripe-env` so the browser reads the SAME name the server picked. The literal
+  // `process.env.NEXT_PUBLIC_*` reads live in `publishableKeyCandidates` because Next.js inlines
+  // them at build time by textual substitution: a computed lookup is undefined in the browser.
+  const key = resolvePublishableKey()?.value;
   if (!key) return null;
   if (!_promise) _promise = loadStripe(key);
   return _promise;

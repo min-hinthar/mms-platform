@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, resolvedStripeMode } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
@@ -11,6 +11,12 @@ import {
   describeUnverifiedEvent,
   signatureTimestamp,
 } from "@/lib/webhook-signature-failure";
+import {
+  webhookSecretDiagnostic,
+  pickEnv,
+  webhookCandidatesForMode,
+  type EnvCandidate,
+} from "@/lib/stripe-env";
 import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
@@ -30,12 +36,50 @@ import {
 // metadata kind/cartId/tipRate shape the terminal arm keys on; split-settle.test.ts pins the share
 // arms). A route-level mutant would need constructEvent + every DB read mocked into scripted
 // answers — the degenerate-fixture class the mutant harness exists to avoid.
+/**
+ * Every name the webhook signing secret may live under, most specific first — `_TEST` wins, the same
+ * rule the secret and publishable keys follow (`stripe-env.ts` carries the reasoning and the cutover
+ * warning). The literal reads stay here rather than in `stripe-env.ts` so no secret's variable name
+ * sits in a module a client component may import.
+ *
+ * ⚠️ A signing secret carries no mode marker of its own (`whsec_…` is the same shape in test and
+ * live), so nothing in THIS file can tell which mode it belongs to. That is why the mode check lives
+ * in `getStripe()`, where the two keys that DO announce their mode can be compared.
+ */
+function webhookSecretCandidates(): readonly EnvCandidate[] {
+  return [
+    ["STRIPE_WEBHOOK_SECRET_TEST", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+    ["STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET],
+  ];
+}
+
 export async function POST(req: NextRequest) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  // Bound to the mode the API keys resolved to, NOT to unconditional `_TEST` precedence: a
+  // `STRIPE_WEBHOOK_SECRET_TEST` left behind at the live cutover would otherwise be chosen while
+  // `getStripe()` sees an agreeing live pair and raises nothing — real charges, unverifiable
+  // deliveries, no orders. `webhookCandidatesForMode` carries the full reasoning.
+  const stripeMode = resolvedStripeMode();
+  // The RAW list, kept in its own binding: selection uses the mode-filtered view below, but the
+  // failure diagnostic must see everything that was looked at — including the `_TEST` name the
+  // filter drops. Codex round 2 on #274: passing the filtered list to the diagnostic reports only
+  // STRIPE_WEBHOOK_SECRET during the live cutover, hiding the populated leftover that caused the
+  // 500 and prolonging the outage. `webhookSecretDiagnostic` carries the reasoning.
+  const secretCandidates = webhookSecretCandidates();
+  const eligibleSecrets = webhookCandidatesForMode(stripeMode, secretCandidates);
+  const webhookSecret = pickEnv(eligibleSecrets)?.value;
   if (!webhookSecret) {
     // Config error, not a bad request: 500 so Stripe redelivers once the secret is wired (vs. the
     // old `!`, which fed `undefined` to constructEvent and masqueraded as a 400 "Bad signature").
-    console.error("[stripe webhook] STRIPE_WEBHOOK_SECRET is not set");
+    const reason = webhookSecretDiagnostic(stripeMode, secretCandidates);
+    console.error(`[stripe webhook] ${reason}`);
+    // Same series, same stage as the `getStripe()` config failure below. Codex round 3 on #274:
+    // this branch returned without touching the counter, so the ONE outage the mode filter exists
+    // to produce — live API keys with only a `_TEST` signing secret left — would leave
+    // `stripe_webhook_delivery_rejected` flat while a different config fault was counted. A
+    // dashboard that stays quiet through the outage it was built for is worse than no dashboard.
+    // The reason carries variable NAMES and set-ness only; `webhookSecretDiagnostic` never emits a
+    // value, asserted by its own test.
+    recordRejection({ stage: "config_error", reason });
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
   const sig = req.headers.get("stripe-signature");
@@ -54,9 +98,35 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
   }
   const body = await req.text();
+  // ⚠️ `getStripe()` is evaluated HERE, deliberately outside the try below.
+  //
+  // It throws on two CONFIG faults — an unresolvable secret key, and (added by this PR) a
+  // live/test disagreement between the secret and publishable keys — while the catch below exists
+  // for exactly one thing: a signature that did not verify. Leaving the call inside it filed a
+  // credential misconfiguration under `stage: "bad_signature"` and answered Stripe 400
+  // "Bad signature" with `constructEvent` NEVER CALLED. The operator would be sent hunting for a
+  // signing-secret mismatch while the real fault is the key pair, and a 400 tells Stripe the
+  // delivery can never succeed — so a mode mismatch would burn the whole retry budget being
+  // reported as an attack. That is the same masquerade the missing-secret branch above was written
+  // to end, re-entering through a different door. Found independently by two lenses of the blind
+  // pre-merge audit on #274.
+  let stripe;
+  try {
+    stripe = getStripe();
+  } catch (e) {
+    const reason = (e as Error).message;
+    console.error("[stripe webhook] DELIVERY REJECTED — Stripe client unavailable", {
+      stage: "config_error",
+      reason,
+    });
+    recordRejection({ stage: "config_error", reason });
+    // 500, matching the missing-signing-secret branch above: the fault is ours, and Stripe should
+    // redeliver once it is corrected rather than be told the payload was bad.
+    return NextResponse.json({ error: "Stripe not configured" }, { status: 500 });
+  }
   let event;
   try {
-    event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
+    event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
   } catch (e) {
     // M160(a) — THIS is the branch that shipped the C18 outage, and it shipped it by saying nothing.
     // A 400 return is not an error log: for a week the one branch that actually fired was the one
@@ -1066,16 +1136,17 @@ async function recordCartlessCancellation(intentId: string, payerUid: string | n
  * `unverifiedType` is attacker-controlled and already capped at the module's echo limit.
  */
 function recordRejection(input: {
-  stage: "missing_header" | "bad_signature";
+  stage: "missing_header" | "bad_signature" | "config_error";
   reason: string;
   unverifiedType?: string | null;
   signatureTimestamp?: string | null;
   bodyBytes?: number;
 }) {
-  // ⚠️ EVERY third-party call is inside this try, not just the flush. This function runs on the one
-  // path whose entire job is to answer 400: a synchronous throw out of the analytics SDK — or out
-  // of `after()` when there is no request scope — would escape before the caller's
-  // `return NextResponse.json(…, { status: 400 })` and turn a deterministic rejection into a 500.
+  // ⚠️ EVERY third-party call is inside this try, not just the flush. Every caller is a path whose
+  // job is to answer a SPECIFIC status — 400 for the two rejection stages, 500 for `config_error` —
+  // and a synchronous throw out of the analytics SDK, or out of `after()` when there is no request
+  // scope, would escape before the caller's `return NextResponse.json(…)` and replace that
+  // deliberate status with an incidental 500.
   // That is not a cosmetic downgrade. A 400 tells Stripe the delivery can never succeed; a 500
   // tells it to RETRY, so an outage like C18 would have spent its 72-hour retry budget hammering a
   // route that was going to reject every attempt, and reported a signature mismatch as a server

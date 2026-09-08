@@ -76,6 +76,16 @@ jobs:
       # check:freeze-parity blind to pickup.ts, OPEN-ITEMS T13), so a new lock-bearing module and a
       # new component that fires one both join it automatically.
       - run: pnpm check:child-freeze
+      # `verify:slice` already reports a STALE mutant — but only at the END of a full run, ~20
+      # minutes in, after every other mutation has been applied and its suite re-run. This asks the
+      # same question in about a second, reading no test and running no build. A stale anchor is not
+      # cosmetic: the rule it guards is UNGUARDED while its suite stays green, which is the
+      # "green for the wrong reason" shape the mutant harness exists to catch, in the harness itself.
+      # Ambiguity fails too, because an anchor matching twice is rejected as STALE and substitutes
+      # nothing — it guards NOTHING while its `why` still claims the rule is covered.
+      # The usual cause is `pnpm format` reflowing the target after the anchor was written
+      # (LEARNINGS #106), which is why this sits AFTER format:check rather than before it.
+      - run: pnpm check:mutant-anchors
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports

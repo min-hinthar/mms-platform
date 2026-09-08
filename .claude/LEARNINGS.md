@@ -2010,3 +2010,36 @@ redeclares none), never the look. Two sentences on the same cards were also wron
 — written from a mental picture rather than the source: "the dark bar" (`--tx` on a Night board is
 the pale one) and "a manager puts it back" (`setItemSoldOut` is server-and-up). Read the control
 before describing it, and quote its colour token, not its colour.
+
+## #106
+
+**A mutant anchor written BEFORE `pnpm format` goes STALE — prettier reflows the target and the
+`find` string stops matching, and you only learn this at the end of a full `verify:slice` run.**
+`stripe-env/unsuffixed-wins-over-test` anchored on a two-line candidate array that prettier then
+exploded to eight lines (a `["NAME", process.env.NAME]` pair over the print width breaks across four
+lines, and only for the LONG names — the middle entry stayed on one line, so the array ended up in
+two different shapes and eyeballing it proved nothing). The find-string was verified to match exactly
+1× when written; `pnpm format` ran later in the same session for the CHANGELOG edit and silently
+invalidated it. Twenty minutes of mutation runs to be told `matched 0× (expected 1)`.
+
+Two rules, both cheap:
+
+- **Format FIRST, anchor SECOND.** Run `pnpm format`, then write the mutant against the formatted
+  source, then re-verify the count. Anchoring on shipped bytes is the same discipline as never
+  transcribing a number.
+- **Verify anchors AFTER every format, not once.** The check is one command and needs no run:
+
+  ```sh
+  # every mutant's find-string must match its target exactly once
+  node -e '…' # or the python one-liner: parse MUTANTS, count find in file, assert 1
+  ```
+
+Prettier also rewrites the mutant literals themselves — double-quoted JSON strings come back
+single-quoted — so a script that edits `verify-slice.mjs` by matching `json.dumps(...)` works once and
+fails silently the next time. Match the entry by its `id` and rewrite the whole `find:`/`replace:`
+line rather than pattern-matching the literal.
+
+A STALE mutant is a FAILURE, not a skip, and this is why: the rule it guards (here, that `_TEST` wins
+the Stripe credential race and therefore which Stripe MODE the deployment runs in) was completely
+unguarded while the suite stayed green — the exact "green for the wrong reason" shape the mutant
+harness exists to catch, in the harness itself.

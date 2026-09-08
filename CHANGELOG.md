@@ -4,6 +4,105 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Stripe credentials resolve per mode, and the two keys must agree (2026-09-08)
+
+**The owner split the Stripe variables into per-mode copies, and the code knew none of the new
+names.** `STRIPE_SECRET_KEY_TEST`, `STRIPE_WEBHOOK_SECRET_TEST`,
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_Production` existed
+in Vercel; the three read sites still spelled the old names. Nothing was broken yet only because the
+running production build predated the rename — `NEXT_PUBLIC_*` is inlined at BUILD time, so the
+breakage was one deploy away.
+
+- **Each miss fails differently, and the worst one is silent.** A missing publishable key makes
+  `getStripePromise()` return null, so the card form never mounts and checkout reads "card checkout
+  unavailable" — no error, no log, no Stripe request. A missing webhook secret answers 500 to every
+  delivery. A missing secret key throws on the first server call. One rename, three unrelated
+  symptoms, none of which names the cause.
+- **One resolver, `apps/qr/lib/stripe-env.ts`.** Every credential accepts its per-mode copy and
+  prefers `_TEST`; the resolver returns the NAME that won, so "not set" now lists every place that
+  was looked in instead of the one name the operator just moved away from. The winner is trimmed,
+  which matters most for the signing secret: a trailing newline makes Stripe append "the provided
+  signing secret contains whitespace" to a signature failure — C18's exact shape from a keystroke.
+- **The mode gate.** `getStripe()` refuses to construct a client when the secret and publishable keys
+  are from different Stripe modes. That pairing has a dangerous half nothing else can see: a **live**
+  secret beside a **test** webhook secret charges real cards whose fulfilment can never verify — C18
+  with real guests' money. A signing secret carries no mode marker (`whsec_…` is identical in both
+  modes), so the check compares the two keys that do, on the one path every server Stripe call takes.
+- **The build-time trap, closed twice.** The literal reads stay literal, because Next.js substitutes
+  `process.env.NEXT_PUBLIC_*` textually and a computed lookup resolves to undefined in the browser
+  while reading correctly in the editor — a guard parses the three call sites and rejects exactly
+  that rewrite. And the four new names are declared in `turbo.json`'s `globalEnv`, without which a
+  build could reuse a cache entry keyed on the old set and bake in the wrong publishable key.
+- **No secret's variable name sits in a module the client imports.** `stripe-env.ts` is isomorphic
+  (`stripe-client.ts` is `"use client"` and imports it), so the secret and webhook literals stay in
+  `stripe.ts` and the route; a test asserts it.
+- **The mode gate was necessary and not sufficient — a Codex P1 on #274.** It compares the two
+  credentials that announce their mode, and a signing secret is not one of them: `whsec_…` is
+  identical in test and live. So the live cutover could remove the two `_TEST` KEY variables, leave
+  `STRIPE_WEBHOOK_SECRET_TEST` behind, and get a live secret beside a live publishable key that
+  AGREE — no refusal — while the webhook picked the test signing secret. Every live delivery would
+  fail `constructEvent`: real cards captured, zero orders. C18 with real money, produced by the
+  cutover checklist meant to prevent it, and `docs/ENV.md` asserted the mode check covered exactly
+  this case. `webhookCandidatesForMode` now judges the only evidence available, the NAME: in live
+  mode every `_TEST` name is dropped so a leftover is inert (and nothing left means a 500 rather
+  than signing with it, the right trade against unfulfillable charges); in test or unknown mode both
+  stay, because the base name legitimately holds a test secret in local dev and every pre-rename
+  deployment. The asymmetry has its own mutant — filtering in test mode too breaks working setups,
+  and over-blocking is as bad as under-blocking.
+- **That 500 has to SAY something useful — a Codex P2 on #274.** The route selects from the
+  mode-filtered list, and the first draft built its error message from that same filtered list. So
+  in the one scenario the guard exists for, the operator read "Looked for: `STRIPE_WEBHOOK_SECRET`"
+  while `STRIPE_WEBHOOK_SECRET_TEST` sat populated in their dashboard, unmentioned — the single fact
+  that ends the outage was the fact the message hid. `webhookSecretDiagnostic` is built from the RAW
+  candidates: it names every place looked, then names what was ignored and whether it is SET
+  (set-ness only, never a value, and decided by `pickEnv`'s own trim rule so selection and
+  diagnosis cannot disagree about "is it set?").
+- **A config fault must not masquerade as a bad signature — blind pre-merge audit CRITICAL, reached
+  independently by two lenses.** `getStripe()` was evaluated INSIDE the try whose catch answers 400
+  "Bad signature" and files `stage: "bad_signature"`. It throws on two config faults — an
+  unresolvable secret key, and the mode disagreement this PR added — so a credential
+  misconfiguration was reported to Stripe and to the operator as a signature failure with
+  `constructEvent` never called. A 400 tells Stripe the delivery can never succeed, so a
+  mode-mismatch window would have burned the full retry budget while being metered as an attack.
+  This is the same masquerade the missing-secret branch was written to end, re-entering by another
+  door. `getStripe()` is now evaluated ahead of that try, with its own `stage: "config_error"` and a 500. Pinned by a structural guard that fails if any try containing `constructEvent` also contains
+  a `getStripe()` call — and that asserts such a try still exists, so deleting it cannot satisfy the
+  guard vacuously.
+- **Two guards were provable-by-existence and are now provable-by-consumption.** The audit named the
+  evasion for the P1 fix precisely: keep the `webhookCandidatesForMode(...)` call so the old guard
+  stays green and hand `pickEnv` the raw list. Nothing type-checks differently and the P1 is back.
+  The guards now resolve one level of `const` binding and assert the value actually CONSUMED.
+- **Corrected claims, not just code.** `stripe-env.ts`'s header credited `modeDisagreement` with
+  preventing the live-secret/test-webhook-secret pairing it structurally cannot see — the very
+  hazard `webhookCandidatesForMode` exists for, and crediting the wrong guard is how it shipped
+  unguarded. `docs/ENV.md`'s variable table said `STRIPE_WEBHOOK_SECRET_TEST` "wins when set", which
+  is now false in live mode. And `check:mutant-anchors` (plus its `ci.yml` comment) justified the
+  exact-once rule by saying the harness "replaces every occurrence": it does not — an ambiguous
+  anchor is rejected as STALE before substituting, and the substitution is `String.replace` with a
+  string pattern, which rewrites only the first match. The rule is right; the stated reason was
+  fabricated, which is the costlier defect in a repo whose own guidance names that class.
+- **Codex round 3, both fixed on sight.** (a) The unresolvable-signing-secret 500 returned without
+  touching `stripe_webhook_delivery_rejected`, while the `getStripe()` config fault added above it
+  did record — so the one outage the mode filter exists to produce would have left the dashboard
+  flat while a different config fault was counted. Both config rejections now record under
+  `stage: "config_error"`. The guard is deliberately narrow: most 500s in this route are
+  post-verification handler failures on an already-verified event and must NOT feed a
+  delivery-rejection series. (b) The binding resolver behind the consumption guards accepted any
+  declaration, so `let x = webhookCandidatesForMode(…); x = secretCandidates; pickEnv(x)` kept the
+  guard green while the raw list was consumed and the P1 returned. It now requires `const` and
+  refuses outright if the name is written anywhere in the function — a guard defeated by a one-word
+  keyword change is the "green for the wrong reason" shape again, this time in a guard written to
+  close exactly that.
+- **Codex round 4 — the counter guard proved the calls existed, not that either branch was
+  protected.** It scanned every block recursively, so the outer `POST` body satisfied BOTH entries
+  by itself: it transitively contains every rejection string and every counter call. Deleting
+  `recordRejection` from the `getStripe()` catch therefore left the set complete and the guard
+  green. It now reads only the DIRECT statements of each block, binding a response to a counter in
+  its own branch, and both removals were watched turning it red independently — the first of which
+  the previous version passed.
+- Ten mutants and 49 tests, measured against `main` (472 → 482 mutants, 1982 → 2031 qr tests);
+  95 target modules; every structural guard watched red first.
+
 ### The OPEN-ITEMS high band, trued against source (2026-09-08)
 
 **36 rows carried severity `high` above the Closed heading; 16 do now, and every one of those is
