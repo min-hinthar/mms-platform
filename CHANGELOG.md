@@ -4,6 +4,38 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M160(a) — the webhook's signature failure stops being silent, and C18 is root-caused (2026-09-08)
+
+**The branch that produced the outage produced it by saying nothing.** `app/api/stripe/webhook/route.ts`
+answered `400 Bad signature` with no `console` call at all — the only such branch in a route that
+carries twenty-odd `console.error` sites — so prod took five card payments, wrote zero orders, and
+left Vercel's error view empty for a week. The registry said it logged "an info-level log line";
+it logged nothing.
+
+- **The rejection is now the loudest failure in the route.** It logs the reason, the signature
+  header's `t=` term, the payload's self-declared id/type, and the body's byte length, and counts a
+  `stripe_webhook_signature_rejected` PostHog event drained through `after()`. The two fields that
+  separate the causes are deliberate: a wrong or rotated secret fails every delivery at any
+  timestamp, clock skew fails only outside Stripe's tolerance window.
+- **Two things are deliberately never logged.** The `v1=` digests (an HMAC of the body under the
+  signing secret — logging one hands over a known plaintext/digest pair against the secret the
+  check exists to prove) and the raw body (unverified, attacker-controlled, and PII-bearing). The
+  id/type come from a parse named `describeUnverifiedEvent` whose docblock forbids it reaching any
+  decision, write, or Stripe call.
+- **Guard.** `lib/webhook-signature-failure.test.ts` falsifies the pure halves by value and PARSES
+  the route's AST for the rest: it locates the catch clause whose try calls `constructEvent` (not a
+  substring search that any of the other twenty call sites would satisfy) and asserts a live
+  `console.error` inside it, and that neither `body` nor `sig` reaches the logger bare. Four
+  inductions — the deleted log, a bare body in the log, an unanchored `t=` scan, a coerced
+  non-string id — each watched red on exactly its own assertion.
+- **C18 root-caused, and its numbers corrected.** It is a live/test mismatch, not a mistyped
+  secret: prod runs test API keys while Vercel Production holds the live endpoint's signing secret,
+  rotated 2026-08-23. Measured against Stripe and the prod database: five payments succeeded, not
+  four (the fifth was never listed), $75.42 total, zero orders from any of them; `qr_orders` gained
+  one row, a cash settle at table 7, not zero; ten carts sit pinned to a payment intent with no
+  order. The route was cleared of three suspicions in the process — it passes `req.text()` straight
+  to `constructEvent`, both hostnames reach it, and deployment protection is off.
+
 ### The count the guard printed and never checked — and why it read 100 (2026-09-07)
 
 **`check-docs.mjs` has measured and printed a tracked-docs-file count since the day it was written,

@@ -6,6 +6,7 @@ import { closeCounterStyleSession } from "@/lib/staff-open-cart";
 import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
+import { describeUnverifiedEvent, signatureTimestamp } from "@/lib/webhook-signature-failure";
 import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
@@ -40,7 +41,45 @@ export async function POST(req: NextRequest) {
   try {
     event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
   } catch (e) {
-    return NextResponse.json({ error: `Bad signature: ${(e as Error).message}` }, { status: 400 });
+    // M160(a) — THIS is the branch that shipped the C18 outage, and it shipped it by saying nothing.
+    // A 400 return is not an error log: this route has twenty-odd `console.error` calls and, for a
+    // week, the ONLY branch that actually fired was the one without one. Prod took five card
+    // payments and wrote zero orders while Vercel's error view stayed empty. So the failure that
+    // costs the most is now the loudest, and it names the two things that separate its causes:
+    // a wrong/rotated secret (every delivery fails, any timestamp) from clock skew (fails only
+    // outside Stripe's tolerance window).
+    //
+    // ⚠️ `describeUnverifiedEvent` reads a body whose signature just FAILED — attacker-controlled.
+    // Its output is for this log line and the counter only; it never reaches a decision, a write,
+    // or a Stripe call. The `unverified*` names carry that. The `v1=` digests are never logged.
+    const reason = (e as Error).message;
+    const { unverifiedId, unverifiedType } = describeUnverifiedEvent(body);
+    console.error("[stripe webhook] SIGNATURE VERIFICATION FAILED — delivery rejected", {
+      reason,
+      signatureTimestamp: signatureTimestamp(sig),
+      unverifiedEventId: unverifiedId,
+      unverifiedEventType: unverifiedType,
+      bodyBytes: body.length,
+    });
+    const rejectedPosthog = getPostHogClient();
+    rejectedPosthog.capture({
+      // No cart and no trustworthy id: key the series on the route so a spike is visible as a rate.
+      distinctId: "stripe-webhook",
+      event: "stripe_webhook_signature_rejected",
+      properties: {
+        reason,
+        unverified_event_type: unverifiedType,
+        signature_timestamp: signatureTimestamp(sig),
+      },
+    });
+    after(async () => {
+      try {
+        await rejectedPosthog.flush();
+      } catch {
+        // The log line above is the durable record; never let an analytics drain mask the rejection.
+      }
+    });
+    return NextResponse.json({ error: `Bad signature: ${reason}` }, { status: 400 });
   }
 
   const posthog = getPostHogClient();
