@@ -4058,9 +4058,9 @@ const MUTANTS = [
     file: "apps/qr/lib/stripe-env.ts",
     suite: "lib/stripe-env.test.ts",
     why: "WHICH candidate wins decides the Stripe MODE the deployment runs in. Reversed, a Production environment holding both keys mounts the LIVE card form while the server signs with the test secret \u2014 a real guest shown a real Stripe form whose fulfilment webhook can never verify",
-    find: '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],',
+    find: '    [\n      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST",\n      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST,\n    ],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],',
     replace:
-      '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST],',
+      '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],\n    [\n      "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST",\n      process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST,\n    ],',
   },
   {
     id: "stripe-env/live-key-read-as-test",

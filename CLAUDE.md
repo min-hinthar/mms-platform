@@ -48,11 +48,12 @@ what runs:
   all file-read-only, seconds, no build and no DB. Before this, prettier drift merged silently (it
   DID: #240 landed an unformatted `webhook/route.ts` with every check green), and both correctness
   guards were reachable only through a local `verify:slice` nobody is obliged to run. **The lane is
-  now TEN steps and the list above is only the first six** — measure it, never read it off this
+  now ELEVEN steps and the list above is only the first six** — measure it, never read it off this
   paragraph: `grep -nE '^\s+- run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`.
   A blind audit could not tell whether `check:staff-lang` was wired, because this enumeration stops
   at #240's six while `ci.yml` also runs `check:pay-attempt`, `check:freeze-parity`,
-  `check:staff-lang` and `check:child-freeze`. ⚠️ `check:docs` is step ONE and GitHub's shell is
+  `check:staff-lang`, `check:child-freeze` and `check:mutant-anchors` (the last of which answers in
+  ~1s what `verify:slice` only reports 20 minutes into a full run — LEARNINGS #106). ⚠️ `check:docs` is step ONE and GitHub's shell is
   `bash -e`, so a stale doc count is not cosmetic — it stops the nine guards behind it, the orphan
   check and the whole `lint typecheck build test` run. Refresh counts on EVERY push, not last.
 

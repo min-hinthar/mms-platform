@@ -437,7 +437,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >   under `bash -e`. Nine guards, the orphan check and the whole `lint typecheck build test` run sit
 >   behind it — `check:staff-lang` among them, which had never executed on this branch while six
 >   builds went red on stale counts. **Refresh counts on every push, not last.** CLAUDE.md's fast-lane
->   paragraph listed six of the ten steps and left the blind auditor unable to tell whether this
+>   paragraph listed six of the (then) ten steps and left the blind auditor unable to tell whether this
 >   slice's own guard was wired at all; it now carries the command to measure the lane.
 > - **Two Burmese words for one English word is invisible to every guard.** `strings.test.ts` fires on
 >   two keys SHARING a value, never on one word wearing two coats. Three forks got through parallel
