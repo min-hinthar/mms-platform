@@ -7,10 +7,12 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### M160(a) — the webhook's signature failure stops being silent, and C18 is root-caused (2026-09-08)
 
 **The branch that produced the outage produced it by saying nothing.** `app/api/stripe/webhook/route.ts`
-answered `400 Bad signature` with no `console` call at all — the only such branch in a route that
-carries twenty-odd `console.error` sites — so prod took five card payments, wrote zero orders, and
-left Vercel's error view empty for a week. The registry said it logged "an info-level log line";
-it logged nothing.
+answered `400 Bad signature` with no `console` call at all, so prod took five card payments, wrote
+zero orders, and left Vercel's error view empty for a week. The registry said it logged "an
+info-level log line"; it logged nothing. A blind audit then found the first fix incomplete: the
+missing-`stripe-signature` branch one line above answers 400 on the same path and was equally
+silent, while the prose called the signature catch "the only such branch". Both are fixed, and the
+route carries 50 `console.error` sites in total (measured, not eyeballed).
 
 - **The rejection is now the loudest failure in the route.** It logs the reason, the signature
   header's `t=` term, the payload's self-declared id/type, and the body's byte length, and counts a
@@ -22,13 +24,17 @@ it logged nothing.
   check exists to prove) and the raw body (unverified, attacker-controlled, and PII-bearing). The
   id/type come from a parse named `describeUnverifiedEvent` whose docblock forbids it reaching any
   decision, write, or Stripe call.
-- **Guard.** `lib/webhook-signature-failure.test.ts` falsifies the pure halves by value and PARSES
-  the route's AST for the rest: it locates the catch clause whose try calls `constructEvent` (not a
-  substring search that any of the other twenty call sites would satisfy) and asserts a live
-  `console.error` inside it, and that neither `body` nor `sig` reaches the logger bare. Four
-  inductions — the deleted log, a bare body in the log, an unanchored `t=` scan, a coerced
-  non-string id — each watched red on exactly its own assertion.
-- **M161 filed (high), found while scoping M160(b).** `acquireSettlement` carries a bare
+- **Guard, rewritten after the audit.** It asserts exactly ONE try/catch wraps `constructEvent`
+  (uniqueness, not last-wins — a decoy added later would otherwise capture every assertion), that
+  the logger and the counter are TOP-LEVEL statements of each rejecting block (so a dead `if` or a
+  nested callback cannot satisfy it), that the log carries all six named fields, that the byte count
+  uses `Buffer.byteLength`, that the 400 body does not echo the SDK message, and that no logger
+  receives `body` or `sig` even through a call wrapper — with a closed three-name sanitizer
+  allowlist, each member pinned by its own value test. Eleven inductions, each watched red on its
+  own assertion, including the four evasions the audit found in the first draft:
+  `JSON.stringify(body)`, `String(sig)`, a decoy `constructEvent` try/catch, and a log parked behind
+  `if (process.env.NEVER === "1")`.
+- **M163 filed (high), found while scoping M160(b).** `acquireSettlement` carries a bare
   `.eq("locked", false)` with no staleness term while `acquireCartLock` admits a stale lock through
   a `locked_at` cutoff — two readers of one column disagreeing about when a lock is dead. Measured
   against prod: all ten carts stranded by C18 are locked and past the TTL, so the counter cannot

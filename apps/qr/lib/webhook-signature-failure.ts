@@ -25,6 +25,12 @@ export type UnverifiedEvent = {
 const MAX_ECHO = 80;
 
 /**
+ * The largest rejected body we will hand to `JSON.parse`. Stripe's own events sit far below this;
+ * the bound exists for the payloads that are not Stripe's.
+ */
+const MAX_BODY_PARSE = 64 * 1024;
+
+/**
  * A log field must not become its own incident: a rejected body can be megabytes of nested JSON, or
  * not JSON at all. Take only two top-level string scalars, cap their length, and refuse anything
  * else (numbers, objects, arrays, nested lookalikes) rather than coercing it into a string.
@@ -42,6 +48,12 @@ function scalar(value: unknown): string | null {
  * and is strictly better than losing the whole line to a parse error.
  */
 export function describeUnverifiedEvent(body: string): UnverifiedEvent {
+  // Refuse to PARSE what we would refuse to echo. The body is attacker-controlled on a public,
+  // unauthenticated route, so a megabyte of nested JSON would otherwise buy a full parse and object
+  // graph per request purely to fill a log field capped at 80 characters. A real Stripe event that
+  // exceeds this is still logged — it just reports its id and type as unknown, which is the honest
+  // answer for a payload we already refused.
+  if (body.length > MAX_BODY_PARSE) return { unverifiedId: null, unverifiedType: null };
   let parsed: unknown;
   try {
     parsed = JSON.parse(body);
@@ -60,8 +72,15 @@ export function describeUnverifiedEvent(body: string): UnverifiedEvent {
  *
  * ⚠️ Deliberately returns ONLY the timestamp. The `v1=` terms are HMACs computed with the signing
  * secret; logging one hands an attacker a known-plaintext/-digest pair against the very secret this
- * check exists to prove. The timestamp is what a human actually needs — it says WHICH delivery, and
- * whether the failure is a clock-skew rejection (Stripe's tolerance) or a true secret mismatch.
+ * check exists to prove.
+ *
+ * What the timestamp is FOR, stated accurately after reading the SDK: it identifies WHICH delivery
+ * a rejection belongs to, and lets an operator see whether rejections cluster in time. An earlier
+ * draft of this docblock claimed it separates clock skew from a secret mismatch. It does not, and
+ * the claim was load-bearing enough to be worth naming: `validateComputedSignature` throws
+ * "No signatures found matching…" on `!signatureFound` BEFORE it ever evaluates `timestampAge`
+ * against the tolerance, so a wrong secret can never surface the "Timestamp outside the tolerance
+ * zone" message. The `reason` field alone separates those two causes.
  *
  * Parsed as a comma-separated term list per Stripe's format, anchored so a `v1=` value that happens
  * to contain the text `t=` cannot be mistaken for the timestamp term.
@@ -75,4 +94,24 @@ export function signatureTimestamp(header: string | null): string | null {
     return /^\d+$/.test(value) ? value : null;
   }
   return null;
+}
+
+/**
+ * A STABLE token for the rejection, safe to send to a third-party analytics sink.
+ *
+ * The SDK's raw message must not go there, and the reason is specific: when the configured secret
+ * has stray whitespace the SDK appends "Note: The provided signing secret contains whitespace…",
+ * which is a fact about OUR SIGNING SECRET. It belongs in our own server log and nowhere else. The
+ * full message is still logged locally; only this token is exported.
+ *
+ * Unrecognised messages collapse to "other" rather than passing the text through — a classifier
+ * that falls back to the raw string is not a classifier.
+ */
+export function classifyRejection(reason: string): string {
+  if (/no signatures found matching/i.test(reason)) return "no_signature_match";
+  if (/timestamp outside the tolerance zone/i.test(reason)) return "timestamp_outside_tolerance";
+  if (/no signatures found with expected scheme/i.test(reason)) return "no_scheme_match";
+  if (/payload must be provided as a string or a buffer/i.test(reason)) return "payload_not_raw";
+  if (/unable to extract timestamp and signatures/i.test(reason)) return "unparsable_header";
+  return "other";
 }

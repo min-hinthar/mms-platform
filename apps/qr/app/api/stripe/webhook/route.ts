@@ -6,7 +6,11 @@ import { closeCounterStyleSession } from "@/lib/staff-open-cart";
 import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
-import { describeUnverifiedEvent, signatureTimestamp } from "@/lib/webhook-signature-failure";
+import {
+  classifyRejection,
+  describeUnverifiedEvent,
+  signatureTimestamp,
+} from "@/lib/webhook-signature-failure";
 import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
@@ -35,51 +39,59 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
   const sig = req.headers.get("stripe-signature");
-  if (!sig) return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
+  if (!sig) {
+    // M160(a), blind-pass CRITICAL 2 — this branch answers 400 on the SAME failure path as the
+    // signature catch below, and the first draft left it silent while claiming the catch was "the
+    // only such branch". It is not: a proxy or CDN that strips the header, or a misrouted endpoint,
+    // reproduces the C18 outage exactly (every delivery 400, no order written) with nothing in the
+    // error view and nothing in the counter, because the counter below is only reached once a
+    // header exists. Both rejections are recorded, under one event name with a `stage` discriminator
+    // so a dashboard reads them as one series.
+    console.error("[stripe webhook] DELIVERY REJECTED — no stripe-signature header", {
+      stage: "missing_header",
+    });
+    recordRejection({ stage: "missing_header", reason: "missing stripe-signature header" });
+    return NextResponse.json({ error: "Missing stripe-signature" }, { status: 400 });
+  }
   const body = await req.text();
   let event;
   try {
     event = getStripe().webhooks.constructEvent(body, sig, webhookSecret);
   } catch (e) {
     // M160(a) — THIS is the branch that shipped the C18 outage, and it shipped it by saying nothing.
-    // A 400 return is not an error log: this route has twenty-odd `console.error` calls and, for a
-    // week, the ONLY branch that actually fired was the one without one. Prod took five card
-    // payments and wrote zero orders while Vercel's error view stayed empty. So the failure that
-    // costs the most is now the loudest, and it names the two things that separate its causes:
-    // a wrong/rotated secret (every delivery fails, any timestamp) from clock skew (fails only
-    // outside Stripe's tolerance window).
+    // A 400 return is not an error log: for a week the one branch that actually fired was the one
+    // without one, so prod took five card payments, wrote zero orders, and Vercel's error view
+    // stayed empty. The failure that costs the most is now the loudest.
     //
     // ⚠️ `describeUnverifiedEvent` reads a body whose signature just FAILED — attacker-controlled.
     // Its output is for this log line and the counter only; it never reaches a decision, a write,
     // or a Stripe call. The `unverified*` names carry that. The `v1=` digests are never logged.
     const reason = (e as Error).message;
     const { unverifiedId, unverifiedType } = describeUnverifiedEvent(body);
+    // Bytes, not UTF-16 code units: this app is bilingual and the kiosk takes free-text names, so
+    // `.length` under-reports a Burmese payload by up to ~3× — and an operator diffing it against
+    // Stripe's own payload size would read that gap as a body rewritten in transit, which is one of
+    // the exact suspicions C18 had to rule out.
+    const bodyBytes = Buffer.byteLength(body, "utf8");
     console.error("[stripe webhook] SIGNATURE VERIFICATION FAILED — delivery rejected", {
+      stage: "bad_signature",
       reason,
       signatureTimestamp: signatureTimestamp(sig),
       unverifiedEventId: unverifiedId,
       unverifiedEventType: unverifiedType,
-      bodyBytes: body.length,
+      bodyBytes,
     });
-    const rejectedPosthog = getPostHogClient();
-    rejectedPosthog.capture({
-      // No cart and no trustworthy id: key the series on the route so a spike is visible as a rate.
-      distinctId: "stripe-webhook",
-      event: "stripe_webhook_signature_rejected",
-      properties: {
-        reason,
-        unverified_event_type: unverifiedType,
-        signature_timestamp: signatureTimestamp(sig),
-      },
+    recordRejection({
+      stage: "bad_signature",
+      reason,
+      unverifiedType,
+      signatureTimestamp: signatureTimestamp(sig),
+      bodyBytes,
     });
-    after(async () => {
-      try {
-        await rejectedPosthog.flush();
-      } catch {
-        // The log line above is the durable record; never let an analytics drain mask the rejection.
-      }
-    });
-    return NextResponse.json({ error: `Bad signature: ${reason}` }, { status: 400 });
+    // The full `reason` is in the log above. The RESPONSE stays generic: this route is public and
+    // unauthenticated, and the SDK message can carry the whitespace note about our own signing
+    // secret. Stripe reads the status code, never the body.
+    return NextResponse.json({ error: "Bad signature" }, { status: 400 });
   }
 
   const posthog = getPostHogClient();
@@ -1039,4 +1051,46 @@ async function recordCartlessCancellation(intentId: string, payerUid: string | n
       paymentIntent: intentId,
       error: error.message,
     });
+}
+
+/**
+ * ONE counter for every way a delivery is turned away before it is trusted (M160a).
+ *
+ * Both rejection branches feed it, discriminated by `stage`, so a dashboard reads them as one
+ * series — the first draft counted only the signature branch, which would have shown zero
+ * throughout an outage caused by a stripped header.
+ *
+ * ⚠️ `reason` is NOT passed on. The SDK appends "Note: The provided signing secret contains
+ * whitespace…" when our configured secret has stray characters, which is a fact about OUR SECRET;
+ * it stays in the server log. Only `classifyRejection`'s stable token crosses to analytics.
+ * `unverifiedType` is attacker-controlled and already capped at the module's echo limit.
+ */
+function recordRejection(input: {
+  stage: "missing_header" | "bad_signature";
+  reason: string;
+  unverifiedType?: string | null;
+  signatureTimestamp?: string | null;
+  bodyBytes?: number;
+}) {
+  const posthog = getPostHogClient();
+  posthog.capture({
+    // No cart and no trustworthy id: key the series on the route so a spike reads as a rate.
+    distinctId: "stripe-webhook",
+    event: "stripe_webhook_delivery_rejected",
+    properties: {
+      stage: input.stage,
+      reason_class: classifyRejection(input.reason),
+      unverified_event_type: input.unverifiedType ?? null,
+      signature_timestamp: input.signatureTimestamp ?? null,
+      body_bytes: input.bodyBytes ?? null,
+    },
+  });
+  after(async () => {
+    try {
+      await posthog.flush();
+    } catch {
+      // The console.error beside every call to this is the durable record; an analytics drain
+      // failure must never mask the rejection itself.
+    }
+  });
 }
