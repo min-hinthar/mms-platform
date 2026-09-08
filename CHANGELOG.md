@@ -4,6 +4,38 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The OPEN-ITEMS high band, trued against source (2026-09-08)
+
+**36 rows carried severity `high` above the Closed heading; 16 do now, and every one of those is
+genuinely open.** The staleness was not cosmetic: C18, a live money outage where paid guests get no
+order, sat buried among dozens of rows that only looked equally urgent.
+
+- **The severity trap that caused the undercount.** The file spells the same severity two ways,
+  `**high**` (24 rows) and bare `high` (12). A matcher anchored on one sees a third of the set, and
+  an earlier session in this repo reported "14 high rows" for exactly that reason.
+- **Nothing was moved on its own say-so.** Each of the 26 closure-claiming rows was verified against
+  source by one agent and then adversarially re-checked by a second whose job was to refute it. The
+  refuting pass overturned four verdicts — F3 and T9 are NOT movable, and G2's and M124's stated
+  mechanisms are false — which is the whole reason it exists.
+- **20 rows moved to Closed**, each carrying the PR or phase that closed it. The move was verified as
+  a set operation, not by eye: open 362 → 342, closed 23 → 43, nothing lost and nothing invented.
+- **Five rows carried a claim that source refutes**, and were corrected rather than quietly filed.
+  The sharpest is T9: its central mechanism, a `frozenNote` prop, never existed (`git log --all -S`
+  is empty; the real prop is `frozen: boolean` on four components) — and the row is not closable
+  anyway, because `SplitSection`'s "Split & pay separately" is neither frozen-gated nor
+  `aria-disabled`, so under the freeze it takes the tap and surfaces a redacted Server Action error.
+  M124's benign-collision argument is also wrong: the Stripe idempotency key embeds the attempt era,
+  so two same-millisecond requests differing in amount or tip get two intents, not one.
+- **Five items had been referenced for months with no row to receive them.** "S14a" appears in four
+  documents and in no row of the registry; its real remainder is now **S18** — the kiosk's 33-key
+  private dictionary sits outside all 17 dictionary guards, so the EN/MY parity, script, numeral and
+  glossary rules cannot see a counter-facing surface. The vocabulary there is currently correct, held
+  by a comment rather than a guard. S1's "auto-send" and "per-order links" residuals become **S15**
+  and **S16**, S3's phantom "S3a" becomes **S17**, and J9's unguarded disclosure path becomes **T46**.
+- **S2 restated.** It described a toggle/cookie mechanism W16b retired, then listed that retired
+  machinery as shipped, which read as progress on something that no longer exists. It now names the
+  three surface groups actually left.
+
 ### M160(a) — the webhook's signature failure stops being silent, and C18 is root-caused (2026-09-08)
 
 **The branch that produced the outage produced it by saying nothing.** `app/api/stripe/webhook/route.ts`
