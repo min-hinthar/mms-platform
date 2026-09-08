@@ -28,6 +28,12 @@ it logged nothing.
   `console.error` inside it, and that neither `body` nor `sig` reaches the logger bare. Four
   inductions — the deleted log, a bare body in the log, an unanchored `t=` scan, a coerced
   non-string id — each watched red on exactly its own assertion.
+- **M161 filed (high), found while scoping M160(b).** `acquireSettlement` carries a bare
+  `.eq("locked", false)` with no staleness term while `acquireCartLock` admits a stale lock through
+  a `locked_at` cutoff — two readers of one column disagreeing about when a lock is dead. Measured
+  against prod: all ten carts stranded by C18 are locked and past the TTL, so the counter cannot
+  cash-settle any of them, and Clear table (which gates on the lapsed predicate) turns a paid meal
+  into a refund-needed row once the webhook is fixed. Filed, not fixed — it needs its own mutant.
 - **C18 root-caused, and its numbers corrected.** It is a live/test mismatch, not a mistyped
   secret: prod runs test API keys while Vercel Production holds the live endpoint's signing secret,
   rotated 2026-08-23. Measured against Stripe and the prod database: five payments succeeded, not
