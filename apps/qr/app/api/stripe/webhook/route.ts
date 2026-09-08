@@ -1072,25 +1072,40 @@ function recordRejection(input: {
   signatureTimestamp?: string | null;
   bodyBytes?: number;
 }) {
-  const posthog = getPostHogClient();
-  posthog.capture({
-    // No cart and no trustworthy id: key the series on the route so a spike reads as a rate.
-    distinctId: "stripe-webhook",
-    event: "stripe_webhook_delivery_rejected",
-    properties: {
+  // ⚠️ EVERY third-party call is inside this try, not just the flush. This function runs on the one
+  // path whose entire job is to answer 400: a synchronous throw out of the analytics SDK — or out
+  // of `after()` when there is no request scope — would escape before the caller's
+  // `return NextResponse.json(…, { status: 400 })` and turn a deterministic rejection into a 500.
+  // That is not a cosmetic downgrade. A 400 tells Stripe the delivery can never succeed; a 500
+  // tells it to RETRY, so an outage like C18 would have spent its 72-hour retry budget hammering a
+  // route that was going to reject every attempt, and reported a signature mismatch as a server
+  // fault. The counter is best-effort by definition; the `console.error` beside every call site is
+  // the durable record, and it has already run by the time we get here.
+  try {
+    const posthog = getPostHogClient();
+    posthog.capture({
+      // No cart and no trustworthy id: key the series on the route so a spike reads as a rate.
+      distinctId: "stripe-webhook",
+      event: "stripe_webhook_delivery_rejected",
+      properties: {
+        stage: input.stage,
+        reason_class: classifyRejection(input.reason),
+        unverified_event_type: input.unverifiedType ?? null,
+        signature_timestamp: input.signatureTimestamp ?? null,
+        body_bytes: input.bodyBytes ?? null,
+      },
+    });
+    after(async () => {
+      try {
+        await posthog.flush();
+      } catch {
+        // An analytics drain failure must never mask the rejection itself.
+      }
+    });
+  } catch (e) {
+    console.error("[stripe webhook] rejection counter failed — the 400 is unaffected", {
       stage: input.stage,
-      reason_class: classifyRejection(input.reason),
-      unverified_event_type: input.unverifiedType ?? null,
-      signature_timestamp: input.signatureTimestamp ?? null,
-      body_bytes: input.bodyBytes ?? null,
-    },
-  });
-  after(async () => {
-    try {
-      await posthog.flush();
-    } catch {
-      // The console.error beside every call to this is the durable record; an analytics drain
-      // failure must never mask the rejection itself.
-    }
-  });
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 }

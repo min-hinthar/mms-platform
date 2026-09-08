@@ -74,6 +74,20 @@ route carries 50 `console.error` sites in total (measured, not eyeballed).
   twelve snippets it must reject or accept — the three member reads, element access, the earlier
   call wrappers, a sanitizer sitting beside a leak, and `body.length` itself — and the exemption is
   narrowed to `length` alone. Reverting the narrowing turns exactly the three member-read cases red.
+- **The rejection counter cannot change the response.** `recordRejection`'s analytics calls sat
+  outside the try that guarded only the flush, on the one path whose whole job is to answer 400. A
+  synchronous throw out of the SDK — or out of `after()` with no request scope — would have escaped
+  before the `return NextResponse.json(…, { status: 400 })` and yielded a 500, and a 500 tells
+  Stripe to **retry**: an outage like C18 would have spent its 72-hour retry budget hammering a
+  route that was going to reject every attempt, reported as a server fault rather than a signature
+  mismatch. Every third-party call is inside the try now, and a structural assertion says no
+  `getPostHogClient` / `capture` / `after` call in that function sits outside one — there is no way
+  to make the real SDK throw on demand, so the property is proved by shape, watched red.
+- **Three high rows contradicted themselves in the column a reader actually scans.** F3's Status
+  said `done`, T9's said `closed`, and F5's was a ✅ narrative asserting the sweep the same row now
+  marks REOPENED. A registry consumed by its Status column would have skipped all three — and this
+  arc's whole premise is triaging off the open high band. Statuses corrected and the two stale
+  completion openers rewritten.
 - **The `t=` term is length-bounded.** `/^\d+$/` accepts any length, and that value is logged
   per-request and shipped to a third-party analytics sink, so an unauthenticated caller on a public
   route got to pick the size of a log field. Twelve digits is the bound; a Unix second-timestamp is

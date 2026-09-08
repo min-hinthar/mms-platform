@@ -145,6 +145,16 @@ function leakedIdentifiers(call: ts.CallExpression): string[] {
   return found;
 }
 
+/** Every `function recordRejection(…)` declaration in the route. Uniqueness is asserted, not assumed. */
+const recordRejectionFns = (() => {
+  const out: ts.FunctionDeclaration[] = [];
+  walk(source, (node) => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "recordRejection" && node.body)
+      out.push(node);
+  });
+  return out;
+})();
+
 /** Every try statement whose try block calls `constructEvent`. */
 const signatureTries = (() => {
   const out: ts.TryStatement[] = [];
@@ -384,6 +394,38 @@ describe("the route's reject-before-trust branches", () => {
         usesByteLength = true;
     });
     expect(usesByteLength).toBe(true);
+  });
+
+  it("the rejection counter cannot escape and change the 400", () => {
+    // Codex round 2. `recordRejection` runs on the one path whose whole job is to answer 400, and
+    // its analytics calls sat outside the try that guarded only the flush. A synchronous throw out
+    // of the SDK — or out of `after()` with no request scope — would escape before the caller's
+    // `return NextResponse.json(…, { status: 400 })` and yield a 500, which tells Stripe to RETRY
+    // a delivery that can never succeed. Structural, not a value test: there is no way to make the
+    // real SDK throw on demand from here, and the property that matters is that no third-party
+    // call in this function sits outside a try.
+    expect(recordRejectionFns).toHaveLength(1);
+    const body = recordRejectionFns[0]!.body!;
+    const guarded = new Set<ts.Node>();
+    walk(body, (n) => {
+      if (ts.isTryStatement(n))
+        walk(n.tryBlock, (c) => {
+          guarded.add(c);
+        });
+    });
+    const escapes: string[] = [];
+    walk(body, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      const fn = n.expression;
+      const name = ts.isIdentifier(fn)
+        ? fn.text
+        : ts.isPropertyAccessExpression(fn)
+          ? fn.name.text
+          : "";
+      if (name !== "getPostHogClient" && name !== "capture" && name !== "after") return;
+      if (!guarded.has(n)) escapes.push(name);
+    });
+    expect(escapes).toEqual([]);
   });
 
   it("the 400 response body does not echo the SDK message to an anonymous caller", () => {
