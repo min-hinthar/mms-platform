@@ -180,7 +180,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
 > **472 `verify:slice` mutants** · **93 target modules** (83 under `apps/qr/lib`, 3 API routes,
-> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files at the time ·
+> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
 > **Prod carries everything this code needs — verified against the live project, not from prose:**

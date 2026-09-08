@@ -186,46 +186,20 @@ const COUNT_RULES = [
   //     measured, at 23 characters, silencing BOTH captures. No match extent fixes it: the window
   //     starts where the capture ends, and the neighbour is closer than 24 characters from there.
   //     `statesItsOwnCurrency`'s `\btoday\b` test does not cover it either — it only helps a match
-  //     whose own text contains `today`, which 8 of the 13 rules here can never do (measured), and
-  //     the bare `(C + D)` spelling has no `today` to find. The flag is sound precisely BECAUSE of
+  //     whose own text contains `today`, which the MAJORITY of rules here can never do: every rule
+  //     that is literal-plus-digits, with no wildcard gap and no literal `today`, is structurally
+  //     incapable of it. ⚠️ An earlier draft of this line stated that share as `8 of the 13`, and
+  //     two rules later it was 9 of 15 and wrong — a transcribed count rotting inside the guard
+  //     whose whole subject is transcribed counts rotting. Do not write the number here; MEASURE it,
+  //     and note that `[^.]` gaps count as well as `[^.\n]` ones:
+  //       node -e 'const s=require("fs").readFileSync("scripts/check-docs.mjs","utf8");
+  //         const b=s.slice(s.indexOf("const COUNT_RULES = ["),s.indexOf("\n];"));
+  //         const r=b.match(/re: \/(?:[^\/\\\n]|\\.)*\/[a-z]*/g);
+  //         const n=r.filter(x=>!/\[\^\.|today/.test(x));
+  //         console.log(n.length+" of "+r.length+" can never carry `today`")'
+  //     The bare `(C + D)` spelling has no `today` to find either way, which is the point. The flag is sound precisely BECAUSE of
   //     the closing paren: the parens can hold nothing but `C + D` or `C + D today`, so a
   //     historical marker is always outside them and always belongs to a different clause.
-  // The tracked-docs-file count was MEASURED and PRINTED by this script from the day it was written
-  // and checked by nothing — `truth` carried mutants, modules, libModules, qr and ui, and no `files`.
-  // The docs quote it as measured truth (`check:docs` clean (98 files, …)), which is precisely the
-  // shape this guard exists for: a number a reader takes on the script's authority.
-  //
-  // ⚠️ These two are the FIRST rules here that must stay EXEMPTIBLE, and the reason is worth the
-  // paragraph. The parenthetical `ui tests` pair above carries `current: true` because its shape —
-  // parens that can hold nothing but `C + D` — makes a historical reading impossible. This phrasing
-  // is the opposite: `\`check:docs\` clean (98 files, …)` appears in docs/HANDOFF.md THREE times, once
-  // as live state under `**Gate today:**` and twice as point-in-time records of a past head, in
-  // IDENTICAL words. Nothing in the text distinguishes them, so the rule cannot; the marker has to,
-  // and the two records now carry `at the time` inside the parenthetical — after the number, which
-  // is the only position `HISTORICAL` reads. Copying `current: true` here would report both records
-  // as stale forever, i.e. it would punish the docs for keeping an honest history.
-  {
-    re: /`?check:docs`?[^.]{0,24}?\(\s*(\d+)\s+files\b/gi,
-    key: "files",
-    label: "tracked docs files",
-  },
-  // ⚠️ The gap is `[^.]`, NOT `[^.\n]` like every other rule here: prettier wraps prose, and it had
-  // already split one of the three instances so that `\`check:docs\` clean` ends line 462 and
-  // `(98 files, …)` opens line 463. A newline-excluding gap could not see it — measured, it was the
-  // one fixture of four that stayed silent — which would make coverage depend on where the
-  // formatter happened to break the line, i.e. a claim could drift out of the guard's reach with no
-  // edit to the claim at all. The sentence-ending `.` still bounds it, so it cannot wander into an
-  // unrelated statement.
-  //
-  // The other phrasing the docs use, and the one with no parenthetical to anchor on. `tracked docs
-  // files` is required in full: a bare `(\d+)\s+files` would grab `168 assertions across 8 files`,
-  // `15 controls across 6 files`, `64 files aria-clean` and `the repo (96 files)` — four live decoys
-  // in these same documents, three of which are counts of something else entirely.
-  {
-    re: /(\d+)\s+tracked\s+docs\s+files/gi,
-    key: "files",
-    label: "tracked docs files",
-  },
   {
     re: /ui\s+tests[^.\n]{0,24}?\(\s*(\d+)\s*\+\s*\d+(?:\s+today)?\s*(?=\))/gi,
     key: "qr",
@@ -237,6 +211,58 @@ const COUNT_RULES = [
     key: "ui",
     label: "ui tests (parenthetical 'today' form)",
     current: true,
+  },
+  // The tracked-docs-file count was MEASURED and PRINTED by this script from the day it was written
+  // and checked by nothing — `truth` carried mutants, modules, libModules, qr and ui, and no `files`.
+  // The docs quote it as measured truth (`check:docs` clean (98 files, …)), which is precisely the
+  // shape this guard exists for: a number a reader takes on the script's authority.
+  //
+  // ⚠️ These two are the FIRST rules here that must stay EXEMPTIBLE, and the reason is the mirror of
+  // the pair ABOVE. That pair carries `current: true` because its shape — parens that can hold
+  // nothing but `C + D` — makes a historical reading impossible. This phrasing is the opposite:
+  // `` `check:docs` clean (98 files, …) `` appears in docs/HANDOFF.md THREE times, once as live state
+  // under `**Gate today:**` and twice as records of a past head. They are not spelled identically —
+  // one says `pnpm check:docs`, one is wrapped mid-claim — but nothing in the WORDS marks which is
+  // current, so the rule cannot tell them apart and a marker has to. The two records now carry
+  // `at the time` inside the parenthetical, after the number, the only position `HISTORICAL` reads.
+  // Copying `current: true` here would report both records as stale forever, i.e. punish the docs
+  // for keeping an honest history.
+  //
+  // ⚠️ The gap is `[^.]`, NOT `[^.\n]` like every other rule here, because one of the three claims is
+  // ALREADY split across two lines — `` `check:docs` clean `` ends docs/HANDOFF.md:462 and
+  // `(98 files, …)` opens :463 — and a newline-excluding gap could not see it (measured: the one
+  // fixture of four that stayed silent).
+  //
+  // ⚠️ That break is HAND-TYPED, and the distinction matters. An earlier draft of this comment, and
+  // of the CHANGELOG entry, blamed prettier for wrapping the prose. It does not: the shared config
+  // (packages/config/prettier.config.mjs) sets no `proseWrap`, so the default `"preserve"` applies
+  // and markdown prose breaks are left exactly where an author put them — verified by running
+  // prettier over a 190-character line and watching it come back on one line. The conclusion stands
+  // and the reason does not, which is the worse of the two failures: a maintainer who believes the
+  // formatter owns doc line breaks will mis-predict both this matcher's reach and what `pnpm format`
+  // does to a doc. Authors rewrap by hand all the time, so the gap must still cross the newline.
+  //
+  // ⚠️ `(?=[,)])` is the difference between a count and a coincidence. Without it the rule reads the
+  // first number of ANY parenthetical near `check:docs`, so `` `check:docs` now walks the tree
+  // (12 files changed) `` — a sentence stating no docs count at all — reported `says 12 tracked docs
+  // files, measured 98`. Requiring the number to be the whole item refuses that. Two known escapes
+  // are left deliberately: a re-word (`clean (98 markdown files`) and a gap wider than 24 characters
+  // (`` `check:docs` and `check:theme` both clean (98 files ``). Widening either bound trades this
+  // false positive back, and an unguarded re-word is the failure this file already documents at the
+  // `semantic mutations` rule — so the bound is a choice, not an oversight.
+  {
+    re: /`?check:docs`?[^.]{0,24}?\(\s*(\d+)\s+files\s*(?=[,)])/gi,
+    key: "files",
+    label: "tracked docs files",
+  },
+  // The other phrasing the docs use, and the one with no parenthetical to anchor on. `tracked docs
+  // files` is required in full: a bare `(\d+)\s+files` would grab `168 assertions across 8 files`,
+  // `15 controls across 6 files`, `64 files aria-clean` and `the repo (96 files)` — four live decoys
+  // in these same documents, three of which are counts of something else entirely.
+  {
+    re: /(\d+)\s+tracked\s+docs\s+files/gi,
+    key: "files",
+    label: "tracked docs files",
   },
 ];
 
@@ -305,6 +331,14 @@ const MISSING_RULES = [
     re: /rewrites[ \t]+the[ \t]+money\/authority[ \t]+modules/gi,
     label: () => "a module count",
   },
+  // The file-count rules were born with the same blind spot, and the blind pass caught it before
+  // they shipped: a `sed` whose capture comes back empty turns `` clean (98 files, … `` into
+  // `` clean ( files, … ``, which every COUNT_RULE ignores because none of them can match without
+  // digits. Anchored on the parenthetical form and on `tracked docs files`, both of which CARRY a
+  // count — a bare `files` twin would fire on `64 files aria-clean` and every other honest sentence
+  // in these documents that counts something else.
+  { re: /\([ \t]*files\b/gi, label: () => "a docs-file count" },
+  { re: /(?:^|[+·|(])[ \t]*tracked[ \t\n]+docs[ \t\n]+files/gim, label: () => "a docs-file count" },
   {
     // `[ \t\n]+`, not `[ \t]+`: CLAUDE.md wraps this very claim across two comment lines, and
     // `joinWrappedComments` blanks the `#` marker but deliberately KEEPS the newline so line numbers
@@ -400,10 +434,14 @@ export function measure(root) {
 function main() {
   const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   /** ⚠️ DE-DUPLICATED, and that is not tidiness. `git ls-files` lists an UNMERGED path once per
-   *  merge stage — three entries for one conflicted file — and the two glob arguments overlap by
-   *  construction (`*.md` already matches at any depth, so `docs/*.md` re-matches every docs file
-   *  the moment git stops treating the first pattern as exhaustive). Measured on a throwaway repo:
-   *  clean `2 entries -> a.md b.md`, conflicted `4 entries -> a.md a.md a.md b.md`.
+   *  merge stage — three entries for one conflicted file. Measured on a throwaway repo: clean
+   *  `2 entries -> a.md b.md`, conflicted `4 entries -> a.md a.md a.md b.md`.
+   *
+   *  ⚠️ The OVERLAPPING PATHSPECS are NOT a second source of duplicates, though an earlier draft of
+   *  this comment asserted they were. git visits each index entry once however many pathspecs match
+   *  it: measured on this repo's clean tree, `git ls-files "*.md" "docs/*.md"` returns 98 entries and
+   *  98 unique. The merge stages are the whole mechanism. Left here because a wrong mechanism in a
+   *  comment outlives the bug it explains, and this file is where that lesson is kept.
    *
    *  Three consequences, every one of them worst DURING a merge — precisely when someone runs this
    *  script to decide whether their resolution is sound: the printed file count inflates by 2 per
