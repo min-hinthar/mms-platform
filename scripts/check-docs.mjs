@@ -217,16 +217,28 @@ const COUNT_RULES = [
   // The docs quote it as measured truth (`check:docs` clean (98 files, …)), which is precisely the
   // shape this guard exists for: a number a reader takes on the script's authority.
   //
-  // ⚠️ These two are the FIRST rules here that must stay EXEMPTIBLE, and the reason is the mirror of
-  // the pair ABOVE. That pair carries `current: true` because its shape — parens that can hold
-  // nothing but `C + D` — makes a historical reading impossible. This phrasing is the opposite:
-  // `` `check:docs` clean (98 files, …) `` appears in docs/HANDOFF.md THREE times, once as live state
-  // under `**Gate today:**` and twice as records of a past head. They are not spelled identically —
-  // one says `pnpm check:docs`, one is wrapped mid-claim — but nothing in the WORDS marks which is
-  // current, so the rule cannot tell them apart and a marker has to. The two records now carry
-  // `at the time` inside the parenthetical, after the number, the only position `HISTORICAL` reads.
-  // Copying `current: true` here would report both records as stale forever, i.e. punish the docs
-  // for keeping an honest history.
+  // ⚠️ These two must stay EXEMPTIBLE, and the reason is the mirror of the pair ABOVE. That pair
+  // carries `current: true` because its shape — parens that can hold nothing but `C + D` — makes a
+  // historical reading impossible. This phrasing is the opposite: `` `check:docs` clean (98 files, …) ``
+  // appears in docs/HANDOFF.md THREE times, once as live state under `**Gate today:**` and twice as
+  // records of a past head. They are not spelled identically — one says `pnpm check:docs`, one is
+  // wrapped mid-claim — but nothing in the WORDS marks which is current, so the rule cannot tell
+  // them apart and a marker has to. Copying `current: true` here would report both records as stale
+  // forever, i.e. punish the docs for keeping an honest history.
+  //
+  // ⚠️ WHAT ACTUALLY SILENCES THE TWO RECORDS TODAY IS THE LOOKAHEAD, NOT `HISTORICAL` — and an
+  // earlier draft of this comment said the opposite. The records read `(98 files at the time,`, and
+  // `\s*(?=[,)])` fails on the space before `at`, so the rule never matches and the exemption is
+  // never consulted. Measured: `(98 files at the time,` no match · `(98 files,` match · `(98 files)
+  // at the time` MATCH, then exempt by `HISTORICAL`. So `at the time` here is doing two honest jobs
+  // and not the one it was credited with: it tells a human the number is a record, and it is the
+  // BELT if the lookahead is ever widened — at which point the exemption does the work. It is also
+  // not "the only position `HISTORICAL` reads": end-of-clause, outside the parens, works too.
+  //
+  // The distinction is not pedantry. The fixture that proved these two lines silent passed for the
+  // WRONG REASON, and a fixture that cannot tell you WHICH mechanism fired cannot tell you when that
+  // mechanism stops working — the same defect this file records at the `semantic mutations` rule and
+  // at the P5/P6 pair above. It was caught by a second-opinion review, not by the falsification.
   //
   // ⚠️ The gap is `[^.]`, NOT `[^.\n]` like every other rule here, because one of the three claims is
   // ALREADY split across two lines — `` `check:docs` clean `` ends docs/HANDOFF.md:462 and
@@ -245,11 +257,18 @@ const COUNT_RULES = [
   // ⚠️ `(?=[,)])` is the difference between a count and a coincidence. Without it the rule reads the
   // first number of ANY parenthetical near `check:docs`, so `` `check:docs` now walks the tree
   // (12 files changed) `` — a sentence stating no docs count at all — reported `says 12 tracked docs
-  // files, measured 98`. Requiring the number to be the whole item refuses that. Two known escapes
-  // are left deliberately: a re-word (`clean (98 markdown files`) and a gap wider than 24 characters
-  // (`` `check:docs` and `check:theme` both clean (98 files ``). Widening either bound trades this
-  // false positive back, and an unguarded re-word is the failure this file already documents at the
-  // `semantic mutations` rule — so the bound is a choice, not an oversight.
+  // files, measured 98`. Requiring the number to be the whole item refuses that.
+  //
+  // The escapes this buys are wider than an earlier draft admitted, so state them fully: ANY token
+  // between the number and the comma silences the rule — measured, `(98 files today,`, `(98 files ·`
+  // and `(98 files xyzzy,` are all no-match, exactly like the `(12 files changed)` it exists to
+  // refuse, because the lookahead cannot tell a qualifier from a different subject. Add a re-word
+  // (`clean (98 markdown files`) and a gap wider than 24 characters (`` `check:docs` and
+  // `check:theme` both clean (98 files ``). That is the real cost of the bound: the guard is easy to
+  // silence by accident, and it goes quiet without a signal. It is still the right trade here — a
+  // false FAILURE stops CI's first step for everyone, a false pass leaves one number unchecked — but
+  // it is a trade, and widening the lookahead to `[^,)]*` would buy the qualifiers back at the price
+  // of `(12 files changed)`. Do not widen it without re-running that case.
   {
     re: /`?check:docs`?[^.]{0,24}?\(\s*(\d+)\s+files\s*(?=[,)])/gi,
     key: "files",
@@ -334,10 +353,17 @@ const MISSING_RULES = [
   // The file-count rules were born with the same blind spot, and the blind pass caught it before
   // they shipped: a `sed` whose capture comes back empty turns `` clean (98 files, … `` into
   // `` clean ( files, … ``, which every COUNT_RULE ignores because none of them can match without
-  // digits. Anchored on the parenthetical form and on `tracked docs files`, both of which CARRY a
-  // count — a bare `files` twin would fire on `64 files aria-clean` and every other honest sentence
-  // in these documents that counts something else.
-  { re: /\([ \t]*files\b/gi, label: () => "a docs-file count" },
+  // digits.
+  //
+  // ⚠️ The `check:docs` anchor on the first twin is LOAD-BEARING, and the second-opinion review is
+  // why it is there. Written as a bare `\([ \t]*files\b` it carried no anchor at all — measured, it
+  // fired on `(files changed: 3)`, `the diff (files touched) is small` and a bare `(files)`, none of
+  // which state a count of anything. A numberless twin reddens `check:docs`, and `check:docs` is
+  // CI's first step under `bash -e`, so ordinary prose in any live-state doc would have stopped the
+  // whole fast lane. The comment shipped beside it claimed the rule was "anchored on the
+  // parenthetical form … which CARR[IES] a count"; it was not anchored on anything. Both halves are
+  // now anchored the same way their count rules are.
+  { re: /`?check:docs`?[^.]{0,24}?\(\s*files\b/gi, label: () => "a docs-file count" },
   { re: /(?:^|[+·|(])[ \t]*tracked[ \t\n]+docs[ \t\n]+files/gim, label: () => "a docs-file count" },
   {
     // `[ \t\n]+`, not `[ \t]+`: CLAUDE.md wraps this very claim across two comment lines, and
@@ -367,8 +393,9 @@ export function countFailures(text, truth, name = "<doc>") {
       const stated = Number(m[1]);
       if (stated === truth[rule.key]) continue;
       /** Report the line holding the NUMBER, not the line the match starts on. They differ whenever
-       *  a rule spans a prose wrap — which the `check:docs` file rule deliberately does, since
-       *  prettier had already split one claim across two lines. Pointing at the match start showed
+       *  a rule spans a prose wrap — which the `check:docs` file rule deliberately does, because an
+       *  author had already split one claim across two lines by hand (NOT prettier: it leaves
+       *  markdown prose breaks alone, see the rule's own comment). Pointing at the match start showed
        *  a resolver a context line with no number in it (measured: `…:462` quoting the `verify:slice`
        *  half while the stale `77` sat on 463), which is the failure message failing at its one
        *  job. `d` gives the capture's own offset; every other rule is single-line, so this is a

@@ -36,9 +36,22 @@ ever be a live claim — its parens hold nothing but `C + D`. This phrasing is t
 under `**Gate today:**` and twice as records of a past head. They are not spelled _identically_ —
 one says `pnpm check:docs`, one is wrapped mid-claim — but nothing in the **words** marks which is
 current, so the rule cannot tell them apart and the marker has to. The two records now carry
-`at the time` **inside** the parenthetical, after the number, the only position `HISTORICAL` reads.
-Copying `current: true` here would have reported both records as stale forever, i.e. punished the
-docs for keeping an honest history.
+`at the time` **inside** the parenthetical. Copying `current: true` here would have reported both
+records as stale forever, i.e. punished the docs for keeping an honest history.
+
+⚠️ **What actually silences those two records today is the LOOKAHEAD, not `HISTORICAL`** — an earlier
+draft of this entry, and of the comment beside the rule, said the opposite. The records read
+`(98 files at the time,`, and `\s*(?=[,)])` fails on the space before `at`, so the rule never matches
+and the exemption is never consulted. Measured: `(98 files at the time,` no match · `(98 files,`
+match · `(98 files) at the time` **match, then exempt**. So the marker is doing two honest jobs and
+not the one it was credited with — it tells a human the number is a record, and it is the **belt** if
+the lookahead is ever widened. It is also not "the only position `HISTORICAL` reads": end-of-clause
+works too.
+
+**The fixture that proved those two lines silent passed for the wrong reason**, which is the same
+defect this entry describes one section down and the reason the section exists. A fixture that cannot
+say WHICH mechanism fired cannot tell you when that mechanism stops working. It was a second-opinion
+review that caught it, not the falsification.
 
 Two smaller fixes fell out of falsifying it, each a real miss:
 
@@ -57,7 +70,31 @@ Two smaller fixes fell out of falsifying it, each a real miss:
   failure message failing at its one job. `d` supplies the capture's own offset; every other rule is
   single-line, so it is a no-op for them.
 
-**The blind adversarial pass on this diff returned REJECT with three CRITICALs, and all three were
+**Two independent reviews ran on this diff, and both found real defects.**
+
+**The second-opinion pass** — five blind lenses, every finding put to two independent verifiers (one
+refuting, one reproducing) and then to a judge that re-read the source — returned **APPROVE WITH
+NITS**: it independently confirmed the behaviour is correct (the de-dup, `truth.files`, the capture
+offset, and a measured 16 → 14 failure delta across the doc edits, the two intended records lost and
+**nothing else gained**), and found that every remaining defect was a **comment stating a mechanism
+the code does not have**. Three were acted on as more than nits:
+
+- **The prettier claim was re-shipped in the same diff that recorded removing it**, in the new
+  capture-offset docblock. In this file, whose own docblock says a wrong mechanism in a comment
+  outlives the bug it explains. Removed.
+- **The lookahead-vs-`HISTORICAL`** correction above.
+- **The numberless twin had no anchor at all** and fired on ordinary prose — measured,
+  `(files changed: 3)`, `the diff (files touched) is small` and a bare `(files)` all matched, while
+  the comment beside it claimed it was "anchored on the parenthetical form … which CARR[IES] a
+  count". A numberless twin reddens `check:docs`, and `check:docs` is CI's first step under
+  `bash -e`, so that was a live way for ordinary prose to stop the whole fast lane. **This was a real
+  defect, not a comment nit**; both twins are now anchored the way their count rules are.
+
+The escape list is also stated in full now: **any** token between the number and the comma silences
+the rule — `(98 files today,`, `(98 files ·` and `(98 files xyzzy,` are all no-match — not merely the
+two cases first admitted.
+
+**The earlier blind adversarial pass returned REJECT with three CRITICALs, and all three were
 real.** Each was verified against source before acting — the repo's rule, because a correct verdict
 reached through an invented mechanism is what the next reader inherits:
 
