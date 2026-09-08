@@ -31,6 +31,16 @@ const MAX_ECHO = 80;
 const MAX_BODY_PARSE = 64 * 1024;
 
 /**
+ * Digits allowed in the `t=` term. A Unix timestamp in SECONDS is ten digits and stays ten until
+ * 2286; twelve is generous and still bounded. The bound is not cosmetic: the header is
+ * attacker-controlled on a public route, `/^\d+$/` accepts a megabyte of digits, and the value is
+ * both logged and shipped to a third-party analytics sink — an unbounded field in a per-request log
+ * line is a cost an unauthenticated caller gets to choose. Over-long → null, the same "we could not
+ * tell" answer a malformed term already gets.
+ */
+const MAX_TIMESTAMP_DIGITS = 12;
+
+/**
  * A log field must not become its own incident: a rejected body can be megabytes of nested JSON, or
  * not JSON at all. Take only two top-level string scalars, cap their length, and refuse anything
  * else (numbers, objects, arrays, nested lookalikes) rather than coercing it into a string.
@@ -91,6 +101,7 @@ export function signatureTimestamp(header: string | null): string | null {
     const [key, ...rest] = term.trim().split("=");
     if (key !== "t") continue;
     const value = rest.join("=").trim();
+    if (value.length > MAX_TIMESTAMP_DIGITS) return null;
     return /^\d+$/.test(value) ? value : null;
   }
   return null;

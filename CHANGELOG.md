@@ -48,7 +48,7 @@ route carries 50 `console.error` sites in total (measured, not eyeballed).
 
 - **The rejection is now the loudest failure in the route.** It logs the reason, the signature
   header's `t=` term, the payload's self-declared id/type, and the body's byte length, and counts a
-  `stripe_webhook_signature_rejected` PostHog event drained through `after()`. The two fields that
+  `stripe_webhook_delivery_rejected` PostHog event drained through `after()`. The two fields that
   separate the causes are deliberate: a wrong or rotated secret fails every delivery at any
   timestamp, clock skew fails only outside Stripe's tolerance window.
 - **Two things are deliberately never logged.** The `v1=` digests (an HMAC of the body under the
@@ -62,10 +62,22 @@ route carries 50 `console.error` sites in total (measured, not eyeballed).
   nested callback cannot satisfy it), that the log carries all six named fields, that the byte count
   uses `Buffer.byteLength`, that the 400 body does not echo the SDK message, and that no logger
   receives `body` or `sig` even through a call wrapper — with a closed three-name sanitizer
-  allowlist, each member pinned by its own value test. Eleven inductions, each watched red on its
-  own assertion, including the four evasions the audit found in the first draft:
+  allowlist, each member pinned by its own value test. Every assertion was watched red on its own
+  induction, including the four evasions the audit found in the first draft:
   `JSON.stringify(body)`, `String(sig)`, a decoy `constructEvent` try/catch, and a log parked behind
   `if (process.env.NEVER === "1")`.
+- **The matcher was widened by accident twice, and now falsifies itself.** Round one returned on any
+  `CallExpression`; round two returned on any `PropertyAccessExpression` — which reads as
+  "`body.length` is a number" but actually exempts `body.slice(0, 100)`, a member read that IS the
+  payload. Both times the route's suite stayed green, because the route does not contain the
+  evasion; only a synthetic source can ask the question. So `leakedIdentifiers` now runs against
+  twelve snippets it must reject or accept — the three member reads, element access, the earlier
+  call wrappers, a sanitizer sitting beside a leak, and `body.length` itself — and the exemption is
+  narrowed to `length` alone. Reverting the narrowing turns exactly the three member-read cases red.
+- **The `t=` term is length-bounded.** `/^\d+$/` accepts any length, and that value is logged
+  per-request and shipped to a third-party analytics sink, so an unauthenticated caller on a public
+  route got to pick the size of a log field. Twelve digits is the bound; a Unix second-timestamp is
+  ten and stays ten until 2286.
 - **M163 filed (high), found while scoping M160(b).** `acquireSettlement` carries a bare
   `.eq("locked", false)` with no staleness term while `acquireCartLock` admits a stale lock through
   a `locked_at` cutoff — two readers of one column disagreeing about when a lock is dead. Measured
@@ -79,6 +91,11 @@ route carries 50 `console.error` sites in total (measured, not eyeballed).
   one row, a cash settle at table 7, not zero; ten carts sit pinned to a payment intent with no
   order. The route was cleared of three suspicions in the process — it passes `req.text()` straight
   to `constructEvent`, both hostnames reach it, and deployment protection is off.
+- **Its recovery runbook expects four orders, not five.** `pi_3UCySDD7…` ($18.27) sits on cart
+  `0a31fe1b`, which is `cancelled`, so a resend takes the already-settled branch: a
+  `qr_refunds_needed` row (`reason='card_after_settle'`) and a 200 ack with no fulfillment. That is
+  the correct outcome and needs an operator refund, not a retry — a runbook that counts five orders
+  would read the right behaviour as a failure and send someone hunting a bug that is not there.
 
 ### The count the guard printed and never checked — and why it read 100 (2026-09-07)
 

@@ -93,9 +93,12 @@ function objectArgKeys(call: ts.CallExpression): string[] {
 /**
  * Identifiers named `body` or `sig` reaching a logger, INCLUDING through any call wrapper.
  *
- * The audited defect: the first version returned on `CallExpression`, so a wrapper hid the leak.
- * A property access (`body.length`) is still permitted — it yields a number, not the payload — but
- * everything else is descended into, wrappers included.
+ * Two audited defects, both the same shape — an exemption wider than the fact it encodes:
+ *   1. the first version returned on ANY `CallExpression`, so a wrapper hid the leak;
+ *   2. the second returned on ANY `PropertyAccessExpression`, which reads as "`body.length` is a
+ *      number" but actually exempts `body.slice(0, 100)` — a member read that IS the payload. The
+ *      evasion was watched green before this narrowing and red after.
+ * So the only exempt member is `length` itself; every other member read descends into its object.
  */
 function leakedIdentifiers(call: ts.CallExpression): string[] {
   const found: string[] = [];
@@ -104,9 +107,15 @@ function leakedIdentifiers(call: ts.CallExpression): string[] {
       found.push(n.text);
       return;
     }
-    // A property access yields a member, not the payload (`body.length`), so the expression side is
-    // not descended into.
-    if (ts.isPropertyAccessExpression(n)) return;
+    // `.length` is the ONE member read that cannot carry the payload: it is a number. Every other
+    // member read can — `body.slice(0, 100)` is the exact evasion an exemption on the whole node
+    // class admits — so descend into the object side rather than skipping the subtree. Element
+    // access (`body[0]`) is not a PropertyAccessExpression and is descended into by the walk below.
+    if (ts.isPropertyAccessExpression(n)) {
+      if (n.name.text === "length") return;
+      scan(n.expression);
+      return;
+    }
     // Passing the raw value INTO a sanitizer is the whole point of having one, so these three are
     // not descended into. The allowlist is deliberately closed and deliberately small: every member
     // is defined in this module and pinned by the value tests above — `signatureTimestamp` is
@@ -262,6 +271,15 @@ describe("signatureTimestamp", () => {
     for (const header of [`t=1788771785,v1=${digest}`, `v1=${digest},t=1788771785`])
       expect(signatureTimestamp(header)).not.toContain(digest);
   });
+
+  it("refuses a t= term longer than a timestamp, however numeric", () => {
+    // `/^\d+$/` alone accepts any length, and this value is both logged per-request and shipped to
+    // a third-party analytics sink — so an unauthenticated caller could pick the size of a log
+    // field. A real Unix second-timestamp is ten digits; twelve is the bound.
+    expect(signatureTimestamp(`t=${"9".repeat(12)},v1=abc`)).toBe("9".repeat(12));
+    expect(signatureTimestamp(`t=${"9".repeat(13)},v1=abc`)).toBeNull();
+    expect(signatureTimestamp(`t=${"1".repeat(100_000)}`)).toBeNull();
+  });
 });
 
 describe("classifyRejection", () => {
@@ -380,5 +398,55 @@ describe("the route's reject-before-trust branches", () => {
       });
     }
     expect(echoesReason).toBe(false);
+  });
+});
+
+/**
+ * The matcher gets the red-first treatment too. `leakedIdentifiers` is the only thing standing
+ * between an attacker-controlled payload and a log line, and it has now been widened-by-accident
+ * twice — once on `CallExpression`, once on `PropertyAccessExpression`. Both times the route's own
+ * suite stayed green, because the route does not contain the evasion; only a synthetic source can
+ * ask the question. So each known evasion is pinned here against text the matcher must reject, and
+ * each legitimate sanitizer against text it must accept.
+ */
+describe("leakedIdentifiers — the matcher's own falsification", () => {
+  const scanSnippet = (code: string): string[] => {
+    const file = ts.createSourceFile("snippet.ts", code, ts.ScriptTarget.Latest, true);
+    const out: string[] = [];
+    walk(file, (n) => {
+      if (consoleCall(n)) out.push(...leakedIdentifiers(n));
+    });
+    return out;
+  };
+
+  it.each([
+    // The evasion Codex found on this PR: the same key set as the shipped log, so the field-set
+    // assertion cannot see it, and a member read the old blanket exemption waved through.
+    ["body.slice", 'console.error("x", { bodyBytes: body.slice(0, 100) });'],
+    ["sig.substring", 'console.error("x", { t: sig.substring(0, 40) });'],
+    ["sig.split", 'console.error("x", { t: sig.split(",")[0] });'],
+    // Element access is not a property access; it must not fall through either.
+    ["body[0]", 'console.error("x", { first: body[0] });'],
+    // The CallExpression evasions from the earlier round, kept so a revert cannot pass.
+    ["JSON.stringify(body)", 'console.error("x", { b: JSON.stringify(body) });'],
+    ["String(sig)", 'console.error("x", { s: String(sig) });'],
+    ["a template literal", "console.error(`x ${body}`);"],
+    // A sanitizer in the same call must not launder a different argument.
+    [
+      "a sanitizer beside a leak",
+      'console.error("x", { t: signatureTimestamp(sig), leak: body });',
+    ],
+  ])("rejects %s", (_label, code) => {
+    expect(scanSnippet(code).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["signatureTimestamp(sig)", 'console.error("x", { t: signatureTimestamp(sig) });'],
+    ["describeUnverifiedEvent(body)", 'console.error("x", { e: describeUnverifiedEvent(body) });'],
+    ["Buffer.byteLength(body)", 'console.error("x", { n: Buffer.byteLength(body, "utf8") });'],
+    // `.length` is a number, and is the ONE member read the narrowed exemption keeps.
+    ["body.length", 'console.error("x", { n: body.length });'],
+  ])("accepts %s", (_label, code) => {
+    expect(scanSnippet(code)).toEqual([]);
   });
 });
