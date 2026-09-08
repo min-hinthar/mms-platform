@@ -4,6 +4,113 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The OPEN-ITEMS high band, trued against source (2026-09-08)
+
+**36 rows carried severity `high` above the Closed heading; 16 do now, and every one of those is
+genuinely open.** The staleness was not cosmetic: C18, a live money outage where paid guests get no
+order, sat buried among dozens of rows that only looked equally urgent.
+
+- **The severity trap that caused the undercount.** The file spells the same severity two ways,
+  `**high**` (24 rows) and bare `high` (12). A matcher anchored on one sees a third of the set, and
+  an earlier session in this repo reported "14 high rows" for exactly that reason.
+- **Nothing was moved on its own say-so.** Each of the 26 closure-claiming rows was verified against
+  source by one agent and then adversarially re-checked by a second whose job was to refute it. The
+  refuting pass overturned four verdicts — F3 and T9 are NOT movable, and G2's and M124's stated
+  mechanisms are false — which is the whole reason it exists.
+- **20 rows moved to Closed**, each carrying the PR or phase that closed it. The move was verified as
+  a set operation, not by eye: open 362 → 342, closed 23 → 43, nothing lost and nothing invented.
+- **Five rows carried a claim that source refutes**, and were corrected rather than quietly filed.
+  The sharpest is T9: its central mechanism, a `frozenNote` prop, never existed (`git log --all -S`
+  is empty; the real prop is `frozen: boolean` on four components) — and the row is not closable
+  anyway, because `SplitSection`'s "Split & pay separately" is neither frozen-gated nor
+  `aria-disabled`, so under the freeze it takes the tap and surfaces a redacted Server Action error.
+  M124's benign-collision argument is also wrong: the Stripe idempotency key embeds the attempt era,
+  so two same-millisecond requests differing in amount or tip get two intents, not one.
+- **Five items had been referenced for months with no row to receive them.** "S14a" appears in four
+  documents and in no row of the registry; its real remainder is now **S18** — the kiosk's 33-key
+  private dictionary sits outside all 17 dictionary guards, so the EN/MY parity, script, numeral and
+  glossary rules cannot see a counter-facing surface. The vocabulary there is currently correct, held
+  by a comment rather than a guard. S1's "auto-send" and "per-order links" residuals become **S15**
+  and **S16**, S3's phantom "S3a" becomes **S17**, and J9's unguarded disclosure path becomes **T46**.
+- **S2 restated.** It described a toggle/cookie mechanism W16b retired, then listed that retired
+  machinery as shipped, which read as progress on something that no longer exists. It now names the
+  three surface groups actually left.
+
+### M160(a) — the webhook's signature failure stops being silent, and C18 is root-caused (2026-09-08)
+
+**The branch that produced the outage produced it by saying nothing.** `app/api/stripe/webhook/route.ts`
+answered `400 Bad signature` with no `console` call at all, so prod took five card payments, wrote
+zero orders, and left Vercel's error view empty for a week. The registry said it logged "an
+info-level log line"; it logged nothing. A blind audit then found the first fix incomplete: the
+missing-`stripe-signature` branch one line above answers 400 on the same path and was equally
+silent, while the prose called the signature catch "the only such branch". Both are fixed, and the
+route carries 50 `console.error` sites in total (measured, not eyeballed).
+
+- **The rejection is now the loudest failure in the route.** It logs the reason, the signature
+  header's `t=` term, the payload's self-declared id/type, and the body's byte length, and counts a
+  `stripe_webhook_delivery_rejected` PostHog event drained through `after()`. The two fields that
+  separate the causes are deliberate: a wrong or rotated secret fails every delivery at any
+  timestamp, clock skew fails only outside Stripe's tolerance window.
+- **Two things are deliberately never logged.** The `v1=` digests (an HMAC of the body under the
+  signing secret — logging one hands over a known plaintext/digest pair against the secret the
+  check exists to prove) and the raw body (unverified, attacker-controlled, and PII-bearing). The
+  id/type come from a parse named `describeUnverifiedEvent` whose docblock forbids it reaching any
+  decision, write, or Stripe call.
+- **Guard, rewritten after the audit.** It asserts exactly ONE try/catch wraps `constructEvent`
+  (uniqueness, not last-wins — a decoy added later would otherwise capture every assertion), that
+  the logger and the counter are TOP-LEVEL statements of each rejecting block (so a dead `if` or a
+  nested callback cannot satisfy it), that the log carries all six named fields, that the byte count
+  uses `Buffer.byteLength`, that the 400 body does not echo the SDK message, and that no logger
+  receives `body` or `sig` even through a call wrapper — with a closed three-name sanitizer
+  allowlist, each member pinned by its own value test. Every assertion was watched red on its own
+  induction, including the four evasions the audit found in the first draft:
+  `JSON.stringify(body)`, `String(sig)`, a decoy `constructEvent` try/catch, and a log parked behind
+  `if (process.env.NEVER === "1")`.
+- **The matcher was widened by accident twice, and now falsifies itself.** Round one returned on any
+  `CallExpression`; round two returned on any `PropertyAccessExpression` — which reads as
+  "`body.length` is a number" but actually exempts `body.slice(0, 100)`, a member read that IS the
+  payload. Both times the route's suite stayed green, because the route does not contain the
+  evasion; only a synthetic source can ask the question. So `leakedIdentifiers` now runs against
+  twelve snippets it must reject or accept — the three member reads, element access, the earlier
+  call wrappers, a sanitizer sitting beside a leak, and `body.length` itself — and the exemption is
+  narrowed to `length` alone. Reverting the narrowing turns exactly the three member-read cases red.
+- **The rejection counter cannot change the response.** `recordRejection`'s analytics calls sat
+  outside the try that guarded only the flush, on the one path whose whole job is to answer 400. A
+  synchronous throw out of the SDK — or out of `after()` with no request scope — would have escaped
+  before the `return NextResponse.json(…, { status: 400 })` and yielded a 500, and a 500 tells
+  Stripe to **retry**: an outage like C18 would have spent its 72-hour retry budget hammering a
+  route that was going to reject every attempt, reported as a server fault rather than a signature
+  mismatch. Every third-party call is inside the try now, and a structural assertion says no
+  `getPostHogClient` / `capture` / `after` call in that function sits outside one — there is no way
+  to make the real SDK throw on demand, so the property is proved by shape, watched red.
+- **Three high rows contradicted themselves in the column a reader actually scans.** F3's Status
+  said `done`, T9's said `closed`, and F5's was a ✅ narrative asserting the sweep the same row now
+  marks REOPENED. A registry consumed by its Status column would have skipped all three — and this
+  arc's whole premise is triaging off the open high band. Statuses corrected and the two stale
+  completion openers rewritten.
+- **The `t=` term is length-bounded.** `/^\d+$/` accepts any length, and that value is logged
+  per-request and shipped to a third-party analytics sink, so an unauthenticated caller on a public
+  route got to pick the size of a log field. Twelve digits is the bound; a Unix second-timestamp is
+  ten and stays ten until 2286.
+- **M163 filed (high), found while scoping M160(b).** `acquireSettlement` carries a bare
+  `.eq("locked", false)` with no staleness term while `acquireCartLock` admits a stale lock through
+  a `locked_at` cutoff — two readers of one column disagreeing about when a lock is dead. Measured
+  against prod: all ten carts stranded by C18 are locked and past the TTL, so the counter cannot
+  cash-settle any of them, and Clear table (which gates on the lapsed predicate) turns a paid meal
+  into a refund-needed row once the webhook is fixed. Filed, not fixed — it needs its own mutant.
+- **C18 root-caused, and its numbers corrected.** It is a live/test mismatch, not a mistyped
+  secret: prod runs test API keys while Vercel Production holds the live endpoint's signing secret,
+  rotated 2026-08-23. Measured against Stripe and the prod database: five payments succeeded, not
+  four (the fifth was never listed), $75.42 total, zero orders from any of them; `qr_orders` gained
+  one row, a cash settle at table 7, not zero; ten carts sit pinned to a payment intent with no
+  order. The route was cleared of three suspicions in the process — it passes `req.text()` straight
+  to `constructEvent`, both hostnames reach it, and deployment protection is off.
+- **Its recovery runbook expects four orders, not five.** `pi_3UCySDD7…` ($18.27) sits on cart
+  `0a31fe1b`, which is `cancelled`, so a resend takes the already-settled branch: a
+  `qr_refunds_needed` row (`reason='card_after_settle'`) and a 200 ack with no fulfillment. That is
+  the correct outcome and needs an operator refund, not a retry — a runbook that counts five orders
+  would read the right behaviour as a failure and send someone hunting a bug that is not there.
+
 ### The count the guard printed and never checked — and why it read 100 (2026-09-07)
 
 **`check-docs.mjs` has measured and printed a tracked-docs-file count since the day it was written,
