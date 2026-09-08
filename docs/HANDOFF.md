@@ -379,7 +379,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> `check:docs` clean (98 files, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
+> `check:docs` clean (98 files at the time, **1552 + 140** tests, **363** mutants) · fast lane **10/10** ·
 > `turbo lint typecheck build test` **8/8** · `check:staff-lang` clean with its self-test green
 > (64 files aria-clean · 15/15 pages).
 >
@@ -460,7 +460,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 > ### Counts on this head, measured not transcribed
 >
 > `verify:slice` **362 mutants caught, 0 survived, 0 stale, no orphans** · `check:docs` clean
-> (98 files, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
+> (98 files at the time, **1538 + 140** tests) · fast lane **10/10** · `turbo lint typecheck build test` **8/8** ·
 > `check:staff-lang` clean (63 files aria-clean 0 left · 15/15 pages 0 left · 32 marked renders).
 >
 > ### Next

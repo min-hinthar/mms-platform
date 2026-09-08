@@ -4,6 +4,143 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The count the guard printed and never checked — and why it read 100 (2026-09-07)
+
+**`check-docs.mjs` has measured and printed a tracked-docs-file count since the day it was written,
+and checked it against nothing.** `truth` carried `mutants · modules · libModules · qr · ui` and no
+`files`, while the docs quote the number back as measured truth (`` `check:docs` clean (98 files, …) ``) — a number a reader takes on the script's authority, which is precisely the shape this guard
+exists for.
+
+**Building the guard found a defect in the number itself.** `docs` came from `git ls-files` with no
+de-duplication, and an **unmerged path is listed once per merge stage** — three entries for one
+conflicted file. Falsified in a throwaway repo rather than reasoned about: clean `2 entries -> a.md
+b.md`, conflicted `4 entries -> a.md a.md a.md b.md`.
+
+Three consequences, every one of them worst **during** a merge — exactly when someone runs this
+script to decide whether their resolution is sound. All three were watched red first:
+
+- the printed file count inflates by 2 per conflicted doc;
+- every conflicted doc is table-checked three times, so **one** broken table reports as three;
+- a conflicted live-state doc is count-checked three times, so **one** stale number reports as three.
+
+It never produced a false **pass** — duplicates only add work, never remove a check — which is
+exactly why it survived: CI only ever runs this on a clean tree. **It reached the record anyway.**
+#265 reported `100 files` in its body, its review comment and its merge message, because both
+readings were taken with `CHANGELOG.md` still `UU` in the index. The real count was, and is, **98**;
+the correction is posted on that PR. `truth.files` now reads the length of the one de-duplicated
+list the banner prints, so the number checked and the number shown cannot diverge.
+
+**The two new rules are the first here that must stay EXEMPTIBLE, and the reason is the exact mirror
+of #265's `current: true`.** That flag was sound because the parenthetical `ui tests` pair can only
+ever be a live claim — its parens hold nothing but `C + D`. This phrasing is the opposite: `` `check:docs` clean (98 files, …) `` appears in `docs/HANDOFF.md` **three times**, once as live state
+under `**Gate today:**` and twice as records of a past head. They are not spelled _identically_ —
+one says `pnpm check:docs`, one is wrapped mid-claim — but nothing in the **words** marks which is
+current, so the rule cannot tell them apart and the marker has to. The two records now carry
+`at the time` **inside** the parenthetical. Copying `current: true` here would have reported both
+records as stale forever, i.e. punished the docs for keeping an honest history.
+
+⚠️ **What actually silences those two records today is the LOOKAHEAD, not `HISTORICAL`** — an earlier
+draft of this entry, and of the comment beside the rule, said the opposite. The records read
+`(98 files at the time,`, and `\s*(?=[,)])` fails on the space before `at`, so the rule never matches
+and the exemption is never consulted. Measured: `(98 files at the time,` no match · `(98 files,`
+match · `(98 files) at the time` **match, then exempt**. So the marker is doing two honest jobs and
+not the one it was credited with — it tells a human the number is a record, and it is the **belt** if
+the lookahead is ever widened. It is also not "the only position `HISTORICAL` reads": end-of-clause
+works too.
+
+**The fixture that proved those two lines silent passed for the wrong reason**, which is the same
+defect this entry describes one section down and the reason the section exists. A fixture that cannot
+say WHICH mechanism fired cannot tell you when that mechanism stops working. It was a second-opinion
+review that caught it, not the falsification.
+
+Two smaller fixes fell out of falsifying it, each a real miss:
+
+- **The `check:docs` rule's gap is `[^.]`, not `[^.\n]`.** One of the three claims is already split
+  across two lines — `` `check:docs` clean `` ends line 462 and `(98 files, …)` opens 463 — and it was
+  the one fixture of four that stayed silent. ⚠️ **That break is hand-typed, and an earlier draft of
+  this entry blamed prettier for it.** It does not wrap prose: the shared config sets no `proseWrap`,
+  so the default `"preserve"` applies and markdown line breaks stay where an author put them —
+  verified by running prettier over a 190-character line and watching it come back on one. The
+  conclusion survives (authors rewrap by hand, so the gap must cross the newline); the stated reason
+  did not, which is the worse failure of the two, because a maintainer who believes the formatter
+  owns doc line breaks will mis-predict both this matcher's reach and what `pnpm format` does.
+- **A failure now reports the line holding the NUMBER, not the line the match starts on.** They
+  differ only for a rule that spans a wrap, which is new here; the report quoted a context line with
+  no number in it (`…:462`, showing the `verify:slice` half while the stale value sat on 463) — the
+  failure message failing at its one job. `d` supplies the capture's own offset; every other rule is
+  single-line, so it is a no-op for them.
+
+**Two independent reviews ran on this diff, and both found real defects.**
+
+**The second-opinion pass** — five blind lenses, every finding put to two independent verifiers (one
+refuting, one reproducing) and then to a judge that re-read the source — returned **APPROVE WITH
+NITS**: it independently confirmed the behaviour is correct (the de-dup, `truth.files`, the capture
+offset, and a measured 16 → 14 failure delta across the doc edits, the two intended records lost and
+**nothing else gained**), and found that every remaining defect was a **comment stating a mechanism
+the code does not have**. Three were acted on as more than nits:
+
+- **The prettier claim was re-shipped in the same diff that recorded removing it**, in the new
+  capture-offset docblock. In this file, whose own docblock says a wrong mechanism in a comment
+  outlives the bug it explains. Removed.
+- **The lookahead-vs-`HISTORICAL`** correction above.
+- **The numberless twin had no anchor at all** and fired on ordinary prose — measured,
+  `(files changed: 3)`, `the diff (files touched) is small` and a bare `(files)` all matched, while
+  the comment beside it claimed it was "anchored on the parenthetical form … which CARR[IES] a
+  count". A numberless twin reddens `check:docs`, and `check:docs` is CI's first step under
+  `bash -e`, so that was a live way for ordinary prose to stop the whole fast lane. **This was a real
+  defect, not a comment nit**; both twins are now anchored the way their count rules are.
+
+The escape list is also stated in full now: **any** token between the number and the comma silences
+the rule — `(98 files today,`, `(98 files ·` and `(98 files xyzzy,` are all no-match — not merely the
+two cases first admitted.
+
+**The earlier blind adversarial pass returned REJECT with three CRITICALs, and all three were
+real.** Each was verified against source before acting — the repo's rule, because a correct verdict
+reached through an invented mechanism is what the next reader inherits:
+
+1. **A stale transcribed count, inside the count guard.** A comment read `8 of the 13 rules`; two
+   added rules later the truth was **9 of 15**. The fix is not a fresh number — it is the removal of
+   the number. The comment now states the property qualitatively and carries the one-line command
+   that derives the share, the same idiom `CLAUDE.md` uses for the mutate-set buckets.
+2. **A mechanism that cannot happen** — the prettier claim above, in the comment _and_ in this entry.
+3. **The new block was spliced between the `ui tests` doc-block and the rules it documents**, and
+   then referred to that pair as "above" when the splice had put it below. Moved after the pair.
+
+Its non-blocking findings were taken too: the matcher now requires the number to be the whole
+parenthetical item (`(?=[,)])`), because `` `check:docs` now walks the tree (12 files changed) `` —
+a sentence stating no docs count — was reported as a stale count; both new rules gained the
+**numberless twin** the file's own docblock declares every rule carries, so a `sed` that empties a
+capture into `clean ( files,` fails instead of passing; and the marker this diff had added to
+`docs/HANDOFF.md:183` was **reverted**, because it put `at the time` **27 characters** downstream of
+a live `142 ui tests` capture — three characters from silencing the repo's headline gate line via
+the exact neighbour-bleed bug #265 exists to document. Whether that dated block is a record or live
+state is a real question and is left open rather than half-answered: its file count is correct
+today, so nothing fails, and when it does move the guard will name the line and a human can decide.
+One claim was **withdrawn** rather than fixed: the comment asserted that the two overlapping
+pathspecs (`*.md` and `docs/*.md`) were a second source of duplicates. They are not — measured, the
+clean tree returns 98 entries and 98 unique. The merge stages are the whole mechanism.
+
+⚠️ **A cost this buys, stated plainly: adding or deleting any tracked `.md` anywhere in the repo now
+changes `truth.files`, and `check:docs` is CI's first step under `bash -e`.** So a PR that adds one
+doc reddens the fast lane at `docs/HANDOFF.md` — a file it never touched — and nothing behind that
+step runs until the count is refreshed. That is the same contract the mutant and test counts already
+carry, on a number that moves more often; it is deliberate, and it is the reason the two records are
+marked rather than left to be "fixed" into today's values by whoever hits the failure. Note also
+that `truth.files` is the first key derived from the git **index** rather than from file content, so
+an untracked new doc passes and the same tree fails once staged.
+
+Falsified against the real script, never a re-implementation — **15 fixtures**, counted from the
+run logs rather than from memory, plus seven more after the audit. First, with no markers in place, all four matching claims were
+planted wrong and each was named, which is what proves the rules reach them at all; the markers
+then went on, and the three point-in-time records went silent while the live `**Gate today:**`
+claim kept firing. Around that: four decoys in these same documents that must never match
+(`168 assertions across 8 files`, `15 controls across 6 files`, `64 files aria-clean`, an invented
+`changed 77 files`); a marker on a **distant** neighbour clause **not** granting amnesty to a stale
+live number, and its own marker doing so; the wrapped claim reporting at the line holding the
+number while a single-line rule still reports at its own; and the conflicted-merge case proved end
+to end — one stale value, reported **once**, against a measured **98** where the un-deduplicated
+code had said 100.
+
 ### A guard that merged cleanly and came out wrong (2026-09-07 · post-merge)
 
 **`check-docs.mjs` carried two copies of the same rule pair, and no conflict marker ever asked
