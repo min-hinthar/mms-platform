@@ -4104,6 +4104,23 @@ const MUTANTS = [
     find: '  if (mode !== "live") return candidates;',
     replace: '  if (mode === "live") return candidates;',
   },
+  {
+    id: "stripe-env/diagnostic-hides-the-ignored-name",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Codex P2 on #274. Selection reads the mode-FILTERED candidates and the diagnostic must not: during the live cutover the filter drops STRIPE_WEBHOOK_SECRET_TEST, so a message built from the filtered list says only 'Looked for: STRIPE_WEBHOOK_SECRET' while the variable actually holding a secret sits populated and unmentioned. The operator then hunts for a name they already set, under the one name the filter deliberately refused, and the webhook stays down. Dropping this clause reinstates exactly that silence",
+    find: "  if (ignored.length === 0) return base;",
+    replace: "  if (ignored.length >= 0) return base;",
+  },
+  {
+    id: "stripe-env/diagnostic-set-ness-skips-the-trim",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Set-ness in the diagnostic must be decided by pickEnv's own trim rule. A whitespace-only leftover is 'not set' for SELECTION, so reporting it as SET gives the operator two contradictory answers to the same question and sends them hunting for a variable this module already considers empty \u2014 the same class of misdirection the diagnostic exists to remove",
+    find: '    .map(([name, value]) => `${name} (${pickEnv([[name, value]]) ? "SET" : "not set"})`)',
+    replace:
+      '    .map(([name, value]) => `${name} (${typeof value === "string" ? "SET" : "not set"})`)',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

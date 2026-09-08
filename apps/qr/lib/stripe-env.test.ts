@@ -9,6 +9,7 @@ import {
   pickEnv,
   publishableKeyCandidates,
   webhookCandidatesForMode,
+  webhookSecretDiagnostic,
   type EnvCandidate,
 } from "./stripe-env";
 
@@ -162,8 +163,9 @@ describe("webhookCandidatesForMode", () => {
   });
 
   it("in LIVE mode with ONLY the _TEST name set, resolves nothing rather than using it", () => {
-    // Fail-closed: the route answers 500 "not configured" naming both names. An outage beats
-    // capturing money whose fulfilment can never be verified.
+    // Fail-closed: the route answers 500 "not configured". An outage beats capturing money whose
+    // fulfilment can never be verified. `webhookSecretDiagnostic` is what makes that 500 legible —
+    // it names both names AND flags the ignored one as SET; see its own describe block.
     const onlyTest: EnvCandidate[] = [
       ["STRIPE_WEBHOOK_SECRET_TEST", "whsec_test_leftover"],
       ["STRIPE_WEBHOOK_SECRET", undefined],
@@ -207,6 +209,91 @@ describe("missingEnvMessage", () => {
     expect(msg).toContain("Stripe secret key");
   });
 });
+
+describe("webhookSecretDiagnostic", () => {
+  // Exactly the live cutover: the `_TEST` API keys are gone, the `_TEST` signing secret was left
+  // behind, and the base name was never populated.
+  const LIVE_CUTOVER: EnvCandidate[] = [
+    ["STRIPE_WEBHOOK_SECRET_TEST", "whsec_test_leftover"],
+    ["STRIPE_WEBHOOK_SECRET", undefined],
+  ];
+
+  it("in LIVE mode names the ignored _TEST variable and reports that it is SET", () => {
+    // The whole point. Diagnosing from the FILTERED list yields "Looked for: STRIPE_WEBHOOK_SECRET"
+    // and never mentions the populated leftover — the operator hunts for a variable they already
+    // set, under a name the filter deliberately refused, while the webhook stays down.
+    const msg = webhookSecretDiagnostic("live", LIVE_CUTOVER);
+    expect(msg).toContain("STRIPE_WEBHOOK_SECRET_TEST");
+    expect(msg).toContain("STRIPE_WEBHOOK_SECRET");
+    expect(msg).toMatch(/STRIPE_WEBHOOK_SECRET_TEST \(SET\)/);
+  });
+
+  it("never puts the secret VALUE in the message", () => {
+    // This string goes to a log. Set-ness is the diagnostic; the secret itself is a credential.
+    const msg = webhookSecretDiagnostic("live", LIVE_CUTOVER);
+    expect(msg).not.toContain("whsec_test_leftover");
+    expect(msg).not.toContain("whsec_");
+  });
+
+  it("reports a whitespace-only leftover as not set, matching pickEnv's trim rule", () => {
+    // Two answers to "is it set?" would send the operator hunting for a variable selection already
+    // considers empty.
+    const msg = webhookSecretDiagnostic("live", [
+      ["STRIPE_WEBHOOK_SECRET_TEST", "   "],
+      ["STRIPE_WEBHOOK_SECRET", undefined],
+    ]);
+    expect(msg).toMatch(/STRIPE_WEBHOOK_SECRET_TEST \(not set\)/);
+  });
+
+  it.each(["test", "unknown"] as const)(
+    "in %s mode nothing is dropped, so it stays the plain message",
+    (mode) => {
+      // No candidate was ignored, so there is nothing to explain — an "Ignored because" clause here
+      // would describe a filter that did not run.
+      const msg = webhookSecretDiagnostic(mode, LIVE_CUTOVER);
+      expect(msg).toContain("STRIPE_WEBHOOK_SECRET_TEST");
+      expect(msg).not.toContain("Ignored because");
+    },
+  );
+});
+
+/**
+ * The route's POST body, so a guard cannot be satisfied by a call sitting in a comment-adjacent
+ * helper or a future second function in the same file.
+ */
+function postFn(src: ts.SourceFile): ts.FunctionDeclaration {
+  let fn: ts.FunctionDeclaration | undefined;
+  walk(src, (n) => {
+    if (ts.isFunctionDeclaration(n) && n.name?.text === "POST") fn = n;
+  });
+  if (!fn) throw new Error("POST not found in webhook route");
+  return fn;
+}
+
+/**
+ * The name of the function call an argument ultimately comes from, following ONE level of
+ * `const x = f()` binding inside `fn`.
+ *
+ * Resolving the binding rather than demanding an inline call is the point: the route names its
+ * intermediates (CLAUDE.md's "name it ONCE" rule — `stripeMode` is read twice, and re-deriving it
+ * at the second call site is exactly the drift that rule exists to stop). A guard that accepted
+ * only inline calls would force the route to re-derive, so it would be a scan wearing a dataflow
+ * check's clothes.
+ */
+function originCall(fn: ts.Node, arg: ts.Node | undefined): string | null {
+  if (!arg) return null;
+  if (ts.isCallExpression(arg) && ts.isIdentifier(arg.expression)) return arg.expression.text;
+  if (!ts.isIdentifier(arg)) return null;
+  const name = arg.text;
+  let found: string | null = null;
+  walk(fn, (n) => {
+    if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || n.name.text !== name) return;
+    const init = n.initializer;
+    if (init && ts.isCallExpression(init) && ts.isIdentifier(init.expression))
+      found = init.expression.text;
+  });
+  return found;
+}
 
 /** Walk every descendant. `forEachChild` aborts on a truthy return, so the visitor returns void. */
 function walk(node: ts.Node, visit: (n: ts.Node) => void) {
@@ -292,22 +379,88 @@ describe("the three call sites still read every candidate name", () => {
     // which reads perfectly well and reinstates unconditional `_TEST` precedence. So assert the
     // filter wraps the list — a bare call to the raw candidates is what this rejects.
     const route = parse("app/api/stripe/webhook/route.ts");
+    const post = postFn(route);
     let wrapped = false;
-    walk(route, (n) => {
+    walk(post, (n) => {
       if (!ts.isCallExpression(n)) return;
       if (!ts.isIdentifier(n.expression) || n.expression.text !== "webhookCandidatesForMode")
         return;
       // second argument must be the candidate list, first the resolved mode
       const [modeArg, listArg] = n.arguments;
-      const isCall = (x: ts.Node | undefined, name: string) =>
-        !!x &&
-        ts.isCallExpression(x) &&
-        ts.isIdentifier(x.expression) &&
-        x.expression.text === name;
-      if (isCall(modeArg, "resolvedStripeMode") && isCall(listArg, "webhookSecretCandidates"))
+      if (
+        originCall(post, modeArg) === "resolvedStripeMode" &&
+        originCall(post, listArg) === "webhookSecretCandidates"
+      )
         wrapped = true;
     });
     expect(wrapped).toBe(true);
+  });
+
+  it("the webhook DIAGNOSES from the raw candidates, not the mode-filtered list", () => {
+    // Codex round 2 on #274, and the regression is a single identifier: passing `eligibleSecrets`
+    // where `secretCandidates` belongs. It reads perfectly well — the filtered list is the right
+    // input three lines above — and it silently strips the `_TEST` name from the 500, which is the
+    // only line telling the operator their leftover variable is set and was refused. Selection and
+    // diagnosis want DIFFERENT lists, so the two call sites are pinned separately.
+    const route = parse("app/api/stripe/webhook/route.ts");
+    const post = postFn(route);
+    let diagnosesRaw = false;
+    walk(post, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      if (!ts.isIdentifier(n.expression) || n.expression.text !== "webhookSecretDiagnostic") return;
+      const [, listArg] = n.arguments;
+      if (originCall(post, listArg) === "webhookSecretCandidates") diagnosesRaw = true;
+    });
+    expect(diagnosesRaw).toBe(true);
+  });
+
+  it("pickEnv CONSUMES the mode-filtered list — the call merely EXISTING is not enough", () => {
+    // Both lenses of the blind pre-merge audit named the same evasion, independently: keep the
+    // `webhookCandidatesForMode(...)` call so the guard above stays green, and hand `pickEnv` the
+    // RAW list instead. Nothing type-checks differently, `secretCandidates` is still used by the
+    // diagnostic so no "unused" error fires, the suite passes — and unconditional `_TEST`
+    // precedence is back, which is the P1 this PR exists to close. Assert the value CONSUMED, not
+    // the presence of a call.
+    const route = parse("app/api/stripe/webhook/route.ts");
+    const post = postFn(route);
+    let consumesFiltered = false;
+    walk(post, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      if (!ts.isIdentifier(n.expression) || n.expression.text !== "pickEnv") return;
+      if (originCall(post, n.arguments[0]) === "webhookCandidatesForMode") consumesFiltered = true;
+    });
+    expect(consumesFiltered).toBe(true);
+  });
+
+  it("getStripe() is evaluated OUTSIDE the constructEvent try", () => {
+    // Blind pre-merge audit CRITICAL, reached independently by two lenses. `getStripe()` throws on
+    // an unresolvable secret key AND on a mode disagreement (the throw this PR added); the catch
+    // around `constructEvent` answers 400 "Bad signature" and files `stage: "bad_signature"`.
+    // Evaluate `getStripe()` inside that try and a credential misconfiguration is reported as a
+    // signature failure with `constructEvent` never called — and a 400 tells Stripe the delivery
+    // can NEVER succeed, so the mode-mismatch window burns the retry budget while being metered as
+    // an attack. Exactly the masquerade the missing-secret branch was written to end.
+    const route = parse("app/api/stripe/webhook/route.ts");
+    const post = postFn(route);
+    let signatureTries = 0;
+    let offending = 0;
+    walk(post, (n) => {
+      if (!ts.isTryStatement(n)) return;
+      let constructs = false;
+      let getsStripe = false;
+      walk(n.tryBlock, (m) => {
+        if (!ts.isCallExpression(m)) return;
+        const e = m.expression;
+        if (ts.isPropertyAccessExpression(e) && e.name.text === "constructEvent") constructs = true;
+        if (ts.isIdentifier(e) && e.text === "getStripe") getsStripe = true;
+      });
+      if (!constructs) return;
+      signatureTries += 1;
+      if (getsStripe) offending += 1;
+    });
+    // Both halves matter: without the first, deleting the try would satisfy the second vacuously.
+    expect(signatureTries).toBe(1);
+    expect(offending).toBe(0);
   });
 
   it("getStripe refuses on a mode mismatch before constructing the client", () => {

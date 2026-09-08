@@ -14,8 +14,17 @@
  *
  * ⚠️ THE ONE THAT IS WORSE THAN MISSING: a LIVE secret key beside a TEST webhook secret. Real cards
  * are charged, and every fulfilment webhook fails signature verification — C18 with real guests'
- * money instead of test cards. Nothing in the values themselves prevents that pairing, so
- * `modeDisagreement` is the check that does, and `getStripe()` refuses rather than take the money.
+ * money instead of test cards.
+ *
+ * TWO GUARDS COVER TWO DIFFERENT PAIRINGS, and an earlier version of this header credited the wrong
+ * one for the dangerous case — which is precisely how it shipped unguarded:
+ *
+ *   - secret key vs PUBLISHABLE key → `modeDisagreement`. Both credentials ANNOUNCE their mode in a
+ *     prefix, so they can be compared, and `getStripe()` refuses rather than take the money.
+ *   - secret key vs WEBHOOK SIGNING SECRET → `webhookCandidatesForMode`, judging the variable NAME.
+ *     `modeDisagreement` structurally CANNOT see this pairing: a `whsec_…` is byte-identical in test
+ *     and live, so there is no marker to compare. This is the hazard described just above, and
+ *     claiming the key-pair check covered it is exactly the false assurance that let it through.
  *
  * This module is PURE and isomorphic on purpose: it holds no `process.env` read for a SECRET. The
  * literal reads live at their call sites — in `stripe.ts` (`import "server-only"`) and in the
@@ -144,8 +153,10 @@ export function publishableKeyCandidates(): readonly EnvCandidate[] {
  *
  *   - **live → drop every `_TEST` name.** A name containing `_TEST` can never be correct in live
  *     mode, so a leftover becomes INERT rather than authoritative. If that leaves nothing, the route
- *     answers 500 naming both names — fail-closed, which is the right trade when the alternative is
- *     capturing money that cannot be fulfilled.
+ *     answers 500 rather than signing with it — fail-closed, which is the right trade when the
+ *     alternative is capturing money that cannot be fulfilled. What that 500 SAYS is
+ *     `webhookSecretDiagnostic`'s job, and it must be built from the RAW candidate list: this
+ *     function's own output no longer contains the dropped name.
  *   - **test / unknown → keep both, `_TEST` first.** The BASE name legitimately holds a test secret
  *     in local dev, in `.env.example`, and in every deployment that predates the per-mode rename.
  *     Dropping it there would break working setups to guard a hazard that does not exist in test
@@ -172,4 +183,42 @@ export function resolvePublishableKey(): ResolvedEnv {
  */
 export function missingEnvMessage(label: string, candidates: readonly EnvCandidate[]): string {
   return `${label} is not set. Looked for: ${candidates.map(([name]) => name).join(", ")}.`;
+}
+
+/**
+ * The 500 diagnostic for a webhook signing secret that resolved to nothing.
+ *
+ * `missingEnvMessage` on its own is NOT enough here, and Codex round 2 on #274 caught why. The route
+ * selects from the MODE-FILTERED candidates, so handing that same filtered list to the diagnostic
+ * names only `STRIPE_WEBHOOK_SECRET` and silently omits the `_TEST` name that was dropped.
+ *
+ * That omission lands in exactly the one failure this guard exists for. A live cutover deletes the
+ * `_TEST` API keys and leaves `STRIPE_WEBHOOK_SECRET_TEST` behind; the filter correctly refuses to
+ * sign live deliveries with it, and the operator then reads "Looked for: STRIPE_WEBHOOK_SECRET"
+ * while the variable that actually holds a secret sits populated in their dashboard, unmentioned.
+ * The single fact that ends the outage — *your `_TEST` variable is set and was deliberately
+ * ignored* — is the fact the message hides, and the webhook stays down while they hunt for it.
+ *
+ * So: name every place looked, then name what was ignored and whether it is SET. Set-ness only,
+ * never a value and never a prefix — this string goes to a log, and a signing secret is a
+ * credential. Reported through `pickEnv`'s own trim rule, so a whitespace-only variable reads as
+ * "not set" here exactly as it does during selection; two answers to "is it set?" would send the
+ * operator hunting for a variable this module considers empty.
+ */
+export function webhookSecretDiagnostic(
+  mode: StripeMode,
+  candidates: readonly EnvCandidate[],
+): string {
+  const eligible = new Set(webhookCandidatesForMode(mode, candidates).map(([name]) => name));
+  const ignored = candidates.filter(([name]) => !eligible.has(name));
+  const base = missingEnvMessage("Webhook signing secret", candidates);
+  if (ignored.length === 0) return base;
+  const described = ignored
+    .map(([name, value]) => `${name} (${pickEnv([[name, value]]) ? "SET" : "not set"})`)
+    .join(", ");
+  return (
+    `${base} Ignored because the API keys resolved to LIVE mode: ${described}. ` +
+    `A _TEST name cannot sign live deliveries — delete it from this environment and set ` +
+    `STRIPE_WEBHOOK_SECRET to the live endpoint's signing secret.`
+  );
 }

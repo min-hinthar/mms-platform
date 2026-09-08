@@ -81,8 +81,8 @@ jobs:
       # same question in about a second, reading no test and running no build. A stale anchor is not
       # cosmetic: the rule it guards is UNGUARDED while its suite stays green, which is the
       # "green for the wrong reason" shape the mutant harness exists to catch, in the harness itself.
-      # Ambiguity fails too — the harness replaces EVERY occurrence, so a two-match anchor mutates a
-      # second site nobody reasoned about and the mutation's `why` stops describing what it did.
+      # Ambiguity fails too, because an anchor matching twice is rejected as STALE and substitutes
+      # nothing — it guards NOTHING while its `why` still claims the rule is covered.
       # The usual cause is `pnpm format` reflowing the target after the anchor was written
       # (LEARNINGS #106), which is why this sits AFTER format:check rather than before it.
       - run: pnpm check:mutant-anchors

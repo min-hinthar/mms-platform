@@ -44,13 +44,45 @@ breakage was one deploy away.
   fail `constructEvent`: real cards captured, zero orders. C18 with real money, produced by the
   cutover checklist meant to prevent it, and `docs/ENV.md` asserted the mode check covered exactly
   this case. `webhookCandidatesForMode` now judges the only evidence available, the NAME: in live
-  mode every `_TEST` name is dropped so a leftover is inert (and nothing left means a 500 naming
-  both names, the right trade against unfulfillable charges); in test or unknown mode both stay,
-  because the base name legitimately holds a test secret in local dev and every pre-rename
+  mode every `_TEST` name is dropped so a leftover is inert (and nothing left means a 500 rather
+  than signing with it, the right trade against unfulfillable charges); in test or unknown mode both
+  stay, because the base name legitimately holds a test secret in local dev and every pre-rename
   deployment. The asymmetry has its own mutant — filtering in test mode too breaks working setups,
   and over-blocking is as bad as under-blocking.
-- Eight mutants (480 total, 95 target modules), eight structural guards each watched red first,
-  40 tests.
+- **That 500 has to SAY something useful — a Codex P2 on #274.** The route selects from the
+  mode-filtered list, and the first draft built its error message from that same filtered list. So
+  in the one scenario the guard exists for, the operator read "Looked for: `STRIPE_WEBHOOK_SECRET`"
+  while `STRIPE_WEBHOOK_SECRET_TEST` sat populated in their dashboard, unmentioned — the single fact
+  that ends the outage was the fact the message hid. `webhookSecretDiagnostic` is built from the RAW
+  candidates: it names every place looked, then names what was ignored and whether it is SET
+  (set-ness only, never a value, and decided by `pickEnv`'s own trim rule so selection and
+  diagnosis cannot disagree about "is it set?").
+- **A config fault must not masquerade as a bad signature — blind pre-merge audit CRITICAL, reached
+  independently by two lenses.** `getStripe()` was evaluated INSIDE the try whose catch answers 400
+  "Bad signature" and files `stage: "bad_signature"`. It throws on two config faults — an
+  unresolvable secret key, and the mode disagreement this PR added — so a credential
+  misconfiguration was reported to Stripe and to the operator as a signature failure with
+  `constructEvent` never called. A 400 tells Stripe the delivery can never succeed, so a
+  mode-mismatch window would have burned the full retry budget while being metered as an attack.
+  This is the same masquerade the missing-secret branch was written to end, re-entering by another
+  door. `getStripe()` is now evaluated ahead of that try, with its own `stage: "config_error"` and a 500. Pinned by a structural guard that fails if any try containing `constructEvent` also contains
+  a `getStripe()` call — and that asserts such a try still exists, so deleting it cannot satisfy the
+  guard vacuously.
+- **Two guards were provable-by-existence and are now provable-by-consumption.** The audit named the
+  evasion for the P1 fix precisely: keep the `webhookCandidatesForMode(...)` call so the old guard
+  stays green and hand `pickEnv` the raw list. Nothing type-checks differently and the P1 is back.
+  The guards now resolve one level of `const` binding and assert the value actually CONSUMED.
+- **Corrected claims, not just code.** `stripe-env.ts`'s header credited `modeDisagreement` with
+  preventing the live-secret/test-webhook-secret pairing it structurally cannot see — the very
+  hazard `webhookCandidatesForMode` exists for, and crediting the wrong guard is how it shipped
+  unguarded. `docs/ENV.md`'s variable table said `STRIPE_WEBHOOK_SECRET_TEST` "wins when set", which
+  is now false in live mode. And `check:mutant-anchors` (plus its `ci.yml` comment) justified the
+  exact-once rule by saying the harness "replaces every occurrence": it does not — an ambiguous
+  anchor is rejected as STALE before substituting, and the substitution is `String.replace` with a
+  string pattern, which rewrites only the first match. The rule is right; the stated reason was
+  fabricated, which is the costlier defect in a repo whose own guidance names that class.
+- Ten mutants and 48 tests, measured against `main` (472 → 482 mutants, 1982 → 2030 qr tests);
+  95 target modules; every structural guard watched red first.
 
 ### The OPEN-ITEMS high band, trued against source (2026-09-08)
 

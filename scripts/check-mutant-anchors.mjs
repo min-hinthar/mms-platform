@@ -13,9 +13,12 @@
  * the harness itself. This check answers the same question in about a second, reads no test and
  * runs no build, so it belongs in the CI fast lane in front of everything expensive.
  *
- * AMBIGUITY IS ALSO A FAILURE. A `find` that matches twice is not "fine, it'll pick one": the
- * harness replaces every occurrence, so a two-match anchor mutates a second site nobody reasoned
- * about, and the mutation's stated `why` no longer describes what it did. Exactly one, or it fails.
+ * AMBIGUITY IS ALSO A FAILURE — though not for the reason an earlier draft of this comment gave.
+ * It claimed the harness "replaces every occurrence", so a two-match anchor would mutate a second
+ * site nobody reasoned about. It does not: `verify-slice` rejects a 2× anchor as STALE and skips it
+ * before substituting, and its substitution is `String.prototype.replace` with a STRING pattern,
+ * which rewrites only the FIRST match. The real cost is the opposite one — an ambiguous anchor
+ * guards NOTHING while its `why` still asserts a rule is covered. Exactly one, or it fails.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
