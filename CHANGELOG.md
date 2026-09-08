@@ -81,7 +81,19 @@ breakage was one deploy away.
   anchor is rejected as STALE before substituting, and the substitution is `String.replace` with a
   string pattern, which rewrites only the first match. The rule is right; the stated reason was
   fabricated, which is the costlier defect in a repo whose own guidance names that class.
-- Ten mutants and 48 tests, measured against `main` (472 → 482 mutants, 1982 → 2030 qr tests);
+- **Codex round 3, both fixed on sight.** (a) The unresolvable-signing-secret 500 returned without
+  touching `stripe_webhook_delivery_rejected`, while the `getStripe()` config fault added above it
+  did record — so the one outage the mode filter exists to produce would have left the dashboard
+  flat while a different config fault was counted. Both config rejections now record under
+  `stage: "config_error"`. The guard is deliberately narrow: most 500s in this route are
+  post-verification handler failures on an already-verified event and must NOT feed a
+  delivery-rejection series. (b) The binding resolver behind the consumption guards accepted any
+  declaration, so `let x = webhookCandidatesForMode(…); x = secretCandidates; pickEnv(x)` kept the
+  guard green while the raw list was consumed and the P1 returned. It now requires `const` and
+  refuses outright if the name is written anywhere in the function — a guard defeated by a one-word
+  keyword change is the "green for the wrong reason" shape again, this time in a guard written to
+  close exactly that.
+- Ten mutants and 49 tests, measured against `main` (472 → 482 mutants, 1982 → 2031 qr tests);
   95 target modules; every structural guard watched red first.
 
 ### The OPEN-ITEMS high band, trued against source (2026-09-08)

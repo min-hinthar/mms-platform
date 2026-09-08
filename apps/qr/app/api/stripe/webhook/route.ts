@@ -70,7 +70,16 @@ export async function POST(req: NextRequest) {
   if (!webhookSecret) {
     // Config error, not a bad request: 500 so Stripe redelivers once the secret is wired (vs. the
     // old `!`, which fed `undefined` to constructEvent and masqueraded as a 400 "Bad signature").
-    console.error(`[stripe webhook] ${webhookSecretDiagnostic(stripeMode, secretCandidates)}`);
+    const reason = webhookSecretDiagnostic(stripeMode, secretCandidates);
+    console.error(`[stripe webhook] ${reason}`);
+    // Same series, same stage as the `getStripe()` config failure below. Codex round 3 on #274:
+    // this branch returned without touching the counter, so the ONE outage the mode filter exists
+    // to produce — live API keys with only a `_TEST` signing secret left — would leave
+    // `stripe_webhook_delivery_rejected` flat while a different config fault was counted. A
+    // dashboard that stays quiet through the outage it was built for is worse than no dashboard.
+    // The reason carries variable NAMES and set-ness only; `webhookSecretDiagnostic` never emits a
+    // value, asserted by its own test.
+    recordRejection({ stage: "config_error", reason });
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
   const sig = req.headers.get("stripe-signature");

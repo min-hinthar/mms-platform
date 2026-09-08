@@ -286,13 +286,28 @@ function originCall(fn: ts.Node, arg: ts.Node | undefined): string | null {
   if (!ts.isIdentifier(arg)) return null;
   const name = arg.text;
   let found: string | null = null;
+  let rebound = false;
   walk(fn, (n) => {
+    // Codex round 3 on #274: an initializer is only evidence if the binding cannot change after it.
+    // `let x = webhookCandidatesForMode(...); x = secretCandidates; pickEnv(x)` would otherwise
+    // report `webhookCandidatesForMode` while the RAW list is what reaches the call — the guard
+    // green and the P1 back. So: `const` only, and any write to the name anywhere in the function
+    // invalidates the answer outright.
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      ts.isIdentifier(n.left) &&
+      n.left.text === name
+    )
+      rebound = true;
     if (!ts.isVariableDeclaration(n) || !ts.isIdentifier(n.name) || n.name.text !== name) return;
+    if (!(ts.getCombinedNodeFlags(n) & ts.NodeFlags.Const)) return;
     const init = n.initializer;
     if (init && ts.isCallExpression(init) && ts.isIdentifier(init.expression))
       found = init.expression.text;
   });
-  return found;
+  return rebound ? null : found;
 }
 
 /** Walk every descendant. `forEachChild` aborts on a truthy return, so the visitor returns void. */
@@ -461,6 +476,43 @@ describe("the three call sites still read every candidate name", () => {
     // Both halves matter: without the first, deleting the try would satisfy the second vacuously.
     expect(signatureTries).toBe(1);
     expect(offending).toBe(0);
+  });
+
+  it("the unresolvable-signing-secret 500 feeds the SAME rejection counter as the other config fault", () => {
+    // Codex round 3 on #274. This branch answered 500 and returned without touching
+    // `stripe_webhook_delivery_rejected`, while the `getStripe()` config failure a few lines below
+    // records under `stage: "config_error"`. So the ONE outage the mode filter exists to produce —
+    // live API keys with only a `_TEST` signing secret left behind — would leave the dashboard flat
+    // while a different config fault was counted. A counter that stays quiet through the outage it
+    // was built for is worse than no counter.
+    //
+    // Deliberately NARROW: this asserts the two CONFIG-REJECTION branches, not "every non-2xx".
+    // Most 500s in this route are post-verification handler failures (order lookup, capture) on an
+    // already-verified event; they are not rejected deliveries and must NOT feed this series.
+    // A guard that swept them in would be over-blocking of exactly the kind this module argues
+    // against elsewhere.
+    const route = parse("app/api/stripe/webhook/route.ts");
+    const post = postFn(route);
+    const REJECTIONS = ["Webhook not configured", "Stripe not configured"];
+    const recorded: string[] = [];
+    walk(post, (n) => {
+      if (!ts.isBlock(n)) return;
+      let returnsRejection: string | null = null;
+      let records = false;
+      walk(n, (m) => {
+        if (ts.isStringLiteral(m) && REJECTIONS.includes(m.text)) returnsRejection = m.text;
+        if (
+          ts.isCallExpression(m) &&
+          ts.isIdentifier(m.expression) &&
+          m.expression.text === "recordRejection"
+        )
+          records = true;
+      });
+      if (returnsRejection && records) recorded.push(returnsRejection);
+    });
+    // Both branches present and both recording. `toContain` on a de-duplicated set, because the
+    // enclosing blocks nest and each inner block is visited again from its parent.
+    expect([...new Set(recorded)].sort()).toEqual([...REJECTIONS].sort());
   });
 
   it("getStripe refuses on a mode mismatch before constructing the client", () => {
