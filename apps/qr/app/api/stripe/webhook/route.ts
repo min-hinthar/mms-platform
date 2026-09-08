@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse, after } from "next/server";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, resolvedStripeMode } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
@@ -11,7 +11,12 @@ import {
   describeUnverifiedEvent,
   signatureTimestamp,
 } from "@/lib/webhook-signature-failure";
-import { missingEnvMessage, pickEnv, type EnvCandidate } from "@/lib/stripe-env";
+import {
+  missingEnvMessage,
+  pickEnv,
+  webhookCandidatesForMode,
+  type EnvCandidate,
+} from "@/lib/stripe-env";
 import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
@@ -49,7 +54,14 @@ function webhookSecretCandidates(): readonly EnvCandidate[] {
 }
 
 export async function POST(req: NextRequest) {
-  const secretCandidates = webhookSecretCandidates();
+  // Bound to the mode the API keys resolved to, NOT to unconditional `_TEST` precedence: a
+  // `STRIPE_WEBHOOK_SECRET_TEST` left behind at the live cutover would otherwise be chosen while
+  // `getStripe()` sees an agreeing live pair and raises nothing — real charges, unverifiable
+  // deliveries, no orders. `webhookCandidatesForMode` carries the full reasoning.
+  const secretCandidates = webhookCandidatesForMode(
+    resolvedStripeMode(),
+    webhookSecretCandidates(),
+  );
   const webhookSecret = pickEnv(secretCandidates)?.value;
   if (!webhookSecret) {
     // Config error, not a bad request: 500 so Stripe redelivers once the secret is wired (vs. the

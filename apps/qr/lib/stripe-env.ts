@@ -127,6 +127,38 @@ export function publishableKeyCandidates(): readonly EnvCandidate[] {
   ];
 }
 
+/**
+ * The signing-secret candidates that are LEGITIMATE for the mode the API keys resolved to.
+ *
+ * ⚠️ THIS IS THE P1 THE MODE GATE COULD NOT SEE, and the cutover checklist created it. Removing the
+ * two `_TEST` KEY variables at the live cutover while leaving `STRIPE_WEBHOOK_SECRET_TEST` behind
+ * gives `getStripe()` a live secret and a live publishable key — they AGREE, so it raises nothing —
+ * while the webhook keeps picking the test signing secret. Every live delivery then fails
+ * `constructEvent`: real cards captured, zero orders. C18 with real money.
+ *
+ * `modeDisagreement` structurally cannot catch it. A signing secret is `whsec_…` in both modes and
+ * carries no marker to compare, so the only evidence available is the NAME it was read from — which
+ * is what this function judges.
+ *
+ * The rule is deliberately ASYMMETRIC, because the two directions are not symmetric facts:
+ *
+ *   - **live → drop every `_TEST` name.** A name containing `_TEST` can never be correct in live
+ *     mode, so a leftover becomes INERT rather than authoritative. If that leaves nothing, the route
+ *     answers 500 naming both names — fail-closed, which is the right trade when the alternative is
+ *     capturing money that cannot be fulfilled.
+ *   - **test / unknown → keep both, `_TEST` first.** The BASE name legitimately holds a test secret
+ *     in local dev, in `.env.example`, and in every deployment that predates the per-mode rename.
+ *     Dropping it there would break working setups to guard a hazard that does not exist in test
+ *     mode — over-blocking is as bad as under-blocking.
+ */
+export function webhookCandidatesForMode(
+  mode: StripeMode,
+  candidates: readonly EnvCandidate[],
+): readonly EnvCandidate[] {
+  if (mode !== "live") return candidates;
+  return candidates.filter(([name]) => !name.endsWith("_TEST"));
+}
+
 /** The publishable key this deployment should hand to Stripe.js, with the name it came from. */
 export function resolvePublishableKey(): ResolvedEnv {
   return pickEnv(publishableKeyCandidates());

@@ -36,8 +36,21 @@ breakage was one deploy away.
 - **No secret's variable name sits in a module the client imports.** `stripe-env.ts` is isomorphic
   (`stripe-client.ts` is `"use client"` and imports it), so the secret and webhook literals stay in
   `stripe.ts` and the route; a test asserts it.
-- Six mutants (478 total, 95 target modules), five structural guards each watched red first,
-  34 tests.
+- **The mode gate was necessary and not sufficient — a Codex P1 on #274.** It compares the two
+  credentials that announce their mode, and a signing secret is not one of them: `whsec_…` is
+  identical in test and live. So the live cutover could remove the two `_TEST` KEY variables, leave
+  `STRIPE_WEBHOOK_SECRET_TEST` behind, and get a live secret beside a live publishable key that
+  AGREE — no refusal — while the webhook picked the test signing secret. Every live delivery would
+  fail `constructEvent`: real cards captured, zero orders. C18 with real money, produced by the
+  cutover checklist meant to prevent it, and `docs/ENV.md` asserted the mode check covered exactly
+  this case. `webhookCandidatesForMode` now judges the only evidence available, the NAME: in live
+  mode every `_TEST` name is dropped so a leftover is inert (and nothing left means a 500 naming
+  both names, the right trade against unfulfillable charges); in test or unknown mode both stay,
+  because the base name legitimately holds a test secret in local dev and every pre-rename
+  deployment. The asymmetry has its own mutant — filtering in test mode too breaks working setups,
+  and over-blocking is as bad as under-blocking.
+- Eight mutants (480 total, 95 target modules), eight structural guards each watched red first,
+  40 tests.
 
 ### The OPEN-ITEMS high band, trued against source (2026-09-08)
 

@@ -1,11 +1,13 @@
 import "server-only";
 import Stripe from "stripe";
 import {
+  keyMode,
   missingEnvMessage,
   modeDisagreement,
   pickEnv,
   resolvePublishableKey,
   type EnvCandidate,
+  type StripeMode,
 } from "./stripe-env";
 
 // Derive the apiVersion literal type straight from the SDK constructor so a Stripe bump can't
@@ -27,6 +29,21 @@ function secretKeyCandidates(): readonly EnvCandidate[] {
     ["STRIPE_SECRET_KEY_TEST", process.env.STRIPE_SECRET_KEY_TEST],
     ["STRIPE_SECRET_KEY", process.env.STRIPE_SECRET_KEY],
   ];
+}
+
+/**
+ * The Stripe MODE this deployment is running in, derived from the secret key it will actually use.
+ *
+ * The secret key is the right source: it is the credential that moves the money, it announces its
+ * own mode in its prefix, and it is resolved by the same precedence every other Stripe call sees.
+ * The webhook route reads this to decide which signing-secret names are legitimate — see
+ * `webhookCandidatesForMode`, which exists because a `whsec_…` carries no marker of its own.
+ *
+ * `unknown` when no key resolves or the prefix is unrecognised; callers must treat that as
+ * "cannot tell", never as "test".
+ */
+export function resolvedStripeMode(): StripeMode {
+  return keyMode(pickEnv(secretKeyCandidates())?.value);
 }
 
 let _stripe: Stripe | null = null;

@@ -4088,6 +4088,22 @@ const MUTANTS = [
     find: "  const mismatch = modeDisagreement(key, resolvePublishableKey()?.value);\n  if (mismatch) throw new Error(mismatch);\n",
     replace: "",
   },
+  {
+    id: "stripe-env/live-mode-keeps-the-test-webhook-secret",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "Codex P1 on #274. The live cutover removes the two _TEST KEY variables and can leave STRIPE_WEBHOOK_SECRET_TEST behind; getStripe() then sees a live secret and a live publishable key, they AGREE, and it raises nothing, while the webhook picks the TEST signing secret. Every live delivery fails constructEvent: real cards captured, zero orders \u2014 C18 with real money. modeDisagreement structurally cannot catch it, because a whsec_ is identical in both modes and the NAME is the only evidence",
+    find: '  if (mode !== "live") return candidates;\n  return candidates.filter(([name]) => !name.endsWith("_TEST"));',
+    replace: "  return candidates;",
+  },
+  {
+    id: "stripe-env/test-mode-drops-the-base-webhook-name",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The asymmetry is the point, and the other direction is a real regression rather than extra safety: the BASE name legitimately holds a TEST signing secret in local dev, in .env.example, and in every deployment predating the per-mode rename. Filtering it out in test mode breaks all of those to guard a hazard that exists only in live mode \u2014 over-blocking is as bad as under-blocking",
+    find: '  if (mode !== "live") return candidates;',
+    replace: '  if (mode === "live") return candidates;',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

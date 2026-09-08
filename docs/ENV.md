@@ -79,9 +79,23 @@ Three things this buys, each of which had already gone wrong at least once:
 
 > ⚠️ **THE LIVE CUTOVER MUST REMOVE THE `_TEST` VARIABLES from the Vercel Production environment.**
 > Because `_TEST` wins, leaving one behind keeps the restaurant on test cards — money that looks
-> collected and never arrives. Removing only some of them is caught by the mode check above; removing
-> none of them is not, because a fully-test set is internally consistent. This is a checklist item,
-> not something the code can infer.
+> collected and never arrives. Removing NONE of them is not caught by anything, because a fully-test
+> set is internally consistent: that is a checklist item the code cannot infer.
+>
+> **A PARTIAL removal is a different hazard, and it is now closed in code.** An earlier version of
+> this note claimed the mode check above caught it. It did not, and the gap was the dangerous one:
+> remove the two `_TEST` KEY variables but leave `STRIPE_WEBHOOK_SECRET_TEST`, and `getStripe()` sees
+> a live secret beside a live publishable key — they AGREE, so it raises nothing — while the webhook
+> picks the TEST signing secret. Every live delivery then fails `constructEvent`: real cards
+> captured, zero orders. C18 with real money. `modeDisagreement` structurally cannot see it, because
+> a `whsec_…` is identical in both modes and carries no marker to compare.
+>
+> `webhookCandidatesForMode` closes it by judging the only evidence there is — the NAME. In **live**
+> mode every `_TEST` name is dropped, so a leftover is inert rather than authoritative; if that
+> leaves nothing, the route answers 500 naming both names, which is the right trade against
+> capturing money that cannot be fulfilled. In **test** or **unknown** mode both names stay, `_TEST`
+> first, because the base name legitimately holds a test secret in local dev, in `.env.example`, and
+> in every deployment predating this rename.
 
 ## Vercel environment matrix
 
