@@ -494,25 +494,34 @@ describe("the three call sites still read every candidate name", () => {
     const route = parse("app/api/stripe/webhook/route.ts");
     const post = postFn(route);
     const REJECTIONS = ["Webhook not configured", "Stripe not configured"];
-    const recorded: string[] = [];
+    const recorded = new Set<string>();
     walk(post, (n) => {
       if (!ts.isBlock(n)) return;
-      let returnsRejection: string | null = null;
-      let records = false;
-      walk(n, (m) => {
-        if (ts.isStringLiteral(m) && REJECTIONS.includes(m.text)) returnsRejection = m.text;
-        if (
-          ts.isCallExpression(m) &&
-          ts.isIdentifier(m.expression) &&
-          m.expression.text === "recordRejection"
-        )
-          records = true;
-      });
-      if (returnsRejection && records) recorded.push(returnsRejection);
+      // DIRECT statements of THIS block only — never a recursive scan. Codex round 4 on #274: a
+      // recursive version let the outer POST body satisfy BOTH entries by itself, because it
+      // transitively contains every rejection string and every counter call. Deleting the counter
+      // from one branch therefore left the final set complete and the guard green — it proved the
+      // two calls existed SOMEWHERE in the function, not that either branch was protected. Binding
+      // each response to a counter in its own block is what makes the two paths independent.
+      const rejection = n.statements.reduce<string | null>((acc, st) => {
+        if (!ts.isReturnStatement(st) || !st.expression) return acc;
+        let hit: string | null = null;
+        walk(st.expression, (m) => {
+          if (ts.isStringLiteral(m) && REJECTIONS.includes(m.text)) hit = m.text;
+        });
+        return hit ?? acc;
+      }, null);
+      if (!rejection) return;
+      const records = n.statements.some(
+        (st) =>
+          ts.isExpressionStatement(st) &&
+          ts.isCallExpression(st.expression) &&
+          ts.isIdentifier(st.expression.expression) &&
+          st.expression.expression.text === "recordRejection",
+      );
+      if (records) recorded.add(rejection);
     });
-    // Both branches present and both recording. `toContain` on a de-duplicated set, because the
-    // enclosing blocks nest and each inner block is visited again from its parent.
-    expect([...new Set(recorded)].sort()).toEqual([...REJECTIONS].sort());
+    expect([...recorded].sort()).toEqual([...REJECTIONS].sort());
   });
 
   it("getStripe refuses on a mode mismatch before constructing the client", () => {

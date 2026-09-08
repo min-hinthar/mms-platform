@@ -93,6 +93,13 @@ breakage was one deploy away.
   refuses outright if the name is written anywhere in the function — a guard defeated by a one-word
   keyword change is the "green for the wrong reason" shape again, this time in a guard written to
   close exactly that.
+- **Codex round 4 — the counter guard proved the calls existed, not that either branch was
+  protected.** It scanned every block recursively, so the outer `POST` body satisfied BOTH entries
+  by itself: it transitively contains every rejection string and every counter call. Deleting
+  `recordRejection` from the `getStripe()` catch therefore left the set complete and the guard
+  green. It now reads only the DIRECT statements of each block, binding a response to a counter in
+  its own branch, and both removals were watched turning it red independently — the first of which
+  the previous version passed.
 - Ten mutants and 49 tests, measured against `main` (472 → 482 mutants, 1982 → 2031 qr tests);
   95 target modules; every structural guard watched red first.
 
