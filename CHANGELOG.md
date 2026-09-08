@@ -4,6 +4,41 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Stripe credentials resolve per mode, and the two keys must agree (2026-09-08)
+
+**The owner split the Stripe variables into per-mode copies, and the code knew none of the new
+names.** `STRIPE_SECRET_KEY_TEST`, `STRIPE_WEBHOOK_SECRET_TEST`,
+`NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST` and `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_Production` existed
+in Vercel; the three read sites still spelled the old names. Nothing was broken yet only because the
+running production build predated the rename — `NEXT_PUBLIC_*` is inlined at BUILD time, so the
+breakage was one deploy away.
+
+- **Each miss fails differently, and the worst one is silent.** A missing publishable key makes
+  `getStripePromise()` return null, so the card form never mounts and checkout reads "card checkout
+  unavailable" — no error, no log, no Stripe request. A missing webhook secret answers 500 to every
+  delivery. A missing secret key throws on the first server call. One rename, three unrelated
+  symptoms, none of which names the cause.
+- **One resolver, `apps/qr/lib/stripe-env.ts`.** Every credential accepts its per-mode copy and
+  prefers `_TEST`; the resolver returns the NAME that won, so "not set" now lists every place that
+  was looked in instead of the one name the operator just moved away from. The winner is trimmed,
+  which matters most for the signing secret: a trailing newline makes Stripe append "the provided
+  signing secret contains whitespace" to a signature failure — C18's exact shape from a keystroke.
+- **The mode gate.** `getStripe()` refuses to construct a client when the secret and publishable keys
+  are from different Stripe modes. That pairing has a dangerous half nothing else can see: a **live**
+  secret beside a **test** webhook secret charges real cards whose fulfilment can never verify — C18
+  with real guests' money. A signing secret carries no mode marker (`whsec_…` is identical in both
+  modes), so the check compares the two keys that do, on the one path every server Stripe call takes.
+- **The build-time trap, closed twice.** The literal reads stay literal, because Next.js substitutes
+  `process.env.NEXT_PUBLIC_*` textually and a computed lookup resolves to undefined in the browser
+  while reading correctly in the editor — a guard parses the three call sites and rejects exactly
+  that rewrite. And the four new names are declared in `turbo.json`'s `globalEnv`, without which a
+  build could reuse a cache entry keyed on the old set and bake in the wrong publishable key.
+- **No secret's variable name sits in a module the client imports.** `stripe-env.ts` is isomorphic
+  (`stripe-client.ts` is `"use client"` and imports it), so the secret and webhook literals stay in
+  `stripe.ts` and the route; a test asserts it.
+- Six mutants (478 total, 95 target modules), five structural guards each watched red first,
+  34 tests.
+
 ### The OPEN-ITEMS high band, trued against source (2026-09-08)
 
 **36 rows carried severity `high` above the Closed heading; 16 do now, and every one of those is

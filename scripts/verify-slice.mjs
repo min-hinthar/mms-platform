@@ -4036,6 +4036,58 @@ const MUTANTS = [
     find: '  return value === "m" || value === "l" ? value : KDS_SIZE_DEFAULT;',
     replace: "  return (value as KdsSize) ?? KDS_SIZE_DEFAULT;",
   },
+  {
+    id: "stripe-env/winner-not-trimmed",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: 'A signing secret pasted through a dashboard field carries a trailing newline, and Stripe\'s SDK answers with "the provided signing secret contains whitespace" appended to a signature failure \u2014 i.e. every delivery rejected, reported as a bad signature. Trimming here is the difference between C18 and a working webhook, so it is a money rule, not tidiness',
+    find: "    const trimmed = value.trim();\n    if (!trimmed) continue;\n    return { name, value: trimmed };",
+    replace:
+      "    const trimmed = value.trim();\n    if (!trimmed) continue;\n    return { name, value };",
+  },
+  {
+    id: "stripe-env/blank-var-counts-as-set",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "A Vercel variable created and left EMPTY is present to `process.env` and useless to Stripe. Without the blank check the empty name wins and the real value one line below it is never reached \u2014 the credential is 'set' and every Stripe call fails",
+    find: '    if (typeof value !== "string") continue;\n    const trimmed = value.trim();\n    if (!trimmed) continue;',
+    replace: '    if (typeof value !== "string") continue;\n    const trimmed = value.trim();',
+  },
+  {
+    id: "stripe-env/unsuffixed-wins-over-test",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "WHICH candidate wins decides the Stripe MODE the deployment runs in. Reversed, a Production environment holding both keys mounts the LIVE card form while the server signs with the test secret \u2014 a real guest shown a real Stripe form whose fulfilment webhook can never verify",
+    find: '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],',
+    replace:
+      '    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY],\n    ["NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST", process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_TEST],',
+  },
+  {
+    id: "stripe-env/live-key-read-as-test",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The mode marker is the ONLY evidence either key carries about which Stripe account it talks to. Read a live key as test and `modeDisagreement` sees agreement where there is none \u2014 the guard that exists to stop a live charge with a test webhook secret waves it through",
+    find: '  if (/^[sprk]{2}_test_/.test(k)) return "test";\n  if (/^[sprk]{2}_live_/.test(k)) return "live";',
+    replace:
+      '  if (/^[sprk]{2}_test_/.test(k)) return "test";\n  if (/^[sprk]{2}_live_/.test(k)) return "test";',
+  },
+  {
+    id: "stripe-env/disagreement-never-refuses",
+    file: "apps/qr/lib/stripe-env.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The whole gate. With the comparison inverted every mismatched pair reports agreement, and `getStripe()` constructs a LIVE client whose fulfilment webhook is signed by a TEST secret \u2014 C18 with real guests' money instead of test cards",
+    find: '  if (secret === "unknown" || publishable === "unknown") return null;\n  if (secret === publishable) return null;',
+    replace:
+      '  if (secret === "unknown" || publishable === "unknown") return null;\n  if (secret !== publishable) return null;',
+  },
+  {
+    id: "stripe/mode-gate-skipped",
+    file: "apps/qr/lib/stripe.ts",
+    suite: "lib/stripe-env.test.ts",
+    why: "The refusal has to happen BEFORE the client is constructed. Dropped, a mismatched pair builds a working live Stripe client and the first charge is real money whose fulfilment can never be verified \u2014 the failure C18 was, with the guard sitting one function away doing nothing",
+    find: "  const mismatch = modeDisagreement(key, resolvePublishableKey()?.value);\n  if (mismatch) throw new Error(mismatch);\n",
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

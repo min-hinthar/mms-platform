@@ -11,6 +11,7 @@ import {
   describeUnverifiedEvent,
   signatureTimestamp,
 } from "@/lib/webhook-signature-failure";
+import { missingEnvMessage, pickEnv, type EnvCandidate } from "@/lib/stripe-env";
 import { promoTag } from "@/lib/pilot-tag";
 import { enqueueQboSync, syncOrderToQbo } from "@/lib/qbo/client";
 import { settleAuthorizedPickup } from "@/lib/manual-capture-run";
@@ -30,12 +31,32 @@ import {
 // metadata kind/cartId/tipRate shape the terminal arm keys on; split-settle.test.ts pins the share
 // arms). A route-level mutant would need constructEvent + every DB read mocked into scripted
 // answers — the degenerate-fixture class the mutant harness exists to avoid.
+/**
+ * Every name the webhook signing secret may live under, most specific first — `_TEST` wins, the same
+ * rule the secret and publishable keys follow (`stripe-env.ts` carries the reasoning and the cutover
+ * warning). The literal reads stay here rather than in `stripe-env.ts` so no secret's variable name
+ * sits in a module a client component may import.
+ *
+ * ⚠️ A signing secret carries no mode marker of its own (`whsec_…` is the same shape in test and
+ * live), so nothing in THIS file can tell which mode it belongs to. That is why the mode check lives
+ * in `getStripe()`, where the two keys that DO announce their mode can be compared.
+ */
+function webhookSecretCandidates(): readonly EnvCandidate[] {
+  return [
+    ["STRIPE_WEBHOOK_SECRET_TEST", process.env.STRIPE_WEBHOOK_SECRET_TEST],
+    ["STRIPE_WEBHOOK_SECRET", process.env.STRIPE_WEBHOOK_SECRET],
+  ];
+}
+
 export async function POST(req: NextRequest) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const secretCandidates = webhookSecretCandidates();
+  const webhookSecret = pickEnv(secretCandidates)?.value;
   if (!webhookSecret) {
     // Config error, not a bad request: 500 so Stripe redelivers once the secret is wired (vs. the
     // old `!`, which fed `undefined` to constructEvent and masqueraded as a 400 "Bad signature").
-    console.error("[stripe webhook] STRIPE_WEBHOOK_SECRET is not set");
+    console.error(
+      `[stripe webhook] ${missingEnvMessage("Webhook signing secret", secretCandidates)}`,
+    );
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
   const sig = req.headers.get("stripe-signature");
