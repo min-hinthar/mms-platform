@@ -4532,7 +4532,7 @@ const MUTANTS = [
   {
     id: "oauth-store/attempt-flag-fails-toward-another-redirect",
     file: "apps/qr/lib/oauthCallbackStore.ts",
-    suite: "lib/oauthCallbackStore.test.ts",
+    suite: "lib/oauthCallbackStore.test.tsx",
     why: 'when storage is unavailable we cannot know whether we already redirected, and the two answers cost very differently: "yes" costs one manual tap on a button that says what it does, "no" costs a redirect loop through Google the diner cannot stop. The fail-safe direction is the whole reason this wrapper exists',
     find: "    return window.sessionStorage.getItem(ATTEMPT_KEY) !== null;\n  } catch {\n    return true;",
     replace:
@@ -4541,7 +4541,7 @@ const MUTANTS = [
   {
     id: "oauth-store/unknown-stored-value-coerced-into-a-bounce",
     file: "apps/qr/lib/oauthCallbackStore.ts",
-    suite: "lib/oauthCallbackStore.test.ts",
+    suite: "lib/oauthCallbackStore.test.tsx",
     why: "sessionStorage is writable by anything on the origin and survives across visits. Coercing an unrecognized value into an outcome invents a bounce that never happened, which on the already-linked arm auto-redirects a diner who simply opened /account",
     find: '    if (kind === "generic") return { kind: "generic" };\n    return null;',
     replace:

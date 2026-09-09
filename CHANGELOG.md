@@ -54,6 +54,19 @@ settled-round count was capped at 20 and printed as exact. **M210** (concurrent 
 no owner) needs an atomic database invariant and stays gated on the divergent migration history;
 **M211** stays open.
 
+**A twelfth CI guard existed that nothing here had ever run**, and it caught a real defect. `node
+scripts/check-test-env.mjs` (`ci.yml:157`) is written as a `- name:` block, so its `run:` carries no
+dash — and the grep `CLAUDE.md` prescribes for measuring the fast lane was anchored on `- run:`, so
+it could not see it. `build` went red on a lane this session had reported as run in full:
+`lib/oauthCallbackStore.test.ts` declared `@vitest-environment jsdom`, which local vitest honours
+and that guard refuses, because a `.test.ts` must run in its config's environment. Renamed to
+`.test.tsx`. The pattern in `CLAUDE.md` now matches both shapes and the count is twelve. A count
+read off a pattern that cannot match every shape is not a measurement — the same failure the
+"never transcribe a number" rule exists to stop, one level further out. The corrected grep also
+surfaces two guards that are NOT fast lane (`verify-merge-race.mjs --mutants`,
+`verify-mode-authority.mjs`): they sit in the separate `supabase` job behind `supabase start` and
+need Docker, so they are CI-only and cannot be run before a push from this environment.
+
 ### A7 — orders follow the diner onto their account (2026-09-09)
 
 Order attribution is uid-based (`qr_orders.earned_by`), so an upgrade that keeps the uid carries

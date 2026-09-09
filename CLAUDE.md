@@ -48,8 +48,17 @@ what runs:
   all file-read-only, seconds, no build and no DB. Before this, prettier drift merged silently (it
   DID: #240 landed an unformatted `webhook/route.ts` with every check green), and both correctness
   guards were reachable only through a local `verify:slice` nobody is obliged to run. **The lane is
-  now ELEVEN steps and the list above is only the first six** — measure it, never read it off this
-  paragraph: `grep -nE '^\s+- run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`.
+  now TWELVE steps and the list above is only the first six** — measure it, never read it off this
+  paragraph: `grep -nE '^\s+(- )?run: (pnpm (check:|format:)|node scripts/)' .github/workflows/ci.yml`.
+  ⚠️ **`(- )?` IS LOAD-BEARING, and this line said `- run:` until #279 paid for it.** A step written
+  as a `- name:` block puts its `run:` on a later line with no dash, so the old pattern could not see
+  it — and the one step it hid, `node scripts/check-test-env.mjs` (ci.yml:157), is the guard that
+  refuses a `.test.ts` declaring `@vitest-environment jsdom`. Local vitest honours that docblock, so
+  the suite passed here and CI rejected it: `build` went red on a "twelve-step lane run in full".
+  A count read off a pattern that cannot match every shape is not a measurement. The same grep also
+  surfaces TWO more (`verify-merge-race.mjs --mutants`, `verify-mode-authority.mjs`) — those are NOT
+  fast lane: they sit in the separate `supabase` job behind `supabase start` and need Docker, which
+  the agent environment does not have, so they are CI-only and cannot be run before a push.
   A blind audit could not tell whether `check:staff-lang` was wired, because this enumeration stops
   at #240's six while `ci.yml` also runs `check:pay-attempt`, `check:freeze-parity`,
   `check:staff-lang`, `check:child-freeze` and `check:mutant-anchors` (the last of which answers in
