@@ -292,6 +292,12 @@ export const STAFF = {
   "floor.card.soFarLabel": { en: "so far", my: "ယခုအထိ" },
   "floor.card.soFar": { en: "{m} so far", my: "ယခုအထိ {m}" },
   "floor.card.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
+  // K33 — the card's settled row when money came back. `floor.status.paid` is the word beside the
+  // figure on an unrefunded table; these replace it rather than joining it, because a card is read
+  // in one glance and "Paid · Refunded" is two claims a glance cannot order.
+  "floor.status.refunded": { en: "Refunded", my: "ပြန်အမ်းပြီး" },
+  "floor.status.partlyRefunded": { en: "Partly refunded", my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး" },
+  "floor.card.refunded": { en: "{m} refunded", my: "{m} ပြန်အမ်းပြီး" },
   "floor.card.empty": { en: "No items yet", my: "ဘာမှ မရှိသေးပါ" },
 
   // ── VERBS — the visible word on a control, and the word its accessible name leads with ──────

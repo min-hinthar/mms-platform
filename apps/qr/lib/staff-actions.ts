@@ -19,25 +19,32 @@ const PROVISION_WINDOW_S = 3600;
 const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
 
 /**
- * A6 — RE-READ THE CALLER'S OWN ROW IMMEDIATELY BEFORE AN AUTHORITY WRITE.
+ * A6 — RE-READ THE CALLER'S OWN AUTHORITY IMMEDIATELY BEFORE AN AUTHORITY WRITE, AND RETURN THE
+ * ROLE IT FOUND.
  *
  * `getStaffAuth()` resolves the caller once, at the top of the action, and the writes below land
- * several round trips later. In that window an owner can demote or deactivate the caller, and the
- * write would still go through on the role they held when the request started — so a manager
- * stripped of authority could still grant it to someone else on their way out.
+ * several round trips later. In that window an owner can demote or deactivate the caller.
+ *
+ * ⚠️ RETURNING THE REFRESHED ROLE IS THE WHOLE POINT, and the first version of this helper got it
+ * wrong in a way that mattered: it answered a plain boolean, checked only the `manager` FLOOR, and
+ * threw the rank away — so an OWNER demoted to manager mid-request still passed (they are a manager)
+ * while every ceiling decision below went on using the stale `caller.role === "owner"`. The
+ * now-manager could still mint an owner or modify an owner's account: a narrower window on one hole
+ * and a wider one on another. Every caller re-runs `canActOn` against `role` from here, never
+ * against the session's copy.
  *
  * ⚠️ THIS NARROWS THE WINDOW, IT DOES NOT CLOSE IT, and saying otherwise would be the kind of
  * comment this repo has been burned by. The check and the write are still two statements, so a
  * revocation landing between them is unseen. Closing it properly means deciding the caller and the
  * target in ONE statement, which needs an RPC or an RLS UPDATE policy on `staff` — a prod
- * migration, blocked on the divergent history, and filed as OPEN-ITEMS M208. What this does buy is
- * real: the exposure drops from the whole request to a single round trip, and a caller already
- * deactivated when the action began is refused outright rather than served from a stale read.
+ * migration, blocked on the divergent history, and filed as OPEN-ITEMS M208.
  */
-async function callerStillHasAuthority(
+type CallerAuthority = { ok: true; role: StaffRole } | { ok: false };
+
+async function refreshCallerAuthority(
   db: ReturnType<typeof serviceClient>,
   caller: { staffId: string; role: StaffRole },
-): Promise<boolean> {
+): Promise<CallerAuthority> {
   const { data, error } = await db
     .from("staff")
     .select("role,active")
@@ -45,10 +52,14 @@ async function callerStillHasAuthority(
     .maybeSingle();
   // An unreadable row is NOT a revocation — the caller keeps the authority the session proved, and
   // the outage surfaces from whichever read fails next. Refusing here would turn a database hiccup
-  // into "you are not a manager", which is the fabricated-diagnosis shape M116/M119 closed.
-  if (error) return true;
-  if (!data) return false; // the row is gone: no staff row, no authority
-  return data.active === true && roleAtLeast(data.role as StaffRole, "manager");
+  // into "you are not a manager", which is the fabricated-diagnosis shape M116/M119 closed. The
+  // session's role is returned unchanged so the ceiling still HAS a value to decide against.
+  if (error) return { ok: true, role: caller.role };
+  if (!data) return { ok: false }; // the row is gone: no staff row, no authority
+  if (data.active !== true) return { ok: false };
+  const role = data.role as StaffRole;
+  if (!roleAtLeast(role, "manager")) return { ok: false };
+  return { ok: true, role };
 }
 
 /** Best-effort audit of an owner staff-management mutation (parity with clear/merge/settle telemetry —
@@ -148,10 +159,22 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Couldn’t create that account. Check the email and try again." };
   }
 
-  if (!(await callerStillHasAuthority(db, caller))) {
-    // The auth user exists at this point; roll it back so a revoked caller leaves nothing behind.
+  // The auth user exists by now, so any refusal from here rolls it back — a revoked caller must
+  // leave nothing behind, or the address can never be re-provisioned.
+  const fresh = await refreshCallerAuthority(db, caller);
+  const rollback = async () => {
     await db.auth.admin.deleteUser(created.user.id).catch(() => {});
+  };
+  if (!fresh.ok) {
+    await rollback();
     return { ok: false, error: MANAGERS_ONLY };
+  }
+  // The ceiling AGAIN, on the REFRESHED role: an owner demoted mid-request is a manager now, and a
+  // manager may not mint an owner. Deciding it on the session's copy is the P1 this re-read exists
+  // to close, not a second opinion on the same fact.
+  if (!canActOn(fresh.role, parsed.data.role)) {
+    await rollback();
+    return { ok: false, error: "Only the owner can add another owner." };
   }
   const { error: rowErr } = await db.from("staff").insert({
     user_id: created.user.id,
@@ -233,7 +256,12 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   if (!canActOn(caller.role, target.role as StaffRole))
     return { ok: false, error: "Only the owner can change an owner’s account." };
 
-  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };
+  const fresh = await refreshCallerAuthority(db, caller);
+  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  // The ceiling AGAIN, on the REFRESHED role — see `refreshCallerAuthority`. An owner demoted to
+  // manager between the session read and here may no longer touch an owner's account.
+  if (!canActOn(fresh.role, target.role as StaffRole))
+    return { ok: false, error: "Only the owner can change an owner’s account." };
   // A6 — the SAME two protections `setStaffRole` carries, and for the same reason: the ceiling above
   // was decided against a role read a moment ago, so the write repeats it as `.eq("role", …)` in the
   // STATEMENT. Without that, a target promoted to owner between the read and the write is
@@ -318,7 +346,11 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Only the owner can change an owner’s role." };
   if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
 
-  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };
+  const fresh = await refreshCallerAuthority(db, caller);
+  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  // BOTH halves again, on the REFRESHED role — the target's current role and the requested one.
+  if (!canActOn(fresh.role, current) || !canActOn(fresh.role, parsed.data.role))
+    return { ok: false, error: "Only the owner can change an owner’s role." };
 
   const { data: rows, error } = await db
     .from("staff")

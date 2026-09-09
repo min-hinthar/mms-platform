@@ -342,6 +342,27 @@ describe("getFloorView — the room agrees with the drill-down about a settled t
     expect(table?.status).toBe("paid"); // a settled table, not an empty one
   });
 
+  it("carries the refund state onto the CARD, so the room and the detail agree", async () => {
+    // Codex P2 on the merge head: the drill-down was taught to say a charge came back, and the card
+    // beside it still printed the pre-refund total next to "Paid" in the success token. One table,
+    // one screen, two stories — the same contradiction the status widening created one level down.
+    orderRows = [{ ...(orderRows[0] as Row), status: "refunded", refunded_cents: 5330 }];
+    const { getFloorView } = await import("./floor");
+    const res = await getFloorView();
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable: asserted ok above");
+    const table = res.snapshot.tables.find((t) => t.sessionId === SESSION);
+    expect(table?.refund).toEqual({ state: "full", refundedCents: 5330, netPaidCents: 0 });
+  });
+
+  it("reports NO refund on the card for an ordinary paid table", async () => {
+    const { getFloorView } = await import("./floor");
+    const res = await getFloorView();
+    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error("unreachable: asserted ok above");
+    expect(res.snapshot.tables.find((t) => t.sessionId === SESSION)?.refund?.state).toBe("none");
+  });
+
   it("still counts a plain PAID order — the widening did not replace the ordinary case", async () => {
     const { getFloorView } = await import("./floor");
     const res = await getFloorView();

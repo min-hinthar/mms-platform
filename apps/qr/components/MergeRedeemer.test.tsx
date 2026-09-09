@@ -229,3 +229,48 @@ describe("MergeRedeemer — a shared device hands over cleanly", () => {
     expect(redeemMergeToken).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("MergeRedeemer — an in-flight attempt cannot spend the NEXT guest's token", () => {
+  it("discards a redemption that resolves AFTER the handover", async () => {
+    // Codex P2 on the merge head. Resetting the refs on sign-out does not cancel a request already
+    // awaiting the server: it resolves afterwards, latches `done` and calls `clearMergeToken()` —
+    // deleting the token the next guest has just stashed and re-blocking the very person the reset
+    // was for. A promise cannot be un-awaited, so the attempt is stamped and its answer dropped.
+    storedToken = "tok-first";
+    let release: (v: unknown) => void = () => {};
+    redeemMergeToken.mockImplementationOnce(() => new Promise((r) => (release = r)));
+    render(<MergeRedeemer />);
+    await settle();
+    expect(redeemMergeToken).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      listener?.("SIGNED_OUT", null); // the tablet changes hands mid-request
+      await Promise.resolve();
+    });
+    storedToken = "tok-second"; // the next guest stashes theirs
+
+    await act(async () => {
+      release({ orders: 1, stars: 3, coupons: 0 }); // the FIRST guest's request lands, terminally
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // The stale answer neither spent the new token nor re-latched the redeemer.
+    expect(clearMergeToken).not.toHaveBeenCalled();
+    expect(storedToken).toBe("tok-second");
+
+    await act(async () => {
+      listener?.("SIGNED_IN", ACCOUNT);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(redeemMergeToken).toHaveBeenCalledWith("tok-second"));
+  });
+
+  it("still spends the token when NO handover happened", async () => {
+    // The stamp must only discard across an identity change — otherwise it would break the ordinary
+    // redemption it is guarding, which is every redemption.
+    storedToken = "tok-plain";
+    render(<MergeRedeemer />);
+    await settle();
+    await waitFor(() => expect(clearMergeToken).toHaveBeenCalled());
+  });
+});

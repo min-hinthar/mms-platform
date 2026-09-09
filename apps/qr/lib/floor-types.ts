@@ -40,6 +40,11 @@ export type FloorTable = {
   runningSubtotalCents: number;
   /** The authoritative total of a settled order on this table, when one exists (cents). */
   paidTotalCents: number | null;
+  /** K33 — the refund state of that settled order, from `lib/refund-view.ts`. null when there is no
+   *  settled order. The CARD must read this before it prints `paidTotalCents`: the two are the same
+   *  order, and showing the total beside "Paid" while the drill-down says the charge came back is
+   *  one table telling two stories on one screen. */
+  refund: RefundSummary | null;
   /** Tab lifecycle (S3.1): `none` until a server/diner formally opens a tab on this table; `trust`
    *  (settle-late, any tender) or `secure` (card-on-file, S3.2). Drives the floor "Tab" badge so a
    *  server reads at a glance which tables are running a tab vs. settling each round. */

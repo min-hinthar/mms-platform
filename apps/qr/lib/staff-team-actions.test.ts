@@ -437,3 +437,65 @@ describe("the caller's own authority is re-read immediately before each write", 
     expect(res).toEqual({ ok: true });
   });
 });
+
+describe("the ceiling is re-decided on the REFRESHED role, not the session's copy", () => {
+  it("refuses an OWNER demoted to manager mid-request from minting another owner", () => {
+    // Codex P1 on the merge head. The first version of the re-read answered a plain boolean and
+    // checked only the manager FLOOR, so a demoted owner passed it (they are a manager) while every
+    // ceiling below went on using the stale `caller.role === "owner"`. The re-read narrowed one
+    // window and opened a wider one.
+    callerRole = "owner";
+    callerRow = { user_id: CALLER_STAFF, role: "manager", active: true };
+    return provisionStaff({
+      email: "co@example.com",
+      displayName: "Co Owner",
+      role: "owner",
+    }).then((res) => {
+      expect(res.ok).toBe(false);
+      if (res.ok) throw new Error("unreachable: asserted a refusal above");
+      expect(res.error).toBe("Only the owner can add another owner.");
+      expect(insertPatch).toBeNull();
+    });
+  });
+
+  it("refuses a demoted owner from deactivating an owner", async () => {
+    callerRole = "owner";
+    callerRow = { user_id: CALLER_STAFF, role: "manager", active: true };
+    targetRow = { ...(targetRow as Row), role: "owner" };
+    const res = await setStaffActive({ userId: TARGET, active: false });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("Only the owner can change an owner’s account.");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("refuses a demoted owner from promoting anyone to owner", async () => {
+    callerRole = "owner";
+    callerRow = { user_id: CALLER_STAFF, role: "manager", active: true };
+    const res = await setStaffRole({ userId: TARGET, role: "owner" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("Only the owner can change an owner’s role.");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("still lets an owner whose row confirms OWNER do all three", async () => {
+    // The re-read must not become a demotion of its own: the freshest role is the one that decides,
+    // and for an owner it decides yes.
+    callerRole = "owner";
+    callerRow = { user_id: CALLER_STAFF, role: "owner", active: true };
+    const res = await setStaffRole({ userId: TARGET, role: "owner" });
+    expect(res).toEqual({ ok: true });
+    expect(updatePatch?.role).toBe("owner");
+  });
+
+  it("falls back to the SESSION's role when the row is unreadable, rather than to nothing", async () => {
+    // Fail-open keeps a hiccup from reading as a revocation — but the ceiling still needs a role to
+    // decide against, so the session's copy stands in. Refusing, or defaulting to the floor, would
+    // turn an outage into "only the owner can do that" for the owner themselves.
+    callerRole = "owner";
+    callerRowUnreadable = true;
+    const res = await setStaffRole({ userId: TARGET, role: "owner" });
+    expect(res).toEqual({ ok: true });
+  });
+});

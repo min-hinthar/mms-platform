@@ -105,7 +105,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       .eq("status", "open"),
     db
       .from("qr_orders")
-      .select("session_id,total_cents,created_at")
+      .select("session_id,total_cents,created_at,status,refunded_cents")
       .in("session_id", sessionIds)
       // K33 — the SAME settled-status policy as `getTableDetail`, and it has to be the same one.
       // The two reads pick a settled order by the same rule (latest by `created_at`), so a
@@ -172,12 +172,23 @@ export async function getFloorView(): Promise<FloorPoll> {
     arr.push({ name: m.display_name, seat: m.seat_id, host: m.role === "host" });
     membersBySession.set(m.session_id, arr);
   }
-  const paidBySession = new Map<string, { total: number; latest: string }>();
+  // K33 — the refund summary rides along, from the SAME derivation the drill-down uses. Without it
+  // the card renders the pre-refund total beside the word "Paid" in the success token, which is the
+  // contradiction admitting `refunded` orders creates: the drill-down says the charge came back and
+  // the card says it was paid, about one table, on one screen.
+  const paidBySession = new Map<
+    string,
+    { total: number; latest: string; refund: ReturnType<typeof summarizeRefund> }
+  >();
   for (const o of orders ?? []) {
     if (!o.session_id) continue; // qr_orders.session_id is nullable in the schema; the .in() filter
     const cur = paidBySession.get(o.session_id); // already scopes these, but narrow for the type
     if (!cur || new Date(o.created_at).getTime() > new Date(cur.latest).getTime())
-      paidBySession.set(o.session_id, { total: o.total_cents, latest: o.created_at });
+      paidBySession.set(o.session_id, {
+        total: o.total_cents,
+        latest: o.created_at,
+        refund: summarizeRefund(o.total_cents, o.refunded_cents ?? 0, o.status),
+      });
   }
 
   const tables: FloorTable[] = floorSessions.map((s) => {
@@ -200,6 +211,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       itemCount: agg.count,
       runningSubtotalCents: agg.subtotal,
       paidTotalCents: paid?.total ?? null,
+      refund: paid?.refund ?? null,
       counterRequestedAt: cart?.counter_requested_at ?? null,
       tab,
       // T11: flag only a TRUST tab over the ceiling (a secure tab is card-backed). A flag, never an action.

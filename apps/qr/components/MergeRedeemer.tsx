@@ -46,6 +46,15 @@ export function MergeRedeemer() {
   // attempt is still awaiting the server when the PKCE exchange fires SIGNED_IN a beat later, so the
   // one event that proves a real account has arrived is the one thrown away.
   const pending = useRef(false);
+  /**
+   * ⚠️ WHICH IDENTITY AN IN-FLIGHT ATTEMPT BELONGS TO. Resetting the refs on sign-out does not
+   * cancel a request already awaiting the server: it resolves AFTER the handover, latches `done`
+   * and calls `clearMergeToken()` — which can delete the token the NEXT guest has just stashed, and
+   * re-block the very person the reset was for. A promise cannot be un-awaited, so it is stamped
+   * instead: an attempt captures this counter when it starts, the sign-out bumps it, and a result
+   * whose stamp no longer matches is discarded rather than acted on.
+   */
+  const generation = useRef(0);
   const dismissRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
@@ -67,8 +76,13 @@ export function MergeRedeemer() {
     const token = readMergeToken();
     if (!token) return;
     running.current = true;
+    const mine = generation.current; // the identity this attempt is for — see `generation` above
     try {
       const res = await redeemMergeToken(token);
+      // The handover happened while this was in flight: the account it asked about is signed out,
+      // so its answer is about somebody else. Latching or clearing on it would spend the NEXT
+      // guest's token. Dropped without touching a single ref — the reset already re-armed them.
+      if (mine !== generation.current) return;
       if (res == null) {
         // Transient / not-signed-in-yet — keep the token; a later SIGNED_IN or /account load retries.
         running.current = false;
@@ -83,12 +97,12 @@ export function MergeRedeemer() {
         startTransition(() => router.refresh());
       }
     } catch {
-      running.current = false; // let a later event retry
+      if (mine === generation.current) running.current = false; // let a later event retry
     } finally {
       // Drain a deferred request, whatever the outcome above was. `done` short-circuits the re-entry
       // on a terminal result, so this only re-runs when there is genuinely something left to try —
       // and it runs in `finally` so a throw cannot strand a retry someone asked for.
-      if (pending.current && !running.current) {
+      if (mine === generation.current && pending.current && !running.current) {
         pending.current = false;
         void attemptRef.current?.();
       }
@@ -124,6 +138,10 @@ export function MergeRedeemer() {
       // there: `running` included, because a terminal redeem leaves it true and clearing `done`
       // alone would wedge the redeemer shut in the other direction.
       if (event === "SIGNED_OUT") {
+        // Bumping FIRST: any attempt already awaiting the server is now stamped for the previous
+        // identity and will discard its own result, so clearing `running` here cannot let a stale
+        // completion through behind the fresh state.
+        generation.current += 1;
         done.current = false;
         running.current = false;
         pending.current = false;
