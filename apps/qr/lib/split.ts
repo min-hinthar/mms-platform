@@ -1,5 +1,6 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
+import { surfaceOpen } from "./surfaces";
 import { cartViewInput, splitModeInput } from "@mms/db/schemas";
 import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
@@ -209,6 +210,14 @@ function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
 export async function openSettlement(cartId: string, mode: "even" | "by_person"): Promise<void> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { mode: m } = splitModeInput.parse({ mode });
+  // A1 — the self-serve settlement is PARKED (`SURFACES.selfServeSplit`). Refused HERE, not only
+  // where the button is drawn: this action is directly POST-able (the W21 note below), so a hidden
+  // button alone would leave a live second charge boundary. Before authz on purpose — a parked
+  // door answers the same to everyone.
+  if (!surfaceOpen("selfServeSplit"))
+    throw new Error(
+      "Splitting the bill across phones isn’t available — pay together here, or at the counter.",
+    );
   const { uid, sessionId, role } = await assertCartMember(id);
   if (role !== "host") throw new Error("Only the host can start the split");
   // W21 (pre-merge review MED) — split-tender is a DINE-IN table settlement, and this "use server"

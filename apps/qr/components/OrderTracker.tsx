@@ -74,6 +74,7 @@ export function OrderTracker({
   processing,
   justPaid = false,
   awaitingCapture = false,
+  counterPaid = false,
 }: {
   paymentIntent: string | null;
   // Split-tender (M3·P3.3b) orders have no PaymentIntent on the row, so /track keys them by the
@@ -91,6 +92,11 @@ export function OrderTracker({
    * below — the one path where "no order yet" can turn out to mean "and there never will be one".
    */
   awaitingCapture?: boolean;
+  /** A1 — the order settled at the REGISTER (cash / Terminal). The live read is gated by `is_member`,
+   *  which needs an OPEN session, and the register clears the table right after it settles — so
+   *  for this order the uid-scoped server read (`getMyOrderFallback`, its durable-membership arm)
+   *  is the primary answer, fetched at mount rather than after the ~30s live give-up. */
+  counterPaid?: boolean;
 }) {
   const { order: liveOrder, timedOut } = useOrderStatus(paymentIntent, orderId);
   // W9c — the tracker's live read is browser-side, so its authorization is `is_member(session_id)`.
@@ -103,7 +109,7 @@ export function OrderTracker({
   // and this must not race it on the happy path.
   const [fallback, setFallback] = useState<TrackFallback | null>(null);
   useEffect(() => {
-    if (!timedOut || liveOrder || fallback) return;
+    if ((!timedOut && !counterPaid) || liveOrder || fallback) return;
     let active = true;
     void getMyOrderFallback({ orderId, paymentIntent })
       .then((r) => active && setFallback(r))
@@ -111,7 +117,7 @@ export function OrderTracker({
     return () => {
       active = false;
     };
-  }, [timedOut, liveOrder, fallback, orderId, paymentIntent]);
+  }, [timedOut, counterPaid, liveOrder, fallback, orderId, paymentIntent]);
   // The live order wins; the fallback fills in only where RLS has gone dark. Note the fallback is a
   // SNAPSHOT — no Realtime behind it — which is honest for a table that has already been cleared.
   const order = liveOrder ?? (fallback?.ok ? fallback.order : null);

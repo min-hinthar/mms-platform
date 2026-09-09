@@ -23,6 +23,8 @@ const TONE: Record<FloorStatus, { fg: string; bg: string }> = {
   ordering: { fg: "var(--ac)", bg: "var(--cd)" },
   paying: { fg: "var(--warn)", bg: "var(--warnb)" },
   settling: { fg: "var(--warn)", bg: "var(--warnb)" },
+  // A1 — the same attention tone as paying/settling: money is about to move and a person is needed.
+  counter: { fg: "var(--warn)", bg: "var(--warnb)" },
   paid: { fg: "var(--ok)", bg: "var(--okb)" },
 };
 

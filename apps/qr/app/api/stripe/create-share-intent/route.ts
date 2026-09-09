@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { surfaceOpen } from "@/lib/surfaces";
 import { serviceClient } from "@mms/db/server";
 import { shareIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
@@ -22,6 +23,17 @@ import { getPostHogClient } from "@/lib/posthog-server";
 export async function POST(req: NextRequest) {
   try {
     const { cartId, tipRate } = shareIntentInput.parse(await req.json());
+    // A1 — the self-serve split is PARKED (`SURFACES.selfServeSplit`): no share intent is minted
+    // while the door is closed, whatever the ledger says. 410, the door is gone, not the caller's
+    // fault; before authz so the answer is the same for everyone.
+    if (!surfaceOpen("selfServeSplit"))
+      return NextResponse.json(
+        {
+          error:
+            "Splitting the bill across phones isn’t available — pay together, or at the counter.",
+        },
+        { status: 410 },
+      );
 
     // Only a verified member may pay, and only THEIR own seat's share (uid is the authorized seat).
     const { uid, settling } = await assertCartMember(cartId);

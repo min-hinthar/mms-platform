@@ -150,6 +150,8 @@ const view = (over: Partial<CartView> = {}): CartView => ({
   settling: false,
   settleBy: null,
   tabType: "none",
+  counterRequestedAt: null,
+  tableNumber: null,
   ...over,
 });
 

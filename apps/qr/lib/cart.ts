@@ -617,6 +617,12 @@ export async function getCartView(cartId: string): Promise<{
    *  moment's save-card affordance vs its "Card on file" note (the tab is a state, not a choice);
    *  the staff floor still names it. */
   tabType: "none" | "trust" | "secure";
+  /** A1 — when the table asked to pay at the counter (ISO), or null. */
+  counterRequestedAt: string | null;
+  /** A1 — the registered table number for the counter card ("Table 7"), null for an unregistered
+   *  sticker or a to-go session. Read HERE, from the session row, so the card names the same table
+   *  the floor does — never inferred client-side. */
+  tableNumber: number | null;
 }> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid, locked, lockedBy, settling, settleBy } = await assertCartMember(id);
@@ -639,7 +645,7 @@ export async function getCartView(cartId: string): Promise<{
   // `no_cart` — proved this cart open one statement earlier. Unknowable is not a verdict.
   const { data: cart, error: cartErr } = await db
     .from("qr_carts")
-    .select("pickup_slot,fire_at,tab_type")
+    .select("pickup_slot,fire_at,tab_type,counter_requested_at,table_sessions(table_number)")
     .eq("id", id)
     .single();
   if (cartErr) throw UNAVAILABLE();
@@ -745,6 +751,8 @@ export async function getCartView(cartId: string): Promise<{
     settling,
     settleBy,
     tabType: (cart?.tab_type ?? "none") as "none" | "trust" | "secure",
+    counterRequestedAt: cart?.counter_requested_at ?? null,
+    tableNumber: cart?.table_sessions?.table_number ?? null,
   };
 }
 

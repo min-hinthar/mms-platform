@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { surfaceOpen } from "@/lib/surfaces";
 import { serviceClient } from "@mms/db/server";
 import { secureTabInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
@@ -15,6 +16,13 @@ import { getPostHogClient } from "@/lib/posthog-server";
 export async function POST(req: NextRequest) {
   try {
     const { cartId } = secureTabInput.parse(await req.json());
+    // A1 — card-on-file tabs are PARKED (`SURFACES.cardOnFileTabs`): no SetupIntent is minted while
+    // the door is closed. 410 before authz — a parked door answers the same to everyone.
+    if (!surfaceOpen("cardOnFileTabs"))
+      return NextResponse.json(
+        { error: "Saving a card isn’t available right now — pay here, or at the counter." },
+        { status: 410 },
+      );
 
     // Only a verified member of this cart's session may secure it (C3; IDOR by default otherwise). Also
     // enforces the cart is still open + the session active.

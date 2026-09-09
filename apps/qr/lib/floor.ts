@@ -7,6 +7,7 @@ import { AuthzError } from "./authz";
 import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
+import { deriveFloorStatus } from "./floor-status";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
@@ -38,20 +39,6 @@ import type {
 
 const ACTIVE_SESSION_CAP = 200; // a teahouse has a handful of live tables; bound the query regardless.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-function deriveStatus(
-  cart: { locked: boolean; locked_at: string | null; settle_at: string | null } | null,
-  itemCount: number,
-  hasPaidOrder: boolean,
-): FloorStatus {
-  if (cart) {
-    if (isFresh(cart.settle_at, SETTLE_TTL_MS)) return "settling";
-    if (cart.locked && isFresh(cart.locked_at, CART_LOCK_TTL_MS)) return "paying";
-    if (itemCount > 0) return "ordering";
-  }
-  if (hasPaidOrder) return "paid";
-  return "seated";
-}
 
 const laterIso = (a: string, b: string | null | undefined): string =>
   b && new Date(b).getTime() > new Date(a).getTime() ? b : a;
@@ -104,7 +91,7 @@ export async function getFloorView(): Promise<FloorPoll> {
       .in("session_id", sessionIds),
     db
       .from("qr_carts")
-      .select("id,session_id,locked,locked_at,settle_at,created_at,tab_type")
+      .select("id,session_id,locked,locked_at,settle_at,counter_requested_at,created_at,tab_type")
       .in("session_id", sessionIds)
       .eq("status", "open"),
     db
@@ -191,12 +178,13 @@ export async function getFloorView(): Promise<FloorPoll> {
       label: s.qr_code,
       tableNumber: s.table_number,
       mode: s.mode as FloorTable["mode"],
-      status: deriveStatus(cart, agg.count, paid != null),
+      status: deriveFloorStatus(cart, agg.count, paid != null),
       partySize: party.length,
       hostName: party.find((m) => m.host || m.seat === s.host_seat)?.name ?? null,
       itemCount: agg.count,
       runningSubtotalCents: agg.subtotal,
       paidTotalCents: paid?.total ?? null,
+      counterRequestedAt: cart?.counter_requested_at ?? null,
       tab,
       // T11: flag only a TRUST tab over the ceiling (a secure tab is card-backed). A flag, never an action.
       tabOverCeiling: tab === "trust" && agg.subtotal >= ceilingCents,
@@ -204,9 +192,18 @@ export async function getFloorView(): Promise<FloorPoll> {
     };
   });
 
-  // K2: sort by the real table number first (registered tables 1→10 in order), unregistered/legacy
+  // A1 — a table waiting to pay at the counter sorts FIRST, longest wait on top: the floor is the
+  // register's queue for those tables, and a queue ordered by table number makes the newest ask
+  // at table 1 cut in front of the family that asked ten minutes ago at table 9. Only a LIVE ask
+  // (status `counter`) sorts — a stamp under a fresh card payment is `paying` and keeps its place.
+  // K2: then by the real table number (registered tables 1→10 in order), unregistered/legacy
   // stickers after, tie-broken by the label so the ordering is stable.
   tables.sort((a, b) => {
+    const aAsk = a.status === "counter" ? a.counterRequestedAt : null;
+    const bAsk = b.status === "counter" ? b.counterRequestedAt : null;
+    if (aAsk && bAsk) return aAsk.localeCompare(bAsk);
+    if (aAsk) return -1;
+    if (bAsk) return 1;
     if (a.tableNumber != null && b.tableNumber != null) return a.tableNumber - b.tableNumber;
     if (a.tableNumber != null) return -1;
     if (b.tableNumber != null) return 1;
@@ -245,7 +242,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     db.from("session_members").select("seat_id,display_name,role").eq("session_id", sessionId),
     db
       .from("qr_carts")
-      .select("id,locked,locked_at,settle_at,tab_type,tab_opened_at,intended_tip_cents,promo_code")
+      .select(
+        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",
+      )
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
@@ -401,7 +400,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     label: session.qr_code,
     tableNumber: session.table_number,
     mode: session.mode as TableDetail["mode"],
-    status: deriveStatus(cart ?? null, itemCount, paid != null),
+    status: deriveFloorStatus(cart ?? null, itemCount, paid != null),
     members: memberViews,
     lines,
     itemCount,
@@ -416,6 +415,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // amount instead — and cannot make a recorded total wrong. The rules that CAN are guarded:
     // the write in lib/cart.ts (kiosk-tip/*) and the settle itself (cash-tip/*).
     intendedTipCents: cart?.intended_tip_cents ?? null,
+    counterRequestedAt: cart?.counter_requested_at ?? null,
     paidTotalCents: paid?.total_cents ?? null,
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,

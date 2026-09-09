@@ -164,6 +164,8 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       initialLockedBy={view.lockedBy}
       initialMySeat={view.mySeat}
       initialTabType={view.tabType}
+      initialCounterRequestedAt={view.counterRequestedAt}
+      tableNumber={view.tableNumber}
       canTab={split?.mode === "dinein"}
       prepMinutes={prepMinutes}
       initialPickupSlot={initialPickupSlot}

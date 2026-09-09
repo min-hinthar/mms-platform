@@ -9,7 +9,10 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
+import { TransitionLink as Link, useJourneyRouter } from "./nav/TransitionNav"; // J1 journey grammar
+import { CounterSettledCard, PayAtCounterButton, PayAtCounterCard } from "./PayAtCounter";
+import { counterPayOutcome, requestCounterPay, withdrawCounterPay } from "@/lib/counter-pay";
+import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem, CartTotals } from "@mms/db";
 import { Avatar, EmptyState, Icon, NumberFlow, Stepper } from "@mms/ui";
 import {
@@ -199,6 +202,8 @@ export function Checkout({
   initialLockedBy = null,
   initialMySeat = null,
   initialTabType = "none",
+  initialCounterRequestedAt = null,
+  tableNumber = null,
   canTab = false,
   prepMinutes = 12,
   initialPickupSlot = null,
@@ -221,6 +226,10 @@ export function Checkout({
    *  moment's save-card affordance ('none'/'trust') vs its "Card on file" note ('secure'). Synced
    *  from getCartView (initial + realtime); staff/webhook flips land live. */
   initialTabType?: "none" | "trust" | "secure";
+  /** A1 — the table's live "pay at the counter" ask (ISO) from the server view, or null. */
+  initialCounterRequestedAt?: string | null;
+  /** A1 — the registered table number the counter card names; null for an unregistered sticker. */
+  tableNumber?: number | null;
   /** Dine-in only: a tab is a dine-in concept (pickup/grocery pay at checkout). Gates the affordance. */
   canTab?: boolean;
   /** S4.2: configured kitchen prep estimate (min) for the to-go "ready in ~X" copy. Honest config value. */
@@ -373,6 +382,28 @@ export function Checkout({
   // unsettled dine-in table IS the open (trust) tab, so `trust` renders nothing diner-side; the
   // state only gates the save-card affordance and its secured note on the Bill moment.
   const [tabType, setTabType] = useState(initialTabType);
+  // A1 — the table's "pay at the counter" ask. Seeded from the server view and kept in step by
+  // refresh() (any member's tap lands on every phone through the cart channel). Optimistic on the
+  // diner's own tap (instant flip, revert-to-confirmed on refusal), never a money value.
+  const [counterAt, setCounterAt] = useState<string | null>(initialCounterRequestedAt);
+  const [counterBusy, setCounterBusy] = useState(false);
+  // A1 — the register settled this cart while the Bill was open: the read is gone for good
+  // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
+  const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
+  const settleCheckRef = useRef(false);
+  // Refs, not deps: `useJourneyRouter` returns a fresh object per render and `step` changes on
+  // every view flip — either in `refresh`'s deps would recreate it each render and re-register the
+  // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
+  const journey = useJourneyRouter();
+  const journeyRef = useRef(journey);
+  const stepRef = useRef<"review" | "pay">("review");
+  // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
+  // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
+  // always runs after the effect that commits the latest values.
+  useEffect(() => {
+    journeyRef.current = journey;
+    stepRef.current = step;
+  }, [journey, step]);
   // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
   // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
   // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
@@ -430,8 +461,37 @@ export function Checkout({
       setLockedBy(v.lockedBy);
       setMySeat(v.mySeat);
       setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+      setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
       return true;
     } catch {
+      // A1 — on a DINE-IN table one cause of this failure is the register settling the cart
+      // (`assertCartMember` answers `cart_closed` forever after). Ask the one question that
+      // separates that from a blip, once per failure, and leave the screen only on a positive
+      // answer: `paid` with an order this seat may see goes to the receipt; `paid` without one
+      // gets the settled close; anything else keeps the last good bill (the swallow below).
+      // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
+      // and the Payment Element's return_url is the right exit for the payer, not a close card.
+      if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
+        settleCheckRef.current = true;
+        void counterPayOutcome({ cartId })
+          .then((o) => {
+            if (o.kind !== "paid") return;
+            if (o.orderId) {
+              journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+              return;
+            }
+            // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
+            // says "paid on a phone at your table" — never "at the counter"; an unknown tender
+            // (the order row not yet readable) keeps the last good bill rather than guessing.
+            if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
+          })
+          .catch(() => {
+            /* unknowable — the bill stays as it was, which is the honest floor */
+          })
+          .finally(() => {
+            settleCheckRef.current = false;
+          });
+      }
       // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
       // diner is being redirected to /track). We can't discriminate it from a transient error
       // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
@@ -444,7 +504,7 @@ export function Checkout({
       // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
       return false;
     }
-  }, [cartId]);
+  }, [cartId, isDineIn]);
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
   // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
@@ -836,6 +896,57 @@ export function Checkout({
     });
   }
 
+  // A1 — "Pay at the counter": the optimistic doctrine, on a non-money value. Instant flip, the
+  // server's answer replaces it (a refusal reverts to the confirmed state and names its reason in
+  // the pay-error slot), and a re-read follows so every phone at the table agrees.
+  async function askCounter() {
+    if (counterBusy || payFrozen) return;
+    setPayError(null);
+    setStatus(null);
+    setCounterBusy(true);
+    const confirmed = counterAt;
+    setCounterAt(new Date().toISOString());
+    try {
+      const r = await requestCounterPay({ cartId });
+      if (!r.ok) {
+        setCounterAt(confirmed);
+        setPayError(r.error);
+        return;
+      }
+      setCounterAt(r.counterRequestedAt);
+      setStatus("We’ll settle up at the counter — show them this screen whenever you’re ready.");
+      void refresh();
+    } catch {
+      setCounterAt(confirmed);
+      setPayError("Couldn’t reach the counter just now — please try again.");
+    } finally {
+      setCounterBusy(false);
+    }
+  }
+  async function withdrawCounter() {
+    if (counterBusy) return;
+    setPayError(null);
+    setStatus(null);
+    setCounterBusy(true);
+    const confirmed = counterAt;
+    setCounterAt(null);
+    try {
+      const r = await withdrawCounterPay({ cartId });
+      if (!r.ok) {
+        setCounterAt(confirmed);
+        setPayError(r.error);
+        return;
+      }
+      setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
+      void refresh();
+    } catch {
+      setCounterAt(confirmed);
+      setPayError("Couldn’t reach the counter just now — please try again.");
+    } finally {
+      setCounterBusy(false);
+    }
+  }
+
   async function continueToPayment() {
     setPayError(null);
     setStatus(null); // single live region — clear any prior promo result
@@ -1193,7 +1304,9 @@ export function Checkout({
   // is zeroed for pure-grocery so a mixed cart that BECOMES pure grocery (restaurant line removed after a
   // tip was picked) can't show an "Estimated total" the server will honestly refuse to charge.
   // Uses the EFFECTIVE rate (preset OR derived custom) so the preview matches what create-intent charges.
-  const tipPreviewCents = pureGrocery ? 0 : tipPreview(effectiveTipRate);
+  // A1 — under a counter ask the app charges no tip (the register records a cash tip in hand), so
+  // no amount on this screen previews one.
+  const tipPreviewCents = pureGrocery || counterAt != null ? 0 : tipPreview(effectiveTipRate);
   // W2d — the estimated tip-inclusive total shown on the primary CTA (presentation only; the pay step
   // confirms the server-authoritative amount).
   const ctaTotal = `$${((totals.totalCents + tipPreviewCents) / 100).toFixed(2)}`;
@@ -1201,8 +1314,14 @@ export function Checkout({
   // W12 — what each review surface shows. Classic (pickup/scango, unstaged) shows BOTH the editable
   // line cards and the pay furniture on one screen, exactly as before; a staged dine-in cart splits
   // them across the two moments. Neither gate touches the settle/pay views above.
-  const showLineCards = !staged || stage === "order"; // the editing surface (cards, steppers, send)
-  const showPayFurniture = !staged || stage === "bill"; // promo · reward · tip · fees · total · Pay
+  const showLineCards = !settledClose && (!staged || stage === "order"); // the editing surface (cards, steppers, send)
+  const showPayFurniture = !settledClose && (!staged || stage === "bill"); // promo · reward · tip · fees · total · Pay
+  // A1 — the ask is a Bill-moment state: the receipt rows and the total stay (the register settles
+  // that exact figure), the CONTROLS that would take a card or shape a card charge (promo, reward,
+  // tip, "Pay · $X") give way to the counter card. `counterAsk` is dine-in by construction — the
+  // server refuses the stamp on every other mode.
+  const counterAsk = showPayFurniture && counterAt != null;
+  const showPayControls = showPayFurniture && !counterAsk;
 
   // W12 review HIGH — the count/gate binds to what `mms_fire_cart` actually fires (dinein drafts,
   // in qty units) — the rule lives in lib/checkout-stage so it stays pinnable.
@@ -1372,6 +1491,16 @@ export function Checkout({
           </>
         ) : (
           <>
+            {/* A1 — the register settled this bill while it was open here: the cart read is gone
+                for good, so this is what the diner sees instead of a frozen bill or "isn't
+                available on this device". */}
+            {settledClose && (
+              <CounterSettledCard
+                by={settledClose}
+                menuHref={menuHref(sessionMode)}
+                menuText={menuLinkText(sessionMode, "browse")}
+              />
+            )}
             {/* J3: the wait, narrated from real kitchen taps — shows only once something is with the
                 kitchen, right where the mid-meal diner reviews the table's order. viewItems (not items)
                 so a "Make it now" tap and the strip agree instantly; the menu link carries the session
@@ -1390,7 +1519,7 @@ export function Checkout({
             {/* W12 — the way back from the Bill moment, mirroring the pay step's quiet `.nav-link`
                 (never a second filled CTA above "Pay · $X"). A state flip, not a route — same
                 pattern (and same rationale) as the pay step's own back control. */}
-            {staged && stage === "bill" && (
+            {!settledClose && staged && stage === "bill" && (
               <button
                 type="button"
                 className="nav-link"
@@ -1783,7 +1912,7 @@ export function Checkout({
                 payment lands — money is safe, timing is the surprise). The host gets the way back;
                 a guest cannot send, so for them the sentence alone is the honest whole story.
                 Plain content, not a live region — this view keeps its one. */}
-            {staged && stage === "bill" && unsentQty > 0 && (
+            {!settledClose && staged && stage === "bill" && unsentQty > 0 && (
               <div className="card checkout-unsent-note mms-rise">
                 <p style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: 600 }}>
                   {unsentQty === 1
@@ -1833,7 +1962,7 @@ export function Checkout({
                 textured slip (qty × name · dotted leader · amount), with the kitchen state, the note,
                 the owner, and the comped/voided treatment carried over from the cards. Editing lives
                 one tap back on the Order moment — a bill you can quietly read is the point. */}
-            {staged && stage === "bill" && (
+            {!settledClose && staged && stage === "bill" && (
               <div className="card card-textured checkout-receipt">
                 {/* W21 — grouped by destination (BillLines): "At your table" vs "To-go" vs
                     "Grocery", headings only when the basket really spans 2+. */}
@@ -1866,7 +1995,7 @@ export function Checkout({
               />
             )}
 
-            {showPayFurniture && (
+            {showPayControls && (
               <form onSubmit={onPromo} style={{ display: "flex", gap: 8, margin: "12px 0" }}>
                 <input
                   value={promo}
@@ -1922,7 +2051,7 @@ export function Checkout({
 
             {/* Redeem a Morning Star reward (M4 P4.2) — renders only if the diner has coupons; the discount
               is server-authoritative (rides getCartTotals). Refreshes the breakdown on apply/remove. */}
-            {showPayFurniture && (
+            {showPayControls && (
               <RewardField
                 cartId={cartId}
                 appliedRewardCents={totals.rewardCents}
@@ -2096,7 +2225,7 @@ export function Checkout({
                 breakdown (W2d). Presets + a Custom chip (W2d): tapping Custom reveals a dollar field;
                 the amount rides as a rate (customCents / net) so the server path is identical. Hidden on
                 a pure-grocery basket — self-scanned retail is not table service (W1). */}
-            {showPayFurniture && !pureGrocery && (
+            {showPayControls && !pureGrocery && (
               <>
                 {/* W9e — the prototype's visible tip heading, restored verbatim (v7.2.html:418):
                     the ask had no visible label, and the group's aria-label meant accessible name
@@ -2361,7 +2490,7 @@ export function Checkout({
             {/* W12 — the Order moment's quiet door to the Pay moment: the live bill total, always
                 visible, never dominating. Promoted to the filled CTA once everything is with the
                 kitchen (the ordering verb is spent — viewing the bill IS the next thing). */}
-            {staged && stage === "order" && (
+            {!settledClose && staged && stage === "order" && (
               // Promotes to the filled hero only once the kitchen verb is genuinely spent AND the
               // undo grace has passed (review MED: a filled bar beside "Undo — Ns" made forfeiting
               // the undo the visual hero). The amount includes any tip already dialed on the Bill
@@ -2425,7 +2554,7 @@ export function Checkout({
             {/* W9b — the primary CTA is a dead control under a peer's lock: `create-intent` refuses
                 with 409 because the lock is exactly the mutex that stops two diners paying at once. It
                 stays RENDERED and says so, rather than sending the diner into a failure to find out. */}
-            {showPayFurniture && (
+            {showPayControls && (
               <button
                 type="button"
                 aria-disabled={payFrozen || undefined}
@@ -2473,11 +2602,26 @@ export function Checkout({
               </button>
             )}
 
+            {/* A1 — the other door, quiet, under the one filled CTA: the register. Same freeze gate
+                as "Pay · $X" — a table mid-card-payment is not sent walking. Dine-in only; the
+                server refuses every other mode, so the button is not drawn there either. */}
+            {showPayControls && isDineIn && (
+              <PayAtCounterButton disabled={payFrozen} busy={counterBusy} onClick={askCounter} />
+            )}
+            {counterAsk && (
+              <PayAtCounterCard
+                tableNumber={tableNumber}
+                totalCents={totals.totalCents}
+                busy={counterBusy}
+                onWithdraw={withdrawCounter}
+              />
+            )}
             {/* W12 — the ONE quiet card-on-file line (S3.2's machinery, reframed as a benefit, not a
                 settlement model): the tab is a state, not a choice — the only diner affordance left
                 is saving a card so leaving is effortless. Bill moment only; hidden once secured.
                 Every dollar of the close still flows through the same settle paths. */}
-            {staged && stage === "bill" && canTab && tabType !== "secure" && (
+            {/* A1 — PARKED (`SURFACES.cardOnFileTabs`); the counter is the other path now. */}
+            {surfaceOpen("cardOnFileTabs") && showPayControls && canTab && tabType !== "secure" && (
               <>
                 {/* W19 — a visual break from the Pay CTA above (owner: "Save a card option seems
                     confusing"): sitting directly under "Pay · $X" it read as a save-my-card
@@ -2512,7 +2656,7 @@ export function Checkout({
               </p>
             )}
 
-            {showPayFurniture && isGroup && (
+            {showPayControls && isGroup && (
               // Honesty (P3.3a): the CTA above now carries "Pay the whole order · $X" (W2d), so this
               // just clarifies what the split rows are for. Bumped off 11.5px (F9 — too small for a
               // trust-critical line). Per-card share payment is P3.3b — stated as a fact, not a promise.

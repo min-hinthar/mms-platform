@@ -260,6 +260,10 @@ vi.mock("./authz", () => ({
   AuthzError: class extends Error {},
 }));
 vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
+// A1 — the self-serve settlement is PARKED in production; these cases run with the door OPEN and
+// one pins the parked refusal at the ACTION (it is directly POST-able — see the W21 note).
+let splitOpen = true;
+vi.mock("./surfaces", () => ({ surfaceOpen: () => splitOpen }));
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
   releaseSettlement: () => {
@@ -281,6 +285,7 @@ const { abortSettlement, openSettlement } = await import("./split");
 
 beforeEach(() => {
   queries = [];
+  splitOpen = true;
   sessionMode = "dinein";
   shares = [];
   sharesError = null;
@@ -777,5 +782,15 @@ describe("openSettlement — a re-open must release the holds it replaces", () =
       (q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0,
     );
     expect(replace?.is).toContainEqual(["capture_started_at", null]);
+  });
+});
+
+describe("A1 — the parked door is answered at the action, not only where it is drawn", () => {
+  it("refuses to open a settlement while SURFACES.selfServeSplit is off, before any read", async () => {
+    splitOpen = false;
+    await expect(openSettlement("11111111-1111-4111-8111-111111111111", "even")).rejects.toThrow(
+      /isn’t available/,
+    );
+    expect(queries).toHaveLength(0);
   });
 });

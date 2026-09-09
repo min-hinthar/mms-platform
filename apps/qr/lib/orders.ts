@@ -1,5 +1,6 @@
 "use server";
 import { cookies } from "next/headers";
+import { COUNTER_TENDERS } from "./counter-tender";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { cartViewInput, trackFallbackInput } from "@mms/db/schemas";
 import { liveOrderStatusWord, type LiveOrder, type LiveOrderKind } from "./live-order";
@@ -227,6 +228,35 @@ export async function getMyOrderFallback(input: {
         .limit(1)
         .maybeSingle();
       if (mine) return { ok: false, reason: "share_payer" };
+      // A1 — a COUNTER order (cash / Terminal) carries no `earned_by`, no payer row and no share:
+      // the register wrote it. Who may read it is who SAT at that table — a `session_members` row,
+      // durable across the clear-table that closes the session (the same rule as
+      // `getCartOrderRef`). Scoped to counter tenders: for a card order membership is not payment.
+      const { data: counter, error: counterErr } = await db
+        .from("qr_orders")
+        .select(`${TRACK_ORDER_SELECT},session_id`)
+        .eq("id", orderId)
+        .eq("status", "paid")
+        .in("tender", [...COUNTER_TENDERS])
+        .maybeSingle();
+      if (counterErr) {
+        console.error("[orders] counter-order track read failed", counterErr);
+        return { ok: false, reason: "error" };
+      }
+      if (counter?.session_id) {
+        const { data: seat, error: seatErr } = await db
+          .from("session_members")
+          .select("seat_id")
+          .eq("session_id", counter.session_id)
+          .eq("seat_id", user.id)
+          .limit(1)
+          .maybeSingle();
+        if (seatErr) {
+          console.error("[orders] counter-order membership probe failed", seatErr);
+          return { ok: false, reason: "error" };
+        }
+        if (seat) return { ok: true, order: shapeTrackedOrder(counter) };
+      }
     }
 
     // W23d (registry M71) — the reason there is no order may be that the hold was CANCELLED, not

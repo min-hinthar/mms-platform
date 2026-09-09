@@ -760,3 +760,43 @@ width from 375 to 1920, and that one number lived in fourteen places. These are 
   Every one is a 44px box in the stylesheet or the inline style, with the smaller disc painted
   inside (`background-clip: content-box`, an inner `span`, or padding). A screenshot measures paint,
   not the hit box; the source is the number.
+
+## 19 · The counter — the second door on the Bill (A1)
+
+A family restaurant settles at the register more often than on a phone, and the Bill moment used to
+offer the phone or nothing. The rules that came out of building the other door:
+
+- **One filled CTA, still.** "Pay · $X" keeps the hero; "Pay at the counter" is the ghost beneath it
+  (`.checkout-cta-ghost`, a hairline, the receipt glyph), and it carries the SAME freeze gate — a
+  table mid-card-payment is not sent walking. The way back from the counter card is the quiet
+  `.nav-link`, last (§ the escape is a quiet link).
+- **The ask is a state, not a modal.** It replaces the CONTROLS that shape a card charge (tip, promo,
+  reward, the card CTA) and keeps the receipt rows and the total: the register settles exactly that
+  figure, so the amount the diner shows at the counter is the server's, never a preview. Under the
+  ask the tip preview is zero — the app charges no tip; a cash tip is recorded in the register's
+  hand — so no number on the screen promises one.
+- **Every phone at the table agrees.** The stamp rides the cart channel; a tablemate's tap lands on
+  every Bill through the same `refresh()` that carries locks and tabs. The diner's own tap is
+  optimistic (instant flip, revert-to-confirmed on refusal, the reason in the pay-error slot).
+- **The floor names it "Pay at counter", not "Paying".** Nobody is paying yet; a person is needed. It
+  wears the attention tone the paying/settling chips wear and sorts FIRST, longest wait on top — the
+  floor is the register's queue for those tables, and a queue by table number would let the newest
+  ask at table 1 cut in front of the family that asked ten minutes ago at table 9.
+- **The close is a receipt, never "isn't available on this device" — and it names the tender.** A
+  settled cart's read is gone for good; the Bill asks one question (`counterPayOutcome`, member-
+  authorized) and leaves for `/track` only on a positive answer with an order this seat may see.
+  When it cannot, the close says HOW the bill settled: "settled at the counter" for cash/Terminal,
+  "paid on a phone at your table" for a tablemate's card — the two are different sentences, and the
+  blind audit caught the draft saying the first for the second. An unknown tender keeps the last
+  good bill; so does a failed read that is not a settle — the honest floor. The payer's own phone
+  never sees a close: on the pay step the Payment Element's return is the exit.
+- **A counter order stays readable after the table is cleared.** `is_member` needs an open session,
+  so the live tracker cannot read a cash order once the register clears the table; `/track` goes
+  straight to the uid-scoped server read, whose new arm is durable `session_members` membership
+  scoped to the counter tenders — who sat there is not who paid, so a card receipt never opens
+  through it.
+- **The ask counts what the floor counts.** "Something to settle" is `state !== 'voided' && !comped`
+  on both sides, or a fully-voided table gets a counter card while the register never sees a chip.
+- **Parking is a constant.** `lib/surfaces.ts` is where a door is switched off, read both where the
+  door is drawn and where it is answered. A hidden button with a live action behind it is a door with
+  the sign taken down, not a parked one.

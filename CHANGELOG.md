@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A1 — "Pay at the counter", and three doors parked (Option A, slice 1) (2026-09-09)
+
+The owner's go on Option A — _subtract to the core_ — after the measured brief: 5 paid orders in 30
+days on the (test-mode) production host, 2 self-serve split shares, 6 card-on-file setups, 1 kiosk
+view, and ~78 of 156 open rows guarding those doors. This slice adds the one door a family
+restaurant actually needs and closes three it does not.
+
+- **Pay at the counter (dine-in).** The Bill moment gets a quiet second door under "Pay · $X": the
+  table asks to settle at the register (`qr_carts.counter_requested_at`, a nullable column — an ASK,
+  never a freeze; the register still re-derives the live total, and the table can keep ordering).
+  Every phone at the table flips to the counter card through the cart channel; "Changed your mind?
+  Pay on your phone" takes it back. The floor derives a `counter` status from it (below `settling`
+  and `paying`, which are money in flight, above `ordering`), sorts those tables FIRST — longest
+  wait on top, the register's queue — and the drill-down shows the ask above Cash/Terminal. When
+  the register settles, the diner's screen no longer dead-ends on "isn't available on this device":
+  `getCartOrderId` resolves a cash/Terminal order by DURABLE session membership (it survives the
+  clear-table that closes the session) and the Bill leaves for the same `/track` receipt a card pay
+  gets, or shows the settled close when the seat cannot see the order. Rules are values
+  (`lib/counter-pay-state.ts`, `lib/floor-status.ts`), the writes are status-guarded in the
+  statement and row-counted, and nine mutants pin them (531 across 102 modules).
+- **Parked, in ONE place (`lib/surfaces.ts`):** the self-serve "Split & pay separately" (the
+  reference breakdown stays), the diner "Save a card" and staff "Open a tab" affordances (an existing
+  secure tab still closes), and the kiosk (page and actions). Constants, not env flags — a parked
+  door is a diff to a test, never a Vercel setting.
+- **Prod:** the migration is NOT applied — OPEN-ITEMS A1 says how and why the apply must precede
+  the deploy.
+- **Blind adversarial audit — REJECT, four findings, all real, all closed in the same PR.** (1) A
+  tablemate's CARD flipped the cart to `paid` and every other phone read "settled at the counter":
+  `counterPayOutcome` now reports the TENDER and is member-authorized; the close names cash/Terminal
+  or "paid on a phone at your table", never the wrong one, and the payer's own pay step is exempt.
+  (2) `/track` dead-ended on a cash order after clear-table (`is_member` needs an open session;
+  `getMyOrderFallback` authorized on `earned_by`, which the register never writes): the fallback
+  gained a durable-membership arm scoped to counter tenders and the tracker reads it at mount.
+  (3) The ask counted every line while the floor counted chargeable ones: a fully-voided table got a
+  counter card and no chip — same predicate on both sides now. (4) The parked split and tab doors
+  were gated only where DRAWN: `openSettlement`, `openTab`, `create-share-intent` and `setup-intent`
+  now refuse (410 at the routes), each pinned by a test and a `surfaces/*` mutant. Plus: `refresh`
+  stable again (refs, not deps), `withdrawCounterPay` row-counted with a read-back, the refusal
+  tests split one-per-reason, `COUNTER_TENDERS` pinned as a value.
+
 ### The kitchen and expo boards can no longer render empty over a working service (M180 · M181) (2026-09-09)
 
 Both live boards read oldest-first with a SQL `limit` applied before the filters that discard dead

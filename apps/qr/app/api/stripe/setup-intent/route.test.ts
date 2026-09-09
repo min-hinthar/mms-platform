@@ -72,6 +72,9 @@ vi.mock("@/lib/authz", () => ({
 }));
 
 vi.mock("@/lib/rate", () => ({ withinMutationRate: () => Promise.resolve(true) }));
+// A1 — card-on-file tabs are PARKED; the M116 cases run with the door OPEN.
+let tabsOpen = true;
+vi.mock("@/lib/surfaces", () => ({ surfaceOpen: () => tabsOpen }));
 vi.mock("@/lib/posthog-server", () => ({
   getPostHogClient: () => ({ capture: () => {} }),
 }));
@@ -110,6 +113,7 @@ function req(cartId = CART) {
 }
 
 beforeEach(() => {
+  tabsOpen = true;
   authzThrows = null;
   tablesRead = [];
   authzResult = { sessionId: SESSION, uid: "seat-1", mode: "dinein" };
@@ -159,5 +163,14 @@ describe("M116 — setup-intent refuses without fabricating a diagnosis", () => 
     expect(tablesRead).not.toContain("table_sessions");
     // and it does still reach its own sidecar, so case 5 is not passing because nothing ran
     expect(tablesRead).toContain("mms_tab_secure");
+  });
+});
+
+describe("A1 — the parked door is answered at the route", () => {
+  it("answers 410 while SURFACES.cardOnFileTabs is off, before authz or any read", async () => {
+    tabsOpen = false;
+    const res = await POST(req());
+    expect(res.status).toBe(410);
+    expect(tablesRead).toHaveLength(0);
   });
 });

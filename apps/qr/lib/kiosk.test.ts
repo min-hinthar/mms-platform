@@ -18,6 +18,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ cookies: () => Promise.resolve({}) }));
 vi.mock("./session-code", () => ({ generateJoinCode: () => "ABCD1234" }));
+// A1 — the kiosk is PARKED in production (`SURFACES.kiosk = false`). The gate cases below are about
+// the device token, so they run with the door OPEN; one case pins the parked refusal itself.
+let kioskOpen = true;
+vi.mock("./surfaces", () => ({ surfaceOpen: () => kioskOpen }));
 
 /**
  * The device gate moved to `./device-auth` (shared with the board). It is mocked here so this file
@@ -130,6 +134,7 @@ const TOKEN = "kiosk-device-token-for-tests";
 beforeEach(() => {
   queries = [];
   gateAnswer = null;
+  kioskOpen = true;
   tableRow = null;
   occupiedRow = null;
   sessionRow = { id: SESSION };
@@ -148,6 +153,14 @@ describe("the device-token gate", () => {
     const r = await openKioskOrder({ k: "anything", kind: "togo" });
     expect(r).toEqual({ ok: false, reason: "not_configured" });
     expect(queries).toHaveLength(0); // an invalid caller costs no DB read
+  });
+
+  it("PARKED (A1): refuses as not_configured before the token is even read, and before any DB work", async () => {
+    kioskOpen = false;
+    gateAnswer = { ok: true, via: "staff" }; // even a valid credential does not open a parked door
+    const r = await openKioskOrder({ k: TOKEN, kind: "togo", customerName: "Thiri" });
+    expect(r).toEqual({ ok: false, reason: "not_configured" });
+    expect(queries).toHaveLength(0);
   });
 
   it("a wrong token is denied before any DB work", async () => {

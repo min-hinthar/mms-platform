@@ -5,6 +5,42 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-09 · Option A is decided, A1 is built and open as a draft PR, the prod column is NOT applied)
+>
+> Min's brief after #275: _"do we need to completely reimagine or redesign … especially for the
+> /staff?"_ The answer was measured, not argued (PostHog, prod host, 30 days; the host is on Stripe
+> TEST keys so it is pilot traffic): 181 visitors → 68 sessions → 59 cart views → 49 intents →
+> **5 paid**; self-serve split **2** shares, card-on-file tabs **6**, kiosk **1** view, cash settle
+> **1**; on `/staff` only the kitchen sees use (21 bumps), every other page ≤3 views; and ~78 of the
+> 156 open rows (settle 43 · split 35) guard those doors. Three options went to Min as the "Settle
+> Slip" artifact; **he chose A — subtract to the core — "all your recommendations … with polished
+> UIUX and flows."** The track is `ROADMAP.md` 🪚; the rows are OPEN-ITEMS § Option A (A1–A4).
+>
+> **A1 is built** on `claude/qr-app-backlog-cj2t0m`: "Pay at the counter" on the dine-in Bill (a
+> quiet second door; the table's ask lands on every phone; the floor derives `counter`, sorts those
+> tables first, the drill-down shows the ask above Cash/Terminal; the settled close leaves for the
+> `/track` receipt through `getCartOrderId`'s durable-membership path) and the three parked doors
+> in `apps/qr/lib/surfaces.ts` (self-serve split, card-on-file tabs, kiosk — constants, read where
+> the door is drawn AND where it is answered). Nine mutants (`counter/*`, `order/*`, `floor/*`,
+> `surfaces/*`), 540 across 103 modules.
+>
+> ### ⚠️ THE ONE THING TO CARRY FORWARD: the migration precedes the deploy, or /cart and the floor go down together
+>
+> `supabase/migrations/20260909000000_a1_counter_pay.sql` adds `qr_carts.counter_requested_at`.
+> `getCartView` and both floor reads SELECT it, and PostgREST rejects a whole query for one unknown
+> column (42703). So the order is: Min's go → `apply_migration` (ONE file, the sanctioned path —
+> prod history is divergent, `db push` cannot be used) → verify `information_schema.columns` →
+> merge → deploy. Never the reverse. OPEN-ITEMS A1 is the row.
+>
+> ### What is actually next
+>
+> 1. **Merge A1 on Min's go** (the migration first — above). Codex's quota was still exhausted when
+>    it opened; the blind adversarial pass is in the PR thread.
+> 2. **A2** — close the parked surfaces' rows by ROW, measured (OPEN-ITEMS A2 names the greps).
+> 3. **A3** — settlement to cash + Terminal with one request-unique owner (M201/M202/M203 by
+>    subtraction); **A4** — `/staff` to five screens.
+> 4. **C18** still needs a real prod test payment to confirm the webhook is alive (Min only).
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-07 · the P7 stack is ALL on `main`, M159 is on prod, and the first production test pass found the Stripe webhook DEAD)
 >
 > **`main` is at `068e575`.** The five P7 PRs merged in order on Min's explicit go, each as a merge
@@ -179,7 +215,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **522 `verify:slice` mutants** · **97 target modules** (87 under `apps/qr/lib`, 3 API routes,
+> **540 `verify:slice` mutants** · **103 target modules** (93 under `apps/qr/lib`, 3 API routes,
 > 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
@@ -641,7 +677,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (522 today)**, **1372 qr + 138 ui tests at the time (2111 + 142 today)**, 69 target modules at the time (87 under `apps/qr/lib` today, 97 in all), 97 local
+> **334 mutants at the time (540 today)**, **1372 qr + 138 ui tests at the time (2163 + 142 today)**, 69 target modules at the time (93 under `apps/qr/lib` today, 103 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1533,7 +1569,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 522 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2111 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 540 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2163 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2255,7 +2291,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (522 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (540 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

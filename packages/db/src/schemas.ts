@@ -179,6 +179,13 @@ export const grocerySearchInput = z.object({
 export const cartViewInput = z.object({ cartId: uuid });
 
 /**
+ * A1 — requestCounterPay / withdrawCounterPay: a member of a dine-in table asks to settle at the
+ * register, or takes the ask back. Shape only; the action re-derives membership, the session mode
+ * and the cart's open/unfrozen state from the row, never from the request.
+ */
+export const counterPayInput = z.object({ cartId: uuid });
+
+/**
  * M124 — release the pay lock AND the promo pin for a NAMED checkout attempt.
  *
  * A SEPARATE export, never a widening of `cartViewInput`. That schema is shared by `getCartView`, a

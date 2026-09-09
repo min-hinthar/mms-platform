@@ -264,6 +264,9 @@ export const STAFF = {
   "floor.status.paying": { en: "Paying", my: "ငွေရှင်းနေဆဲ" },
   "floor.status.settling": { en: "Splitting", my: "ခွဲရှင်းနေဆဲ" },
   "floor.status.paid": { en: "Paid", my: "ငွေရှင်းပြီး" },
+  // A1 — the table ASKED for the register. "Pay at counter" (not "Paying"): nobody is paying yet,
+  // the table is waiting for a person, and the chip is the register's queue.
+  "floor.status.counter": { en: "Pay at counter", my: "ကောင်တာမှာ ရှင်းမယ်" },
 
   // ── the floor: the table card ─────────────────────────────────────────────
   // {id} is the number on the physical tent card and {m} is preformatted money — both Latin in
@@ -496,6 +499,14 @@ export const STAFF = {
   // the English console stays byte-identical. Same MY wording as the floor's, deliberately.
   "table.detail.unregisteredBadge": { en: "Unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
   "table.detail.tabOpen": { en: "Tab open", my: "စာရင်း ဖွင့်ထား" },
+  // A1 — the drill-down's ask banner, above the settle controls. Present tense, the table's own
+  // voice: they asked, they are waiting, the register acts. The relative time ("2 min ago") is
+  // rendered beside `counterAsked` by <RelativeTime>, English-only, outside the Burmese span.
+  "table.detail.counterAsk": {
+    en: "They’d like to pay here at the counter",
+    my: "ကောင်တာမှာ ငွေရှင်းချင်ပါတယ်",
+  },
+  "table.detail.counterAsked": { en: "asked", my: "တောင်းဆိုတာ" },
   "table.detail.guest.one": { en: "{n} guest", my: "ဧည့်သည် {n} ယောက်" },
   "table.detail.guest.many": { en: "{n} guests", my: "ဧည့်သည် {n} ယောက်" },
   // Each of these leads an English RelativeTime node ("5m ago") that this slice does not own, so the
