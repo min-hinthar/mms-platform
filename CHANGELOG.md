@@ -34,6 +34,27 @@ fired lines is a new write on a money-adjacent table (voided lines are excluded 
 `mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
 pass rather than folded into a read-only bound.
 
+### Codex round 6: a diagnosis that writes is not a diagnosis (2026-09-09)
+
+One P2, no P1 — the first round in four without a money defect, and it is a consequence of round 5's
+fix rather than a new class.
+
+`standDown` suppressed the _verdict_ `acquired`. But `acquireSettlement` is a **mutating UPDATE**:
+answering `acquired` means it has already written `settle_at` and `settle_by`. Suppressing the return
+value left that write behind with nothing to release it, so the action reported a retryable failure
+while the table stayed frozen for the settlement TTL. Worst on the Terminal settle, whose every retry
+carries a fresh attempt id and therefore meets its own orphan as `settling_other`.
+
+Releasing it is not as simple as it looks: `releaseSettlement(cartId)` is unconditional by cart and
+would null the **winner's** freeze — the very request the stand-down deferred to. `standDown` now
+probes under a `crypto.randomUUID()` owner and releases with `releaseSettlementFor`, which is scoped
+by `settle_by`, so the release provably cannot reach anyone else's claim.
+
+The probe does something better than fix the leak, though: it closes the original hole
+_structurally_. A unique owner cannot match `acquireSettlement`'s `settle_by.eq.<uid>` arm, so a
+stand-down can only ever acquire a cart that is genuinely **free** — and it hands that straight back.
+The promotion three rounds were spent suppressing is now unrepresentable rather than caught.
+
 ### Codex round 5: stop patching branches, state the invariant (2026-09-09)
 
 Round 3 closed the claim. Round 4 closed the lost-claim re-ask. Round 5 found the **other** re-ask —

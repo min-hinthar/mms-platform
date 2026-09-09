@@ -15,6 +15,7 @@ import {
   readLiveIntent,
   releaseByIntent,
   releaseSettlement,
+  releaseSettlementFor,
   readLiveIntentFor,
   releasePayAttempt,
   unlinkPaymentIntent,
@@ -371,7 +372,7 @@ export async function acquireSettlementSuperseding(
     // told the cart is `locked_stale`, no later read inside it may promote the request to `acquired`
     // — only the exclusive claim can, and the claim has no same-owner arm. Both re-asks now stand
     // down, which closes the class rather than the third instance of it.
-    if (!live) return standDown(await acquireSettlement(cartId, uid));
+    if (!live) return standDown(cartId);
 
     // ⚠️ CLAIM BEFORE CANCELLING (Codex round 2, P1). Until this succeeds we hold NO mutex, and the
     // diner can re-acquire the pay lock and link a live intent in the gap — which the old code then
@@ -385,7 +386,7 @@ export async function acquireSettlementSuperseding(
       return "unavailable";
     }
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
-    if (!claimed) return standDown(await acquireSettlement(cartId, uid));
+    if (!claimed) return standDown(cartId);
 
     // From here the freeze is OURS, so every exit below must give it back. The strict verdict table
     // and the manual-capture refusal live inside `supersedeSettlementIntent`.
@@ -477,6 +478,32 @@ function collapse(r: SettleResult): SettleTakeover {
  * on `closeSecureTab`'s card path, which has no such RPC — filed as M201, and NOT reachable from
  * this function any more.
  */
-function standDown(r: SettleResult): SettleTakeover {
-  return r === "acquired" ? "unavailable" : collapse(r);
+async function standDown(cartId: string): Promise<SettleTakeover> {
+  // ⚠️ A PROBE OWNER, NOT THE CALLER'S UID (Codex round 6 on #275, P2). `acquireSettlement` is a
+  // mutating UPDATE: when it answers `acquired` it has ALREADY written `settle_at`/`settle_by`.
+  // Suppressing only the returned verdict therefore left a freeze behind that nothing released — the
+  // action reported a retryable failure while the table stayed frozen for the settle TTL, which is
+  // worst for the Terminal settle, whose every retry carries a fresh attempt id and so meets its own
+  // orphan as `settling_other`.
+  //
+  // Releasing it is not as simple as `releaseSettlement(cartId)`: that is unconditional by cart and
+  // would null the WINNER's freeze — the very request we stood down for. `releaseSettlementFor` is
+  // scoped by `settle_by`, and a probe uuid makes that scope provably ours: no other request can
+  // hold it, so the release cannot reach anyone else's claim.
+  //
+  // The probe also closes the door this function exists for, structurally rather than by suppression.
+  // With a unique owner, `acquireSettlement`'s `settle_by.eq.<uid>` arm cannot match, so a stand-down
+  // can only ever acquire a cart that is genuinely FREE — and it gives that straight back.
+  const probe = crypto.randomUUID();
+  const r = await acquireSettlement(cartId, probe);
+  if (r !== "acquired") return collapse(r);
+  const err = await releaseSettlementFor(cartId, probe);
+  if (err)
+    console.error("[settle] stand-down probe freeze not released — table frozen until the TTL", {
+      cartId,
+      error: err.message,
+    });
+  // The cart was free, and we are not taking it: this request already lost its claim. `unavailable`
+  // is the honest verdict — nothing is blocking, so the next tap should succeed.
+  return "unavailable";
 }

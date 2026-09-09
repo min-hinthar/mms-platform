@@ -43,13 +43,16 @@ let claimed = true;
 let pinClearFails = false;
 let supersedeThrows = false;
 let claimCalls: { intentId: string }[] = [];
+let probeReleases: { cartId: string; attemptId: string }[] = [];
+let acquireOwners: string[] = [];
 let released: string[] = [];
 let pinCleared: { cartId: string; intentId: string }[] = [];
 
 vi.mock("./lock", () => ({
-  acquireSettlement: () => {
+  acquireSettlement: (_cartId: string, owner: string) => {
     const r = acquireResults[acquireCalls] ?? acquireResults[acquireResults.length - 1];
     acquireCalls += 1;
+    acquireOwners.push(owner);
     return Promise.resolve(r);
   },
   readLiveIntent: () => {
@@ -62,6 +65,10 @@ vi.mock("./lock", () => ({
   },
   releaseSettlement: (cartId: string) => {
     released.push(cartId);
+    return Promise.resolve(null);
+  },
+  releaseSettlementFor: (cartId: string, attemptId: string) => {
+    probeReleases.push({ cartId, attemptId });
     return Promise.resolve(null);
   },
   releaseByIntent: (cartId: string, intentId: string) => {
@@ -96,6 +103,8 @@ beforeEach(() => {
   liveIntentThrows = false;
   claimed = true;
   claimCalls = [];
+  probeReleases = [];
+  acquireOwners = [];
   supersedeArgs = [];
   pinClearFails = false;
   supersedeThrows = false;
@@ -361,5 +370,44 @@ describe("supersedeSettlementIntent — what settlement may and may not cancel",
     expect(await supersedeSettlementIntent("c", "pi_gone")).toBe("cleared");
     retrieveThrows = { code: "rate_limit" };
     expect(await supersedeSettlementIntent("c", "pi_x")).toBe("unknown");
+  });
+});
+
+describe("standDown — a diagnosis must not leave a freeze behind (Codex round 6)", () => {
+  it("gives back a freeze the probe accidentally acquired", async () => {
+    // ⚠️ `acquireSettlement` is a mutating UPDATE: answering `acquired` means it has ALREADY written
+    // `settle_at`/`settle_by`. Suppressing only the returned verdict left that write in place, so the
+    // action reported a retryable failure while the table stayed frozen for the settle TTL — worst
+    // for the Terminal settle, whose every retry carries a fresh attempt id and so meets its own
+    // orphan as `settling_other`.
+    acquireResults = ["locked_stale", "acquired"];
+    liveIntent = null; // the !live stand-down path
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(probeReleases).toHaveLength(1);
+    expect(probeReleases[0]!.cartId).toBe("c");
+  });
+
+  it("probes under a UNIQUE owner, never the caller's uid", async () => {
+    // Two things ride on this. The release is scoped by `settle_by`, so a probe uuid is what makes
+    // it provably OURS — `releaseSettlement(cartId)` is unconditional by cart and would null the
+    // WINNER's freeze, the very request we stood down for. And a unique owner cannot match
+    // `acquireSettlement`'s `settle_by.eq.<uid>` arm, so a stand-down can only ever acquire a cart
+    // that is genuinely free: the promotion this function exists to prevent becomes structurally
+    // impossible rather than suppressed after the fact.
+    acquireResults = ["locked_stale", "acquired"];
+    liveIntent = null;
+    await takeover("c", "u");
+    expect(acquireOwners).toHaveLength(2);
+    expect(acquireOwners[0]).toBe("u"); // the first, real acquire
+    expect(acquireOwners[1]).not.toBe("u"); // the probe
+    expect(acquireOwners[1]).toBe(probeReleases[0]!.attemptId);
+  });
+
+  it("releases nothing when the probe did not acquire", async () => {
+    // The winner holds the freeze; touching it would be the catastrophe this design avoids.
+    acquireResults = ["locked_stale", "settling_other"];
+    liveIntent = null;
+    expect(await takeover("c", "u")).toBe("settling_other");
+    expect(probeReleases).toEqual([]);
   });
 });
