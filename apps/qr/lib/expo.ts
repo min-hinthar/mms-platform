@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { setTogoStatusInput } from "@mms/db/schemas";
@@ -19,6 +20,18 @@ import { catalogNameMy, isUuid, pairModifiersMy, uuidOptionIds } from "./ticket-
  */
 
 const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound the read regardless.
+/**
+ * M181 — the same shape as the kitchen's M180, with a tighter cap and a slower leak.
+ *
+ * `picked_up` is written ONLY by the manual bump (`mms_set_togo_status`, whose sole caller is
+ * `setTogoStatus` below), so every bag handed to a guest without that tap stays `ready` forever. The
+ * cap is applied by SQL on an oldest-first order, so once ~200 un-bumped orders accrue the read
+ * returns only ancient ones and today's paid bags never reach the counter screen at all.
+ *
+ * The floor bounds that population to one day's worth, which cannot approach the cap at teahouse
+ * volume. A bag `ready` for more than 24 hours is not waiting at the counter; the alternative is the
+ * board never showing the one that is.
+ */
 
 /**
  * Live takeaway queue: paid orders whose togo_status is preparing/ready (picked_up drops off), with
@@ -51,11 +64,20 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
     )
     .in("togo_status", ["preparing", "ready"])
+    .gte("created_at", queueFloorIso(nowIso))
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
   if (ordersError) return { ok: false, reason: "outage" };
   if (!orders || orders.length === 0)
     return { ok: true, queue: { tickets: [], serverNow: nowIso } };
+  // M181 — a saturated read has not seen the whole counter. With the floor this is unreachable at
+  // teahouse volume; if it ever is reached, `outage` (which freezes the client on its last-known
+  // queue) is the honest answer rather than a partial board presented as the whole one.
+  if (queueEmptiness(orders.length, QUEUE_CAP) === "cannot-say") {
+    console.error("[expo] takeaway queue read saturated — board may be incomplete", {
+      cap: QUEUE_CAP,
+    });
+  }
 
   const orderIds = orders.map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.

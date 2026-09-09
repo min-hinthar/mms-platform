@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The kitchen and expo boards can no longer render empty over a working service (M180 · M181) (2026-09-09)
+
+Both live boards read oldest-first with a SQL `limit` applied before the filters that discard dead
+rows — the KDS's cart-status join is two reads later, expo has no prune at all — and both queues
+leak. `clearTable` flips the cart to `cancelled` and never touches `qr_cart_items`, so every line
+that fired on that table stays `fired` forever; `picked_up` is written only by expo's manual bump, so
+every bag handed over without that tap stays `ready` forever. Past the cap the read returns nothing
+but dead rows, the live-row filter empties, and the KDS answers `ok: true` with zero tickets — an
+empty board over a room of cooking food, which is the exact lie its own W10b comment says it refuses.
+Expo's version is quieter and worse for the guest: today's paid bags simply never appear at the
+counter.
+
+Two rules, in one module both boards read (`lib/queue-window.ts`):
+
+- **A service window.** `fire_at` / `created_at` floored 24 hours back — the same bound
+  `/api/board`'s `pulseDayFloor` already applies to the same table — which caps the dead population at
+  one day's worth rather than all time, far below either limit. It is a `gte`, so the KDS's HELD
+  tickets (a scheduled pickup whose fire time is in the _future_) are untouched; a window expressed as
+  a range would have swept every scheduled order off the board.
+- **A saturated read may not claim emptiness.** Past the cap, "we saw no live rows" is a fact about
+  the read, not about the kitchen. The KDS answers `outage` there, which is the file's own established
+  safe direction — the client freezes on it and keeps the last-known queue, so it never blanks a
+  board. Both halves of that are asserted: an UNsaturated read with nothing live must still answer
+  empty, or both boards would freeze every quiet morning.
+
+The rows still accumulate; bounding the damage is not pruning the source. Voiding a cancelled cart's
+fired lines is a new write on a money-adjacent table (voided lines are excluded from
+`mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
+pass rather than folded into a read-only bound.
+
 ### A declined card no longer freezes the table's other tenders forever (M197) (2026-09-09)
 
 `acquireSettlement` gated on a bare `.eq("locked", false)`. `acquireCartLock` has always had a

@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import {
@@ -40,6 +41,26 @@ import { catalogNameMy, pairModifiersMy, UUID_RE, uuidOptionIds } from "./ticket
  */
 
 const QUEUE_LINE_CAP = 500; // a teahouse kitchen has tens of live lines; bound the read regardless.
+/**
+ * M180 — the service window the queue reads, and why an unbounded cap was a lie waiting to happen.
+ *
+ * `clearTable` flips the cart to `cancelled` and never touches `qr_cart_items` (`floor.ts`), so every
+ * line that had fired on that table stays `fired` FOREVER and no job prunes it. The cap is applied by
+ * SQL, before the cart-status filter two reads below can discard them — so with a few orphans per
+ * service, the oldest-first read eventually returns 500 rows that are ALL on cancelled carts,
+ * `sessionIds` comes back empty, and the function answers `ok: true` with zero tickets. That is the
+ * exact lie the W10b comment below says this file refuses: an empty board over a room of cooking food.
+ *
+ * The floor bounds the orphan population to ONE DAY's worth rather than all time, which at teahouse
+ * volume cannot approach the cap — so ancient orphans can never again crowd out live work. It is the
+ * same 24h bound `/api/board`'s `pulseDayFloor` already applies to the same table for the same reason.
+ *
+ * ⚠️ It is a `gte` on `fire_at`, so HELD lines (a scheduled pickup whose fire time is in the FUTURE)
+ * are untouched — they are the reason this read has no `fire_at <= now()` clause at all. What it does
+ * drop is a fired-and-never-bumped line older than 24 hours, which is by definition not food anyone is
+ * cooking; the alternative is the empty board above. Pruning the orphans at their source is the real
+ * hygiene fix and is filed as M198.
+ */
 
 /** W3d station tags: menu category slug → coarse station chip. A missing/unknown category cooks on the
  *  wok (the default line). Client-side filter only — a second physical screen is config, not schema. */
@@ -123,10 +144,15 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     )
     .in("state", ["fired", "in_progress"])
     .not("fire_at", "is", null)
+    .gte("fire_at", queueFloorIso(nowIso))
     .order("fire_at", { ascending: true })
     .limit(QUEUE_LINE_CAP);
   if (linesError) return { ok: false, reason: "outage" };
   if (!lines || lines.length === 0) return { ok: true, queue: empty };
+  // M180 — a SATURATED read cannot claim to have seen the whole kitchen. With the floor above this
+  // should be unreachable at teahouse volume, and that is exactly why it must not fail silently if it
+  // ever is: past the cap, whether a live ticket exists is a question this read did not answer.
+  const emptiness = queueEmptiness(lines.length, QUEUE_LINE_CAP);
 
   // Resolve each line's cart. W3a: carts in ('open','paid') — dine-in cooks while open (and its
   // fired-at-checkout to-go food lives on the just-paid cart); pickup/scango only ever fire paid.
@@ -139,7 +165,23 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   if (cartsError) return { ok: false, reason: "outage" };
   const cartById = new Map((carts ?? []).map((c) => [c.id, c]));
   const sessionIds = [...new Set([...cartById.values()].map((c) => c.session_id))];
-  if (sessionIds.length === 0) return { ok: true, queue: empty };
+  if (sessionIds.length === 0) {
+    // ⚠️ "EVERY LINE WE READ IS ON A DEAD CART" IS NOT "NOTHING IS COOKING" — and on a saturated read
+    // it is not even evidence, because the live tickets may simply be past the cap. Answering
+    // `ok: true, empty` there is M180's defect verbatim. `outage` is the safe direction and the file's
+    // own established one: the client freezes on it and keeps the last-known queue, so this never
+    // blanks a board (see the W10b note above). Unsaturated, the answer really is empty and stands.
+    if (emptiness === "cannot-say") {
+      console.error(
+        "[kitchen] queue read saturated with lines on dead carts — refusing to claim empty",
+        {
+          cap: QUEUE_LINE_CAP,
+        },
+      );
+      return { ok: false, reason: "outage" };
+    }
+    return { ok: true, queue: empty };
+  }
 
   // Menu-station lookup: kitchen lines are always restaurant items (grocery never fires), but filter to
   // uuid-shaped ids defensively — menu_item_id is a soft ref that also carries grocery barcodes.
