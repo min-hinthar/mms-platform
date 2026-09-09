@@ -508,6 +508,56 @@ export async function releaseCartLock(cartId: string, uid: string | null): Promi
 }
 
 /**
+ * M197 (Codex round 2 on #275, P1) — CLAIM the settlement freeze against ONE named stale attempt,
+ * atomically, before anything irreversible happens to it.
+ *
+ * ## The window this closes
+ *
+ * `acquireSettlementSuperseding` used to diagnose `locked_stale` and then cancel at Stripe while
+ * holding NO mutex. Between those two steps the diner can call create-intent, re-acquire the pay
+ * lock with a fresh era and link a live PaymentIntent — and `supersedeCartIntent` reads the row
+ * FRESH, so it cancelled whatever the cart named at that instant: an actively resumed checkout.
+ * The second acquire then noticed the new lock and refused staff, so the net effect was to kill a
+ * live payment and gain nothing.
+ *
+ * The asymmetry is with create-intent, which calls the same supersede AFTER `acquireCartLock` has
+ * succeeded — it holds the lock, so nothing can move under it. This path held nothing.
+ *
+ * ## Why claiming the SETTLE freeze is the right mutex
+ *
+ * `acquireCartLock` requires `settle_at` null or stale, so a fresh `settle_at` blocks the diner's
+ * re-acquire outright. Claiming it first therefore freezes the exact state we diagnosed, and the
+ * cancel that follows can only ever touch the attempt we named.
+ *
+ * ## The predicate is the evidence, restated
+ *
+ * `live_payment_intent_id = <the id we read>` is what makes this a claim on ONE attempt rather than
+ * on the cart: if create-intent superseded and relinked in the meantime, the id differs and this
+ * matches zero rows — which is the answer, not a failure. `locked_at <= cutoff` is re-tested for the
+ * same reason: an inline retry does not refresh the era, but a fresh create-intent does, and a
+ * claim must not succeed against an attempt that has just come back to life.
+ */
+export async function claimStaleSettlement(
+  cartId: string,
+  uid: string,
+  intentId: string,
+): Promise<{ claimed: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .eq("locked", true)
+    .lte("locked_at", lockCutoff)
+    .eq("live_payment_intent_id", intentId)
+    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${settleCutoff}`);
+  return { claimed: (count ?? 0) > 0, error };
+}
+
+/**
  * M151 — the cart→intent LINK, the DB half. The Stripe half (cancel the predecessor, refuse if it
  * captured) is `lib/supersede.ts`; the verdict is `lib/live-intent.ts`. Read the migration header
  * (`20260905000000_m151_live_payment_intent.sql`) for why the fact exists at all.

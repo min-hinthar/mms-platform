@@ -10,7 +10,10 @@ import {
 } from "./live-intent";
 import {
   acquireSettlement,
+  claimStaleSettlement,
   readLiveIntent,
+  releaseByIntent,
+  releaseSettlement,
   readLiveIntentFor,
   releasePayAttempt,
   unlinkPaymentIntent,
@@ -277,23 +280,73 @@ export async function acquireSettlementSuperseding(
 ): Promise<SettleTakeover> {
   const first = await acquireSettlement(cartId, uid);
   if (first !== "locked_stale") return first;
-  // ⚠️ THE STRICT TABLE, not the default one. See `classifyLiveIntentForSettlement`: this call does
-  // not move the era, so an authorized hold it cancelled would have been captured by the cron.
-  const outcome = await supersede(cartId, classifyLiveIntentForSettlement);
-  if (outcome === "captured") return "paying";
-  // `unknown` is not "no" — it is "we could not tell", and the caller's retryable arm is the honest
-  // rendering. Reporting `locked` here would tell staff a diner is checking out when what actually
-  // happened is that we could not reach Stripe.
-  if (outcome === "unknown") return "unavailable";
-  const second = await acquireSettlement(cartId, uid);
-  // ⚠️ `locked_stale` TWICE MEANS THE UNLINK FAILED, NOT THAT A DINER IS PAYING (blind adversarial
-  // pass on #275, OPEN QUESTION). `supersedeCartIntent` answers `cleared` even when
-  // `unlinkPaymentIntent` errors — it logs and proceeds, because the intent is already dead at
-  // Stripe and refusing over a bookkeeping write would strand the caller (that swallow is filed as
-  // OPEN-ITEMS M178). So the row can still name an intent we just cancelled, and the second acquire
-  // answers `locked_stale` again. The first draft collapsed that to `locked`, which renders as
-  // "Someone's already paying on their phone" over an authorization that no longer exists — the
-  // fabricated diagnosis this whole function is meant to end. `unavailable` is the truth: we could
-  // not complete the takeover, and it is worth another tap.
-  return second === "locked_stale" ? "unavailable" : second;
+
+  // ⚠️ EVERY STEP BELOW IS WRAPPED, because two of them THROW rather than answering (Codex round 2,
+  // P2). `readLiveIntent` rethrows its postgrest error and `getStripe()` throws on a missing or
+  // mode-mismatched key — and this function is awaited by Server Actions that set `busy` before the
+  // call and have no catch of their own, so an escaping rejection latches the staff control instead
+  // of showing the retryable sentence this union exists to carry. A failure here is `unavailable`.
+  try {
+    // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
+    const live = await readLiveIntent(cartId);
+    // The row stopped naming an intent between the acquire and this read — so the thing that made it
+    // `locked_stale` is gone. Re-ask rather than guess; the plain acquire can now take it.
+    if (!live) return collapse(await acquireSettlement(cartId, uid));
+
+    // ⚠️ CLAIM BEFORE CANCELLING (Codex round 2, P1). Until this succeeds we hold NO mutex, and the
+    // diner can re-acquire the pay lock and link a live intent in the gap — which the old code then
+    // cancelled, killing an actively resumed checkout and still refusing staff. A fresh `settle_at`
+    // blocks `acquireCartLock`, so this freezes the exact state we diagnosed; and the predicate
+    // names THIS intent, so a create-intent that superseded and relinked in the meantime matches
+    // zero rows. See `claimStaleSettlement`.
+    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
+    if (claimErr) {
+      console.error("[settle] stale-attempt claim failed", { cartId, error: claimErr.message });
+      return "unavailable";
+    }
+    // Something moved under us. Re-ask the ordinary way and report whatever it now says.
+    if (!claimed) return collapse(await acquireSettlement(cartId, uid));
+
+    // ⚠️ THE STRICT TABLE, not the default one. See `classifyLiveIntentForSettlement`: this path
+    // does not move the era, so an authorized hold it cancelled would have been captured by the
+    // cron. From here the freeze is OURS, so every refusal below must give it back.
+    const outcome = await supersede(live, classifyLiveIntentForSettlement);
+    if (outcome !== "cleared") {
+      await releaseSettlement(cartId);
+      // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
+      // diner is checking out when what actually happened is that we could not reach Stripe.
+      return outcome === "captured" ? "paying" : "unavailable";
+    }
+
+    // ⚠️ THE CANCELLED ATTEMPT'S PROMO PIN GOES WITH IT (Codex round 2, P1). `supersedeCartIntent`
+    // only unlinks, and it is right not to touch the pin for create-intent's sake — M70's rule is
+    // that a pin must outlive the lock, because a captured-but-unfulfilled predecessor still
+    // reconciles against it. That reason is spent here: we have just established this intent is
+    // CANCELLED, so nothing depends on the pin, and leaving it makes `getCartTotals` hand staff the
+    // frozen discount instead of re-evaluating a promotion that may have expired or hit its cap.
+    // `releaseByIntent` clears pin AND link in one statement keyed on the intent, so a late webhook
+    // naming a different one matches nothing.
+    const { error: pinErr } = await releaseByIntent(cartId, live);
+    if (pinErr)
+      console.error("[settle] cancelled attempt's promo pin not cleared — totals may quote it", {
+        cartId,
+        intentId: live,
+        error: pinErr.message,
+      });
+    // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
+    // losing what we hold.
+    return "acquired";
+  } catch (e) {
+    console.error("[settle] supersede step threw", {
+      cartId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return "unavailable";
+  }
+}
+
+/** `locked_stale` has no arm at any call site, and a re-ask can still answer it (the link survived a
+ *  failed unlink — M178). Report that as the retry it is, never as a diner who is paying. */
+function collapse(r: SettleResult): SettleTakeover {
+  return r === "locked_stale" ? "unavailable" : r;
 }

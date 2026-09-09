@@ -20,13 +20,35 @@ let acquireCalls = 0;
 let supersedeResult: SupersedeOutcome = "cleared";
 let supersedeCalls = 0;
 
+let liveIntent: string | null = "pi_abandoned";
+let liveIntentThrows = false;
+let claimed = true;
+let claimCalls: { intentId: string }[] = [];
+let released: string[] = [];
+let pinCleared: { cartId: string; intentId: string }[] = [];
+
 vi.mock("./lock", () => ({
   acquireSettlement: () => {
     const r = acquireResults[acquireCalls] ?? acquireResults[acquireResults.length - 1];
     acquireCalls += 1;
     return Promise.resolve(r);
   },
-  readLiveIntent: () => Promise.resolve(null),
+  readLiveIntent: () => {
+    if (liveIntentThrows) return Promise.reject(new Error("postgrest down"));
+    return Promise.resolve(liveIntent);
+  },
+  claimStaleSettlement: (_c: string, _u: string, intentId: string) => {
+    claimCalls.push({ intentId });
+    return Promise.resolve({ claimed, error: null });
+  },
+  releaseSettlement: (cartId: string) => {
+    released.push(cartId);
+    return Promise.resolve(null);
+  },
+  releaseByIntent: (cartId: string, intentId: string) => {
+    pinCleared.push({ cartId, intentId });
+    return Promise.resolve({ released: true, error: null });
+  },
   readLiveIntentFor: () => Promise.resolve(null),
   releasePayAttempt: () => Promise.resolve({ released: false, error: null }),
   unlinkPaymentIntent: () => Promise.resolve(null),
@@ -35,8 +57,10 @@ vi.mock("./lock", () => ({
 const { acquireSettlementSuperseding } = await import("./supersede");
 // The Stripe sequence has its own suite; here it is a SEAM (the defaulted `supersede` parameter),
 // so the composition is falsified without five mocks of a client this decision never touches.
-const fakeSupersede = () => {
+let supersedeArgs: string[] = [];
+const fakeSupersede = (id: string) => {
   supersedeCalls += 1;
+  supersedeArgs.push(id);
   return Promise.resolve(supersedeResult);
 };
 const takeover = (c: string, u: string) => acquireSettlementSuperseding(c, u, fakeSupersede);
@@ -46,6 +70,13 @@ beforeEach(() => {
   supersedeCalls = 0;
   supersedeResult = "cleared";
   acquireResults = ["acquired"];
+  liveIntent = "pi_abandoned";
+  liveIntentThrows = false;
+  claimed = true;
+  claimCalls = [];
+  supersedeArgs = [];
+  released = [];
+  pinCleared = [];
 });
 
 describe("acquireSettlementSuperseding — M197", () => {
@@ -67,11 +98,67 @@ describe("acquireSettlementSuperseding — M197", () => {
     // The whole item: a declined card is deliberately left locked (`releaseCartLock`'s docblock),
     // and before this the TTL that docblock promises never arrived for cash, Terminal, tab-close or
     // split. One diner walking out froze every other tender on the table for good.
-    acquireResults = ["locked_stale", "acquired"];
+    acquireResults = ["locked_stale"];
     supersedeResult = "cleared";
     expect(await takeover("c", "u")).toBe("acquired");
     expect(supersedeCalls).toBe(1);
+    // ⚠️ ONE acquire, not two. The freeze is taken by the CLAIM, and re-running the ordinary acquire
+    // afterwards could only risk losing what we already hold.
+    expect(acquireCalls).toBe(1);
+    expect(claimCalls).toEqual([{ intentId: "pi_abandoned" }]);
+    // The cancelled attempt's promo pin goes with it, keyed on that intent.
+    expect(pinCleared).toEqual([{ cartId: "c", intentId: "pi_abandoned" }]);
+  });
+
+  it("CLAIMS the stale attempt before cancelling anything at Stripe", async () => {
+    // Codex round 2, P1. Until the claim lands this path holds no mutex, so the diner can call
+    // create-intent, re-acquire the pay lock and link a live intent in the gap — and the old code
+    // read the row FRESH and cancelled whatever it named, killing a resumed checkout and still
+    // refusing staff. A fresh `settle_at` blocks `acquireCartLock`, so claiming first freezes the
+    // exact state we diagnosed.
+    acquireResults = ["locked_stale"];
+    await takeover("c", "u");
+    expect(claimCalls).toHaveLength(1);
+    // …and the cancel targets the id we DIAGNOSED, never "whatever the row names now".
+    expect(supersedeArgs).toEqual(["pi_abandoned"]);
+  });
+
+  it("stands down when the claim loses — something moved, so re-ask instead of cancelling", async () => {
+    acquireResults = ["locked_stale", "locked"];
+    claimed = false;
+    expect(await takeover("c", "u")).toBe("locked");
+    expect(supersedeCalls).toBe(0); // nothing irreversible on a claim we did not win
     expect(acquireCalls).toBe(2);
+  });
+
+  it("gives the freeze BACK when the supersede refuses", async () => {
+    // The claim is a real freeze on a live table. Refusing without releasing would strand every
+    // tender for the settle TTL over an attempt we decided not to touch.
+    acquireResults = ["locked_stale"];
+    supersedeResult = "captured";
+    expect(await takeover("c", "u")).toBe("paying");
+    expect(released).toEqual(["c"]);
+    expect(pinCleared).toEqual([]); // a captured attempt keeps its pin — the webhook reconciles it
+  });
+
+  it("answers `unavailable` when a step THROWS instead of returning", async () => {
+    // Codex round 2, P2. `readLiveIntent` rethrows its postgrest error and `getStripe()` throws on a
+    // missing/mode-mismatched key. Both callers are Server Actions that set `busy` before awaiting
+    // and have no catch, so an escaping rejection latches the staff control instead of showing the
+    // retryable sentence this union carries.
+    acquireResults = ["locked_stale"];
+    liveIntentThrows = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(supersedeCalls).toBe(0);
+  });
+
+  it("re-asks plainly when the row no longer names an intent", async () => {
+    // Whatever made it `locked_stale` is gone; the ordinary acquire can have it.
+    acquireResults = ["locked_stale", "acquired"];
+    liveIntent = null;
+    expect(await takeover("c", "u")).toBe("acquired");
+    expect(claimCalls).toHaveLength(0);
+    expect(supersedeCalls).toBe(0);
   });
 
   it("REFUSES when the abandoned attempt turns out to be charging", async () => {
@@ -94,21 +181,20 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(acquireCalls).toBe(1);
   });
 
-  it("retries exactly once, and a second `locked_stale` is reported as unknown — never as a diner", async () => {
-    // If the second acquire still refuses, something else moved under us — a fresh lock, a rival
-    // settlement, the cart closing — and that is an answer, not a reason to loop.
-    //
-    // ⚠️ `locked_stale` TWICE has one cause, and it is not a diner: `supersedeCartIntent` answers
-    // `cleared` even when `unlinkPaymentIntent` errors (it logs and proceeds — refusing over a
-    // bookkeeping write would strand the caller; that swallow is OPEN-ITEMS M178), so the row can
-    // still name an intent we just cancelled. Collapsing that to `locked` renders as "Someone's
-    // already paying on their phone" over an authorization that no longer exists, which is the
-    // fabricated diagnosis this function exists to end.
+  it("never lets `locked_stale` reach a caller — no call site has an arm for it", async () => {
+    // A re-ask can still answer `locked_stale`: `supersedeCartIntent` returns `cleared` even when
+    // `unlinkPaymentIntent` errors (it logs and proceeds — refusing over a bookkeeping write would
+    // strand the caller; that swallow is OPEN-ITEMS M178), so the row can still name an intent that
+    // is already dead at Stripe. Reporting that as `locked` renders "Someone's already paying on
+    // their phone" over an authorization that no longer exists — the fabricated diagnosis this
+    // function exists to end. Both re-ask paths collapse it to the retry it actually is.
     acquireResults = ["locked_stale", "locked_stale"];
-    supersedeResult = "cleared";
+    claimed = false; // the claim lost → re-ask → still stale
     expect(await takeover("c", "u")).toBe("unavailable");
-    expect(acquireCalls).toBe(2);
-    expect(supersedeCalls).toBe(1);
+    acquireCalls = 0;
+    liveIntent = null; // the other re-ask path
+    acquireResults = ["locked_stale", "locked_stale"];
+    expect(await takeover("c", "u")).toBe("unavailable");
   });
 
   it("uses the SETTLEMENT verdict table, not create-intent's — an authorized hold is not cancelable here", async () => {

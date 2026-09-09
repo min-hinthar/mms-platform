@@ -34,6 +34,56 @@ fired lines is a new write on a money-adjacent table (voided lines are excluded 
 `mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
 pass rather than folded into a read-only bound.
 
+### Codex rounds 1 and 2: claim before you cancel, and two boards that were still lying (2026-09-09)
+
+Nine findings across two rounds, three of them P1. Every one verified against source before acting;
+the fixes changed the design rather than patching around it.
+
+**The settlement takeover now CLAIMS before it cancels.** The first draft diagnosed `locked_stale`
+and then cancelled at Stripe while holding no mutex — so between those two steps the diner could
+call create-intent, re-acquire the pay lock with a fresh era and link a live intent, and the cancel
+took _that_ one. It killed a resumed checkout and then refused staff anyway. The asymmetry was with
+create-intent, which runs the same supersede while already holding the lock. `claimStaleSettlement`
+is one conditional UPDATE naming the exact intent and era we diagnosed; a fresh `settle_at` blocks
+`acquireCartLock`, so the state we judged is frozen before anything irreversible happens, and a
+create-intent that relinked in the gap matches zero rows. Two consequences fall out: the cancel now
+targets the id we _diagnosed_ rather than whatever the row names at that instant, and every refusal
+after the claim gives the freeze back.
+
+**The cancelled attempt's promo pin goes with it.** `supersedeCartIntent` only unlinks, and it is
+right not to touch the pin for create-intent's sake — M70's rule is that a pin outlives the lock
+because a captured-but-unfulfilled predecessor still reconciles against it. That reason is spent
+once we have established the intent is _cancelled_: leaving the pin let `getCartTotals` hand staff a
+frozen discount instead of re-evaluating a promotion that may have expired or hit its cap.
+
+**A supersede that THROWS is not a verdict.** `readLiveIntent` rethrows its postgrest error and
+`getStripe()` throws on a missing or mode-mismatched key; both callers are Server Actions that set
+`busy` before awaiting with no catch, so an escaping rejection latched the staff control instead of
+rendering the retryable sentence. Same family as the `getStripe()` hoist in `closeSecureTab`, where
+a config fault was being classified as an unknown charge outcome and _holding the settlement freeze
+for a full TTL_ over a request that never went out.
+
+**Expo's window was on the wrong clock.** A scheduled pickup is charged and its order row written
+the moment the guest pays, while the scheduling horizon allows slots more than a day out — so a
+`created_at` floor swept a paid, still-future bag off the counter before staff should start it. The
+kitchen never had this because `fire_at` _is_ the due time. Expo judges a slotted order by its slot
+now, and only a slotless ASAP one by when it was placed.
+
+**Saturation refuses outright on both boards.** Logging and continuing returned `ok: true` with a
+partial list — the oldest-first cap silently omits every _newer_ row, so a just-paid bag never
+appears — and the kitchen only acted on it when the board came out empty, so a capped read
+containing some live carts rendered as the whole kitchen. Past the cap neither read answered the
+question, and `outage` freezes the client on its last-known queue rather than blanking it.
+
+**And the split tip ladder is filtered against the cap the server now enforces.** Above roughly
+$3,333 of share net the advertised 30% minted a 400 and the payment form never appeared;
+`KioskReview` and `CashSettleButton` had filtered on that cap all along.
+
+One finding is filed rather than fixed: the split post-fulfill side-effects are logged when they
+fail, not made replayable (**M200**). A 500 genuinely cannot recover them — a redelivery finds the
+cart paid and skips the block — so the real fix is a durable task written before the event is
+acknowledged, which needs a table and therefore a prod migration.
+
 ### A declined card no longer freezes the table's other tenders forever (M197) (2026-09-09)
 
 `acquireSettlement` gated on a bare `.eq("locked", false)`. `acquireCartLock` has always had a

@@ -148,11 +148,19 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     .order("fire_at", { ascending: true })
     .limit(QUEUE_LINE_CAP);
   if (linesError) return { ok: false, reason: "outage" };
+  // ⚠️ SATURATION REFUSES OUTRIGHT — it is not conditional on the board coming out empty (Codex
+  // round 2 on #275, P2). The first draft only acted on `cannot-say` when `sessionIds` turned out
+  // empty, so a capped read that DID contain some live carts rendered as the whole kitchen while
+  // silently omitting every newer ticket: the same lie as M180, minus the obvious symptom. Past the
+  // cap this read did not answer what is cooking, and `outage` is the file's own safe direction —
+  // the client freezes on its last-known queue, so this never blanks a board.
+  if (lines && queueEmptiness(lines.length, QUEUE_LINE_CAP) === "cannot-say") {
+    console.error("[kitchen] queue read saturated — refusing to render a partial board", {
+      cap: QUEUE_LINE_CAP,
+    });
+    return { ok: false, reason: "outage" };
+  }
   if (!lines || lines.length === 0) return { ok: true, queue: empty };
-  // M180 — a SATURATED read cannot claim to have seen the whole kitchen. With the floor above this
-  // should be unreachable at teahouse volume, and that is exactly why it must not fail silently if it
-  // ever is: past the cap, whether a live ticket exists is a question this read did not answer.
-  const emptiness = queueEmptiness(lines.length, QUEUE_LINE_CAP);
 
   // Resolve each line's cart. W3a: carts in ('open','paid') — dine-in cooks while open (and its
   // fired-at-checkout to-go food lives on the just-paid cart); pickup/scango only ever fire paid.
@@ -165,23 +173,8 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   if (cartsError) return { ok: false, reason: "outage" };
   const cartById = new Map((carts ?? []).map((c) => [c.id, c]));
   const sessionIds = [...new Set([...cartById.values()].map((c) => c.session_id))];
-  if (sessionIds.length === 0) {
-    // ⚠️ "EVERY LINE WE READ IS ON A DEAD CART" IS NOT "NOTHING IS COOKING" — and on a saturated read
-    // it is not even evidence, because the live tickets may simply be past the cap. Answering
-    // `ok: true, empty` there is M180's defect verbatim. `outage` is the safe direction and the file's
-    // own established one: the client freezes on it and keeps the last-known queue, so this never
-    // blanks a board (see the W10b note above). Unsaturated, the answer really is empty and stands.
-    if (emptiness === "cannot-say") {
-      console.error(
-        "[kitchen] queue read saturated with lines on dead carts — refusing to claim empty",
-        {
-          cap: QUEUE_LINE_CAP,
-        },
-      );
-      return { ok: false, reason: "outage" };
-    }
-    return { ok: true, queue: empty };
-  }
+  // Unsaturated (refused above), so "every line is on a dead cart" really does mean nothing live.
+  if (sessionIds.length === 0) return { ok: true, queue: empty };
 
   // Menu-station lookup: kitchen lines are always restaurant items (grocery never fires), but filter to
   // uuid-shaped ids defensively — menu_item_id is a soft ref that also carries grocery barcodes.

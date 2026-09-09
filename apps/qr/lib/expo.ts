@@ -64,20 +64,33 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
     )
     .in("togo_status", ["preparing", "ready"])
-    .gte("created_at", queueFloorIso(nowIso))
+    // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
+    // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
+    // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
+    // still-future bag off the counter before staff should even start it. The kitchen's floor never
+    // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
+    // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
+    .or(
+      `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
+    )
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
   if (ordersError) return { ok: false, reason: "outage" };
-  if (!orders || orders.length === 0)
-    return { ok: true, queue: { tickets: [], serverNow: nowIso } };
-  // M181 — a saturated read has not seen the whole counter. With the floor this is unreachable at
-  // teahouse volume; if it ever is reached, `outage` (which freezes the client on its last-known
-  // queue) is the honest answer rather than a partial board presented as the whole one.
-  if (queueEmptiness(orders.length, QUEUE_CAP) === "cannot-say") {
-    console.error("[expo] takeaway queue read saturated — board may be incomplete", {
+  // ⚠️ SATURATION IS AN OUTAGE, NOT A FOOTNOTE (Codex round 2, P2). Logging and continuing returned
+  // `ok: true` with a partial list — the oldest-first cap silently omits every newer order, so a
+  // just-paid bag simply never appears at the counter, which is the M181 lie in a quieter form.
+  // `outage` freezes the client on its last-known queue, so it never blanks a board; a board that
+  // cannot see the whole window must not present part of it as the whole.
+  //
+  // Checked BEFORE the empty return: a saturated read cannot claim emptiness either.
+  if (orders && queueEmptiness(orders.length, QUEUE_CAP) === "cannot-say") {
+    console.error("[expo] takeaway queue read saturated — refusing to render a partial counter", {
       cap: QUEUE_CAP,
     });
+    return { ok: false, reason: "outage" };
   }
+  if (!orders || orders.length === 0)
+    return { ok: true, queue: { tickets: [], serverNow: nowIso } };
 
   const orderIds = orders.map((o) => o.id);
   // Only the TAKEAWAY lines (the bag) — a dine-in line on a mixed order stays on the table, not the counter.

@@ -549,8 +549,33 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
     return { ok: false, error: "There’s nothing on this table to settle." };
   }
 
+  // ⚠️ HOISTED OUT OF THE TRY, and the reason is money (Codex round 1 on #275, P2). `getStripe()`
+  // throws LOCALLY — a missing secret, or the C18 key-mode mismatch — before `paymentIntents.create`
+  // puts anything on the wire. Inside the catch that is a plain `Error`, which
+  // `offSessionChargeOutcome` correctly calls `unknown`, and the unknown arm HOLDS the settlement
+  // freeze: exactly right for a charge that might have landed, and exactly wrong for a config fault
+  // where no PaymentIntent can exist. The table would be blocked from cash, another card and cart
+  // edits for the full 10-minute TTL over nothing. Resolving the client first separates "we never
+  // asked" from "we asked and cannot tell" — the same hoist #274 applied to the webhook's
+  // `constructEvent`, for the same reason.
+  let stripe: ReturnType<typeof getStripe>;
   try {
-    const intent = await getStripe().paymentIntents.create(
+    stripe = getStripe();
+  } catch (e) {
+    await releaseSettlement(cart.id);
+    console.error("[staff-cart] closeSecureTab could not resolve Stripe", {
+      sessionId,
+      cartId: cart.id,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return {
+      ok: false,
+      error: "Card payments aren’t set up right now — settle by cash and tell the owner.",
+    };
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create(
       {
         amount,
         currency: "usd",

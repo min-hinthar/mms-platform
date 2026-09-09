@@ -721,11 +721,21 @@ export function TableCartProvider({
   const echoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** When the pending burst's FIRST event arrived — the anchor the max-wait is measured from. */
   const echoSince = useRef<number | null>(null);
+  // ⚠️ KEYED ON `refresh`, NOT `[]` (Codex round 2 on #275, P2). An empty dep list only clears on
+  // UNMOUNT, so a pending echo outlived a cart change: this subtree stays mounted when the same
+  // /menu client switches table or re-mints a session, and the timer kept the OLD `refresh` closure.
+  // It could then fire after the NEW cart's first read, take a fresher sequence ticket for the
+  // PREVIOUS cart — still readable, so `readIsOurs` has no reason to discard it — and paint one
+  // cart's items, totals and freeze over another's. `refresh` closes over `cartId` via `readView`,
+  // so re-running this on its identity is exactly "the cart or its reader changed". The burst
+  // anchor is reset too, or the next cart would inherit a deadline measured from the old one's.
   useEffect(
     () => () => {
       if (echoTimer.current) clearTimeout(echoTimer.current);
+      echoTimer.current = null;
+      echoSince.current = null;
     },
-    [],
+    [refresh],
   );
 
   // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
