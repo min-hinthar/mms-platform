@@ -2043,3 +2043,50 @@ A STALE mutant is a FAILURE, not a skip, and this is why: the rule it guards (he
 the Stripe credential race and therefore which Stripe MODE the deployment runs in) was completely
 unguarded while the suite stayed green — the exact "green for the wrong reason" shape the mutant
 harness exists to catch, in the harness itself.
+
+## #107
+
+**A test seam whose parameters share a type will hide an argument mix-up — and the test written for
+that seam will ENCODE it.** (Codex round 3 on #275, P1. The most expensive single mistake of that
+session, and it was made while fixing the previous round's finding.)
+
+`acquireSettlementSuperseding` was given a defaulted `supersede` parameter purely so its arms could
+be falsified without a live Stripe — the same `tipPresets`-style seam this file already endorses.
+The seam's signature was `(id: string, classify) => Promise<SupersedeOutcome>` and its default was
+`supersedeCartIntent`, whose first parameter is a **cart** id. The call passed the diagnosed
+**PaymentIntent** id.
+
+Nothing caught it:
+
+- **`tsc` could not.** Both are `string`. A seam declared as `id: string` accepts either meaning.
+- **The unit test could not** — it was worse than silent, it was _confirmatory_. The fake recorded
+  its first argument and the assertion read `expect(supersedeArgs).toEqual(["pi_abandoned"])`:
+  "the intent id is passed". That is a restatement of the defect, so it stayed green forever.
+- **`verify:slice` could not**, because the mutant written beside it (`cancels-whatever-the-row-
+names-now`) mutated the call to pass the _cart_ id — i.e. it mutated **towards** correctness, and
+  the test that was pinned to the wrong behaviour dutifully went red.
+
+In production the default looked up a cart whose id was `pi_…`, found none, returned `"cleared"`
+**without ever contacting Stripe**, and the caller then cleared the real cart's pin and link and let
+staff settle over a still-confirmable intent. A double collect, inside a commit whose message
+described closing a double collect.
+
+The rules that fall out:
+
+1. **Name both parameters when a seam takes two values of the same primitive type.** `(cartId,
+intentId)` makes the mistake unrepresentable; `(id, …)` makes it invisible. If a seam takes one
+   opaque id, say in its type which id (`type CartId = string & { readonly __brand: unique symbol }`
+   is available and cheap on the money path).
+2. **A default parameter is production wiring, not test scaffolding.** The seam exists for the test,
+   but the DEFAULT is what ships — and no test that passes its own fake ever exercises it. Assert
+   the default's identity, or give the seam a signature the default cannot satisfy wrongly.
+3. **When writing the assertion for a seam, ask what it would say if the argument were wrong.** If
+   the answer is "the same thing", the assertion is describing the call rather than the behaviour.
+   The falsification to aim red-first is not "does this mutant go red" but "would this test go red
+   if I had passed the other id?"
+
+Two of the three P1s in that round were guards written the same session — one SURVIVED its first
+mutation run (the claim's predicate was pinned by nothing) and one was UNREACHABLE (every test
+stubbed the function containing the rule). Both are #60's shape aimed at the author rather than at
+inherited code, and both were only found because the mutant harness was run _after_ the fix was
+believed rather than before. Run it before you believe it.
