@@ -23,6 +23,8 @@ let supersedeCalls = 0;
 let liveIntent: string | null = "pi_abandoned";
 let liveIntentThrows = false;
 let claimed = true;
+let pinClearFails = false;
+let supersedeThrows = false;
 let claimCalls: { intentId: string }[] = [];
 let released: string[] = [];
 let pinCleared: { cartId: string; intentId: string }[] = [];
@@ -46,6 +48,8 @@ vi.mock("./lock", () => ({
     return Promise.resolve(null);
   },
   releaseByIntent: (cartId: string, intentId: string) => {
+    if (pinClearFails)
+      return Promise.resolve({ released: false, error: { message: "write failed" } });
     pinCleared.push({ cartId, intentId });
     return Promise.resolve({ released: true, error: null });
   },
@@ -57,10 +61,11 @@ vi.mock("./lock", () => ({
 const { acquireSettlementSuperseding } = await import("./supersede");
 // The Stripe sequence has its own suite; here it is a SEAM (the defaulted `supersede` parameter),
 // so the composition is falsified without five mocks of a client this decision never touches.
-let supersedeArgs: string[] = [];
-const fakeSupersede = (id: string) => {
+let supersedeArgs: { cartId: string; intentId: string }[] = [];
+const fakeSupersede = (cartId: string, intentId: string) => {
   supersedeCalls += 1;
-  supersedeArgs.push(id);
+  if (supersedeThrows) throw new Error("stripe unavailable");
+  supersedeArgs.push({ cartId, intentId });
   return Promise.resolve(supersedeResult);
 };
 const takeover = (c: string, u: string) => acquireSettlementSuperseding(c, u, fakeSupersede);
@@ -75,6 +80,8 @@ beforeEach(() => {
   claimed = true;
   claimCalls = [];
   supersedeArgs = [];
+  pinClearFails = false;
+  supersedeThrows = false;
   released = [];
   pinCleared = [];
 });
@@ -120,7 +127,7 @@ describe("acquireSettlementSuperseding — M197", () => {
     await takeover("c", "u");
     expect(claimCalls).toHaveLength(1);
     // …and the cancel targets the id we DIAGNOSED, never "whatever the row names now".
-    expect(supersedeArgs).toEqual(["pi_abandoned"]);
+    expect(supersedeArgs).toEqual([{ cartId: "c", intentId: "pi_abandoned" }]);
   });
 
   it("stands down when the claim loses — something moved, so re-ask instead of cancelling", async () => {
@@ -197,25 +204,46 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(await takeover("c", "u")).toBe("unavailable");
   });
 
-  it("uses the SETTLEMENT verdict table, not create-intent's — an authorized hold is not cancelable here", async () => {
-    // ⚠️ CRITICAL 1 from the blind pass. `classifyLiveIntent` calls `requires_capture` CANCELABLE,
-    // and its stated reason is specific to create-intent: that caller's successor holds a fresh era,
-    // so `mms_settle_precheck_and_void` would refuse the hold anyway (→ -2) and cancelling early
-    // loses nothing. THIS caller writes only `settle_at`/`settle_by` — it never moves `locked_at` —
-    // so the cron WOULD have captured, and cancelling voids a guest's authorized pickup payment.
-    // `openCartFor` has no mode filter, so such a cart is reachable from every staff settle surface.
-    let sawClassifier: ((s: string) => unknown) | null = null;
-    acquireResults = ["locked_stale", "acquired"];
-    await acquireSettlementSuperseding("c", "u", (_id, classify) => {
-      sawClassifier = classify;
-      return Promise.resolve("cleared" as const);
-    });
-    expect(sawClassifier).not.toBeNull();
-    expect(sawClassifier!("requires_capture")).toBe("captured");
-    // …and the states that are genuinely not money still are cancelable, or the takeover would
-    // refuse every abandoned attempt and the deadlock would be exactly as it was.
-    expect(sawClassifier!("requires_payment_method")).toBe("cancelable");
-    expect(sawClassifier!("requires_action")).toBe("cancelable");
-    expect(sawClassifier!("succeeded")).toBe("captured");
+  it("hands the superseder BOTH the cart and the intent, in that order", async () => {
+    // ⚠️ CODEX ROUND 3, P1 — AND THE TEST THAT REPLACED IT ENCODED THE BUG. The seam used to be
+    // `(id, classify)` with `supersedeCartIntent` as its default — a function whose first parameter
+    // is a CART id. Passing the diagnosed intent id typechecked (both are `string`), and in
+    // production it looked up a cart named `pi_…`, found none, returned "cleared" WITHOUT CALLING
+    // STRIPE, and this path then cleared the real cart's pin and link and let staff settle over a
+    // still-confirmable intent. The old assertion here — "the intent id is passed" — was a
+    // restatement of the defect, which is why it stayed green.
+    //
+    // Two NAMED parameters is the fix: a caller cannot put the right type in the wrong slot.
+    acquireResults = ["locked_stale"];
+    await takeover("c", "u");
+    expect(supersedeArgs).toEqual([{ cartId: "c", intentId: "pi_abandoned" }]);
+  });
+
+  it("releases the claimed freeze when a post-claim step THROWS", async () => {
+    // Codex round 3, P2. Once the claim lands the freeze blocks every tender; converting a throw to
+    // `unavailable` while holding it stranded the table for the settle TTL over a step that never
+    // ran. `supersedeSettlementIntent` calls `getStripe()`, which throws on a missing key.
+    acquireResults = ["locked_stale"];
+    supersedeThrows = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(released).toEqual(["c"]);
+  });
+
+  it("does NOT release a freeze it never claimed", async () => {
+    // The other direction: a throw BEFORE the claim must not null a freeze someone else holds.
+    acquireResults = ["locked_stale"];
+    liveIntentThrows = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(released).toEqual([]);
+  });
+
+  it("REFUSES to settle when the cancelled attempt's pin cannot be cleared", async () => {
+    // Codex round 3, P2. Returning `acquired` after a failed `releaseByIntent` handed the caller
+    // straight to `getCartTotals`, which reads the pin still on the row — settling the table at the
+    // cancelled attempt's frozen discount, the exact defect clearing the pin exists to prevent.
+    acquireResults = ["locked_stale"];
+    pinClearFails = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(released).toEqual(["c"]);
   });
 });

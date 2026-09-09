@@ -337,6 +337,14 @@ export async function POST(req: NextRequest) {
       clientSecret: intent.client_secret,
       amountCents: amount,
       tipCents: tip,
+      // ⚠️ THE TIP BASE, RETURNED RATHER THAN LEFT TO BE DERIVED (Codex round 3 on #275, P2). The
+      // client filters its preset ladder against the $1,000 ceiling this route enforces, and its
+      // first attempt derived the base as `amountCents - tipCents` — which is subtotal − discount
+      // PLUS service charge and tax, while the tip above is computed on subtotal − discount alone.
+      // On a large taxable share that over-estimates every preset and hides a 30% the server would
+      // have accepted. The base is one subtraction here and guessing it there is the drift shape
+      // W17 names: a value computed in one place and re-derived in another.
+      tipBaseCents: share.subtotal_cents - share.discount_cents,
     });
   } catch (e) {
     if (e instanceof AuthzError)

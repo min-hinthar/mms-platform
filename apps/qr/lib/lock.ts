@@ -553,7 +553,15 @@ export async function claimStaleSettlement(
     .eq("locked", true)
     .lte("locked_at", lockCutoff)
     .eq("live_payment_intent_id", intentId)
-    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${settleCutoff}`);
+    // ⚠️ NO SAME-OWNER RE-ACQUIRE ARM, unlike `acquireSettlement` (Codex round 3 on #275, P1). That
+    // disjunct exists there so a host can RE-OPEN their own split; here it would defeat the whole
+    // mutex. `settleCash` and `closeSecureTab` both pass `caller.uid`, so two concurrent takeovers
+    // by the same staff member would BOTH match — the first writes `settle_by = uid`, the second
+    // sails through on `settle_by.eq.<uid>` — and each then mints its own Stripe charge, because the
+    // off-session idempotency key is deliberately per-attempt (a stable key would cache a decline
+    // for 24h). A one-shot takeover of an abandoned attempt has no legitimate re-entry: the loser
+    // stands down and re-asks.
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
   return { claimed: (count ?? 0) > 0, error };
 }
 

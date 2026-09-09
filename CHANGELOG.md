@@ -34,6 +34,42 @@ fired lines is a new write on a money-adjacent table (voided lines are excluded 
 `mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
 pass rather than folded into a read-only bound.
 
+### Codex round 3: the fix for round 2 was a no-op in production (2026-09-09)
+
+Six findings, three P1 — and the first of them is the one worth reading, because **it was introduced
+by the previous round's fix and my own test asserted it was correct**.
+
+The takeover passed its diagnosed PaymentIntent id into a seam whose default was
+`supersedeCartIntent` — a function whose first parameter is a **cart** id. Both are `string`, so
+nothing typechecked wrong. In production it looked up a cart named `pi_…`, found none, returned
+`"cleared"` **without ever calling Stripe**, and the takeover then cleared the real cart's pin and
+link and let staff settle while the diner's intent stayed confirmable. A double collect, shipped
+inside a commit whose message described closing a double collect. The unit test could not see it: its
+fake recorded the argument, and the assertion — "the intent id is passed" — was a restatement of the
+defect. The seam now takes two **named** parameters (`cartId`, `intentId`) and defaults to an
+intent-level `supersedeSettlementIntent`, so the right type cannot land in the wrong slot.
+
+- **The claim was not a mutex.** It carried `settle_by.eq.<uid>`, copied from `acquireSettlement`
+  where that disjunct exists so a host can re-open their own split. `settleCash` and `closeSecureTab`
+  both pass `caller.uid`, so two concurrent takeovers by one staff member both matched — the first
+  writes `settle_by = uid`, the second sails through on that very term — and each minted its own
+  Stripe charge, because the off-session idempotency key is deliberately per-attempt. **That mutant
+  SURVIVED its first run**: nothing in the suite looked at the claim's predicate. The assertion came
+  before the fix was believed.
+- **A status is a snapshot.** The DB claim blocks a new `acquireCartLock`; it cannot stop the Payment
+  Element the diner already has mounted from confirming with its existing client secret. So a hold
+  read as `requires_action` can become `requires_capture` before the cancel lands — and Stripe still
+  permits cancelling that, so staff would revoke an authorization the guest had just given. Manual
+  capture is refused now on the intent's own `capture_method`, a fact rather than a race-able reading.
+- **A throw after the claim kept the freeze.** The retryable answer stranded every tender for the
+  settle TTL over a step that never ran.
+- **A failed pin clear settled anyway.** Logging and returning `acquired` handed the caller to
+  `getCartTotals`, which reads the pin still on the row — the exact defect clearing it prevents.
+- **And the split tip filter used the wrong base.** `amountCents − tipCents` is subtotal − discount
+  _plus_ service and tax, while the server tips on subtotal − discount alone, so a large taxable
+  share could hide a 30% the server would have accepted. The route returns `tipBaseCents` now, and
+  no rung above "No tip" is offered until it arrives.
+
 ### Codex rounds 1 and 2: claim before you cancel, and two boards that were still lying (2026-09-09)
 
 Nine findings across two rounds, three of them P1. Every one verified against source before acting;

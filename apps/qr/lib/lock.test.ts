@@ -15,6 +15,8 @@ type Q = {
   payload: Record<string, unknown>;
   eq: [string, unknown][];
   or: string[];
+  /** M197 — the claim's staleness re-test is an `.lte`, and nothing recorded it before. */
+  lte: [string, unknown][];
 };
 let queries: Q[] = [];
 function chain(q: Q) {
@@ -59,7 +61,7 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
-        const q: Q = { table, payload, eq: [], or: [] };
+        const q: Q = { table, payload, eq: [], or: [], lte: [] };
         queries.push(q);
         return opts?.count ? countChain(q) : chain(q);
       },
@@ -94,6 +96,10 @@ function countChain(q?: Q) {
       q?.or.push(expr);
       return api;
     },
+    lte: (col: string, val: unknown) => {
+      q?.lte.push([col, val]);
+      return api;
+    },
     then: (r: (v: { count: number | null; error: unknown }) => unknown) =>
       Promise.resolve({ count: updateCount, error: updateError }).then(r),
   };
@@ -112,6 +118,7 @@ const {
   unlinkPaymentIntent,
   releaseByIntent,
   acquireSettlement,
+  claimStaleSettlement,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -548,5 +555,50 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
       live_payment_intent_id: null,
     };
     expect(await acquireSettlement(CART, UID)).toBe("settling_other");
+  });
+});
+
+describe("claimStaleSettlement — the mutex, as a QUERY SHAPE (M197, Codex round 3)", () => {
+  it("names the attempt: the cart, open, LOCKED, a stale era, and THIS intent", async () => {
+    // Every term is load-bearing. Dropping the intent equality turns a claim on one abandoned
+    // attempt into a claim on the cart, so a create-intent that relinked in the gap would be
+    // cancelled; dropping the staleness re-test would let it win against an attempt that has just
+    // come back to life.
+    updateCount = 1;
+    const { claimed } = await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    expect(claimed).toBe(true);
+    const q = queries.find((x) => x.payload.settle_at !== undefined);
+    expect(q).toBeDefined();
+    const eq = Object.fromEntries(q!.eq);
+    expect(eq.id).toBe("cart-1");
+    expect(eq.status).toBe("open");
+    expect(eq.locked).toBe(true);
+    expect(eq.live_payment_intent_id).toBe("pi_abandoned");
+    expect(q!.lte.map(([c]) => c)).toContain("locked_at");
+  });
+
+  it("does NOT admit the same owner twice — this is a mutex, not a re-open", async () => {
+    // ⚠️ THE MUTANT THAT SURVIVED FIRST TIME (Codex round 3, P1). `acquireSettlement` carries a
+    // `settle_by.eq.<uid>` disjunct so a host can RE-OPEN their own split. The claim must not:
+    // `settleCash` and `closeSecureTab` both pass `caller.uid`, so with that term two concurrent
+    // takeovers by one staff member BOTH match — the first writes `settle_by = uid`, the second
+    // sails through on that very term — and each mints its own Stripe charge, because the
+    // off-session idempotency key is deliberately per-attempt. Nothing in the suite looked at this
+    // predicate, so the rule was unguarded until this assertion existed.
+    updateCount = 1;
+    await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    const q = queries.find((x) => x.payload.settle_at !== undefined);
+    const settleTerm = q!.or.find((o) => o.startsWith("settle_at.is.null"));
+    expect(settleTerm).toBeDefined();
+    expect(settleTerm).not.toContain("settle_by.eq.");
+  });
+
+  it("reports a lost claim as `claimed: false`, not as an error", async () => {
+    // Zero rows is the ANSWER — something moved under us — and the caller re-asks rather than
+    // cancelling anything. Conflating it with a write failure would send staff a fabricated outage.
+    updateCount = 0;
+    const { claimed, error } = await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    expect(claimed).toBe(false);
+    expect(error).toBeNull();
   });
 });

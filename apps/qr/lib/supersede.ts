@@ -1,5 +1,6 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
+import type Stripe from "stripe";
 import { getStripe } from "./stripe";
 import {
   classifyLiveIntent,
@@ -182,6 +183,64 @@ export async function supersedeCartIntent(
   return "cleared";
 }
 
+/**
+ * The settlement door's superseder: takes the CART and the INTENT it named, and refuses anything
+ * that could be committed money.
+ *
+ * ## Why this function exists at all (Codex round 3 on #275, P1)
+ *
+ * The takeover used to pass its diagnosed PaymentIntent id into a seam whose default was
+ * `supersedeCartIntent` — a function whose first parameter is a CART id. Both are `string`, so
+ * nothing typechecked wrong; in production it looked up a cart named `pi_…`, found none, returned
+ * `"cleared"` WITHOUT EVER CALLING STRIPE, and the takeover then cleared the real cart's pin and
+ * link and let staff settle while the diner's intent stayed confirmable. A double collect,
+ * introduced by the fix for the previous round's finding. The unit test could not see it either:
+ * its fake recorded the argument and asserted the intent id was passed, which is precisely the bug.
+ *
+ * So the parameters are now NAMED for what they are and the function is intent-level by
+ * construction. A caller cannot get this wrong by passing the right type to the wrong slot.
+ *
+ * ## Why manual capture is refused by KIND, not by status (Codex round 3, P1)
+ *
+ * `classifyLiveIntentForSettlement` treats `requires_capture` as committed money, and that is
+ * right — but a status is a SNAPSHOT. The DB claim stops a new `acquireCartLock`; it cannot stop
+ * the Payment Element the diner already has mounted from confirming with its existing client
+ * secret. So an intent read as `requires_action` can become `requires_capture` between our retrieve
+ * and our cancel, and Stripe still permits cancelling that — staff would revoke an authorization
+ * the guest had just given. A manual-capture intent is therefore refused in EVERY non-terminal
+ * state, on the intent's own `capture_method` (and the `pickup_manual` metadata as a belt), which
+ * is a fact about the intent rather than a race-able reading of it.
+ */
+export async function supersedeSettlementIntent(
+  cartId: string,
+  intentId: string,
+): Promise<SupersedeOutcome> {
+  const stripe = getStripe();
+  let live: Stripe.PaymentIntent;
+  try {
+    live = await stripe.paymentIntents.retrieve(intentId);
+  } catch (e) {
+    // A vanished intent cannot capture anything; anything else tells us nothing.
+    if ((e as { code?: string }).code === "resource_missing") return "cleared";
+    return "unknown";
+  }
+  // Terminal first: an already-cancelled hold is not money, and refusing it would leave the
+  // deadlock in place for exactly the carts this path exists to free.
+  if (live.status === "canceled") return "cleared";
+  const metadata = live.metadata as IntentMetadata;
+  if (live.capture_method === "manual" || metadata?.kind === "pickup_manual") return "captured";
+
+  const { outcome, cancelledHold } = await supersedeIntent(
+    intentId,
+    classifyLiveIntentForSettlement,
+  );
+  // A hold cannot reach here (refused above), so this is belt-and-braces for a future kind that
+  // carries the metadata without the manual capture method.
+  if (outcome === "cleared" && cancelledHold)
+    await recordSupersededHold(intentId, cartId, cancelledHold);
+  return outcome;
+}
+
 export type SafeRelease =
   | { released: true; error: null }
   | { released: false; error: ReleaseError; reason?: "paying" | "unknown" };
@@ -273,10 +332,16 @@ export type SettleTakeover =
 export async function acquireSettlementSuperseding(
   cartId: string,
   uid: string,
+  /**
+   * ⚠️ TWO NAMED PARAMETERS, and the default is INTENT-LEVEL. The previous shape took `(id,
+   * classify)` and defaulted to the CART-level `supersedeCartIntent`, so passing the diagnosed
+   * intent id compiled cleanly and did nothing at Stripe (Codex round 3, P1). Naming both is what
+   * makes that class of mistake impossible rather than merely fixed.
+   */
   supersede: (
-    id: string,
-    classify: (status: string) => LiveIntentVerdict,
-  ) => Promise<SupersedeOutcome> = supersedeCartIntent,
+    cartId: string,
+    intentId: string,
+  ) => Promise<SupersedeOutcome> = supersedeSettlementIntent,
 ): Promise<SettleTakeover> {
   const first = await acquireSettlement(cartId, uid);
   if (first !== "locked_stale") return first;
@@ -286,6 +351,10 @@ export async function acquireSettlementSuperseding(
   // mode-mismatched key — and this function is awaited by Server Actions that set `busy` before the
   // call and have no catch of their own, so an escaping rejection latches the staff control instead
   // of showing the retryable sentence this union exists to carry. A failure here is `unavailable`.
+  // ⚠️ TRACKED ACROSS THE TRY (Codex round 3, P2). Once the claim lands the freeze is a real block
+  // on every tender; a throw after that point converted to `unavailable` while LEAVING it held, so
+  // the retryable answer stranded the table for the settle TTL over a step that never ran.
+  let claimHeld = false;
   try {
     // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
     const live = await readLiveIntent(cartId);
@@ -307,10 +376,10 @@ export async function acquireSettlementSuperseding(
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
     if (!claimed) return collapse(await acquireSettlement(cartId, uid));
 
-    // ⚠️ THE STRICT TABLE, not the default one. See `classifyLiveIntentForSettlement`: this path
-    // does not move the era, so an authorized hold it cancelled would have been captured by the
-    // cron. From here the freeze is OURS, so every refusal below must give it back.
-    const outcome = await supersede(live, classifyLiveIntentForSettlement);
+    // From here the freeze is OURS, so every exit below must give it back. The strict verdict table
+    // and the manual-capture refusal live inside `supersedeSettlementIntent`.
+    claimHeld = true;
+    const outcome = await supersede(cartId, live);
     if (outcome !== "cleared") {
       await releaseSettlement(cartId);
       // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
@@ -327,12 +396,20 @@ export async function acquireSettlementSuperseding(
     // `releaseByIntent` clears pin AND link in one statement keyed on the intent, so a late webhook
     // naming a different one matches nothing.
     const { error: pinErr } = await releaseByIntent(cartId, live);
-    if (pinErr)
-      console.error("[settle] cancelled attempt's promo pin not cleared — totals may quote it", {
+    if (pinErr) {
+      // ⚠️ REFUSE, DO NOT PROCEED (Codex round 3, P2). Logging and returning `acquired` handed the
+      // caller straight to `getCartTotals`, which reads the pin that is still on the row — so the
+      // table is settled at the cancelled attempt's frozen discount, which is the exact defect
+      // clearing the pin exists to prevent. The intent is already dead, so nothing is lost by
+      // asking staff to tap again once the write succeeds.
+      console.error("[settle] cancelled attempt's promo pin not cleared — refusing to settle", {
         cartId,
         intentId: live,
         error: pinErr.message,
       });
+      await releaseSettlement(cartId);
+      return "unavailable";
+    }
     // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
     // losing what we hold.
     return "acquired";
@@ -341,6 +418,9 @@ export async function acquireSettlementSuperseding(
       cartId,
       error: e instanceof Error ? e.message : String(e),
     });
+    // Give back a freeze we took and then could not use. `releaseSettlement` is unconditional by
+    // cart and idempotent, and it only runs when the claim actually landed.
+    if (claimHeld) await releaseSettlement(cartId);
     return "unavailable";
   }
 }
