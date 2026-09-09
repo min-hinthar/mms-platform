@@ -72,6 +72,12 @@ let updatePatch: Row | null = null;
 let updatedRows: Row[] = [];
 let insertPatch: Row | null = null;
 let createdUserId: string | null = "new-uid";
+// The CONCURRENT CHANGE, modelled rather than asserted about: when set, the target's role moves the
+// instant after the action reads it, so the read succeeds (the ceiling and the self-check both run
+// on a real row) and the guarded UPDATE then matches nothing. Without this the "blocked write"
+// case can only be reached with a MISSING row, which the earlier `maybeSingle` refuses first — a
+// degenerate fixture that let the row-count check be deleted with the suite still green.
+let raceRoleAfterRead: string | null = null;
 
 function staffApi() {
   const eqs: [string, unknown][] = [];
@@ -108,7 +114,12 @@ function staffApi() {
     maybeSingle() {
       const r = targetRow;
       const hit = r !== null && eqs.every(([c, v]) => !(c in r) || r[c] === v);
-      return Promise.resolve({ data: hit ? r : null, error: null });
+      // A COPY of the row is handed back before the race is applied, so the action holds the value
+      // it genuinely read while the stored row moves under it — which is what a concurrent change
+      // does. Returning the live object would let the mutation rewrite history.
+      const snapshot = hit && r ? { ...r } : null;
+      if (hit && r && raceRoleAfterRead !== null) targetRow = { ...r, role: raceRoleAfterRead };
+      return Promise.resolve({ data: snapshot, error: null });
     },
     then(resolve: (r: { data: Row[]; error: null }) => void) {
       resolve({ data: [], error: null });
@@ -148,6 +159,7 @@ beforeEach(() => {
   };
   updateFilters = [];
   updatePatch = null;
+  raceRoleAfterRead = null;
   updatedRows = [];
   insertPatch = null;
   createdUserId = "new-uid";
@@ -295,14 +307,27 @@ describe("setStaffRole — the half of 'assign roles' that did not exist", () =>
     expect(updatePatch).toBeNull();
   });
 
-  it("reports the RACE rather than success when the guarded write matches nothing", async () => {
-    // `.update()` returns no row count, so a blocked write reports ok (the W17 rule). Here the row's
-    // role has already moved, so the statement's `.eq("role", …)` matches nothing.
-    targetRow = { ...(targetRow as Row), role: "server" };
+  it("refuses a member who is not there at all", async () => {
     const res = await setStaffRole({ userId: ABSENT, role: "manager" });
     expect(res.ok).toBe(false);
     if (res.ok) throw new Error("unreachable: asserted a refusal above");
     expect(res.error).toBe("No such staff member.");
+  });
+
+  it("reports the RACE rather than success when the guarded write matches nothing", async () => {
+    // The row EXISTS and is reachable, so the ceiling and the self-check both pass on a real row —
+    // and then its role moves before the UPDATE lands, so the statement's own `.eq("role", …)`
+    // matches nothing. `.update()` returns no row count, so without the row check this answers ok
+    // and the console renders a role nobody stored, which reverts on the next reload.
+    //
+    // ⚠️ The ABSENT-row case above CANNOT stand in for this: `maybeSingle` refuses it first, so the
+    // row-count check is never reached and the mutant that deletes it survives. That is precisely
+    // what happened on the first pass.
+    raceRoleAfterRead = "manager";
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("That role just changed — reload and try again.");
   });
 
   it("treats a no-op change as success without writing", async () => {
