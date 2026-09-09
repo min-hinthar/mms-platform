@@ -34,6 +34,31 @@ fired lines is a new write on a money-adjacent table (voided lines are excluded 
 `mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
 pass rather than folded into a read-only bound.
 
+### Codex round 5: stop patching branches, state the invariant (2026-09-09)
+
+Round 3 closed the claim. Round 4 closed the lost-claim re-ask. Round 5 found the **other** re-ask —
+and it is the one I had explicitly argued was safe, one round earlier, in writing.
+
+The argument was: _"no claim was attempted on this branch, so the loser-rides-the-winner sequence
+cannot arise."_ It can, because **the winner is what makes the branch reachable.** Request A claims,
+cancels and clears the link; request B — same staff uid, moments behind — reads the link and sees
+`null` _precisely because A cleared it_, never attempts a claim at all, and falls straight through
+the `!live` exit. `collapse` then passed on the `acquired` that `acquireSettlement` grants via its
+`settle_by.eq.<uid>` arm, and both requests minted an off-session PaymentIntent under a per-attempt
+idempotency key.
+
+Three rounds of the same shape is the signal that patching one branch at a time was the wrong method.
+The rule is now stated over the whole function rather than per exit: **once this call has been told
+the cart is `locked_stale`, only the exclusive claim may promote the request to `acquired`** — and
+the claim carries no same-owner arm. Every other exit is a diagnosis, not a grant. Both re-asks use
+`standDown`, which withholds the promotion while preserving the answer: staff still learn that the
+table closed, or that a colleague holds the freeze, and that direction is asserted too — flattening
+every verdict to "try again" against a cart that will never come back is its own failure.
+
+`acquireSettlement`'s same-owner arm is still not touched, and is now **unreachable from this
+function**. It remains a live hazard on `closeSecureTab`'s card path, where nothing de-duplicates the
+way the cash RPC does — **M201**, filed with its mechanism.
+
 ### Codex round 4: the round-3 fix moved the hole rather than closing it (2026-09-09)
 
 **P1 — a lost claim could be promoted back to `acquired`.** Round 3 removed `settle_by.eq.<uid>` from

@@ -1053,6 +1053,22 @@ const MUTANTS = [
     replace: '      return "acquired";\n    }\n    // The freeze is already ours',
   },
   {
+    id: "settle/no-intent-branch-promoted-to-acquired",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/settle-takeover.test.ts",
+    why: 'Codex round 5 P1 \u2014 the THIRD consecutive round in which a fix moved this hole instead of closing it, and the branch I had argued was safe. The reasoning that failed: "no claim was attempted here, so the loser-rides-the-winner sequence cannot arise". It can, because THE WINNER MAKES THIS BRANCH REACHABLE \u2014 request A claims, cancels and clears the link, so request B (same staff uid, moments behind) reads null precisely BECAUSE A cleared it, never attempts a claim, and falls through here. `collapse` then passed on the `acquired` that `acquireSettlement` grants via its `settle_by.eq.<uid>` arm, and both minted an off-session PaymentIntent under a per-attempt key',
+    find: "    if (!live) return standDown(await acquireSettlement(cartId, uid));",
+    replace: "    if (!live) return collapse(await acquireSettlement(cartId, uid));",
+  },
+  {
+    id: "settle/stand-down-flattens-the-diagnosis",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/settle-takeover.test.ts",
+    why: 'The over-blocking direction of the same rule. Refusing the GRANT must not flatten every diagnosis: staff still need to learn that the table closed, or that a colleague holds the freeze, or the screen says "try again" forever against a cart that will never come back. Standing down withholds promotion, it does not withhold the answer',
+    find: '  return r === "acquired" ? "unavailable" : collapse(r);',
+    replace: '  return "unavailable";',
+  },
+  {
     id: "settle/lost-claim-promoted-to-acquired",
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",

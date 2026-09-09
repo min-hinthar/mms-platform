@@ -358,9 +358,20 @@ export async function acquireSettlementSuperseding(
   try {
     // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
     const live = await readLiveIntent(cartId);
-    // The row stopped naming an intent between the acquire and this read — so the thing that made it
-    // `locked_stale` is gone. Re-ask rather than guess; the plain acquire can now take it.
-    if (!live) return collapse(await acquireSettlement(cartId, uid));
+    // ⚠️ STAND DOWN HERE TOO (Codex round 5 on #275, P1 — and I argued the opposite one round
+    // earlier, wrongly). The reasoning that failed was "no claim was attempted on this branch, so the
+    // loser-rides-the-winner sequence cannot arise". It can, because THE WINNER IS WHAT MAKES THIS
+    // BRANCH REACHABLE: request A claims, cancels and clears the link; request B — same staff uid,
+    // moments behind — reads `readLiveIntent` and sees `null` precisely BECAUSE A cleared it, so B
+    // never attempts a claim at all and falls straight through here. `collapse` then passed on the
+    // `acquired` that `acquireSettlement` grants via its `settle_by.eq.<uid>` arm, and both requests
+    // minted an off-session PaymentIntent under a per-attempt idempotency key.
+    //
+    // The rule is therefore about the FUNCTION, not about either branch: once this call has been
+    // told the cart is `locked_stale`, no later read inside it may promote the request to `acquired`
+    // — only the exclusive claim can, and the claim has no same-owner arm. Both re-asks now stand
+    // down, which closes the class rather than the third instance of it.
+    if (!live) return standDown(await acquireSettlement(cartId, uid));
 
     // ⚠️ CLAIM BEFORE CANCELLING (Codex round 2, P1). Until this succeeds we hold NO mutex, and the
     // diner can re-acquire the pay lock and link a live intent in the gap — which the old code then
@@ -453,10 +464,18 @@ function collapse(r: SettleResult): SettleTakeover {
  * closed, or a colleague is settling — and refuses the grant. `unavailable` is honest: we could not
  * complete this takeover, and it is worth another tap once the winner finishes.
  *
+ * ⚠️ BOTH RE-ASKS USE THIS, and that is the point (Codex round 5). Patching one branch at a time is
+ * what produced three consecutive rounds of "the fix moved the hole": round 3 closed the claim,
+ * round 4 closed the lost-claim re-ask, and round 5 found the `!live` re-ask — which the WINNER
+ * makes reachable by clearing the link. The invariant is stated over the whole function instead:
+ * once it has been told `locked_stale`, only the exclusive claim may promote this request, and the
+ * claim carries no same-owner arm. Every other exit is a diagnosis.
+ *
  * The same-owner arm in `acquireSettlement` is NOT touched here. It predates this PR, it is what
  * lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff cash
- * settles rely on a downstream RPC early-return rather than on the freeze. Narrowing it is filed as
- * M201 rather than done at the end of a four-round review on a money path.
+ * settles rely on a downstream RPC early-return rather than on the freeze. It remains a live hazard
+ * on `closeSecureTab`'s card path, which has no such RPC — filed as M201, and NOT reachable from
+ * this function any more.
  */
 function standDown(r: SettleResult): SettleTakeover {
   return r === "acquired" ? "unavailable" : collapse(r);

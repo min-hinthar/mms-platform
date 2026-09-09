@@ -198,13 +198,31 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(supersedeCalls).toBe(0);
   });
 
-  it("re-asks plainly when the row no longer names an intent", async () => {
-    // Whatever made it `locked_stale` is gone; the ordinary acquire can have it.
+  it("re-asks when the row no longer names an intent — and STILL will not be promoted", async () => {
+    // ⚠️ CODEX ROUND 5, P1, AND I ARGUED THE OPPOSITE ONE ROUND EARLIER. I claimed this branch was
+    // safe because "no claim was attempted, so the loser-rides-the-winner sequence cannot arise".
+    // It can, because THE WINNER IS WHAT MAKES THIS BRANCH REACHABLE: request A claims, cancels and
+    // clears the link; request B — same staff uid, moments behind — reads `readLiveIntent` and sees
+    // null precisely BECAUSE A cleared it, so B never attempts a claim and falls through here. The
+    // old `collapse` then passed on the `acquired` that `acquireSettlement` grants via
+    // `settle_by.eq.<uid>`, and both minted an off-session PaymentIntent under a per-attempt key.
     acquireResults = ["locked_stale", "acquired"];
     liveIntent = null;
-    expect(await takeover("c", "u")).toBe("acquired");
+    expect(await takeover("c", "u")).toBe("unavailable");
     expect(claimCalls).toHaveLength(0);
     expect(supersedeCalls).toBe(0);
+  });
+
+  it("still reports the REASON on both re-asks — standing down is not going silent", async () => {
+    // The over-blocking direction. Refusing the grant must not flatten every diagnosis to
+    // `unavailable`: staff still need to learn that the table closed, or that a colleague holds the
+    // freeze, or they are told "try again" forever against a cart that will never come back.
+    for (const answer of ["closed", "settling_other", "locked"] as const) {
+      acquireCalls = 0;
+      liveIntent = null;
+      acquireResults = ["locked_stale", answer];
+      expect(await takeover("c", "u")).toBe(answer);
+    }
   });
 
   it("REFUSES when the abandoned attempt turns out to be charging", async () => {
