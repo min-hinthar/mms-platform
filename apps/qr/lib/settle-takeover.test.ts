@@ -36,6 +36,8 @@ let acquireResults: SettleResult[] = [];
 let acquireThrowsFromCall: number | null = null;
 let releaseForThrows = false;
 let claimErrors = false;
+/** The era `claimStaleSettlement` reports writing — what scopes the post-claim releases. */
+const CLAIM_ERA = "2026-09-09T08:30:00.000Z";
 let acquireCalls = 0;
 let supersedeResult: SupersedeOutcome = "cleared";
 let supersedeCalls = 0;
@@ -46,7 +48,7 @@ let claimed = true;
 let pinClearFails = false;
 let supersedeThrows = false;
 let claimCalls: { intentId: string }[] = [];
-let probeReleases: { cartId: string; attemptId: string }[] = [];
+let probeReleases: { cartId: string; attemptId: string; settleAt?: string }[] = [];
 let acquireOwners: string[] = [];
 let released: string[] = [];
 let pinCleared: { cartId: string; intentId: string }[] = [];
@@ -74,15 +76,19 @@ vi.mock("./lock", () => ({
     if (claimErrors)
       // A LOST RESPONSE looks exactly like a rejected request here: claimed:false + an error, while
       // the UPDATE may already have committed settle_by = uid.
-      return Promise.resolve({ claimed: false, error: { message: "postgrest down" } });
-    return Promise.resolve({ claimed, error: null });
+      return Promise.resolve({
+        claimed: false,
+        error: { message: "postgrest down" },
+        settleAt: CLAIM_ERA,
+      });
+    return Promise.resolve({ claimed, error: null, settleAt: CLAIM_ERA });
   },
   releaseSettlement: (cartId: string) => {
     released.push(cartId);
     return Promise.resolve(null);
   },
-  releaseSettlementFor: (cartId: string, attemptId: string) => {
-    probeReleases.push({ cartId, attemptId });
+  releaseSettlementFor: (cartId: string, attemptId: string, settleAt?: string) => {
+    probeReleases.push({ cartId, attemptId, ...(settleAt === undefined ? {} : { settleAt }) });
     if (releaseForThrows) return Promise.reject(new Error("postgrest down"));
     return Promise.resolve(null);
   },
@@ -211,7 +217,7 @@ describe("acquireSettlementSuperseding — M197", () => {
     supersedeResult = "captured";
     expect(await takeover("c", "u")).toBe("paying");
     expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
-    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u", settleAt: CLAIM_ERA }]);
     expect(pinCleared).toEqual([]); // a captured attempt keeps its pin — the webhook reconciles it
   });
 
@@ -312,7 +318,7 @@ describe("acquireSettlementSuperseding — M197", () => {
     supersedeThrows = true;
     expect(await takeover("c", "u")).toBe("unavailable");
     expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
-    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u", settleAt: CLAIM_ERA }]);
   });
 
   it("does NOT release a freeze it never claimed", async () => {
@@ -331,7 +337,7 @@ describe("acquireSettlementSuperseding — M197", () => {
     pinClearFails = true;
     expect(await takeover("c", "u")).toBe("unavailable");
     expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
-    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u", settleAt: CLAIM_ERA }]);
   });
 });
 

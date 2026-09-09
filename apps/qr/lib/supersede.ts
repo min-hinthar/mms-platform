@@ -356,6 +356,9 @@ export async function acquireSettlementSuperseding(
   // on every tender; a throw after that point converted to `unavailable` while LEAVING it held, so
   // the retryable answer stranded the table for the settle TTL over a step that never ran.
   let claimHeld = false;
+  // Hoisted with `claimHeld` and for the same reason: the catch needs the era to scope its release,
+  // and a `const` inside the try is not in scope there.
+  let claimEra: string | undefined;
   try {
     // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
     const live = await readLiveIntent(cartId);
@@ -387,7 +390,8 @@ export async function acquireSettlementSuperseding(
     // blocks `acquireCartLock`, so this freezes the exact state we diagnosed; and the predicate
     // names THIS intent, so a create-intent that superseded and relinked in the meantime matches
     // zero rows. See `claimStaleSettlement`.
-    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
+    const { claimed, error: claimErr, settleAt } = await claimStaleSettlement(cartId, uid, live);
+    claimEra = settleAt;
     if (claimErr) {
       // ⚠️ THE CLEANUP THAT BELONGS HERE CANNOT BE WRITTEN YET, AND THAT IS THE FINDING
       // (Codex round 10 asked for it, round 11 showed why it is unsafe — I shipped it in between and
@@ -424,7 +428,7 @@ export async function acquireSettlementSuperseding(
     claimHeld = true;
     const outcome = await supersede(cartId, live);
     if (outcome !== "cleared") {
-      await releaseSettlementFor(cartId, uid);
+      await releaseSettlementFor(cartId, uid, settleAt);
       // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
       // diner is checking out when what actually happened is that we could not reach Stripe.
       return outcome === "captured" ? "paying" : "unavailable";
@@ -450,7 +454,7 @@ export async function acquireSettlementSuperseding(
         intentId: live,
         error: pinErr.message,
       });
-      await releaseSettlementFor(cartId, uid);
+      await releaseSettlementFor(cartId, uid, settleAt);
       return "unavailable";
     }
     // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
@@ -464,9 +468,17 @@ export async function acquireSettlementSuperseding(
     // Give back a freeze we took and then could not use — SCOPED to the owner we claimed under
     // (Codex round 8 on #275, P1). The unconditional form could not ask whether we still own what we
     // took: a diner decline landing mid-flight nulls our claim, a successor acquires with its own
-    // `settle_by`, and this release then removed THAT request's mutex. Scoping by `uid` matches zero
-    // rows once we no longer hold it. A same-uid successor is still reachable and is M201.
-    if (claimHeld) await releaseSettlementFor(cartId, uid);
+    // `settle_by`, and this release then removed THAT request's mutex.
+    //
+    // ⚠️ SCOPED BY THE ERA TOO, because `claimHeld` proves we wrote the row ONCE, not that we still
+    // own it (Codex round 12 on #275, P1). `releaseByIntent` can commit and lose its response; in
+    // that window a same-uid sibling sees the link cleared, satisfies both `acquireSettlement`
+    // disjuncts and rewrites `settle_at` under a byte-identical `settle_by`. Owner alone would then
+    // strip THAT request's mutex mid-charge. The era discriminates: every `settle_at` writer in this
+    // repo stamps a fresh timestamp and none restores an old one, so this matches zero rows the
+    // moment anyone takes the row over. M201 (a request-unique owner) makes the era unnecessary; it
+    // does not make it wrong.
+    if (claimHeld) await releaseSettlementFor(cartId, uid, claimEra);
     return "unavailable";
   }
 }

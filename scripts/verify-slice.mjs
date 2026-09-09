@@ -1024,7 +1024,7 @@ const MUTANTS = [
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
     why: "Codex round 3 P1 \u2014 the mutex that was not one. `acquireSettlement` carries a `settle_by.eq.<uid>` disjunct so a host can RE-OPEN their own split; the CLAIM must not, because `settleCash` and `closeSecureTab` both pass `caller.uid`. With it, two concurrent takeovers by the same staff member BOTH match \u2014 the first writes `settle_by = uid`, the second sails through on that very term \u2014 and each mints its own Stripe charge, since the off-session idempotency key is deliberately per-attempt",
-    find: "    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);\n  return { claimed: (count ?? 0) > 0, error };",
+    find: "    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);\n  return { claimed: (count ?? 0) > 0, error, settleAt };",
     replace:
       "    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${settleCutoff}`);\n  return { claimed: (count ?? 0) > 0, error };",
   },
@@ -1041,7 +1041,7 @@ const MUTANTS = [
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "Codex round 3 P2. Once the claim lands the freeze blocks every tender on a live table; converting a later throw to `unavailable` while still HOLDING it stranded cash, Terminal, tab-close and split for the settle TTL over a step that never ran \u2014 the deadlock M197 exists to end, reintroduced through its own error path",
-    find: "    if (claimHeld) await releaseSettlementFor(cartId, uid);",
+    find: "    if (claimHeld) await releaseSettlementFor(cartId, uid, claimEra);",
     replace: "    void claimHeld;",
   },
   {
@@ -1049,7 +1049,7 @@ const MUTANTS = [
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "Codex round 3 P2. Logging a failed `releaseByIntent` and returning `acquired` hands the caller straight to `getCartTotals`, which reads the pin STILL on the row \u2014 so the table settles at the cancelled attempt's frozen discount, which is the exact defect clearing the pin exists to prevent. The intent is already dead, so refusing costs one more tap and protects the amount",
-    find: '      await releaseSettlementFor(cartId, uid);\n      return "unavailable";\n    }\n    // The freeze is already ours',
+    find: '      await releaseSettlementFor(cartId, uid, settleAt);\n      return "unavailable";\n    }\n    // The freeze is already ours',
     replace: '      return "acquired";\n    }\n    // The freeze is already ours',
   },
   {
@@ -1126,12 +1126,21 @@ const MUTANTS = [
       '        ambiguous: true,\n      });\n      await releaseSettlementFor(cartId, uid);\n      return "unavailable";',
   },
   {
+    id: "settle/post-claim-release-ignores-the-era",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/settle-takeover.test.ts",
+    why: "Codex round 12 on #275, P1. `claimHeld` proves we wrote the row ONCE, not that we still own it: `releaseByIntent` can commit and lose its response, and in that window a same-uid sibling sees the link cleared, satisfies both `acquireSettlement` disjuncts and rewrites `settle_at` under a BYTE-IDENTICAL `settle_by`. Owner alone then strips THAT request's mutex mid-charge. The era is the discriminator \u2014 every `settle_at` writer in this repo stamps a fresh timestamp and none restores an old one \u2014 so dropping it is the shipped defect wearing the scoped call's clothes",
+    find: "    if (claimHeld) await releaseSettlementFor(cartId, uid, claimEra);",
+    replace: "    if (claimHeld) await releaseSettlementFor(cartId, uid);",
+  },
+  {
     id: "settle/post-claim-release-ignores-the-owner",
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "Codex round 8 on #275, P1. The catch knows WHAT WE CLAIMED but the unconditional release cannot ask whether we still hold it: a diner decline landing mid-flight nulls our claim, a successor acquires under its own `settle_by`, and a cart-scoped release then removes THAT request's mutex. Naming the cart as the owner is the same bug wearing the scoped call's clothes \u2014 it matches the row whoever holds it",
-    find: "    if (claimHeld) await releaseSettlementFor(cartId, uid);",
-    replace: "    if (claimHeld) await releaseSettlementFor(cartId, cartId);",
+    find: "      await releaseSettlementFor(cartId, uid, settleAt);\n      // `unknown` is not",
+    replace:
+      "      await releaseSettlementFor(cartId, cartId, settleAt);\n      // `unknown` is not",
   },
   {
     id: "settle/ambiguous-probe-acquire-strands-the-freeze",
@@ -1171,7 +1180,7 @@ const MUTANTS = [
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "M197, Codex round 2 P1 \u2014 THE SHIPPED TOCTOU. Until the claim lands this path holds NO mutex: between the acquire that answered `locked_stale` and the Stripe cancel, the diner can call create-intent, re-acquire the pay lock with a fresh era and link a live intent. The old code read the row FRESH and cancelled whatever it named \u2014 killing a resumed checkout \u2014 and the second acquire then refused staff anyway, so it destroyed a payment and gained nothing. create-intent's own use of the same supersede is safe precisely because it already holds the lock",
-    find: "    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);",
+    find: "    const { claimed, error: claimErr, settleAt } = await claimStaleSettlement(cartId, uid, live);",
     replace: "    const claimed = true, claimErr = null;",
   },
   {
@@ -1179,7 +1188,7 @@ const MUTANTS = [
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "The claim is a REAL freeze on a live table, taken before we know whether we may proceed. Refusing without giving it back strands cash, Terminal, tab-close and split for the settle TTL over an attempt we decided not to touch \u2014 the very deadlock M197 exists to end, reintroduced by its own fix",
-    find: "      await releaseSettlementFor(cartId, uid);\n      // `unknown` is not",
+    find: "      await releaseSettlementFor(cartId, uid, settleAt);\n      // `unknown` is not",
     replace: "      // `unknown` is not",
   },
   {

@@ -143,6 +143,26 @@ describe("releaseSettlementFor — the era guard lives IN the statement", () => 
     expect(q.eq).toContainEqual(["settle_by", "attempt-1"]);
   });
 
+  it("adds the ERA predicate when given one — owner alone cannot say WHICH request holds the row", async () => {
+    // Codex round 12 on #275, P1. `staff-cart.ts` passes `caller.uid` at both call sites, so a
+    // same-staff successor writes a byte-identical `settle_by`. Only the era separates our claim
+    // from theirs, and every `settle_at` writer in this repo stamps a fresh timestamp.
+    const era = "2026-09-09T08:30:00.000Z";
+    const err = await releaseSettlementFor("cart-1", "staff-uid", era);
+    expect(err).toBeNull();
+    const q = queries[0]!;
+    expect(q.eq).toContainEqual(["settle_by", "staff-uid"]);
+    expect(q.eq).toContainEqual(["settle_at", era]);
+  });
+
+  it("omits the era predicate when none is given — a request-unique owner does not need it", async () => {
+    // `terminal.ts`'s per-attempt id and `standDown`'s probe uuid are already unique, so scoping by
+    // owner alone is exact there. Adding an era they do not track would match zero rows forever.
+    await releaseSettlementFor("cart-1", "attempt-1");
+    const q = queries[0]!;
+    expect(q.eq.some(([col]) => col === "settle_at")).toBe(false);
+  });
+
   it("the unscoped release stays unscoped (the online paths' documented, TTL-backstopped shape)", async () => {
     await releaseSettlement("cart-1");
     const q = queries[0]!;
