@@ -543,6 +543,9 @@ export const STAFF = {
 
   // ── the order card ────────────────────────────────────────────────────────────────────────
   "table.detail.order.title": { en: "Order so far", my: "ယခုအထိ အော်ဒါ" },
+  // K33 — a SETTLED table's list is a record, not a running basket, so the heading stops saying
+  // "so far". Claude-authored MY draft pending Min's native check (K15).
+  "table.detail.order.settledTitle": { en: "Ordered", my: "မှာထားတဲ့ အော်ဒါ" },
   "table.detail.addItems": { en: "+ Add items", my: "+ ပစ္စည်း ထည့်" },
   "table.detail.cart.empty": { en: "Nothing in the cart yet.", my: "အော်ဒါထဲမှာ ဘာမှ မရှိသေးပါ။" },
   // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches

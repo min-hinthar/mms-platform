@@ -248,11 +248,14 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       .eq("session_id", sessionId)
       .eq("status", "open")
       .maybeSingle(),
+    // K33 — `id` so the settled order's LINES can be read back (a paid table used to render
+    // "Nothing in the cart yet"), and `refunded` admitted beside `paid` so a refunded table stops
+    // deriving as "seated". `total_cents` stays the authoritative snapshot either way.
     db
       .from("qr_orders")
-      .select("total_cents,created_at")
+      .select("id,total_cents,created_at,status")
       .eq("session_id", sessionId)
-      .eq("status", "paid")
+      .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
@@ -283,7 +286,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   if (cart) {
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
-      .select("id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes")
+      .select(
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers",
+      )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
     // An unread order is not an EMPTY order — "Nothing in the cart yet" over a live table's lines
@@ -330,6 +335,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
       notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)
+      // K33 — the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,
+      // so narrow it the way every other reader does rather than trusting the row's type.
+      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
     }));
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
@@ -338,6 +346,41 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     runningSubtotalCents = chargeable.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);
     // Latest line add = last activity (items are sorted ascending; qr_carts.updated_at isn't bumped).
     lastLineAt = items && items.length ? (items[items.length - 1]?.created_at ?? null) : null;
+  } else if (paid) {
+    // K33 — THE TABLE HAS PAID, AND ITS ORDER IS STILL THE ANSWER TO "what did they have?".
+    //
+    // The cart read above is `status = 'open'` and both fulfillment RPCs flip the cart to 'paid', so
+    // at the instant of settlement the whole `if (cart)` block stopped running and the drill-down
+    // printed "Nothing in the cart yet." over a table that had just eaten. The lines did not go
+    // anywhere — `mms_fulfill_order` copies them into `qr_order_items` — so read them from there.
+    //
+    // ⚠️ These are a RECORD, not a live basket. They are mapped into the same `TableLineView` the
+    // open-cart path produces (one shape, one renderer) but with `state: "served"` and every
+    // editable affordance off, and `itemCount`/`runningSubtotalCents` are deliberately LEFT AT ZERO:
+    // those two are the open-cart "so far" bindings that drive `LiveMoney`, and a settled table's
+    // authoritative figure is `paidTotalCents`. Amounts here are the fulfilment-time snapshot,
+    // rendered verbatim, never re-derived.
+    const { data: sold, error: soldError } = await db
+      .from("qr_order_items")
+      .select("id,name,qty,unit_price_cents,notes,modifiers,added_by")
+      .eq("order_id", paid.id)
+      .order("id", { ascending: true });
+    // Same posture as the open-cart read: an unread order is not an EMPTY one, and "nothing here"
+    // over a table that just paid is the exact false verdict this branch exists to end.
+    if (soldError) return { kind: "outage" };
+    lines = (sold ?? []).map((i) => ({
+      id: i.id,
+      name: i.name,
+      qty: i.qty,
+      unitPriceCents: i.unit_price_cents,
+      bySeatName: i.added_by ? (nameBySeat.get(i.added_by) ?? null) : null,
+      soldOut: false, // a served line cannot be re-ordered from this screen; 86 is irrelevant to it
+      state: "served" as TableLineView["state"],
+      comped: false, // a comped line never reaches qr_order_items — the fulfilment excludes it
+      pendingApproval: false, // approvals are cart-scoped and resolved before settlement
+      notes: i.notes ?? null,
+      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
+    }));
   }
 
   const paymentInFlight =
@@ -396,6 +439,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
 
   const detail: TableDetail = {
     sessionId: session.id,
+    // K33 — read the settled order's lines, so the surface says "Ordered" and never offers an editor.
+    settled: !cart && paid != null,
     cartId: cart?.id ?? null,
     label: session.qr_code,
     tableNumber: session.table_number,

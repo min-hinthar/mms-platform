@@ -4200,6 +4200,66 @@ const MUTANTS = [
     find: "    settlePromoCents = settleTotals.promoCents;\n",
     replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
+  // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
+  // The cart read is `status = 'open'` and both fulfillment RPCs flip the cart to 'paid', so every
+  // one of these mutations is invisible while a table is eating and only surfaces at settlement —
+  // the window with the most staff attention on the screen and the least tolerance for a wrong one.
+  {
+    id: "floor/settled-lines-read-the-wrong-order",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "K33 \u2014 the settled path reads the order's lines by `order_id`, and the session id is sitting right there in scope one argument away. Keyed wrong the read matches nothing and the branch maps an empty array, which restores the EXACT shipped defect the branch was written to end \u2014 \"Nothing in the cart yet.\" over a table that just ate \u2014 with every other field on the detail still correct, so the screen looks healthy",
+    find: "      .eq(\"order_id\", paid.id)\n",
+    replace: "      .eq(\"order_id\", sessionId)\n",
+  },
+  {
+    id: "floor/settled-lines-unread-reads-as-empty",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "the open-cart read has answered `outage` on an unreadable line list since W10b, and this one is the same posture at a new seam: an unread order is not an EMPTY order. Swallowed, a transient PostgREST failure renders a paid table with no lines and a real paid total beside it \u2014 a screen asserting the guests were charged for nothing, which is worse than the freeze",
+    find: "    if (soldError) return { kind: \"outage\" };\n",
+    replace: "",
+  },
+  {
+    id: "floor/settled-read-excludes-a-refunded-order",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "K33 \u2014 `refunded` is admitted beside `paid` so a refunded table stops deriving as `seated`. Drop it and the order vanishes from the drill-down at the moment staff most need it: a guest disputing a refund, with the lines that were refunded no longer on the one screen that can show them. `deriveFloorStatus` also flips the table back to an empty-looking `seated`, i.e. the floor re-offers a session that is finished",
+    find: "      .in(\"status\", [\"paid\", \"refunded\"])\n",
+    replace: "      .in(\"status\", [\"paid\"])\n",
+  },
+  {
+    id: "floor/settled-lines-leak-into-the-running-total",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "the plausible 'helpful' regression, and it is the W17 'name it ONCE' rule at this seam: `itemCount`/`runningSubtotalCents` are the OPEN-CART 'so far' bindings that drive `LiveMoney`, and a settled table's authoritative figure is `paidTotalCents`. Filling them from the settled lines prints a live-looking running basket beside the paid total \u2014 two numbers for one meal, the pre-tax one smaller than what was actually charged, on the screen a cashier reads while holding the guest's cash",
+    find: "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n  }\n",
+    replace: "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n    itemCount = lines.reduce((a, l) => a + l.qty, 0);\n    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);\n  }\n",
+  },
+  {
+    id: "floor/settled-lines-drop-the-options",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "K33 \u2014 `modifiers` is the chosen options as server-priced labels ('No egg', 'Extra spicy'), and the floor was the one staff surface that never carried them. Blanked here, a server checking back what a table ordered sees the dish and not the choice, which is precisely the question asked at the table ('did they say no egg?'). A jsonb column narrowed to `[]` is silent \u2014 no error, no empty state, just a line that looks plain",
+    find: "      pendingApproval: false, // approvals are cart-scoped and resolved before settlement\n      notes: i.notes ?? null,\n      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n",
+    replace: "      pendingApproval: false, // approvals are cart-scoped and resolved before settlement\n      notes: i.notes ?? null,\n      modifiers: [],\n",
+  },
+  {
+    id: "floor/open-lines-drop-the-options",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "the same loss on the LIVE side, and the one that reaches the kitchen: an open line's options are what the server reads back to confirm before firing. Two mutants rather than one because the two branches map independently \u2014 a single fix to either leaves the other blank, and the bare mapping line is byte-identical in both, so each is anchored on its own surrounding context",
+    find: "      // K33 \u2014 the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,\n      // so narrow it the way every other reader does rather than trusting the row's type.\n      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n",
+    replace: "      // K33 \u2014 the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,\n      // so narrow it the way every other reader does rather than trusting the row's type.\n      modifiers: [],\n",
+  },
+  {
+    id: "floor/detail-never-reports-settled",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "K33 \u2014 `settled` is what flips the drill-down's heading from 'Order so far' to 'Ordered' and takes the line editor off a record that can no longer be edited. False, the screen offers a stepper and a void button over lines that are already paid for and already in `qr_order_items`, where no write from this screen can reach them: every tap is a control that does nothing, on the surface staff trust to say what a table's state IS",
+    find: "    settled: !cart && paid != null,\n",
+    replace: "    settled: false,\n",
+  },
   // ── P7 · the doors (a REDIRECT decision) and the KDS text dial (a PAGE-SIZE decision) ───────────
   // Neither moves money, but both are authority: the first decides where a tablet lands and whether
   // it can ever leave, the second decides which tickets a page shows. Each rule is falsified by a

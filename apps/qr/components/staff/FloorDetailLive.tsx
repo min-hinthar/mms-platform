@@ -404,7 +404,11 @@ export function FloorDetailLive({
             >
               {/* `echo={false}`: this heading names the region through aria-labelledby AND is the
                 focus target the catch-all restores to — an echo would put both scripts in both. */}
-              <Chrome lang={lang} k="table.detail.order.title" />
+              {/* K33 — a settled table's lines are a record of what was eaten, not a live basket. */}
+              <Chrome
+                lang={lang}
+                k={detail.settled ? "table.detail.order.settledTitle" : "table.detail.order.title"}
+              />
             </h2>
             {canWrite && (
               <Link href={`/staff/table/${sessionId}/add`} style={addLink}>
@@ -452,6 +456,12 @@ export function FloorDetailLive({
                   <li key={l.id} style={lineRow}>
                     <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
                       <span style={{ fontWeight: 600 }}>{l.qty}×</span> {l.name}
+                      {/* K33 — the options the guest chose. The floor was the one staff surface that
+                          never showed them, so a server reading a table back could not tell a
+                          no-egg Mohinga from a plain one. Server-priced labels, rendered verbatim. */}
+                      {l.modifiers.length > 0 && (
+                        <span style={modsLine}>{l.modifiers.join(" · ")}</span>
+                      )}
                       {l.state === "voided" && (
                         <span style={offBadge}>
                           {" · "}
@@ -810,6 +820,13 @@ const sectionH: CSSProperties = {
   fontSize: "var(--fs-sm)",
   margin: "0 0 var(--s3)",
   color: "var(--t2)",
+};
+// K33 — the chosen options, under the dish name: quieter than the line, never its own row.
+const modsLine: CSSProperties = {
+  display: "block",
+  color: "var(--t3)",
+  fontSize: "var(--fs-sm)",
+  marginTop: 1,
 };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
 // A1 — the ask banner: attention tone (the same pair the Pay-at-counter chip wears), never color

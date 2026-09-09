@@ -81,12 +81,22 @@ export type TableLineView = {
   pendingApproval: boolean;
   /** W3b: the kitchen note (allergy/request). Staff set it on DRAFT lines; frozen once fired. */
   notes: string | null;
+  /** K33: the chosen options, as the server-priced labels stored on the line ("No egg", "Extra spicy").
+   *  A server reading a table back needs what was CHOSEN, not just the dish — the floor was the one
+   *  staff surface that never carried them. Empty array when the line has none. */
+  modifiers: string[];
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
 
 export type TableDetail = {
   sessionId: string;
+  /** K33: these lines came from the SETTLED order (`qr_order_items`), not an open cart — the table has
+   *  paid and `qr_carts.status` is no longer 'open'. The list is a read-only record of what was
+   *  ordered, so the surface says "Ordered" rather than "Order so far" and never offers an editor.
+   *  The "so far" money row stays hidden: `itemCount`/`runningSubtotalCents` are open-cart bindings
+   *  and a settled table's authoritative figure is `paidTotalCents`. */
+  settled: boolean;
   /** The open cart's id, when one exists — the detail view subscribes to its line changes for live
    *  updates (qr_carts.updated_at isn't bumped, so we watch qr_cart_items by cart_id directly). */
   cartId: string | null;
