@@ -399,8 +399,23 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
     await takeover("c", "u");
     expect(acquireOwners).toHaveLength(2);
     expect(acquireOwners[0]).toBe("u"); // the first, real acquire
-    expect(acquireOwners[1]).not.toBe("u"); // the probe
-    expect(acquireOwners[1]).toBe(probeReleases[0]!.attemptId);
+    expect(acquireOwners[1]).toBe(probeReleases[0]!.attemptId); // …and we release what we probed
+
+    // ⚠️ UNIQUENESS IS THE PROPERTY, NOT "DIFFERENT FROM THE UID" — and the first draft of this
+    // assertion tested the latter, so `verify:slice` reported the mutant SURVIVING: substituting
+    // `cartId` for the probe is still `!== uid` while being IDENTICAL across two concurrent requests
+    // on the same cart, which is exactly the collision the uuid exists to prevent. A second run must
+    // produce a different owner, and nothing constant can satisfy that.
+    const first = acquireOwners[1];
+    acquireCalls = 0;
+    probeReleases = [];
+    acquireOwners = [];
+    acquireResults = ["locked_stale", "acquired"];
+    await takeover("c", "u");
+    expect(acquireOwners[1]).not.toBe(first);
+    // It is also not merely a copy of either input.
+    expect(acquireOwners[1]).not.toBe("u");
+    expect(acquireOwners[1]).not.toBe("c");
   });
 
   it("releases nothing when the probe did not acquire", async () => {
