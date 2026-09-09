@@ -46,17 +46,29 @@ export function readStashedCallbackOutcome(): CallbackOutcome | null {
 }
 
 /**
- * Mark the one automatic recovery as spent.
+ * Mark the one automatic recovery as spent. Returns whether the marker actually PERSISTED.
  *
  * ⚠️ CALLED BEFORE THE REDIRECT, NEVER AFTER. The whole point is that the page is about to be left; a
  * flag written on the way back would be written by a page that may never load.
+ *
+ * ⚠️ AND IT REPORTS, RATHER THAN SWALLOWING — because the caller's next act is irreversible. A quota
+ * that admits the outcome key and then refuses this one throws here, and `readRecoveryAttempted`
+ * cannot cover it: that guard answers `true` only when the READ throws, and after a write-only
+ * failure the read succeeds and honestly answers `null` → false. So the next mount finds the bounce
+ * remembered, the attempt unrecorded, and fires a SECOND automatic redirect through Google — the
+ * loop the one-shot exists to make impossible. A caller that cannot record the attempt must not
+ * spend it; the manual button is always rendered behind this.
+ *
+ * The write is read BACK rather than trusted: `setItem` can resolve without storing in some
+ * private-mode implementations, which is the same "a failure must never read as success" rule the
+ * merge-token stash follows one module over.
  */
-export function markRecoveryAttempted(): void {
+export function markRecoveryAttempted(): boolean {
   try {
     window.sessionStorage.setItem(ATTEMPT_KEY, "1");
+    return window.sessionStorage.getItem(ATTEMPT_KEY) !== null;
   } catch {
-    /* cannot remember the attempt → fall through to the MANUAL recovery, never to a second automatic
-       one: `readRecoveryAttempted` answers true on a storage failure for exactly this reason */
+    return false;
   }
 }
 

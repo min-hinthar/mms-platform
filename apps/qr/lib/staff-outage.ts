@@ -57,6 +57,20 @@ export const STAFF_WRITE_OUTAGE =
 export const STAFF_WRITE_OUTAGE_MY = STAFF["out.write.failed"].my;
 
 /**
+ * M209 — the refusal for "we could not CHECK your authority", which is NOT the refusal for "you may
+ * not". It lives here, beside its twin and in a PLAIN module, for the same reason
+ * `STAFF_WRITE_OUTAGE` does: `lib/staff-actions.ts` is `"use server"`, so a client renderer cannot
+ * import from it, and `<OutageText>` matches by string IDENTITY at the render site.
+ *
+ * Deliberately not reusing `STAFF_WRITE_OUTAGE`: that sentence says a change was not saved and to
+ * keep it on paper. Neither is true here — no write was attempted, and "keep it on paper" is not an
+ * answer to a role edit. Sharing the string would have localized it for free and lied in two tongues.
+ */
+export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;
+/** The Burmese twin, picked at the render site by `<OutageText>`. */
+export const AUTHORITY_UNCONFIRMED_MY = STAFF["out.authority.unconfirmed"].my;
+
+/**
  * The nouns a frozen board can be showing. Narrowed to the dictionary's `what.*` keys so a board
  * cannot pass a free string: the previous signature took `what: string`, which meant every call site
  * carried its own English literal and no translation could reach them.

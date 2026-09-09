@@ -328,6 +328,117 @@ describe("the carry is secured before the session is abandoned", () => {
   });
 });
 
+describe("round 1 — the doors that could race, and the one that must lose", () => {
+  it("a lend-mode ?resume= SUPPRESSES the automatic recovery entirely", async () => {
+    // ⚠️ THE MONEY CASE, and the one my own earlier resume test hid by setting the spent flag to
+    // "isolate" the paths — which meant they were never exercised together at all. With both params
+    // present the auto-recovery would mint and carry the FRIEND's Stars into the OWNER's account,
+    // which is exactly what the merge-suppressed resume path exists to prevent.
+    window.history.replaceState(null, "", `/account?error_code=${BOUNCE}&resume=owner%40x.com`);
+    params = new URLSearchParams(`error_code=${BOUNCE}&resume=owner@x.com`);
+    // Attempt NOT spent — the recovery is otherwise fully armed, so only the resume rule stops it.
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
+    // No token was minted, so nothing of the friend's could travel.
+    expect(mintMergeToken).not.toHaveBeenCalled();
+    expect(stored).toBeNull();
+    // And the manual recovery is still offered: after a handover, which account is a person's call.
+    expect(screen.getByRole("button", { name: /Sign in with Google/i })).toBeTruthy();
+  });
+
+  it("a manual press during the deferred frame does not start a SECOND mint", async () => {
+    // Two concurrent mints delete each other's rows via mintMergeToken's `.neq("token", …)` prune,
+    // leaving a stashed token whose row is gone — every check passes and the proof is worthless.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    render(<AccountUpgrade stars={3} />);
+    // Press BEFORE flushing, so the manual handler and the auto-recovery frame overlap.
+    fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
+    await flushFrames();
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalled());
+
+    expect(mintMergeToken).toHaveBeenCalledTimes(1);
+    expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1);
+  });
+
+  it("releases the lock when a start fails, so the card is never wedged", async () => {
+    // The other direction: a lock that is taken and not released turns one refusal into a dead card.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    window.sessionStorage.setItem("mms.oauth_recovered", "1");
+    auth.signInWithOAuth.mockResolvedValueOnce({ error: { message: "provider down" } });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
+
+    auth.signInWithOAuth.mockResolvedValue({ error: null });
+    fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(2));
+  });
+
+  it("does not spend the attempt when the marker could not be recorded", async () => {
+    // Redirecting on an unrecorded attempt is how the one-shot becomes a loop.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    const realSet = Storage.prototype.setItem;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+      this: Storage,
+      k: string,
+      v: string,
+    ) {
+      if (k === "mms.oauth_recovered") throw new Error("QuotaExceededError");
+      realSet.call(this, k, v);
+    });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
+    // The manual button carries the diner instead.
+    expect(screen.getByRole("button", { name: /Sign in with Google/i })).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it("hands the card back when the automatic start REJECTS outright", async () => {
+    // A fire-and-forget call has nothing downstream to surface a rejection, so `busy` stuck true and
+    // the manual button stayed disabled with an unbound token still stashed.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    auth.signInWithOAuth.mockRejectedValue(new Error("storage unavailable"));
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalled());
+
+    expect(stored).toBeNull(); // the unbound proof is cleared, not left for the next person
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /Sign in with Google/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
+  it("the escape hatch resumes the EMAIL flow when email was what blocked", async () => {
+    // Wiring it straight to Google sent a diner who had typed an address to a different provider,
+    // plausibly a different account. Continuing without your Stars is not consent to that.
+    mintMergeToken.mockResolvedValue({ kind: "failed" });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /leave this device’s Stars behind/i }));
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    expect(auth.signInWithOtp.mock.calls[0]?.[0]).toMatchObject({ email: "me@example.com" });
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
+  });
+});
+
 describe("a11y", () => {
   it("keeps exactly ONE live region on the card", async () => {
     params = new URLSearchParams(`error_code=${BOUNCE}`);

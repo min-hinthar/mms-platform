@@ -13,7 +13,12 @@ import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
 import { mintMergeToken } from "@/lib/merge";
 import { stashMergeToken, clearMergeToken, readMergeToken } from "@/lib/mergeTokenStore";
-import { decideCarry, CARRY_OVERRIDE_LABEL, MINT_TRANSPORT_FAILURE } from "@/lib/merge-carry";
+import {
+  decideCarry,
+  CARRY_OVERRIDE_LABEL,
+  MINT_TRANSPORT_FAILURE,
+  type CarryBlock,
+} from "@/lib/merge-carry";
 import {
   readCallbackOutcome,
   callbackMessage,
@@ -60,10 +65,31 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
 
   /**
-   * A7b — the carry could not be secured, so the sign-in was NOT started. Holds the honest message plus
-   * the explicit way through; null whenever there is nothing to warn about.
+   * A7b — the carry could not be secured, so the sign-in was NOT started. Holds the honest message AND
+   * which flow was blocked, so the escape hatch resumes THAT one; null whenever there is nothing to
+   * warn about. See `CarryBlock` in `lib/merge-carry.ts` for why the method has to travel with it.
    */
-  const [carryBlocked, setCarryBlocked] = useState<string | null>(null);
+  const [carryBlocked, setCarryBlocked] = useState<CarryBlock | null>(null);
+
+  /**
+   * ⚠️ ONE LOCK ACROSS EVERY DOOR THAT MINTS — the automatic recovery, the Google button and the
+   * email-taken submit all reach `mintMergeToken`, and until A7b's round-1 fix nothing stopped two of
+   * them running at once. `autoRecoverFired` guarded only the automatic path, so a diner who pressed
+   * "Sign in with Google" before the deferred frame ran got both.
+   *
+   * Concurrent mints do not merely duplicate work, they DESTROY the proof. Each `mintMergeToken`
+   * inserts its row and then prunes this anon's others with `.neq("token", token)` — so with A and B
+   * in flight, A's prune deletes B's row and B's prune deletes A's. Both `stashMergeToken` calls
+   * write the same localStorage key, the last one wins, and `decideCarry` reads it back and sees a
+   * token that matches the mint it knows about. Every check passes; the ROW behind the stashed token
+   * is gone. The redirect then abandons the anonymous uid holding this device's orders with a proof
+   * that resolves to nothing — the exact permanent orphan this whole slice exists to close, reached
+   * through a second door.
+   *
+   * Held through a SUCCESSFUL start (the page is leaving; a second start would be nonsense) and
+   * released on every failure path, so a refusal never wedges the card.
+   */
+  const signInStarting = useRef(false);
 
   // K7 shared-device — sign INTO a pre-existing account. `bringStars` is the merge-safety hinge: a genuine
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
@@ -71,6 +97,8 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   // session's guest Stars are NEVER swept onto the account being switched to — and clears any stale token.
   const sendSignInCode = useCallback(
     async (addr: string, bringStars: boolean): Promise<boolean> => {
+      if (signInStarting.current) return false; // another door is already starting one — see `signInStarting`
+      signInStarting.current = true;
       const supa = browserClient();
       if (bringStars) {
         // A7b — same rule as the Google path, same reason: `verifyOtp({ type: "email" })` signs into a
@@ -83,7 +111,8 @@ export function AccountUpgrade({ stars }: { stars: number }) {
         if (outcome.kind === "minted") stashMergeToken(outcome.token);
         const decision = decideCarry(outcome, outcome.kind === "minted" ? readMergeToken() : null);
         if (decision.kind === "blocked") {
-          setCarryBlocked(decision.message);
+          setCarryBlocked({ message: decision.message, flow: { method: "email", email: addr } });
+          signInStarting.current = false;
           return false;
         }
       } else {
@@ -95,8 +124,11 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       });
       if (e0) {
         setError(e0.message || "Couldn’t send the sign-in code — try again.");
+        signInStarting.current = false;
         return false;
       }
+      // The code is on its way; this start is spent. Releasing lets the diner ask for another.
+      signInStarting.current = false;
       setEmail(addr);
       setCodeMode("email");
       setPhase("code");
@@ -106,6 +138,8 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   );
 
   const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<boolean> => {
+    if (signInStarting.current) return false; // one start at a time, whichever door — see `signInStarting`
+    signInStarting.current = true;
     const supa = browserClient();
     if (bringStars) {
       // ⚠️ A7b — THE MINT IS LOAD-BEARING ON THIS PATH, NOT BEST-EFFORT. `signInWithOAuth` switches uid,
@@ -124,18 +158,28 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       // only exists server-side is one MergeRedeemer will never find.
       const decision = decideCarry(outcome, outcome.kind === "minted" ? readMergeToken() : null);
       if (decision.kind === "blocked") {
-        setCarryBlocked(decision.message);
+        setCarryBlocked({ message: decision.message, flow: { method: "google" } });
         setBusy(false);
         setSelectedEmail(null);
+        signInStarting.current = false;
         return false;
       }
     } else {
       clearMergeToken();
     }
-    const { error: e4 } = await supa.auth.signInWithOAuth({
-      provider: "google",
-      options: { redirectTo: `${window.location.origin}/account` },
-    });
+    // ⚠️ THE CALL CAN REJECT, NOT ONLY RETURN `{ error }`. auth-js builds the PKCE URL and writes the
+    // code verifier to storage BEFORE it resolves, so a storage or browser failure throws instead of
+    // answering. Reading only `{ error }` left that rejection unhandled: `busy` stayed true so the
+    // manual recovery button was disabled, and the token stashed a moment earlier stayed live for a
+    // later unrelated sign-in on this device. Both arms now end the same way.
+    const { error: e4 } = await supa.auth
+      .signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: `${window.location.origin}/account` },
+      })
+      .catch((e: unknown) => ({
+        error: { message: e instanceof Error ? e.message : "Couldn’t reach Google — try again." },
+      }));
     if (e4) {
       // The redirect never happened, so a token stashed a moment ago is now UNBOUND — nothing will
       // consume it, it lives 24h, and `MergeRedeemer` redeems on ANY later non-anon sign-in on this
@@ -145,6 +189,7 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       setError(e4.message || "Couldn’t sign in with Google — try again.");
       setBusy(false);
       setSelectedEmail(null);
+      signInStarting.current = false;
       return false;
     }
     // success → full-page redirect to Google, returns to /account
@@ -200,6 +245,15 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   const [callback, setCallback] = useState<CallbackOutcome | null>(() =>
     readCallbackOutcome(searchParams.get("error_code"), searchParams.get("error")),
   );
+  /**
+   * Was a lend-mode `?resume=` present when this card first rendered?
+   *
+   * Captured once for the same reason the bounce is: the resume effect deletes its own param as soon as
+   * it fires, so a live read from the auto-recovery frame could find nothing and conclude there was no
+   * resume — the precedence rule would then be decided by which effect happened to run first, which is
+   * the race it exists to settle.
+   */
+  const [lendResumeAtMount] = useState(() => searchParams.get("resume") != null);
   const callbackError = callbackMessage(callback);
 
   // Focus follows the step (WCAG 2.4.3): email→code swaps the form (the pressed submit unmounts), and
@@ -269,14 +323,28 @@ export function AccountUpgrade({ stars }: { stars: number }) {
         return;
       }
       stashCallbackOutcome(callback);
-      if (!shouldAutoRecover(callback, readRecoveryAttempted())) return;
+      // ⚠️ A LEND RESUME OUTRANKS THIS — captured at first render, because the resume effect strips its
+      // own param once it fires and a live read here could miss it. See `shouldAutoRecover`.
+      if (!shouldAutoRecover(callback, readRecoveryAttempted(), lendResumeAtMount)) return;
       autoRecoverFired.current = true;
-      markRecoveryAttempted();
+      // ⚠️ SPEND THE ATTEMPT ONLY IF IT WAS RECORDED. A quota that admits the outcome key and refuses
+      // this one leaves no marker, and `readRecoveryAttempted` cannot cover it — that guard answers
+      // true only when the READ throws, and here the read succeeds and honestly says "not attempted".
+      // Redirecting anyway means the next mount finds the bounce remembered and the attempt unrecorded
+      // and fires a SECOND automatic trip through Google: the loop the one-shot exists to prevent.
+      // Falling through leaves the manual button, which is always rendered.
+      if (!markRecoveryAttempted()) return;
       setBusy(true);
-      void startGoogleSignIn(true);
+      // The start can reject outright (see its own catch); nothing downstream of a fire-and-forget call
+      // would surface that, so the card is handed back here rather than left disabled at `busy`.
+      void startGoogleSignIn(true).catch(() => {
+        clearMergeToken();
+        setBusy(false);
+        setError("Couldn’t reach Google — try again.");
+      });
     });
     return () => cancelAnimationFrame(raf);
-  }, [callback, startGoogleSignIn]);
+  }, [callback, startGoogleSignIn, lendResumeAtMount]);
 
   // Refresh the Server Components once the account CONFIRMS. The Google OAuth return exchanges the PKCE code
   // client-side AFTER the initial SSR (which saw anonymous cookies), so `/account`'s RewardsHub + this card
@@ -625,8 +693,21 @@ export function AccountUpgrade({ stars }: { stars: number }) {
         <button
           type="button"
           onClick={() => {
+            // ⚠️ RESUME THE FLOW THAT WAS BLOCKED, never a different one. Both the Google recovery and
+            // the email-taken recovery mint, so both can land here — and wiring this straight to Google
+            // sent a diner who had typed an email address to a different provider, plausibly a
+            // different account. "Continue without your Stars" is consent about the STARS, not consent
+            // to sign in as somebody else.
+            const flow = carryBlocked.flow;
             setCarryBlocked(null);
             setBusy(true);
+            if (flow.method === "email") {
+              void sendSignInCode(flow.email, false).then((ok) => {
+                setBusy(false);
+                if (!ok) setSelectedEmail(null);
+              });
+              return;
+            }
             void startGoogleSignIn(false);
           }}
           disabled={busy}
@@ -645,7 +726,7 @@ export function AccountUpgrade({ stars }: { stars: number }) {
           // A7b — a blocked carry outranks both recoveries below: it is the only one describing value
           // that is about to be destroyed, and it is a real change to this persistent node, so it DOES
           // announce (unlike the SSR-initial callbackError).
-          carryBlocked ??
+          carryBlocked?.message ??
           // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
           // button is gone, so the directive would contradict the screen (the diner already tapped it).
           (emailTaken && phase === "idle"

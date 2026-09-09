@@ -77,9 +77,25 @@ describe("the one-shot attempt flag", () => {
     expect(readRecoveryAttempted()).toBe(false);
   });
 
-  it("is set once marked", () => {
-    markRecoveryAttempted();
+  it("is set once marked, and REPORTS that it persisted", () => {
+    expect(markRecoveryAttempted()).toBe(true);
     expect(readRecoveryAttempted()).toBe(true);
+  });
+
+  it("reports FALSE when the write throws, so the caller can decline to spend the attempt", () => {
+    // ⚠️ `readRecoveryAttempted` cannot cover this: it answers true only when the READ throws. A quota
+    // that admits the outcome key and refuses this one leaves the read working and honestly answering
+    // "not attempted" — so without a return value the caller redirects, and the next mount finds the
+    // bounce remembered with no marker and redirects AGAIN. That is the loop the one-shot prevents.
+    breakStorage();
+    expect(markRecoveryAttempted()).toBe(false);
+  });
+
+  it("reports FALSE when setItem resolves but stores nothing", () => {
+    // Some private-mode implementations accept the write and drop it. A write that cannot be read
+    // back did not happen — the same rule the merge-token stash follows one module over.
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {});
+    expect(markRecoveryAttempted()).toBe(false);
   });
 
   it("answers TRUE when storage is unavailable — the fail-safe direction", () => {

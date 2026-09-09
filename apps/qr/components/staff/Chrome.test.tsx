@@ -3,7 +3,12 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Chrome, OutageText } from "./Chrome";
 import { al, chromeVisible, type ChromeEcho } from "@/lib/staff-labels";
-import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "@/lib/staff-outage";
+import {
+  STAFF_WRITE_OUTAGE,
+  STAFF_WRITE_OUTAGE_MY,
+  AUTHORITY_UNCONFIRMED,
+  AUTHORITY_UNCONFIRMED_MY,
+} from "@/lib/staff-outage";
 
 /**
  * P2 · G10 — the pair renderer's three rules, asserted on the rendered tree.
@@ -127,6 +132,32 @@ describe("OutageText — the one server sentence with a Burmese twin", () => {
     );
     expect(container.textContent).toContain("#A12");
     expect(container.textContent).not.toContain(STAFF_WRITE_OUTAGE_MY);
+  });
+
+  it("translates the AUTHORITY-outage refusal too, and not into the write-outage words", () => {
+    // M209 shipped a second outage sentence, and Codex round 1 on #279 caught it rendering as
+    // English on a Burmese console — the swap is by identity, so a new sentence needs a new twin.
+    // Its meaning differs from the write outage: nothing was attempted, so "keep it on paper" would
+    // be false. The two must not collapse into one string just to get a free translation.
+    const { container } = render(<OutageText lang="my" error={AUTHORITY_UNCONFIRMED} />);
+    const marked = container.querySelector('[lang="my"]')!;
+    expect(marked.textContent).toBe(AUTHORITY_UNCONFIRMED_MY);
+    expect(marked.className).toContain("chrome-my");
+    expect(marked.textContent).not.toBe(STAFF_WRITE_OUTAGE_MY);
+  });
+
+  it("keeps the two outage sentences DISTINCT in both tongues", () => {
+    // If either pair collapses, one of the two situations is being described by the other's words.
+    expect(AUTHORITY_UNCONFIRMED).not.toBe(STAFF_WRITE_OUTAGE);
+    expect(AUTHORITY_UNCONFIRMED_MY).not.toBe(STAFF_WRITE_OUTAGE_MY);
+    // And the authority refusal must never tell a manager to fall back to paper.
+    expect(AUTHORITY_UNCONFIRMED).not.toMatch(/paper/i);
+  });
+
+  it("shows the authority refusal verbatim in English", () => {
+    const { container } = render(<OutageText lang="en" error={AUTHORITY_UNCONFIRMED} />);
+    expect(container.querySelectorAll("*")).toHaveLength(0);
+    expect(container.textContent).toBe(AUTHORITY_UNCONFIRMED);
   });
 });
 

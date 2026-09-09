@@ -67,3 +67,18 @@ export function decideCarry(outcome: MintOutcome, stashedBack: string | null): C
  * performs, and nothing can reach them afterwards.
  */
 export const CARRY_OVERRIDE_LABEL = "Sign in without them — leave this device’s Stars behind";
+
+/**
+ * WHICH sign-in the carry blocked, so the escape hatch can resume THAT one.
+ *
+ * ⚠️ THE HATCH MUST NOT CHANGE THE METHOD, AND IT DID. Both entry points mint — the Google recovery and
+ * the email-taken recovery — so both can be blocked, and both render the same control. Wiring it
+ * straight to `startGoogleSignIn(false)` meant a diner who had typed an email address and asked for a
+ * code got sent to Google instead: a different provider, plausibly a different account, chosen by the
+ * program rather than by them. "Continue without your Stars" is a decision about the STARS; it is not
+ * consent to sign in as somebody else.
+ */
+export type BlockedFlow = { method: "google" } | { method: "email"; email: string };
+
+/** A blocked carry, with the method it blocked so the hatch resumes rather than redirects. */
+export type CarryBlock = { message: string; flow: BlockedFlow };

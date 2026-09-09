@@ -127,19 +127,42 @@ describe("callbackMessage", () => {
 
 describe("shouldAutoRecover", () => {
   it("completes an already-linked bounce without a second press", () => {
-    expect(shouldAutoRecover({ kind: "already-linked" }, false)).toBe(true);
+    expect(shouldAutoRecover({ kind: "already-linked" }, false, false)).toBe(true);
   });
 
   it("refuses a SECOND automatic attempt — the loop guard", () => {
-    expect(shouldAutoRecover({ kind: "already-linked" }, true)).toBe(false);
+    expect(shouldAutoRecover({ kind: "already-linked" }, true, false)).toBe(false);
   });
 
   it("never auto-recovers a bounce we cannot name", () => {
     // Redirecting into an unknown failure is how a loop gets built.
-    expect(shouldAutoRecover({ kind: "generic" }, false)).toBe(false);
+    expect(shouldAutoRecover({ kind: "generic" }, false, false)).toBe(false);
   });
 
   it("never auto-recovers an ordinary visit", () => {
-    expect(shouldAutoRecover(null, false)).toBe(false);
+    expect(shouldAutoRecover(null, false, false)).toBe(false);
+  });
+
+  it("STANDS DOWN for a lend-mode resume, even on a fresh unspent attempt", () => {
+    // ⚠️ The money case. `?resume=` is the owner returning after lending the device, and that path is
+    // deliberately merge-SUPPRESSED so the friend's Stars are never swept onto the owner's account.
+    // The recovery does the opposite — it mints and carries. With both present the recovery must lose,
+    // and the diner keeps the manual button: after a handover, which account to sign into is a
+    // person's decision.
+    expect(shouldAutoRecover({ kind: "already-linked" }, false, true)).toBe(false);
+  });
+
+  it("lets the resume win over EVERY other input, so the rule cannot be out-voted", () => {
+    // Asserted across the whole product rather than on one combination: a resume must veto regardless
+    // of outcome or attempt state, so no future arm can reorder its way past it.
+    for (const outcome of [
+      null,
+      { kind: "already-linked" } as const,
+      { kind: "generic" } as const,
+    ]) {
+      for (const attempted of [false, true]) {
+        expect(shouldAutoRecover(outcome, attempted, true)).toBe(false);
+      }
+    }
   });
 });

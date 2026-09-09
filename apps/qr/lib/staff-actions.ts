@@ -21,8 +21,13 @@ const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
  * M209 — the refusal for "we could not check", which is NOT the refusal for "you may not".
  * Naming the outage keeps a database hiccup from telling a manager they are not one, while still
  * refusing the write it could not authorize.
+ *
+ * Imported from `lib/staff-outage` rather than written here: this module is `"use server"`, so a
+ * client renderer cannot reach it, and `<OutageText>` picks the Burmese twin by string IDENTITY.
+ * A literal defined here would have been correct English and silently untranslated — which is what
+ * Codex round 1 on #279 caught, on the one console whose job is telling someone their authority.
  */
-const AUTHORITY_UNCONFIRMED = "We couldn’t confirm your access just now — try again in a moment.";
+import { AUTHORITY_UNCONFIRMED } from "./staff-outage";
 /** The one mapping from a refused authority refresh to what the console should say. */
 function authorityRefusal(reason: "revoked" | "outage"): string {
   return reason === "outage" ? AUTHORITY_UNCONFIRMED : MANAGERS_ONLY;

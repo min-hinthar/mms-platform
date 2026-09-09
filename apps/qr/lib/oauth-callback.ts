@@ -93,7 +93,22 @@ export function googleButtonLabel(outcome: CallbackOutcome | null): string {
  * BEFORE the redirect, so a bounce that somehow returned to this same state could not re-fire. A
  * `generic` bounce never auto-recovers: we do not know what failed, and redirecting into an unknown
  * failure is how a loop is built.
+ *
+ * ⚠️ A LEND-MODE RESUME OUTRANKS THE RECOVERY, and getting this backwards moves somebody else's
+ * Stars. `?resume=` is the OWNER coming back to their own account after lending the device, and
+ * that path is deliberately merge-SUPPRESSED (`bringStars: false`) so the friend's rewards are
+ * never swept onto the owner. The recovery is the opposite: it mints a token and carries whatever
+ * this device holds. With both present and no rule between them, the auto-recovery fires from an
+ * effect registered FIRST and wins the race — handing the owner the friend's Stars, which is
+ * exactly what the resume path exists to prevent. Serializing them is not enough; the recovery has
+ * to lose. The diner keeps the manual button, which is the right shape anyway: after a handover,
+ * whose account to sign into is a person's decision, not the program's.
  */
-export function shouldAutoRecover(outcome: CallbackOutcome | null, attempted: boolean): boolean {
+export function shouldAutoRecover(
+  outcome: CallbackOutcome | null,
+  attempted: boolean,
+  lendResumePresent: boolean,
+): boolean {
+  if (lendResumePresent) return false;
   return outcome?.kind === "already-linked" && !attempted;
 }

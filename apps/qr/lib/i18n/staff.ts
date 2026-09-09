@@ -99,6 +99,13 @@ export const STAFF = {
     en: "We can’t reach the ordering system — that change wasn’t saved. Keep it on paper for now.",
     my: "အော်ဒါစနစ်နဲ့ ဆက်သွယ်လို့ မရပါ — အဲဒီပြင်ဆင်မှု မသိမ်းရသေးပါ။ ခဏ စာရွက်နဲ့ ဆက်သွားပါ။",
   }, // K15-HIGH — the one sentence every staff mutation shows during an outage
+  // A7b/M209 — the refusal for "we could not CHECK your access", distinct from the outage sentence
+  // above (which says a change was not saved and to fall back to paper — both wrong here: no change
+  // was attempted, and paper is not the answer to a role edit). K15 — new Burmese, needs Min's read.
+  "out.authority.unconfirmed": {
+    en: "We couldn’t confirm your access just now — try again in a moment.",
+    my: "သင့်ရဲ့ ခွင့်ပြုချက်ကို ခုလောလောဆယ် အတည်မပြုနိုင်သေးပါ — ခဏနေ ထပ်စမ်းကြည့်ပါ။",
+  },
   "out.shell.title": {
     en: "We can’t reach the ordering system",
     my: "အော်ဒါစနစ်နဲ့ ဆက်သွယ်လို့ မရပါ",

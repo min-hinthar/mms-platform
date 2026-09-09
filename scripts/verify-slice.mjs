@@ -3057,9 +3057,9 @@ const MUTANTS = [
     id: "chrome/outage-twin-never-reached",
     file: "apps/qr/components/staff/Chrome.tsx",
     suite: "components/staff/Chrome.test.tsx",
-    why: "P2 — the ONE staff sentence with an authored Burmese twin, shown when a write fails mid-service. `staffGate` returns it as a plain English string from 27 arms, so the swap happens at the render site or nowhere; skip it and the tablet tells a Burmese-reading cook in English that nothing was saved",
-    find: '  if (lang === "my" && error === STAFF_WRITE_OUTAGE)',
-    replace: "  if (false)",
+    why: "P2 — the staff sentences with an authored Burmese twin, shown when a write fails mid-service or (M209) when the caller's authority could not be checked. Every one arrives as a plain English string, so the swap happens at the render site or nowhere; skip it and the tablet tells a Burmese-reading cook in English that nothing was saved. A7b turned the single comparison into a MAP because the second sentence was invisible in Burmese exactly because a second arm had to be remembered — so the mutant now empties the lookup rather than falsifying one condition",
+    find: '  const twin = lang === "my" ? OUTAGE_TWINS.get(error) : undefined;',
+    replace: "  const twin = undefined;",
   },
   {
     id: "chrome/param-typeset-as-burmese",
@@ -4569,9 +4569,9 @@ const MUTANTS = [
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
     why: "the decision is worthless if the caller ignores it. Reporting the block but continuing to `signInWithOAuth` abandons the anonymous session anyway — the diner sees a warning AND loses their orders, which is worse than either alone",
-    find: '      if (decision.kind === "blocked") {\n        setCarryBlocked(decision.message);\n        setBusy(false);\n        setSelectedEmail(null);\n        return false;\n      }',
+    find: '      if (decision.kind === "blocked") {\n        setCarryBlocked({ message: decision.message, flow: { method: "google" } });\n        setBusy(false);\n        setSelectedEmail(null);\n        signInStarting.current = false;\n        return false;\n      }',
     replace:
-      '      if (decision.kind === "blocked") {\n        setCarryBlocked(decision.message);\n      }',
+      '      if (decision.kind === "blocked") {\n        setCarryBlocked({ message: decision.message, flow: { method: "google" } });\n      }',
   },
   {
     id: "account-upgrade/unbound-token-survives-a-failed-oauth-call",
@@ -4585,10 +4585,9 @@ const MUTANTS = [
     id: "account-upgrade/auto-recovery-marks-the-attempt-after-leaving",
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
-    why: "the flag must be written BEFORE the page is left. Marking it after the redirect is started puts the write in a page that may never finish loading, so the guard bounding an automatic redirect can silently never be set",
-    find: "      autoRecoverFired.current = true;\n      markRecoveryAttempted();\n      setBusy(true);\n      void startGoogleSignIn(true);",
-    replace:
-      "      autoRecoverFired.current = true;\n      setBusy(true);\n      void startGoogleSignIn(true).then(() => markRecoveryAttempted());",
+    why: "the flag must be written BEFORE the page is left, AND the attempt must not be spent unless the write actually landed (Codex round 1 on #279). Dropping the check redirects on an unrecorded attempt, so the next mount finds the bounce remembered with no marker and fires a SECOND automatic trip through Google — the loop the one-shot exists to make impossible",
+    find: "      if (!markRecoveryAttempted()) return;\n      setBusy(true);",
+    replace: "      markRecoveryAttempted();\n      setBusy(true);",
   },
   {
     id: "account-upgrade/mint-transport-rejection-wedges-the-card",
@@ -4598,6 +4597,47 @@ const MUTANTS = [
     find: '      const outcome = await mintMergeToken().catch(() => MINT_TRANSPORT_FAILURE);\n      if (outcome.kind === "minted") stashMergeToken(outcome.token);\n      // Read the stash BACK',
     replace:
       '      const outcome = await mintMergeToken();\n      if (outcome.kind === "minted") stashMergeToken(outcome.token);\n      // Read the stash BACK',
+  },
+  {
+    id: "oauth/lend-resume-loses-to-auto-recovery",
+    file: "apps/qr/lib/oauth-callback.ts",
+    suite: "lib/oauth-callback.test.ts",
+    why: "Codex round 1 on #279, P1. `?resume=` is the OWNER returning after lending the device, and that path is deliberately merge-SUPPRESSED so the friend's Stars are never swept onto the owner's account. The auto-recovery is the opposite — it mints and carries whatever this device holds. Dropping the veto lets an effect registered FIRST decide whose rewards move, which is the one outcome the resume path exists to prevent",
+    find: "  if (lendResumePresent) return false;",
+    replace: "  void lendResumePresent;",
+  },
+  {
+    id: "oauth-store/attempt-marker-reports-success-it-did-not-have",
+    file: "apps/qr/lib/oauthCallbackStore.ts",
+    suite: "lib/oauthCallbackStore.test.tsx",
+    why: "Codex round 1 on #279, P2. The caller's next act is an irreversible redirect, so a marker that could not be written must SAY so. `readRecoveryAttempted` cannot cover a write-only failure — it answers true only when the READ throws, and after a refused setItem the read succeeds and honestly reports no attempt — so a blind `true` here re-arms the automatic redirect on the next mount: the loop the one-shot exists to make impossible",
+    find: '    window.sessionStorage.setItem(ATTEMPT_KEY, "1");\n    return window.sessionStorage.getItem(ATTEMPT_KEY) !== null;',
+    replace: '    window.sessionStorage.setItem(ATTEMPT_KEY, "1");\n    return true;',
+  },
+  {
+    id: "account-upgrade/two-doors-mint-at-once",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: 'Codex round 1 on #279, P1 — and the permanent orphan reached through a second door. `autoRecoverFired` guards only the automatic path, so a manual press during the deferred frame runs a CONCURRENT mint. Each `mintMergeToken` prunes this anon\'s other rows with `.neq("token", …)`, so the two delete each other; the last stash wins, `decideCarry` reads back a token matching the mint it knows about, every check passes — and the row behind the stashed proof is gone. The redirect then abandons the anonymous uid with a token that resolves to nothing',
+    find: "    if (signInStarting.current) return false; // one start at a time, whichever door — see `signInStarting`\n    signInStarting.current = true;\n    const supa = browserClient();",
+    replace: "    const supa = browserClient();",
+  },
+  {
+    id: "account-upgrade/escape-hatch-switches-the-method",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: 'Codex round 1 on #279, P2. Both recoveries mint, so both can be blocked and both render this control. Wiring it straight to Google sends a diner who typed an email address to a different provider and plausibly a different account — "continue without your Stars" is consent about the STARS, not consent to sign in as somebody else',
+    find: '            if (flow.method === "email") {',
+    replace: "            if (false) {",
+  },
+  {
+    id: "staff/authority-outage-copy-cannot-be-translated",
+    file: "apps/qr/lib/staff-outage.ts",
+    suite: "components/staff/Chrome.test.tsx",
+    why: "Codex round 1 on #279, P2. `<OutageText>` picks the Burmese twin by string IDENTITY, so a literal that is not the shared constant renders as English on a Burmese console — on the one screen whose job is telling someone what their authority is. Reusing the WRITE-outage sentence instead is the other wrong answer: it says a change was not saved and to keep it on paper, and neither is true when nothing was attempted",
+    find: 'export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;',
+    replace:
+      'export const AUTHORITY_UNCONFIRMED = "We couldn’t confirm your access just now — try again in a moment.";',
   },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   {
