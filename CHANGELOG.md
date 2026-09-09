@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A2 — the parked surfaces' rows, parked (Option A, slice 2) (2026-09-09)
+
+Docs only. With A1 on `main` (`bc6e393`, the prod column applied and verified first), 22 backlog
+rows that guard the self-serve split settlement, card-on-file tabs or the kiosk are marked
+`parked:A1` in place — each keeps its ID and text and names the `SURFACES` constant it reopens
+with. Judged by ROW against each row's own text, never by keyword: 79 rows matched "split/share",
+most about something else (a cash-order label, a grocery mode gate, the settle freeze `settleCash`
+still writes — M201 · M202 · M203 stay for A3). Open rows measured before and after in the A2 row.
+
 ### A1 — "Pay at the counter", and three doors parked (Option A, slice 1) (2026-09-09)
 
 The owner's go on Option A — _subtract to the core_ — after the measured brief: 5 paid orders in 30
