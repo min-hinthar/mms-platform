@@ -84,9 +84,12 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Only the owner can add another owner." };
 
   const db = serviceClient();
-  // Coarse per-owner rate limit (S1-audit S7) — bounds repeated createUser probes. Fail-open on an RPC
-  // error (this is an owner-only path + defense-in-depth; don't block legit onboarding on a hiccup), but
-  // a hard `false` (over the cap) refuses without leaking why.
+  // Coarse per-CALLER rate limit (S1-audit S7) — bounds repeated createUser probes. ⚠️ A6 made this
+  // a manager path, so the bucket is keyed per manager and the fleet-wide ceiling on the
+  // email-existence oracle now scales with the number of managers rather than with one owner. Still
+  // fail-open on an RPC error (defense-in-depth, and a hiccup must not block a real hire), and a
+  // hard `false` (over the cap) refuses without leaking why. The durable audit this leans on is
+  // OPEN-ITEMS A6b — today the only record is a best-effort PostHog event.
   const { data: allowed, error: rlErr } = await db.rpc("mms_rate_limit", {
     p_bucket: "staff_provision",
     p_key: caller.staffId,
@@ -184,11 +187,21 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   if (!canActOn(caller.role, target.role as StaffRole))
     return { ok: false, error: "Only the owner can change an owner’s account." };
 
-  const { error } = await db
+  // A6 — the SAME two protections `setStaffRole` carries, and for the same reason: the ceiling above
+  // was decided against a role read a moment ago, so the write repeats it as `.eq("role", …)` in the
+  // STATEMENT. Without that, a target promoted to owner between the read and the write is
+  // deactivated by a manager whose permission was granted for a server. And `.select("user_id")`
+  // because `.update()` reports no row count — a write the guard refused would otherwise answer ok
+  // and the console would show a member switched off who is still on.
+  const { data: rows, error } = await db
     .from("staff")
     .update({ active: parsed.data.active, updated_at: new Date().toISOString() })
-    .eq("user_id", parsed.data.userId);
+    .eq("user_id", parsed.data.userId)
+    .eq("role", target.role)
+    .select("user_id");
   if (error) return { ok: false, error: "Couldn’t update that member. Try again." };
+  if (!rows || rows.length === 0)
+    return { ok: false, error: "That member just changed — reload and try again." };
 
   auditStaffAction(parsed.data.active ? "staff_reactivated" : "staff_deactivated", caller.staffId, {
     target_user_id: parsed.data.userId,

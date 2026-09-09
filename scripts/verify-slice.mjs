@@ -4254,6 +4254,22 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "staff-team/deactivate-write-drops-its-status-guard",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the sibling of `role-change-write-drops-its-status-guard`, and it was genuinely MISSING on this action's first pass \u2014 found by a blind read, not by symmetry. The ceiling above is decided against a role read a moment earlier; without the repeat in the STATEMENT, a target promoted to owner in that window is deactivated by a manager whose permission was granted for a server",
+    find: '    .eq("user_id", parsed.data.userId)\n    .eq("role", target.role)\n    .select("user_id");',
+    replace: '    .eq("user_id", parsed.data.userId)\n    .select("user_id");',
+  },
+  {
+    id: "staff-team/deactivate-trusts-a-blocked-write",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the W17 rule on the offboard path: `.update()` returns no row count, so a write the statement's own guard refused still answers ok \u2014 and the console then shows a member switched off who is still on, which is the worst direction for this particular screen to be wrong in",
+    find: '  if (!rows || rows.length === 0)\n    return { ok: false, error: "That member just changed \u2014 reload and try again." };\n',
+    replace: "",
+  },
+  {
     id: "staff-team/role-change-ignores-the-requested-role",
     file: "apps/qr/lib/staff-actions.ts",
     suite: "lib/staff-team-actions.test.ts",

@@ -244,6 +244,21 @@ describe("setStaffActive — a manager may offboard a server, never an owner", (
     expect(updatePatch).toBeNull();
   });
 
+  it("guards the write on the role it read, and reports the RACE rather than success", async () => {
+    // The sibling of `setStaffRole`'s statement guard, and it was MISSING on the first pass: the
+    // ceiling is decided against a role read a moment earlier, so a target promoted to owner in
+    // that window would be deactivated by a manager whose permission was granted for a server.
+    // `.update()` reports no row count, so the refused write would otherwise answer ok and the
+    // console would show a member switched off who is still on.
+    callerRole = "manager";
+    raceRoleAfterRead = "owner";
+    const res = await setStaffActive({ userId: TARGET, active: false });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("That member just changed — reload and try again.");
+    expect(updateFilters).toContainEqual(["role", "server"]);
+  });
+
   it("keeps the self-lockout guard ahead of the ceiling", async () => {
     callerRole = "owner";
     targetRow = { ...(targetRow as Row), user_id: CALLER, role: "owner" };
