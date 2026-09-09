@@ -372,7 +372,14 @@ export async function acquireSettlementSuperseding(
     // told the cart is `locked_stale`, no later read inside it may promote the request to `acquired`
     // — only the exclusive claim can, and the claim has no same-owner arm. Both re-asks now stand
     // down, which closes the class rather than the third instance of it.
-    if (!live) return standDown(cartId);
+    // ⚠️ `await` IS LOAD-BEARING, NOT NOISE (Codex round 8 on #275, P2). `return standDown(cartId)`
+    // hands the promise back and EXITS THIS TRY before it settles, so the catch below never sees a
+    // rejection: `standDown` awaits `acquireSettlement`, which throws on a serviceClient
+    // construction or network failure. The Server Action would then reject instead of returning the
+    // retryable `unavailable` this union exists to carry — and `settleCash`/`closeSecureTab` set
+    // `busy` before awaiting with no catch of their own, so the staff control latches on a dead
+    // screen. Do not "simplify" this to a bare return.
+    if (!live) return await standDown(cartId);
 
     // ⚠️ CLAIM BEFORE CANCELLING (Codex round 2, P1). Until this succeeds we hold NO mutex, and the
     // diner can re-acquire the pay lock and link a live intent in the gap — which the old code then
@@ -386,7 +393,7 @@ export async function acquireSettlementSuperseding(
       return "unavailable";
     }
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
-    if (!claimed) return standDown(cartId);
+    if (!claimed) return await standDown(cartId); // await load-bearing — see the !live branch
 
     // From here the freeze is OURS, so every exit below must give it back. The strict verdict table
     // and the manual-capture refusal live inside `supersedeSettlementIntent`.

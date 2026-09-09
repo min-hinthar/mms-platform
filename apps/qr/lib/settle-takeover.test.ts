@@ -33,6 +33,7 @@ vi.mock("./stripe", () => ({
 }));
 
 let acquireResults: SettleResult[] = [];
+let acquireThrowsFromCall: number | null = null;
 let acquireCalls = 0;
 let supersedeResult: SupersedeOutcome = "cleared";
 let supersedeCalls = 0;
@@ -50,6 +51,13 @@ let pinCleared: { cartId: string; intentId: string }[] = [];
 
 vi.mock("./lock", () => ({
   acquireSettlement: (_cartId: string, owner: string) => {
+    // Indexed, so a test can make ONLY the stand-down probe throw and leave the first
+    // (diagnosing) acquire intact — the two are the same function on different calls.
+    if (acquireThrowsFromCall !== null && acquireCalls >= acquireThrowsFromCall) {
+      acquireCalls += 1;
+      acquireOwners.push(owner);
+      return Promise.reject(new Error("postgrest down"));
+    }
     const r = acquireResults[acquireCalls] ?? acquireResults[acquireResults.length - 1];
     acquireCalls += 1;
     acquireOwners.push(owner);
@@ -96,6 +104,7 @@ const takeover = (c: string, u: string) => acquireSettlementSuperseding(c, u, fa
 
 beforeEach(() => {
   acquireCalls = 0;
+  acquireThrowsFromCall = null;
   supersedeCalls = 0;
   supersedeResult = "cleared";
   acquireResults = ["acquired"];
@@ -423,6 +432,37 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
     acquireResults = ["locked_stale", "settling_other"];
     liveIntent = null;
     expect(await takeover("c", "u")).toBe("settling_other");
+    expect(probeReleases).toEqual([]);
+  });
+  /**
+   * Codex round 8 on #275, P2 — the `await` on both stand-down re-asks.
+   *
+   * `return standDown(cartId)` hands the promise back and EXITS THE TRY before it settles, so the
+   * catch never converts a rejection into `unavailable`. These two assert the RESOLUTION, which is
+   * the only thing that separates the two spellings: with the await the union's retryable member
+   * comes back, without it the Server Action rejects and the staff control latches on `busy`.
+   */
+  it("the !live stand-down answers unavailable when its probe THROWS, rather than rejecting", async () => {
+    acquireResults = ["locked_stale"];
+    liveIntent = null;
+    acquireThrowsFromCall = 1; // the probe inside standDown, not the diagnosing acquire
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+  });
+
+  it("the lost-claim stand-down answers unavailable when its probe THROWS, rather than rejecting", async () => {
+    acquireResults = ["locked_stale"];
+    liveIntent = "pi_abandoned";
+    claimed = false;
+    acquireThrowsFromCall = 1;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+  });
+
+  it("a throwing probe releases nothing — no claim was held, so there is no freeze of ours to give back", async () => {
+    acquireResults = ["locked_stale"];
+    liveIntent = null;
+    acquireThrowsFromCall = 1;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+    expect(released).toEqual([]);
     expect(probeReleases).toEqual([]);
   });
 });
