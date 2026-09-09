@@ -502,15 +502,41 @@ async function standDown(cartId: string): Promise<SettleTakeover> {
   // With a unique owner, `acquireSettlement`'s `settle_by.eq.<uid>` arm cannot match, so a stand-down
   // can only ever acquire a cart that is genuinely FREE — and it gives that straight back.
   const probe = crypto.randomUUID();
-  const r = await acquireSettlement(cartId, probe);
-  if (r !== "acquired") return collapse(r);
+
+  // ⚠️ THE RELEASE IS UNCONDITIONAL, AND THAT IS THE POINT (Codex round 9 on #275, P2).
+  //
+  // `acquireSettlement` ends its UPDATE with `if (error) throw error`, so a transport failure AFTER
+  // Postgres applied the conditional update — the response lost, not the write — rejects while the
+  // row already carries `settle_by = probe`. Whoever owns that freeze must release it, and only this
+  // scope knows the probe: the caller's catch sees the rejection but not the uuid, so it answered
+  // `unavailable` and left the orphan to block the next tap as `settling_other` until the TTL.
+  //
+  // Branching on the outcome is what produced that hole, so this does not branch. The release is
+  // scoped by `settle_by` to a uuid no other request can hold, which makes it SAFE on every outcome
+  // and not merely on the one we can prove: it matches our row when we took the freeze, and zero
+  // rows when we did not — including when we cannot tell which happened. The property that makes it
+  // correct is the SCOPING, never our confidence about the acquire.
+  let verdict: SettleTakeover = "unavailable";
+  try {
+    const r = await acquireSettlement(cartId, probe);
+    // The cart was free, and we are not taking it: this request already lost its claim.
+    // `unavailable` is the honest verdict — nothing is blocking, so the next tap should succeed.
+    if (r !== "acquired") verdict = collapse(r);
+  } catch (e) {
+    // Ambiguous: the freeze may or may not be ours. The release below settles it either way.
+    console.error(
+      "[settle] stand-down probe acquire threw — releasing under the probe regardless",
+      {
+        cartId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+    );
+  }
   const err = await releaseSettlementFor(cartId, probe);
   if (err)
     console.error("[settle] stand-down probe freeze not released — table frozen until the TTL", {
       cartId,
       error: err.message,
     });
-  // The cart was free, and we are not taking it: this request already lost its claim. `unavailable`
-  // is the honest verdict — nothing is blocking, so the next tap should succeed.
-  return "unavailable";
+  return verdict;
 }

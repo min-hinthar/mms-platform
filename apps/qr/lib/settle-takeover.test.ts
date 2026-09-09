@@ -34,6 +34,7 @@ vi.mock("./stripe", () => ({
 
 let acquireResults: SettleResult[] = [];
 let acquireThrowsFromCall: number | null = null;
+let releaseForThrows = false;
 let acquireCalls = 0;
 let supersedeResult: SupersedeOutcome = "cleared";
 let supersedeCalls = 0;
@@ -77,6 +78,7 @@ vi.mock("./lock", () => ({
   },
   releaseSettlementFor: (cartId: string, attemptId: string) => {
     probeReleases.push({ cartId, attemptId });
+    if (releaseForThrows) return Promise.reject(new Error("postgrest down"));
     return Promise.resolve(null);
   },
   releaseByIntent: (cartId: string, intentId: string) => {
@@ -105,6 +107,7 @@ const takeover = (c: string, u: string) => acquireSettlementSuperseding(c, u, fa
 beforeEach(() => {
   acquireCalls = 0;
   acquireThrowsFromCall = null;
+  releaseForThrows = false;
   supersedeCalls = 0;
   supersedeResult = "cleared";
   acquireResults = ["acquired"];
@@ -427,12 +430,17 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
     expect(acquireOwners[1]).not.toBe("c");
   });
 
-  it("releases nothing when the probe did not acquire", async () => {
-    // The winner holds the freeze; touching it would be the catastrophe this design avoids.
+  it("releases under the probe even when it did NOT acquire, and never cart-wide", async () => {
+    // The winner holds the freeze. What protects it is that the release names a uuid the winner
+    // cannot have — not that we abstain — so the release is safe to attempt on every outcome and
+    // matches zero rows here. `releaseSettlement` (cart-wide) is the catastrophe this design avoids.
     acquireResults = ["locked_stale", "settling_other"];
     liveIntent = null;
     expect(await takeover("c", "u")).toBe("settling_other");
-    expect(probeReleases).toEqual([]);
+    expect(released).toEqual([]);
+    expect(probeReleases).toHaveLength(1);
+    expect(probeReleases[0]!.attemptId).not.toBe("c");
+    expect(probeReleases[0]!.attemptId).not.toBe("u");
   });
   /**
    * Codex round 8 on #275, P2 — the `await` on both stand-down re-asks.
@@ -442,27 +450,39 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
    * the only thing that separates the two spellings: with the await the union's retryable member
    * comes back, without it the Server Action rejects and the staff control latches on `busy`.
    */
-  it("the !live stand-down answers unavailable when its probe THROWS, rather than rejecting", async () => {
-    acquireResults = ["locked_stale"];
+  it("the !live stand-down answers unavailable when its probe RELEASE throws, rather than rejecting", async () => {
+    // ⚠️ THE REJECTION SOURCE MOVED (round 9). standDown now catches the ACQUIRE's throw itself, so
+    // throwing from there no longer separates `return` from `return await` — it resolves either way.
+    // The release is the remaining uncaught await inside standDown, so it is what these two pin.
+    acquireResults = ["locked_stale", "acquired"];
     liveIntent = null;
-    acquireThrowsFromCall = 1; // the probe inside standDown, not the diagnosing acquire
+    releaseForThrows = true;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
   });
 
-  it("the lost-claim stand-down answers unavailable when its probe THROWS, rather than rejecting", async () => {
-    acquireResults = ["locked_stale"];
+  it("the lost-claim stand-down answers unavailable when its probe RELEASE throws, rather than rejecting", async () => {
+    acquireResults = ["locked_stale", "settling_other"];
     liveIntent = "pi_abandoned";
     claimed = false;
-    acquireThrowsFromCall = 1;
+    releaseForThrows = true;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
   });
 
-  it("a throwing probe releases nothing — no claim was held, so there is no freeze of ours to give back", async () => {
+  /**
+   * Codex round 9 on #275, P2 — the ambiguous acquire. This test previously asserted that a
+   * throwing probe releases NOTHING, which encoded the defect: `acquireSettlement` throws AFTER its
+   * UPDATE may have applied, so the row can already carry `settle_by = probe` with nothing but the
+   * TTL to clear it. Abstention was never the property worth guarding; SCOPING is.
+   */
+  it("a THROWING probe still releases under its own owner — the write may have landed", async () => {
     acquireResults = ["locked_stale"];
     liveIntent = null;
     acquireThrowsFromCall = 1;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
+    expect(probeReleases).toHaveLength(1);
+    // Scoped to the probe, never the cart: the unconditional form would null the winner's freeze.
     expect(released).toEqual([]);
-    expect(probeReleases).toEqual([]);
+    expect(probeReleases[0]!.attemptId).not.toBe("c");
+    expect(probeReleases[0]!.attemptId).not.toBe("u");
   });
 });

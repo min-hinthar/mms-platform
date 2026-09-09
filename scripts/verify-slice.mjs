@@ -1093,12 +1093,20 @@ const MUTANTS = [
     replace: "    if (!claimed) return standDown(cartId);",
   },
   {
+    id: "settle/ambiguous-probe-acquire-strands-the-freeze",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/settle-takeover.test.ts",
+    why: "Codex round 9 on #275, P2. `acquireSettlement` ends its UPDATE with `if (error) throw error`, so a transport failure AFTER Postgres applied it rejects while the row already carries `settle_by = probe`. Only this scope knows the probe \u2014 the caller's catch sees the rejection but not the uuid \u2014 so rethrowing here strands an orphan freeze that blocks the next tap as `settling_other` until the TTL. The release must run on EVERY outcome, which is safe precisely because it is scoped to a uuid nobody else can hold: it matches our row when we took the freeze and zero rows when we did not, including when we cannot tell which happened",
+    find: "      error: e instanceof Error ? e.message : String(e),\n    });\n  }",
+    replace: "      error: e instanceof Error ? e.message : String(e),\n    });\n    throw e;\n  }",
+  },
+  {
     id: "settle/stand-down-flattens-the-diagnosis",
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: 'The over-blocking direction of the same rule. Refusing the GRANT must not flatten every diagnosis: staff still need to learn that the table closed, or that a colleague holds the freeze, or the screen says "try again" forever against a cart that will never come back. Standing down withholds promotion, it does not withhold the answer',
-    find: '  if (r !== "acquired") return collapse(r);',
-    replace: '  return "unavailable";',
+    find: '    if (r !== "acquired") verdict = collapse(r);',
+    replace: "    void r;",
   },
   {
     id: "settle/lost-claim-promoted-to-acquired",
