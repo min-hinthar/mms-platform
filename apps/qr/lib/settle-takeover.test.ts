@@ -501,13 +501,18 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
    * the file: the claim carries no same-owner arm, so the retry this verdict invites cannot reclaim
    * its own orphan and every tender is blocked for the settle TTL.
    */
-  it("releases an AMBIGUOUS claim under the owner it would have written", async () => {
+  it("REFUSES to clean up an ambiguous claim, because `uid` is not request-unique", async () => {
+    // Codex round 10 asked for this cleanup; round 11 showed it is a REGRESSION, and it shipped in
+    // between. `staff-cart.ts` passes `caller.uid` at both call sites, so a release under `uid` from
+    // request B matches same-staff request A's live claim and strips A's mutex mid-charge. A
+    // self-healing TTL freeze is strictly better than an unprotected concurrent settle. The real fix
+    // is a request-unique claim owner — M201 — and this asserts we do NOT approximate it.
     acquireResults = ["locked_stale"];
     liveIntent = "pi_abandoned";
     claimErrors = true;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
-    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
-    expect(released).toEqual([]); // never cart-wide
+    expect(probeReleases).toEqual([]);
+    expect(released).toEqual([]);
   });
 
   it("does not supersede or clear a pin on an ambiguous claim — only the freeze is given back", async () => {

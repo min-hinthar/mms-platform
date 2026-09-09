@@ -389,26 +389,30 @@ export async function acquireSettlementSuperseding(
     // zero rows. See `claimStaleSettlement`.
     const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
     if (claimErr) {
-      // ⚠️ AN AMBIGUOUS CLAIM IS STILL A CLAIM (Codex round 10 on #275, P2 — the same shape round 9
-      // found in the probe, in the other write this function makes).
+      // ⚠️ THE CLEANUP THAT BELONGS HERE CANNOT BE WRITTEN YET, AND THAT IS THE FINDING
+      // (Codex round 10 asked for it, round 11 showed why it is unsafe — I shipped it in between and
+      // it was a REGRESSION, reverted here).
       //
-      // `claimStaleSettlement` reports `{ claimed: false, error }` when PostgREST fails, and that
-      // covers a lost RESPONSE as well as a rejected request: the UPDATE may have committed
-      // `settle_by = uid` and told us nothing. Returning without cleanup is worse here than anywhere
-      // else in this file, because the claim deliberately carries NO same-owner arm — so the retry
-      // this verdict invites cannot reclaim its own orphan, and every tender on the table is blocked
-      // for the full settle TTL.
+      // The hazard is real: `claimStaleSettlement` reports `{ claimed: false, error }` for a LOST
+      // RESPONSE as well as a rejected request, so the UPDATE may have committed `settle_by = uid`
+      // and told us nothing. The claim deliberately carries no same-owner arm, so the retry this
+      // verdict invites cannot reclaim its own orphan and the table is blocked for the settle TTL.
       //
-      // The rule over the function, now that both of its writes are covered: EVERY settlement write
-      // may have applied even when it reports failure, so each is released under the owner it would
-      // have written — the probe under its uuid, the claim under `uid`. Scoped, so it matches zero
-      // rows when the write never landed. (A same-uid sibling remains reachable and is M201.)
-      const relErr = await releaseSettlementFor(cartId, uid);
+      // But releasing under `uid` is WORSE than the orphan, because `uid` is NOT request-unique:
+      // `staff-cart.ts` passes `caller.uid` at both call sites (only `terminal.ts` passes a
+      // per-attempt id). So when request B's claim errors while same-staff request A holds a real
+      // claim, `releaseSettlementFor(cartId, uid)` matches A's row and strips A's mutex mid-charge —
+      // trading a self-healing 10-minute freeze for an unprotected concurrent settle. "It matches
+      // zero rows when our write never landed" is false whenever a sibling shares the uid.
+      //
+      // This is undecidable from here: A's row and ours are byte-identical, both `settle_by = uid`.
+      // The fix is a REQUEST-UNIQUE claim owner — M201 — and it is filed with this mechanism rather
+      // than approximated. The TTL remains the backstop, as it was before this branch was touched.
       console.error("[settle] stale-attempt claim failed", {
         cartId,
         error: claimErr.message,
-        ambiguousClaimReleased: !relErr,
-        releaseError: relErr?.message,
+        // The freeze may or may not be ours and we cannot tell; see M201.
+        ambiguous: true,
       });
       return "unavailable";
     }

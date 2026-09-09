@@ -1117,12 +1117,13 @@ const MUTANTS = [
     replace: "  return trimmed.length > 0 ? trimmed : null;",
   },
   {
-    id: "settle/ambiguous-claim-strands-the-freeze",
+    id: "settle/ambiguous-claim-released-under-a-shared-owner",
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
-    why: "Codex round 10 on #275, P2 \u2014 round 9's shape in the other write. `claimStaleSettlement` reports `{ claimed: false, error }` for a LOST RESPONSE as well as a rejected request, so the UPDATE may already have committed `settle_by = uid`. Skipping the release is worse here than anywhere else in this file: the claim deliberately carries NO same-owner arm, so the retry this `unavailable` invites cannot reclaim its own orphan, and cash, Terminal, tab-close and split are all blocked for the full settle TTL",
-    find: "      const relErr = await releaseSettlementFor(cartId, uid);",
-    replace: "      const relErr = null as { message: string } | null;",
+    why: "Codex round 11 on #275, P1 \u2014 the REGRESSION I shipped for round 10, as a mutant so it cannot come back. Cleaning up an ambiguous claim looks obviously right and is unsafe: `uid` is NOT request-unique (`staff-cart.ts` passes `caller.uid` at both call sites; only `terminal.ts` passes a per-attempt id), so a release from request B whose claim errored matches same-staff request A's LIVE claim and strips A's mutex while A is charging. That trades a self-healing 10-minute TTL freeze for an unprotected concurrent settle. Undecidable from here \u2014 A's row and ours are byte-identical. The fix is a request-unique owner, M201",
+    find: '        ambiguous: true,\n      });\n      return "unavailable";',
+    replace:
+      '        ambiguous: true,\n      });\n      await releaseSettlementFor(cartId, uid);\n      return "unavailable";',
   },
   {
     id: "settle/post-claim-release-ignores-the-owner",
