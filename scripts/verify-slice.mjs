@@ -4310,6 +4310,39 @@ const MUTANTS = [
     find: '  if (!rows || rows.length === 0)\n    return { ok: false, error: "That role just changed \u2014 reload and try again." };\n',
     replace: "",
   },
+  {
+    id: "staff-team/revoked-caller-still-writes",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the TOCTOU Codex found: `getStaffAuth()` resolves the caller at the top of the action and the write lands several round trips later, so without the re-read a manager an owner deactivated or demoted in that window still grants authority to someone else on the way out. Three mutants rather than one because each action calls it separately and a single deletion is invisible in the other two",
+    find: "  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };\n\n  const { data: rows, error } = await db\n",
+    replace: "  const { data: rows, error } = await db\n",
+  },
+  {
+    id: "staff-team/revoked-caller-still-offboards",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the same window on the offboard path, and the one that compounds: a manager being deactivated could deactivate the rest of the rung on the way out, and the only record of it is a best-effort analytics event (M205)",
+    find: "  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };\n  // A6 \u2014 the SAME two protections `setStaffRole` carries",
+    replace: "  // A6 \u2014 the SAME two protections `setStaffRole` carries",
+  },
+  {
+    id: "staff-team/revoked-caller-refused-on-an-outage",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: 'the FAIL-OPEN direction, which is the half a security-shaped change gets wrong by reflex. An unreadable row is not a revocation: refusing there turns a database hiccup into "you are not a manager", the fabricated-diagnosis shape M116/M119 closed across this codebase \u2014 and it does it on the one screen whose whole job is telling someone what their authority is',
+    find: "  if (error) return true;\n  if (!data) return false; // the row is gone: no staff row, no authority",
+    replace:
+      "  if (error) return false;\n  if (!data) return false; // the row is gone: no staff row, no authority",
+  },
+  {
+    id: "merge-redeem/handover-leaves-the-latch-set",
+    file: "apps/qr/components/MergeRedeemer.tsx",
+    suite: "components/MergeRedeemer.test.tsx",
+    why: "the shared-tablet handover, found by Codex. `AccountStatus.toGuest()` signs out, mints a fresh anonymous session and calls `router.refresh()`, which does NOT re-run client effects \u2014 and this component keeps its tree position, so `done` stays true from the PREVIOUS guest's redemption. The next person to sign in on that device hits the guard and their orders never follow them. Exactly the defect A7 fixed, one identity later",
+    find: '      if (event === "SIGNED_OUT") {\n        done.current = false;\n        running.current = false;\n        pending.current = false;\n        return;\n      }\n',
+    replace: "",
+  },
   // ── A7 · the orders that did not follow the diner onto their account ────────────────────────
   {
     id: "merge-redeem/absent-token-is-terminal",

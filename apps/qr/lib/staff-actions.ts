@@ -18,6 +18,39 @@ const PROVISION_WINDOW_S = 3600;
  *  one of them ends up still saying "Owners only." after the floor moved. */
 const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
 
+/**
+ * A6 — RE-READ THE CALLER'S OWN ROW IMMEDIATELY BEFORE AN AUTHORITY WRITE.
+ *
+ * `getStaffAuth()` resolves the caller once, at the top of the action, and the writes below land
+ * several round trips later. In that window an owner can demote or deactivate the caller, and the
+ * write would still go through on the role they held when the request started — so a manager
+ * stripped of authority could still grant it to someone else on their way out.
+ *
+ * ⚠️ THIS NARROWS THE WINDOW, IT DOES NOT CLOSE IT, and saying otherwise would be the kind of
+ * comment this repo has been burned by. The check and the write are still two statements, so a
+ * revocation landing between them is unseen. Closing it properly means deciding the caller and the
+ * target in ONE statement, which needs an RPC or an RLS UPDATE policy on `staff` — a prod
+ * migration, blocked on the divergent history, and filed as OPEN-ITEMS M208. What this does buy is
+ * real: the exposure drops from the whole request to a single round trip, and a caller already
+ * deactivated when the action began is refused outright rather than served from a stale read.
+ */
+async function callerStillHasAuthority(
+  db: ReturnType<typeof serviceClient>,
+  caller: { staffId: string; role: StaffRole },
+): Promise<boolean> {
+  const { data, error } = await db
+    .from("staff")
+    .select("role,active")
+    .eq("user_id", caller.staffId)
+    .maybeSingle();
+  // An unreadable row is NOT a revocation — the caller keeps the authority the session proved, and
+  // the outage surfaces from whichever read fails next. Refusing here would turn a database hiccup
+  // into "you are not a manager", which is the fabricated-diagnosis shape M116/M119 closed.
+  if (error) return true;
+  if (!data) return false; // the row is gone: no staff row, no authority
+  return data.active === true && roleAtLeast(data.role as StaffRole, "manager");
+}
+
 /** Best-effort audit of an owner staff-management mutation (parity with clear/merge/settle telemetry —
  *  S1-audit S7). Decoupled via after(); never fails the action on a capture error. */
 function auditStaffAction(
@@ -115,6 +148,11 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Couldn’t create that account. Check the email and try again." };
   }
 
+  if (!(await callerStillHasAuthority(db, caller))) {
+    // The auth user exists at this point; roll it back so a revoked caller leaves nothing behind.
+    await db.auth.admin.deleteUser(created.user.id).catch(() => {});
+    return { ok: false, error: MANAGERS_ONLY };
+  }
   const { error: rowErr } = await db.from("staff").insert({
     user_id: created.user.id,
     email: parsed.data.email, // the allowlist key — matches a Google/magic-link sign-in by email
@@ -195,6 +233,7 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   if (!canActOn(caller.role, target.role as StaffRole))
     return { ok: false, error: "Only the owner can change an owner’s account." };
 
+  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };
   // A6 — the SAME two protections `setStaffRole` carries, and for the same reason: the ceiling above
   // was decided against a role read a moment ago, so the write repeats it as `.eq("role", …)` in the
   // STATEMENT. Without that, a target promoted to owner between the read and the write is
@@ -278,6 +317,8 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   if (!canActOn(caller.role, current) || !canActOn(caller.role, parsed.data.role))
     return { ok: false, error: "Only the owner can change an owner’s role." };
   if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
+
+  if (!(await callerStillHasAuthority(db, caller))) return { ok: false, error: MANAGERS_ONLY };
 
   const { data: rows, error } = await db
     .from("staff")

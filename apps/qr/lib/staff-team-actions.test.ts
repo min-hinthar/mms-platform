@@ -24,6 +24,9 @@ const TARGET = "11111111-1111-4111-8111-111111111111";
 const CALLER = "22222222-2222-4222-8222-222222222222";
 const OTHER = "33333333-3333-4333-8333-333333333333";
 const ABSENT = "44444444-4444-4444-8444-444444444444";
+// `staff.user_id` of the caller's own row. Deliberately NOT `CALLER`: a Google/magic-link session
+// mints a uid the provisioned row does not carry, and the caller re-read is keyed on the ROW.
+const CALLER_STAFF = "55555555-5555-4555-8555-555555555555";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
@@ -54,7 +57,7 @@ vi.mock("./staff", async () => {
               kind: "staff",
               caller: {
                 uid: CALLER,
-                staffId: "caller-staff",
+                staffId: CALLER_STAFF,
                 role: callerRole,
                 displayName: "Caller",
                 email: "caller@example.com",
@@ -78,6 +81,11 @@ let createdUserId: string | null = "new-uid";
 // case can only be reached with a MISSING row, which the earlier `maybeSingle` refuses first — a
 // degenerate fixture that let the row-count check be deleted with the suite still green.
 let raceRoleAfterRead: string | null = null;
+// The caller's own staff row, read again immediately before every authority write. `null` models a
+// caller whose row is gone; `active: false` or a lower role models a revocation landing mid-request.
+let callerRow: Row | null = null;
+// A failed read of the caller's own row: distinct from `callerRow = null`, which means it is GONE.
+let callerRowUnreadable = false;
 
 function staffApi() {
   const eqs: [string, unknown][] = [];
@@ -112,6 +120,17 @@ function staffApi() {
       return Promise.resolve({ error: null });
     },
     maybeSingle() {
+      // Keyed by user_id, so the caller's re-read and the target read are told apart the way the
+      // real queries are — a fake that answered `targetRow` to both could not see a revoked caller.
+      const wantsCaller = eqs.some(([c, v]) => c === "user_id" && v === CALLER_STAFF);
+      if (wantsCaller) {
+        if (callerRowUnreadable)
+          return Promise.resolve({ data: null, error: { message: "caller row unreadable" } });
+        return Promise.resolve({
+          data: callerRow === null ? null : { ...callerRow, role: callerRow.role ?? callerRole },
+          error: null,
+        });
+      }
       const r = targetRow;
       const hit = r !== null && eqs.every(([c, v]) => !(c in r) || r[c] === v);
       // A COPY of the row is handed back before the race is applied, so the action holds the value
@@ -160,6 +179,8 @@ beforeEach(() => {
   updateFilters = [];
   updatePatch = null;
   raceRoleAfterRead = null;
+  callerRow = { user_id: CALLER_STAFF, role: null, active: true };
+  callerRowUnreadable = false; // role: null → follows `callerRole`
   updatedRows = [];
   insertPatch = null;
   createdUserId = "new-uid";
@@ -355,5 +376,64 @@ describe("setStaffRole — the half of 'assign roles' that did not exist", () =>
     authKind = "unavailable";
     const res = await setStaffRole({ userId: TARGET, role: "manager" });
     expect(res).toEqual({ ok: false, error: "outage" });
+  });
+});
+
+describe("the caller's own authority is re-read immediately before each write", () => {
+  it("refuses a role change once the caller has been DEACTIVATED mid-request", async () => {
+    // `getStaffAuth()` resolves the caller at the top of the action and the write lands several
+    // round trips later. Without the re-read, a manager stripped of authority in that window still
+    // grants it to someone else on the way out.
+    callerRole = "manager";
+    callerRow = { user_id: CALLER_STAFF, role: "manager", active: false };
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("That needs a manager — ask one to step in.");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("refuses once the caller has been DEMOTED mid-request", async () => {
+    // The other revocation: still active, no longer a manager. The session's cached role would
+    // have carried the write through.
+    callerRole = "manager";
+    callerRow = { user_id: CALLER_STAFF, role: "server", active: true };
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("refuses an OFFBOARD by a caller whose row is gone", async () => {
+    callerRole = "manager";
+    callerRow = null;
+    const res = await setStaffActive({ userId: TARGET, active: false });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("refuses an INVITE by a revoked caller, and leaves no orphan auth user behind", async () => {
+    // The auth user is minted before this check can run, so the refusal rolls it back — otherwise a
+    // revoked manager leaves an account that can never be re-provisioned at that address.
+    callerRole = "manager";
+    callerRow = { user_id: CALLER_STAFF, role: "manager", active: false };
+    const res = await provisionStaff({
+      email: "new@example.com",
+      displayName: "New Person",
+      role: "server",
+    });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(insertPatch).toBeNull();
+  });
+
+  it("does NOT refuse when the caller's row is merely unreadable", async () => {
+    // A database hiccup is not a revocation. Refusing here would turn an outage into "you are not a
+    // manager" — the fabricated-diagnosis shape M116/M119 closed across this codebase.
+    callerRole = "manager";
+    callerRowUnreadable = true;
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res).toEqual({ ok: true });
   });
 });

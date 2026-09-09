@@ -189,3 +189,43 @@ describe("MergeRedeemer — a token minted AFTER mount still gets redeemed", () 
     await waitFor(() => expect(redeemMergeToken).toHaveBeenCalledTimes(2));
   });
 });
+
+describe("MergeRedeemer — a shared device hands over cleanly", () => {
+  it("re-arms after a sign-out, so the NEXT guest's orders still follow them", async () => {
+    // The shared-tablet handover: `AccountStatus.toGuest()` signs out, mints a fresh anonymous
+    // session and calls `router.refresh()`, which does not re-run client effects — so this
+    // component keeps its tree position and its refs. Latched from the first guest's redemption,
+    // the second guest's sign-in returns at the guard and their orders stay on the abandoned uid.
+    storedToken = "tok-a";
+    render(<MergeRedeemer />);
+    await settle();
+    await waitFor(() => expect(redeemMergeToken).toHaveBeenCalledTimes(1)); // guest one, terminal
+
+    await act(async () => {
+      listener?.("SIGNED_OUT", null); // the handover
+      await Promise.resolve();
+    });
+
+    storedToken = "tok-b"; // guest two signs into their own account
+    await act(async () => {
+      listener?.("SIGNED_IN", ACCOUNT);
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(redeemMergeToken).toHaveBeenCalledWith("tok-b"));
+  });
+
+  it("does not re-merge for the SAME guest just because an event repeats", async () => {
+    // The other direction: re-arming must need a sign-out, not any event at all, or the exactly-once
+    // guarantee the whole latch exists for is gone.
+    storedToken = "tok-c";
+    render(<MergeRedeemer />);
+    await settle();
+    await waitFor(() => expect(redeemMergeToken).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      listener?.("SIGNED_IN", ACCOUNT);
+      listener?.("USER_UPDATED", ACCOUNT);
+      await Promise.resolve();
+    });
+    expect(redeemMergeToken).toHaveBeenCalledTimes(1);
+  });
+});

@@ -115,6 +115,20 @@ export function MergeRedeemer() {
       // flag as false OR omit it; only an anon session is explicitly `true`), so anon AnonAuthGate mints
       // never trip it. This only fires the ATTEMPT; the server redeem stays the authority (SSR-verifies a
       // non-anon caller before touching anything).
+      // ⚠️ A HANDOVER RE-ARMS THE LATCHES, and without this they outlive the person they were set
+      // for. `AccountStatus.toGuest()` signs out, mints a fresh anonymous session and calls
+      // `router.refresh()` — which does NOT re-run client effects, and this component keeps its
+      // tree position, so `done` stays true from the PREVIOUS guest's redemption. The next person
+      // to sign in on that device hits the guard and their orders never follow them. A sign-out is
+      // exactly the event that means "this device is someone else's now", so all three refs reset
+      // there: `running` included, because a terminal redeem leaves it true and clearing `done`
+      // alone would wedge the redeemer shut in the other direction.
+      if (event === "SIGNED_OUT") {
+        done.current = false;
+        running.current = false;
+        pending.current = false;
+        return;
+      }
       if (
         (event === "SIGNED_IN" || event === "USER_UPDATED") &&
         !!session?.user &&
