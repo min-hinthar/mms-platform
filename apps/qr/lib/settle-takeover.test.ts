@@ -35,6 +35,7 @@ vi.mock("./stripe", () => ({
 let acquireResults: SettleResult[] = [];
 let acquireThrowsFromCall: number | null = null;
 let releaseForThrows = false;
+let claimErrors = false;
 let acquireCalls = 0;
 let supersedeResult: SupersedeOutcome = "cleared";
 let supersedeCalls = 0;
@@ -70,6 +71,10 @@ vi.mock("./lock", () => ({
   },
   claimStaleSettlement: (_c: string, _u: string, intentId: string) => {
     claimCalls.push({ intentId });
+    if (claimErrors)
+      // A LOST RESPONSE looks exactly like a rejected request here: claimed:false + an error, while
+      // the UPDATE may already have committed settle_by = uid.
+      return Promise.resolve({ claimed: false, error: { message: "postgrest down" } });
     return Promise.resolve({ claimed, error: null });
   },
   releaseSettlement: (cartId: string) => {
@@ -108,6 +113,7 @@ beforeEach(() => {
   acquireCalls = 0;
   acquireThrowsFromCall = null;
   releaseForThrows = false;
+  claimErrors = false;
   supersedeCalls = 0;
   supersedeResult = "cleared";
   acquireResults = ["acquired"];
@@ -487,5 +493,29 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
     expect(released).toEqual([]);
     expect(probeReleases[0]!.attemptId).not.toBe("c");
     expect(probeReleases[0]!.attemptId).not.toBe("u");
+  });
+  /**
+   * Codex round 10 on #275, P2 — the same shape round 9 found in the probe, in the OTHER write this
+   * function makes. A lost PostgREST response is reported identically to a rejected request, so an
+   * errored claim may still have committed `settle_by = uid`. It is worse here than anywhere else in
+   * the file: the claim carries no same-owner arm, so the retry this verdict invites cannot reclaim
+   * its own orphan and every tender is blocked for the settle TTL.
+   */
+  it("releases an AMBIGUOUS claim under the owner it would have written", async () => {
+    acquireResults = ["locked_stale"];
+    liveIntent = "pi_abandoned";
+    claimErrors = true;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(released).toEqual([]); // never cart-wide
+  });
+
+  it("does not supersede or clear a pin on an ambiguous claim — only the freeze is given back", async () => {
+    acquireResults = ["locked_stale"];
+    liveIntent = "pi_abandoned";
+    claimErrors = true;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+    expect(supersedeCalls).toBe(0);
+    expect(pinCleared).toEqual([]);
   });
 });

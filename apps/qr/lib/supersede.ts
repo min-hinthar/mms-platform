@@ -389,7 +389,27 @@ export async function acquireSettlementSuperseding(
     // zero rows. See `claimStaleSettlement`.
     const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
     if (claimErr) {
-      console.error("[settle] stale-attempt claim failed", { cartId, error: claimErr.message });
+      // ⚠️ AN AMBIGUOUS CLAIM IS STILL A CLAIM (Codex round 10 on #275, P2 — the same shape round 9
+      // found in the probe, in the other write this function makes).
+      //
+      // `claimStaleSettlement` reports `{ claimed: false, error }` when PostgREST fails, and that
+      // covers a lost RESPONSE as well as a rejected request: the UPDATE may have committed
+      // `settle_by = uid` and told us nothing. Returning without cleanup is worse here than anywhere
+      // else in this file, because the claim deliberately carries NO same-owner arm — so the retry
+      // this verdict invites cannot reclaim its own orphan, and every tender on the table is blocked
+      // for the full settle TTL.
+      //
+      // The rule over the function, now that both of its writes are covered: EVERY settlement write
+      // may have applied even when it reports failure, so each is released under the owner it would
+      // have written — the probe under its uuid, the claim under `uid`. Scoped, so it matches zero
+      // rows when the write never landed. (A same-uid sibling remains reachable and is M201.)
+      const relErr = await releaseSettlementFor(cartId, uid);
+      console.error("[settle] stale-attempt claim failed", {
+        cartId,
+        error: claimErr.message,
+        ambiguousClaimReleased: !relErr,
+        releaseError: relErr?.message,
+      });
       return "unavailable";
     }
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
