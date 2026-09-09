@@ -416,7 +416,12 @@ export function FloorDetailLive({
               <p style={{ ...muted, marginTop: 4 }}>
                 <Chrome
                   lang={lang}
-                  k="table.detail.order.roundsNote"
+                  // M212 — a capped read cannot state a total, so it says "N+" instead.
+                  k={
+                    detail.settledOrderCountCapped
+                      ? "table.detail.order.roundsNoteCapped"
+                      : "table.detail.order.roundsNote"
+                  }
                   vars={{ n: detail.settledOrderCount }}
                 />
               </p>

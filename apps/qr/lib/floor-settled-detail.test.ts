@@ -465,6 +465,64 @@ describe("K33 — the settled record names the round it is showing", () => {
     expect(r.kind).toBe("detail");
     if (r.kind !== "detail") throw new Error("unreachable: asserted detail above");
     expect(r.detail.settledOrderCount).toBe(1);
+    expect(r.detail.settledOrderCountCapped).toBe(false);
+  });
+
+  it("does not flag a table that settled EXACTLY the cap — 20 is a real total (M212)", async () => {
+    // The boundary in the safe direction. Flagging here would print "20+" over a table that has
+    // settled exactly twenty rounds, which is its own false statement.
+    orderRows = Array.from({ length: 20 }, (_, i) => ({
+      id: `o-${i}`,
+      session_id: SESSION,
+      status: "paid" as const,
+      total_cents: 1000 + i,
+      refunded_cents: 0,
+      created_at: `2026-09-09T${String(i).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const r = await getTableDetail(SESSION);
+    expect(r.kind).toBe("detail");
+    if (r.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    expect(r.detail.settledOrderCount).toBe(20);
+    expect(r.detail.settledOrderCountCapped).toBe(false);
+  });
+
+  it("flags the count as a FLOOR once the read hits its bound (M212)", async () => {
+    // ⚠️ The read asks for cap+1 precisely so this case is observable. Before M212 the surface said
+    // "Latest of 20 rounds this table has paid for." over a table that had settled twenty-one — a
+    // number the query could not know, printed as though it could.
+    orderRows = Array.from({ length: 21 }, (_, i) => ({
+      id: `o-${i}`,
+      session_id: SESSION,
+      status: "paid" as const,
+      total_cents: 1000 + i,
+      refunded_cents: 0,
+      created_at: `2026-09-09T${String(i).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const r = await getTableDetail(SESSION);
+    expect(r.kind).toBe("detail");
+    if (r.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    expect(r.detail.settledOrderCountCapped).toBe(true);
+    // And the reported count never exceeds the cap, so "N+" reads as the bound it actually is.
+    expect(r.detail.settledOrderCount).toBe(20);
+  });
+
+  it("still shows the LATEST round when the read is capped", async () => {
+    // The extra row exists to detect truncation, not to be rendered. Whichever row the reduction
+    // picks must still be the newest by created_at, with the +1 row present.
+    orderRows = Array.from({ length: 21 }, (_, i) => ({
+      id: `o-${i}`,
+      session_id: SESSION,
+      status: "paid" as const,
+      total_cents: 1000 + i,
+      refunded_cents: 0,
+      created_at: `2026-09-09T${String(i).padStart(2, "0")}:00:00.000Z`,
+    }));
+    const r = await getTableDetail(SESSION);
+    expect(r.kind).toBe("detail");
+    if (r.kind !== "detail") throw new Error("unreachable: asserted detail above");
+    // i=20 is both the newest timestamp and the highest total — separable, so a descending sort is
+    // proved rather than assumed.
+    expect(r.detail.paidTotalCents).toBe(1020);
   });
 });
 

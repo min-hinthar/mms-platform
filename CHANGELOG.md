@@ -4,6 +4,56 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A7b — the Google sign-in dead end, and the carry it was destroying (2026-09-09)
+
+**The owner's report was right and this repo's diagnosis of it was wrong.** `docs/OPEN-ITEMS.md` C21
+said customer Google sign-in was dead for dashboard-config reasons. The measurement behind that is
+real — every `google` identity on prod was created 2026-06-21 and there has been none since, while
+`email` identities continue — but the inference was not. A production round trip landed on
+`/account?error=server_error&error_code=identity_already_exists`: Google completes, and Supabase
+refuses at the **link** step because that identity already belongs to the account created that same
+day. `linkIdentity()` staples a provider onto the CALLER's user, so for a returning customer — the
+population most likely to press that button — it cannot succeed. C21 and C22 are retracted in place.
+
+**The defect was ours, and it erased its own recovery.** The card derived the whole recovery live
+from `useSearchParams()` and then stripped the query in an effect, justified by a comment asserting
+that Next's search params do not react to `replaceState`. They do: Next 16.2.9 patches
+`window.history.replaceState` and bails to the original only when the state object carries `__NA` or
+`_N`, so a `null` state with a truthy url runs `applyUrlFromHistoryPushReplace` → `canonicalUrl` →
+the very value `useSearchParams()` is built from. One frame after the message appeared it was gone,
+and the button reverted from "Sign in with Google" to "Continue with Google" — back to the call that
+had just been refused. A diner saw a flash and then a dead button.
+
+The bounce is now captured once at first render and remembered in `sessionStorage`, so neither the
+cleanup nor a reload can take the recovery with it. And the diner is no longer asked to press again:
+an `identity_already_exists` bounce **completes itself**, one-shot guarded so a loop is impossible,
+with the relabelled button still there when that attempt is spent. `linkIdentity` remains the first
+attempt — it keeps the uid, so orders carry across with no merge at all.
+
+**A failed merge-token mint was destroying orders silently.** The card minted best-effort
+(`if (mtoken) stash(mtoken)`, no else) and redirected unconditionally. Signing into a pre-existing
+account switches uid, and the anonymous uid holding this device's orders, Stars, coupons and
+favourites is unreachable the moment it does — a replacement token needs the anon session, which is
+gone, and only `service_role` can move the value afterwards. So every mint or stash failure lost it
+permanently, after the copy had promised to move it. `mintMergeToken` now answers three outcomes
+instead of one `null` that meant both "nothing to carry" and "could not secure the carry", the stash
+is read back rather than assumed, a blocked carry stops the redirect, and the way through says what
+it costs. A diner with genuinely nothing to carry is never blocked, so a mint outage cannot lock out
+someone with nothing at stake.
+
+Also closed: the strip discarded co-present params, cancelling a `?resume=` lend return that arrived
+beside a bounce; a Server Action **transport** rejection wedged the card at busy with no message
+(`mintMergeToken`'s own try/catch cannot see one); an abandoned consent left a live 24h token that
+`MergeRedeemer` would redeem for the next person on the device, including a staff member; and a
+bounce carrying only `?error=` rendered nothing at all.
+
+**Codex round 4 on #278**, filed there and closed here: **M209**, the caller's authority refresh
+failed open on a read error, authorizing an authority write on a rank it could not confirm — now
+refused, and NAMING THE OUTAGE rather than telling a manager they are not one; **M212**, the
+settled-round count was capped at 20 and printed as exact. **M210** (concurrent demotions can leave
+no owner) needs an atomic database invariant and stays gated on the divergent migration history;
+**M211** stays open.
+
 ### A7 — orders follow the diner onto their account (2026-09-09)
 
 Order attribution is uid-based (`qr_orders.earned_by`), so an upgrade that keeps the uid carries

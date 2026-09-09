@@ -45,7 +45,12 @@ const ACTIVE_SESSION_CAP = 200; // a teahouse has a handful of live tables; boun
  *  that had no bound while every sibling had one. */
 const ORDER_LINE_CAP = 500;
 /** K33 — how many settled rounds one table's record will look back over. A session that pays and
- *  keeps ordering accumulates them; the cap keeps the read bounded like every sibling. */
+ *  keeps ordering accumulates them; the cap keeps the read bounded like every sibling.
+ *
+ *  ⚠️ M212 — THE READ ASKS FOR ONE MORE THAN IT REPORTS. A bounded read cannot tell "exactly N" from
+ *  "N and we stopped counting", and the surface printed the capped length as an exact figure, so a
+ *  table with 21 settled rounds was described as having 20. Fetching cap+1 makes truncation
+ *  observable with no second query, and the extra row is dropped before anything reads it. */
 const SETTLED_ORDER_CAP = 20;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -292,7 +297,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       // while calling itself the table's order. The rows are still reduced to the latest below
       // (the floor board reduces the same way, so the two agree), but the COUNT is now known, and
       // a record that shows one of three rounds says so instead of implying it is all of them.
-      .limit(SETTLED_ORDER_CAP),
+      // M212 — cap+1, so a full page is distinguishable from a truncated one (see SETTLED_ORDER_CAP).
+      .limit(SETTLED_ORDER_CAP + 1),
     db
       .from("mms_tab_config")
       .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
@@ -517,8 +523,13 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     refund: paid ? summarizeRefund(paid.total_cents, paid.refunded_cents ?? 0, paid.status) : null,
     /** K33 — how many rounds this table has settled. 1 for the ordinary table; more for one that
      *  paid and kept ordering. The record shows the LATEST, so the surface names the count rather
-     *  than letting a reader assume one round is the whole meal. */
-    settledOrderCount: settledOrders.length,
+     *  than letting a reader assume one round is the whole meal.
+     *
+     *  M212 — clamped to the cap, and paired with the flag below rather than reported as exact. */
+    settledOrderCount: Math.min(settledOrders.length, SETTLED_ORDER_CAP),
+    /** M212 — the read hit its bound, so the count above is a floor rather than a total, and the
+     *  surface must say "20+" instead of stating a number it cannot know. */
+    settledOrderCountCapped: settledOrders.length > SETTLED_ORDER_CAP,
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,

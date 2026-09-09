@@ -559,6 +559,13 @@ export const STAFF = {
     en: "Latest of {n} rounds this table has paid for.",
     my: "ဒီစားပွဲ ရှင်းပြီးတဲ့ အကြိမ် {n} ထဲက နောက်ဆုံးအကြိမ်။",
   },
+  // M212 — the same sentence when the read hit its bound. The count is a FLOOR, not a total, so the
+  // "+" is doing real work: without it the screen states a number it cannot know. K15: the Burmese is
+  // the checked string above with the same "+" inserted, for Min's native read.
+  "table.detail.order.roundsNoteCapped": {
+    en: "Latest of {n}+ rounds this table has paid for.",
+    my: "ဒီစားပွဲ ရှင်းပြီးတဲ့ အကြိမ် {n}+ ထဲက နောက်ဆုံးအကြိမ်။",
+  },
   "table.detail.addItems": { en: "+ Add items", my: "+ ပစ္စည်း ထည့်" },
   "table.detail.cart.empty": { en: "Nothing in the cart yet.", my: "အော်ဒါထဲမှာ ဘာမှ မရှိသေးပါ။" },
   // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches

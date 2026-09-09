@@ -12,7 +12,23 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { browserClient } from "@mms/db";
 import { ensureProfile } from "@/lib/rewards";
 import { mintMergeToken } from "@/lib/merge";
-import { stashMergeToken, clearMergeToken } from "@/lib/mergeTokenStore";
+import { stashMergeToken, clearMergeToken, readMergeToken } from "@/lib/mergeTokenStore";
+import { decideCarry, CARRY_OVERRIDE_LABEL, MINT_TRANSPORT_FAILURE } from "@/lib/merge-carry";
+import {
+  readCallbackOutcome,
+  callbackMessage,
+  googleAction,
+  googleButtonLabel,
+  shouldAutoRecover,
+  type CallbackOutcome,
+} from "@/lib/oauth-callback";
+import {
+  stashCallbackOutcome,
+  readStashedCallbackOutcome,
+  markRecoveryAttempted,
+  readRecoveryAttempted,
+  clearCallbackOutcome,
+} from "@/lib/oauthCallbackStore";
 import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
 import { WelcomeBackChooser } from "./WelcomeBackChooser";
 import { Card } from "@mms/ui";
@@ -43,6 +59,12 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   // that chip and drives the code-step label.
   const [selectedEmail, setSelectedEmail] = useState<string | null>(null);
 
+  /**
+   * A7b — the carry could not be secured, so the sign-in was NOT started. Holds the honest message plus
+   * the explicit way through; null whenever there is nothing to warn about.
+   */
+  const [carryBlocked, setCarryBlocked] = useState<string | null>(null);
+
   // K7 shared-device — sign INTO a pre-existing account. `bringStars` is the merge-safety hinge: a genuine
   // guest saving their own Stars (typed a taken email / used Google) mints the K3b merge token to carry them
   // over; an explicit SWITCH (a remembered-identity chip, or a lend-mode resume) passes false so the current
@@ -51,8 +73,19 @@ export function AccountUpgrade({ stars }: { stars: number }) {
     async (addr: string, bringStars: boolean): Promise<boolean> => {
       const supa = browserClient();
       if (bringStars) {
-        const mtoken = await mintMergeToken();
-        if (mtoken) stashMergeToken(mtoken);
+        // A7b — same rule as the Google path, same reason: `verifyOtp({ type: "email" })` signs into a
+        // PRE-EXISTING account and switches uid, so an unsecured carry is a permanent loss. Stopping
+        // before the code is sent is the cheapest place to stop — the diner has not yet been asked to
+        // go and read their email.
+        // Same transport catch as the Google path — see its comment. Without it a dropped connection
+        // throws out of `sendSignInCode`, so the caller's `setBusy(false)` never runs.
+        const outcome = await mintMergeToken().catch(() => MINT_TRANSPORT_FAILURE);
+        if (outcome.kind === "minted") stashMergeToken(outcome.token);
+        const decision = decideCarry(outcome, outcome.kind === "minted" ? readMergeToken() : null);
+        if (decision.kind === "blocked") {
+          setCarryBlocked(decision.message);
+          return false;
+        }
       } else {
         clearMergeToken();
       }
@@ -72,11 +105,30 @@ export function AccountUpgrade({ stars }: { stars: number }) {
     [],
   );
 
-  const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<void> => {
+  const startGoogleSignIn = useCallback(async (bringStars: boolean): Promise<boolean> => {
     const supa = browserClient();
     if (bringStars) {
-      const mtoken = await mintMergeToken();
-      if (mtoken) stashMergeToken(mtoken);
+      // ⚠️ A7b — THE MINT IS LOAD-BEARING ON THIS PATH, NOT BEST-EFFORT. `signInWithOAuth` switches uid,
+      // and the anonymous uid holding this device's orders/Stars/coupons/favourites is unreachable the
+      // moment it does: a replacement token can never be minted (that needs the anon session, which is
+      // gone) and only `service_role` can move the value afterwards. So a failed mint STOPS here rather
+      // than redirecting past it — the old code redirected unconditionally and destroyed the value
+      // silently, after the copy had promised to move it. `lib/merge-carry.ts` owns the decision.
+      // ⚠️ CATCH THE TRANSPORT, not just the body. A Server Action promise REJECTS on a lost
+      // connection, before `mintMergeToken`'s own try/catch can run — so an uncaught call here throws
+      // past every line below, leaving the card at `busy = true` with no message and an unhandled
+      // rejection. A mint we never heard back from is a carry we did not secure.
+      const outcome = await mintMergeToken().catch(() => MINT_TRANSPORT_FAILURE);
+      if (outcome.kind === "minted") stashMergeToken(outcome.token);
+      // Read the stash BACK: `stashMergeToken` swallows a storage failure by design, and a token that
+      // only exists server-side is one MergeRedeemer will never find.
+      const decision = decideCarry(outcome, outcome.kind === "minted" ? readMergeToken() : null);
+      if (decision.kind === "blocked") {
+        setCarryBlocked(decision.message);
+        setBusy(false);
+        setSelectedEmail(null);
+        return false;
+      }
     } else {
       clearMergeToken();
     }
@@ -85,11 +137,18 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       options: { redirectTo: `${window.location.origin}/account` },
     });
     if (e4) {
+      // The redirect never happened, so a token stashed a moment ago is now UNBOUND — nothing will
+      // consume it, it lives 24h, and `MergeRedeemer` redeems on ANY later non-anon sign-in on this
+      // device, including a staff member signing in through /staff/auth/callback and then opening
+      // /account. That would move this diner's orders onto somebody else's account.
+      clearMergeToken();
       setError(e4.message || "Couldn’t sign in with Google — try again.");
       setBusy(false);
       setSelectedEmail(null);
+      return false;
     }
     // success → full-page redirect to Google, returns to /account
+    return true;
   }, []);
 
   // Tap a "Welcome back" chip — a merge-suppressed switch to a known prior identity.
@@ -110,25 +169,38 @@ export function AccountUpgrade({ stars }: { stars: number }) {
     [sendSignInCode, startGoogleSignIn],
   );
 
-  // OAuth callback error (M4 P4.1): linkIdentity redirects back to /account, and if the Google account the
-  // diner picked is already linked to a DIFFERENT Morning Star account, Supabase (PKCE → the error lands in
-  // the QUERY string, which is why useSearchParams can read it) bounces back with
-  // ?error_code=identity_already_exists + a 422 on /auth/v1/user — otherwise the diner would just see a raw
-  // error URL with no way forward. Derive it during render (NOT setState-in-effect: the React-Compiler lint
-  // rule forbids that, and deriving also avoids a hydration mismatch on this dynamically-rendered route).
-  // When already-linked, the Google button becomes a SIGN-IN recovery (linking again would fail the same
-  // way). Copy stays HONEST: signing in switches to the EXISTING account — and K3b now MOVES this device's
-  // Stars onto it (a merge token minted before the redirect, redeemed by /account's MergeRedeemer on return).
-  // a11y tradeoff: because this message is present from SSR/first paint it's INITIAL content of the
-  // role="status" region, so a SR won't auto-announce it (live regions announce changes) — it's still
-  // visible + discoverable on navigation; a change-based fix would require the forbidden setState-in-effect.
+  // OAuth callback bounce (M4 P4.1, reworked in A7b): `linkIdentity` redirects back to /account, and if the
+  // Google account the diner picked already belongs to a DIFFERENT Morning Star account, Supabase bounces
+  // back with ?error_code=identity_already_exists + a 422 on /auth/v1/user. Only the QUERY copy is readable
+  // — `useSearchParams()` is built from the router's canonical URL and can never see a fragment — and it
+  // exists because @supabase/ssr hardcodes the PKCE flow. The reading, the copy, the button label and the
+  // handler choice all live in `lib/oauth-callback.ts`, so each is a value a test can falsify.
+  //
+  // A7b also stopped asking the diner to press again: an already-linked bounce completes itself (see the
+  // auto-recovery effect below). The relabelled button remains for the case where that one attempt is
+  // already spent.
+  //
+  // a11y note, unchanged and still a tradeoff: when the message is present from SSR/first paint it is
+  // INITIAL content of the role="status" region, so a screen reader will not auto-announce it. It is
+  // visible and discoverable on navigation. The auto-recovery makes this moot in the common case, because
+  // the diner is redirected rather than left reading it.
   const searchParams = useSearchParams();
-  const alreadyLinked = searchParams.get("error_code") === "identity_already_exists";
-  const callbackError = searchParams.get("error_code")
-    ? alreadyLinked
-      ? "That Google account already has a Morning Star account — sign in and we’ll move this device’s Stars onto it."
-      : "Couldn’t finish with Google — please try again."
-    : null;
+  /**
+   * ⚠️ A7b — CAPTURED ONCE, NEVER RE-DERIVED, AND THE COMMENT THIS REPLACES WAS WRONG ABOUT NEXT.
+   * The previous code read `searchParams` live on every render and then stripped the query in an
+   * effect, justified by "Next's searchParams don't react to it". They do: Next 16.2.9 patches
+   * `window.history.replaceState` and only bails when the state object carries `__NA`/`_N`, so a
+   * `null` state with a truthy url runs `applyUrlFromHistoryPushReplace` → `canonicalUrl` → the very
+   * value `useSearchParams()` is built from. The message and the recovery were therefore erased one
+   * frame after they appeared, and the button reverted to the `linkIdentity` call that had just been
+   * refused. Seeding state ONCE from the URL means the cleanup can do its job without taking the
+   * recovery with it. The initializer is hydration-safe: `app/layout.tsx` is `force-dynamic`, so SSR
+   * and the first client render read the same query.
+   */
+  const [callback, setCallback] = useState<CallbackOutcome | null>(() =>
+    readCallbackOutcome(searchParams.get("error_code"), searchParams.get("error")),
+  );
+  const callbackError = callbackMessage(callback);
 
   // Focus follows the step (WCAG 2.4.3): email→code swaps the form (the pressed submit unmounts), and
   // "Use a different email" swaps back — land focus in the new step's input. Skip the initial mount so
@@ -145,15 +217,66 @@ export function AccountUpgrade({ stars }: { stars: number }) {
   }, [phase]);
   const [, startTransition] = useTransition();
 
-  // Once the callback error is read (above), strip the ?error…/#error… params (and the SDK's `sb=` hash)
-  // via replaceState — a side-effect only, no setState. Using replaceState (not router.replace) keeps the
-  // derived callbackError/alreadyLinked intact (Next's searchParams don't react to it), so the message +
-  // recovery stay visible while the URL is cleaned and a refresh can't replay the raw error.
+  /**
+   * Clean the raw Supabase error out of the address bar once it has been captured above.
+   *
+   * ⚠️ DELETE ONLY THE OAUTH KEYS — NEVER REPLACE WITH `pathname`. The old call was
+   * `replaceState(null, "", window.location.pathname)`, which discarded EVERY other param, and this
+   * effect is declared before the `?resume=` one so it ran first. A lend-mode return that arrived
+   * alongside a bounce therefore lost its `resume` param before the resume effect could act on it —
+   * and because the strip does propagate to `useSearchParams` (see the capture note above),
+   * `resumeParam` then flipped to null, tearing that effect down mid-flight. The resume effect's own
+   * comment says it preserves co-present params for exactly this reason; this one now does too.
+   *
+   * The fragment goes as well: Supabase mirrors the error there, the SDK does not clean an
+   * error-carrying callback (it throws before either of its two URL rewrites), and nothing in the app
+   * reads the hash.
+   */
   useEffect(() => {
-    if (callbackError && typeof window !== "undefined") {
-      window.history.replaceState(null, "", window.location.pathname);
-    }
-  }, [callbackError]);
+    if (!callback || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("error");
+    url.searchParams.delete("error_code");
+    url.searchParams.delete("error_description");
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  }, [callback]);
+
+  /**
+   * A7b — remember the bounce, and COMPLETE the recovery rather than asking for a second press.
+   *
+   * The diner already asked to sign in with Google. The first press called `linkIdentity`, which for a
+   * returning customer cannot succeed, and Supabase said so. The call that answers the request they
+   * actually made is `signInWithOAuth`, and the app knows it — so it makes it, instead of relabelling
+   * a button and hoping they notice two changed words below an `aria-hidden` divider.
+   *
+   * Ordering inside the frame is load-bearing: the attempt is marked spent BEFORE the redirect starts,
+   * because a flag written on the way back would be written by a page that may never load. Only an
+   * `already-linked` bounce auto-recovers — a `generic` one is a failure we cannot name, and
+   * redirecting into an unnamed failure is how a loop gets built.
+   *
+   * Deferred to a frame for the same reason the `?resume=` effect is: this reaches setState, and the
+   * guard is set inside the callback so Strict Mode's double-invoke cannot leave it bailing forever.
+   */
+  const autoRecoverFired = useRef(false);
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => {
+      if (autoRecoverFired.current) return;
+      // No bounce in this URL — but one may be remembered from before a reload or a client navigation
+      // stripped it. Adopt it and let this effect run again on the next render.
+      if (!callback) {
+        const remembered = readStashedCallbackOutcome();
+        if (remembered) setCallback(remembered);
+        return;
+      }
+      stashCallbackOutcome(callback);
+      if (!shouldAutoRecover(callback, readRecoveryAttempted())) return;
+      autoRecoverFired.current = true;
+      markRecoveryAttempted();
+      setBusy(true);
+      void startGoogleSignIn(true);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [callback, startGoogleSignIn]);
 
   // Refresh the Server Components once the account CONFIRMS. The Google OAuth return exchanges the PKCE code
   // client-side AFTER the initial SSR (which saw anonymous cookies), so `/account`'s RewardsHub + this card
@@ -175,6 +298,10 @@ export function AccountUpgrade({ stars }: { stars: number }) {
         !refreshedRef.current
       ) {
         refreshedRef.current = true;
+        // A7b — the bounce is over: a real account has confirmed on this device. Forget the remembered
+        // outcome and the spent auto-recovery so a later sign-in in the same browsing session starts
+        // clean rather than inheriting this one's recovery state.
+        clearCallbackOutcome();
         // Refresh even if ensureProfile rejects — the account is confirmed; the profile row is secondary
         // (idempotently re-created on the next confirmed load) and must not block the hub from updating.
         void (async () => {
@@ -462,7 +589,7 @@ export function AccountUpgrade({ stars }: { stars: number }) {
 
       <button
         type="button"
-        onClick={alreadyLinked ? signInGoogle : google}
+        onClick={googleAction(callback) === "sign-in" ? signInGoogle : google}
         disabled={busy}
         className="account-oauth"
         style={googleBtn}
@@ -487,8 +614,27 @@ export function AccountUpgrade({ stars }: { stars: number }) {
             d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.47.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"
           />
         </svg>
-        {alreadyLinked ? "Sign in with Google" : "Continue with Google"}
+        {googleButtonLabel(callback)}
       </button>
+
+      {/* A7b — the carry could not be secured, so nothing was started. This is the ONLY way past it, and
+          it says what it costs rather than shrugging: the anonymous session holding this device's Stars is
+          abandoned by the sign-in itself, and nothing can reach it afterwards. Rendered only while
+          blocked, so a diner who never hit it never sees a way to throw their Stars away. */}
+      {carryBlocked && (
+        <button
+          type="button"
+          onClick={() => {
+            setCarryBlocked(null);
+            setBusy(true);
+            void startGoogleSignIn(false);
+          }}
+          disabled={busy}
+          style={carryOverrideBtn}
+        >
+          {CARRY_OVERRIDE_LABEL}
+        </button>
+      )}
 
       {/* SINGLE live region for the card — an error, the email-already-registered recovery, or the Google
           callback recovery (mutually exclusive at any moment). Routing the recovery here (vs a second
@@ -496,6 +642,10 @@ export function AccountUpgrade({ stars }: { stars: number }) {
           this persistent node, unlike the SSR-initial callbackError). */}
       <p role="status" aria-atomic="true" style={errorLine}>
         {error ??
+          // A7b — a blocked carry outranks both recoveries below: it is the only one describing value
+          // that is about to be destroyed, and it is a real change to this persistent node, so it DOES
+          // announce (unlike the SSR-initial callbackError).
+          carryBlocked ??
           // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
           // button is gone, so the directive would contradict the screen (the diner already tapped it).
           (emailTaken && phase === "idle"
@@ -567,6 +717,24 @@ const googleBtn: CSSProperties = {
   color: "var(--tx)",
   fontWeight: 700,
   fontSize: "var(--fs-body)",
+  cursor: "pointer",
+};
+// A7b — the "leave my Stars behind" escape hatch. Deliberately quieter than the Google button and NOT a
+// CTA: it is the destructive way through, offered only when the safe one is unavailable, so it must never
+// read as the recommended tap. `--warn` names the cost without shouting; min-height keeps the 44px target.
+const carryOverrideBtn: CSSProperties = {
+  display: "block",
+  width: "100%",
+  minHeight: 44,
+  marginTop: 8,
+  padding: "8px 12px",
+  borderRadius: 10,
+  border: "1px solid var(--warn)",
+  background: "transparent",
+  color: "var(--warn)",
+  fontWeight: 600,
+  fontSize: "var(--fs-sm)",
+  lineHeight: 1.35,
   cursor: "pointer",
 };
 // color/weight/size/underline/arrow come from `.nav-link`; content-width so the underline hugs the text
