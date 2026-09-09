@@ -1,8 +1,11 @@
 "use client";
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { provisionStaff, setStaffActive } from "@/lib/staff-actions";
-import type { StaffRole, StaffRow } from "@/lib/staff";
+import { provisionStaff, setStaffActive, setStaffRole } from "@/lib/staff-actions";
+import type { StaffRow } from "@/lib/staff";
+// The ladder comes from the PLAIN module: importing a value from "@/lib/staff" would pull the
+// service-role client into this client bundle (it reaches authz → staff-lock → @mms/db/server).
+import { canActOn, ROLE_ORDER, type StaffRole } from "@/lib/staff-roles";
 import { RoleBadge } from "./RoleBadge";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
@@ -25,15 +28,27 @@ import { al, sx } from "@/lib/staff-labels";
  * slice, and its closure names `FloorDetailLive`, `StaffModSheet` and the thirteen pages — never
  * this file. A deferral that points at a closed row is a deferral tracked nowhere.
  */
+/** A6 — the roles this caller may grant, high to low. Derived from the SAME `canActOn` the server
+ *  refuses with, so the menu and the authority cannot disagree: an option that appears here is one
+ *  the action will accept, and one that does not appear is one it would refuse. */
+const ROLE_LABEL: Record<StaffRole, string> = {
+  owner: "Owner",
+  manager: "Manager",
+  server: "Server",
+};
+
 export function TeamManager({
   initial,
   selfUid,
   selfEmail,
+  callerRole,
 }: {
   initial: StaffRow[];
   selfUid: string;
   selfEmail: string | null;
+  callerRole: StaffRole;
 }) {
+  const grantable = ROLE_ORDER.filter((r) => canActOn(callerRole, r));
   const router = useRouter();
   const lang = useStaffLang();
   const [email, setEmail] = useState("");
@@ -41,11 +56,18 @@ export function TeamManager({
   const [role, setRole] = useState<StaffRole>("server");
   const [busy, setBusy] = useState(false);
   const [pendingUid, setPendingUid] = useState<string | null>(null);
+  // Separate from `pendingUid` so a role <select> busy on one row does not also grey the
+  // deactivate button beside it — two independent writes, two independent pending states.
+  const [rolePendingUid, setRolePendingUid] = useState<string | null>(null);
   // A DISCRIMINATED UNION, not `{ ok: boolean; text: string }`: the success half is a dictionary key
   // rendered through <Chrome>, so there is no success STRING left to hold — and keeping a dead one
   // would invite the next reader to feed it to <OutageText>, which passes anything without an
   // authored twin through as English forever while looking converted.
-  const [msg, setMsg] = useState<{ ok: true } | { ok: false; text: string } | null>(null);
+  const [msg, setMsg] = useState<
+    | { ok: true; k: "floor.team.added" | "floor.team.roleChanged" }
+    | { ok: false; text: string }
+    | null
+  >(null);
 
   async function add(e: FormEvent) {
     e.preventDefault();
@@ -60,7 +82,24 @@ export function TeamManager({
     setEmail("");
     setName("");
     setRole("server");
-    setMsg({ ok: true });
+    setMsg({ ok: true, k: "floor.team.added" });
+    router.refresh();
+  }
+
+  async function changeRole(row: StaffRow, next: StaffRole) {
+    if (next === row.role) return;
+    setRolePendingUid(row.userId);
+    setMsg(null);
+    const res = await setStaffRole({ userId: row.userId, role: next });
+    setRolePendingUid(null);
+    if (!res.ok) {
+      setMsg({ ok: false, text: res.error });
+      // The <select> is CONTROLLED by `row.role` (server state), so a refused change snaps back to
+      // the stored role on its own — no local mirror to unwind, and the console never shows a role
+      // nobody saved.
+      return;
+    }
+    setMsg({ ok: true, k: "floor.team.roleChanged" });
     router.refresh();
   }
 
@@ -125,9 +164,14 @@ export function TeamManager({
               onChange={(e) => setRole(e.target.value as StaffRole)}
               style={input}
             >
-              <option value="server">Server</option>
-              <option value="manager">Manager</option>
-              <option value="owner">Owner</option>
+              {grantable
+                .slice()
+                .reverse()
+                .map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABEL[r]}
+                  </option>
+                ))}
             </select>
           </div>
           <button
@@ -150,7 +194,7 @@ export function TeamManager({
         {msg &&
           (msg.ok ? (
             <span style={{ fontSize: "var(--fs-sm)", color: "var(--ok)" }}>
-              <Chrome lang={lang} k="floor.team.added" echo={false} />
+              <Chrome lang={lang} k={msg.k} echo={false} />
             </span>
           ) : (
             <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
@@ -166,6 +210,10 @@ export function TeamManager({
           const isSelf =
             row.userId === selfUid ||
             (!!row.email && !!selfEmail && row.email.toLowerCase() === selfEmail.toLowerCase());
+          // A6 — a row this caller cannot reach carries NO controls, rather than controls that
+          // answer "only the owner can": a manager sees the owner's row and their own as read-only.
+          // The same predicate the server refuses with, so the two cannot drift.
+          const reachable = !isSelf && canActOn(callerRole, row.role);
           return (
             <li
               key={row.userId}
@@ -200,55 +248,79 @@ export function TeamManager({
                   </div>
                 )}
               </div>
-              {isSelf ? (
+              {!reachable ? (
                 <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }} aria-hidden>
                   —
                 </span>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => toggleActive(row)}
-                  disabled={pendingUid === row.userId}
-                  aria-busy={pendingUid === row.userId}
-                  // Stable, member-specific name so two "Deactivate" buttons aren't identical to a
-                  // screen reader.
-                  //
-                  // ⚠️ THE PENDING STATE IS NOT FED INTO al(). The visible label collapses to "…"
-                  // mid-request; the NAME must not, or the control a screen-reader user just took
-                  // hold of renames itself under them and the row loses its only identifying word.
-                  // `al()` reads `row.active` alone, so the name is stable across the flip.
-                  //
-                  // A TERNARY OVER TWO WHOLE al() CALLS, not one call with a computed `verb:` — the
-                  // key has to stay a string literal or rule 3c cannot check that the button RENDERS
-                  // the same key it announces, which is the whole of WCAG 2.5.3 here.
-                  aria-label={
-                    row.active
-                      ? al(lang, {
-                          kind: "verb",
-                          echo: "inline",
-                          verb: "floor.verb.deactivate",
-                          subject: row.displayName,
-                        }).aria
-                      : al(lang, {
-                          kind: "verb",
-                          echo: "inline",
-                          verb: "floor.verb.reactivate",
-                          subject: row.displayName,
-                        }).aria
-                  }
-                  style={row.active ? deactivateBtn : reactivateBtn}
-                >
-                  {/* The SAME keys the name is built from, so 2.5.3 containment holds by
+                <div style={rowControls}>
+                  {/* A6 — the role control. A <select> rather than a promote/demote pair because the
+                      ladder has three rungs and a pair of verbs cannot express "server → owner" in
+                      one move. CONTROLLED by the server's `row.role`: a refused change snaps back on
+                      its own, so the console never displays a role nobody stored. The options are
+                      capped at `grantable`, and `row.role` is always in it — `reachable` proved the
+                      caller can act on it — so the current value is never missing from its own menu. */}
+                  <select
+                    value={row.role}
+                    onChange={(e) => changeRole(row, e.target.value as StaffRole)}
+                    disabled={rolePendingUid === row.userId}
+                    aria-busy={rolePendingUid === row.userId}
+                    // Named per MEMBER: without the name, every row's control announces the bare
+                    // word "Role" and a screen-reader user cannot tell whose they are changing.
+                    aria-label={`${sx(lang, "floor.team.a11y.role")} — ${row.displayName}`}
+                    style={roleSelect}
+                  >
+                    {grantable.map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r]}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => toggleActive(row)}
+                    disabled={pendingUid === row.userId}
+                    aria-busy={pendingUid === row.userId}
+                    // Stable, member-specific name so two "Deactivate" buttons aren't identical to a
+                    // screen reader.
+                    //
+                    // ⚠️ THE PENDING STATE IS NOT FED INTO al(). The visible label collapses to "…"
+                    // mid-request; the NAME must not, or the control a screen-reader user just took
+                    // hold of renames itself under them and the row loses its only identifying word.
+                    // `al()` reads `row.active` alone, so the name is stable across the flip.
+                    //
+                    // A TERNARY OVER TWO WHOLE al() CALLS, not one call with a computed `verb:` — the
+                    // key has to stay a string literal or rule 3c cannot check that the button RENDERS
+                    // the same key it announces, which is the whole of WCAG 2.5.3 here.
+                    aria-label={
+                      row.active
+                        ? al(lang, {
+                            kind: "verb",
+                            echo: "inline",
+                            verb: "floor.verb.deactivate",
+                            subject: row.displayName,
+                          }).aria
+                        : al(lang, {
+                            kind: "verb",
+                            echo: "inline",
+                            verb: "floor.verb.reactivate",
+                            subject: row.displayName,
+                          }).aria
+                    }
+                    style={row.active ? deactivateBtn : reactivateBtn}
+                  >
+                    {/* The SAME keys the name is built from, so 2.5.3 containment holds by
                       construction. echo="inline" rather than "stack": this is a 44px pill in a flex
                       row beside the member's name, and a stacked pair would push every row taller. */}
-                  {pendingUid === row.userId ? (
-                    "…"
-                  ) : row.active ? (
-                    <Chrome lang={lang} k="floor.verb.deactivate" echo="inline" />
-                  ) : (
-                    <Chrome lang={lang} k="floor.verb.reactivate" echo="inline" />
-                  )}
-                </button>
+                    {pendingUid === row.userId ? (
+                      "…"
+                    ) : row.active ? (
+                      <Chrome lang={lang} k="floor.verb.deactivate" echo="inline" />
+                    ) : (
+                      <Chrome lang={lang} k="floor.verb.reactivate" echo="inline" />
+                    )}
+                  </button>
+                </div>
               )}
             </li>
           );
@@ -300,6 +372,27 @@ const rowCard: CSSProperties = {
   justifyContent: "space-between",
   gap: "var(--s4)",
   padding: "var(--s4) var(--s5)",
+};
+/** A6 — the row's control pair. `flexShrink: 0` matches the toggle beside it so a long display name
+ *  compresses the NAME column (which already ellipsises) rather than squeezing a 44px target below
+ *  its minimum; `gap` keeps the two apart on a tablet held one-handed. */
+const rowControls: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--s3)",
+  flexShrink: 0,
+};
+/** The role <select>. 44px like every other staff target (QA §A); tokens, never a hardcoded colour. */
+const roleSelect: CSSProperties = {
+  minHeight: 44,
+  padding: "0 10px",
+  borderRadius: "var(--r-md)",
+  border: "1px solid var(--bd)",
+  background: "var(--cd)",
+  color: "var(--tx)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 600,
+  cursor: "pointer",
 };
 const baseToggle: CSSProperties = {
   minHeight: 44,

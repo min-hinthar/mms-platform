@@ -19,7 +19,8 @@ export { STAFF_WRITE_OUTAGE };
  * immediately without deleting the audit trail. Mutations live in ./staff-actions ("use server").
  */
 
-export type StaffRole = "server" | "manager" | "owner";
+export type { StaffRole } from "./staff-roles";
+import type { StaffRole } from "./staff-roles";
 export type StaffCaller = {
   uid: string;
   /**
@@ -34,11 +35,12 @@ export type StaffCaller = {
   email: string | null;
 };
 
-/** Role floor, mirroring the SQL CASE in is_staff_at_least (owner ≥ manager ≥ server). */
-const RANK: Record<StaffRole, number> = { server: 1, manager: 2, owner: 3 };
-export function roleAtLeast(role: StaffRole, min: StaffRole): boolean {
-  return RANK[role] >= RANK[min];
-}
+/** The ladder lives in `./staff-roles` — a PLAIN module, so the client console reads the same
+ *  `canActOn` this file's actions refuse with (importing a VALUE from here pulls the service-role
+ *  client into the browser bundle and the build fails). Re-exported so existing importers of
+ *  `@/lib/staff` keep working. */
+export { roleAtLeast, canActOn, ROLE_ORDER } from "./staff-roles";
+import { roleAtLeast, ROLE_ORDER } from "./staff-roles";
 
 /**
  * The auth state behind a /staff request, distinguished FOUR ways so the shells can RECOVER, not
@@ -199,12 +201,17 @@ export type StaffRow = {
 };
 
 /**
- * Owner-gated roster read (the Team view server component). Ordered by role (owner→server) then
- * oldest first, so the people who run the place sit at the top. Owner-gating is enforced here AND by
- * the staff_read_self RLS policy — defense in depth.
+ * Manager-gated roster read (the Team view server component). Ordered by role (owner→server) then
+ * oldest first, so the people who run the place sit at the top.
+ *
+ * ⚠️ A6 LOWERED THIS FLOOR FROM OWNER, and the "defense in depth" this docblock used to claim was
+ * never what it said: the read goes through `serviceClient()`, which BYPASSES RLS, so
+ * `staff_read_self`'s `is_staff_at_least('owner')` arm has never gated this function — it gates a
+ * caller-scoped read nothing here performs. The floor below is the whole gate, and it is now
+ * `manager`, because a manager who can invite someone has to be able to see who is already on.
  */
 export async function listStaff(): Promise<StaffRow[]> {
-  await requireStaff("owner");
+  await requireStaff("manager");
   // The roster is small by design (a family-run teahouse has a handful of staff); the explicit cap
   // keeps the query bounded at the DB regardless, per the project's "bound every query" standard.
   const { data, error } = await serviceClient()
@@ -223,5 +230,12 @@ export async function listStaff(): Promise<StaffRow[]> {
     active: r.active,
     createdAt: r.created_at,
   }));
-  return rows.sort((a, b) => RANK[b.role] - RANK[a.role] || a.createdAt.localeCompare(b.createdAt));
+  // Highest role first, then oldest, so the people who run the place sit at the top. Ordered
+  // through the shared ROLE_ORDER (owner→server) rather than a private rank table, so a new rung
+  // cannot sort correctly in one file and wrongly in another.
+  return rows.sort(
+    (a, b) =>
+      ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) ||
+      a.createdAt.localeCompare(b.createdAt),
+  );
 }

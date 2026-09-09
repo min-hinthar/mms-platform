@@ -14,7 +14,7 @@
 [![Stripe](https://img.shields.io/badge/Stripe-Payment%20Element-635BFF?logo=stripe)](https://stripe.com)
 [![License](https://img.shields.io/badge/license-private-lightgrey)](#-license)
 
-**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 2169 qr tests + 142 ui tests · 547 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
+**Build:** M0 · M2–M4 · S1–S4 · R1–R9 · J0–J6 ✅ (M1 🟡 — code done, owner-blocked infra tail) — shipped through **W22c** (the gesture layer), then the menu's first screen (**M131–M139**) and the Codex back-sweep arc (**#240–#242** — a money-path P1 from #233, the `codex-review` required check, Rice off the promoted POS order, the CI fast-lane teeth, and the leftovers: dial-aware ambient motion, the split-`try` boot script, a themed reward shine, and two of M148's four doc-claim corrections — its other two sub-items stay open) · **Gate:** 2189 qr tests + 142 ui tests · 558 `verify:slice` mutants · **Stack:** $0/mo software (Stripe per-txn only)
 
 </div>
 
@@ -152,14 +152,14 @@ The gate — run all three before any PR:
 
 ```bash
 pnpm turbo lint typecheck build test   # what CI runs
-pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 547 semantic
+pnpm verify:slice                      # the MECHANICAL money-path gate: coverage guard + 558 semantic
                                        # mutations (each MUST turn its owning suite red) + orphan check.
-                                       # ⚠️ rewrites the 103 money/authority modules it mutates IN PLACE
-                                       # (93 under apps/qr/lib, plus the create-share-intent, setup-intent
+                                       # ⚠️ rewrites the 105 money/authority modules it mutates IN PLACE
+                                       # (95 under apps/qr/lib, plus the create-share-intent, setup-intent
                                        # and board routes, plus SIX components — TableCartProvider.tsx,
                                        # menu/YourUsual.tsx, staff/TicketText.tsx, staff/Chrome.tsx,
                                        # staff/StaffPromoControl.tsx and ReadyBoard.tsx — plus
-                                       # packages/db/src/schemas.ts: 93+3+6+1=103) and restores them.
+                                       # packages/db/src/schemas.ts: 95+3+6+1=105) and restores them.
                                        # ⚠️ That list is the operator's only record of what may be left
                                        # broken on disk by a killed run, so keep it measured, never
                                        # counted by eye — both parents of the #262 merge miscounted it. It

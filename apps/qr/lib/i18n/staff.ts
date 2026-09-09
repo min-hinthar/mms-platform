@@ -1036,10 +1036,10 @@ export const STAFF = {
     en: "Add staff by email — they’ll sign in with a one-time code. Deactivate to offboard without losing history.",
     my: "အီးမေးလ်နဲ့ ဝန်ထမ်း ထည့်ပါ — တစ်ကြိမ်သုံး ကုဒ်နဲ့ ဝင်ပါလိမ့်မယ်။ မှတ်တမ်း မပျောက်စေဘဲ ထုတ်ဖို့ ရပ်ဆိုင်းပါ။",
   },
-  "floor.team.ownersOnly": { en: "Owners only", my: "ပိုင်ရှင်များသာ" },
-  "floor.team.ownersOnly.body": {
-    en: "Managing the team is limited to owners.",
-    my: "ဝန်ထမ်း စီမံခန့်ခွဲမှုကို ပိုင်ရှင်တွေသာ လုပ်နိုင်ပါတယ်။",
+  "floor.team.managersOnly": { en: "Managers only", my: "မန်နေဂျာများသာ" },
+  "floor.team.managersOnly.body": {
+    en: "Managing the team is limited to managers and the owner.",
+    my: "ဝန်ထမ်း စီမံခန့်ခွဲမှုကို မန်နေဂျာနဲ့ ပိုင်ရှင်တွေသာ လုပ်နိုင်ပါတယ်။",
   },
   "floor.team.backToFloor": { en: "← Back to the floor", my: "← ခန်းမကို ပြန်သွား" },
   "floor.team.a11y.roster": { en: "Staff", my: "ဝန်ထမ်း စာရင်း" },
@@ -1049,6 +1049,13 @@ export const STAFF = {
     en: "Added — they can now sign in with a one-time code.",
     my: "ထည့်ပြီးပါပြီ — တစ်ကြိမ်သုံး ကုဒ်နဲ့ ဝင်နိုင်ပါပြီ။",
   },
+  // A6 — the role control. `roleChanged` is the SUCCESS half of the same one live region as
+  // `floor.team.added`; the failure half stays <OutageText>.
+  "floor.team.roleChanged": {
+    en: "Role updated.",
+    my: "ရာထူး ပြောင်းပြီးပါပြီ။",
+  },
+  "floor.team.a11y.role": { en: "Role", my: "ရာထူး" },
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════
   // ── the register (FOH counter): identity and the page's own frame ─────────

@@ -4200,6 +4200,100 @@ const MUTANTS = [
     find: "    settlePromoCents = settleTotals.promoCents;\n",
     replace: "    settlePromoCents = settleTotals.discountCents;\n",
   },
+  // ── A6 · the team screen opened to managers (floor lowered, ceiling added) ──────────────────
+  // Every write here goes through the service-role client and `staff` carries one RLS policy, a
+  // SELECT — so these TypeScript refusals are the entire gate and a survivor is a live hole.
+  {
+    id: "staff-roles/ceiling-inverts",
+    file: "apps/qr/lib/staff-roles.ts",
+    suite: "lib/staff-role-ceiling.test.ts",
+    why: "A6 \u2014 the ceiling read the wrong way round is the whole escalation in one character: a manager could reach an owner and an owner could reach nobody. It looks right at a glance because the SAME operator and the same two operands appear in `roleAtLeast` one function above, where the caller/floor order genuinely is reversed relative to caller/target \u2014 so the mutation is a plausible copy of the neighbour rather than a typo",
+    find: "export function canActOn(callerRole: StaffRole, targetRole: StaffRole): boolean {\n  return RANK[callerRole] >= RANK[targetRole];\n}",
+    replace:
+      "export function canActOn(callerRole: StaffRole, targetRole: StaffRole): boolean {\n  return RANK[targetRole] >= RANK[callerRole];\n}",
+  },
+  {
+    id: "staff-roles/ceiling-admits-a-peer-only",
+    file: "apps/qr/lib/staff-roles.ts",
+    suite: "lib/staff-role-ceiling.test.ts",
+    why: "the tempting tightening: `>` reads as 'strictly above me is out of reach' and is one keystroke from the shipped rule. It silently forbids a manager from touching another manager and an owner from touching a co-owner \u2014 including the owner-on-owner deactivation the codebase has always allowed \u2014 so the screen grows read-only rows nobody can explain",
+    find: "  return RANK[callerRole] >= RANK[targetRole];\n}\n\n/** Highest \u2192 lowest.",
+    replace: "  return RANK[callerRole] > RANK[targetRole];\n}\n\n/** Highest \u2192 lowest.",
+  },
+  {
+    id: "staff-roles/menu-order-reverses",
+    file: "apps/qr/lib/staff-roles.ts",
+    suite: "lib/staff-role-ceiling.test.ts",
+    why: "ROLE_ORDER drives BOTH the console's role menus and `listStaff`'s sort. Reversed, the roster puts servers above the owner and the add-staff form opens on the lowest rung \u2014 cosmetic apart, but together they are the one screen that states who runs the place, stating it backwards",
+    find: 'export const ROLE_ORDER: StaffRole[] = ["owner", "manager", "server"];',
+    replace: 'export const ROLE_ORDER: StaffRole[] = ["server", "manager", "owner"];',
+  },
+  {
+    id: "staff-team/provision-skips-the-ceiling",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "A6 \u2014 the lowered floor without the ceiling hands every manager the `owner` option in the same form they use to add a server: invite an owner at an address you control, sign in as them. Deleting the check is invisible in review because the floor above it still reads like a gate",
+    find: '  if (!canActOn(caller.role, parsed.data.role))\n    return { ok: false, error: "Only the owner can add another owner." };\n',
+    replace: "",
+  },
+  {
+    id: "staff-team/provision-checks-the-caller-against-itself",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the mutant that KEEPS the call and still ships the hole \u2014 the shape a `canActOn` grep can never catch. `canActOn(caller.role, caller.role)` is always true, so the guard runs, passes, and reads in review exactly like the real one",
+    find: '  if (!canActOn(caller.role, parsed.data.role))\n    return { ok: false, error: "Only the owner can add another owner." };',
+    replace:
+      '  if (!canActOn(caller.role, caller.role))\n    return { ok: false, error: "Only the owner can add another owner." };',
+  },
+  {
+    id: "staff-team/deactivate-skips-the-ceiling",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "without it the same two taps that offboard a server offboard every OWNER, and the account that could reinstate them is the one just switched off. The self-check above it survives the deletion and looks like the guard",
+    find: '  if (!canActOn(caller.role, target.role as StaffRole))\n    return { ok: false, error: "Only the owner can change an owner\u2019s account." };\n',
+    replace: "",
+  },
+  {
+    id: "staff-team/role-change-ignores-the-requested-role",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "HALF the ceiling, which is the half that looks complete: the target is checked, so a manager may not touch an owner \u2014 but the role they are MOVED TO is unchecked, so a manager promotes a fellow server to owner and signs in as them. One of two mutants because either half alone leaks, in opposite directions",
+    find: "  if (!canActOn(caller.role, current) || !canActOn(caller.role, parsed.data.role))",
+    replace: "  if (!canActOn(caller.role, current))",
+  },
+  {
+    id: "staff-team/role-change-ignores-the-current-role",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the mirror hole, and the one that hands over the restaurant: the requested role is checked, so a manager may not create an owner \u2014 but the target's CURRENT role is unchecked, so a manager demotes the owner to server, which is a role well within their reach, and inherits the place from below",
+    find: '  if (!canActOn(caller.role, current) || !canActOn(caller.role, parsed.data.role))\n    return { ok: false, error: "Only the owner can change an owner\u2019s role." };',
+    replace:
+      '  if (!canActOn(caller.role, parsed.data.role))\n    return { ok: false, error: "Only the owner can change an owner\u2019s role." };',
+  },
+  {
+    id: "staff-team/role-change-allows-self-promotion",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the shortest path of all \u2014 a manager setting their OWN row to owner, which the ceiling alone permits because a manager may act on a manager and (before the change lands) is not yet asking for a role above their own. It is also the lockout guard: the sole owner demoting themselves leaves nobody who can restore the role",
+    find: '  if (isSelf) return { ok: false, error: "You can\u2019t change your own role." };\n',
+    replace: "",
+  },
+  {
+    id: "staff-team/role-change-write-drops-its-status-guard",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the project's standing rule that a status guard belongs in the SQL STATEMENT, not only in the code above it. The ceiling was decided against a role read a moment earlier; without `.eq(\"role\", current)` a concurrent change in that window applies this decision to a role it was never made about \u2014 an owner demoted to server between the read and the write is then re-promoted by a manager's in-flight edit",
+    find: '    .eq("user_id", parsed.data.userId)\n    .eq("role", current)\n    .select("user_id");',
+    replace: '    .eq("user_id", parsed.data.userId)\n    .select("user_id");',
+  },
+  {
+    id: "staff-team/role-change-trusts-a-blocked-write",
+    file: "apps/qr/lib/staff-actions.ts",
+    suite: "lib/staff-team-actions.test.ts",
+    why: "the W17 rule at a new seam: `.update()` returns no row count, so a write the statement's own guard REFUSED still answers ok. Dropping the row check reports a role change the console then renders and nobody stored \u2014 and on the next reload it silently reverts",
+    find: '  if (!rows || rows.length === 0)\n    return { ok: false, error: "That role just changed \u2014 reload and try again." };\n',
+    replace: "",
+  },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   // The cart read is `status = 'open'` and both fulfillment RPCs flip the cart to 'paid', so every
   // one of these mutations is invisible while a table is eating and only surfaces at settlement —
@@ -4208,16 +4302,16 @@ const MUTANTS = [
     id: "floor/settled-lines-read-the-wrong-order",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-settled-detail.test.ts",
-    why: "K33 \u2014 the settled path reads the order's lines by `order_id`, and the session id is sitting right there in scope one argument away. Keyed wrong the read matches nothing and the branch maps an empty array, which restores the EXACT shipped defect the branch was written to end \u2014 \"Nothing in the cart yet.\" over a table that just ate \u2014 with every other field on the detail still correct, so the screen looks healthy",
-    find: "      .eq(\"order_id\", paid.id)\n",
-    replace: "      .eq(\"order_id\", sessionId)\n",
+    why: 'K33 \u2014 the settled path reads the order\'s lines by `order_id`, and the session id is sitting right there in scope one argument away. Keyed wrong the read matches nothing and the branch maps an empty array, which restores the EXACT shipped defect the branch was written to end \u2014 "Nothing in the cart yet." over a table that just ate \u2014 with every other field on the detail still correct, so the screen looks healthy',
+    find: '      .eq("order_id", paid.id)\n',
+    replace: '      .eq("order_id", sessionId)\n',
   },
   {
     id: "floor/settled-lines-unread-reads-as-empty",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-settled-detail.test.ts",
     why: "the open-cart read has answered `outage` on an unreadable line list since W10b, and this one is the same posture at a new seam: an unread order is not an EMPTY order. Swallowed, a transient PostgREST failure renders a paid table with no lines and a real paid total beside it \u2014 a screen asserting the guests were charged for nothing, which is worse than the freeze",
-    find: "    if (soldError) return { kind: \"outage\" };\n",
+    find: '    if (soldError) return { kind: "outage" };\n',
     replace: "",
   },
   {
@@ -4225,8 +4319,8 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-settled-detail.test.ts",
     why: "K33 \u2014 `refunded` is admitted beside `paid` so a refunded table stops deriving as `seated`. Drop it and the order vanishes from the drill-down at the moment staff most need it: a guest disputing a refund, with the lines that were refunded no longer on the one screen that can show them. `deriveFloorStatus` also flips the table back to an empty-looking `seated`, i.e. the floor re-offers a session that is finished",
-    find: "      .in(\"status\", [\"paid\", \"refunded\"])\n",
-    replace: "      .in(\"status\", [\"paid\"])\n",
+    find: '      .in("status", ["paid", "refunded"])\n',
+    replace: '      .in("status", ["paid"])\n',
   },
   {
     id: "floor/settled-lines-leak-into-the-running-total",
@@ -4234,7 +4328,8 @@ const MUTANTS = [
     suite: "lib/floor-settled-detail.test.ts",
     why: "the plausible 'helpful' regression, and it is the W17 'name it ONCE' rule at this seam: `itemCount`/`runningSubtotalCents` are the OPEN-CART 'so far' bindings that drive `LiveMoney`, and a settled table's authoritative figure is `paidTotalCents`. Filling them from the settled lines prints a live-looking running basket beside the paid total \u2014 two numbers for one meal, the pre-tax one smaller than what was actually charged, on the screen a cashier reads while holding the guest's cash",
     find: "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n  }\n",
-    replace: "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n    itemCount = lines.reduce((a, l) => a + l.qty, 0);\n    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);\n  }\n",
+    replace:
+      "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n    itemCount = lines.reduce((a, l) => a + l.qty, 0);\n    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);\n  }\n",
   },
   {
     id: "floor/settled-lines-drop-the-options",
@@ -4242,7 +4337,8 @@ const MUTANTS = [
     suite: "lib/floor-settled-detail.test.ts",
     why: "K33 \u2014 `modifiers` is the chosen options as server-priced labels ('No egg', 'Extra spicy'), and the floor was the one staff surface that never carried them. Blanked here, a server checking back what a table ordered sees the dish and not the choice, which is precisely the question asked at the table ('did they say no egg?'). A jsonb column narrowed to `[]` is silent \u2014 no error, no empty state, just a line that looks plain",
     find: "      pendingApproval: false, // approvals are cart-scoped and resolved before settlement\n      notes: i.notes ?? null,\n      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n",
-    replace: "      pendingApproval: false, // approvals are cart-scoped and resolved before settlement\n      notes: i.notes ?? null,\n      modifiers: [],\n",
+    replace:
+      "      pendingApproval: false, // approvals are cart-scoped and resolved before settlement\n      notes: i.notes ?? null,\n      modifiers: [],\n",
   },
   {
     id: "floor/open-lines-drop-the-options",
@@ -4250,7 +4346,8 @@ const MUTANTS = [
     suite: "lib/floor-settled-detail.test.ts",
     why: "the same loss on the LIVE side, and the one that reaches the kitchen: an open line's options are what the server reads back to confirm before firing. Two mutants rather than one because the two branches map independently \u2014 a single fix to either leaves the other blank, and the bare mapping line is byte-identical in both, so each is anchored on its own surrounding context",
     find: "      // K33 \u2014 the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,\n      // so narrow it the way every other reader does rather than trusting the row's type.\n      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n",
-    replace: "      // K33 \u2014 the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,\n      // so narrow it the way every other reader does rather than trusting the row's type.\n      modifiers: [],\n",
+    replace:
+      "      // K33 \u2014 the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,\n      // so narrow it the way every other reader does rather than trusting the row's type.\n      modifiers: [],\n",
   },
   {
     id: "floor/detail-never-reports-settled",
