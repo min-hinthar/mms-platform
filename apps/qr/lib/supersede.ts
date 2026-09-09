@@ -3,11 +3,13 @@ import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
 import { classifyLiveIntent, supersedeOutcome, type SupersedeOutcome } from "./live-intent";
 import {
+  acquireSettlement,
   readLiveIntent,
   readLiveIntentFor,
   releasePayAttempt,
   unlinkPaymentIntent,
   type ReleaseError,
+  type SettleResult,
 } from "./lock";
 
 /**
@@ -201,4 +203,68 @@ export async function releasePayAttemptSafely(
   const res = await releasePayAttempt(cartId, uid, era);
   if (res.error) return { released: false, error: res.error };
   return res.released ? { released: true, error: null } : { released: false, error: null };
+}
+
+/**
+ * M197 — acquire the settlement freeze, superseding an ABANDONED pay attempt if one is in the way.
+ *
+ * ## Why the acquire alone is not enough
+ *
+ * `acquireSettlement` can now take over a stale pay-lock, but only when the attempt that held it
+ * named no PaymentIntent. That covers an abandoned tab, a create-intent that failed before the mint,
+ * and an intent whose terminal webhook already dropped the link — and it deliberately does NOT cover
+ * the case the whole item is about, because a named intent is still confirmable and settlement
+ * collects through a different channel. Age alone is not evidence; the intent's Stripe status is.
+ *
+ * So this is the same sequence `create-intent` runs at the pay boundary, applied to the other side
+ * of the table: read the verdict, cancel the predecessor if Stripe says we may, and only then take
+ * the freeze. `supersedeCartIntent` refuses on `captured` (the card IS charging — the webhook is
+ * about to fulfil, and collecting cash on top is the double-charge) and on `unknown` (a transport
+ * failure is not a verdict).
+ *
+ * ## The retry is ONE, and it is not a loop
+ *
+ * After a successful supersede the link is null and the era is still stale, so the second acquire
+ * takes the same disjunct the first one missed. If it STILL fails, something else changed under us —
+ * a fresh lock, a rival settlement, the cart closing — and that is a real answer to report, not a
+ * reason to go round again.
+ */
+export type SettleTakeover =
+  | Exclude<SettleResult, "locked_stale">
+  /** The stale attempt's intent is charging or charged — refuse, and say so in those terms. */
+  | "paying";
+
+/**
+ * ⚠️ `supersede` IS A DEFAULTED PARAMETER, and that is what makes this function's arms reachable.
+ *
+ * The composition is the load-bearing part — which outcomes may proceed to a second acquire and
+ * which must refuse — and a `captured` reaching the retry is staff taking cash on a card that is
+ * already charging. But `supersedeCartIntent` is a module-local binding, so a test could only reach
+ * those arms through a live Stripe: `vi.spyOn` on the namespace does not rebind a local call, and
+ * mocking the module under test is not a thing. Falsifying a rule THROUGH five mocks of a client the
+ * decision never touches is the shape CLAUDE.md warns about; the same precedent (`tipPresets` taking
+ * its ladder as a defaulted parameter) exists for the same reason — `verify:slice` caught a cap
+ * mutant SURVIVING because the rule could not be reached, and the fix was to make it reachable, not
+ * to delete the mutant.
+ *
+ * Production never passes it.
+ */
+export async function acquireSettlementSuperseding(
+  cartId: string,
+  uid: string,
+  supersede: (id: string) => Promise<SupersedeOutcome> = supersedeCartIntent,
+): Promise<SettleTakeover> {
+  const first = await acquireSettlement(cartId, uid);
+  if (first !== "locked_stale") return first;
+  const outcome = await supersede(cartId);
+  if (outcome === "captured") return "paying";
+  // `unknown` is not "no" — it is "we could not tell", and the caller's retryable arm is the honest
+  // rendering. Reporting `locked` here would tell staff a diner is checking out when what actually
+  // happened is that we could not reach Stripe.
+  if (outcome === "unknown") return "unavailable";
+  const second = await acquireSettlement(cartId, uid);
+  // The supersede cleared the link, so `locked_stale` cannot be the answer twice — but the type says
+  // it can, and a `locked_stale` leaking out of here would reach a caller that has no arm for it.
+  // Collapse it to the refusal rather than assert it away.
+  return second === "locked_stale" ? "locked" : second;
 }

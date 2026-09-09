@@ -14,7 +14,9 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
-import { acquireSettlement, releaseSettlement } from "./lock";
+import { releaseSettlement } from "./lock";
+import { acquireSettlementSuperseding } from "./supersede";
+import { settleRefusal } from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
@@ -258,14 +260,11 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // requires settle_at null/stale) can't start. Without this, a diner could begin + capture a card
   // payment during the getCartTotals→RPC window and the late webhook would orphan that charge.
   // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
-  const freeze = await acquireSettlement(cart.id, caller.uid);
+  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
   if (freeze !== "acquired") {
     return {
       ok: false,
-      error:
-        freeze === "closed"
-          ? "That table is no longer open."
-          : "Someone’s already paying on their phone — wait for that to finish.",
+      error: settleRefusal(freeze),
     };
   }
 
@@ -518,14 +517,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.
-  const freeze = await acquireSettlement(cart.id, caller.uid);
+  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
   if (freeze !== "acquired")
     return {
       ok: false,
-      error:
-        freeze === "closed"
-          ? "That table is no longer open."
-          : "Someone’s already paying on their phone — wait for that to finish.",
+      error: settleRefusal(freeze),
     };
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the

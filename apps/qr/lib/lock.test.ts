@@ -37,7 +37,13 @@ function chain(q: Q) {
  *  update half is untouched, so the W6c assertions above still measure what they always did. */
 let updateCount: number | null = 0;
 let updateError: { message: string } | null = null;
-let statusRow: { status: string } | null = null;
+/** M197 — the diagnostic read now selects four columns, because the answer depends on all four. */
+let statusRow: {
+  status: string;
+  locked?: boolean;
+  locked_at?: string | null;
+  live_payment_intent_id?: string | null;
+} | null = null;
 let statusError: { message: string } | null = null;
 
 /** M70 — the RPC half. `releasePromoGrantFor` calls `mms_release_promo_grant`, so the era it passes
@@ -60,7 +66,11 @@ vi.mock("@mms/db/server", () => ({
       select: () => {
         const api: Record<string, unknown> = {
           eq: () => api,
-          maybeSingle: () => Promise.resolve({ data: statusRow, error: statusError }),
+          // postgrest resolves a transport failure into `{ data: null, error }` — it never hands
+          // back a row AND an error. A fake that returned both let a test measuring "an outage must
+          // not read as closed" pass for the wrong reason: the caller fell through to the row.
+          maybeSingle: () =>
+            Promise.resolve({ data: statusError ? null : statusRow, error: statusError }),
         };
         return api;
       },
@@ -101,6 +111,7 @@ const {
   linkPaymentIntent,
   unlinkPaymentIntent,
   releaseByIntent,
+  acquireSettlement,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -434,5 +445,89 @@ describe("M151 — the cart→intent link, as query SHAPES", () => {
   it("releaseByIntent is a normal zero-row no-op for a late delivery", async () => {
     updateCount = 0;
     expect(await releaseByIntent("cart-1", "pi_gone")).toEqual({ released: false, error: null });
+  });
+});
+
+describe("acquireSettlement — M197: the pay-lock term has a way out, and it is evidence-gated", () => {
+  const CART = "cart-197";
+  const UID = "staff-1";
+
+  it("takes over a stale pay-lock ONLY where no intent is named — the disjunction is in the statement", async () => {
+    // The shipped defect was `.eq("locked", false)`: a bare equality with no escape. `acquireCartLock`
+    // has always had a staleness disjunct, and `releaseCartLock`'s docblock promises a declined
+    // attempt stays frozen only "until the diner ends the attempt or the TTL does" — a promise this
+    // function could not keep, so cash, Terminal, tab-close and split were frozen for good.
+    updateCount = 1;
+    expect(await acquireSettlement(CART, UID)).toBe("acquired");
+    const update = queries.find((q) => q.payload.settle_at !== undefined);
+    expect(update).toBeDefined();
+    // The pay-lock term must NOT be an `.eq` any more — that is the whole finding.
+    expect(update!.eq.map(([c]) => c)).not.toContain("locked");
+    const lockTerm = update!.or.find((o) => o.startsWith("locked.eq.false"));
+    expect(lockTerm).toBeDefined();
+    // ⚠️ AND THE STALENESS ARM IS CONJOINED WITH THE LINK. A bare `locked_at.lte.<cutoff>` would
+    // trade the dead end for a double charge: `locked_at` is only refreshed by `acquireCartLock`, so
+    // a diner still feeding cards into a declined intent has a STALE era AND a live intent, and
+    // settlement collects through a different channel. Assert the `and(...)` grouping, not merely
+    // that both substrings appear somewhere — two independent disjuncts would read the same to a
+    // careless matcher and ship exactly the defect this term exists to prevent.
+    expect(lockTerm).toMatch(/,and\(locked_at\.lte\.[^,]+,live_payment_intent_id\.is\.null\)$/);
+  });
+
+  it("reports an unreadable cart as `unavailable`, never as `closed`", async () => {
+    // M119's shape, in the one function whose job is to explain a refusal. The read's error was
+    // discarded, so `cart` was null, `cart?.status !== "open"` was true, and an outage told staff a
+    // live table was no longer open — a dead end where the truth is "try again".
+    updateCount = 0;
+    statusError = { message: "connection reset" };
+    expect(await acquireSettlement(CART, UID)).toBe("unavailable");
+  });
+
+  it("distinguishes a FRESH pay-lock from a stale one that still names an intent", async () => {
+    updateCount = 0;
+    statusError = null;
+    // Fresh: the payer is live on their phone. Nothing to supersede — refuse.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date().toISOString(),
+      live_payment_intent_id: "pi_live",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked");
+    // Stale AND naming an intent: supersedable. Collapsing this into `locked` is what left the
+    // caller with no way to tell "wait for them" from "that attempt was abandoned".
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: "pi_abandoned",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked_stale");
+    // Stale with NO intent would have been taken by the UPDATE above; reaching the diagnostic read
+    // in that state means something else refused, so it must not claim supersedability.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: null,
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked");
+    // A lock with no era at all is unjudgeable, and unjudgeable fails CLOSED.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: null,
+      live_payment_intent_id: "pi_x",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked");
+  });
+
+  it("still answers `closed` and `settling_other` for the cases that are not about the lock", async () => {
+    updateCount = 0;
+    statusError = null;
+    statusRow = { status: "paid", locked: false, locked_at: null, live_payment_intent_id: null };
+    expect(await acquireSettlement(CART, UID)).toBe("closed");
+    statusRow = { status: "open", locked: false, locked_at: null, live_payment_intent_id: null };
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
   });
 });

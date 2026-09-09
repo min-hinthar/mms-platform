@@ -5,7 +5,8 @@ import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
-import { acquireSettlement, releaseSettlement } from "./lock";
+import { releaseSettlement } from "./lock";
+import { acquireSettlementSuperseding } from "./supersede";
 import { releaseHold } from "./split-hold";
 
 /**
@@ -198,10 +199,25 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 
   // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.
-  const acq = await acquireSettlement(id, uid);
-  if (acq === "locked") throw new Error("Someone’s checking out — try again in a moment");
-  if (acq === "settling_other") throw new Error("Another host is already splitting this order");
-  if (acq === "closed") throw new Error("This order is no longer open");
+  const acq = await acquireSettlementSuperseding(id, uid);
+  // ⚠️ EXHAUSTIVE, and it has to be. This used to be three `if`s with no else, so any verdict they
+  // did not name FELL THROUGH AS THOUGH THE FREEZE WERE HELD — and M197 added two. Opening a split
+  // on an unheld freeze is the derive/insert race the freeze exists to close: `openSplit` would
+  // DELETE and re-derive shares while another tender is live. Written as one refusal with a message
+  // per arm so a future verdict is a compile error, not a silent proceed.
+  if (acq !== "acquired") {
+    throw new Error(
+      acq === "closed"
+        ? "This order is no longer open"
+        : acq === "settling_other"
+          ? "Another host is already splitting this order"
+          : acq === "paying"
+            ? "A card payment on this table is already going through — wait for it to settle"
+            : acq === "unavailable"
+              ? "Couldn’t check this order just now — try again in a moment"
+              : "Someone’s checking out — try again in a moment",
+    );
+  }
 
   const db = serviceClient();
   // Never re-derive once money is in flight — that would orphan an authorized PaymentIntent. (The

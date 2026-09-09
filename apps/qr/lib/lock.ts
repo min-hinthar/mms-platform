@@ -37,7 +37,38 @@ export type LockAcquisition =
   | { result: "held_by_other"; era: null }
   | { result: "closed"; era: null }
   | { result: "unavailable"; era: null };
-export type SettleResult = "acquired" | "locked" | "settling_other" | "closed";
+/**
+ * M197 — the settlement acquisition's answer, and two arms it did not used to have.
+ *
+ * `locked_stale` and `unavailable` are not padding. Before them this function collapsed FOUR
+ * distinct situations into two words, and both collapses were wrong in a direction that costs
+ * service:
+ *
+ *   • `locked` meant "a single payer holds the pay-lock", full stop — with no way to say whether
+ *     that payer is still there. `releaseCartLock`'s own docblock promises a declined attempt stays
+ *     frozen "until the diner ends the attempt or the TTL does", and for `acquireCartLock` that is
+ *     true (its third disjunct hands the lock to any member once the era is stale). This function
+ *     had no such disjunct, so for cash, Terminal, tab-close and split the TTL never arrived: a
+ *     diner who declined a card and walked out froze every other tender FOREVER.
+ *   • `closed` was also what a FAILED READ produced — `const { data: cart } = …` discarded its
+ *     error, so an outage told staff a live table was "no longer open". That is M119's shape
+ *     exactly, in the one function whose whole job is to say why.
+ */
+export type SettleResult =
+  /** The freeze is ours. */
+  | "acquired"
+  /** A single payer holds a FRESH pay-lock — their attempt is live. Refuse. */
+  | "locked"
+  /** The pay-lock's era is past its TTL, but the cart still names a live PaymentIntent. The holder
+   *  may be gone or may be retrying a decline against that same intent, so this is NOT free to take:
+   *  the caller must make the intent unusable at Stripe first (`acquireSettlementSuperseding`). */
+  | "locked_stale"
+  /** Another settlement holds the table-wide freeze. */
+  | "settling_other"
+  /** The cart is not open. */
+  | "closed"
+  /** We could not read the cart, so we do not know. Never a verdict — retryable. */
+  | "unavailable";
 
 /**
  * Atomically acquire the lock for `uid` (called by create-intent at the pay boundary). ONE conditional
@@ -119,22 +150,54 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
   // `{ count: "exact" }`, not `.select()` — same PostgREST-14 `return=representation` + `or()` re-projection
   // trap as acquireCartLock (a `.select()` here 400s with 42703 undefined_column and mis-reads as
   // settling_other). Count the affected rows and surface any real error instead of swallowing it.
+  // M197 — the pay-lock term is a DISJUNCTION now, not `.eq("locked", false)`.
+  //
+  // The bare equality had no way out. `acquireCartLock` takes over a lock whose era is older than
+  // `CART_LOCK_TTL_MS`, so single-pay always had an escape from an abandoned attempt; settlement
+  // did not, and a declined card is DELIBERATELY left locked (`releaseCartLock`'s docblock: the
+  // intent is still confirmable from the mounted Element, so the cart stays frozen "until the diner
+  // ends the attempt or the TTL does"). For cash, Terminal, tab-close and split that TTL never
+  // arrived. One diner declining and walking out froze every other tender on the table for good.
+  //
+  // ⚠️ A BARE STALENESS DISJUNCT WOULD TRADE THE DEAD END FOR A DOUBLE CHARGE, which is why the
+  // second conjunct is here. `locked_at` is only refreshed by `acquireCartLock` — an inline retry
+  // re-confirms the SAME PaymentIntent client-side and never calls create-intent — so a diner still
+  // sitting there feeding cards into a declined intent has a STALE era and a live intent. Settlement
+  // is a different collection channel from that intent (cash in the drawer, a Terminal tap, split
+  // shares), so taking the lock on age alone could collect twice. The link is the evidence: this
+  // statement takes over only a lock whose attempt named NO intent, and the caller that wants the
+  // rest must first make the named intent unusable at Stripe (`acquireSettlementSuperseding`).
+  //
+  // `lockCutoff` is the PAY-lock TTL, not the settle one: the age being judged belongs to
+  // `locked_at`, and using `cutoff` here would let a settlement take over a pay-lock at 10 minutes
+  // that single-pay may take at 5 — two different answers to "is this attempt still alive?".
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
   const { count, error } = await db
     .from("qr_carts")
     .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
-    .eq("locked", false) // never start a split while a single payer holds the pay-lock
+    .or(`locked.eq.false,and(locked_at.lte.${lockCutoff},live_payment_intent_id.is.null)`)
     .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${cutoff}`);
   if (error) throw error;
   if ((count ?? 0) > 0) return "acquired";
-  const { data: cart } = await db
+  // ⚠️ THE READ'S ERROR IS BOUND (M119's rule, and this function was the counter-example). Dropping
+  // it made `cart` null on an outage, `cart?.status !== "open"` true, and the answer `closed` — so a
+  // transient failure told staff that a live table was no longer open, on the one screen whose job
+  // is to explain the refusal. `unavailable` is retryable; `closed` is a dead end.
+  const { data: cart, error: readError } = await db
     .from("qr_carts")
-    .select("status,locked")
+    .select("status,locked,locked_at,live_payment_intent_id")
     .eq("id", cartId)
     .maybeSingle();
+  if (readError) return "unavailable";
   if (cart?.status !== "open") return "closed";
-  if (cart.locked) return "locked";
+  if (cart.locked) {
+    // Stale AND still naming an intent: supersedable, not a dead end. (Stale with no intent would
+    // have been taken by the UPDATE above, so reaching here with one means the link is the reason.)
+    const stale = !!cart.locked_at && cart.locked_at <= lockCutoff;
+    return stale && cart.live_payment_intent_id ? "locked_stale" : "locked";
+  }
   return "settling_other";
 }
 

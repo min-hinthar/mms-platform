@@ -4,6 +4,40 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A declined card no longer freezes the table's other tenders forever (M197) (2026-09-09)
+
+`acquireSettlement` gated on a bare `.eq("locked", false)`. `acquireCartLock` has always had a
+staleness disjunct — any member may take an abandoned pay-lock once its era passes the TTL — and a
+declined card is _deliberately_ left locked, because the PaymentIntent is still confirmable from the
+mounted Element (`releaseCartLock`'s docblock: frozen "until the diner ends the attempt or the TTL
+does"). Settlement had no such escape, so that promise was false for every other tender: one diner
+declining and walking out froze cash, Terminal, tab-close and split on that table permanently.
+
+**The naive fix would have traded a dead end for a double charge, so it was not taken.** `locked_at`
+is refreshed only by `acquireCartLock`, and an inline retry re-confirms the SAME intent client-side
+without going near create-intent — so a diner still feeding cards into a declined intent has a STALE
+era and a live intent, and settlement collects through a different channel (cash in the drawer, a
+Terminal tap, split shares). Age alone is not evidence. The statement now takes over a stale lock
+only where the attempt named NO PaymentIntent, and `acquireSettlementSuperseding` handles the rest
+the same way `create-intent` does at the pay boundary: cancel the predecessor at Stripe, refuse on
+`captured` (the card IS charging — a second tender there is the guest paying twice), refuse on
+`unknown` (a transport failure is not a verdict), and only then acquire.
+
+Two more defects surfaced while reading the same function:
+
+- **A failed read reported a live table as `closed`.** `const { data: cart } = …` discarded its
+  error, so an outage produced a dead end where the truth was a retry — M119's shape, in the one
+  function whose job is to explain the refusal. It answers `unavailable` now.
+- **`openSplit`'s refusal had no `else`.** Three `if`s named three verdicts and anything else fell
+  through _as though the freeze were held_, which would have let a split DELETE and re-derive shares
+  with another tender live. Rewritten as one exhaustive refusal so a future verdict is a compile
+  error.
+
+The five staff sentences moved into `lib/settle-refusal.ts` — three surfaces had two sentences
+between five reasons and the two had already drifted for one identical fact. Eight `verify:slice`
+mutants added (496), and `check:mutant-anchors` caught the Terminal mutant going STALE when its call
+moved, which is the rule working: a stale mutant is a failure, not a skip.
+
 ### A category tap stops taking the scenic route (M194), and M195 is corrected (2026-09-09)
 
 - **M194 — a tab tap cost about nine full re-renders mid-animation.** `jumpTo` smooth-scrolls across
