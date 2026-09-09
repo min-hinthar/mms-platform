@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { TIP_AMOUNT_MAX_CENTS } from "@/lib/tip";
 
 /**
  * W10d pre-merge RE-REVIEW — the split share mint route.
@@ -392,5 +393,47 @@ describe("M119c — a failed share read must not deny membership", () => {
     const res = await POST(request());
     expect(res.status).toBe(400);
     await expect(res.json()).resolves.toEqual({ error: "You’re not part of this split." });
+  });
+});
+
+describe("create-share-intent — the $1,000 house tip ceiling", () => {
+  // Single-pay has enforced this since W19 (`create-intent` → `tipWithinAmountCap` on the DERIVED
+  // cents); this route did not. The Zod `.max(0.5)` on `tipRate` is only the transport rail: it
+  // bounds the RATE, and the derived cents grow with the share, so an even split of a large banquet
+  // cart reaches a seat net where 0.5 mints a tip past the ceiling every other tender refuses.
+  // `lib/tip.ts`: the cap exists so "a fat-finger or a hostile client can't mint a five-figure
+  // PaymentIntent through the tip field".
+
+  it("refuses a tip above the ceiling and mints NOTHING", async () => {
+    // Values derived from the cap, never transcribed: pick a net that puts 0.5 clear of it.
+    const net = (TIP_AMOUNT_MAX_CENTS / 0.5) * 1.5;
+    share = { ...share!, subtotal_cents: net, discount_cents: 0 };
+    const res = await POST(request(0.5));
+    expect(res.status).toBe(400);
+    // The real assertion: no PaymentIntent exists. A refusal that still minted would leave a live
+    // hold on the payer's card for an amount the house will not take.
+    expect(createdAmounts).toEqual([]);
+  });
+
+  it("still mints a tip EXACTLY at the ceiling — over-blocking is as bad as under-blocking", async () => {
+    // The boundary the predicate is `<=` for. A cap that refuses its own limit turns a legitimate
+    // large-party tip into a failed payment at the last tap, which is the failure mode this repo
+    // names every time it tightens a gate.
+    const net = TIP_AMOUNT_MAX_CENTS / 0.5;
+    share = { ...share!, subtotal_cents: net, discount_cents: 0 };
+    const res = await POST(request(0.5));
+    expect(res.status).toBe(200);
+    const base = net - 0 + 100 + 193;
+    expect(createdAmounts).toEqual([base + TIP_AMOUNT_MAX_CENTS]);
+  });
+
+  it("checks the DERIVED cents, not the rate — a small rate on a huge share is still capped", async () => {
+    // A rate cannot express a dollar cap (lib/tip.ts: "rate = cents/net — $1,000 on a $5 net is
+    // rate 200"). Any guard written against `tipRate` would pass this and mint over the ceiling.
+    const net = (TIP_AMOUNT_MAX_CENTS / 0.01) * 2;
+    share = { ...share!, subtotal_cents: net, discount_cents: 0 };
+    const res = await POST(request(0.01));
+    expect(res.status).toBe(400);
+    expect(createdAmounts).toEqual([]);
   });
 });

@@ -15,6 +15,7 @@ import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
 import { acquireSettlement, releaseSettlement } from "./lock";
+import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
@@ -600,20 +601,46 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       error: "That card needs the guest to confirm — settle by cash or a fresh card.",
     };
   } catch (e) {
-    // An off_session decline throws a StripeCardError (code card_declined / authentication_required / …).
-    // Release the freeze so the table isn't stranded frozen, and surface a tender-fallback message — the
-    // tab is never marked paid (the fulfill only flips on a succeeded webhook).
-    await releaseSettlement(cart.id);
-    const code = (e as { code?: string }).code;
+    // UNKNOWABLE IS NEVER A VERDICT — the same rule `supersedeOutcome` applies one module over
+    // (`live-intent.ts`: "Only a STATE refusal says anything about the intent; everything else
+    // (429, 5xx, timeout) says nothing, and nothing is what we report").
+    //
+    // A StripeCardError IS Stripe telling us the money did not move — card_declined,
+    // authentication_required, insufficient_funds. That is a verdict: free the table so staff can
+    // take another tender, and say which.
+    //
+    // Every other throw — StripeConnectionError, StripeAPIError, a 429, a socket timeout — tells us
+    // NOTHING. This PI was created with `confirm: true`, so it may already be captured and simply
+    // failed to answer. The old code released the freeze on that path and reported a decline, which
+    // is how a guest gets collected twice: staff read "declined", take cash, `settleCash` succeeds,
+    // and the succeeded webhook then lands on the cross-tender guard and writes a
+    // `qr_refunds_needed` row. Note what that release destroys — the idempotency-key comment above
+    // names the freeze as the protection in so many words: "The concurrent double-charge guard here
+    // is the FREEZE (paymentInFlightReason + acquireSettlement serialize attempts), not this key."
+    //
+    // So on an unknown outcome we HOLD the freeze and refuse to guess. Nothing is stranded: the
+    // SETTLE_TTL still lapses it, and if the charge did land the webhook fulfils the tab as normal.
+    const err = e as { type?: string; code?: string };
+    const outcome = offSessionChargeOutcome(err);
+    const declined = outcome !== "unknown";
+    if (declined) await releaseSettlement(cart.id);
     console.error("[staff-cart] closeSecureTab off-session charge failed", {
       sessionId,
       cartId: cart.id,
-      code,
+      code: err.code,
+      type: err.type,
+      declined,
     });
+    if (!declined)
+      return {
+        ok: false,
+        error:
+          "We couldn’t reach the card processor — the charge may have gone through. Check this tab’s payment before taking cash or another card.",
+      };
     return {
       ok: false,
       error:
-        code === "authentication_required"
+        outcome === "needs_action"
           ? "That card needs the guest to confirm — settle by cash or a fresh card."
           : "The card on file was declined — settle by cash or a fresh card.",
     };

@@ -4,6 +4,54 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Four money-path reads and verdicts that lied, and a six-lens audit of everything else (2026-09-09)
+
+The owner reported the app feeling "laggy and not responsive when selecting" and asked for a full
+bug sweep. Six adversarial lenses were run over session sharing, splits, payments, staff surfaces,
+grocery/scan-and-go and selection performance. **Every one returned REJECT.** Twenty-eight findings
+are filed as `OPEN-ITEMS` **M168–M195**; four are fixed here, chosen because each is a small,
+self-contained defect on a money path where the code states a fact it has not established.
+
+- **A scheduled pickup could be silently converted to ASAP and charged.** `create-intent`'s pickup
+  read discarded its `{ error }`. postgrest resolves a transport failure into `{ data: null, error }`,
+  and a null `cart` makes `cart?.fire_at` FALSY — which routes a SCHEDULED order into the ASAP arm,
+  where `mms_pickup_asap` overwrites the slot the guest chose with today's earliest, sets
+  `fire_at = null`, and the card is charged. The guest paid for 6:30pm and the kitchen fires now.
+  It is also STICKY: `fire_at` is null afterwards, so every later attempt takes the ASAP arm and the
+  original choice cannot be recovered. The mirror case hard-refuses a valid scheduled order when the
+  kitchen is closed. The session-mode read seventy lines above already fails closed for exactly this
+  reason; this one now does too.
+- **The $1,000 house tip ceiling was not enforced on split shares.** Single-pay has checked
+  `tipWithinAmountCap` on the DERIVED cents since W19; `create-share-intent` had no equivalent, and
+  a rate cannot express a dollar cap — Zod's `.max(0.5)` bounds the RATE while the cents grow with
+  the share. Three tests pin it: over the cap refuses and mints NOTHING, a tip exactly AT the cap
+  still mints (over-blocking is as bad as under-blocking), and a small rate on a huge share is still
+  capped — the last of which fails against the plausible wrong fix of bounding `tipRate`.
+- **An unknown Stripe outcome was reported to staff as a decline.** `closeSecureTab` treated EVERY
+  exception as a card refusal and released the settlement freeze. A connection reset, a 429, a 5xx
+  or a timeout says nothing — the PaymentIntent is created with `confirm: true` and can be captured
+  while the response never arrives. Staff read "declined", take cash, and the succeeded webhook
+  writes a `qr_refunds_needed` row: the guest is collected twice. Note what the release destroyed —
+  this function's own idempotency-key comment names the freeze as the protection in so many words.
+  The verdict now comes from `offSessionChargeOutcome`, a pure classifier beside `supersedeOutcome`
+  applying the same "unknowable is never a verdict" rule, tested by value rather than through five
+  mocks.
+- **Three `{ error }`-discarded reads on the split exactly-once path** permanently lost the host's
+  Star, `earned_by` (which also removes the order from lifetime-spend and milestone counts) and the
+  tab-close amount. They now bind and report. Deliberately NOT converted to a 500: this block runs
+  only on the open→paid transition, so a Stripe redelivery finds the cart paid and skips it — a 500
+  could not recover the Star and would only re-run the arms above. The fix makes the loss loud and
+  hand-recoverable, keyed by orderId.
+
+Three mutants and 12 tests; five red-first inductions watched failing by exit code, including the
+two plausible wrong fixes (bounding the tip RATE, and restoring the unconditional freeze release).
+
+**The reported lag is diagnosed, not yet fixed** — M192/M193/M194 carry the mechanism, and M193 is
+confirmed in production logs (four `POST /cart` in four seconds from one tap). M195 is the reason a
+tap can appear to do nothing at all: cart refusals are thrown as raw `Error`s from a `"use server"`
+module, Next.js redacts them, and the optimistic value silently reverts. Eight such 500s were
+observed live in nineteen seconds.
+
 ### Stripe credentials resolve per mode, and the two keys must agree (2026-09-08)
 
 **The owner split the Stripe variables into per-mode copies, and the code knew none of the new

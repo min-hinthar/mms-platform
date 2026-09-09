@@ -1,3 +1,6 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import ts from "typescript";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
@@ -165,5 +168,55 @@ describe("staffAddItem — cardinality + qty are money rules (W6a)", () => {
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM, qty: 10 });
     expect(r).toEqual({ ok: false, error: "Invalid request." });
     expect(priceItemCalls).toHaveLength(0);
+  });
+});
+
+describe("closeSecureTab — the freeze is the double-charge guard, so an UNKNOWN outcome must hold it", () => {
+  /**
+   * Structural, and deliberately so. Reaching this catch needs a live Stripe, a secure-tab row and a
+   * totals read; the *rule* is one identifier. The regression is a single edit — restoring the
+   * unconditional `await releaseSettlement(cart.id)` that used to sit at the top of the catch — and
+   * it reads perfectly innocently.
+   *
+   * Why it matters is stated by this function's own idempotency-key comment: "The concurrent
+   * double-charge guard here is the FREEZE (paymentInFlightReason + acquireSettlement serialize
+   * attempts), not this key." Releasing on an outcome we could not establish removes exactly that
+   * guard, over a PaymentIntent created with `confirm: true` which may already be captured.
+   */
+  const catchBlock = () => {
+    const abs = path.join(__dirname, "staff-cart.ts");
+    const src = ts.createSourceFile(abs, readFileSync(abs, "utf8"), ts.ScriptTarget.Latest, true);
+    let found: ts.Block | undefined;
+    const walk = (n: ts.Node) => {
+      if (ts.isCatchClause(n) && n.block.getText().includes("closeSecureTab off-session charge"))
+        found = n.block;
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(src);
+    if (!found) throw new Error("closeSecureTab catch not found");
+    return found;
+  };
+
+  it("never releases the settlement unconditionally in the catch", () => {
+    // The release must sit behind a condition. A bare ExpressionStatement at the catch's own
+    // statement level is the exact shape that shipped the double-collect.
+    const bare = catchBlock().statements.some(
+      (st) => ts.isExpressionStatement(st) && st.getText().includes("releaseSettlement"),
+    );
+    expect(bare).toBe(false);
+  });
+
+  it("gates the release on the classifier, not on a raw error field", () => {
+    // `offSessionChargeOutcome` is where the "unknowable is never a verdict" rule is tested by
+    // value. Re-deriving the verdict inline here — `err.code === "card_declined"`, say — would put
+    // a second, untested copy of the rule on the money path (the repo's "name it ONCE" rule).
+    const text = catchBlock().getText();
+    expect(text).toContain("offSessionChargeOutcome");
+    const guarded = catchBlock().statements.some(
+      (st) => ts.isIfStatement(st) && st.getText().includes("releaseSettlement"),
+    );
+    expect(guarded).toBe(true);
   });
 });

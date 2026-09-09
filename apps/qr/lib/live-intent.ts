@@ -114,3 +114,38 @@ export function supersedeOutcome(input: {
   // Still cancelable yet Stripe refused — do not guess.
   return "unknown";
 }
+
+/**
+ * What an off-session charge THREW, classified — the same "unknowable is never a verdict" rule
+ * `supersedeOutcome` applies above, for the other direction of the same problem.
+ *
+ * `closeSecureTab` charges a stored card with `confirm: true`. When that call throws it used to
+ * report EVERY exception to staff as "The card on file was declined — settle by cash or a fresh
+ * card", and release the settlement freeze. For a real decline that is right. For a connection
+ * reset, a 429, a 5xx or a timeout it is a fabricated verdict about money that may already have
+ * moved: the PaymentIntent was created with `confirm: true`, so it can be captured while the
+ * response never arrives. Staff read "declined", take cash, and the succeeded webhook then lands on
+ * the cross-tender guard and writes a `qr_refunds_needed` row — the guest is collected twice and
+ * waits on a manual refund.
+ *
+ * Only Stripe's CARD error says the money did not move. Everything else says nothing.
+ *
+ * Kept here, pure, rather than inline in the route: the caller needs a live Stripe, a secure-tab row
+ * and a totals read to reach its catch, so an inline predicate could only be falsified through five
+ * mocks — while the rule itself is a value in, a verdict out (CLAUDE.md: decision logic belongs in
+ * `lib/`, "finer-grained, not merely possible").
+ */
+export type OffSessionChargeOutcome = "declined" | "needs_action" | "unknown";
+
+export function offSessionChargeOutcome(err: {
+  type?: string | null;
+  code?: string | null;
+}): OffSessionChargeOutcome {
+  // `StripeCardError` is the issuer's answer: card_declined, insufficient_funds,
+  // authentication_required. The charge did NOT happen and the table is free to try another tender.
+  if (err.type !== "StripeCardError") return "unknown";
+  // A card that needs SCA is a decline with a different remedy — the guest must confirm in person,
+  // so the copy must not tell staff the card was refused outright.
+  if (err.code === "authentication_required") return "needs_action";
+  return "declined";
+}

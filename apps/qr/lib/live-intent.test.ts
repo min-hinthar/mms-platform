@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyLiveIntent, supersedeOutcome } from "./live-intent";
+import { classifyLiveIntent, offSessionChargeOutcome, supersedeOutcome } from "./live-intent";
 
 describe("classifyLiveIntent — what a successor may do to the intent the cart still names", () => {
   it("a charge that exists or is committed can never be cancelled by a successor", () => {
@@ -97,5 +97,48 @@ describe("supersedeOutcome — folding a cancel attempt into a verdict without g
         statusAfter: null,
       }),
     ).toBe("cleared");
+  });
+});
+
+describe("offSessionChargeOutcome — a transport failure is not a decline", () => {
+  it("reports a real card decline as declined", () => {
+    // The issuer answered. The money did not move, the table is free to take another tender.
+    expect(offSessionChargeOutcome({ type: "StripeCardError", code: "card_declined" })).toBe(
+      "declined",
+    );
+    expect(offSessionChargeOutcome({ type: "StripeCardError", code: "insufficient_funds" })).toBe(
+      "declined",
+    );
+  });
+
+  it("separates a card that needs SCA from one that was refused", () => {
+    // Same class, different remedy — telling staff "declined" here sends them to ask for another
+    // card when the guest simply has to confirm.
+    expect(
+      offSessionChargeOutcome({ type: "StripeCardError", code: "authentication_required" }),
+    ).toBe("needs_action");
+  });
+
+  it.each([
+    ["StripeConnectionError", null],
+    ["StripeAPIError", null],
+    ["StripeRateLimitError", "rate_limit"],
+    ["StripeInvalidRequestError", "resource_missing"],
+  ])("reports %s as UNKNOWN — it says nothing about whether the card was charged", (type, code) => {
+    // THE DOUBLE-COLLECT CASE. The PaymentIntent is created with `confirm: true`, so it can be
+    // captured while the response never arrives. Calling any of these a decline is how staff take
+    // cash over a live charge; the succeeded webhook then writes a qr_refunds_needed row and the
+    // guest waits on a manual refund.
+    expect(offSessionChargeOutcome({ type, code })).toBe("unknown");
+  });
+
+  it("treats a missing type as unknown rather than assuming a decline", () => {
+    // A non-Stripe throw (a bug in our own code, an aborted fetch) carries no type at all. The
+    // safe reading of "I have no idea what this is" is never "the card was refused".
+    expect(offSessionChargeOutcome({})).toBe("unknown");
+    expect(offSessionChargeOutcome({ type: null, code: null })).toBe("unknown");
+    // A card CODE without the card TYPE must not be enough — the code field is attacker-adjacent
+    // (it is whatever the SDK put there) and the type is what Stripe classifies by.
+    expect(offSessionChargeOutcome({ code: "card_declined" })).toBe("unknown");
   });
 });

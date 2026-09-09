@@ -4121,6 +4121,30 @@ const MUTANTS = [
     replace:
       '    .map(([name, value]) => `${name} (${typeof value === "string" ? "SET" : "not set"})`)',
   },
+  {
+    id: "share-intent/tip-cap-dropped",
+    file: "apps/qr/app/api/stripe/create-share-intent/route.ts",
+    suite: "app/api/stripe/create-share-intent/route.test.ts",
+    why: "The $1,000 house tip ceiling, which single-pay has enforced since W19 and this route did not. A rate cannot express a dollar cap, so Zod's .max(0.5) on tipRate is only the transport rail \u2014 the derived cents grow with the share, and an even split of a large banquet cart reaches a seat net where 0.5 mints a tip past the ceiling every other tender refuses. lib/tip.ts states the reason: the cap exists so a fat-finger or a hostile client cannot mint a five-figure PaymentIntent through the tip field",
+    find: "    if (!tipWithinAmountCap(tip)) {",
+    replace: "    if (false) {",
+  },
+  {
+    id: "live-intent/off-session-throw-reads-as-decline",
+    file: "apps/qr/lib/live-intent.ts",
+    suite: "lib/live-intent.test.ts",
+    why: "A StripeCardError is the issuer saying the money did not move; a connection reset, a 429, a 5xx or a timeout says NOTHING, because closeSecureTab's PaymentIntent is created with confirm:true and can be captured while the response never arrives. Calling every throw a decline is how staff read 'declined', take cash over a live charge, and the succeeded webhook then writes a qr_refunds_needed row \u2014 the guest collected twice, waiting on a manual refund. The same 'unknowable is never a verdict' rule supersedeOutcome applies in this module",
+    find: '  if (err.type !== "StripeCardError") return "unknown";',
+    replace: '  if (false) return "unknown";',
+  },
+  {
+    id: "staff-cart/unknown-outcome-releases-the-freeze",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "This function's own idempotency-key comment names the freeze as the protection: 'The concurrent double-charge guard here is the FREEZE (paymentInFlightReason + acquireSettlement serialize attempts), not this key.' Releasing it unconditionally in the catch removes that guard on an outcome we could not establish, over an intent that may already be captured \u2014 the shipped double-collect shape",
+    find: "    if (declined) await releaseSettlement(cart.id);",
+    replace: "    await releaseSettlement(cart.id);",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

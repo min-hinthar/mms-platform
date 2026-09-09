@@ -259,22 +259,45 @@ export async function POST(req: NextRequest) {
                 orderId,
                 error: redErr,
               });
-            const { data: closedCart } = await db
+            // ⚠️ THE THREE READS BELOW BIND THEIR ERRORS, and the reason they LOG rather than 500 is
+            // worth stating: this block runs only on the open→paid transition (`onShareCaptured`
+            // returns an orderId exactly once). A 500 makes Stripe redeliver, but the redelivery
+            // finds the cart already paid, `onShareCaptured` answers null, and the block is skipped
+            // — so failing loudly could not recover the Star; it would only be theatre that also
+            // re-runs the arms above.
+            //
+            // What was actually wrong was silence: an unbound `{ error }` made a DROPPED READ
+            // indistinguishable from "no tab / no host / no total", so one blip permanently cost the
+            // host their Star and `earned_by` (which also removes the order from
+            // `mms_rewards_summary`'s lifetime spend and milestone counts) with nothing in the log
+            // naming it. That is the W10c rule — a failure must never read as empty — and the fix
+            // here is to make the loss LOUD and hand-recoverable, keyed by orderId.
+            const { data: closedCart, error: closedCartErr } = await db
               .from("qr_carts")
               .select("tab_type,session_id")
               .eq("id", splitCartId)
               .maybeSingle();
+            if (closedCartErr)
+              console.error(
+                "[stripe webhook] SPLIT POST-FULFILL READ FAILED — host Star and tab-close audit skipped for this order; backfill by hand",
+                { orderId, cartId: splitCartId, error: closedCartErr },
+              );
             // Split-earn (M4 P4.2): a split order earns ONE Star for the HOST-of-record (the order count
             // model — one order = one Star; net spend credited to the table's organizer, parity with the
             // S3 host-of-record). Per-share attribution is a future refinement (needs a per-payer earn
             // ledger). Resolve the host uid from the session, stamp earned_by, award. Exactly-once (this
             // block only runs on the open→paid transition); best-effort — never fail the money ack.
             if (closedCart?.session_id) {
-              const { data: sess } = await db
+              const { data: sess, error: sessErr } = await db
                 .from("table_sessions")
                 .select("host_seat")
                 .eq("id", closedCart.session_id)
                 .maybeSingle();
+              if (sessErr)
+                console.error(
+                  "[stripe webhook] SPLIT HOST READ FAILED — no Star awarded and earned_by unstamped for this order; backfill by hand",
+                  { orderId, sessionId: closedCart.session_id, error: sessErr },
+                );
               const hostUid = sess?.host_seat ?? null;
               if (hostUid) {
                 // K3b: redirect-aware earn — one RPC stamps earned_by (resolved through any identity merge)
@@ -292,11 +315,19 @@ export async function POST(req: NextRequest) {
               }
             }
             if (closedCart?.tab_type && closedCart.tab_type !== "none") {
-              const { data: ord } = await db
+              const { data: ord, error: ordErr } = await db
                 .from("qr_orders")
                 .select("total_cents")
                 .eq("id", orderId)
                 .maybeSingle();
+              // A null amount on a tab-close audit row is not a neutral gap: the row reads as an
+              // authoritative record of the close, and an operator auditing tabs cannot tell an
+              // unreadable total from a genuinely absent one. Say which it was.
+              if (ordErr)
+                console.error(
+                  "[stripe webhook] SPLIT ORDER TOTAL READ FAILED — tab-close audit records a null amount for this order",
+                  { orderId, error: ordErr },
+                );
               after(() =>
                 logTabEvent({
                   cartId: splitCartId,
