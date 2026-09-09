@@ -4339,7 +4339,7 @@ const MUTANTS = [
   {
     id: "merge/anon-predicate-drops-a-real-account",
     file: "apps/qr/lib/merge.ts",
-    suite: "components/MergeRedeemer.test.tsx",
+    suite: "lib/merge-anon-predicate.test.ts",
     why: 'the rule this repo documents at `rewards.ts:54-58` and applies at six other sites: test `!== true`, never `=== false`. A real account may surface `is_anonymous` as false OR omit it, and `undefined !== false` is true \u2014 so the stricter form reads a signed-in diner as still anonymous and answers `null`. `null` means "retry later", so the token is never spent: the merge spins on every load forever and the orders never move',
     find: "    if (!user || user.is_anonymous === true) return null; // still anon \u2192 retry once sign-in lands",
     replace:
