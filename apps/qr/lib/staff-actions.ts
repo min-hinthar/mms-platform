@@ -120,13 +120,6 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     auth.kind === "staff" && roleAtLeast(auth.caller.role, "manager") ? auth.caller : null;
   if (!caller) return { ok: false, error: MANAGERS_ONLY };
 
-  // A6 — the ceiling, checked on the REQUESTED role. Without it the lowered floor would hand every
-  // manager the `owner` option in the same form, i.e. self-promotion in two taps: invite an owner at
-  // an address you control, sign in as them. A distinct sentence from the floor refusal because the
-  // caller IS allowed to be here — it is the role they picked that is out of reach.
-  if (!canActOn(caller.role, parsed.data.role))
-    return { ok: false, error: "Only the owner can add another owner." };
-
   const db = serviceClient();
   // Coarse per-CALLER rate limit (S1-audit S7) — bounds repeated createUser probes. ⚠️ A6 made this
   // a manager path, so the bucket is keyed per manager and the fleet-wide ceiling on the
@@ -149,6 +142,28 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   // the orphan auth user, but a process crash BETWEEN the two leaves an orphan auth user with no staff
   // row — harmless (it can't sign in to anything staff-gated). Re-provisioning that email then fails on
   // the generic message below; the bootstrap doc notes the manual cleanup.
+  // A6 — THE CEILING, DECIDED ONCE, ON THE FRESHEST ROLE, AND BEFORE THE SIDE EFFECT.
+  //
+  // Without it the lowered floor would hand every manager the `owner` option in the same form they
+  // use to add a server: invite an owner at an address you control, sign in as them. A distinct
+  // sentence from the floor refusal because the caller IS allowed to be here — it is the role they
+  // picked that is out of reach.
+  //
+  // ⚠️ ORDER MATTERS TWICE OVER. It reads the caller's row again first, because the session's copy
+  // can be stale (see `refreshCallerAuthority`) — an owner demoted mid-request is a manager now and
+  // may not mint an owner. And both run BEFORE `createUser`, so a refusal leaves no auth account
+  // behind: an orphan one cannot sign in to anything, but it also cannot be re-provisioned at that
+  // address, so the invite silently fails forever for the person it was meant for.
+  //
+  // An earlier version checked the ceiling here on the SESSION's role and again after the account
+  // existed on the fresh one. Two decisions, same answer — which made the first unfalsifiable (its
+  // mutant survived, correctly) and bought a rollback path for a side effect that need never have
+  // happened.
+  const fresh = await refreshCallerAuthority(db, caller);
+  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  if (!canActOn(fresh.role, parsed.data.role))
+    return { ok: false, error: "Only the owner can add another owner." };
+
   const { data: created, error: createErr } = await db.auth.admin.createUser({
     email: parsed.data.email,
     email_confirm: true,
@@ -159,23 +174,6 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
     return { ok: false, error: "Couldn’t create that account. Check the email and try again." };
   }
 
-  // The auth user exists by now, so any refusal from here rolls it back — a revoked caller must
-  // leave nothing behind, or the address can never be re-provisioned.
-  const fresh = await refreshCallerAuthority(db, caller);
-  const rollback = async () => {
-    await db.auth.admin.deleteUser(created.user.id).catch(() => {});
-  };
-  if (!fresh.ok) {
-    await rollback();
-    return { ok: false, error: MANAGERS_ONLY };
-  }
-  // The ceiling AGAIN, on the REFRESHED role: an owner demoted mid-request is a manager now, and a
-  // manager may not mint an owner. Deciding it on the session's copy is the P1 this re-read exists
-  // to close, not a second opinion on the same fact.
-  if (!canActOn(fresh.role, parsed.data.role)) {
-    await rollback();
-    return { ok: false, error: "Only the owner can add another owner." };
-  }
   const { error: rowErr } = await db.from("staff").insert({
     user_id: created.user.id,
     email: parsed.data.email, // the allowlist key — matches a Google/magic-link sign-in by email
@@ -253,8 +251,6 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   // owner-on-owner precedent in the note above is exactly what makes this necessary once managers
   // are through the door: without it, the same two taps that offboard a server would offboard every
   // owner, and the account that could reinstate them is the one just switched off.
-  if (!canActOn(caller.role, target.role as StaffRole))
-    return { ok: false, error: "Only the owner can change an owner’s account." };
 
   const fresh = await refreshCallerAuthority(db, caller);
   if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
@@ -342,8 +338,6 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   if (isSelf) return { ok: false, error: "You can’t change your own role." };
 
   const current = target.role as StaffRole;
-  if (!canActOn(caller.role, current) || !canActOn(caller.role, parsed.data.role))
-    return { ok: false, error: "Only the owner can change an owner’s role." };
   if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
 
   const fresh = await refreshCallerAuthority(db, caller);
