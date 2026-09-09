@@ -396,11 +396,14 @@ export function Checkout({
   // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
   const journey = useJourneyRouter();
   const journeyRef = useRef(journey);
-  journeyRef.current = journey;
   const stepRef = useRef<"review" | "pay">("review");
+  // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
+  // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
+  // always runs after the effect that commits the latest values.
   useEffect(() => {
+    journeyRef.current = journey;
     stepRef.current = step;
-  }, [step]);
+  }, [journey, step]);
   // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
   // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
   // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
