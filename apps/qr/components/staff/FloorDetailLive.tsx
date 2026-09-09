@@ -410,6 +410,17 @@ export function FloorDetailLive({
                 k={detail.settled ? "table.detail.order.settledTitle" : "table.detail.order.title"}
               />
             </h2>
+            {/* K33 — see `roundsNote`: the record is the latest round, and on a table that settled
+              more than once saying nothing would let the list read as the whole meal. */}
+            {detail.settled && detail.settledOrderCount > 1 && (
+              <p style={{ ...muted, marginTop: 4 }}>
+                <Chrome
+                  lang={lang}
+                  k="table.detail.order.roundsNote"
+                  vars={{ n: detail.settledOrderCount }}
+                />
+              </p>
+            )}
             {canWrite && (
               <Link href={`/staff/table/${sessionId}/add`} style={addLink}>
                 {/* Inline, not stacked: this link shares a baseline-aligned row with the heading and
@@ -461,6 +472,28 @@ export function FloorDetailLive({
                           no-egg Mohinga from a plain one. Server-priced labels, rendered verbatim. */}
                       {l.modifiers.length > 0 && (
                         <span style={modsLine}>{l.modifiers.join(" · ")}</span>
+                      )}
+                      {/* K33 — the kitchen note, on the SAME branch as the options and for the same
+                          reason. A settled table always renders here (there is no cart, so no
+                          editor), and `floor.ts` fetches and preserves `notes` — so leaving it
+                          unrendered dropped every allergy and request from the post-payment record
+                          while the data sat right there. Found by Codex on this PR. */}
+                      {l.notes && <span style={noteLine}>{l.notes}</span>}
+                      {/* K33 — the line's own refund mark. A PARTIAL refund leaves
+                          `qr_orders.status` at 'paid', so a refunded dish otherwise renders here at
+                          full price with nothing to say the money went back. The amount rather than
+                          a strike-through, following `lineRefundLabel`'s reasoning: the order-level
+                          over-refund cap can clamp a refund below the line's own price, and a
+                          struck line would claim the whole dish came back when part of it did. */}
+                      {l.refundedCents > 0 && (
+                        <span style={offBadge}>
+                          {" · "}
+                          <Chrome
+                            lang={lang}
+                            k="table.detail.line.refunded"
+                            vars={{ m: fmt(l.refundedCents) }}
+                          />
+                        </span>
                       )}
                       {l.state === "voided" && (
                         <span style={offBadge}>
@@ -516,19 +549,50 @@ export function FloorDetailLive({
                 </span>
               </span>
             )}
-            {detail.paidTotalCents != null && (
-              <span style={{ color: "var(--ok)", fontWeight: 700 }}>
-                <Chrome
-                  lang={lang}
-                  k="table.detail.paid"
-                  vars={{ m: fmt(detail.paidTotalCents) }}
-                />
-              </span>
-            )}
+            {detail.paidTotalCents != null &&
+              (detail.refund == null || detail.refund.state === "none" ? (
+                <span style={{ color: "var(--ok)", fontWeight: 700 }}>
+                  <Chrome
+                    lang={lang}
+                    k="table.detail.paid"
+                    vars={{ m: fmt(detail.paidTotalCents) }}
+                  />
+                </span>
+              ) : (
+                /* K33 — MONEY THAT CAME BACK IS NEVER "paid", and never in the success token. The
+                   figures are the ONE derivation's (`summarizeRefund` in lib/refund-view.ts), not a
+                   subtraction done here: `netPaidCents` already accounts for a status flip and a
+                   column bump disagreeing for a beat. Attention tone rather than success, because a
+                   cashier scanning this row for a number needs the state to reach them first. */
+                <span style={{ color: "var(--warn)", fontWeight: 700 }}>
+                  {detail.refund.state === "full" ? (
+                    <Chrome
+                      lang={lang}
+                      k="table.detail.refunded.full"
+                      vars={{ m: fmt(detail.refund.refundedCents) }}
+                    />
+                  ) : (
+                    <Chrome
+                      lang={lang}
+                      k="table.detail.refunded.partial"
+                      vars={{
+                        m: fmt(detail.refund.netPaidCents),
+                        r: fmt(detail.refund.refundedCents),
+                      }}
+                    />
+                  )}
+                </span>
+              ))}
           </div>
-          <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
-            <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
-          </p>
+          {/* K33 — "tax is added at settle" is a promise about a RUNNING cart. Over a settled
+              record the tax was added, so the sentence is simply false there; it is suppressed
+              rather than reworded, because the settled row already states the authoritative
+              figure and a second caption under it would only invite a second reading. */}
+          {!detail.settled && (
+            <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
+              <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
+            </p>
+          )}
           {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
           {/* P2 — EACH ARM MARKS ITS OWN SCRIPT, so the region itself carries no `lang`. The frozen-
@@ -827,6 +891,16 @@ const modsLine: CSSProperties = {
   color: "var(--t3)",
   fontSize: "var(--fs-sm)",
   marginTop: 1,
+};
+/** K33 — the kitchen note. Its own binding rather than a reuse of `modsLine`: a note is a sentence
+ *  a cook or a server reads (an allergy, a request), so it is italic to separate it from the
+ *  server-priced option labels above it, which are catalog values. */
+const noteLine: CSSProperties = {
+  display: "block",
+  color: "var(--t3)",
+  fontSize: "var(--fs-sm)",
+  marginTop: 1,
+  fontStyle: "italic",
 };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
 // A1 — the ask banner: attention tone (the same pair the Pay-at-counter chip wears), never color

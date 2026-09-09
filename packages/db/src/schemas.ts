@@ -260,9 +260,10 @@ export const sessionPeekOutput = z.object({
 export type SessionPeekOutput = z.infer<typeof sessionPeekOutput>;
 
 /**
- * provisionStaff (S1.1a) — an OWNER creates a staff account (server/manager/owner). The email is
+ * provisionStaff (S1.1a) — a MANAGER or owner creates a staff account (server/manager/owner). The email is
  * the magic-link / OTP login identity; the server (service-role) creates the auth user + the staff
- * row. Owner-gated server-side (is_staff_at_least('owner')); this only shapes the input. `role` is
+ * row. Gated server-side at `manager`, with a ceiling on the role granted (A6); this only shapes
+ * the input. `role` is
  * bounded to the three roles (never a free string); `displayName` is length-capped (mirrors the
  * column CHECK length 1..80) and JSX-escaped at render.
  */

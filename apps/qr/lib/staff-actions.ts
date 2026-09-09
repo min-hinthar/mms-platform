@@ -8,7 +8,7 @@ import type { StaffRole } from "./staff";
 import { sendStaffInviteEmail, sendStaffDeactivatedEmail } from "./email";
 import { getPostHogClient } from "./posthog-server";
 
-// Owner provisioning is rare + bursty (onboarding a few at once); 20/hour per owner bounds an
+// Provisioning is rare + bursty (onboarding a few at once); 20/hour per CALLER bounds an
 // email-enumeration probe (S1-audit S7) without blocking legitimate team setup.
 const PROVISION_MAX = 20;
 const PROVISION_WINDOW_S = 3600;
@@ -146,9 +146,17 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
 }
 
 /**
- * An owner offboards (or reinstates) a staff member by flipping `active` — the row is kept so the
- * audit trail (and any future void/refund history, S2) stays intact. Guards against an owner
- * deactivating their OWN account, so the person at the keyboard can't lock themselves out mid-shift.
+ * A manager or owner offboards (or reinstates) a staff member by flipping `active` — the row is kept
+ * so the audit trail (and any future void/refund history, S2) stays intact. Guards against
+ * deactivating your OWN account, so the person at the keyboard can't lock themselves out mid-shift,
+ * and against reaching a role above your own (A6).
+ *
+ * ⚠️ REINSTATEMENT RUNS THROUGH THE SAME ACTION AS OFFBOARDING, so a manager can switch a member
+ * back on that another manager switched off. Within the ceiling that is intended — the rung manages
+ * itself — but an OWNER's offboarding of a non-owner is reversible by a manager, and the only record
+ * of either is a best-effort analytics event (OPEN-ITEMS M205, which is the durable audit row this
+ * wants and needs a prod migration). Named here because the ceiling reasons about ROLES, and this is
+ * the one authority question it does not answer.
  */
 export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   const parsed = setStaffActiveInput.safeParse(raw);

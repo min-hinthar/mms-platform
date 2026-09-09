@@ -105,7 +105,10 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     },
     { href: "/staff/tips", k: "floor.nav.tips", icon: "gift" },
     { href: "/staff/profile", k: hasPin ? "floor.nav.pin" : "floor.nav.pinSet", icon: "lock" },
-    ...(caller.role === "owner"
+    // A6 — MANAGER, matching the screen's own floor. Left at `owner`, the whole feature was
+    // reachable only by typing the URL: the page, `listStaff` and all three actions admit a
+    // manager, and the one link to them did not. Found by a blind audit of this diff.
+    ...(roleAtLeast(caller.role, "manager")
       ? ([{ href: "/staff/team", k: "floor.nav.team", icon: "people" }] as MoreTile[])
       : []),
   ];

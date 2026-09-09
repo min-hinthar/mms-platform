@@ -4346,6 +4346,55 @@ const MUTANTS = [
       "    if (!user || user.is_anonymous !== false) return null; // still anon \u2192 retry once sign-in lands",
   },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
+  {
+    id: "floor/settled-total-reads-as-paid-when-refunded",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: 'THE DEFECT REGISTRY M2 CLOSED, REOPENED ON THE STAFF SURFACE \u2014 and the reason this branch needed a refund read at all. Admitting `refunded` orders so a refunded table keeps its lines let the drill-down print the PRE-refund total in the success token beside the word "paid", over money already returned to the guest. Nulling the summary restores exactly that: `FloorDetailLive` falls to its `refund == null` arm, which is the green "{m} paid" row. The repo\'s own rule, verbatim: "a refunded order must never read \'Paid in full\'"',
+    find: "    refund: paid ? summarizeRefund(paid.total_cents, paid.refunded_cents ?? 0, paid.status) : null,",
+    replace: "    refund: null,",
+  },
+  {
+    id: "floor/refund-summary-re-derived-instead-of-read",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "the 'name it ONCE' rule at a seam this repo has already been burned at. `summarizeRefund` reconciles TWO facts that legitimately disagree for a beat \u2014 the status flips on the webhook, the column bumps in-app \u2014 and always answers the one claiming LESS was paid. A hand-written subtraction looks identical on an ordinary refund and is wrong on the dashboard-issued one, where the status says refunded and the column says 0: it reports \"$0.00 came back\", a lie in the guest's favour and no less wrong for it",
+    find: "summarizeRefund(paid.total_cents, paid.refunded_cents ?? 0, paid.status)",
+    replace:
+      '{ state: paid.refunded_cents ? "partial" : "none", refundedCents: paid.refunded_cents ?? 0, netPaidCents: paid.total_cents - (paid.refunded_cents ?? 0) }',
+  },
+  {
+    id: "floor/settled-line-hides-its-refund",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "a PARTIAL refund leaves `qr_orders.status` at 'paid', so the settled record renders through the ordinary path with nothing on it that says money came back. Zeroed, the refunded dish shows at full price beside a total that DOES account for the refund \u2014 the screen asserting the guest paid for a dish the restaurant already returned the money for, on the surface a manager reconciles against the guest's receipt",
+    find: "      refundedCents: i.refunded_cents ?? 0,",
+    replace: "      refundedCents: 0,",
+  },
+  {
+    id: "floor/settled-record-hides-the-other-rounds",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: '`/api/session`\'s own comment is the proof this is reachable: "after a previous cart is paid (status\u2260\'open\') the next order starts clean". A table that pays a round and keeps ordering settles more than once, and a count pinned at 1 silences the note saying which round is on screen \u2014 so a record showing the last of three reads as the whole meal, on the screen staff use to answer "what did they have?"',
+    find: "    settledOrderCount: settledOrders.length,",
+    replace: "    settledOrderCount: 1,",
+  },
+  {
+    id: "floor/settled-record-shows-the-first-round",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: "WHICH round the record describes, and the mutant the suite could not catch until its fake applied `.order()` for real. Ascending, the drill-down shows the table's FIRST settlement and its total while the floor board \u2014 which reduces the same rows by a max on `created_at` \u2014 shows the latest: one table, two amounts, neither labelled as a round",
+    find: '      .order("created_at", { ascending: false })',
+    replace: '      .order("created_at", { ascending: true })',
+  },
+  {
+    id: "floor/settled-line-drops-its-seat",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-settled-detail.test.ts",
+    why: 'the one field in the settled branch that crosses key spaces: the map is built from `session_members.seat_id`, the open-cart branch feeds it `by_seat`, and this branch feeds it `added_by` \u2014 the same space (`order-lines.ts`: "outside a reassign `added_by === by_seat` always") but a different column. Nulled, every settled line loses its attribution silently, and a blind audit found BOTH fixture rows carried `added_by: null`, so nothing exercised the lookup at all',
+    find: "      bySeatName: i.added_by ? (nameBySeat.get(i.added_by) ?? null) : null,",
+    replace: "      bySeatName: null,",
+  },
   // The cart read is `status = 'open'` and both fulfillment RPCs flip the cart to 'paid', so every
   // one of these mutations is invisible while a table is eating and only surfaces at settlement —
   // the window with the most staff attention on the screen and the least tolerance for a wrong one.
@@ -4378,9 +4427,9 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-settled-detail.test.ts",
     why: "the plausible 'helpful' regression, and it is the W17 'name it ONCE' rule at this seam: `itemCount`/`runningSubtotalCents` are the OPEN-CART 'so far' bindings that drive `LiveMoney`, and a settled table's authoritative figure is `paidTotalCents`. Filling them from the settled lines prints a live-looking running basket beside the paid total \u2014 two numbers for one meal, the pre-tax one smaller than what was actually charged, on the screen a cashier reads while holding the guest's cash",
-    find: "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n  }\n",
+    find: "      refundedCents: i.refunded_cents ?? 0,\n    }));\n  }\n",
     replace:
-      "      modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],\n    }));\n    itemCount = lines.reduce((a, l) => a + l.qty, 0);\n    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);\n  }\n",
+      "      refundedCents: i.refunded_cents ?? 0,\n    }));\n    itemCount = lines.reduce((a, l) => a + l.qty, 0);\n    runningSubtotalCents = lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0);\n  }\n",
   },
   {
     id: "floor/settled-lines-drop-the-options",
@@ -4404,7 +4453,7 @@ const MUTANTS = [
     id: "floor/detail-never-reports-settled",
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-settled-detail.test.ts",
-    why: "K33 \u2014 `settled` is what flips the drill-down's heading from 'Order so far' to 'Ordered' and takes the line editor off a record that can no longer be edited. False, the screen offers a stepper and a void button over lines that are already paid for and already in `qr_order_items`, where no write from this screen can reach them: every tap is a control that does nothing, on the surface staff trust to say what a table's state IS",
+    why: "K33 \u2014 `settled` is what flips the drill-down's heading from 'Order so far' to 'Ordered', and what suppresses the running-cart caption and the multi-round note. False, a paid table's record is headed as though the guests were still ordering and carries \"tax is added at settle\" under a total that WAS taxed at settlement \u2014 a caption that is simply false on that screen. \u26a0\ufe0f AND THAT IS THE WHOLE OF IT: an earlier version of this note also claimed the flag takes the line editor off the record. It does not. `canWrite` is `detail.cartId != null && !detail.paymentInFlight` and nothing else, and the settled branch is reached only when there is no cart, so the editor is already gone whatever this flag says. The mutant still turns the suite red; what it protects is the COPY, not write authority, and a reader inheriting the wrong reason mis-learns which flag is load-bearing",
     find: "    settled: !cart && paid != null,\n",
     replace: "    settled: false,\n",
   },

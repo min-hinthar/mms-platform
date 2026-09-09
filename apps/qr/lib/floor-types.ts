@@ -4,6 +4,7 @@
  * Money is integer CENTS end-to-end (format /100 only at the UI edge), parity with the rest of the app.
  */
 import type { LineState } from "@mms/db";
+import type { RefundSummary } from "./refund-view";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -85,6 +86,14 @@ export type TableLineView = {
    *  A server reading a table back needs what was CHOSEN, not just the dish — the floor was the one
    *  staff surface that never carried them. Empty array when the line has none. */
   modifiers: string[];
+  /** K33: how much of THIS line has been refunded, in cents. Always 0 on an open-cart line — a cart
+   *  line cannot be refunded, only voided. On a settled line it is `qr_order_items.refunded_cents`.
+   *
+   *  ⚠️ It exists because a PARTIAL refund leaves `qr_orders.status` at 'paid', so the settled record
+   *  renders through the ordinary path with nothing about it that says money came back. Rendering
+   *  the line at full price there tells staff the guest paid for a dish the restaurant already
+   *  returned the money for. */
+  refundedCents: number;
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };
@@ -126,6 +135,20 @@ export type TableDetail = {
    *  above the settle controls so the register knows the table is waiting, not still eating. */
   counterRequestedAt: string | null;
   paidTotalCents: number | null;
+  /** K33 — the refund state of the settled order behind `paidTotalCents`, from `lib/refund-view.ts`,
+   *  which is the ONE derivation of this question in the app. null when no settled order exists.
+   *
+   *  ⚠️ SUMMARIZED HERE RATHER THAN HANDED OVER AS PARTS, deliberately. `summarizeRefund` reconciles
+   *  two facts that can legitimately disagree for a beat (`status` flips on the webhook, the column
+   *  bumps in-app) and always answers the one claiming LESS was paid. A surface that took
+   *  `refunded_cents` and `status` and decided for itself would be a second derivation of a money
+   *  question, which is the drift the W17 rules name — and this repo has already shipped
+   *  "Paid in full" over returned money once (registry M2). */
+  refund: RefundSummary | null;
+  /** K33 — how many settled orders this table has (rounds it has paid for). 0 when none. The lines
+   *  and `paidTotalCents` describe the LATEST one, matching the floor board's own reduction, so a
+   *  count above 1 means the record on screen is one round of several and must say so. */
+  settledOrderCount: number;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
    *  it (OPEN-ITEMS P2e — the merge refusal named that action for months while nothing implemented

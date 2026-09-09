@@ -546,6 +546,13 @@ export const STAFF = {
   // K33 — a SETTLED table's list is a record, not a running basket, so the heading stops saying
   // "so far". Claude-authored MY draft pending Min's native check (K15).
   "table.detail.order.settledTitle": { en: "Ordered", my: "မှာထားတဲ့ အော်ဒါ" },
+  // K33 — a table that paid a round and kept ordering settles more than once. The record shows the
+  // LATEST round, so when there are others it says so rather than letting the heading imply the
+  // list is the whole meal. `{n}` is a prose count, so it takes the device's numerals.
+  "table.detail.order.roundsNote": {
+    en: "Latest of {n} rounds this table has paid for.",
+    my: "ဒီစားပွဲ ရှင်းပြီးတဲ့ အကြိမ် {n} ထဲက နောက်ဆုံးအကြိမ်။",
+  },
   "table.detail.addItems": { en: "+ Add items", my: "+ ပစ္စည်း ထည့်" },
   "table.detail.cart.empty": { en: "Nothing in the cart yet.", my: "အော်ဒါထဲမှာ ဘာမှ မရှိသေးပါ။" },
   // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches
@@ -558,6 +565,19 @@ export const STAFF = {
   "table.detail.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
   "table.detail.item.many": { en: "{n} items", my: "ပစ္စည်း {n} ခု" },
   "table.detail.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
+  // K33 — a refunded order must NEVER read as plainly paid, on any surface (registry M2 closed
+  // exactly that on the guest receipt). The full case names the return and nothing else; the
+  // partial case names what the guest is actually out of pocket FIRST, because that is the figure a
+  // cashier is holding cash against, and the returned amount second.
+  "table.detail.refunded.full": {
+    en: "Refunded — {m} came back",
+    my: "ပြန်အမ်းပြီး — {m} ပြန်ရပါပြီ",
+  },
+  "table.detail.refunded.partial": {
+    en: "{m} paid · {r} came back",
+    my: "{m} ရှင်းပြီး · {r} ပြန်အမ်းပြီး",
+  },
+  "table.detail.line.refunded": { en: "refunded {m}", my: "{m} ပြန်အမ်းပြီး" },
   "table.detail.pretaxNote": {
     en: "Running pre-tax subtotal — tax is added at settle.",
     my: "အခွန်မပါသေးတဲ့ စုစုပေါင်း — အခွန်ကို ငွေရှင်းချိန်မှာ ထည့်ပါမယ်။",
@@ -1055,7 +1075,6 @@ export const STAFF = {
     en: "Role updated.",
     my: "ရာထူး ပြောင်းပြီးပါပြီ။",
   },
-  "floor.team.a11y.role": { en: "Role", my: "ရာထူး" },
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════
   // ── the register (FOH counter): identity and the page's own frame ─────────

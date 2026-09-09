@@ -8,6 +8,7 @@ import { getStaffAuth, requireStaff, staffGate, STAFF_WRITE_OUTAGE } from "./sta
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { isFresh, paymentInFlightReason } from "./pay-guard";
 import { deriveFloorStatus } from "./floor-status";
+import { summarizeRefund } from "./refund-view";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
@@ -38,6 +39,14 @@ import type {
  */
 
 const ACTIVE_SESSION_CAP = 200; // a teahouse has a handful of live tables; bound the query regardless.
+/** K33 — the settled record's line ceiling. Generous for any real order (a table's whole meal, or a
+ *  grocery basket) and finite, which is the point: the read runs on the drill-down's 5-second poll
+ *  for as long as a tablet rests on a settled table, and it is the one read in `getTableDetail`
+ *  that had no bound while every sibling had one. */
+const ORDER_LINE_CAP = 500;
+/** K33 — how many settled rounds one table's record will look back over. A session that pays and
+ *  keeps ordering accumulates them; the cap keeps the read bounded like every sibling. */
+const SETTLED_ORDER_CAP = 20;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const laterIso = (a: string, b: string | null | undefined): string =>
@@ -98,7 +107,14 @@ export async function getFloorView(): Promise<FloorPoll> {
       .from("qr_orders")
       .select("session_id,total_cents,created_at")
       .in("session_id", sessionIds)
-      .eq("status", "paid"),
+      // K33 — the SAME settled-status policy as `getTableDetail`, and it has to be the same one.
+      // The two reads pick a settled order by the same rule (latest by `created_at`), so a
+      // divergence here is not a smaller version of the drill-down's answer, it is a DIFFERENT
+      // answer: a fully-refunded table would derive as `seated` with no total on the card while the
+      // drill-down showed it as settled with its lines, and with two orders the card could name an
+      // older paid one beside a detail showing the newer refunded one. Two screens, one table, two
+      // stories — which is worse than either story alone.
+      .in("status", ["paid", "refunded"]),
     db.from("mms_tab_config").select("ceiling_cents").maybeSingle(),
   ]);
   // Party/cart/order reads feed the table cards — an error here misstates the room (empty parties,
@@ -253,12 +269,18 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // deriving as "seated". `total_cents` stays the authoritative snapshot either way.
     db
       .from("qr_orders")
-      .select("id,total_cents,created_at,status")
+      .select("id,total_cents,created_at,status,refunded_cents")
       .eq("session_id", sessionId)
       .in("status", ["paid", "refunded"])
       .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      // ⚠️ NOT `.limit(1).maybeSingle()`. A session can settle MORE THAN ONCE — `/api/session`'s own
+      // comment says it plainly: "after a previous cart is paid (status≠'open') the next order
+      // starts clean" — so a table that pays a round and keeps ordering carries several settled
+      // orders. Taking one row silently made the drill-down's record describe the newest round
+      // while calling itself the table's order. The rows are still reduced to the latest below
+      // (the floor board reduces the same way, so the two agree), but the COUNT is now known, and
+      // a record that shows one of three rounds says so instead of implying it is all of them.
+      .limit(SETTLED_ORDER_CAP),
     db
       .from("mms_tab_config")
       .select("ceiling_cents,nudge_party_size,nudge_tab_age_min")
@@ -269,7 +291,10 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   if (membersRes.error || cartRes.error || paidRes.error) return { kind: "outage" };
   const members = membersRes.data;
   const cart = cartRes.data;
-  const paid = paidRes.data;
+  // Latest first from the read above, so `[0]` is the round this record describes and `length` is
+  // how many the table has settled. Reduced here rather than in the query so both facts survive.
+  const settledOrders = paidRes.data ?? [];
+  const paid = settledOrders[0] ?? null;
   const tabConfig = tabConfigRes.data;
 
   const nameBySeat = new Map((members ?? []).map((m) => [m.seat_id, m.display_name]));
@@ -338,6 +363,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       // K33 — the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,
       // so narrow it the way every other reader does rather than trusting the row's type.
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
+      refundedCents: 0, // an OPEN cart line cannot be refunded — it is voided or comped instead
     }));
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
@@ -362,9 +388,16 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     // rendered verbatim, never re-derived.
     const { data: sold, error: soldError } = await db
       .from("qr_order_items")
-      .select("id,name,qty,unit_price_cents,notes,modifiers,added_by")
+      .select("id,name,qty,unit_price_cents,notes,modifiers,added_by,refunded_cents")
       .eq("order_id", paid.id)
-      .order("id", { ascending: true });
+      // Ordered by `id` rather than a timestamp because `qr_order_items` carries none — the rows are
+      // written in one statement by `mms_fulfill_order`, so insertion order IS the order the guests
+      // added them in, and it is stable across the 5s poll.
+      .order("id", { ascending: true })
+      // Bounded, like every other read in this function (the session cap, the roster's 500). A
+      // settled grocery scan-and-go has no code-level ceiling on its line count, and this read runs
+      // on a 5-second poll for as long as a tablet sits on the screen.
+      .limit(ORDER_LINE_CAP);
     // Same posture as the open-cart read: an unread order is not an EMPTY one, and "nothing here"
     // over a table that just paid is the exact false verdict this branch exists to end.
     if (soldError) return { kind: "outage" };
@@ -380,6 +413,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       pendingApproval: false, // approvals are cart-scoped and resolved before settlement
       notes: i.notes ?? null,
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
+      refundedCents: i.refunded_cents ?? 0,
     }));
   }
 
@@ -462,6 +496,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     intendedTipCents: cart?.intended_tip_cents ?? null,
     counterRequestedAt: cart?.counter_requested_at ?? null,
     paidTotalCents: paid?.total_cents ?? null,
+    // K33 — through `lib/refund-view.ts`, the ONE derivation, rather than a comparison written
+    // here. Admitting `refunded` orders (so a refunded table keeps its lines) meant this screen
+    // could print the pre-refund total in the success token beside the word "paid" — the exact
+    // defect registry M2 closed on the guest receipt, reopened on the staff surface. The summary
+    // reconciles the status flip and the column bump, which can disagree for a beat, and always
+    // answers the one claiming LESS was paid.
+    refund: paid ? summarizeRefund(paid.total_cents, paid.refunded_cents ?? 0, paid.status) : null,
+    /** K33 — how many rounds this table has settled. 1 for the ordinary table; more for one that
+     *  paid and kept ordering. The record shows the LATEST, so the surface names the count rather
+     *  than letting a reader assume one round is the whole meal. */
+    settledOrderCount: settledOrders.length,
     // P3 — what is applied, and what it is actually worth against this basket.
     promoCode: cart?.promo_code ?? null,
     settlePromoCents,

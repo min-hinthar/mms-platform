@@ -10,12 +10,18 @@ import { RoleBadge } from "./RoleBadge";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
 import { al, sx } from "@/lib/staff-labels";
+// A rejected Server Action means the request never completed, which IS the outage sentence — and it
+// is the one string <OutageText> has an authored Burmese twin for, so a hand-written apology here
+// would ship English forever while looking converted.
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
- * Owner team management (S1.1a). Renders the roster from the SERVER prop (no local mirror — every
- * mutation revalidates the page and router.refresh() pulls fresh state, so the list can't drift),
- * plus the add-staff form. Authority is server-side (requireStaff('owner') in every action); this is
- * the affordance + honest success/error feedback, never the gate.
+ * Team management (S1.1a), MANAGER and above since A6. Renders the roster from the SERVER prop (no
+ * local mirror — every mutation revalidates the page and router.refresh() pulls fresh state, so the
+ * list can't drift), plus the add-staff form. Authority is server-side — a `manager` FLOOR plus the
+ * `canActOn` CEILING in every action — and this is the affordance + honest success/error feedback,
+ * never the gate. The role menus and the per-row controls read that same `canActOn`, so an option
+ * shown here is one the action will accept.
  *
  * P2 SCOPE, stated so the next reader does not mistake it for a finished conversion: this file's
  * ARIA and its ONE live region are localized; the form's own visible copy (the heading, three field
@@ -73,46 +79,66 @@ export function TeamManager({
     e.preventDefault();
     setBusy(true);
     setMsg(null);
-    const res = await provisionStaff({ email: email.trim(), displayName: name.trim(), role });
-    setBusy(false);
-    if (!res.ok) {
-      setMsg({ ok: false, text: res.error });
-      return;
+    // ⚠️ EVERY WRITE HERE CLEARS ITS PENDING STATE IN `finally`, and none of the three did before
+    // Codex found it on this PR. A Server Action's promise REJECTS on a lost connection, a
+    // transport failure or an uncaught server exception — none of which produce an `{ ok: false }`
+    // to fall through to — so the clear never ran, the control stayed disabled and busy until a
+    // reload, and the rejection went unhandled with nothing on screen to explain it.
+    try {
+      const res = await provisionStaff({ email: email.trim(), displayName: name.trim(), role });
+      if (!res.ok) {
+        setMsg({ ok: false, text: res.error });
+        return;
+      }
+      setEmail("");
+      setName("");
+      setRole("server");
+      setMsg({ ok: true, k: "floor.team.added" });
+      router.refresh();
+    } catch {
+      setMsg({ ok: false, text: STAFF_WRITE_OUTAGE });
+    } finally {
+      setBusy(false);
     }
-    setEmail("");
-    setName("");
-    setRole("server");
-    setMsg({ ok: true, k: "floor.team.added" });
-    router.refresh();
   }
 
   async function changeRole(row: StaffRow, next: StaffRole) {
     if (next === row.role) return;
     setRolePendingUid(row.userId);
     setMsg(null);
-    const res = await setStaffRole({ userId: row.userId, role: next });
-    setRolePendingUid(null);
-    if (!res.ok) {
-      setMsg({ ok: false, text: res.error });
-      // The <select> is CONTROLLED by `row.role` (server state), so a refused change snaps back to
-      // the stored role on its own — no local mirror to unwind, and the console never shows a role
-      // nobody saved.
-      return;
+    try {
+      const res = await setStaffRole({ userId: row.userId, role: next });
+      if (!res.ok) {
+        setMsg({ ok: false, text: res.error });
+        // The <select> is CONTROLLED by `row.role` (server state), so a refused change snaps back
+        // to the stored role on its own — no local mirror to unwind, and the console never shows a
+        // role nobody saved. That holds for the throw below too.
+        return;
+      }
+      setMsg({ ok: true, k: "floor.team.roleChanged" });
+      router.refresh();
+    } catch {
+      setMsg({ ok: false, text: STAFF_WRITE_OUTAGE });
+    } finally {
+      setRolePendingUid(null);
     }
-    setMsg({ ok: true, k: "floor.team.roleChanged" });
-    router.refresh();
   }
 
   async function toggleActive(row: StaffRow) {
     setPendingUid(row.userId);
     setMsg(null);
-    const res = await setStaffActive({ userId: row.userId, active: !row.active });
-    setPendingUid(null);
-    if (!res.ok) {
-      setMsg({ ok: false, text: res.error });
-      return;
+    try {
+      const res = await setStaffActive({ userId: row.userId, active: !row.active });
+      if (!res.ok) {
+        setMsg({ ok: false, text: res.error });
+        return;
+      }
+      router.refresh();
+    } catch {
+      setMsg({ ok: false, text: STAFF_WRITE_OUTAGE });
+    } finally {
+      setPendingUid(null);
     }
-    router.refresh();
   }
 
   return (
@@ -222,7 +248,10 @@ export function TeamManager({
             >
               <div style={{ minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}>
+                  <span
+                    id={`team-name-${row.userId}`}
+                    style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}
+                  >
                     {row.displayName}
                   </span>
                   <RoleBadge role={row.role} />
@@ -265,9 +294,16 @@ export function TeamManager({
                     onChange={(e) => changeRole(row, e.target.value as StaffRole)}
                     disabled={rolePendingUid === row.userId}
                     aria-busy={rolePendingUid === row.userId}
-                    // Named per MEMBER: without the name, every row's control announces the bare
-                    // word "Role" and a screen-reader user cannot tell whose they are changing.
-                    aria-label={`${sx(lang, "floor.team.a11y.role")} — ${row.displayName}`}
+                    // ⚠️ LABELLED BY THE MEMBER'S OWN VISIBLE NAME, not by an `aria-label`. Two
+                    // reasons, and the second is the one that matters. (a) Without the member, every
+                    // row's control announces the same bare word and a screen-reader user cannot
+                    // tell whose role they are changing. (b) `sx()` here was a REAL violation, not a
+                    // guard false-positive: rule 3 forbids the aria-only form on a control that has
+                    // visible text, because it bypasses the {visible, aria} pair — and a `<select>`
+                    // has visible text, its selected option. Pointing at text already on screen
+                    // gives a genuine label instead of a parallel one only some users hear, and the
+                    // role name stays the control's VALUE, which is what a listener needs anyway.
+                    aria-labelledby={`team-name-${row.userId}`}
                     style={roleSelect}
                   >
                     {grantable.map((r) => (
