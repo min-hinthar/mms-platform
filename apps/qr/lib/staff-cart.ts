@@ -254,11 +254,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
   // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
-  // check above is a fast read; this is the race-closing claim. acquireSettlement flips settle_at only
-  // when the cart is open AND `locked=false` — so a card pay already holding the single-pay lock makes
-  // this fail (refuse), and once WE hold the freeze a concurrent create-intent's acquireCartLock (which
-  // requires settle_at null/stale) can't start. Without this, a diner could begin + capture a card
-  // payment during the getCartTotals→RPC window and the late webhook would orphan that charge.
+  // check above is a fast read; this is the race-closing claim: once WE hold the freeze, a concurrent
+  // create-intent's acquireCartLock (which requires settle_at null/stale) can't start. Without it a
+  // diner could begin and capture a card payment during the getCartTotals→RPC window and the late
+  // webhook would orphan that charge.
+  //
+  // ⚠️ THE OLD SENTENCE HERE IS GONE BECAUSE IT STOPPED BEING TRUE (blind adversarial pass on #275,
+  // CRITICAL 3). It said the acquire "flips settle_at only when the cart is open AND `locked=false`
+  // — so a card pay already holding the single-pay lock makes this fail". M197 gave that term a
+  // staleness arm: a LIVE pay-lock still refuses, but an ABANDONED one (era past `CART_LOCK_TTL_MS`
+  // with no PaymentIntent named) no longer does, and `acquireSettlementSuperseding` can clear a
+  // linked one at Stripe first. `locked` is never cleared by this acquire either way. A comment that
+  // states the invariant a reviewer is about to check is worse than no comment: it answers the
+  // double-collect question for them, wrongly. The live predicate is in `acquireSettlement`.
   // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
   const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
   if (freeze !== "acquired") {
@@ -631,7 +639,15 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       return {
         ok: false,
         error:
-          "We couldn’t reach the card processor — the charge may have gone through. Check this tab’s payment before taking cash or another card.",
+          // ⚠️ NO INSTRUCTION THE APP CANNOT SUPPORT (blind adversarial pass on #275, OPEN
+          // QUESTION 1). The first draft said "Check this tab's payment before taking cash" — but
+          // there is no staff surface that shows a pending PaymentIntent for a tab: /staff/orders
+          // lists PAID orders and /staff/approvals lists refunds already needed, neither of which
+          // answers "did this charge land?". Sending staff to look for something that is not there
+          // makes them decide it did not, which is the double-collect this arm exists to stop. So
+          // the copy states what we know and what happens next, and asks for the one thing the app
+          // really does do on its own: wait.
+          "We couldn’t reach the card processor, so we don’t know if this charge went through. The tab stays frozen — don’t take cash or another card yet. If the payment landed it will settle itself in a minute; if it didn’t, try again.",
       };
     return {
       ok: false,

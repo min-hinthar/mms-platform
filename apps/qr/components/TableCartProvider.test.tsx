@@ -924,6 +924,33 @@ describe("M193 — one tap's realtime echoes collapse into a single re-read", ()
     expect(h.getCartView).toHaveBeenCalledTimes(1);
   });
 
+  it("re-reads under a SUSTAINED stream — a trailing debounce alone starves the recovery", async () => {
+    // ⚠️ THE CASE THE FIRST GUARD COULD NOT EXPRESS (blind adversarial pass on #275, PERF). Both
+    // tests above fire a burst and then WAIT, so by construction they only ever measured bursts that
+    // END. A pure trailing debounce re-arms from zero on every event, so a stream whose gaps stay
+    // under the coalesce window postpones the read indefinitely — and this read is a RECOVERY path
+    // (the "written, unreadable" heal, and T14's stale-freeze correction on the `qr_carts` UPDATE),
+    // so a busy table is exactly when losing it costs. Two concurrent mutators is enough to hold the
+    // gap that tight.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockClear();
+
+    // ~1.2s of events at 100ms — every gap under the 150ms coalesce window, so nothing here would
+    // ever fire a debounce that only ever re-armed.
+    for (let i = 0; i < 12; i += 1) {
+      act(() => {
+        fire({ table: "qr_carts", eventType: "UPDATE", bySeat: null, itemName: null });
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+    }
+
+    expect(h.getCartView).toHaveBeenCalled();
+  });
+
   it("still announces a peer's add immediately — the coalescer must not delay the sentence", async () => {
     // The flash is not a network call and must stay on the event. Folding it into the timer would
     // make a peer's "X added Y" arrive after a beat of silence.

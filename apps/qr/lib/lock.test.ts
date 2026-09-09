@@ -503,15 +503,16 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
       live_payment_intent_id: "pi_abandoned",
     };
     expect(await acquireSettlement(CART, UID)).toBe("locked_stale");
-    // Stale with NO intent would have been taken by the UPDATE above; reaching the diagnostic read
-    // in that state means something else refused, so it must not claim supersedability.
+    // Stale with NO intent PASSES the lock term, so whatever refused was the settle side — not the
+    // lock, and certainly not a diner. (Asserted in its own case below; the earlier draft of this
+    // line expected "locked" and was itself the defect the blind pass named CRITICAL 2.)
     statusRow = {
       status: "open",
       locked: true,
       locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
       live_payment_intent_id: null,
     };
-    expect(await acquireSettlement(CART, UID)).toBe("locked");
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
     // A lock with no era at all is unjudgeable, and unjudgeable fails CLOSED.
     statusRow = {
       status: "open",
@@ -528,6 +529,24 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     statusRow = { status: "paid", locked: false, locked_at: null, live_payment_intent_id: null };
     expect(await acquireSettlement(CART, UID)).toBe("closed");
     statusRow = { status: "open", locked: false, locked_at: null, live_payment_intent_id: null };
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
+  });
+
+  it("blames the SETTLE side when the lock term would have let us through", async () => {
+    // ⚠️ THE FIXTURE THE OLD SUITE COULD NOT EXPRESS (blind adversarial pass, CRITICAL 2). Every
+    // `settling_other` case here set `locked: false`, which the removed `.eq("locked", false)` made
+    // safe — a locked cart could only ever fail on the lock term. With the staleness arm, a cart that
+    // is locked, stale and unlinked PASSES the lock term and can still be refused by the settle one:
+    // two staff taking over the same abandoned table at once is enough. Answering `locked` there
+    // sends the loser to wait on a guest who is doing nothing.
+    updateCount = 0;
+    statusError = null;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: null,
+    };
     expect(await acquireSettlement(CART, UID)).toBe("settling_other");
   });
 });

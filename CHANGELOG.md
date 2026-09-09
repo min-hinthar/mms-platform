@@ -84,7 +84,14 @@ moved, which is the rule working: a stale mutant is a failure, not a skip.
   target's own crossing, a settle timeout, and the diner's next scroll input. The target may never
   cross the reading line at all — a short last category on a page that bottoms out first — and a
   latch that only cleared on arrival would freeze the rail on a stale tab for the rest of the visit.
-  That case is asserted, not assumed.
+
+  ⚠️ **The three release paths themselves are not asserted, and an earlier draft of this entry
+  claimed they were.** The blind adversarial pass on #275 caught it: `menu-spy.test.ts` falsifies the
+  ADOPTION rule, which by its own docblock "deliberately does NOT own the release", while the timer,
+  the pointer/keyboard listeners and the re-sync all live in `MenuBrowser.tsx` — a file with no suite
+  and no mutants, which is exactly why the rule was extracted in the first place. The over-blocking
+  case is reasoned about in the code and covered by the design (two of the three releases are
+  unconditional), not by a test. Filed as **M199**.
 
 - **M195 is retracted in part, and the correction is the finding.** It claimed cart refusals never
   reach the guest because Next.js redacts Server Action messages. Source says otherwise for the

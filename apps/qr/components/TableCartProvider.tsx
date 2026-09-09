@@ -161,6 +161,22 @@ const Ctx = createContext<CartCtx | null>(null);
  * the actor's own burst into one.
  */
 const ECHO_COALESCE_MS = 150;
+/**
+ * The longest the trailing coalescer may postpone a re-read (blind adversarial pass on #275, PERF).
+ *
+ * A pure trailing debounce STARVES on a sustained stream: `clearTimeout` runs on every event and the
+ * timer re-arms from zero, so events arriving under 150 ms apart mean the read never fires at all.
+ * That is not a latency question — the two things the coalescer exists to PRESERVE are recovery
+ * paths (the "written, unreadable" heal via `viewAfterWrite`, and T14's stale-freeze correction
+ * riding the `qr_carts` UPDATE), and a burst that does not end is exactly when a table needs them.
+ * The guard that should have noticed fires three events and then waits, so by construction it only
+ * ever measured bursts that end.
+ *
+ * Two concurrent mutators on one cart is enough to hold the gap under 150 ms: a table of four with
+ * overlapping taps, or a diner adding while staff step a quantity. So the window is a MAXIMUM, not
+ * just a quiet period — past it the read runs regardless of how busy the channel still is.
+ */
+const ECHO_MAX_WAIT_MS = 600;
 
 export function useCart(): CartCtx {
   const c = useContext(Ctx);
@@ -703,6 +719,8 @@ export function TableCartProvider({
 
   /** Trailing window that collapses one tap's several realtime echoes into a single re-read. */
   const echoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** When the pending burst's FIRST event arrived — the anchor the max-wait is measured from. */
+  const echoSince = useRef<number | null>(null);
   useEffect(
     () => () => {
       if (echoTimer.current) clearTimeout(echoTimer.current);
@@ -736,11 +754,19 @@ export function TableCartProvider({
       //
       // Safe because `readView` is TICKETED: a coalesced read that lands after a fresher one is
       // discarded by its sequence number rather than overwriting it.
+      // ⚠️ A MAXIMUM, not just a quiet period. A pure trailing debounce re-arms from zero on every
+      // event, so a stream whose gaps stay under `ECHO_COALESCE_MS` postpones the read forever — and
+      // the read is a RECOVERY path, not a nicety (see `ECHO_MAX_WAIT_MS`). The deadline is anchored
+      // to the burst's first event and survives every re-arm within it.
+      if (echoSince.current === null) echoSince.current = Date.now();
+      const waited = Date.now() - echoSince.current;
+      const delay = Math.max(0, Math.min(ECHO_COALESCE_MS, ECHO_MAX_WAIT_MS - waited));
       if (echoTimer.current) clearTimeout(echoTimer.current);
       echoTimer.current = setTimeout(() => {
         echoTimer.current = null;
+        echoSince.current = null; // the burst is over; the next event starts a fresh deadline
         void refresh();
-      }, ECHO_COALESCE_MS);
+      }, delay);
       if (
         c.table === "qr_cart_items" &&
         c.eventType === "INSERT" &&

@@ -1,7 +1,13 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
-import { classifyLiveIntent, supersedeOutcome, type SupersedeOutcome } from "./live-intent";
+import {
+  classifyLiveIntent,
+  classifyLiveIntentForSettlement,
+  supersedeOutcome,
+  type LiveIntentVerdict,
+  type SupersedeOutcome,
+} from "./live-intent";
 import {
   acquireSettlement,
   readLiveIntent,
@@ -42,6 +48,15 @@ type IntentMetadata = Record<string, string | undefined> | null | undefined;
  */
 async function supersedeIntent(
   intentId: string,
+  /**
+   * ⚠️ THE VERDICT TABLE IS A PARAMETER because the two doors do not agree about ONE status, and the
+   * disagreement is the guest's money (blind pass on #275, CRITICAL 1). create-intent's successor
+   * holds a fresh era, so the capture cron would refuse the predecessor's hold anyway and cancelling
+   * it early costs nothing. A SETTLEMENT does not move the era, so that hold would still have been
+   * captured — cancelling it there destroys an authorization the guest gave. Defaulted to the
+   * create-intent table so every existing caller is unchanged.
+   */
+  classify: (status: string) => LiveIntentVerdict = classifyLiveIntent,
 ): Promise<{ outcome: SupersedeOutcome; cancelledHold: IntentMetadata }> {
   const stripe = getStripe();
   let status: string;
@@ -56,7 +71,7 @@ async function supersedeIntent(
       return { outcome: "cleared", cancelledHold: null };
     return { outcome: "unknown", cancelledHold: null };
   }
-  const verdict = classifyLiveIntent(status);
+  const verdict = classify(status);
   if (verdict !== "cancelable")
     return {
       outcome: supersedeOutcome({ verdict, cancelled: false, code: null, statusAfter: null }),
@@ -142,10 +157,13 @@ async function recordSupersededHold(intentId: string, cartId: string, metadata: 
  * overlap M151 names); for a hold the cron superseded the first one lazily at fire time, which is
  * the record `recordSupersededHold` now writes eagerly, so `/track` says so either way.
  */
-export async function supersedeCartIntent(cartId: string): Promise<SupersedeOutcome> {
+export async function supersedeCartIntent(
+  cartId: string,
+  classify: (status: string) => LiveIntentVerdict = classifyLiveIntent,
+): Promise<SupersedeOutcome> {
   const live = await readLiveIntent(cartId);
   if (!live) return "cleared";
-  const { outcome, cancelledHold } = await supersedeIntent(live);
+  const { outcome, cancelledHold } = await supersedeIntent(live, classify);
   if (outcome !== "cleared") return outcome;
   if (cancelledHold) await recordSupersededHold(live, cartId, cancelledHold);
   const err = await unlinkPaymentIntent(cartId, live);
@@ -252,19 +270,30 @@ export type SettleTakeover =
 export async function acquireSettlementSuperseding(
   cartId: string,
   uid: string,
-  supersede: (id: string) => Promise<SupersedeOutcome> = supersedeCartIntent,
+  supersede: (
+    id: string,
+    classify: (status: string) => LiveIntentVerdict,
+  ) => Promise<SupersedeOutcome> = supersedeCartIntent,
 ): Promise<SettleTakeover> {
   const first = await acquireSettlement(cartId, uid);
   if (first !== "locked_stale") return first;
-  const outcome = await supersede(cartId);
+  // ⚠️ THE STRICT TABLE, not the default one. See `classifyLiveIntentForSettlement`: this call does
+  // not move the era, so an authorized hold it cancelled would have been captured by the cron.
+  const outcome = await supersede(cartId, classifyLiveIntentForSettlement);
   if (outcome === "captured") return "paying";
   // `unknown` is not "no" — it is "we could not tell", and the caller's retryable arm is the honest
   // rendering. Reporting `locked` here would tell staff a diner is checking out when what actually
   // happened is that we could not reach Stripe.
   if (outcome === "unknown") return "unavailable";
   const second = await acquireSettlement(cartId, uid);
-  // The supersede cleared the link, so `locked_stale` cannot be the answer twice — but the type says
-  // it can, and a `locked_stale` leaking out of here would reach a caller that has no arm for it.
-  // Collapse it to the refusal rather than assert it away.
-  return second === "locked_stale" ? "locked" : second;
+  // ⚠️ `locked_stale` TWICE MEANS THE UNLINK FAILED, NOT THAT A DINER IS PAYING (blind adversarial
+  // pass on #275, OPEN QUESTION). `supersedeCartIntent` answers `cleared` even when
+  // `unlinkPaymentIntent` errors — it logs and proceeds, because the intent is already dead at
+  // Stripe and refusing over a bookkeeping write would strand the caller (that swallow is filed as
+  // OPEN-ITEMS M178). So the row can still name an intent we just cancelled, and the second acquire
+  // answers `locked_stale` again. The first draft collapsed that to `locked`, which renders as
+  // "Someone's already paying on their phone" over an authorization that no longer exists — the
+  // fabricated diagnosis this whole function is meant to end. `unavailable` is the truth: we could
+  // not complete the takeover, and it is worth another tap.
+  return second === "locked_stale" ? "unavailable" : second;
 }

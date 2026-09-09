@@ -94,15 +94,42 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(acquireCalls).toBe(1);
   });
 
-  it("retries exactly once, and never leaks `locked_stale` to a caller with no arm for it", async () => {
+  it("retries exactly once, and a second `locked_stale` is reported as unknown — never as a diner", async () => {
     // If the second acquire still refuses, something else moved under us — a fresh lock, a rival
-    // settlement, the cart closing — and that is an answer, not a reason to loop. `locked_stale`
-    // cannot be the answer twice after a successful supersede, but the TYPE says it can, and a leak
-    // would reach four call sites that render it as nothing at all.
+    // settlement, the cart closing — and that is an answer, not a reason to loop.
+    //
+    // ⚠️ `locked_stale` TWICE has one cause, and it is not a diner: `supersedeCartIntent` answers
+    // `cleared` even when `unlinkPaymentIntent` errors (it logs and proceeds — refusing over a
+    // bookkeeping write would strand the caller; that swallow is OPEN-ITEMS M178), so the row can
+    // still name an intent we just cancelled. Collapsing that to `locked` renders as "Someone's
+    // already paying on their phone" over an authorization that no longer exists, which is the
+    // fabricated diagnosis this function exists to end.
     acquireResults = ["locked_stale", "locked_stale"];
     supersedeResult = "cleared";
-    expect(await takeover("c", "u")).toBe("locked");
+    expect(await takeover("c", "u")).toBe("unavailable");
     expect(acquireCalls).toBe(2);
     expect(supersedeCalls).toBe(1);
+  });
+
+  it("uses the SETTLEMENT verdict table, not create-intent's — an authorized hold is not cancelable here", async () => {
+    // ⚠️ CRITICAL 1 from the blind pass. `classifyLiveIntent` calls `requires_capture` CANCELABLE,
+    // and its stated reason is specific to create-intent: that caller's successor holds a fresh era,
+    // so `mms_settle_precheck_and_void` would refuse the hold anyway (→ -2) and cancelling early
+    // loses nothing. THIS caller writes only `settle_at`/`settle_by` — it never moves `locked_at` —
+    // so the cron WOULD have captured, and cancelling voids a guest's authorized pickup payment.
+    // `openCartFor` has no mode filter, so such a cart is reachable from every staff settle surface.
+    let sawClassifier: ((s: string) => unknown) | null = null;
+    acquireResults = ["locked_stale", "acquired"];
+    await acquireSettlementSuperseding("c", "u", (_id, classify) => {
+      sawClassifier = classify;
+      return Promise.resolve("cleared" as const);
+    });
+    expect(sawClassifier).not.toBeNull();
+    expect(sawClassifier!("requires_capture")).toBe("captured");
+    // …and the states that are genuinely not money still are cancelable, or the takeover would
+    // refuse every abandoned attempt and the deadlock would be exactly as it was.
+    expect(sawClassifier!("requires_payment_method")).toBe("cancelable");
+    expect(sawClassifier!("requires_action")).toBe("cancelable");
+    expect(sawClassifier!("succeeded")).toBe("captured");
   });
 });

@@ -192,13 +192,19 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
     .maybeSingle();
   if (readError) return "unavailable";
   if (cart?.status !== "open") return "closed";
-  if (cart.locked) {
-    // Stale AND still naming an intent: supersedable, not a dead end. (Stale with no intent would
-    // have been taken by the UPDATE above, so reaching here with one means the link is the reason.)
-    const stale = !!cart.locked_at && cart.locked_at <= lockCutoff;
-    return stale && cart.live_payment_intent_id ? "locked_stale" : "locked";
-  }
-  return "settling_other";
+  // ⚠️ ASK WHETHER THE LOCK TERM ACTUALLY REFUSED, not merely whether the cart is locked (blind
+  // adversarial pass on #275, CRITICAL 2). The UPDATE ANDs two `.or()` groups, so zero rows means at
+  // least one refused — and once the lock term gained a staleness arm, `locked = true` stopped
+  // implying the lock is what blocked us. A cart that is locked, stale and unlinked PASSES the lock
+  // term and can still be refused by the SETTLE term: two staff taking over the same abandoned table
+  // at once is enough. Reporting `locked` there sends the loser to wait on a guest who is doing
+  // nothing, while the real blocker is the colleague beside them. This mirrors the UPDATE's own
+  // predicate rather than restating the shape of it, so the two cannot drift apart.
+  const stale = !!cart.locked_at && cart.locked_at <= lockCutoff;
+  const lockRefused = cart.locked && !(stale && !cart.live_payment_intent_id);
+  if (!lockRefused) return "settling_other";
+  // Stale AND still naming an intent: supersedable, not a dead end.
+  return stale && cart.live_payment_intent_id ? "locked_stale" : "locked";
 }
 
 /**

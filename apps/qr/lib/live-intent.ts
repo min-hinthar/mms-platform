@@ -81,6 +81,36 @@ export function classifyLiveIntent(status: string): LiveIntentVerdict {
 }
 
 /**
+ * ⚠️ THE SETTLEMENT DOOR NEEDS A STRICTER TABLE, AND `requires_capture` IS WHY (blind adversarial
+ * pass on #275, CRITICAL 1).
+ *
+ * `classifyLiveIntent` calls an authorized hold CANCELABLE, and the reason it gives is specific to
+ * ONE caller: create-intent's successor has taken the pay-lock with a fresh era, and
+ * `mms_settle_precheck_and_void` refuses to capture a hold whose era was superseded (→ -2). So the
+ * cron was never going to take that money anyway, and cancelling it early loses nothing.
+ *
+ * `acquireSettlementSuperseding` does NOT supersede the era. Its statement writes `settle_at` and
+ * `settle_by` and touches neither `locked`, `locked_by` nor `locked_at` — so the precheck would NOT
+ * have answered -2 and the cron WOULD have captured. A staff cash settle reusing the lenient table
+ * therefore VOIDS a guest's authorized pickup payment, writes `/track` a "this payment was replaced"
+ * row for a replacement that never happened, and — if anything downstream then refuses (a rival
+ * settlement winning the retry, a totals read failing, a zero amount) — leaves a pre-authorized
+ * order with no payment at all and nothing collected.
+ *
+ * `openCartFor` filters on `session_id` + `status = 'open'` with NO mode filter, so a pickup cart
+ * holding an authorization is reachable from every staff settle surface. This is not hypothetical.
+ *
+ * So for settlement an authorization is treated as `captured`: money the guest has committed, which
+ * a different tender must refuse rather than destroy. The asymmetry is the same one this file's
+ * header states — refusing a settle that could have proceeded is a retry; cancelling a real
+ * authorization is the guest's money.
+ */
+export function classifyLiveIntentForSettlement(status: string): LiveIntentVerdict {
+  if (status === "requires_capture") return "captured";
+  return classifyLiveIntent(status);
+}
+
+/**
  * The outcome of trying to make a predecessor unusable. `cleared` means the link may be dropped
  * and the pin replaced; `captured` means the successor must refuse; `unknown` means we could not
  * establish either and must refuse WITHOUT touching anything (a transport failure is not a verdict —

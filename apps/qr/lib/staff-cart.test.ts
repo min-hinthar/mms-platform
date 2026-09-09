@@ -199,24 +199,90 @@ describe("closeSecureTab — the freeze is the double-charge guard, so an UNKNOW
     return found;
   };
 
-  it("never releases the settlement unconditionally in the catch", () => {
-    // The release must sit behind a condition. A bare ExpressionStatement at the catch's own
-    // statement level is the exact shape that shipped the double-collect.
-    const bare = catchBlock().statements.some(
-      (st) => ts.isExpressionStatement(st) && st.getText().includes("releaseSettlement"),
+  /**
+   * ⚠️ THE FIRST DRAFT OF THIS GUARD WAS GREEN FOR THE WRONG REASON, and the blind adversarial pass
+   * on #275 named all three ways. It asserted (a) no bare `ExpressionStatement` mentioning
+   * `releaseSettlement`, (b) SOME `IfStatement` mentioning it, and (c) that the block's text
+   * CONTAINED `offSessionChargeOutcome`. Every one is a scan dressed as a parse:
+   *
+   *   • `if (true) await releaseSettlement(cart.id);` satisfies (a) and (b) and ships the exact
+   *     double-collect the describe block is named for;
+   *   • `if (!declined) await releaseSettlement(cart.id);` — the precise INVERSION of the rule, the
+   *     one edit that turns "hold the freeze when we cannot tell" into "release it only then" —
+   *     satisfies them too;
+   *   • `Node.getText()` spans interior comment trivia, so (c) is satisfied by the word appearing in
+   *     a comment, with the call itself deleted.
+   *
+   * That is CLAUDE.md #60 verbatim: a guard about executable behaviour that matches a name,
+   * substring, count or position is satisfied by text that does not ship the behaviour. So this
+   * parses the DECISION CHAIN instead — the classifier call as a real CallExpression node, the
+   * binding it initialises, the comparison that derives the release predicate from that binding, and
+   * the `if` whose condition is exactly that predicate identifier, unnegated.
+   */
+  const decls = () =>
+    catchBlock()
+      .statements.filter(ts.isVariableStatement)
+      .flatMap((st) => [...st.declarationList.declarations]);
+
+  it("derives the verdict from the classifier — as a CALL, which a comment cannot fake", () => {
+    // `offSessionChargeOutcome` is where "unknowable is never a verdict" is tested BY VALUE.
+    // Re-deriving it inline (`err.code === "card_declined"`, say) would put a second, untested copy
+    // of the rule on the money path — the repo's "name it ONCE".
+    const outcomeDecl = decls().find(
+      (d) =>
+        d.initializer !== undefined &&
+        ts.isCallExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        d.initializer.expression.text === "offSessionChargeOutcome",
     );
-    expect(bare).toBe(false);
+    expect(outcomeDecl).toBeDefined();
+    expect(ts.isIdentifier(outcomeDecl!.name)).toBe(true);
   });
 
-  it("gates the release on the classifier, not on a raw error field", () => {
-    // `offSessionChargeOutcome` is where the "unknowable is never a verdict" rule is tested by
-    // value. Re-deriving the verdict inline here — `err.code === "card_declined"`, say — would put
-    // a second, untested copy of the rule on the money path (the repo's "name it ONCE" rule).
-    const text = catchBlock().getText();
-    expect(text).toContain("offSessionChargeOutcome");
-    const guarded = catchBlock().statements.some(
-      (st) => ts.isIfStatement(st) && st.getText().includes("releaseSettlement"),
+  it("releases ONLY on a verdict, and only on the positive one", () => {
+    const outcomeDecl = decls().find(
+      (d) =>
+        d.initializer !== undefined &&
+        ts.isCallExpression(d.initializer) &&
+        ts.isIdentifier(d.initializer.expression) &&
+        d.initializer.expression.text === "offSessionChargeOutcome",
     );
-    expect(guarded).toBe(true);
+    const outcomeName = (outcomeDecl!.name as ts.Identifier).text;
+
+    // The predicate must be derived from the classifier's result by an explicit `!== "unknown"`.
+    // Binding it to the RESULT rather than accepting any boolean is what makes the inversion
+    // detectable: `!declined` and `declined` are both identifiers, and only the chain tells them
+    // apart.
+    const predDecl = decls().find((d) => {
+      const init = d.initializer;
+      if (!init || !ts.isBinaryExpression(init)) return false;
+      if (init.operatorToken.kind !== ts.SyntaxKind.ExclamationEqualsEqualsToken) return false;
+      const left = init.left;
+      const right = init.right;
+      return (
+        ts.isIdentifier(left) &&
+        left.text === outcomeName &&
+        ts.isStringLiteral(right) &&
+        right.text === "unknown"
+      );
+    });
+    expect(predDecl).toBeDefined();
+    const predName = (predDecl!.name as ts.Identifier).text;
+
+    // Exactly ONE statement in the catch may release, it must be an `if`, and its condition must be
+    // the bare predicate identifier — not a literal, not a negation, not some other boolean.
+    const releasing = catchBlock().statements.filter((st) =>
+      st.getText().includes("releaseSettlement("),
+    );
+    expect(releasing).toHaveLength(1);
+    const gate = releasing[0]!;
+    expect(ts.isIfStatement(gate)).toBe(true);
+    const cond = (gate as ts.IfStatement).expression;
+    expect(ts.isIdentifier(cond)).toBe(true);
+    expect((cond as ts.Identifier).text).toBe(predName);
+    // And the release is the THEN branch, not the else — `if (declined) {} else release()` would
+    // read as guarded while shipping the inversion.
+    expect((gate as ts.IfStatement).thenStatement.getText()).toContain("releaseSettlement(");
+    expect((gate as ts.IfStatement).elseStatement).toBeUndefined();
   });
 });
