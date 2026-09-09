@@ -13,7 +13,24 @@ import type { SupersedeOutcome } from "./live-intent";
  */
 vi.mock("server-only", () => ({}));
 vi.mock("@mms/db/server", () => ({ serviceClient: () => ({}) }));
-vi.mock("./stripe", () => ({ getStripe: () => ({}) }));
+/** A configurable Stripe, so `supersedeSettlementIntent`'s own rules are reachable by VALUE. */
+let intentFixture: Record<string, unknown> = {};
+let retrieveThrows: { code?: string } | null = null;
+let cancelCalls: string[] = [];
+vi.mock("./stripe", () => ({
+  getStripe: () => ({
+    paymentIntents: {
+      retrieve: () => {
+        if (retrieveThrows) return Promise.reject(retrieveThrows);
+        return Promise.resolve(intentFixture);
+      },
+      cancel: (id: string) => {
+        cancelCalls.push(id);
+        return Promise.resolve({ id, status: "canceled" });
+      },
+    },
+  }),
+}));
 
 let acquireResults: SettleResult[] = [];
 let acquireCalls = 0;
@@ -58,7 +75,7 @@ vi.mock("./lock", () => ({
   unlinkPaymentIntent: () => Promise.resolve(null),
 }));
 
-const { acquireSettlementSuperseding } = await import("./supersede");
+const { acquireSettlementSuperseding, supersedeSettlementIntent } = await import("./supersede");
 // The Stripe sequence has its own suite; here it is a SEAM (the defaulted `supersede` parameter),
 // so the composition is falsified without five mocks of a client this decision never touches.
 let supersedeArgs: { cartId: string; intentId: string }[] = [];
@@ -82,6 +99,14 @@ beforeEach(() => {
   supersedeArgs = [];
   pinClearFails = false;
   supersedeThrows = false;
+  intentFixture = {
+    id: "pi_x",
+    status: "requires_payment_method",
+    capture_method: "automatic",
+    metadata: {},
+  };
+  retrieveThrows = null;
+  cancelCalls = [];
   released = [];
   pinCleared = [];
 });
@@ -245,5 +270,64 @@ describe("acquireSettlementSuperseding — M197", () => {
     pinClearFails = true;
     expect(await takeover("c", "u")).toBe("unavailable");
     expect(released).toEqual(["c"]);
+  });
+});
+
+describe("supersedeSettlementIntent — what settlement may and may not cancel", () => {
+  it("REFUSES a manual-capture intent in a cancelable state, and does not call cancel", async () => {
+    // ⚠️ THE MUTANT THAT SURVIVED (Codex round 3, P1). The tests above stub the superseder wholesale,
+    // so this rule was reachable by nothing — exactly the degenerate-fixture case CLAUDE.md names:
+    // the code could not express the failure, so the guard was decorative.
+    //
+    // A status is a SNAPSHOT. The DB claim stops a new `acquireCartLock`; it cannot stop the Payment
+    // Element the diner already has mounted from confirming with its existing client secret. So an
+    // authorization read as `requires_action` can become `requires_capture` before our cancel lands,
+    // and Stripe still permits cancelling that — staff would revoke money the guest just committed.
+    // Refusing on `capture_method` is a fact about the intent rather than a race-able reading of it.
+    intentFixture = {
+      id: "pi_hold",
+      status: "requires_action",
+      capture_method: "manual",
+      metadata: {},
+    };
+    expect(await supersedeSettlementIntent("c", "pi_hold")).toBe("captured");
+    expect(cancelCalls).toEqual([]);
+  });
+
+  it("refuses on the pickup_manual metadata too — the belt for a hold minted without the flag", async () => {
+    intentFixture = {
+      id: "pi_hold",
+      status: "requires_payment_method",
+      capture_method: "automatic",
+      metadata: { kind: "pickup_manual" },
+    };
+    expect(await supersedeSettlementIntent("c", "pi_hold")).toBe("captured");
+    expect(cancelCalls).toEqual([]);
+  });
+
+  it("still cancels an ordinary auto-capture attempt — the deadlock's exit must stay open", async () => {
+    // The over-blocking direction. Refusing everything would leave M197 exactly as it was, with a
+    // wider refusal surface to disguise it.
+    intentFixture = {
+      id: "pi_abandoned",
+      status: "requires_payment_method",
+      capture_method: "automatic",
+      metadata: {},
+    };
+    expect(await supersedeSettlementIntent("c", "pi_abandoned")).toBe("cleared");
+    expect(cancelCalls).toEqual(["pi_abandoned"]);
+  });
+
+  it("treats an already-cancelled intent as cleared without cancelling again", async () => {
+    intentFixture = { id: "pi_dead", status: "canceled", capture_method: "manual", metadata: {} };
+    expect(await supersedeSettlementIntent("c", "pi_dead")).toBe("cleared");
+    expect(cancelCalls).toEqual([]);
+  });
+
+  it("a vanished intent is cleared; any other retrieve failure is unknown", async () => {
+    retrieveThrows = { code: "resource_missing" };
+    expect(await supersedeSettlementIntent("c", "pi_gone")).toBe("cleared");
+    retrieveThrows = { code: "rate_limit" };
+    expect(await supersedeSettlementIntent("c", "pi_x")).toBe("unknown");
   });
 });
