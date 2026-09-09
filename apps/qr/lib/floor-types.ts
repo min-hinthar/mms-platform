@@ -3,6 +3,13 @@
  * data layer (lib/floor.ts) and the client components (FloorBoard, FloorDetailLive) can import them.
  * Money is integer CENTS end-to-end (format /100 only at the UI edge), parity with the rest of the app.
  */
+// verify:slice-exempt — this module is TYPES plus one pure helper, and neither takes a mutant that
+// says anything. A type declaration is erased before the code runs, so mutating one changes no
+// behaviour at all: the guard for a field added here is the mutant on the module that POPULATES it
+// (`lib/floor.ts`, which carries one per field this file gained). The single runtime function,
+// `tableDisplay`, is exercised through `lib/floor-merge-promo.test.ts` — the merge refusal names the
+// target table through it, and `floor/merge-refusal-names-the-wrong-table` fails when that name is
+// wrong. Re-examine this line if the file ever grows a second function.
 import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
 
