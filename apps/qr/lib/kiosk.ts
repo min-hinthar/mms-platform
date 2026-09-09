@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { serverClient, serviceClient } from "@mms/db/server";
 import { kioskOpenInput, kioskResetInput } from "@mms/db/schemas";
 import { authorizeDevice } from "./device-auth";
+import { surfaceOpen } from "./surfaces";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 import { generateJoinCode } from "./session-code";
 
@@ -49,6 +50,9 @@ export async function openKioskOrder(raw: unknown): Promise<OpenKioskResult> {
   const parsed = kioskOpenInput.safeParse(raw);
   if (!parsed.success) return { ok: false, reason: "error" };
   const { k, kind, tableNumber, customerName } = parsed.data;
+  // A1 — the kiosk is PARKED (`SURFACES.kiosk`): refused before the device token is even read, with
+  // the same honest sentence the un-provisioned device shows ("please order at the counter").
+  if (!surfaceOpen("kiosk")) return { ok: false, reason: "not_configured" };
   const gate = await authorizeDevice("kiosk", k);
   if (!gate.ok) return { ok: false, reason: gate.reason };
 

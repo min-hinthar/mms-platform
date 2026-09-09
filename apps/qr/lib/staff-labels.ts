@@ -246,6 +246,7 @@ export const FLOOR_STATUS_KEY = {
   ordering: "floor.status.ordering",
   paying: "floor.status.paying",
   settling: "floor.status.settling",
+  counter: "floor.status.counter",
   paid: "floor.status.paid",
 } as const satisfies Record<FloorStatus, StaffKey>;
 

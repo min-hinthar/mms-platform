@@ -2,6 +2,7 @@ import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { cartViewInput } from "@mms/db/schemas";
 import { assertSessionMember, getCallerUid } from "./authz";
+import { COUNTER_TENDERS } from "./counter-tender";
 
 /**
  * Resolve the ONE order produced by a completed split-tender (M3·P3.3b), for the /track receipt.
@@ -52,4 +53,47 @@ export async function getSplitOrderId(cartId: string): Promise<string | null> {
     .limit(1)
     .maybeSingle();
   return share?.order_id ?? null;
+}
+
+/**
+ * A1 — the ONE order this cart became, for anyone the table lets see it. Generalizes
+ * `getSplitOrderId` to the counter: a cash or Terminal settle (`mms_fulfill_cash_order`) writes a
+ * `qr_orders` row with `cart_id` and NO share rows and NO `stripe_payment_intent_id`, so neither
+ * the split resolver nor the single-pay tracker could find it — and the diner who had just paid at
+ * the register landed on "This order isn’t available on this device".
+ *
+ * Authorization is SESSION MEMBERSHIP read straight off `session_members`, not `assertSessionMember`:
+ * the counter clears the table right after it settles, which closes the session, and a gate that
+ * demanded an ACTIVE session would lose the receipt in the same minute it was earned (the W9c
+ * lesson, one tender over). A membership row is durable proof this seat sat at that table. The
+ * read is uid-scoped (`seat_id = uid`), so it reveals nothing about anyone else.
+ *
+ * Only counter tenders take this path — a card-paid order keeps its own gates (`earned_by`,
+ * `qr_order_payers`, the share row), which say who PAID rather than who SAT there.
+ */
+export async function getCartOrderId(cartId: string): Promise<string | null> {
+  const { cartId: id } = cartViewInput.parse({ cartId });
+  const uid = await getCallerUid().catch(() => null);
+  if (uid) {
+    const db = serviceClient();
+    const { data: order } = await db
+      .from("qr_orders")
+      .select("id,session_id")
+      .eq("cart_id", id)
+      .eq("status", "paid")
+      .in("tender", [...COUNTER_TENDERS])
+      .limit(1)
+      .maybeSingle();
+    if (order?.session_id) {
+      const { data: member } = await db
+        .from("session_members")
+        .select("seat_id")
+        .eq("session_id", order.session_id)
+        .eq("seat_id", uid)
+        .limit(1)
+        .maybeSingle();
+      if (member) return order.id;
+    }
+  }
+  return getSplitOrderId(id);
 }

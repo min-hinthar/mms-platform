@@ -1,5 +1,6 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
+import { surfaceOpen } from "@/lib/surfaces";
 import type { CartItem } from "@mms/db";
 import type { SplitContext } from "@/lib/split";
 import { computeShares } from "@/lib/split-math";
@@ -277,7 +278,10 @@ export function SplitSection({
         Each person’s share of the order, including tax. Tip is added per person at their pay step.
       </p>
 
-      {ctx.myRole === "host" ? (
+      {/* A1 — the self-serve settlement door is PARKED (`SURFACES.selfServeSplit`): the reference
+          breakdown above stays (it is presentation), the "pay separately" verb and the guest's
+          promise of it do not. The counter splits a bill the way a family expects — a person does. */}
+      {!surfaceOpen("selfServeSplit") ? null : ctx.myRole === "host" ? (
         <button
           type="button"
           onClick={beginSettle}

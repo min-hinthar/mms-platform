@@ -3,6 +3,8 @@ import { KioskShell } from "@/components/kiosk/KioskShell";
 import type { KioskItem } from "@/components/kiosk/types";
 import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
+import { surfaceOpen } from "@/lib/surfaces";
+import { t as kt } from "@/lib/kiosk/strings";
 
 export const metadata = {
   title: "Order — Mandalay Morning Star",
@@ -23,6 +25,32 @@ export default async function KioskPage({
   searchParams: Promise<{ k?: string }>;
 }) {
   const { k } = await searchParams;
+  // A1 — the kiosk is PARKED (`SURFACES.kiosk`, Option A). The closed state renders BEFORE the
+  // catalog read: no menu is drawn that the device cannot sell, and the sentence is the one the
+  // un-provisioned device already showed (C20) — "please order at the counter" is true either way.
+  // The actions behind the shell refuse independently (`openKioskOrder`), so this is the sign on
+  // the door and not the lock.
+  if (!surfaceOpen("kiosk"))
+    return (
+      <main
+        style={{
+          minHeight: "100dvh",
+          display: "grid",
+          placeItems: "center",
+          padding: 32,
+          textAlign: "center",
+        }}
+      >
+        <div className="card card-textured" style={{ maxWidth: 520, padding: "28px 28px 24px" }}>
+          <h1 style={{ fontSize: "var(--fs-h1)", margin: "0 0 10px" }}>
+            {kt("en", "notConfigured")}
+          </h1>
+          <p lang="my" style={{ margin: 0, color: "var(--t2)", fontSize: "var(--fs-body)" }}>
+            {kt("my", "notConfigured")}
+          </p>
+        </div>
+      </main>
+    );
 
   const db = publicClient();
   const { data } = await db

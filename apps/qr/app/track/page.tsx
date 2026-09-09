@@ -3,7 +3,7 @@ import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 j
 import { OrderTracker } from "@/components/OrderTracker";
 import { ReceiptCard } from "@/components/ReceiptCard";
 import { PrintReceiptButton } from "@/components/PrintReceiptButton";
-import { getSplitOrderId } from "@/lib/order";
+import { getCartOrderId } from "@/lib/order";
 import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
@@ -134,7 +134,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   // "payment received — finalizing" with a refresh, never the "no order yet" stub. The `paid` marker
   // distinguishes this from a stray direct visit to `/track?cart=…`.
   if (paid && cart) {
-    const orderId = await getSplitOrderId(cart).catch(() => null);
+    const orderId = await getCartOrderId(cart).catch(() => null);
     if (orderId)
       return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
     return (

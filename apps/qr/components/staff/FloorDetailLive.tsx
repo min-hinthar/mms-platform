@@ -24,6 +24,7 @@ import { TerminalSettleButton, TerminalCollectPanel, type TerminalCollect } from
 import { MergeTableButton } from "./MergeTableButton";
 import { StaffPromoControl } from "./StaffPromoControl";
 import { OpenTabButton } from "./OpenTabButton";
+import { surfaceOpen } from "@/lib/surfaces";
 import { CloseSecureTabButton } from "./CloseSecureTabButton";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
@@ -581,7 +582,25 @@ export function FloorDetailLive({
 
         {/* Open a tab (S3.1) — when there's an open cart, no tab yet, and no payment in flight. Marks the
           table so it settles once at close; moves no money. The diner can also open one from /cart. */}
-        {canWrite && detail.tab === "none" && (
+        {/* A1 — the ask, above the controls that answer it. Rendered from the SAME `counterRequestedAt`
+          the floor chip derives `counter` from, so the banner and the chip cannot disagree; it stays
+          while a card payment holds the cart (the chip then says Paying) because the ask is still a
+          fact about the table, and the settle controls below already refuse under the freeze. */}
+        {detail.counterRequestedAt && detail.itemCount > 0 && (
+          <section className="card card-textured" style={askCard} aria-labelledby="counter-ask-h">
+            <p id="counter-ask-h" style={askTitle}>
+              <Icon name="receipt" size={16} />
+              <Chrome lang={lang} k="table.detail.counterAsk" echo="stack" />
+            </p>
+            <p style={{ ...muted, marginTop: 4 }}>
+              <Chrome lang={lang} k="table.detail.counterAsked" echo={false} />{" "}
+              <RelativeTime iso={detail.counterRequestedAt} serverNow={detail.serverNow} />
+            </p>
+          </section>
+        )}
+        {/* A1 — "Open a tab" is PARKED (`SURFACES.cardOnFileTabs`): a tab already open still closes
+          below, but no new one is offered. */}
+        {surfaceOpen("cardOnFileTabs") && canWrite && detail.tab === "none" && (
           <section
             style={{ marginTop: "var(--s4)" }}
             aria-label={sx(lang, "table.detail.a11y.openTab")}
@@ -793,6 +812,23 @@ const sectionH: CSSProperties = {
   color: "var(--t2)",
 };
 const muted: CSSProperties = { margin: 0, color: "var(--t3)", fontSize: "var(--fs-sm)" };
+// A1 — the ask banner: attention tone (the same pair the Pay-at-counter chip wears), never color
+// alone — the sentence carries the meaning.
+const askCard: CSSProperties = {
+  marginTop: "var(--s4)",
+  padding: "14px 16px",
+  borderColor: "var(--warn)",
+  background: "var(--warnb)",
+};
+const askTitle: CSSProperties = {
+  margin: 0,
+  display: "flex",
+  alignItems: "center",
+  gap: 8,
+  fontWeight: 800,
+  fontSize: "var(--fs-body)",
+  color: "var(--warn)",
+};
 const chipList: CSSProperties = {
   listStyle: "none",
   margin: 0,

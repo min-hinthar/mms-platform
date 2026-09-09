@@ -1,5 +1,7 @@
 "use server";
-import { getSplitOrderId } from "./order";
+// verify:slice-exempt — a one-line delegate with no rule of its own: every gate lives in `getCartOrderId`
+// (`lib/order.ts`, mutated under `order/*`); the try/catch here only turns a refusal into `null`.
+import { getCartOrderId } from "./order";
 
 /**
  * Client-callable resolver for a split-tender order's id (M-nav follow-up). A split order has no
@@ -7,7 +9,8 @@ import { getSplitOrderId } from "./order";
  * can't key live status off `payment_intent` like single-pay does — they resolve the order id from the cart
  * id via this action, then subscribe with `useOrderStatus`.
  *
- * Thin wrapper over the `server-only` `getSplitOrderId`, which validates the cart id
+ * Thin wrapper over the `server-only` `getCartOrderId` (A1: the split resolver plus the counter
+ * tenders — a cash/Terminal order found by durable session membership), which validates the cart id
  * (`cartViewInput.parse`) and authorizes on EITHER of two uid-scoped proofs (W9c): the caller's own
  * `qr_cart_shares` row (`seat_id = uid` — tried first, because it survives the session being closed,
  * which is the whole point) or, failing that, `assertSessionMember` (the same `is_member` rule
@@ -18,7 +21,7 @@ import { getSplitOrderId } from "./order";
  */
 export async function resolveSplitOrderId(cartId: string): Promise<string | null> {
   try {
-    return await getSplitOrderId(cartId);
+    return await getCartOrderId(cartId);
   } catch {
     return null; // not a member / not yet stamped / bad id → no live key, pill stays generic
   }

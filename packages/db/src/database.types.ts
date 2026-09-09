@@ -1205,6 +1205,7 @@ export type Database = {
       qr_carts: {
         Row: {
           applied_reward_id: string | null
+          counter_requested_at: string | null
           created_at: string
           customer_name: string | null
           customer_phone: string | null
@@ -1229,6 +1230,7 @@ export type Database = {
         }
         Insert: {
           applied_reward_id?: string | null
+          counter_requested_at?: string | null
           created_at?: string
           customer_name?: string | null
           customer_phone?: string | null
@@ -1253,6 +1255,7 @@ export type Database = {
         }
         Update: {
           applied_reward_id?: string | null
+          counter_requested_at?: string | null
           created_at?: string
           customer_name?: string | null
           customer_phone?: string | null

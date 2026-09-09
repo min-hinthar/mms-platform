@@ -691,6 +691,26 @@ const EXEMPT = new Map([
       "CLOSED on the read error — M119a), so demanding the narrower `if (locked)` shape here would " +
       "be a downgrade dressed as a rule.",
   ],
+  // ── A1 (2026-09-09): the two "pay at the counter" writes. Both read before they were excused.
+  [
+    "requestCounterPay",
+    "refuses on the lock through `counterPayRefusal` (`lib/counter-pay-state.ts`), a VALUE the " +
+      "action feeds `authz.locked` into and returns `paying` from — pinned by " +
+      "`counter-pay-state.test.ts` and the `counter/ask-ignores-a-live-card-payment` mutant, which " +
+      "deletes exactly that rule. The refusal is deliberately not an inline `if (locked)`: the " +
+      "rank (settling before paying before empty) is one function so the Bill's copy and the " +
+      "floor's chip cannot disagree about which freeze a table is under. It also refuses BEFORE its " +
+      "one write (the stamp), and the write is an ASK — it moves no line and no price.",
+  ],
+  [
+    "withdrawCounterPay",
+    "deliberately does NOT refuse on the lock, and that is the behaviour, not an omission: taking " +
+      "an ask back never needs to wait for anything — a table that started a card payment after " +
+      "asking has, by that act, changed its mind, and a stamp that outlived the lock would keep " +
+      "the floor's ask banner over a table that is paying on a phone. Its only write nulls " +
+      "`counter_requested_at` under `status = 'open'`; it touches no line, no price and no freeze " +
+      "column, so the client's `cartFreeze` has nothing to mirror here.",
+  ],
 ]);
 
 /**

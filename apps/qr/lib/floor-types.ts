@@ -12,6 +12,7 @@ export type FloorStatus =
   | "ordering" // an open cart with items (building)
   | "paying" // the cart is locked for a single payer
   | "settling" // a split-tender freeze is open
+  | "counter" // A1: the table asked to pay at the register (an ask, not a freeze — below paying/settling)
   | "paid"; // a paid order exists and the cart isn't actively building
 
 export type FloorTable = {
@@ -39,6 +40,9 @@ export type FloorTable = {
    *  ceiling. A FLAG only — surfaced for a check-in, never an auto-convert or auto-charge. A secure tab
    *  (card on file) is never flagged. */
   tabOverCeiling: boolean;
+  /** A1: when the table asked to pay at the counter (ISO), or null. Sorts the floor: the
+   *  longest-waiting ask first, above every table that has not asked. */
+  counterRequestedAt: string | null;
   /** Most recent activity (cart mutation, order, or session open) as an ISO instant. */
   lastActivityAt: string;
 };
@@ -108,6 +112,9 @@ export type TableDetail = {
    *  never asked (every non-kiosk cart); `0` means they were asked and chose to leave nothing. The
    *  settle UI shows those differently, so the distinction has to survive the read. */
   intendedTipCents: number | null;
+  /** A1: when the table asked to pay at the counter (ISO), or null — the drill-down shows the ask
+   *  above the settle controls so the register knows the table is waiting, not still eating. */
+  counterRequestedAt: string | null;
   paidTotalCents: number | null;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE

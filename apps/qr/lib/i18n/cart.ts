@@ -80,6 +80,28 @@ export const CART = {
   rowTotal: { en: "Total", my: "စုစုပေါင်း" },
   estimatedTotal: { en: "Estimated total", my: "ခန့်မှန်း စုစုပေါင်း" },
   payWholeOrder: { en: "Pay the whole order", my: "တစ်စားပွဲလုံး ရှင်းမယ်" },
+  // ── A1: pay at the counter (the register, not the phone) ─────────────────
+  // Claude-authored diaspora-register drafts pending Min's native check (K15). "ကောင်တာ" is the
+  // loanword the kiosk strings already use for the register (lib/kiosk/strings.ts).
+  payAtCounter: { en: "Pay at the counter", my: "ကောင်တာမှာ ရှင်းမယ်" },
+  counterTitle: { en: "Settle up at the counter", my: "ကောင်တာမှာ ရှင်းလိုက်ပါ" },
+  counterBody: {
+    en: "Show this to whoever’s at the register — cash or card, either works.",
+    my: "ကောင်တာက ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ — ငွေသားပဲဖြစ်ဖြစ် ကတ်ပဲဖြစ်ဖြစ် ရပါတယ်",
+  },
+  counterKeepOrdering: {
+    en: "You can keep ordering — the counter settles whatever’s on the table.",
+    my: "ဆက်မှာလို့ ရပါသေးတယ် — စားပွဲပေါ်က အားလုံးကို ကောင်တာမှာ ရှင်းပေးပါမယ်",
+  },
+  payOnPhoneInstead: {
+    en: "Changed your mind? Pay on your phone",
+    my: "စိတ်ပြောင်းသွားရင် ဖုန်းကနေ ရှင်းမယ်",
+  },
+  counterSettledTitle: { en: "All settled — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
+  counterSettledBody: {
+    en: "This bill was settled at the counter. There’s nothing left to pay here.",
+    my: "ဒီဘောက်ချာကို ကောင်တာမှာ ရှင်းပြီးပါပြီ — ဒီမှာ ဘာမှ ရှင်းစရာ မကျန်တော့ပါဘူး",
+  },
 
   // ── status words ───────────────────────────────────────────────────────────
   paidInFull: { en: "Paid in full", my: "အပြည့် ရှင်းပြီးပါပြီ" },
@@ -103,4 +125,7 @@ export const CART_MONEY_KEYS = [
   "estimatedTotal",
   "payWholeOrder",
   "paidInFull",
+  // A1 — pay-prefixed by convention; they carry no amount, the rule costs them nothing.
+  "payAtCounter",
+  "payOnPhoneInstead",
 ] as const satisfies readonly (keyof typeof CART)[];
