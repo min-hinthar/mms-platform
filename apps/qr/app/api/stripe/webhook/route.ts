@@ -3,7 +3,8 @@ import { getStripe, resolvedStripeMode } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
+import { releaseByIntent, releaseSettlementFor } from "@/lib/lock";
+import { settleReleaseOwner } from "@/lib/settle-release-scope";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import {
@@ -857,14 +858,24 @@ export async function POST(req: NextRequest) {
       // an async processing→failed decline would otherwise strand the table frozen for the full
       // SETTLE_TTL.
       //
-      // W10c (M31 sweep) — best-effort, and that is a decision rather than an oversight. The
-      // release is UNCONDITIONAL by cart (no status predicate scopes it to the era this event
-      // belongs to), so opting into redelivery would let a late retry clear a live `settle_at`
-      // and unfreeze a settlement the table has since opened — the same hazard the `onShareFailed`
-      // guard exists to prevent, but with no equivalent predicate available here (a release is not
-      // a state transition). The 10-minute settle TTL is the designed backstop and heals the row on
-      // its own. So: surface the failure to the logs (an outage here must not be invisible) and let
-      // the TTL do its job.
+      // ⚠️ THE "NO EQUIVALENT PREDICATE AVAILABLE HERE" CLAIM IS RETRACTED (Codex round 8 on #275,
+      // P1). This used to release UNCONDITIONALLY by cart and call that a decision: a late retry
+      // could clear a live `settle_at` and unfreeze a settlement the table had since opened, with
+      // the 10-minute TTL named as the backstop. The hazard was real and it was not only redelivery
+      // — the ORDINARY case reached it. A diner single-pay decline is neither `split_share` nor
+      // `terminal`, so every one of them landed here and nulled whatever freeze the row carried,
+      // including one a staff settle was actively relying on. `closeSecureTab` names the freeze,
+      // not its idempotency key, as its concurrent double-charge guard.
+      //
+      // A predicate DOES exist: `closeSecureTab` already stamps `closedBy: "staff"`, and now also
+      // the freeze owner (`closedByUid` — the intent previously carried only `closedByStaffId`,
+      // which is attribution, while the freeze is held under `caller.uid`). So this arm releases
+      // exactly the owner the event belongs to, or nothing at all. A diner intent releases NOTHING,
+      // which is correct: it never held this mutex. That makes this arm consistent with the Terminal
+      // arm above, which has always used `releaseSettlementFor`.
+      //
+      // Still best-effort and still logged: an outage here must not be invisible, and an intent from
+      // an older deploy (no `closedByUid`) resolves to `null` and heals on the TTL as before.
       //
       // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
       // Dropping the old `.catch(() => {})` when these started returning their error left a throw
@@ -886,13 +897,16 @@ export async function POST(req: NextRequest) {
         // from the basket as it now stands. That is the only point where "this discount is stale"
         // is knowable: here we would be guessing from `intent.metadata.attempt`, which a reused
         // automatic-capture idempotency key can leave naming an era the cart no longer has.
-        const settleErr = await releaseSettlement(cartId);
-        if (settleErr)
-          console.error("[stripe webhook] payment_failed settle release failed", {
-            cartId,
-            paymentIntent: intent.id,
-            settleError: settleErr.message,
-          });
+        const settleOwner = settleReleaseOwner(intent.metadata);
+        if (settleOwner) {
+          const settleErr = await releaseSettlementFor(cartId, settleOwner);
+          if (settleErr)
+            console.error("[stripe webhook] payment_failed settle release failed", {
+              cartId,
+              paymentIntent: intent.id,
+              settleError: settleErr.message,
+            });
+        }
       } catch (e) {
         console.error("[stripe webhook] payment_failed release threw", {
           cartId,

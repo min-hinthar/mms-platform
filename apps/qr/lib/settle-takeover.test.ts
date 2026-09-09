@@ -204,7 +204,8 @@ describe("acquireSettlementSuperseding — M197", () => {
     acquireResults = ["locked_stale"];
     supersedeResult = "captured";
     expect(await takeover("c", "u")).toBe("paying");
-    expect(released).toEqual(["c"]);
+    expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
     expect(pinCleared).toEqual([]); // a captured attempt keeps its pin — the webhook reconciles it
   });
 
@@ -304,7 +305,8 @@ describe("acquireSettlementSuperseding — M197", () => {
     acquireResults = ["locked_stale"];
     supersedeThrows = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    expect(released).toEqual(["c"]);
+    expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
   });
 
   it("does NOT release a freeze it never claimed", async () => {
@@ -322,7 +324,8 @@ describe("acquireSettlementSuperseding — M197", () => {
     acquireResults = ["locked_stale"];
     pinClearFails = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    expect(released).toEqual(["c"]);
+    expect(released).toEqual([]); // never cart-wide: that is what could null a successor's freeze
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
   });
 });
 

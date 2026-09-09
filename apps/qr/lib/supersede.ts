@@ -400,7 +400,7 @@ export async function acquireSettlementSuperseding(
     claimHeld = true;
     const outcome = await supersede(cartId, live);
     if (outcome !== "cleared") {
-      await releaseSettlement(cartId);
+      await releaseSettlementFor(cartId, uid);
       // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
       // diner is checking out when what actually happened is that we could not reach Stripe.
       return outcome === "captured" ? "paying" : "unavailable";
@@ -426,7 +426,7 @@ export async function acquireSettlementSuperseding(
         intentId: live,
         error: pinErr.message,
       });
-      await releaseSettlement(cartId);
+      await releaseSettlementFor(cartId, uid);
       return "unavailable";
     }
     // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
@@ -437,9 +437,12 @@ export async function acquireSettlementSuperseding(
       cartId,
       error: e instanceof Error ? e.message : String(e),
     });
-    // Give back a freeze we took and then could not use. `releaseSettlement` is unconditional by
-    // cart and idempotent, and it only runs when the claim actually landed.
-    if (claimHeld) await releaseSettlement(cartId);
+    // Give back a freeze we took and then could not use — SCOPED to the owner we claimed under
+    // (Codex round 8 on #275, P1). The unconditional form could not ask whether we still own what we
+    // took: a diner decline landing mid-flight nulls our claim, a successor acquires with its own
+    // `settle_by`, and this release then removed THAT request's mutex. Scoping by `uid` matches zero
+    // rows once we no longer hold it. A same-uid successor is still reachable and is M201.
+    if (claimHeld) await releaseSettlementFor(cartId, uid);
     return "unavailable";
   }
 }

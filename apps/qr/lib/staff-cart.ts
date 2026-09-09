@@ -591,6 +591,10 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
           tipRate: "0",
           closedBy: "staff",
           closedByStaffId: caller.staffId,
+          // The freeze is held under caller.uid (acquireSettlementSuperseding above), NOT staffId.
+          // The webhook's decline arm needs the OWNER to scope its release; without this it could
+          // only release by cart id, nulling whatever freeze the row carried. See settle-release-scope.
+          closedByUid: caller.uid,
         },
       },
       // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
