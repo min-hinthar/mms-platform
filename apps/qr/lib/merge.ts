@@ -86,7 +86,13 @@ export async function redeemMergeToken(rawToken: string): Promise<MergeSummary |
     const {
       data: { user },
     } = await supa.auth.getUser();
-    if (!user || user.is_anonymous !== false) return null; // still anon → retry once sign-in lands
+    // `!== true`, NOT `=== false` — the rule this repo documents at `rewards.ts:54-58` and applies at
+    // six other sites. An anonymous session always carries `is_anonymous: true`, but a REAL account
+    // can surface it as `false` OR omit it entirely depending on the GoTrue/session shape, and
+    // `undefined !== false` is true — so the stricter test read a signed-in diner as still anonymous
+    // and answered `null` forever. `null` means "retry later", so the token is never spent and the
+    // orders never move: the merge would spin on every load for the rest of the account's life.
+    if (!user || user.is_anonymous === true) return null; // still anon → retry once sign-in lands
 
     const db = serviceClient();
     // Resolve the token → its bound anon uid (unredeemed + unexpired). A plain read, not a claim: the merge

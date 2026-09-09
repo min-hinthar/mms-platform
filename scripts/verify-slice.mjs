@@ -4310,6 +4310,41 @@ const MUTANTS = [
     find: '  if (!rows || rows.length === 0)\n    return { ok: false, error: "That role just changed \u2014 reload and try again." };\n',
     replace: "",
   },
+  // ── A7 · the orders that did not follow the diner onto their account ────────────────────────
+  {
+    id: "merge-redeem/absent-token-is-terminal",
+    file: "apps/qr/components/MergeRedeemer.tsx",
+    suite: "components/MergeRedeemer.test.tsx",
+    why: "A7, THE SHIPPED DEFECT ITSELF \u2014 the owner's \"orders not automatically linked\". A diner reaches /account BEFORE signing in, so this component's first mount always finds no token: `AccountUpgrade` has minted nothing yet. Reading that as terminal latches `done` permanently, and the SIGNED_IN that arrives seconds later \u2014 once the token DOES exist \u2014 returns at the guard. Every other piece works; they simply run in this order. It reads as an obvious early-out, which is why it survived review",
+    find: "    const token = readMergeToken();\n    if (!token) return;\n",
+    replace:
+      "    const token = readMergeToken();\n    if (!token) {\n      done.current = true;\n      return;\n    }\n",
+  },
+  {
+    id: "merge-redeem/concurrent-sign-in-dropped",
+    file: "apps/qr/components/MergeRedeemer.tsx",
+    suite: "components/MergeRedeemer.test.tsx",
+    why: "A7 \u2014 the Google-return shape. /account re-mounts, the mount attempt goes out, and the PKCE exchange fires SIGNED_IN a beat later while that attempt is still awaiting the server. Collapsing the two guards drops the deferred retry instead of queueing it, so the one event that proves a real account has arrived is thrown away and the token sits unredeemed until the diner happens to reload",
+    find: "    if (done.current) return;\n    if (running.current) {\n      pending.current = true; // defer, never drop \u2014 see `pending` above\n      return;\n    }\n",
+    replace: "    if (done.current || running.current) return;\n",
+  },
+  {
+    id: "merge-redeem/deferred-retry-never-drains",
+    file: "apps/qr/components/MergeRedeemer.tsx",
+    suite: "components/MergeRedeemer.test.tsx",
+    why: "the half of the fix that is easy to lose separately: recording the deferral without draining it is the same lost retry with more code. In `finally` rather than the success path so a throw cannot strand a retry someone asked for",
+    find: "      if (pending.current && !running.current) {\n        pending.current = false;\n        void attemptRef.current?.();\n      }\n",
+    replace: "      pending.current = false;\n",
+  },
+  {
+    id: "merge/anon-predicate-drops-a-real-account",
+    file: "apps/qr/lib/merge.ts",
+    suite: "components/MergeRedeemer.test.tsx",
+    why: 'the rule this repo documents at `rewards.ts:54-58` and applies at six other sites: test `!== true`, never `=== false`. A real account may surface `is_anonymous` as false OR omit it, and `undefined !== false` is true \u2014 so the stricter form reads a signed-in diner as still anonymous and answers `null`. `null` means "retry later", so the token is never spent: the merge spins on every load forever and the orders never move',
+    find: "    if (!user || user.is_anonymous === true) return null; // still anon \u2192 retry once sign-in lands",
+    replace:
+      "    if (!user || user.is_anonymous !== false) return null; // still anon \u2192 retry once sign-in lands",
+  },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   // The cart read is `status = 'open'` and both fulfillment RPCs flip the cart to 'paid', so every
   // one of these mutations is invisible while a table is eating and only surfaces at settlement —
