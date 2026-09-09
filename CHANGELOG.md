@@ -37,8 +37,9 @@ restaurant actually needs and closes three it does not.
   reference breakdown stays), the diner "Save a card" and staff "Open a tab" affordances (an existing
   secure tab still closes), and the kiosk (page and actions). Constants, not env flags — a parked
   door is a diff to a test, never a Vercel setting.
-- **Prod:** the migration is NOT applied — OPEN-ITEMS A1 says how and why the apply must precede
-  the deploy.
+- **Prod:** ~~the migration is NOT applied~~ — SUPERSEDED the same day: applied via `apply_migration`
+  (history row `20260909123158`) and the column verified BEFORE the merge (`bc6e393`); OPEN-ITEMS A1
+  records it. The order — apply, verify, then deploy — was the point, and it held.
 - **Blind adversarial audit — REJECT, four findings, all real, all closed in the same PR.** (1) A
   tablemate's CARD flipped the cart to `paid` and every other phone read "settled at the counter":
   `counterPayOutcome` now reports the TENDER and is member-authorized; the close names cash/Terminal
