@@ -2,6 +2,7 @@
 import {
   createContext,
   useCallback,
+  useMemo,
   useContext,
   useEffect,
   useRef,
@@ -152,6 +153,14 @@ type CartCtx = {
 };
 
 const Ctx = createContext<CartCtx | null>(null);
+
+/**
+ * How long to wait for a burst of realtime echoes to settle before re-reading the cart. One tap
+ * produces at least two (the line INSERT and the cart `touchCart`), and each read is ~7 sequential
+ * DB round trips. Short enough to stay imperceptible on a peer's change; long enough to collapse
+ * the actor's own burst into one.
+ */
+const ECHO_COALESCE_MS = 150;
 
 export function useCart(): CartCtx {
   const c = useContext(Ctx);
@@ -692,6 +701,15 @@ export function TableCartProvider({
     };
   }, [locked, settling, readView]);
 
+  /** Trailing window that collapses one tap's several realtime echoes into a single re-read. */
+  const echoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (echoTimer.current) clearTimeout(echoTimer.current);
+    },
+    [],
+  );
+
   // Live group-cart sync (M3·P3.2): a peer's change on another phone → re-fetch the server-authoritative
   // view (keyed React state, never client math) + announce a peer's ADD honestly (by_seat is the adder
   // → a reliable "who" for INSERTs; qty/remove just refresh, since the event doesn't carry the actor).
@@ -702,7 +720,27 @@ export function TableCartProvider({
   // told you added your own item, and a solo cart simply has no peer INSERTs to announce.
   const handleCartChange = useCallback(
     (c: CartChange) => {
-      void refresh();
+      // COALESCED, not fired per event. One add writes to BOTH watched tables — the `qr_cart_items`
+      // INSERT and `touchCart`'s `qr_carts` UPDATE — so a single tap echoes back to the actor's own
+      // phone at least twice, and each echo used to run its own `getCartView`: ~7 sequential DB
+      // round trips apiece, on top of the view the mutation already returned. Measured in
+      // production on 2026-09-09: four `POST /cart` inside four seconds from ONE tap. At a table of
+      // four, every diner's tap fanned that out to all four phones.
+      //
+      // Coalescing rather than SKIPPING the self-echo is deliberate, because the echo is a recovery
+      // path, not noise. When a mutation's own view comes back unreadable — the "written,
+      // unreadable" case `viewAfterWrite` exists for — this refresh is what heals the screen; and
+      // T14's stale-freeze correction rides the `qr_carts` UPDATE specifically (the comment above
+      // explains why that subtree needs it even in solo modes). Dropping either would trade a
+      // latency win for a stuck screen.
+      //
+      // Safe because `readView` is TICKETED: a coalesced read that lands after a fresher one is
+      // discarded by its sequence number rather than overwriting it.
+      if (echoTimer.current) clearTimeout(echoTimer.current);
+      echoTimer.current = setTimeout(() => {
+        echoTimer.current = null;
+        void refresh();
+      }, ECHO_COALESCE_MS);
       if (
         c.table === "qr_cart_items" &&
         c.eventType === "INSERT" &&
@@ -1266,7 +1304,18 @@ export function TableCartProvider({
 
   const openSlotSheet = useCallback(() => setSlotSheetOpen(true), []);
   const count = Math.max(0, items.reduce((a, i) => a + i.qty, 0) + pendingDelta);
-  const me = session ? { seat: session.seat, name } : null;
+  /**
+   * MEMOISED on primitives, because a fresh object here defeats the whole context memo below.
+   *
+   * As a bare literal this minted a new `me` on every render, so `ctxValue`'s dependency array
+   * changed every time and `useMemo` could never hit — every consumer re-rendered exactly as if the
+   * memo were not there. Found by the context-identity test rather than by reading: the memo was in
+   * place and the identity still moved.
+   */
+  const me = useMemo(
+    () => (session ? { seat: session.seat, name } : null),
+    [session?.seat, name, session],
+  );
   // Who holds the pay lock, for the "checking out" banner: "You" if it's the viewer, else the peer's
   // presence name (falls back to a neutral label until presence resolves the seat).
   // T14 — the viewer's seat comes from `getCartView` (the same `assertCartMember` call that produced
@@ -1370,37 +1419,87 @@ export function TableCartProvider({
     });
   }, [settling, flash]);
 
+  /**
+   * MEMOISED, and the arrow that used to sit in here is now a `useCallback`.
+   *
+   * This value was a fresh object literal on every render of the provider, which holds eleven pieces
+   * of state that change during ordering (`items`, `totals`, `pendingDelta`, `notice`, `locked`,
+   * `settling`, `members`, `name`, …). `MenuBrowser` consumes this context and owns the menu grid,
+   * and there is no `React.memo` on the cards — so every one of those state changes reconciled all
+   * ~97 `<li>` subtrees, each carrying a framer-motion button, a `next/image` and a re-computed
+   * badge list. Roughly six full-grid reconciles per Add tap, and the same cost on a category tab,
+   * a diet pill, a search keystroke and a sheet open — none of which touch the network at all.
+   *
+   * `GroceryBrowse` already learned this lesson for the ~400-SKU grid and says so in its own comment
+   * ("memo'd with stable parent callbacks so typing in the page-level search box … doesn't
+   * re-render the ~400-card grid"); the menu never got the same treatment.
+   *
+   * ⚠️ `lastRefusalClause` MUST stay a stable callback. As an inline arrow it minted a new identity
+   * on every render, which would defeat this memo entirely — the value would still change every
+   * time and nothing downstream could skip a render. It reads a ref, so it has no dependencies.
+   */
+  const lastRefusalClause = useCallback(() => lastRefusalRef.current, []);
+  const ctxValue = useMemo(
+    () => ({
+      cartId,
+      loading,
+      error,
+      items,
+      totals,
+      count,
+      add: trackedAdd,
+      setItemQty: trackedSetItemQty,
+      settled,
+      refresh,
+      revalidate,
+      announce: flash,
+      lastRefusalClause,
+      pickupSlot,
+      openSlotSheet,
+      isGroup,
+      members,
+      me,
+      role: session?.role ?? null,
+      joinCode: session?.joinCode ?? null,
+      tableNumber: session?.tableNumber ?? null,
+      setName,
+      locked,
+      lockedByName,
+      lockedByYou,
+      settling,
+    }),
+    [
+      cartId,
+      loading,
+      error,
+      items,
+      totals,
+      count,
+      trackedAdd,
+      trackedSetItemQty,
+      settled,
+      refresh,
+      revalidate,
+      flash,
+      lastRefusalClause,
+      pickupSlot,
+      openSlotSheet,
+      isGroup,
+      members,
+      me,
+      session?.role,
+      session?.joinCode,
+      session?.tableNumber,
+      setName,
+      locked,
+      lockedByName,
+      lockedByYou,
+      settling,
+    ],
+  );
+
   return (
-    <Ctx.Provider
-      value={{
-        cartId,
-        loading,
-        error,
-        items,
-        totals,
-        count,
-        add: trackedAdd,
-        setItemQty: trackedSetItemQty,
-        settled,
-        refresh,
-        revalidate,
-        announce: flash,
-        lastRefusalClause: () => lastRefusalRef.current,
-        pickupSlot,
-        openSlotSheet,
-        isGroup,
-        members,
-        me,
-        role: session?.role ?? null,
-        joinCode: session?.joinCode ?? null,
-        tableNumber: session?.tableNumber ?? null,
-        setName,
-        locked,
-        lockedByName,
-        lockedByYou,
-        settling,
-      }}
-    >
+    <Ctx.Provider value={ctxValue}>
       {children}
       {/* Recovery affordance for SOLO modes (scan-&-go / pickup). If a session mint — or a re-mint
           after a failed cart op — fails, `cartId` is null and taps silently no-op; without this the

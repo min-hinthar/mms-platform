@@ -4,6 +4,36 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The lag, measured and removed: one context value, one re-read per tap (2026-09-09)
+
+The owner's report was "everything feels laggy and not responsive when selecting". Both halves of
+that turned out to be real and independently measurable, and neither was the network being slow.
+
+- **M192 — every selection re-rendered the whole ~97-card menu grid.** `TableCartProvider` published
+  its context as a fresh object literal, and it holds eleven pieces of state that move during
+  ordering. `MenuBrowser` consumes that context and owns the grid, with no `React.memo` on the cards
+  — so each of those state changes reconciled ~97 cards, each a framer-motion button plus a
+  `next/image` plus a recomputed badge list, roughly **six times per Add tap**. A category tab, a
+  diet pill, a search keystroke and a sheet open paid the same cost with no network call at all. The
+  value is now `useMemo`'d. Two dependencies had to be stabilised for that memo to ever hit: `me`
+  (an object literal built in the render body) and `lastRefusalClause` (an inline arrow). Both were
+  found by the identity test, not by reading — the memo was in place and the identity still moved.
+- **M193 — one tap ran the cart re-read three times.** `addItem` writes to BOTH tables this subtree
+  watches (the `qr_cart_items` INSERT and `touchCart`'s `qr_carts` UPDATE), and the realtime handler
+  called `refresh()` on every event: ~7 sequential DB round trips apiece, on top of the view the
+  mutation already returned. Measured in production: **four `POST /cart` inside four seconds from one
+  tap**, fanned out to every phone at the table. The echoes now collapse into one trailing re-read
+  (150 ms). Coalescing rather than SKIPPING the self-echo is deliberate — the echo is the recovery
+  path when a mutation's own view comes back unreadable, and T14's stale-freeze correction rides the
+  `qr_carts` UPDATE — so the burst is delayed, never dropped, and a peer's "X added Y" announcement
+  still fires on the event itself.
+
+Both are pinned by `verify:slice` mutants (488 now) plus a `TableCartProvider` identity assertion.
+That assertion was flaky on its first draft and is worth recording: it sampled the identity count
+straight after `waitFor(() => getCartView called)`, which returns on the CALL, not on the resolution
+— so it raced the mount's own settle and went red once in three runs. It now drains to quiescence,
+the same way `drainDeferredAnnounces` does one layer up, and the module counter resets per test.
+
 ### Four money-path reads and verdicts that lied, and a six-lens audit of everything else (2026-09-09)
 
 The owner reported the app feeling "laggy and not responsive when selecting" and asked for a full
