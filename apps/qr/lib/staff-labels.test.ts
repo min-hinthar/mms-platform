@@ -61,6 +61,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       itemCount: 0,
       runningSubtotal: "$0.00",
       paidTotal: null,
+      paidRefunded: false,
     },
   ],
   [
@@ -76,6 +77,7 @@ const CONTROLS: ReadonlyArray<readonly [string, StaffControl]> = [
       itemCount: 9,
       runningSubtotal: "$142.10",
       paidTotal: "$88.00",
+      paidRefunded: false,
     },
   ],
 ];
@@ -227,6 +229,7 @@ describe("a table's name says the word the chip shows, never the database's", ()
     itemCount: 0,
     runningSubtotal: "$0.00",
     paidTotal: null,
+    paidRefunded: false,
   } as const satisfies StaffControl;
 
   it("en: the visible word is 'Splitting' and the raw key never appears", () => {
@@ -276,6 +279,7 @@ describe("a table's name renders each fragment in the right script", () => {
     itemCount: 9,
     runningSubtotal: "$142.10",
     paidTotal: "$88.00",
+    paidRefunded: false,
   } as const satisfies StaffControl;
 
   it("my: the table number and both money figures stay LATIN", () => {
@@ -301,6 +305,7 @@ describe("a table's name renders each fragment in the right script", () => {
       tabOverCeiling: false,
       itemCount: 0,
       paidTotal: null,
+      paidRefunded: false,
     } as const satisfies StaffControl;
     const loud = al("en", busy).aria;
     const soft = al("en", quiet).aria;
@@ -396,5 +401,48 @@ describe("verb and subject are INVERSES, and which one a control needs is decide
     expect(s.visible).toBe("#A12");
     expect(r.aria.endsWith("#A12")).toBe(true);
     expect(s.aria.endsWith("#A12")).toBe(true);
+  });
+});
+
+describe("al — a refunded table is never spoken as paid", () => {
+  it("says money came BACK, not that the table paid it", () => {
+    // K33 — the card corrects a refunded table with a colour and a different word. A colour reaches
+    // nobody listening, so the spoken name has to carry the correction itself; otherwise a
+    // screen-reader user is told a refunded table paid, on the one surface with no visual fallback.
+    const refunded = al("en", {
+      kind: "table",
+      label: "7",
+      unregistered: false,
+      status: "paid",
+      tabOpen: false,
+      tabOverCeiling: false,
+      partySize: 2,
+      itemCount: 0,
+      runningSubtotal: "$0.00",
+      paidTotal: "$53.30",
+      paidRefunded: true,
+    });
+    expect(refunded.aria).toContain("$53.30 refunded");
+    expect(refunded.aria).not.toContain("$53.30 paid");
+  });
+
+  it("still says paid on an ordinary settled table", () => {
+    // The flag is not a blanket rewording: the overwhelming case is unrefunded and must be
+    // untouched, or the fix trades one wrong claim for another.
+    const paid = al("en", {
+      kind: "table",
+      label: "7",
+      unregistered: false,
+      status: "paid",
+      tabOpen: false,
+      tabOverCeiling: false,
+      partySize: 2,
+      itemCount: 0,
+      runningSubtotal: "$0.00",
+      paidTotal: "$53.30",
+      paidRefunded: false,
+    });
+    expect(paid.aria).toContain("$53.30 paid");
+    expect(paid.aria).not.toContain("refunded");
   });
 });

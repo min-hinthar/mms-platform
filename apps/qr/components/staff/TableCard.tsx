@@ -60,7 +60,19 @@ export function TableCard({
     partySize: table.partySize,
     itemCount: table.itemCount,
     runningSubtotal: fmt(table.runningSubtotalCents),
-    paidTotal: table.paidTotalCents != null ? fmt(table.paidTotalCents) : null,
+    // The accessible name says exactly what the visible row says — a screen-reader user must not be
+    // told a refunded table was paid because the correction lives only in a colour.
+    paidTotal:
+      table.paidTotalCents == null
+        ? null
+        : table.refund != null && table.refund.state !== "none"
+          ? fmt(
+              table.refund.state === "full"
+                ? table.refund.refundedCents
+                : table.refund.netPaidCents,
+            )
+          : fmt(table.paidTotalCents),
+    paidRefunded: table.refund != null && table.refund.state !== "none",
   });
 
   return (
@@ -149,12 +161,37 @@ export function TableCard({
               </span>
             </>
           ) : table.paidTotalCents != null ? (
-            <>
-              {fmt(table.paidTotalCents)}{" "}
-              <span style={{ fontWeight: 500, color: "var(--ok)", fontSize: "var(--fs-sm)" }}>
-                <Chrome lang={lang} k="floor.status.paid" />
-              </span>
-            </>
+            /* K33 — MONEY THAT CAME BACK IS NEVER "Paid", and never in the success token, on the
+               card any more than on the drill-down. The figure switches too: a refunded table shows
+               what was RETURNED, a partly-refunded one what the guest actually kept paying. Both
+               come from the one derivation (`summarizeRefund`), so the card and the detail cannot
+               disagree about the same order. */
+            table.refund != null && table.refund.state !== "none" ? (
+              <>
+                {fmt(
+                  table.refund.state === "full"
+                    ? table.refund.refundedCents
+                    : table.refund.netPaidCents,
+                )}{" "}
+                <span style={{ fontWeight: 500, color: "var(--warn)", fontSize: "var(--fs-sm)" }}>
+                  <Chrome
+                    lang={lang}
+                    k={
+                      table.refund.state === "full"
+                        ? "floor.status.refunded"
+                        : "floor.status.partlyRefunded"
+                    }
+                  />
+                </span>
+              </>
+            ) : (
+              <>
+                {fmt(table.paidTotalCents)}{" "}
+                <span style={{ fontWeight: 500, color: "var(--ok)", fontSize: "var(--fs-sm)" }}>
+                  <Chrome lang={lang} k="floor.status.paid" />
+                </span>
+              </>
+            )
           ) : (
             <span style={{ fontWeight: 500, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
               <Chrome lang={lang} k="floor.card.empty" />

@@ -292,6 +292,12 @@ export const STAFF = {
   "floor.card.soFarLabel": { en: "so far", my: "ယခုအထိ" },
   "floor.card.soFar": { en: "{m} so far", my: "ယခုအထိ {m}" },
   "floor.card.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
+  // K33 — the card's settled row when money came back. `floor.status.paid` is the word beside the
+  // figure on an unrefunded table; these replace it rather than joining it, because a card is read
+  // in one glance and "Paid · Refunded" is two claims a glance cannot order.
+  "floor.status.refunded": { en: "Refunded", my: "ပြန်အမ်းပြီး" },
+  "floor.status.partlyRefunded": { en: "Partly refunded", my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး" },
+  "floor.card.refunded": { en: "{m} refunded", my: "{m} ပြန်အမ်းပြီး" },
   "floor.card.empty": { en: "No items yet", my: "ဘာမှ မရှိသေးပါ" },
 
   // ── VERBS — the visible word on a control, and the word its accessible name leads with ──────
@@ -543,6 +549,16 @@ export const STAFF = {
 
   // ── the order card ────────────────────────────────────────────────────────────────────────
   "table.detail.order.title": { en: "Order so far", my: "ယခုအထိ အော်ဒါ" },
+  // K33 — a SETTLED table's list is a record, not a running basket, so the heading stops saying
+  // "so far". Claude-authored MY draft pending Min's native check (K15).
+  "table.detail.order.settledTitle": { en: "Ordered", my: "မှာထားတဲ့ အော်ဒါ" },
+  // K33 — a table that paid a round and kept ordering settles more than once. The record shows the
+  // LATEST round, so when there are others it says so rather than letting the heading imply the
+  // list is the whole meal. `{n}` is a prose count, so it takes the device's numerals.
+  "table.detail.order.roundsNote": {
+    en: "Latest of {n} rounds this table has paid for.",
+    my: "ဒီစားပွဲ ရှင်းပြီးတဲ့ အကြိမ် {n} ထဲက နောက်ဆုံးအကြိမ်။",
+  },
   "table.detail.addItems": { en: "+ Add items", my: "+ ပစ္စည်း ထည့်" },
   "table.detail.cart.empty": { en: "Nothing in the cart yet.", my: "အော်ဒါထဲမှာ ဘာမှ မရှိသေးပါ။" },
   // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches
@@ -555,6 +571,19 @@ export const STAFF = {
   "table.detail.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
   "table.detail.item.many": { en: "{n} items", my: "ပစ္စည်း {n} ခု" },
   "table.detail.paid": { en: "{m} paid", my: "{m} ရှင်းပြီး" },
+  // K33 — a refunded order must NEVER read as plainly paid, on any surface (registry M2 closed
+  // exactly that on the guest receipt). The full case names the return and nothing else; the
+  // partial case names what the guest is actually out of pocket FIRST, because that is the figure a
+  // cashier is holding cash against, and the returned amount second.
+  "table.detail.refunded.full": {
+    en: "Refunded — {m} came back",
+    my: "ပြန်အမ်းပြီး — {m} ပြန်ရပါပြီ",
+  },
+  "table.detail.refunded.partial": {
+    en: "{m} paid · {r} came back",
+    my: "{m} ရှင်းပြီး · {r} ပြန်အမ်းပြီး",
+  },
+  "table.detail.line.refunded": { en: "refunded {m}", my: "{m} ပြန်အမ်းပြီး" },
   "table.detail.pretaxNote": {
     en: "Running pre-tax subtotal — tax is added at settle.",
     my: "အခွန်မပါသေးတဲ့ စုစုပေါင်း — အခွန်ကို ငွေရှင်းချိန်မှာ ထည့်ပါမယ်။",
@@ -1033,10 +1062,10 @@ export const STAFF = {
     en: "Add staff by email — they’ll sign in with a one-time code. Deactivate to offboard without losing history.",
     my: "အီးမေးလ်နဲ့ ဝန်ထမ်း ထည့်ပါ — တစ်ကြိမ်သုံး ကုဒ်နဲ့ ဝင်ပါလိမ့်မယ်။ မှတ်တမ်း မပျောက်စေဘဲ ထုတ်ဖို့ ရပ်ဆိုင်းပါ။",
   },
-  "floor.team.ownersOnly": { en: "Owners only", my: "ပိုင်ရှင်များသာ" },
-  "floor.team.ownersOnly.body": {
-    en: "Managing the team is limited to owners.",
-    my: "ဝန်ထမ်း စီမံခန့်ခွဲမှုကို ပိုင်ရှင်တွေသာ လုပ်နိုင်ပါတယ်။",
+  "floor.team.managersOnly": { en: "Managers only", my: "မန်နေဂျာများသာ" },
+  "floor.team.managersOnly.body": {
+    en: "Managing the team is limited to managers and the owner.",
+    my: "ဝန်ထမ်း စီမံခန့်ခွဲမှုကို မန်နေဂျာနဲ့ ပိုင်ရှင်တွေသာ လုပ်နိုင်ပါတယ်။",
   },
   "floor.team.backToFloor": { en: "← Back to the floor", my: "← ခန်းမကို ပြန်သွား" },
   "floor.team.a11y.roster": { en: "Staff", my: "ဝန်ထမ်း စာရင်း" },
@@ -1045,6 +1074,12 @@ export const STAFF = {
   "floor.team.added": {
     en: "Added — they can now sign in with a one-time code.",
     my: "ထည့်ပြီးပါပြီ — တစ်ကြိမ်သုံး ကုဒ်နဲ့ ဝင်နိုင်ပါပြီ။",
+  },
+  // A6 — the role control. `roleChanged` is the SUCCESS half of the same one live region as
+  // `floor.team.added`; the failure half stays <OutageText>.
+  "floor.team.roleChanged": {
+    en: "Role updated.",
+    my: "ရာထူး ပြောင်းပြီးပါပြီ။",
   },
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════

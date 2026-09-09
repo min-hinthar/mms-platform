@@ -5,6 +5,74 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-09 · PR #278 open: K33 · A6 · A7 built and gated, awaiting Min's merge go)
+>
+> **#278 is the live PR** (`claude/qr-app-backlog-cj2t0m`). It carries three of the owner's reports,
+> each with its guards and mutants, and it is a DRAFT waiting on Min. Do not merge it without his
+> explicit per-PR go, and run the ritual when he gives it: final push → ready → `@codex review` →
+> WAIT for a `codex-review` summary saying Codex has reviewed THAT head → triage → merge.
+>
+> - **K33 (closed in #278)** — the floor drill-down reads a settled table's lines from
+>   `qr_order_items`, carries `modifiers` on both paths, and admits `refunded` beside `paid`.
+> - **A6 (closed in #278)** — the team screen opened to managers, with `canActOn` as the grant
+>   ceiling. ⚠️ Read `lib/staff-roles.ts` before touching any of it: `staff` has ONE RLS policy on
+>   prod and it is a SELECT, and every team write uses the service-role client, so those TypeScript
+>   refusals are the entire gate. `manager` is also already the floor for refunds and price edits,
+>   so the manager rung is now self-replicating — Min was told.
+> - **A7 (partly closed in #278)** — orders follow the diner again: three defects in the merge path,
+>   the load-bearing one being that `MergeRedeemer` read an ABSENT token as terminal and disarmed
+>   itself on every first mount. **Google sign-in is NOT fixed and cannot be from a session** — the
+>   cause is Supabase Auth config (C21), and the Supabase MCP exposes no Auth config to verify it.
+>
+> **Owner-blocked, hand these to Min:** C21 (enable manual identity linking + list every serving
+> origin in Redirect URLs — measured: no `google` identity created since 2026-06-21), C16 (wire
+> `codex-review` into branch protection), C18 (the live/test key mismatch).
+>
+> **New rows this session:** M205 (team management has no durable audit trail — needs a prod
+> migration) · M206 (counter orders never get `earned_by`, so a cash meal is invisible to Rewards) ·
+> M207 (the merge skips split-pay payers) · C21 · C22 (no customer OAuth callback route).
+>
+> **Staff roles set on prod:** Mi Kon Chan → `manager`, Kyaw Soe → `manager`. There is no `kitchen`
+> role — the column CHECK admits only `server`/`manager`/`owner`, and `server` is what grants KDS.
+>
+> ---
+>
+> ## Previous pickup (2026-09-09 · A1+A2 merged; six owner-reported defects triaged against source and FILED — this is the build list)
+>
+> Min drove the app and reported six things. All six were root-caused against source by a 12-agent
+> triage (6 investigators, each adversarially verified; every verification HELD) and filed as rows:
+> **K30 · K31 · K32 · K33 · M204 · F18**. Read those rows — they carry the file:line mechanisms, the
+> fix sketches, and the landmines. The short form, in build order:
+>
+> | Row            | What is actually wrong                                                                                                                                                                                                                                                                                                                                                                                                     | Cost                                                                                                                                  |
+> | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+> | **K30** (high) | A kitchen bump reaches nobody but the kitchen. `/track`, the board's Ready column and the header chip are pure functions of `qr_orders.togo_status`, which only expo's tap moves — so a to-go guest sits on "Cooking" (lit at SETTLEMENT, before the wok) until a human walks to the tablet. **Dine-in was already fine; that half of the report is wrong.** Expo is blind to kitchen-done too, so the tap happens by eye. | prod migration (`kitchen_done_at`) + SQL + one shape + two renders. Option B (expo-side join, no migration) is a same-day mitigation. |
+> | **K33** (high) | The floor drill-down prints "Nothing in the cart yet." over a table that just ate — the cart read is `status='open'` and settlement flips it to `paid`. Lines also carry no modifiers and drop the kitchen note.                                                                                                                                                                                                           | read-and-render, no migration                                                                                                         |
+> | **M204** (med) | The refund console cannot identify the line or reconcile against the guest's receipt: no order code, modifiers, notes, tip/discount/tax, already-refunded amount, table number. Every field is a stored column already derived once in `receipt-view.ts`. Closes M183.                                                                                                                                                     | read-and-render + a mutant (see below)                                                                                                |
+> | **F18** (med)  | Burmese stops at the two ticket boards; nine order-detail surfaces are English-only, including the guest's own `/track` slip and receipt.                                                                                                                                                                                                                                                                                  | one promoted loader + per-surface wiring                                                                                              |
+> | **K31** (med)  | A bumped ticket leaves the KDS forever; the only screen listing finished orders is manager-gated.                                                                                                                                                                                                                                                                                                                          | one new read + a second rail                                                                                                          |
+> | **K32** (med)  | The board ships `readyAt` and never draws it. The "table+order on the wall" half is a **spec reversal** needing Min's decision, not a fix.                                                                                                                                                                                                                                                                                 | small; one owner question                                                                                                             |
+>
+> ### ⚠️ Three landmines the triage found in the OBVIOUS implementations — read before writing code
+>
+> 1. **K30:** appending the `kitchen_done_at` UPDATE inside `mms_bump_ticket`/`mms_line_transition`
+>    rebinds `get diagnostics n = row_count` to the orders row count. `kitchen.ts:338`/`:367` turn that
+>    into "That ticket was already updated." and the PostHog `lines:` figure — every successful bump
+>    would report failure. The stamp goes AFTER `get diagnostics`.
+> 2. **M204:** `apps/qr/lib/refunds.ts` matches TEN money markers, has NO `verify:slice` mutant and NO
+>    `verify:slice-exempt`. It is quiet only because the coverage guard evaluates CHANGED files — the
+>    PR that touches it goes red unless it lands a mutant in the same commit. Any `create or replace`
+>    of `mms_refund_authorize` needs a NEW timestamped migration, never an in-place edit.
+> 3. **K31:** do NOT reach for `laDayStartIso` — it hardcodes `America/Los_Angeles` while the "Avg
+>    today" cell on the same strip derives its day from `pickup_config.tz`. Two "today"s on one screen.
+>
+> ### What is already true on `main`
+>
+> `bc6e393` A1 (pay at the counter; prod column `20260909123158` applied and verified first) ·
+> `63972b6` A2 (23 rows parked). A3 (settlement → cash + Terminal, one request-unique owner) and A4
+> (`/staff` → five screens) are still the Option A tail — **K33 and F18 overlap A4's Tables screen, so
+> build them together rather than twice.** C18 still needs one real prod test payment from Min.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-09 · Option A is decided; A1 is MERGED with the prod column applied; A2 parked 22 rows; A3 · A4 are next)
 >
 > Min's brief after #275: _"do we need to completely reimagine or redesign … especially for the
@@ -22,7 +90,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `/track` receipt through `getCartOrderId`'s durable-membership path) and the three parked doors
 > in `apps/qr/lib/surfaces.ts` (self-serve split, card-on-file tabs, kiosk — constants, read where
 > the door is drawn AND where it is answered). Nine mutants (`counter/*`, `order/*`, `floor/*`,
-> `surfaces/*`), 540 across 103 modules.
+> `surfaces/*`), 564 across 107 modules.
 >
 > ### ⚠️ THE ONE THING TO CARRY FORWARD: the migration precedes the deploy, or /cart and the floor go down together
 >
@@ -215,8 +283,9 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **540 `verify:slice` mutants** · **103 target modules** (93 under `apps/qr/lib`, 3 API routes,
-> 6 components, 1 in `packages/db`) · **1787 qr + 142 ui tests** · 98 tracked docs files ·
+> **578 `verify:slice` mutants** · **108 target modules** (96 under `apps/qr/lib`, 3 API routes,
+> 8 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
+> 98 tracked docs files ·
 > `check:docs` clean · all ten fast-lane guards green.
 >
 > **Prod carries everything this code needs — verified against the live project, not from prose:**
@@ -677,7 +746,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (540 today)**, **1372 qr + 138 ui tests at the time (2163 + 142 today)**, 69 target modules at the time (93 under `apps/qr/lib` today, 103 in all), 97 local
+> **334 mutants at the time (578 today)**, **1372 qr + 138 ui tests at the time (2232 + 142 today)**, 69 target modules at the time (96 under `apps/qr/lib` today, 108 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1569,7 +1638,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 540 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2163 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 578 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2232 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2291,7 +2360,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (540 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (578 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

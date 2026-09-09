@@ -160,6 +160,9 @@ export type StaffControl =
       runningSubtotal: string;
       /** Preformatted money, or null when nothing has been paid. */
       paidTotal: string | null;
+      /** K33 — the settled figure above is money that came BACK, not money kept. The spoken name
+       *  has to say so: a colour swap on the card reaches nobody listening to it. */
+      paidRefunded: boolean;
     };
 
 export function al(lang: StaffLang, control: StaffControl): StaffLabel {
@@ -224,7 +227,11 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
         parts.push(tf(lang, "floor.card.soFar", { m: control.runningSubtotal }));
       }
       if (control.paidTotal !== null)
-        parts.push(tf(lang, "floor.card.paid", { m: control.paidTotal }));
+        parts.push(
+          tf(lang, control.paidRefunded ? "floor.card.refunded" : "floor.card.paid", {
+            m: control.paidTotal,
+          }),
+        );
       // ", " in both tongues, matching the `line` case above. A flat accessible name carries no
       // markup and no `lang`, so its punctuation is a pause hint rather than typography; inventing
       // a second joiner for Burmese would make the two cases disagree for no gain a reader hears.

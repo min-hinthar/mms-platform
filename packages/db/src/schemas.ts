@@ -260,9 +260,10 @@ export const sessionPeekOutput = z.object({
 export type SessionPeekOutput = z.infer<typeof sessionPeekOutput>;
 
 /**
- * provisionStaff (S1.1a) — an OWNER creates a staff account (server/manager/owner). The email is
+ * provisionStaff (S1.1a) — a MANAGER or owner creates a staff account (server/manager/owner). The email is
  * the magic-link / OTP login identity; the server (service-role) creates the auth user + the staff
- * row. Owner-gated server-side (is_staff_at_least('owner')); this only shapes the input. `role` is
+ * row. Gated server-side at `manager`, with a ceiling on the role granted (A6); this only shapes
+ * the input. `role` is
  * bounded to the three roles (never a free string); `displayName` is length-capped (mirrors the
  * column CHECK length 1..80) and JSX-escaped at render.
  */
@@ -313,11 +314,28 @@ export const staffReportInput = z.object({
     .strict(),
 });
 
-/** setStaffActive (S1.1a) — an owner offboards/reinstates a staff member (never deletes the audit
- *  trail; flips `active`, which is_staff/is_staff_at_least gate on). Owner-gated server-side. */
+/** setStaffActive (S1.1a) — a manager or owner offboards/reinstates a staff member (never deletes
+ *  the audit trail; flips `active`, which is_staff/is_staff_at_least gate on). Gated server-side at
+ *  `manager` since A6, and the ACTION additionally refuses a target who outranks the caller — a
+ *  bound this transport shape cannot express, because the target's role is not in the input. */
 export const setStaffActiveInput = z.object({
   userId: uuid,
   active: z.boolean(),
+});
+
+/**
+ * setStaffRole (A6) — change an existing member's role, the half of "assign roles" that did not
+ * exist: before this, a role was chosen once at provision time and was unchangeable thereafter, so
+ * promoting a server meant deactivating them and re-inviting the same email.
+ *
+ * ⚠️ The enum here is the TRANSPORT rail, not the authority. It admits `owner` because an OWNER may
+ * legitimately grant it; whether THIS caller may is decided in the action by `canActOn`, against
+ * both the target's current role and the requested one. Narrowing the enum instead would silently
+ * take a real power away from the owner while looking like a security fix.
+ */
+export const setStaffRoleInput = z.object({
+  userId: uuid,
+  role: z.enum(["server", "manager", "owner"]),
 });
 
 /**
@@ -746,6 +764,7 @@ export type ResolveApprovalInput = z.infer<typeof resolveApprovalInput>;
 export type SetStaffPinInput = z.infer<typeof setStaffPinInput>;
 export type VerifyStaffPinInput = z.infer<typeof verifyStaffPinInput>;
 export type SetStaffActiveInput = z.infer<typeof setStaffActiveInput>;
+export type SetStaffRoleInput = z.infer<typeof setStaffRoleInput>;
 export type ProvisionStaffInput = z.infer<typeof provisionStaffInput>;
 export type ClearTableInput = z.infer<typeof clearTableInput>;
 export type StaffApplyPromoInput = z.infer<typeof staffApplyPromoInput>;

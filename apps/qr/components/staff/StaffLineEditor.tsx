@@ -89,12 +89,26 @@ export function StaffLineEditor({
     });
   }
 
+  // K33 — the options the guest chose, under the dish name on EVERY branch of this editor. The floor
+  // was the one staff surface that never showed them: a server reading table 6 back could not tell a
+  // no-egg Mohinga from a plain one, and the void/comp decision is made from exactly this row. The
+  // labels are the server-priced strings stored on the line — rendered verbatim, never re-derived.
+  const mods =
+    line.modifiers.length > 0 ? (
+      <span
+        style={{ display: "block", color: "var(--t3)", fontSize: "var(--fs-sm)", marginTop: 1 }}
+      >
+        {line.modifiers.join(" · ")}
+      </span>
+    ) : null;
+
   // ── Terminal / settled-as-free states: a muted row, no controls ──────────────────────────────────────
   if (line.state === "voided") {
     return (
       <li style={{ ...row, opacity: 0.55 }}>
         <span style={{ minWidth: 0, flex: 1, textDecoration: "line-through" }}>
           {line.qty}× {line.name}
+          {mods}
         </span>
         <span style={badge}>
           <Chrome lang={lang} k="table.detail.line.voided" />
@@ -107,6 +121,7 @@ export function StaffLineEditor({
       <li style={row}>
         <span style={{ minWidth: 0, flex: 1 }}>
           {line.qty}× {line.name}
+          {mods}
           {line.bySeatName && (
             <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
               {" "}
@@ -130,6 +145,7 @@ export function StaffLineEditor({
         <span style={{ minWidth: 0, flex: 1 }}>
           {line.qty}× {line.name}
           <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}> · {stateLabel}</span>
+          {mods}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
           <span style={priceCell}>{fmt(line.unitPriceCents * line.qty)}</span>
@@ -187,6 +203,7 @@ export function StaffLineEditor({
     <li style={{ ...row, flexWrap: "wrap" }}>
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
+        {mods}
         {line.soldOut && (
           <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 400 }}>
             {" · "}
