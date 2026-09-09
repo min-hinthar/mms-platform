@@ -5,6 +5,42 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-09 · A1+A2 merged; six owner-reported defects triaged against source and FILED — this is the build list)
+>
+> Min drove the app and reported six things. All six were root-caused against source by a 12-agent
+> triage (6 investigators, each adversarially verified; every verification HELD) and filed as rows:
+> **K30 · K31 · K32 · K33 · M204 · F18**. Read those rows — they carry the file:line mechanisms, the
+> fix sketches, and the landmines. The short form, in build order:
+>
+> | Row            | What is actually wrong                                                                                                                                                                                                                                                                                                                                                                                                     | Cost                                                                                                                                  |
+> | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+> | **K30** (high) | A kitchen bump reaches nobody but the kitchen. `/track`, the board's Ready column and the header chip are pure functions of `qr_orders.togo_status`, which only expo's tap moves — so a to-go guest sits on "Cooking" (lit at SETTLEMENT, before the wok) until a human walks to the tablet. **Dine-in was already fine; that half of the report is wrong.** Expo is blind to kitchen-done too, so the tap happens by eye. | prod migration (`kitchen_done_at`) + SQL + one shape + two renders. Option B (expo-side join, no migration) is a same-day mitigation. |
+> | **K33** (high) | The floor drill-down prints "Nothing in the cart yet." over a table that just ate — the cart read is `status='open'` and settlement flips it to `paid`. Lines also carry no modifiers and drop the kitchen note.                                                                                                                                                                                                           | read-and-render, no migration                                                                                                         |
+> | **M204** (med) | The refund console cannot identify the line or reconcile against the guest's receipt: no order code, modifiers, notes, tip/discount/tax, already-refunded amount, table number. Every field is a stored column already derived once in `receipt-view.ts`. Closes M183.                                                                                                                                                     | read-and-render + a mutant (see below)                                                                                                |
+> | **F18** (med)  | Burmese stops at the two ticket boards; nine order-detail surfaces are English-only, including the guest's own `/track` slip and receipt.                                                                                                                                                                                                                                                                                  | one promoted loader + per-surface wiring                                                                                              |
+> | **K31** (med)  | A bumped ticket leaves the KDS forever; the only screen listing finished orders is manager-gated.                                                                                                                                                                                                                                                                                                                          | one new read + a second rail                                                                                                          |
+> | **K32** (med)  | The board ships `readyAt` and never draws it. The "table+order on the wall" half is a **spec reversal** needing Min's decision, not a fix.                                                                                                                                                                                                                                                                                 | small; one owner question                                                                                                             |
+>
+> ### ⚠️ Three landmines the triage found in the OBVIOUS implementations — read before writing code
+>
+> 1. **K30:** appending the `kitchen_done_at` UPDATE inside `mms_bump_ticket`/`mms_line_transition`
+>    rebinds `get diagnostics n = row_count` to the orders row count. `kitchen.ts:338`/`:367` turn that
+>    into "That ticket was already updated." and the PostHog `lines:` figure — every successful bump
+>    would report failure. The stamp goes AFTER `get diagnostics`.
+> 2. **M204:** `apps/qr/lib/refunds.ts` matches TEN money markers, has NO `verify:slice` mutant and NO
+>    `verify:slice-exempt`. It is quiet only because the coverage guard evaluates CHANGED files — the
+>    PR that touches it goes red unless it lands a mutant in the same commit. Any `create or replace`
+>    of `mms_refund_authorize` needs a NEW timestamped migration, never an in-place edit.
+> 3. **K31:** do NOT reach for `laDayStartIso` — it hardcodes `America/Los_Angeles` while the "Avg
+>    today" cell on the same strip derives its day from `pickup_config.tz`. Two "today"s on one screen.
+>
+> ### What is already true on `main`
+>
+> `bc6e393` A1 (pay at the counter; prod column `20260909123158` applied and verified first) ·
+> `63972b6` A2 (23 rows parked). A3 (settlement → cash + Terminal, one request-unique owner) and A4
+> (`/staff` → five screens) are still the Option A tail — **K33 and F18 overlap A4's Tables screen, so
+> build them together rather than twice.** C18 still needs one real prod test payment from Min.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-09 · Option A is decided; A1 is MERGED with the prod column applied; A2 parked 22 rows; A3 · A4 are next)
 >
 > Min's brief after #275: _"do we need to completely reimagine or redesign … especially for the
