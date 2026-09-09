@@ -165,12 +165,31 @@ export function supersedeOutcome(input: {
  * mocks — while the rule itself is a value in, a verdict out (CLAUDE.md: decision logic belongs in
  * `lib/`, "finer-grained, not merely possible").
  */
-export type OffSessionChargeOutcome = "declined" | "needs_action" | "unknown";
+export type OffSessionChargeOutcome =
+  /** The issuer refused. No money moved; the table is free to try another tender. */
+  | "declined"
+  /** The card needs SCA — a decline with a different remedy, so the copy must not say "refused". */
+  | "needs_action"
+  /**
+   * Stripe REJECTED the request before creating anything — the stored customer or payment method is
+   * gone (Codex round 4 on #275, P2). No PaymentIntent exists, so no charge can land later, which
+   * makes this a FACT rather than an ambiguity: holding the freeze on it blocks every other tender
+   * for the full TTL over a charge that provably never happened. The repo already treats
+   * `resource_missing` as definitive absence on the retrieve and cancel paths (`split-hold.ts`,
+   * `supersedeSettlementIntent`); the create path was the one that still called it unknown.
+   */
+  | "no_method"
+  /** We could not establish anything — a reset, a 429, a 5xx, a timeout. Never a verdict. */
+  | "unknown";
 
 export function offSessionChargeOutcome(err: {
   type?: string | null;
   code?: string | null;
 }): OffSessionChargeOutcome {
+  // A REQUEST Stripe refused outright: the customer or payment method on file has been deleted, so
+  // `paymentIntents.create` never made an intent and nothing can be captured afterwards. Definitive,
+  // and the freeze must not be held on it — see the `no_method` arm above.
+  if (err.code === "resource_missing") return "no_method";
   // `StripeCardError` is the issuer's answer: card_declined, insufficient_funds,
   // authentication_required. The charge did NOT happen and the table is free to try another tender.
   if (err.type !== "StripeCardError") return "unknown";

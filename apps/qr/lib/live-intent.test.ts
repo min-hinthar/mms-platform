@@ -123,7 +123,17 @@ describe("offSessionChargeOutcome — a transport failure is not a decline", () 
     ["StripeConnectionError", null],
     ["StripeAPIError", null],
     ["StripeRateLimitError", "rate_limit"],
-    ["StripeInvalidRequestError", "resource_missing"],
+    // ⚠️ `StripeInvalidRequestError` + `resource_missing` WAS IN THIS LIST AND IS DELIBERATELY OUT
+    // (Codex round 4 on #275, P2). The reversal is safe because the reason this list exists does not
+    // reach that code: these arms are unknowable because the request may have REACHED Stripe and
+    // succeeded while the response was lost. `resource_missing` is Stripe ANSWERING — it received
+    // the create and rejected it, because the stored customer or payment method has been deleted.
+    // No intent exists, so nothing can be captured later, and holding the settlement freeze on it
+    // blocked every other tender for the full TTL over a charge that provably never happened. The
+    // repo already trusts this exact code as definitive absence on the retrieve and cancel paths
+    // (`split-hold.ts`, `supersedeSettlementIntent`); the create path was the odd one out. Any
+    // OTHER invalid-request code stays unknown — only this one means "nothing was created".
+    ["StripeInvalidRequestError", "parameter_invalid_empty"],
   ])("reports %s as UNKNOWN — it says nothing about whether the card was charged", (type, code) => {
     // THE DOUBLE-COLLECT CASE. The PaymentIntent is created with `confirm: true`, so it can be
     // captured while the response never arrives. Calling any of these a decline is how staff take
@@ -140,5 +150,35 @@ describe("offSessionChargeOutcome — a transport failure is not a decline", () 
     // A card CODE without the card TYPE must not be enough — the code field is attacker-adjacent
     // (it is whatever the SDK put there) and the type is what Stripe classifies by.
     expect(offSessionChargeOutcome({ code: "card_declined" })).toBe("unknown");
+  });
+});
+
+describe("offSessionChargeOutcome — a rejected REQUEST is a fact, not an ambiguity (Codex round 4)", () => {
+  it("calls a deleted customer/payment method `no_method`, never `unknown`", () => {
+    // `paymentIntents.create` answers `resource_missing` when the stored customer or payment method
+    // is gone: no intent was created, so nothing can be captured later. Classifying that as
+    // `unknown` made `closeSecureTab` HOLD the settlement freeze for the full TTL — blocking cash,
+    // another card and cart edits — over a charge that provably never happened. The repo already
+    // treats this code as definitive absence on the retrieve and cancel paths.
+    expect(
+      offSessionChargeOutcome({ type: "StripeInvalidRequestError", code: "resource_missing" }),
+    ).toBe("no_method");
+  });
+
+  it("still refuses to guess at a genuine transport failure", () => {
+    // The arm that must NOT widen. A reset, a 429, a 5xx or a timeout says nothing about whether the
+    // charge landed — the intent was created with `confirm: true` and may be capturing right now.
+    for (const code of ["rate_limit", "api_error", null]) {
+      expect(offSessionChargeOutcome({ type: "StripeConnectionError", code })).toBe("unknown");
+    }
+  });
+
+  it("leaves the issuer's own answers alone", () => {
+    expect(offSessionChargeOutcome({ type: "StripeCardError", code: "card_declined" })).toBe(
+      "declined",
+    );
+    expect(
+      offSessionChargeOutcome({ type: "StripeCardError", code: "authentication_required" }),
+    ).toBe("needs_action");
   });
 });

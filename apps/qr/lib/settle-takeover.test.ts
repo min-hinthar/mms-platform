@@ -163,6 +163,20 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(acquireCalls).toBe(2);
   });
 
+  it("a LOST claim can never be promoted back to `acquired` — the round-3 fix moved this hole", async () => {
+    // ⚠️ CODEX ROUND 4, P1. Dropping `settle_by.eq.<uid>` from the CLAIM stopped two same-staff
+    // takeovers both winning it — and the loser then re-asked through `acquireSettlement`, whose
+    // predicate still carries that arm. The winner has by then CLEARED THE LINK, which is exactly
+    // what opens the lock arm for the loser: `locked_at <= cutoff AND live_payment_intent_id IS
+    // NULL` is now true, and `settle_by = uid` is true because the winner wrote it. Both answer
+    // `acquired`, both mint an off-session PaymentIntent, and that idempotency key is deliberately
+    // per-attempt — so the guest is charged twice, off one staff member double-tapping.
+    acquireResults = ["locked_stale", "acquired"];
+    claimed = false;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(supersedeCalls).toBe(0);
+  });
+
   it("gives the freeze BACK when the supersede refuses", async () => {
     // The claim is a real freeze on a live table. Refusing without releasing would strand every
     // tender for the settle TTL over an attempt we decided not to touch.

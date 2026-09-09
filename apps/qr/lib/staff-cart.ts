@@ -679,7 +679,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       error:
         outcome === "needs_action"
           ? "That card needs the guest to confirm — settle by cash or a fresh card."
-          : "The card on file was declined — settle by cash or a fresh card.",
+          : outcome === "no_method"
+            ? // Not a decline: the saved card is GONE, so telling staff it was refused would send
+              // them to ask the guest about a card that no longer exists on this tab.
+              "There's no usable card saved on this tab any more — settle by cash or a fresh card."
+            : "The card on file was declined — settle by cash or a fresh card.",
     };
   }
 }

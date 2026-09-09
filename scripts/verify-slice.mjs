@@ -1053,11 +1053,27 @@ const MUTANTS = [
     replace: '      return "acquired";\n    }\n    // The freeze is already ours',
   },
   {
+    id: "settle/lost-claim-promoted-to-acquired",
+    file: "apps/qr/lib/supersede.ts",
+    suite: "lib/settle-takeover.test.ts",
+    why: "Codex round 4 P1 \u2014 the round-3 fix MOVED this hole rather than closing it. Dropping `settle_by.eq.<uid>` from the CLAIM stopped two same-staff takeovers both winning it; the loser then re-asked through `acquireSettlement`, whose predicate still carries that arm \u2014 and the winner has by then CLEARED THE LINK, which is exactly what opens the lock arm for the loser. Both answer `acquired`, both mint an off-session PaymentIntent, and that idempotency key is deliberately per-attempt, so the guest is charged twice off one staff member double-tapping",
+    find: 'function standDown(r: SettleResult): SettleTakeover {\n  return r === "acquired" ? "unavailable" : collapse(r);\n}',
+    replace: "function standDown(r: SettleResult): SettleTakeover {\n  return collapse(r);\n}",
+  },
+  {
+    id: "charge/rejected-request-reads-as-unknown",
+    file: "apps/qr/lib/live-intent.ts",
+    suite: "lib/live-intent.test.ts",
+    why: "Codex round 4 P2. `paymentIntents.create` answers `resource_missing` when the stored customer or payment method has been deleted: Stripe RECEIVED the request and rejected it, so no intent exists and nothing can be captured later. Folding that back into `unknown` makes `closeSecureTab` HOLD the settlement freeze for the full TTL \u2014 blocking cash, another card and every cart edit \u2014 over a charge that provably never happened, and tells staff the outcome is ambiguous when it is not",
+    find: '  if (err.code === "resource_missing") return "no_method";',
+    replace: "  void err.code;",
+  },
+  {
     id: "settle/cancels-without-claiming",
     file: "apps/qr/lib/supersede.ts",
     suite: "lib/settle-takeover.test.ts",
     why: "M197, Codex round 2 P1 \u2014 THE SHIPPED TOCTOU. Until the claim lands this path holds NO mutex: between the acquire that answered `locked_stale` and the Stripe cancel, the diner can call create-intent, re-acquire the pay lock with a fresh era and link a live intent. The old code read the row FRESH and cancelled whatever it named \u2014 killing a resumed checkout \u2014 and the second acquire then refused staff anyway, so it destroyed a payment and gained nothing. create-intent's own use of the same supersede is safe precisely because it already holds the lock",
-    find: "    if (!claimed) return collapse(await acquireSettlement(cartId, uid));",
+    find: "    if (!claimed) return standDown(await acquireSettlement(cartId, uid));",
     replace: "    void claimed;",
   },
   {

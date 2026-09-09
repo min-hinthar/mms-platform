@@ -34,6 +34,37 @@ fired lines is a new write on a money-adjacent table (voided lines are excluded 
 `mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
 pass rather than folded into a read-only bound.
 
+### Codex round 4: the round-3 fix moved the hole rather than closing it (2026-09-09)
+
+**P1 — a lost claim could be promoted back to `acquired`.** Round 3 removed `settle_by.eq.<uid>` from
+`claimStaleSettlement`, so two same-staff takeovers could no longer both win the claim. The loser
+then re-asked through `acquireSettlement`, whose predicate still carries that arm — and the winner
+has by then _cleared the link_, which is precisely what opens the lock arm for the loser
+(`locked_at <= cutoff AND live_payment_intent_id IS NULL` is now true; `settle_by = uid` is true
+because the winner wrote it). Both answer `acquired`, both mint an off-session PaymentIntent, and
+that idempotency key is deliberately per-attempt — so the guest is charged twice off one staff
+member double-tapping. A request that lost a one-shot claim now keeps the _diagnosis_ and is refused
+the _grant_.
+
+The same-owner arm in `acquireSettlement` itself is deliberately untouched: it predates this work,
+it is what lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff
+cash settles rely on a downstream RPC early-return rather than on the freeze. Narrowing it is
+**M201**.
+
+**P2 — a rejected request was being called an ambiguity.** `paymentIntents.create` answers
+`resource_missing` when the stored customer or payment method has been deleted: Stripe _received_
+the request and rejected it, so no intent exists and nothing can be captured later.
+`offSessionChargeOutcome` folded that in with connection and API failures, so `closeSecureTab` held
+the settlement freeze for the full TTL — blocking cash, another card and every cart edit — over a
+charge that provably never happened, and told staff the outcome was ambiguous when it was not.
+
+That reversal is deliberate and worth stating: an earlier test asserted this exact code was
+`unknown`, written for the round-1 double-collect fix. The reasoning behind that list does not reach
+here — those arms are unknowable because the request may have _reached_ Stripe and succeeded while
+the response was lost. A rejected request is Stripe answering. Every other invalid-request code
+stays `unknown`, and the repo already trusts `resource_missing` as definitive absence on the
+retrieve and cancel paths.
+
 ### Codex round 3: the fix for round 2 was a no-op in production (2026-09-09)
 
 Six findings, three P1 — and the first of them is the one worth reading, because **it was introduced

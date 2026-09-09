@@ -374,7 +374,7 @@ export async function acquireSettlementSuperseding(
       return "unavailable";
     }
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
-    if (!claimed) return collapse(await acquireSettlement(cartId, uid));
+    if (!claimed) return standDown(await acquireSettlement(cartId, uid));
 
     // From here the freeze is OURS, so every exit below must give it back. The strict verdict table
     // and the manual-capture refusal live inside `supersedeSettlementIntent`.
@@ -429,4 +429,35 @@ export async function acquireSettlementSuperseding(
  *  failed unlink — M178). Report that as the retry it is, never as a diner who is paying. */
 function collapse(r: SettleResult): SettleTakeover {
   return r === "locked_stale" ? "unavailable" : r;
+}
+
+/**
+ * The re-ask after a LOST claim: report why, but never GRANT (Codex round 4 on #275, P1).
+ *
+ * ⚠️ THE ROUND-3 FIX MOVED THIS HOLE RATHER THAN CLOSING IT. Dropping `settle_by.eq.<uid>` from
+ * `claimStaleSettlement` stopped two same-staff takeovers both winning the CLAIM — but the loser
+ * then re-asked through `acquireSettlement`, whose predicate still carries that arm. And the winner
+ * has by then CLEARED THE LINK, which is what opens the lock arm for the loser:
+ *
+ *   • lock arm  — `locked_at <= cutoff AND live_payment_intent_id IS NULL` … now true, because A
+ *     cleared it;
+ *   • settle arm — `settle_by = uid` … true, because A wrote it and B is the same staff member.
+ *
+ * Both answer `acquired`, both mint an off-session PaymentIntent, and the off-session idempotency
+ * key is deliberately per-attempt (a stable key would cache a decline for 24h) — so the guest is
+ * charged twice. `settleCash` and `closeSecureTab` both pass `caller.uid`, so one staff member
+ * double-tapping is enough.
+ *
+ * A request that lost a one-shot claim has already been told it is not the winner; nothing it reads
+ * afterwards can promote it. So this keeps the DIAGNOSIS — staff still learn whether the table
+ * closed, or a colleague is settling — and refuses the grant. `unavailable` is honest: we could not
+ * complete this takeover, and it is worth another tap once the winner finishes.
+ *
+ * The same-owner arm in `acquireSettlement` is NOT touched here. It predates this PR, it is what
+ * lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff cash
+ * settles rely on a downstream RPC early-return rather than on the freeze. Narrowing it is filed as
+ * M201 rather than done at the end of a four-round review on a money path.
+ */
+function standDown(r: SettleResult): SettleTakeover {
+  return r === "acquired" ? "unavailable" : collapse(r);
 }
