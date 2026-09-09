@@ -5,7 +5,39 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-09 · A1+A2 merged; six owner-reported defects triaged against source and FILED — this is the build list)
+> ## ⏭️ NEXT SESSION — start here (2026-09-09 · PR #278 open: K33 · A6 · A7 built and gated, awaiting Min's merge go)
+>
+> **#278 is the live PR** (`claude/qr-app-backlog-cj2t0m`). It carries three of the owner's reports,
+> each with its guards and mutants, and it is a DRAFT waiting on Min. Do not merge it without his
+> explicit per-PR go, and run the ritual when he gives it: final push → ready → `@codex review` →
+> WAIT for a `codex-review` summary saying Codex has reviewed THAT head → triage → merge.
+>
+> - **K33 (closed in #278)** — the floor drill-down reads a settled table's lines from
+>   `qr_order_items`, carries `modifiers` on both paths, and admits `refunded` beside `paid`.
+> - **A6 (closed in #278)** — the team screen opened to managers, with `canActOn` as the grant
+>   ceiling. ⚠️ Read `lib/staff-roles.ts` before touching any of it: `staff` has ONE RLS policy on
+>   prod and it is a SELECT, and every team write uses the service-role client, so those TypeScript
+>   refusals are the entire gate. `manager` is also already the floor for refunds and price edits,
+>   so the manager rung is now self-replicating — Min was told.
+> - **A7 (partly closed in #278)** — orders follow the diner again: three defects in the merge path,
+>   the load-bearing one being that `MergeRedeemer` read an ABSENT token as terminal and disarmed
+>   itself on every first mount. **Google sign-in is NOT fixed and cannot be from a session** — the
+>   cause is Supabase Auth config (C21), and the Supabase MCP exposes no Auth config to verify it.
+>
+> **Owner-blocked, hand these to Min:** C21 (enable manual identity linking + list every serving
+> origin in Redirect URLs — measured: no `google` identity created since 2026-06-21), C16 (wire
+> `codex-review` into branch protection), C18 (the live/test key mismatch).
+>
+> **New rows this session:** M205 (team management has no durable audit trail — needs a prod
+> migration) · M206 (counter orders never get `earned_by`, so a cash meal is invisible to Rewards) ·
+> M207 (the merge skips split-pay payers) · C21 · C22 (no customer OAuth callback route).
+>
+> **Staff roles set on prod:** Mi Kon Chan → `manager`, Kyaw Soe → `manager`. There is no `kitchen`
+> role — the column CHECK admits only `server`/`manager`/`owner`, and `server` is what grants KDS.
+>
+> ---
+>
+> ## Previous pickup (2026-09-09 · A1+A2 merged; six owner-reported defects triaged against source and FILED — this is the build list)
 >
 > Min drove the app and reported six things. All six were root-caused against source by a 12-agent
 > triage (6 investigators, each adversarially verified; every verification HELD) and filed as rows:

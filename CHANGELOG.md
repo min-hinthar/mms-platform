@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A7 — orders follow the diner onto their account (2026-09-09)
+
+Order attribution is uid-based (`qr_orders.earned_by`), so an upgrade that keeps the uid carries
+orders across for free. Signing into a **pre-existing** account does not keep it, and there the
+carry-over rides a merge token minted while anonymous — which was never redeemed, for three
+reasons. `MergeRedeemer` read an ABSENT token as a terminal outcome and latched itself off on
+mount, which is every first mount, since a diner reaches `/account` before signing in; a sign-in
+landing mid-attempt was dropped rather than deferred, which is the Google-return shape exactly; and
+`redeemMergeToken` tested `is_anonymous !== false`, against the rule this repo documents and applies
+at six other sites, so an account whose session omits the flag read as still anonymous and the merge
+spun forever without spending the token.
+
+Google sign-in itself is unfixed and unfixable from a session: the default press calls
+`linkIdentity()`, which the project refuses when manual identity linking is off, and the prod auth
+history shows no `google` identity created since 2026-06-21. Filed as C21 for the owner's dashboard.
+
+### A6 — managers can invite staff and assign roles (2026-09-09)
+
+The team screen was owner-only, and a role was chosen once at provision time and never again. The
+floor moved to `manager` and a **ceiling** arrived with it: `canActOn` refuses anyone creating,
+promoting to, demoting from or deactivating a role above their own, and a new `setStaffRole` checks
+it against both the target's current role and the requested one — either half alone leaks in the
+opposite direction. Changing your own role is refused separately, as the self-promotion guard and
+the last-owner lockout guard at once. The ladder moved to `lib/staff-roles.ts`, a plain module, so
+the console's menu and the server's refusal are one function.
+
+There is no second gate: prod's `staff` table carries a single RLS policy and it is a SELECT, and
+every team write uses the service-role client. Two docblocks that claimed RLS as defence in depth
+were corrected — `listStaff` reads through the service client, which bypasses it.
+
+### A5·K33 — a settled table still shows what it ordered (2026-09-09)
+
+The floor drill-down's cart read is `status='open'` and both fulfillment RPCs flip the cart to
+`paid`, so at settlement it printed "Nothing in the cart yet." over a table that had just eaten.
+The settled path now reads the lines from `qr_order_items` into the same view shape, as a read-only
+record: no editor, the heading reads "Ordered", and the open-cart "so far" bindings stay at zero
+because a settled table's authoritative figure is `paidTotalCents`. Both paths now carry the chosen
+options, which the floor had never shown, and `refunded` joins `paid` so a refunded table keeps its
+lines instead of deriving as "seated".
+
 ### A2 — the parked surfaces' rows, parked (Option A, slice 2) (2026-09-09)
 
 Docs only. With A1 on `main` (`bc6e393`, the prod column applied and verified first), 22 backlog
