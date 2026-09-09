@@ -8,6 +8,7 @@ import { extendSettlement } from "@/lib/lock";
 import { captureAllIfReady } from "@/lib/split-settle";
 import { shareIntentKey } from "@/lib/split-intent-key";
 import { releaseHold } from "@/lib/split-hold";
+import { tipWithinAmountCap } from "@/lib/tip";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
@@ -88,6 +89,23 @@ export async function POST(req: NextRequest) {
       share.subtotal_cents - share.discount_cents + share.service_charge_cents + share.tax_cents;
     const tip = Math.round((share.subtotal_cents - share.discount_cents) * tipRate);
     const amount = base + tip;
+
+    // THE $1,000 HOUSE TIP CEILING, which single-pay has enforced since W19 and this path did not.
+    //
+    // A rate cannot express a dollar cap, so the Zod `.max(0.5)` on `tipRate` is only the transport
+    // rail — it bounds the RATE, and the derived cents grow with the share. On a large banquet cart
+    // an even split can put a seat's net above $2,000, where 0.5 mints a tip past the ceiling every
+    // other tender refuses. `lib/tip.ts` states the reason plainly: the cap exists so "a fat-finger
+    // or a hostile client can't mint a five-figure PaymentIntent through the tip field".
+    //
+    // Checked on the DERIVED cents, exactly like create-intent, and BEFORE any hold is released or
+    // any intent minted — a refusal here must not disturb an existing authorization.
+    if (!tipWithinAmountCap(tip)) {
+      return NextResponse.json(
+        { error: "That tip is above the maximum we can take on a card." },
+        { status: 400 },
+      );
+    }
 
     // A $0 share with no tip has nothing to charge (Stripe won't take a $0 PI) — auto-settle it so the
     // all-captured gate still completes. ($0-base shares are already auto-settled at open; this is the
@@ -319,6 +337,14 @@ export async function POST(req: NextRequest) {
       clientSecret: intent.client_secret,
       amountCents: amount,
       tipCents: tip,
+      // ⚠️ THE TIP BASE, RETURNED RATHER THAN LEFT TO BE DERIVED (Codex round 3 on #275, P2). The
+      // client filters its preset ladder against the $1,000 ceiling this route enforces, and its
+      // first attempt derived the base as `amountCents - tipCents` — which is subtotal − discount
+      // PLUS service charge and tax, while the tip above is computed on subtotal − discount alone.
+      // On a large taxable share that over-estimates every preset and hides a 30% the server would
+      // have accepted. The base is one subtraction here and guessing it there is the drift shape
+      // W17 names: a value computed in one place and re-derived in another.
+      tipBaseCents: share.subtotal_cents - share.discount_cents,
     });
   } catch (e) {
     if (e instanceof AuthzError)

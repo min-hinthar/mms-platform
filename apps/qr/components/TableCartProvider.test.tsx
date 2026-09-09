@@ -37,11 +37,14 @@ import type { WriteResult } from "@/lib/write-outcome";
  * context hands out. No internal is reached into.
  */
 
+const NO_MEMBERS: never[] = [];
+
 const h = vi.hoisted(() => ({
   addItem: vi.fn(),
   setQty: vi.fn(),
   getCartView: vi.fn(),
   revalidate: vi.fn(),
+  onCartChange: { current: null as null | ((c: unknown) => void) },
   session: {
     current: null as null | {
       cartId: string;
@@ -72,8 +75,14 @@ vi.mock("@/lib/useTableSession", () => ({
   }),
 }));
 vi.mock("@/lib/realtime", () => ({
-  useCartRealtime: () => {},
-  useGroupCart: () => ({ members: [] }),
+  // Captures the handler so a test can drive real echo events. Still opens no channel.
+  useCartRealtime: (_cartId: string, _token: string, onChange: (c: unknown) => void) => {
+    h.onCartChange.current = onChange;
+  },
+  // A STABLE array, matching the real hook: `useGroupCart` holds members in `useState`, so it does
+  // not mint a new array per render. A fresh `[]` here would be a harness artifact that broke the
+  // context-identity test for a reason production does not have.
+  useGroupCart: () => ({ members: NO_MEMBERS }),
 }));
 
 const { TableCartProvider, useCart } = await import("./TableCartProvider");
@@ -212,10 +221,13 @@ const NOTICE = {
  * `ctl` is populated by the time `mount()` returns, and re-populated on every context change.
  */
 let ctl: ReturnType<typeof useCart>;
+/** Counts how many DISTINCT context values the provider has published. */
+let ctxIdentities = 0;
 function Probe() {
   const c = useCart();
   useEffect(() => {
     ctl = c;
+    ctxIdentities += 1;
   }, [c]);
   return (
     <button type="button" onClick={() => void c.add(ITEM)}>
@@ -268,7 +280,31 @@ const drainDeferredAnnounces = async () => {
   }
 };
 
+/**
+ * Wait until the provider STOPS publishing new context values, then return the settled count.
+ *
+ * Same reasoning as `drainDeferredAnnounces`, one layer in: the arrival being waited for is a
+ * `getCartView` promise resolving into `setView` into a passive-effect flush, and how many macrotask
+ * turns that takes is not a constant. `waitFor(() => getCartView called)` returns on the CALL, not
+ * the resolution — so sampling the identity count straight after it RACES the mount's own settle.
+ * Measured: one red in three consecutive runs of this file (`expected 77 to be 76` — exactly the one
+ * extra publish the mount's own view produces), which is worse than no guard at all.
+ */
+const drainContextPublishes = async () => {
+  let previous = -1;
+  let unchangedTurns = 0;
+  for (let turn = 0; turn < 50 && unchangedTurns < 3; turn += 1) {
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    unchangedTurns = ctxIdentities === previous ? unchangedTurns + 1 : 0;
+    previous = ctxIdentities;
+  }
+  return ctxIdentities;
+};
+
 beforeEach(() => {
+  ctxIdentities = 0;
   h.addItem.mockReset();
   h.setQty.mockReset();
   h.getCartView.mockReset();
@@ -833,5 +869,134 @@ describe("no cart at all is a refusal with nothing to thread", () => {
     // T31 fix. It is a shape check on this exit, not a failing start — the real staleness proof is
     // the SEQUENCING test above, which needs a write that actually establishes a cause first.
     expect(ctl.lastRefusalClause()).toBeNull();
+  });
+});
+
+describe("M193 — one tap's realtime echoes collapse into a single re-read", () => {
+  /**
+   * Measured in production on 2026-09-09: four `POST /cart` inside four seconds from ONE tap.
+   *
+   * `addItem` writes to BOTH tables this subtree watches — the `qr_cart_items` INSERT and
+   * `touchCart`'s `qr_carts` UPDATE — and the handler used to call `refresh()` on every event,
+   * unfiltered. Each of those is a `getCartView`: ~7 sequential DB round trips. At a table of four,
+   * every diner's tap fanned that out to all four phones.
+   */
+  const fire = (c: {
+    table: "qr_cart_items" | "qr_carts";
+    eventType: "INSERT" | "UPDATE" | "DELETE";
+    bySeat: string | null;
+    itemName: string | null;
+  }) => h.onCartChange.current?.(c);
+
+  it("re-reads ONCE for a burst, not once per event", async () => {
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockClear();
+
+    // The shape one add actually produces on a peer's phone: the line INSERT, the cart touch, and
+    // the qty UPDATE that follows a merge into an existing line.
+    act(() => {
+      fire({ table: "qr_cart_items", eventType: "INSERT", bySeat: PEER_SEAT, itemName: "Mohinga" });
+      fire({ table: "qr_carts", eventType: "UPDATE", bySeat: null, itemName: null });
+      fire({ table: "qr_cart_items", eventType: "UPDATE", bySeat: PEER_SEAT, itemName: null });
+    });
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(h.getCartView).toHaveBeenCalledTimes(1);
+  });
+
+  it("still re-reads — the burst is DELAYED, never dropped", async () => {
+    // The over-blocking half. A coalescer that swallowed the read would be worse than the cost it
+    // removes: this refresh is the recovery path when a mutation's own view comes back unreadable,
+    // and T14's stale-freeze correction rides the `qr_carts` UPDATE. Latency was the defect; losing
+    // the read would be a stuck screen.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockClear();
+
+    act(() => {
+      fire({ table: "qr_carts", eventType: "UPDATE", bySeat: null, itemName: null });
+    });
+    await new Promise((r) => setTimeout(r, 400));
+
+    expect(h.getCartView).toHaveBeenCalledTimes(1);
+  });
+
+  it("re-reads under a SUSTAINED stream — a trailing debounce alone starves the recovery", async () => {
+    // ⚠️ THE CASE THE FIRST GUARD COULD NOT EXPRESS (blind adversarial pass on #275, PERF). Both
+    // tests above fire a burst and then WAIT, so by construction they only ever measured bursts that
+    // END. A pure trailing debounce re-arms from zero on every event, so a stream whose gaps stay
+    // under the coalesce window postpones the read indefinitely — and this read is a RECOVERY path
+    // (the "written, unreadable" heal, and T14's stale-freeze correction on the `qr_carts` UPDATE),
+    // so a busy table is exactly when losing it costs. Two concurrent mutators is enough to hold the
+    // gap that tight.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    h.getCartView.mockClear();
+
+    // ~1.2s of events at 100ms — every gap under the 150ms coalesce window, so nothing here would
+    // ever fire a debounce that only ever re-armed.
+    for (let i = 0; i < 12; i += 1) {
+      act(() => {
+        fire({ table: "qr_carts", eventType: "UPDATE", bySeat: null, itemName: null });
+      });
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 100));
+      });
+    }
+
+    expect(h.getCartView).toHaveBeenCalled();
+  });
+
+  it("still announces a peer's add immediately — the coalescer must not delay the sentence", async () => {
+    // The flash is not a network call and must stay on the event. Folding it into the timer would
+    // make a peer's "X added Y" arrive after a beat of silence.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+
+    act(() => {
+      fire({ table: "qr_cart_items", eventType: "INSERT", bySeat: PEER_SEAT, itemName: "Mohinga" });
+    });
+    expect(spoken()).toContain("Mohinga");
+  });
+});
+
+describe("M192 — the context value is stable across state the value does not carry", () => {
+  it("publishes NO new context value when only the notice changes", async () => {
+    /**
+     * The provider holds eleven pieces of state that move during ordering, and `MenuBrowser`
+     * consumes this context and owns the ~97-card menu grid — with no `React.memo` on the cards.
+     * While the value was a fresh object literal every render, each of those state changes
+     * reconciled every card: a framer-motion button, a `next/image` and a recomputed badge list,
+     * ~97 times, roughly six times per Add tap. The same cost fell on a category tab, a diet pill,
+     * a search keystroke and a sheet open — none of which touch the network at all.
+     *
+     * `notice` is the cleanest probe: it is provider state, it changes on every announce, and it is
+     * NOT part of the published value. So a correct memo publishes nothing here.
+     *
+     * ⚠️ This also pins `lastRefusalClause` as a stable callback. As the inline arrow it used to be,
+     * it minted a fresh identity on every render and would defeat the memo entirely — the value
+     * would change every time and this test would fail even with `useMemo` in place.
+     */
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await waitFor(() => expect(h.getCartView).toHaveBeenCalled());
+    const before = await drainContextPublishes();
+
+    act(() => {
+      h.onCartChange.current?.({
+        table: "qr_cart_items",
+        eventType: "INSERT",
+        bySeat: PEER_SEAT,
+        itemName: "Mohinga",
+      });
+    });
+    expect(spoken()).toContain("Mohinga"); // the announce really did land, so state really moved
+
+    expect(ctxIdentities).toBe(before);
   });
 });

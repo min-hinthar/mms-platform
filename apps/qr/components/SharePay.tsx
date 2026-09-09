@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
-import { TIP_LADDER } from "@/lib/tip";
+import { TIP_LADDER, tipWithinAmountCap } from "@/lib/tip";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import { confirmCopy } from "@/lib/confirm-copy";
 import { ConfirmSwap } from "./ConfirmSwap";
@@ -41,6 +41,17 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   const [retry, setRetry] = useState(0); // bump to re-mint after a transient failure
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [amountCents, setAmountCents] = useState(0);
+  // ⚠️ THE SERVER'S OWN TIP BASE, so the ladder can drop a rung the server would refuse (Codex round
+  // 1 on #275, P2). `create-share-intent` enforces the $1,000 house ceiling on the DERIVED cents,
+  // which made this component's raw `TIP_LADDER` a promise the server does not keep: above ~$3,333
+  // of base the advertised 30% mints a 400 and the payment form never appears. `KioskReview` and
+  // `CashSettleButton` have filtered against that cap all along; the split ask did not.
+  //
+  // ⚠️ READ FROM THE RESPONSE, NOT DERIVED (Codex round 3, P2). The first draft computed
+  // `amountCents − tipCents`, which is subtotal − discount PLUS service and tax, while the server
+  // tips on subtotal − discount alone — so on a large taxable share it over-estimated every preset
+  // and could hide a 30% the server would have taken. `null` means "not told yet".
+  const [tipBaseCents, setTipBaseCents] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // W10c — this payer has a LIVE HOLD on their card. Changing the tip re-mints the PaymentIntent and
@@ -69,6 +80,8 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         const d = (await r.json()) as {
           clientSecret?: string;
           amountCents?: number;
+          tipCents?: number;
+          tipBaseCents?: number;
           error?: string;
         };
         if (!active) return;
@@ -81,6 +94,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         }
         setClientSecret(d.clientSecret);
         setAmountCents(d.amountCents ?? 0);
+        if (typeof d.tipBaseCents === "number") setTipBaseCents(d.tipBaseCents);
       })
       .catch(() => {
         if (active) setError("Couldn’t start your payment — please try again.");
@@ -97,6 +111,11 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   // synchronous setState there); the effect only fetches + sets results in its async callbacks.
   function selectTip(rate: number) {
     if (rate === tipRate || held) return; // the hold is placed — the tip is settled with it
+    // ⚠️ NOTHING ABOVE "No tip" IS SELECTABLE UNTIL THE BASE IS KNOWN (Codex round 3 on #275, P2).
+    // The filter above already withholds those rungs, so this is the belt for a tap that lands as
+    // the list re-renders: without it, a diner on a large share could pick 30% before the first
+    // mint answers and get the 400 the filtering exists to prevent.
+    if (rate !== 0 && tipBaseCents === null) return;
     setClientSecret(null);
     setLoading(true);
     setError(null);
@@ -125,7 +144,14 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         aria-describedby={held ? "share-tip-locked" : undefined}
         style={{ display: "flex", gap: 8 }}
       >
-        {TIPS.map(([label, rate]) => {
+        {TIPS.filter(
+          // Same filter the kiosk and cash-settle asks apply, on the same authority. Until the base
+          // is known nothing above "No tip" is offered — see `tipUnknown` below. "No tip" (rate 0)
+          // is never filtered: 0 × anything is inside every cap.
+          ([, rate]) =>
+            rate === 0 ||
+            (tipBaseCents !== null && tipWithinAmountCap(Math.round(tipBaseCents * rate))),
+        ).map(([label, rate]) => {
           const on = tipRate === rate;
           // W21d (Codex P2 on #189, same rule as Checkout's None): rate 0 is the INITIAL state,
           // not an answer — the lit cap on it presented "No tip" as a promoted choice on arrival.

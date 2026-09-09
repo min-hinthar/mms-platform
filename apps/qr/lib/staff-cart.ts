@@ -14,7 +14,10 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
-import { acquireSettlement, releaseSettlement } from "./lock";
+import { releaseSettlement } from "./lock";
+import { acquireSettlementSuperseding } from "./supersede";
+import { settleRefusal } from "./settle-refusal";
+import { offSessionChargeOutcome } from "./live-intent";
 import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
@@ -251,20 +254,25 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   if ((count ?? 0) === 0) return { ok: false, error: "There’s nothing on this table to settle." };
 
   // ATOMICALLY freeze the table before deriving totals (S1-audit B2). The early paymentInFlightReason
-  // check above is a fast read; this is the race-closing claim. acquireSettlement flips settle_at only
-  // when the cart is open AND `locked=false` — so a card pay already holding the single-pay lock makes
-  // this fail (refuse), and once WE hold the freeze a concurrent create-intent's acquireCartLock (which
-  // requires settle_at null/stale) can't start. Without this, a diner could begin + capture a card
-  // payment during the getCartTotals→RPC window and the late webhook would orphan that charge.
+  // check above is a fast read; this is the race-closing claim: once WE hold the freeze, a concurrent
+  // create-intent's acquireCartLock (which requires settle_at null/stale) can't start. Without it a
+  // diner could begin and capture a card payment during the getCartTotals→RPC window and the late
+  // webhook would orphan that charge.
+  //
+  // ⚠️ THE OLD SENTENCE HERE IS GONE BECAUSE IT STOPPED BEING TRUE (blind adversarial pass on #275,
+  // CRITICAL 3). It said the acquire "flips settle_at only when the cart is open AND `locked=false`
+  // — so a card pay already holding the single-pay lock makes this fail". M197 gave that term a
+  // staleness arm: a LIVE pay-lock still refuses, but an ABANDONED one (era past `CART_LOCK_TTL_MS`
+  // with no PaymentIntent named) no longer does, and `acquireSettlementSuperseding` can clear a
+  // linked one at Stripe first. `locked` is never cleared by this acquire either way. A comment that
+  // states the invariant a reviewer is about to check is worse than no comment: it answers the
+  // double-collect question for them, wrongly. The live predicate is in `acquireSettlement`.
   // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
-  const freeze = await acquireSettlement(cart.id, caller.uid);
+  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
   if (freeze !== "acquired") {
     return {
       ok: false,
-      error:
-        freeze === "closed"
-          ? "That table is no longer open."
-          : "Someone’s already paying on their phone — wait for that to finish.",
+      error: settleRefusal(freeze),
     };
   }
 
@@ -517,14 +525,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.
-  const freeze = await acquireSettlement(cart.id, caller.uid);
+  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
   if (freeze !== "acquired")
     return {
       ok: false,
-      error:
-        freeze === "closed"
-          ? "That table is no longer open."
-          : "Someone’s already paying on their phone — wait for that to finish.",
+      error: settleRefusal(freeze),
     };
 
   // Parity with settleCash's try/finally: once the freeze is held, a totals throw must release it, or the
@@ -544,8 +549,33 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
     return { ok: false, error: "There’s nothing on this table to settle." };
   }
 
+  // ⚠️ HOISTED OUT OF THE TRY, and the reason is money (Codex round 1 on #275, P2). `getStripe()`
+  // throws LOCALLY — a missing secret, or the C18 key-mode mismatch — before `paymentIntents.create`
+  // puts anything on the wire. Inside the catch that is a plain `Error`, which
+  // `offSessionChargeOutcome` correctly calls `unknown`, and the unknown arm HOLDS the settlement
+  // freeze: exactly right for a charge that might have landed, and exactly wrong for a config fault
+  // where no PaymentIntent can exist. The table would be blocked from cash, another card and cart
+  // edits for the full 10-minute TTL over nothing. Resolving the client first separates "we never
+  // asked" from "we asked and cannot tell" — the same hoist #274 applied to the webhook's
+  // `constructEvent`, for the same reason.
+  let stripe: ReturnType<typeof getStripe>;
   try {
-    const intent = await getStripe().paymentIntents.create(
+    stripe = getStripe();
+  } catch (e) {
+    await releaseSettlement(cart.id);
+    console.error("[staff-cart] closeSecureTab could not resolve Stripe", {
+      sessionId,
+      cartId: cart.id,
+      message: e instanceof Error ? e.message : String(e),
+    });
+    return {
+      ok: false,
+      error: "Card payments aren’t set up right now — settle by cash and tell the owner.",
+    };
+  }
+
+  try {
+    const intent = await stripe.paymentIntents.create(
       {
         amount,
         currency: "usd",
@@ -561,6 +591,10 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
           tipRate: "0",
           closedBy: "staff",
           closedByStaffId: caller.staffId,
+          // The freeze is held under caller.uid (acquireSettlementSuperseding above), NOT staffId.
+          // The webhook's decline arm needs the OWNER to scope its release; without this it could
+          // only release by cart id, nulling whatever freeze the row carried. See settle-release-scope.
+          closedByUid: caller.uid,
         },
       },
       // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
@@ -600,22 +634,60 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       error: "That card needs the guest to confirm — settle by cash or a fresh card.",
     };
   } catch (e) {
-    // An off_session decline throws a StripeCardError (code card_declined / authentication_required / …).
-    // Release the freeze so the table isn't stranded frozen, and surface a tender-fallback message — the
-    // tab is never marked paid (the fulfill only flips on a succeeded webhook).
-    await releaseSettlement(cart.id);
-    const code = (e as { code?: string }).code;
+    // UNKNOWABLE IS NEVER A VERDICT — the same rule `supersedeOutcome` applies one module over
+    // (`live-intent.ts`: "Only a STATE refusal says anything about the intent; everything else
+    // (429, 5xx, timeout) says nothing, and nothing is what we report").
+    //
+    // A StripeCardError IS Stripe telling us the money did not move — card_declined,
+    // authentication_required, insufficient_funds. That is a verdict: free the table so staff can
+    // take another tender, and say which.
+    //
+    // Every other throw — StripeConnectionError, StripeAPIError, a 429, a socket timeout — tells us
+    // NOTHING. This PI was created with `confirm: true`, so it may already be captured and simply
+    // failed to answer. The old code released the freeze on that path and reported a decline, which
+    // is how a guest gets collected twice: staff read "declined", take cash, `settleCash` succeeds,
+    // and the succeeded webhook then lands on the cross-tender guard and writes a
+    // `qr_refunds_needed` row. Note what that release destroys — the idempotency-key comment above
+    // names the freeze as the protection in so many words: "The concurrent double-charge guard here
+    // is the FREEZE (paymentInFlightReason + acquireSettlement serialize attempts), not this key."
+    //
+    // So on an unknown outcome we HOLD the freeze and refuse to guess. Nothing is stranded: the
+    // SETTLE_TTL still lapses it, and if the charge did land the webhook fulfils the tab as normal.
+    const err = e as { type?: string; code?: string };
+    const outcome = offSessionChargeOutcome(err);
+    const declined = outcome !== "unknown";
+    if (declined) await releaseSettlement(cart.id);
     console.error("[staff-cart] closeSecureTab off-session charge failed", {
       sessionId,
       cartId: cart.id,
-      code,
+      code: err.code,
+      type: err.type,
+      declined,
     });
+    if (!declined)
+      return {
+        ok: false,
+        error:
+          // ⚠️ NO INSTRUCTION THE APP CANNOT SUPPORT (blind adversarial pass on #275, OPEN
+          // QUESTION 1). The first draft said "Check this tab's payment before taking cash" — but
+          // there is no staff surface that shows a pending PaymentIntent for a tab: /staff/orders
+          // lists PAID orders and /staff/approvals lists refunds already needed, neither of which
+          // answers "did this charge land?". Sending staff to look for something that is not there
+          // makes them decide it did not, which is the double-collect this arm exists to stop. So
+          // the copy states what we know and what happens next, and asks for the one thing the app
+          // really does do on its own: wait.
+          "We couldn’t reach the card processor, so we don’t know if this charge went through. The tab stays frozen — don’t take cash or another card yet. If the payment landed it will settle itself in a minute; if it didn’t, try again.",
+      };
     return {
       ok: false,
       error:
-        code === "authentication_required"
+        outcome === "needs_action"
           ? "That card needs the guest to confirm — settle by cash or a fresh card."
-          : "The card on file was declined — settle by cash or a fresh card.",
+          : outcome === "no_method"
+            ? // Not a decline: the saved card is GONE, so telling staff it was refused would send
+              // them to ask the guest about a card that no longer exists on this tab.
+              "There's no usable card saved on this tab any more — settle by cash or a fresh card."
+            : "The card on file was declined — settle by cash or a fresh card.",
     };
   }
 }

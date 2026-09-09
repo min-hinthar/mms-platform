@@ -3,7 +3,8 @@ import { getStripe, resolvedStripeMode } from "@/lib/stripe";
 import { serviceClient } from "@mms/db/server";
 import { getCartTotals } from "@/lib/totals";
 import { closeCounterStyleSession } from "@/lib/staff-open-cart";
-import { releaseByIntent, releaseSettlement, releaseSettlementFor } from "@/lib/lock";
+import { releaseByIntent, releaseSettlementFor } from "@/lib/lock";
+import { settleReleaseOwner } from "@/lib/settle-release-scope";
 import { logTabEvent } from "@/lib/tab-events";
 import { getPostHogClient } from "@/lib/posthog-server";
 import {
@@ -259,22 +260,45 @@ export async function POST(req: NextRequest) {
                 orderId,
                 error: redErr,
               });
-            const { data: closedCart } = await db
+            // ⚠️ THE THREE READS BELOW BIND THEIR ERRORS, and the reason they LOG rather than 500 is
+            // worth stating: this block runs only on the open→paid transition (`onShareCaptured`
+            // returns an orderId exactly once). A 500 makes Stripe redeliver, but the redelivery
+            // finds the cart already paid, `onShareCaptured` answers null, and the block is skipped
+            // — so failing loudly could not recover the Star; it would only be theatre that also
+            // re-runs the arms above.
+            //
+            // What was actually wrong was silence: an unbound `{ error }` made a DROPPED READ
+            // indistinguishable from "no tab / no host / no total", so one blip permanently cost the
+            // host their Star and `earned_by` (which also removes the order from
+            // `mms_rewards_summary`'s lifetime spend and milestone counts) with nothing in the log
+            // naming it. That is the W10c rule — a failure must never read as empty — and the fix
+            // here is to make the loss LOUD and hand-recoverable, keyed by orderId.
+            const { data: closedCart, error: closedCartErr } = await db
               .from("qr_carts")
               .select("tab_type,session_id")
               .eq("id", splitCartId)
               .maybeSingle();
+            if (closedCartErr)
+              console.error(
+                "[stripe webhook] SPLIT POST-FULFILL READ FAILED — host Star and tab-close audit skipped for this order; backfill by hand",
+                { orderId, cartId: splitCartId, error: closedCartErr },
+              );
             // Split-earn (M4 P4.2): a split order earns ONE Star for the HOST-of-record (the order count
             // model — one order = one Star; net spend credited to the table's organizer, parity with the
             // S3 host-of-record). Per-share attribution is a future refinement (needs a per-payer earn
             // ledger). Resolve the host uid from the session, stamp earned_by, award. Exactly-once (this
             // block only runs on the open→paid transition); best-effort — never fail the money ack.
             if (closedCart?.session_id) {
-              const { data: sess } = await db
+              const { data: sess, error: sessErr } = await db
                 .from("table_sessions")
                 .select("host_seat")
                 .eq("id", closedCart.session_id)
                 .maybeSingle();
+              if (sessErr)
+                console.error(
+                  "[stripe webhook] SPLIT HOST READ FAILED — no Star awarded and earned_by unstamped for this order; backfill by hand",
+                  { orderId, sessionId: closedCart.session_id, error: sessErr },
+                );
               const hostUid = sess?.host_seat ?? null;
               if (hostUid) {
                 // K3b: redirect-aware earn — one RPC stamps earned_by (resolved through any identity merge)
@@ -292,11 +316,19 @@ export async function POST(req: NextRequest) {
               }
             }
             if (closedCart?.tab_type && closedCart.tab_type !== "none") {
-              const { data: ord } = await db
+              const { data: ord, error: ordErr } = await db
                 .from("qr_orders")
                 .select("total_cents")
                 .eq("id", orderId)
                 .maybeSingle();
+              // A null amount on a tab-close audit row is not a neutral gap: the row reads as an
+              // authoritative record of the close, and an operator auditing tabs cannot tell an
+              // unreadable total from a genuinely absent one. Say which it was.
+              if (ordErr)
+                console.error(
+                  "[stripe webhook] SPLIT ORDER TOTAL READ FAILED — tab-close audit records a null amount for this order",
+                  { orderId, error: ordErr },
+                );
               after(() =>
                 logTabEvent({
                   cartId: splitCartId,
@@ -826,14 +858,24 @@ export async function POST(req: NextRequest) {
       // an async processing→failed decline would otherwise strand the table frozen for the full
       // SETTLE_TTL.
       //
-      // W10c (M31 sweep) — best-effort, and that is a decision rather than an oversight. The
-      // release is UNCONDITIONAL by cart (no status predicate scopes it to the era this event
-      // belongs to), so opting into redelivery would let a late retry clear a live `settle_at`
-      // and unfreeze a settlement the table has since opened — the same hazard the `onShareFailed`
-      // guard exists to prevent, but with no equivalent predicate available here (a release is not
-      // a state transition). The 10-minute settle TTL is the designed backstop and heals the row on
-      // its own. So: surface the failure to the logs (an outage here must not be invisible) and let
-      // the TTL do its job.
+      // ⚠️ THE "NO EQUIVALENT PREDICATE AVAILABLE HERE" CLAIM IS RETRACTED (Codex round 8 on #275,
+      // P1). This used to release UNCONDITIONALLY by cart and call that a decision: a late retry
+      // could clear a live `settle_at` and unfreeze a settlement the table had since opened, with
+      // the 10-minute TTL named as the backstop. The hazard was real and it was not only redelivery
+      // — the ORDINARY case reached it. A diner single-pay decline is neither `split_share` nor
+      // `terminal`, so every one of them landed here and nulled whatever freeze the row carried,
+      // including one a staff settle was actively relying on. `closeSecureTab` names the freeze,
+      // not its idempotency key, as its concurrent double-charge guard.
+      //
+      // A predicate DOES exist: `closeSecureTab` already stamps `closedBy: "staff"`, and now also
+      // the freeze owner (`closedByUid` — the intent previously carried only `closedByStaffId`,
+      // which is attribution, while the freeze is held under `caller.uid`). So this arm releases
+      // exactly the owner the event belongs to, or nothing at all. A diner intent releases NOTHING,
+      // which is correct: it never held this mutex. That makes this arm consistent with the Terminal
+      // arm above, which has always used `releaseSettlementFor`.
+      //
+      // Still best-effort and still logged: an outage here must not be invisible, and an intent from
+      // an older deploy (no `closedByUid`) resolves to `null` and heals on the TTL as before.
       //
       // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
       // Dropping the old `.catch(() => {})` when these started returning their error left a throw
@@ -855,13 +897,16 @@ export async function POST(req: NextRequest) {
         // from the basket as it now stands. That is the only point where "this discount is stale"
         // is knowable: here we would be guessing from `intent.metadata.attempt`, which a reused
         // automatic-capture idempotency key can leave naming an era the cart no longer has.
-        const settleErr = await releaseSettlement(cartId);
-        if (settleErr)
-          console.error("[stripe webhook] payment_failed settle release failed", {
-            cartId,
-            paymentIntent: intent.id,
-            settleError: settleErr.message,
-          });
+        const settleOwner = settleReleaseOwner(intent.metadata);
+        if (settleOwner) {
+          const settleErr = await releaseSettlementFor(cartId, settleOwner);
+          if (settleErr)
+            console.error("[stripe webhook] payment_failed settle release failed", {
+              cartId,
+              paymentIntent: intent.id,
+              settleError: settleErr.message,
+            });
+        }
       } catch (e) {
         console.error("[stripe webhook] payment_failed release threw", {
           cartId,

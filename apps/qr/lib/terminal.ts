@@ -7,7 +7,9 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { acquireSettlement, releaseSettlementFor, extendSettlement } from "./lock";
+import { releaseSettlementFor, extendSettlement } from "./lock";
+import { acquireSettlementSuperseding } from "./supersede";
+import { settleRefusal } from "./settle-refusal";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 
@@ -120,14 +122,11 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   // disjunct into a shared freeze — the loser refuses cleanly, having acquired (and thus owing)
   // nothing.
   const attemptId = crypto.randomUUID();
-  const freeze = await acquireSettlement(cart.id, attemptId);
+  const freeze = await acquireSettlementSuperseding(cart.id, attemptId);
   if (freeze !== "acquired")
     return {
       ok: false,
-      error:
-        freeze === "closed"
-          ? "That table is no longer open."
-          : "Someone’s already paying — wait a moment and try again.",
+      error: settleRefusal(freeze),
     };
 
   // Post-freeze awaits release on every failure path (closeSecureTab's discipline — the success

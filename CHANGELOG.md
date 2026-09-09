@@ -4,6 +4,351 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### The kitchen and expo boards can no longer render empty over a working service (M180 · M181) (2026-09-09)
+
+Both live boards read oldest-first with a SQL `limit` applied before the filters that discard dead
+rows — the KDS's cart-status join is two reads later, expo has no prune at all — and both queues
+leak. `clearTable` flips the cart to `cancelled` and never touches `qr_cart_items`, so every line
+that fired on that table stays `fired` forever; `picked_up` is written only by expo's manual bump, so
+every bag handed over without that tap stays `ready` forever. Past the cap the read returns nothing
+but dead rows, the live-row filter empties, and the KDS answers `ok: true` with zero tickets — an
+empty board over a room of cooking food, which is the exact lie its own W10b comment says it refuses.
+Expo's version is quieter and worse for the guest: today's paid bags simply never appear at the
+counter.
+
+Two rules, in one module both boards read (`lib/queue-window.ts`):
+
+- **A service window.** `fire_at` / `created_at` floored 24 hours back — the same bound
+  `/api/board`'s `pulseDayFloor` already applies to the same table — which caps the dead population at
+  one day's worth rather than all time, far below either limit. It is a `gte`, so the KDS's HELD
+  tickets (a scheduled pickup whose fire time is in the _future_) are untouched; a window expressed as
+  a range would have swept every scheduled order off the board.
+- **A saturated read may not claim emptiness.** Past the cap, "we saw no live rows" is a fact about
+  the read, not about the kitchen. The KDS answers `outage` there, which is the file's own established
+  safe direction — the client freezes on it and keeps the last-known queue, so it never blanks a
+  board. Both halves of that are asserted: an UNsaturated read with nothing live must still answer
+  empty, or both boards would freeze every quiet morning.
+
+The rows still accumulate; bounding the damage is not pruning the source. Voiding a cancelled cart's
+fired lines is a new write on a money-adjacent table (voided lines are excluded from
+`mms_promo_check`'s base and the W11 split ledger), so it is filed as **M198** for its own red-first
+pass rather than folded into a read-only bound.
+
+### Codex round 6: a diagnosis that writes is not a diagnosis (2026-09-09)
+
+One P2, no P1 — the first round in four without a money defect, and it is a consequence of round 5's
+fix rather than a new class.
+
+`standDown` suppressed the _verdict_ `acquired`. But `acquireSettlement` is a **mutating UPDATE**:
+answering `acquired` means it has already written `settle_at` and `settle_by`. Suppressing the return
+value left that write behind with nothing to release it, so the action reported a retryable failure
+while the table stayed frozen for the settlement TTL. Worst on the Terminal settle, whose every retry
+carries a fresh attempt id and therefore meets its own orphan as `settling_other`.
+
+Releasing it is not as simple as it looks: `releaseSettlement(cartId)` is unconditional by cart and
+would null the **winner's** freeze — the very request the stand-down deferred to. `standDown` now
+probes under a `crypto.randomUUID()` owner and releases with `releaseSettlementFor`, which is scoped
+by `settle_by`, so the release provably cannot reach anyone else's claim.
+
+The probe does something better than fix the leak, though: it closes the original hole
+_structurally_. A unique owner cannot match `acquireSettlement`'s `settle_by.eq.<uid>` arm, so a
+stand-down can only ever acquire a cart that is genuinely **free** — and it hands that straight back.
+The promotion three rounds were spent suppressing is now unrepresentable rather than caught.
+
+### Codex round 5: stop patching branches, state the invariant (2026-09-09)
+
+Round 3 closed the claim. Round 4 closed the lost-claim re-ask. Round 5 found the **other** re-ask —
+and it is the one I had explicitly argued was safe, one round earlier, in writing.
+
+The argument was: _"no claim was attempted on this branch, so the loser-rides-the-winner sequence
+cannot arise."_ It can, because **the winner is what makes the branch reachable.** Request A claims,
+cancels and clears the link; request B — same staff uid, moments behind — reads the link and sees
+`null` _precisely because A cleared it_, never attempts a claim at all, and falls straight through
+the `!live` exit. `collapse` then passed on the `acquired` that `acquireSettlement` grants via its
+`settle_by.eq.<uid>` arm, and both requests minted an off-session PaymentIntent under a per-attempt
+idempotency key.
+
+Three rounds of the same shape is the signal that patching one branch at a time was the wrong method.
+The rule is now stated over the whole function rather than per exit: **once this call has been told
+the cart is `locked_stale`, only the exclusive claim may promote the request to `acquired`** — and
+the claim carries no same-owner arm. Every other exit is a diagnosis, not a grant. Both re-asks use
+`standDown`, which withholds the promotion while preserving the answer: staff still learn that the
+table closed, or that a colleague holds the freeze, and that direction is asserted too — flattening
+every verdict to "try again" against a cart that will never come back is its own failure.
+
+`acquireSettlement`'s same-owner arm is still not touched, and is now **unreachable from this
+function**. It remains a live hazard on `closeSecureTab`'s card path, where nothing de-duplicates the
+way the cash RPC does — **M201**, filed with its mechanism.
+
+### Codex round 4: the round-3 fix moved the hole rather than closing it (2026-09-09)
+
+**P1 — a lost claim could be promoted back to `acquired`.** Round 3 removed `settle_by.eq.<uid>` from
+`claimStaleSettlement`, so two same-staff takeovers could no longer both win the claim. The loser
+then re-asked through `acquireSettlement`, whose predicate still carries that arm — and the winner
+has by then _cleared the link_, which is precisely what opens the lock arm for the loser
+(`locked_at <= cutoff AND live_payment_intent_id IS NULL` is now true; `settle_by = uid` is true
+because the winner wrote it). Both answer `acquired`, both mint an off-session PaymentIntent, and
+that idempotency key is deliberately per-attempt — so the guest is charged twice off one staff
+member double-tapping. A request that lost a one-shot claim now keeps the _diagnosis_ and is refused
+the _grant_.
+
+The same-owner arm in `acquireSettlement` itself is deliberately untouched: it predates this work,
+it is what lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff
+cash settles rely on a downstream RPC early-return rather than on the freeze. Narrowing it is
+**M201**.
+
+**P2 — a rejected request was being called an ambiguity.** `paymentIntents.create` answers
+`resource_missing` when the stored customer or payment method has been deleted: Stripe _received_
+the request and rejected it, so no intent exists and nothing can be captured later.
+`offSessionChargeOutcome` folded that in with connection and API failures, so `closeSecureTab` held
+the settlement freeze for the full TTL — blocking cash, another card and every cart edit — over a
+charge that provably never happened, and told staff the outcome was ambiguous when it was not.
+
+That reversal is deliberate and worth stating: an earlier test asserted this exact code was
+`unknown`, written for the round-1 double-collect fix. The reasoning behind that list does not reach
+here — those arms are unknowable because the request may have _reached_ Stripe and succeeded while
+the response was lost. A rejected request is Stripe answering. Every other invalid-request code
+stays `unknown`, and the repo already trusts `resource_missing` as definitive absence on the
+retrieve and cancel paths.
+
+### Codex round 3: the fix for round 2 was a no-op in production (2026-09-09)
+
+Six findings, three P1 — and the first of them is the one worth reading, because **it was introduced
+by the previous round's fix and my own test asserted it was correct**.
+
+The takeover passed its diagnosed PaymentIntent id into a seam whose default was
+`supersedeCartIntent` — a function whose first parameter is a **cart** id. Both are `string`, so
+nothing typechecked wrong. In production it looked up a cart named `pi_…`, found none, returned
+`"cleared"` **without ever calling Stripe**, and the takeover then cleared the real cart's pin and
+link and let staff settle while the diner's intent stayed confirmable. A double collect, shipped
+inside a commit whose message described closing a double collect. The unit test could not see it: its
+fake recorded the argument, and the assertion — "the intent id is passed" — was a restatement of the
+defect. The seam now takes two **named** parameters (`cartId`, `intentId`) and defaults to an
+intent-level `supersedeSettlementIntent`, so the right type cannot land in the wrong slot.
+
+- **The claim was not a mutex.** It carried `settle_by.eq.<uid>`, copied from `acquireSettlement`
+  where that disjunct exists so a host can re-open their own split. `settleCash` and `closeSecureTab`
+  both pass `caller.uid`, so two concurrent takeovers by one staff member both matched — the first
+  writes `settle_by = uid`, the second sails through on that very term — and each minted its own
+  Stripe charge, because the off-session idempotency key is deliberately per-attempt. **That mutant
+  SURVIVED its first run**: nothing in the suite looked at the claim's predicate. The assertion came
+  before the fix was believed.
+- **A status is a snapshot.** The DB claim blocks a new `acquireCartLock`; it cannot stop the Payment
+  Element the diner already has mounted from confirming with its existing client secret. So a hold
+  read as `requires_action` can become `requires_capture` before the cancel lands — and Stripe still
+  permits cancelling that, so staff would revoke an authorization the guest had just given. Manual
+  capture is refused now on the intent's own `capture_method`, a fact rather than a race-able reading.
+- **A throw after the claim kept the freeze.** The retryable answer stranded every tender for the
+  settle TTL over a step that never ran.
+- **A failed pin clear settled anyway.** Logging and returning `acquired` handed the caller to
+  `getCartTotals`, which reads the pin still on the row — the exact defect clearing it prevents.
+- **And the split tip filter used the wrong base.** `amountCents − tipCents` is subtotal − discount
+  _plus_ service and tax, while the server tips on subtotal − discount alone, so a large taxable
+  share could hide a 30% the server would have accepted. The route returns `tipBaseCents` now, and
+  no rung above "No tip" is offered until it arrives.
+
+### Codex rounds 1 and 2: claim before you cancel, and two boards that were still lying (2026-09-09)
+
+Nine findings across two rounds, three of them P1. Every one verified against source before acting;
+the fixes changed the design rather than patching around it.
+
+**The settlement takeover now CLAIMS before it cancels.** The first draft diagnosed `locked_stale`
+and then cancelled at Stripe while holding no mutex — so between those two steps the diner could
+call create-intent, re-acquire the pay lock with a fresh era and link a live intent, and the cancel
+took _that_ one. It killed a resumed checkout and then refused staff anyway. The asymmetry was with
+create-intent, which runs the same supersede while already holding the lock. `claimStaleSettlement`
+is one conditional UPDATE naming the exact intent and era we diagnosed; a fresh `settle_at` blocks
+`acquireCartLock`, so the state we judged is frozen before anything irreversible happens, and a
+create-intent that relinked in the gap matches zero rows. Two consequences fall out: the cancel now
+targets the id we _diagnosed_ rather than whatever the row names at that instant, and every refusal
+after the claim gives the freeze back.
+
+**The cancelled attempt's promo pin goes with it.** `supersedeCartIntent` only unlinks, and it is
+right not to touch the pin for create-intent's sake — M70's rule is that a pin outlives the lock
+because a captured-but-unfulfilled predecessor still reconciles against it. That reason is spent
+once we have established the intent is _cancelled_: leaving the pin let `getCartTotals` hand staff a
+frozen discount instead of re-evaluating a promotion that may have expired or hit its cap.
+
+**A supersede that THROWS is not a verdict.** `readLiveIntent` rethrows its postgrest error and
+`getStripe()` throws on a missing or mode-mismatched key; both callers are Server Actions that set
+`busy` before awaiting with no catch, so an escaping rejection latched the staff control instead of
+rendering the retryable sentence. Same family as the `getStripe()` hoist in `closeSecureTab`, where
+a config fault was being classified as an unknown charge outcome and _holding the settlement freeze
+for a full TTL_ over a request that never went out.
+
+**Expo's window was on the wrong clock.** A scheduled pickup is charged and its order row written
+the moment the guest pays, while the scheduling horizon allows slots more than a day out — so a
+`created_at` floor swept a paid, still-future bag off the counter before staff should start it. The
+kitchen never had this because `fire_at` _is_ the due time. Expo judges a slotted order by its slot
+now, and only a slotless ASAP one by when it was placed.
+
+**Saturation refuses outright on both boards.** Logging and continuing returned `ok: true` with a
+partial list — the oldest-first cap silently omits every _newer_ row, so a just-paid bag never
+appears — and the kitchen only acted on it when the board came out empty, so a capped read
+containing some live carts rendered as the whole kitchen. Past the cap neither read answered the
+question, and `outage` freezes the client on its last-known queue rather than blanking it.
+
+**And the split tip ladder is filtered against the cap the server now enforces.** Above roughly
+$3,333 of share net the advertised 30% minted a 400 and the payment form never appeared;
+`KioskReview` and `CashSettleButton` had filtered on that cap all along.
+
+One finding is filed rather than fixed: the split post-fulfill side-effects are logged when they
+fail, not made replayable (**M200**). A 500 genuinely cannot recover them — a redelivery finds the
+cart paid and skips the block — so the real fix is a durable task written before the event is
+acknowledged, which needs a table and therefore a prod migration.
+
+### A declined card no longer freezes the table's other tenders forever (M197) (2026-09-09)
+
+`acquireSettlement` gated on a bare `.eq("locked", false)`. `acquireCartLock` has always had a
+staleness disjunct — any member may take an abandoned pay-lock once its era passes the TTL — and a
+declined card is _deliberately_ left locked, because the PaymentIntent is still confirmable from the
+mounted Element (`releaseCartLock`'s docblock: frozen "until the diner ends the attempt or the TTL
+does"). Settlement had no such escape, so that promise was false for every other tender: one diner
+declining and walking out froze cash, Terminal, tab-close and split on that table permanently.
+
+**The naive fix would have traded a dead end for a double charge, so it was not taken.** `locked_at`
+is refreshed only by `acquireCartLock`, and an inline retry re-confirms the SAME intent client-side
+without going near create-intent — so a diner still feeding cards into a declined intent has a STALE
+era and a live intent, and settlement collects through a different channel (cash in the drawer, a
+Terminal tap, split shares). Age alone is not evidence. The statement now takes over a stale lock
+only where the attempt named NO PaymentIntent, and `acquireSettlementSuperseding` handles the rest
+the same way `create-intent` does at the pay boundary: cancel the predecessor at Stripe, refuse on
+`captured` (the card IS charging — a second tender there is the guest paying twice), refuse on
+`unknown` (a transport failure is not a verdict), and only then acquire.
+
+Two more defects surfaced while reading the same function:
+
+- **A failed read reported a live table as `closed`.** `const { data: cart } = …` discarded its
+  error, so an outage produced a dead end where the truth was a retry — M119's shape, in the one
+  function whose job is to explain the refusal. It answers `unavailable` now.
+- **`openSplit`'s refusal had no `else`.** Three `if`s named three verdicts and anything else fell
+  through _as though the freeze were held_, which would have let a split DELETE and re-derive shares
+  with another tender live. Rewritten as one exhaustive refusal so a future verdict is a compile
+  error.
+
+The five staff sentences moved into `lib/settle-refusal.ts` — three surfaces had two sentences
+between five reasons and the two had already drifted for one identical fact. Eight `verify:slice`
+mutants added (496), and `check:mutant-anchors` caught the Terminal mutant going STALE when its call
+moved, which is the rule working: a stale mutant is a failure, not a skip.
+
+### A category tap stops taking the scenic route (M194), and M195 is corrected (2026-09-09)
+
+- **M194 — a tab tap cost about nine full re-renders mid-animation.** `jumpTo` smooth-scrolls across
+  every section between here and the target, and the IntersectionObserver fires at each boundary, so
+  `setActiveCat` ran once per section swept past. Each of those re-rendered the whole browser (the
+  ~97-card grid is its child) and re-ran the rail-centring effect — two `getBoundingClientRect()`, a
+  forced synchronous layout _during a scroll_, plus a restarted smooth scroll on the rail, which
+  visibly flickered through every intermediate category on the way to the one the diner asked for.
+  A jump now latches its destination and the spy drops the intermediates. The rule is a pure module
+  (`lib/menu-spy.ts`) because `MenuBrowser.tsx` has no suite and no mutants, so a rule written inside
+  it would be guarded by nothing — the same reasoning as `cart-freeze.ts`'s.
+
+  Suppressing a spy is a gate, so it releases three ways and only one depends on arriving: the
+  target's own crossing, a settle timeout, and the diner's next scroll input. The target may never
+  cross the reading line at all — a short last category on a page that bottoms out first — and a
+  latch that only cleared on arrival would freeze the rail on a stale tab for the rest of the visit.
+
+  ⚠️ **The three release paths themselves are not asserted, and an earlier draft of this entry
+  claimed they were.** The blind adversarial pass on #275 caught it: `menu-spy.test.ts` falsifies the
+  ADOPTION rule, which by its own docblock "deliberately does NOT own the release", while the timer,
+  the pointer/keyboard listeners and the re-sync all live in `MenuBrowser.tsx` — a file with no suite
+  and no mutants, which is exactly why the rule was extracted in the first place. The over-blocking
+  case is reasoned about in the code and covered by the design (two of the three releases are
+  unconditional), not by a test. Filed as **M199**.
+
+- **M195 is retracted in part, and the correction is the finding.** It claimed cart refusals never
+  reach the guest because Next.js redacts Server Action messages. Source says otherwise for the
+  surface that matters: `TableCartProvider` never reads the thrown message — it catches, re-reads,
+  and classifies the cause from server state (`explainCaught` → `classifyRefusedWrite`), and the
+  provider's own comment names the redaction as the reason it works that way. `Checkout.tsx` does
+  swallow blind, but J4's banner covers the freeze causes screen-wide and the rest are gated
+  client-side, leaving a race window rather than the stated defect. The production evidence the row
+  cited (8 × `POST /cart` 500 in 19s) could not be re-verified — Vercel's runtime-log retention had
+  rolled that window off.
+
+  What survives is a latency finding, filed as **M196**: the server already knows
+  `locked`/`settling`/`lockedBy` when it refuses and throws that verdict away, so every refused tap
+  buys a SECOND full `getCartView` to reconstruct it. Returning the refusal instead is a wide
+  money-path contract change across twelve call sites, so it gets its own PR rather than a fold-in.
+
+### The lag, measured and removed: one context value, one re-read per tap (2026-09-09)
+
+The owner's report was "everything feels laggy and not responsive when selecting". Both halves of
+that turned out to be real and independently measurable, and neither was the network being slow.
+
+- **M192 — every selection re-rendered the whole ~97-card menu grid.** `TableCartProvider` published
+  its context as a fresh object literal, and it holds eleven pieces of state that move during
+  ordering. `MenuBrowser` consumes that context and owns the grid, with no `React.memo` on the cards
+  — so each of those state changes reconciled ~97 cards, each a framer-motion button plus a
+  `next/image` plus a recomputed badge list, roughly **six times per Add tap**. A category tab, a
+  diet pill, a search keystroke and a sheet open paid the same cost with no network call at all. The
+  value is now `useMemo`'d. Two dependencies had to be stabilised for that memo to ever hit: `me`
+  (an object literal built in the render body) and `lastRefusalClause` (an inline arrow). Both were
+  found by the identity test, not by reading — the memo was in place and the identity still moved.
+- **M193 — one tap ran the cart re-read three times.** `addItem` writes to BOTH tables this subtree
+  watches (the `qr_cart_items` INSERT and `touchCart`'s `qr_carts` UPDATE), and the realtime handler
+  called `refresh()` on every event: ~7 sequential DB round trips apiece, on top of the view the
+  mutation already returned. Measured in production: **four `POST /cart` inside four seconds from one
+  tap**, fanned out to every phone at the table. The echoes now collapse into one trailing re-read
+  (150 ms). Coalescing rather than SKIPPING the self-echo is deliberate — the echo is the recovery
+  path when a mutation's own view comes back unreadable, and T14's stale-freeze correction rides the
+  `qr_carts` UPDATE — so the burst is delayed, never dropped, and a peer's "X added Y" announcement
+  still fires on the event itself.
+
+Both are pinned by `verify:slice` mutants (488 now) plus a `TableCartProvider` identity assertion.
+That assertion was flaky on its first draft and is worth recording: it sampled the identity count
+straight after `waitFor(() => getCartView called)`, which returns on the CALL, not on the resolution
+— so it raced the mount's own settle and went red once in three runs. It now drains to quiescence,
+the same way `drainDeferredAnnounces` does one layer up, and the module counter resets per test.
+
+### Four money-path reads and verdicts that lied, and a six-lens audit of everything else (2026-09-09)
+
+The owner reported the app feeling "laggy and not responsive when selecting" and asked for a full
+bug sweep. Six adversarial lenses were run over session sharing, splits, payments, staff surfaces,
+grocery/scan-and-go and selection performance. **Every one returned REJECT.** Twenty-eight findings
+are filed as `OPEN-ITEMS` **M168–M195**; four are fixed here, chosen because each is a small,
+self-contained defect on a money path where the code states a fact it has not established.
+
+- **A scheduled pickup could be silently converted to ASAP and charged.** `create-intent`'s pickup
+  read discarded its `{ error }`. postgrest resolves a transport failure into `{ data: null, error }`,
+  and a null `cart` makes `cart?.fire_at` FALSY — which routes a SCHEDULED order into the ASAP arm,
+  where `mms_pickup_asap` overwrites the slot the guest chose with today's earliest, sets
+  `fire_at = null`, and the card is charged. The guest paid for 6:30pm and the kitchen fires now.
+  It is also STICKY: `fire_at` is null afterwards, so every later attempt takes the ASAP arm and the
+  original choice cannot be recovered. The mirror case hard-refuses a valid scheduled order when the
+  kitchen is closed. The session-mode read seventy lines above already fails closed for exactly this
+  reason; this one now does too.
+- **The $1,000 house tip ceiling was not enforced on split shares.** Single-pay has checked
+  `tipWithinAmountCap` on the DERIVED cents since W19; `create-share-intent` had no equivalent, and
+  a rate cannot express a dollar cap — Zod's `.max(0.5)` bounds the RATE while the cents grow with
+  the share. Three tests pin it: over the cap refuses and mints NOTHING, a tip exactly AT the cap
+  still mints (over-blocking is as bad as under-blocking), and a small rate on a huge share is still
+  capped — the last of which fails against the plausible wrong fix of bounding `tipRate`.
+- **An unknown Stripe outcome was reported to staff as a decline.** `closeSecureTab` treated EVERY
+  exception as a card refusal and released the settlement freeze. A connection reset, a 429, a 5xx
+  or a timeout says nothing — the PaymentIntent is created with `confirm: true` and can be captured
+  while the response never arrives. Staff read "declined", take cash, and the succeeded webhook
+  writes a `qr_refunds_needed` row: the guest is collected twice. Note what the release destroyed —
+  this function's own idempotency-key comment names the freeze as the protection in so many words.
+  The verdict now comes from `offSessionChargeOutcome`, a pure classifier beside `supersedeOutcome`
+  applying the same "unknowable is never a verdict" rule, tested by value rather than through five
+  mocks.
+- **Three `{ error }`-discarded reads on the split exactly-once path** permanently lost the host's
+  Star, `earned_by` (which also removes the order from lifetime-spend and milestone counts) and the
+  tab-close amount. They now bind and report. Deliberately NOT converted to a 500: this block runs
+  only on the open→paid transition, so a Stripe redelivery finds the cart paid and skips it — a 500
+  could not recover the Star and would only re-run the arms above. The fix makes the loss loud and
+  hand-recoverable, keyed by orderId.
+
+Three mutants and 12 tests; five red-first inductions watched failing by exit code, including the
+two plausible wrong fixes (bounding the tip RATE, and restoring the unconditional freeze release).
+
+**The reported lag is diagnosed, not yet fixed** — M192/M193/M194 carry the mechanism, and M193 is
+confirmed in production logs (four `POST /cart` in four seconds from one tap). M195 is the reason a
+tap can appear to do nothing at all: cart refusals are thrown as raw `Error`s from a `"use server"`
+module, Next.js redacts them, and the optimistic value silently reverts. Eight such 500s were
+observed live in nineteen seconds.
+
 ### Stripe credentials resolve per mode, and the two keys must agree (2026-09-08)
 
 **The owner split the Stripe variables into per-mode copies, and the code knew none of the new

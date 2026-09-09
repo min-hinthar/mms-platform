@@ -37,7 +37,38 @@ export type LockAcquisition =
   | { result: "held_by_other"; era: null }
   | { result: "closed"; era: null }
   | { result: "unavailable"; era: null };
-export type SettleResult = "acquired" | "locked" | "settling_other" | "closed";
+/**
+ * M197 — the settlement acquisition's answer, and two arms it did not used to have.
+ *
+ * `locked_stale` and `unavailable` are not padding. Before them this function collapsed FOUR
+ * distinct situations into two words, and both collapses were wrong in a direction that costs
+ * service:
+ *
+ *   • `locked` meant "a single payer holds the pay-lock", full stop — with no way to say whether
+ *     that payer is still there. `releaseCartLock`'s own docblock promises a declined attempt stays
+ *     frozen "until the diner ends the attempt or the TTL does", and for `acquireCartLock` that is
+ *     true (its third disjunct hands the lock to any member once the era is stale). This function
+ *     had no such disjunct, so for cash, Terminal, tab-close and split the TTL never arrived: a
+ *     diner who declined a card and walked out froze every other tender FOREVER.
+ *   • `closed` was also what a FAILED READ produced — `const { data: cart } = …` discarded its
+ *     error, so an outage told staff a live table was "no longer open". That is M119's shape
+ *     exactly, in the one function whose whole job is to say why.
+ */
+export type SettleResult =
+  /** The freeze is ours. */
+  | "acquired"
+  /** A single payer holds a FRESH pay-lock — their attempt is live. Refuse. */
+  | "locked"
+  /** The pay-lock's era is past its TTL, but the cart still names a live PaymentIntent. The holder
+   *  may be gone or may be retrying a decline against that same intent, so this is NOT free to take:
+   *  the caller must make the intent unusable at Stripe first (`acquireSettlementSuperseding`). */
+  | "locked_stale"
+  /** Another settlement holds the table-wide freeze. */
+  | "settling_other"
+  /** The cart is not open. */
+  | "closed"
+  /** We could not read the cart, so we do not know. Never a verdict — retryable. */
+  | "unavailable";
 
 /**
  * Atomically acquire the lock for `uid` (called by create-intent at the pay boundary). ONE conditional
@@ -119,23 +150,61 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
   // `{ count: "exact" }`, not `.select()` — same PostgREST-14 `return=representation` + `or()` re-projection
   // trap as acquireCartLock (a `.select()` here 400s with 42703 undefined_column and mis-reads as
   // settling_other). Count the affected rows and surface any real error instead of swallowing it.
+  // M197 — the pay-lock term is a DISJUNCTION now, not `.eq("locked", false)`.
+  //
+  // The bare equality had no way out. `acquireCartLock` takes over a lock whose era is older than
+  // `CART_LOCK_TTL_MS`, so single-pay always had an escape from an abandoned attempt; settlement
+  // did not, and a declined card is DELIBERATELY left locked (`releaseCartLock`'s docblock: the
+  // intent is still confirmable from the mounted Element, so the cart stays frozen "until the diner
+  // ends the attempt or the TTL does"). For cash, Terminal, tab-close and split that TTL never
+  // arrived. One diner declining and walking out froze every other tender on the table for good.
+  //
+  // ⚠️ A BARE STALENESS DISJUNCT WOULD TRADE THE DEAD END FOR A DOUBLE CHARGE, which is why the
+  // second conjunct is here. `locked_at` is only refreshed by `acquireCartLock` — an inline retry
+  // re-confirms the SAME PaymentIntent client-side and never calls create-intent — so a diner still
+  // sitting there feeding cards into a declined intent has a STALE era and a live intent. Settlement
+  // is a different collection channel from that intent (cash in the drawer, a Terminal tap, split
+  // shares), so taking the lock on age alone could collect twice. The link is the evidence: this
+  // statement takes over only a lock whose attempt named NO intent, and the caller that wants the
+  // rest must first make the named intent unusable at Stripe (`acquireSettlementSuperseding`).
+  //
+  // `lockCutoff` is the PAY-lock TTL, not the settle one: the age being judged belongs to
+  // `locked_at`, and using `cutoff` here would let a settlement take over a pay-lock at 10 minutes
+  // that single-pay may take at 5 — two different answers to "is this attempt still alive?".
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
   const { count, error } = await db
     .from("qr_carts")
     .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
-    .eq("locked", false) // never start a split while a single payer holds the pay-lock
+    .or(`locked.eq.false,and(locked_at.lte.${lockCutoff},live_payment_intent_id.is.null)`)
     .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${cutoff}`);
   if (error) throw error;
   if ((count ?? 0) > 0) return "acquired";
-  const { data: cart } = await db
+  // ⚠️ THE READ'S ERROR IS BOUND (M119's rule, and this function was the counter-example). Dropping
+  // it made `cart` null on an outage, `cart?.status !== "open"` true, and the answer `closed` — so a
+  // transient failure told staff that a live table was no longer open, on the one screen whose job
+  // is to explain the refusal. `unavailable` is retryable; `closed` is a dead end.
+  const { data: cart, error: readError } = await db
     .from("qr_carts")
-    .select("status,locked")
+    .select("status,locked,locked_at,live_payment_intent_id")
     .eq("id", cartId)
     .maybeSingle();
+  if (readError) return "unavailable";
   if (cart?.status !== "open") return "closed";
-  if (cart.locked) return "locked";
-  return "settling_other";
+  // ⚠️ ASK WHETHER THE LOCK TERM ACTUALLY REFUSED, not merely whether the cart is locked (blind
+  // adversarial pass on #275, CRITICAL 2). The UPDATE ANDs two `.or()` groups, so zero rows means at
+  // least one refused — and once the lock term gained a staleness arm, `locked = true` stopped
+  // implying the lock is what blocked us. A cart that is locked, stale and unlinked PASSES the lock
+  // term and can still be refused by the SETTLE term: two staff taking over the same abandoned table
+  // at once is enough. Reporting `locked` there sends the loser to wait on a guest who is doing
+  // nothing, while the real blocker is the colleague beside them. This mirrors the UPDATE's own
+  // predicate rather than restating the shape of it, so the two cannot drift apart.
+  const stale = !!cart.locked_at && cart.locked_at <= lockCutoff;
+  const lockRefused = cart.locked && !(stale && !cart.live_payment_intent_id);
+  if (!lockRefused) return "settling_other";
+  // Stale AND still naming an intent: supersedable, not a dead end.
+  return stale && cart.live_payment_intent_id ? "locked_stale" : "locked";
 }
 
 /**
@@ -436,6 +505,64 @@ export async function releaseCartLock(cartId: string, uid: string | null): Promi
   if (uid !== null) q = q.eq("locked_by", uid);
   const { error } = await q;
   return error;
+}
+
+/**
+ * M197 (Codex round 2 on #275, P1) — CLAIM the settlement freeze against ONE named stale attempt,
+ * atomically, before anything irreversible happens to it.
+ *
+ * ## The window this closes
+ *
+ * `acquireSettlementSuperseding` used to diagnose `locked_stale` and then cancel at Stripe while
+ * holding NO mutex. Between those two steps the diner can call create-intent, re-acquire the pay
+ * lock with a fresh era and link a live PaymentIntent — and `supersedeCartIntent` reads the row
+ * FRESH, so it cancelled whatever the cart named at that instant: an actively resumed checkout.
+ * The second acquire then noticed the new lock and refused staff, so the net effect was to kill a
+ * live payment and gain nothing.
+ *
+ * The asymmetry is with create-intent, which calls the same supersede AFTER `acquireCartLock` has
+ * succeeded — it holds the lock, so nothing can move under it. This path held nothing.
+ *
+ * ## Why claiming the SETTLE freeze is the right mutex
+ *
+ * `acquireCartLock` requires `settle_at` null or stale, so a fresh `settle_at` blocks the diner's
+ * re-acquire outright. Claiming it first therefore freezes the exact state we diagnosed, and the
+ * cancel that follows can only ever touch the attempt we named.
+ *
+ * ## The predicate is the evidence, restated
+ *
+ * `live_payment_intent_id = <the id we read>` is what makes this a claim on ONE attempt rather than
+ * on the cart: if create-intent superseded and relinked in the meantime, the id differs and this
+ * matches zero rows — which is the answer, not a failure. `locked_at <= cutoff` is re-tested for the
+ * same reason: an inline retry does not refresh the era, but a fresh create-intent does, and a
+ * claim must not succeed against an attempt that has just come back to life.
+ */
+export async function claimStaleSettlement(
+  cartId: string,
+  uid: string,
+  intentId: string,
+): Promise<{ claimed: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
+  const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .eq("locked", true)
+    .lte("locked_at", lockCutoff)
+    .eq("live_payment_intent_id", intentId)
+    // ⚠️ NO SAME-OWNER RE-ACQUIRE ARM, unlike `acquireSettlement` (Codex round 3 on #275, P1). That
+    // disjunct exists there so a host can RE-OPEN their own split; here it would defeat the whole
+    // mutex. `settleCash` and `closeSecureTab` both pass `caller.uid`, so two concurrent takeovers
+    // by the same staff member would BOTH match — the first writes `settle_by = uid`, the second
+    // sails through on `settle_by.eq.<uid>` — and each then mints its own Stripe charge, because the
+    // off-session idempotency key is deliberately per-attempt (a stable key would cache a decline
+    // for 24h). A one-shot takeover of an abandoned attempt has no legitimate re-entry: the loser
+    // stands down and re-asks.
+    .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
+  return { claimed: (count ?? 0) > 0, error };
 }
 
 /**

@@ -5,7 +5,7 @@ import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
-import { acquireSettlement, releaseSettlement } from "./lock";
+import { acquireSettlement, releaseSettlement, type SettleResult } from "./lock";
 import { releaseHold } from "./split-hold";
 
 /**
@@ -165,6 +165,37 @@ export async function getSettlement(cartId: string): Promise<SettlementResult> {
 }
 
 /**
+ * The host-facing sentence for a split that could not open — EXHAUSTIVELY, by a switch.
+ *
+ * ⚠️ THE PREVIOUS SHAPE WAS THREE `if`s WITH NO `else`, so any verdict they did not name fell
+ * through AS THOUGH THE FREEZE WERE HELD — and M197 added two verdicts to that union. Opening a
+ * split on an unheld freeze is the derive/insert race the freeze exists to close: `openSplit` goes
+ * on to DELETE and re-derive the share rows while another tender is live.
+ *
+ * ⚠️ AND IT IS A SWITCH, not a ternary chain (blind pass on #275, GUARD INTEGRITY). The first fix
+ * for the fall-through was a chain ending in a catch-all string, with a comment claiming a future
+ * verdict would be "a compile error, not a silent proceed". It would not have been: a chain's final
+ * alternative absorbs every unhandled member silently. A switch with no default narrows `r` to
+ * `never` at the end, so the claim is enforced by the compiler instead of asserted by a comment —
+ * which is the exact shape of defect this function exists to close, one level up.
+ */
+function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
+  switch (r) {
+    case "closed":
+      return "This order is no longer open";
+    case "settling_other":
+      return "Another host is already splitting this order";
+    case "unavailable":
+      return "Couldn’t check this order just now — try again in a moment";
+    case "locked":
+    case "locked_stale":
+      // One sentence for both: from the host's side an abandoned attempt and a live one look the
+      // same, and this door will not act on the difference (see the note at the acquire below).
+      return "Someone’s checking out — try again in a moment";
+  }
+}
+
+/**
  * Open a split-tender settlement (M3·P3.3b). HOST-gated. Freezes the cart table-wide (acquireSettlement —
  * atomic, mutually exclusive with the single-pay lock), derives the SERVER-authoritative per-seat BASE
  * breakdown (deriveShareBreakdowns: tax on each seat's own taxable base, every component largest-
@@ -198,10 +229,17 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 
   // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.
+  // ⚠️ THE SPLIT DOOR DOES NOT SUPERSEDE, and that is deliberate (blind adversarial pass on #275,
+  // SECURITY). `acquireSettlementSuperseding` cancels an abandoned attempt's PaymentIntent at
+  // Stripe, and the STAFF settles need that — a guest is standing at the counter with cash. This
+  // caller is a DINER: `openSettlement` is host-gated, but the host is an anonymous tablemate, and
+  // `locked_at` is refreshed only by `acquireCartLock` (an inline retry after a decline re-confirms
+  // the same intent client-side and never touches it). So a peer mid-3DS, or one working through a
+  // decline, presents as `locked_stale` — and routing this door through the takeover would let any
+  // host kill that payment from the split screen. No diner could do that before, and there is no
+  // urgency here that justifies it: a split can wait for the TTL or for staff.
   const acq = await acquireSettlement(id, uid);
-  if (acq === "locked") throw new Error("Someone’s checking out — try again in a moment");
-  if (acq === "settling_other") throw new Error("Another host is already splitting this order");
-  if (acq === "closed") throw new Error("This order is no longer open");
+  if (acq !== "acquired") throw new Error(openSplitRefusal(acq));
 
   const db = serviceClient();
   // Never re-derive once money is in flight — that would orphan an authorized PaymentIntent. (The

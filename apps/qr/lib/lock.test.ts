@@ -15,6 +15,8 @@ type Q = {
   payload: Record<string, unknown>;
   eq: [string, unknown][];
   or: string[];
+  /** M197 — the claim's staleness re-test is an `.lte`, and nothing recorded it before. */
+  lte: [string, unknown][];
 };
 let queries: Q[] = [];
 function chain(q: Q) {
@@ -37,7 +39,13 @@ function chain(q: Q) {
  *  update half is untouched, so the W6c assertions above still measure what they always did. */
 let updateCount: number | null = 0;
 let updateError: { message: string } | null = null;
-let statusRow: { status: string } | null = null;
+/** M197 — the diagnostic read now selects four columns, because the answer depends on all four. */
+let statusRow: {
+  status: string;
+  locked?: boolean;
+  locked_at?: string | null;
+  live_payment_intent_id?: string | null;
+} | null = null;
 let statusError: { message: string } | null = null;
 
 /** M70 — the RPC half. `releasePromoGrantFor` calls `mms_release_promo_grant`, so the era it passes
@@ -53,14 +61,18 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
-        const q: Q = { table, payload, eq: [], or: [] };
+        const q: Q = { table, payload, eq: [], or: [], lte: [] };
         queries.push(q);
         return opts?.count ? countChain(q) : chain(q);
       },
       select: () => {
         const api: Record<string, unknown> = {
           eq: () => api,
-          maybeSingle: () => Promise.resolve({ data: statusRow, error: statusError }),
+          // postgrest resolves a transport failure into `{ data: null, error }` — it never hands
+          // back a row AND an error. A fake that returned both let a test measuring "an outage must
+          // not read as closed" pass for the wrong reason: the caller fell through to the row.
+          maybeSingle: () =>
+            Promise.resolve({ data: statusError ? null : statusRow, error: statusError }),
         };
         return api;
       },
@@ -84,6 +96,10 @@ function countChain(q?: Q) {
       q?.or.push(expr);
       return api;
     },
+    lte: (col: string, val: unknown) => {
+      q?.lte.push([col, val]);
+      return api;
+    },
     then: (r: (v: { count: number | null; error: unknown }) => unknown) =>
       Promise.resolve({ count: updateCount, error: updateError }).then(r),
   };
@@ -101,6 +117,8 @@ const {
   linkPaymentIntent,
   unlinkPaymentIntent,
   releaseByIntent,
+  acquireSettlement,
+  claimStaleSettlement,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -434,5 +452,153 @@ describe("M151 — the cart→intent link, as query SHAPES", () => {
   it("releaseByIntent is a normal zero-row no-op for a late delivery", async () => {
     updateCount = 0;
     expect(await releaseByIntent("cart-1", "pi_gone")).toEqual({ released: false, error: null });
+  });
+});
+
+describe("acquireSettlement — M197: the pay-lock term has a way out, and it is evidence-gated", () => {
+  const CART = "cart-197";
+  const UID = "staff-1";
+
+  it("takes over a stale pay-lock ONLY where no intent is named — the disjunction is in the statement", async () => {
+    // The shipped defect was `.eq("locked", false)`: a bare equality with no escape. `acquireCartLock`
+    // has always had a staleness disjunct, and `releaseCartLock`'s docblock promises a declined
+    // attempt stays frozen only "until the diner ends the attempt or the TTL does" — a promise this
+    // function could not keep, so cash, Terminal, tab-close and split were frozen for good.
+    updateCount = 1;
+    expect(await acquireSettlement(CART, UID)).toBe("acquired");
+    const update = queries.find((q) => q.payload.settle_at !== undefined);
+    expect(update).toBeDefined();
+    // The pay-lock term must NOT be an `.eq` any more — that is the whole finding.
+    expect(update!.eq.map(([c]) => c)).not.toContain("locked");
+    const lockTerm = update!.or.find((o) => o.startsWith("locked.eq.false"));
+    expect(lockTerm).toBeDefined();
+    // ⚠️ AND THE STALENESS ARM IS CONJOINED WITH THE LINK. A bare `locked_at.lte.<cutoff>` would
+    // trade the dead end for a double charge: `locked_at` is only refreshed by `acquireCartLock`, so
+    // a diner still feeding cards into a declined intent has a STALE era AND a live intent, and
+    // settlement collects through a different channel. Assert the `and(...)` grouping, not merely
+    // that both substrings appear somewhere — two independent disjuncts would read the same to a
+    // careless matcher and ship exactly the defect this term exists to prevent.
+    expect(lockTerm).toMatch(/,and\(locked_at\.lte\.[^,]+,live_payment_intent_id\.is\.null\)$/);
+  });
+
+  it("reports an unreadable cart as `unavailable`, never as `closed`", async () => {
+    // M119's shape, in the one function whose job is to explain a refusal. The read's error was
+    // discarded, so `cart` was null, `cart?.status !== "open"` was true, and an outage told staff a
+    // live table was no longer open — a dead end where the truth is "try again".
+    updateCount = 0;
+    statusError = { message: "connection reset" };
+    expect(await acquireSettlement(CART, UID)).toBe("unavailable");
+  });
+
+  it("distinguishes a FRESH pay-lock from a stale one that still names an intent", async () => {
+    updateCount = 0;
+    statusError = null;
+    // Fresh: the payer is live on their phone. Nothing to supersede — refuse.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date().toISOString(),
+      live_payment_intent_id: "pi_live",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked");
+    // Stale AND naming an intent: supersedable. Collapsing this into `locked` is what left the
+    // caller with no way to tell "wait for them" from "that attempt was abandoned".
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: "pi_abandoned",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked_stale");
+    // Stale with NO intent PASSES the lock term, so whatever refused was the settle side — not the
+    // lock, and certainly not a diner. (Asserted in its own case below; the earlier draft of this
+    // line expected "locked" and was itself the defect the blind pass named CRITICAL 2.)
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: null,
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
+    // A lock with no era at all is unjudgeable, and unjudgeable fails CLOSED.
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: null,
+      live_payment_intent_id: "pi_x",
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("locked");
+  });
+
+  it("still answers `closed` and `settling_other` for the cases that are not about the lock", async () => {
+    updateCount = 0;
+    statusError = null;
+    statusRow = { status: "paid", locked: false, locked_at: null, live_payment_intent_id: null };
+    expect(await acquireSettlement(CART, UID)).toBe("closed");
+    statusRow = { status: "open", locked: false, locked_at: null, live_payment_intent_id: null };
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
+  });
+
+  it("blames the SETTLE side when the lock term would have let us through", async () => {
+    // ⚠️ THE FIXTURE THE OLD SUITE COULD NOT EXPRESS (blind adversarial pass, CRITICAL 2). Every
+    // `settling_other` case here set `locked: false`, which the removed `.eq("locked", false)` made
+    // safe — a locked cart could only ever fail on the lock term. With the staleness arm, a cart that
+    // is locked, stale and unlinked PASSES the lock term and can still be refused by the settle one:
+    // two staff taking over the same abandoned table at once is enough. Answering `locked` there
+    // sends the loser to wait on a guest who is doing nothing.
+    updateCount = 0;
+    statusError = null;
+    statusRow = {
+      status: "open",
+      locked: true,
+      locked_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      live_payment_intent_id: null,
+    };
+    expect(await acquireSettlement(CART, UID)).toBe("settling_other");
+  });
+});
+
+describe("claimStaleSettlement — the mutex, as a QUERY SHAPE (M197, Codex round 3)", () => {
+  it("names the attempt: the cart, open, LOCKED, a stale era, and THIS intent", async () => {
+    // Every term is load-bearing. Dropping the intent equality turns a claim on one abandoned
+    // attempt into a claim on the cart, so a create-intent that relinked in the gap would be
+    // cancelled; dropping the staleness re-test would let it win against an attempt that has just
+    // come back to life.
+    updateCount = 1;
+    const { claimed } = await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    expect(claimed).toBe(true);
+    const q = queries.find((x) => x.payload.settle_at !== undefined);
+    expect(q).toBeDefined();
+    const eq = Object.fromEntries(q!.eq);
+    expect(eq.id).toBe("cart-1");
+    expect(eq.status).toBe("open");
+    expect(eq.locked).toBe(true);
+    expect(eq.live_payment_intent_id).toBe("pi_abandoned");
+    expect(q!.lte.map(([c]) => c)).toContain("locked_at");
+  });
+
+  it("does NOT admit the same owner twice — this is a mutex, not a re-open", async () => {
+    // ⚠️ THE MUTANT THAT SURVIVED FIRST TIME (Codex round 3, P1). `acquireSettlement` carries a
+    // `settle_by.eq.<uid>` disjunct so a host can RE-OPEN their own split. The claim must not:
+    // `settleCash` and `closeSecureTab` both pass `caller.uid`, so with that term two concurrent
+    // takeovers by one staff member BOTH match — the first writes `settle_by = uid`, the second
+    // sails through on that very term — and each mints its own Stripe charge, because the
+    // off-session idempotency key is deliberately per-attempt. Nothing in the suite looked at this
+    // predicate, so the rule was unguarded until this assertion existed.
+    updateCount = 1;
+    await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    const q = queries.find((x) => x.payload.settle_at !== undefined);
+    const settleTerm = q!.or.find((o) => o.startsWith("settle_at.is.null"));
+    expect(settleTerm).toBeDefined();
+    expect(settleTerm).not.toContain("settle_by.eq.");
+  });
+
+  it("reports a lost claim as `claimed: false`, not as an error", async () => {
+    // Zero rows is the ANSWER — something moved under us — and the caller re-asks rather than
+    // cancelling anything. Conflating it with a write failure would send staff a fabricated outage.
+    updateCount = 0;
+    const { claimed, error } = await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
+    expect(claimed).toBe(false);
+    expect(error).toBeNull();
   });
 });

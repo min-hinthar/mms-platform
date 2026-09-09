@@ -1,13 +1,26 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
+import type Stripe from "stripe";
 import { getStripe } from "./stripe";
-import { classifyLiveIntent, supersedeOutcome, type SupersedeOutcome } from "./live-intent";
 import {
+  classifyLiveIntent,
+  classifyLiveIntentForSettlement,
+  supersedeOutcome,
+  type LiveIntentVerdict,
+  type SupersedeOutcome,
+} from "./live-intent";
+import {
+  acquireSettlement,
+  claimStaleSettlement,
   readLiveIntent,
+  releaseByIntent,
+  releaseSettlement,
+  releaseSettlementFor,
   readLiveIntentFor,
   releasePayAttempt,
   unlinkPaymentIntent,
   type ReleaseError,
+  type SettleResult,
 } from "./lock";
 
 /**
@@ -40,6 +53,15 @@ type IntentMetadata = Record<string, string | undefined> | null | undefined;
  */
 async function supersedeIntent(
   intentId: string,
+  /**
+   * ⚠️ THE VERDICT TABLE IS A PARAMETER because the two doors do not agree about ONE status, and the
+   * disagreement is the guest's money (blind pass on #275, CRITICAL 1). create-intent's successor
+   * holds a fresh era, so the capture cron would refuse the predecessor's hold anyway and cancelling
+   * it early costs nothing. A SETTLEMENT does not move the era, so that hold would still have been
+   * captured — cancelling it there destroys an authorization the guest gave. Defaulted to the
+   * create-intent table so every existing caller is unchanged.
+   */
+  classify: (status: string) => LiveIntentVerdict = classifyLiveIntent,
 ): Promise<{ outcome: SupersedeOutcome; cancelledHold: IntentMetadata }> {
   const stripe = getStripe();
   let status: string;
@@ -54,7 +76,7 @@ async function supersedeIntent(
       return { outcome: "cleared", cancelledHold: null };
     return { outcome: "unknown", cancelledHold: null };
   }
-  const verdict = classifyLiveIntent(status);
+  const verdict = classify(status);
   if (verdict !== "cancelable")
     return {
       outcome: supersedeOutcome({ verdict, cancelled: false, code: null, statusAfter: null }),
@@ -140,10 +162,13 @@ async function recordSupersededHold(intentId: string, cartId: string, metadata: 
  * overlap M151 names); for a hold the cron superseded the first one lazily at fire time, which is
  * the record `recordSupersededHold` now writes eagerly, so `/track` says so either way.
  */
-export async function supersedeCartIntent(cartId: string): Promise<SupersedeOutcome> {
+export async function supersedeCartIntent(
+  cartId: string,
+  classify: (status: string) => LiveIntentVerdict = classifyLiveIntent,
+): Promise<SupersedeOutcome> {
   const live = await readLiveIntent(cartId);
   if (!live) return "cleared";
-  const { outcome, cancelledHold } = await supersedeIntent(live);
+  const { outcome, cancelledHold } = await supersedeIntent(live, classify);
   if (outcome !== "cleared") return outcome;
   if (cancelledHold) await recordSupersededHold(live, cartId, cancelledHold);
   const err = await unlinkPaymentIntent(cartId, live);
@@ -157,6 +182,64 @@ export async function supersedeCartIntent(cartId: string): Promise<SupersedeOutc
     // `canceled` and clear it then. Refusing here would strand a diner over a bookkeeping write.
   }
   return "cleared";
+}
+
+/**
+ * The settlement door's superseder: takes the CART and the INTENT it named, and refuses anything
+ * that could be committed money.
+ *
+ * ## Why this function exists at all (Codex round 3 on #275, P1)
+ *
+ * The takeover used to pass its diagnosed PaymentIntent id into a seam whose default was
+ * `supersedeCartIntent` — a function whose first parameter is a CART id. Both are `string`, so
+ * nothing typechecked wrong; in production it looked up a cart named `pi_…`, found none, returned
+ * `"cleared"` WITHOUT EVER CALLING STRIPE, and the takeover then cleared the real cart's pin and
+ * link and let staff settle while the diner's intent stayed confirmable. A double collect,
+ * introduced by the fix for the previous round's finding. The unit test could not see it either:
+ * its fake recorded the argument and asserted the intent id was passed, which is precisely the bug.
+ *
+ * So the parameters are now NAMED for what they are and the function is intent-level by
+ * construction. A caller cannot get this wrong by passing the right type to the wrong slot.
+ *
+ * ## Why manual capture is refused by KIND, not by status (Codex round 3, P1)
+ *
+ * `classifyLiveIntentForSettlement` treats `requires_capture` as committed money, and that is
+ * right — but a status is a SNAPSHOT. The DB claim stops a new `acquireCartLock`; it cannot stop
+ * the Payment Element the diner already has mounted from confirming with its existing client
+ * secret. So an intent read as `requires_action` can become `requires_capture` between our retrieve
+ * and our cancel, and Stripe still permits cancelling that — staff would revoke an authorization
+ * the guest had just given. A manual-capture intent is therefore refused in EVERY non-terminal
+ * state, on the intent's own `capture_method` (and the `pickup_manual` metadata as a belt), which
+ * is a fact about the intent rather than a race-able reading of it.
+ */
+export async function supersedeSettlementIntent(
+  cartId: string,
+  intentId: string,
+): Promise<SupersedeOutcome> {
+  const stripe = getStripe();
+  let live: Stripe.PaymentIntent;
+  try {
+    live = await stripe.paymentIntents.retrieve(intentId);
+  } catch (e) {
+    // A vanished intent cannot capture anything; anything else tells us nothing.
+    if ((e as { code?: string }).code === "resource_missing") return "cleared";
+    return "unknown";
+  }
+  // Terminal first: an already-cancelled hold is not money, and refusing it would leave the
+  // deadlock in place for exactly the carts this path exists to free.
+  if (live.status === "canceled") return "cleared";
+  const metadata = live.metadata as IntentMetadata;
+  if (live.capture_method === "manual" || metadata?.kind === "pickup_manual") return "captured";
+
+  const { outcome, cancelledHold } = await supersedeIntent(
+    intentId,
+    classifyLiveIntentForSettlement,
+  );
+  // A hold cannot reach here (refused above), so this is belt-and-braces for a future kind that
+  // carries the metadata without the manual capture method.
+  if (outcome === "cleared" && cancelledHold)
+    await recordSupersededHold(intentId, cartId, cancelledHold);
+  return outcome;
 }
 
 export type SafeRelease =
@@ -201,4 +284,318 @@ export async function releasePayAttemptSafely(
   const res = await releasePayAttempt(cartId, uid, era);
   if (res.error) return { released: false, error: res.error };
   return res.released ? { released: true, error: null } : { released: false, error: null };
+}
+
+/**
+ * M197 — acquire the settlement freeze, superseding an ABANDONED pay attempt if one is in the way.
+ *
+ * ## Why the acquire alone is not enough
+ *
+ * `acquireSettlement` can now take over a stale pay-lock, but only when the attempt that held it
+ * named no PaymentIntent. That covers an abandoned tab, a create-intent that failed before the mint,
+ * and an intent whose terminal webhook already dropped the link — and it deliberately does NOT cover
+ * the case the whole item is about, because a named intent is still confirmable and settlement
+ * collects through a different channel. Age alone is not evidence; the intent's Stripe status is.
+ *
+ * So this is the same sequence `create-intent` runs at the pay boundary, applied to the other side
+ * of the table: read the verdict, cancel the predecessor if Stripe says we may, and only then take
+ * the freeze. `supersedeCartIntent` refuses on `captured` (the card IS charging — the webhook is
+ * about to fulfil, and collecting cash on top is the double-charge) and on `unknown` (a transport
+ * failure is not a verdict).
+ *
+ * ## The retry is ONE, and it is not a loop
+ *
+ * After a successful supersede the link is null and the era is still stale, so the second acquire
+ * takes the same disjunct the first one missed. If it STILL fails, something else changed under us —
+ * a fresh lock, a rival settlement, the cart closing — and that is a real answer to report, not a
+ * reason to go round again.
+ */
+export type SettleTakeover =
+  | Exclude<SettleResult, "locked_stale">
+  /** The stale attempt's intent is charging or charged — refuse, and say so in those terms. */
+  | "paying";
+
+/**
+ * ⚠️ `supersede` IS A DEFAULTED PARAMETER, and that is what makes this function's arms reachable.
+ *
+ * The composition is the load-bearing part — which outcomes may proceed to a second acquire and
+ * which must refuse — and a `captured` reaching the retry is staff taking cash on a card that is
+ * already charging. But `supersedeCartIntent` is a module-local binding, so a test could only reach
+ * those arms through a live Stripe: `vi.spyOn` on the namespace does not rebind a local call, and
+ * mocking the module under test is not a thing. Falsifying a rule THROUGH five mocks of a client the
+ * decision never touches is the shape CLAUDE.md warns about; the same precedent (`tipPresets` taking
+ * its ladder as a defaulted parameter) exists for the same reason — `verify:slice` caught a cap
+ * mutant SURVIVING because the rule could not be reached, and the fix was to make it reachable, not
+ * to delete the mutant.
+ *
+ * Production never passes it.
+ */
+export async function acquireSettlementSuperseding(
+  cartId: string,
+  uid: string,
+  /**
+   * ⚠️ TWO NAMED PARAMETERS, and the default is INTENT-LEVEL. The previous shape took `(id,
+   * classify)` and defaulted to the CART-level `supersedeCartIntent`, so passing the diagnosed
+   * intent id compiled cleanly and did nothing at Stripe (Codex round 3, P1). Naming both is what
+   * makes that class of mistake impossible rather than merely fixed.
+   */
+  supersede: (
+    cartId: string,
+    intentId: string,
+  ) => Promise<SupersedeOutcome> = supersedeSettlementIntent,
+): Promise<SettleTakeover> {
+  const first = await acquireSettlement(cartId, uid);
+  if (first !== "locked_stale") return first;
+
+  // ⚠️ EVERY STEP BELOW IS WRAPPED, because two of them THROW rather than answering (Codex round 2,
+  // P2). `readLiveIntent` rethrows its postgrest error and `getStripe()` throws on a missing or
+  // mode-mismatched key — and this function is awaited by Server Actions that set `busy` before the
+  // call and have no catch of their own, so an escaping rejection latches the staff control instead
+  // of showing the retryable sentence this union exists to carry. A failure here is `unavailable`.
+  // ⚠️ TRACKED ACROSS THE TRY (Codex round 3, P2). Once the claim lands the freeze is a real block
+  // on every tender; a throw after that point converted to `unavailable` while LEAVING it held, so
+  // the retryable answer stranded the table for the settle TTL over a step that never ran.
+  let claimHeld = false;
+  try {
+    // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
+    const live = await readLiveIntent(cartId);
+    // ⚠️ STAND DOWN HERE TOO (Codex round 5 on #275, P1 — and I argued the opposite one round
+    // earlier, wrongly). The reasoning that failed was "no claim was attempted on this branch, so the
+    // loser-rides-the-winner sequence cannot arise". It can, because THE WINNER IS WHAT MAKES THIS
+    // BRANCH REACHABLE: request A claims, cancels and clears the link; request B — same staff uid,
+    // moments behind — reads `readLiveIntent` and sees `null` precisely BECAUSE A cleared it, so B
+    // never attempts a claim at all and falls straight through here. `collapse` then passed on the
+    // `acquired` that `acquireSettlement` grants via its `settle_by.eq.<uid>` arm, and both requests
+    // minted an off-session PaymentIntent under a per-attempt idempotency key.
+    //
+    // The rule is therefore about the FUNCTION, not about either branch: once this call has been
+    // told the cart is `locked_stale`, no later read inside it may promote the request to `acquired`
+    // — only the exclusive claim can, and the claim has no same-owner arm. Both re-asks now stand
+    // down, which closes the class rather than the third instance of it.
+    // ⚠️ `await` IS LOAD-BEARING, NOT NOISE (Codex round 8 on #275, P2). `return standDown(cartId)`
+    // hands the promise back and EXITS THIS TRY before it settles, so the catch below never sees a
+    // rejection: `standDown` awaits `acquireSettlement`, which throws on a serviceClient
+    // construction or network failure. The Server Action would then reject instead of returning the
+    // retryable `unavailable` this union exists to carry — and `settleCash`/`closeSecureTab` set
+    // `busy` before awaiting with no catch of their own, so the staff control latches on a dead
+    // screen. Do not "simplify" this to a bare return.
+    if (!live) return await standDown(cartId);
+
+    // ⚠️ CLAIM BEFORE CANCELLING (Codex round 2, P1). Until this succeeds we hold NO mutex, and the
+    // diner can re-acquire the pay lock and link a live intent in the gap — which the old code then
+    // cancelled, killing an actively resumed checkout and still refusing staff. A fresh `settle_at`
+    // blocks `acquireCartLock`, so this freezes the exact state we diagnosed; and the predicate
+    // names THIS intent, so a create-intent that superseded and relinked in the meantime matches
+    // zero rows. See `claimStaleSettlement`.
+    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
+    if (claimErr) {
+      // ⚠️ THE CLEANUP THAT BELONGS HERE CANNOT BE WRITTEN YET, AND THAT IS THE FINDING
+      // (Codex round 10 asked for it, round 11 showed why it is unsafe — I shipped it in between and
+      // it was a REGRESSION, reverted here).
+      //
+      // The hazard is real: `claimStaleSettlement` reports `{ claimed: false, error }` for a LOST
+      // RESPONSE as well as a rejected request, so the UPDATE may have committed `settle_by = uid`
+      // and told us nothing. The claim deliberately carries no same-owner arm, so the retry this
+      // verdict invites cannot reclaim its own orphan and the table is blocked for the settle TTL.
+      //
+      // But releasing under `uid` is WORSE than the orphan, because `uid` is NOT request-unique:
+      // `staff-cart.ts` passes `caller.uid` at both call sites (only `terminal.ts` passes a
+      // per-attempt id). So when request B's claim errors while same-staff request A holds a real
+      // claim, `releaseSettlementFor(cartId, uid)` matches A's row and strips A's mutex mid-charge —
+      // trading a self-healing 10-minute freeze for an unprotected concurrent settle. "It matches
+      // zero rows when our write never landed" is false whenever a sibling shares the uid.
+      //
+      // This is undecidable from here: A's row and ours are byte-identical, both `settle_by = uid`.
+      // The fix is a REQUEST-UNIQUE claim owner — M201 — and it is filed with this mechanism rather
+      // than approximated. The TTL remains the backstop, as it was before this branch was touched.
+      console.error("[settle] stale-attempt claim failed", {
+        cartId,
+        error: claimErr.message,
+        // The freeze may or may not be ours and we cannot tell; see M201.
+        ambiguous: true,
+      });
+      return "unavailable";
+    }
+    // Something moved under us. Re-ask the ordinary way and report whatever it now says.
+    if (!claimed) return await standDown(cartId); // await load-bearing — see the !live branch
+
+    // From here the freeze is OURS, so every exit below must give it back. The strict verdict table
+    // and the manual-capture refusal live inside `supersedeSettlementIntent`.
+    claimHeld = true;
+    const outcome = await supersede(cartId, live);
+    if (outcome !== "cleared") {
+      // ⚠️ WE DO NOT RELEASE HERE, AND THAT IS THE CONCLUSION OF FOUR REVIEW ROUNDS (see the
+      // docblock). The freeze we took stays until the settle TTL heals it.
+      logHeldFreeze(cartId, "supersede-refused");
+      // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
+      // diner is checking out when what actually happened is that we could not reach Stripe.
+      return outcome === "captured" ? "paying" : "unavailable";
+    }
+
+    // ⚠️ THE CANCELLED ATTEMPT'S PROMO PIN GOES WITH IT (Codex round 2, P1). `supersedeCartIntent`
+    // only unlinks, and it is right not to touch the pin for create-intent's sake — M70's rule is
+    // that a pin must outlive the lock, because a captured-but-unfulfilled predecessor still
+    // reconciles against it. That reason is spent here: we have just established this intent is
+    // CANCELLED, so nothing depends on the pin, and leaving it makes `getCartTotals` hand staff the
+    // frozen discount instead of re-evaluating a promotion that may have expired or hit its cap.
+    // `releaseByIntent` clears pin AND link in one statement keyed on the intent, so a late webhook
+    // naming a different one matches nothing.
+    const { error: pinErr } = await releaseByIntent(cartId, live);
+    if (pinErr) {
+      // ⚠️ REFUSE, DO NOT PROCEED (Codex round 3, P2). Logging and returning `acquired` handed the
+      // caller straight to `getCartTotals`, which reads the pin that is still on the row — so the
+      // table is settled at the cancelled attempt's frozen discount, which is the exact defect
+      // clearing the pin exists to prevent. The intent is already dead, so nothing is lost by
+      // asking staff to tap again once the write succeeds.
+      console.error("[settle] cancelled attempt's promo pin not cleared — refusing to settle", {
+        cartId,
+        intentId: live,
+        error: pinErr.message,
+      });
+      logHeldFreeze(cartId, "pin-clear-failed");
+      return "unavailable";
+    }
+    // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
+    // losing what we hold.
+    return "acquired";
+  } catch (e) {
+    console.error("[settle] supersede step threw", {
+      cartId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    // A freeze we took and could not use is LEFT for the TTL, deliberately — see `logHeldFreeze`.
+    if (claimHeld) logHeldFreeze(cartId, "post-claim-throw");
+    return "unavailable";
+  }
+}
+
+/**
+ * We claimed the freeze, could not use it, and are LEAVING IT for the settle TTL to heal.
+ *
+ * That is the conclusion of Codex rounds 8, 10, 11, 12 and 13 on #275, after three attempts to
+ * release it correctly were each falsified:
+ *
+ *   • by OWNER (`settle_by = uid`) — `staff-cart.ts` passes `caller.uid` at both call sites, so a
+ *     same-staff sibling's row is byte-identical. Shipped in `bebeef8`, reverted in `bd362b6`.
+ *   • by owner + ERA (`settle_at` too) — the era says who WROTE the freeze, not who currently
+ *     DEPENDS on it. `create-share-intent` mints its PaymentIntent (`route.ts:190`) and only then
+ *     calls `extendSettlement` (`:328`), so between those it relies on a freeze it never wrote; our
+ *     era still matches, our release clears it, and `extendSettlement`'s `.gt("settle_at", cutoff)`
+ *     then no-ops on the null — handing back a confirmable client secret with no settlement mutex.
+ *   • by cart (`releaseSettlement`) — matches everyone, which is where this started.
+ *
+ * So the release is withheld. The cost is real and bounded: a refused supersede leaves the table
+ * frozen for the settle TTL rather than immediately. The alternative is not bounded, and the file's
+ * own doctrine decides it — refusing a settlement that could have proceeded is a retry; permitting
+ * one that could not is money.
+ *
+ * ⚠️ THE FIX IS M201 (a request-unique settlement owner), NOT A FOURTH DISCRIMINATOR. Every
+ * approximation attempted so far looked obviously correct and was not. `terminal.ts` already passes
+ * a per-attempt id and is the shape to copy.
+ */
+function logHeldFreeze(
+  cartId: string,
+  at: "supersede-refused" | "pin-clear-failed" | "post-claim-throw",
+) {
+  console.error("[settle] claimed freeze HELD to the TTL — no safe release exists yet (M201)", {
+    cartId,
+    at,
+  });
+}
+
+/** `locked_stale` has no arm at any call site, and a re-ask can still answer it (the link survived a
+ *  failed unlink — M178). Report that as the retry it is, never as a diner who is paying. */
+function collapse(r: SettleResult): SettleTakeover {
+  return r === "locked_stale" ? "unavailable" : r;
+}
+
+/**
+ * The re-ask after a LOST claim: report why, but never GRANT (Codex round 4 on #275, P1).
+ *
+ * ⚠️ THE ROUND-3 FIX MOVED THIS HOLE RATHER THAN CLOSING IT. Dropping `settle_by.eq.<uid>` from
+ * `claimStaleSettlement` stopped two same-staff takeovers both winning the CLAIM — but the loser
+ * then re-asked through `acquireSettlement`, whose predicate still carries that arm. And the winner
+ * has by then CLEARED THE LINK, which is what opens the lock arm for the loser:
+ *
+ *   • lock arm  — `locked_at <= cutoff AND live_payment_intent_id IS NULL` … now true, because A
+ *     cleared it;
+ *   • settle arm — `settle_by = uid` … true, because A wrote it and B is the same staff member.
+ *
+ * Both answer `acquired`, both mint an off-session PaymentIntent, and the off-session idempotency
+ * key is deliberately per-attempt (a stable key would cache a decline for 24h) — so the guest is
+ * charged twice. `settleCash` and `closeSecureTab` both pass `caller.uid`, so one staff member
+ * double-tapping is enough.
+ *
+ * A request that lost a one-shot claim has already been told it is not the winner; nothing it reads
+ * afterwards can promote it. So this keeps the DIAGNOSIS — staff still learn whether the table
+ * closed, or a colleague is settling — and refuses the grant. `unavailable` is honest: we could not
+ * complete this takeover, and it is worth another tap once the winner finishes.
+ *
+ * ⚠️ BOTH RE-ASKS USE THIS, and that is the point (Codex round 5). Patching one branch at a time is
+ * what produced three consecutive rounds of "the fix moved the hole": round 3 closed the claim,
+ * round 4 closed the lost-claim re-ask, and round 5 found the `!live` re-ask — which the WINNER
+ * makes reachable by clearing the link. The invariant is stated over the whole function instead:
+ * once it has been told `locked_stale`, only the exclusive claim may promote this request, and the
+ * claim carries no same-owner arm. Every other exit is a diagnosis.
+ *
+ * The same-owner arm in `acquireSettlement` is NOT touched here. It predates this PR, it is what
+ * lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff cash
+ * settles rely on a downstream RPC early-return rather than on the freeze. It remains a live hazard
+ * on `closeSecureTab`'s card path, which has no such RPC — filed as M201, and NOT reachable from
+ * this function any more.
+ */
+async function standDown(cartId: string): Promise<SettleTakeover> {
+  // ⚠️ A PROBE OWNER, NOT THE CALLER'S UID (Codex round 6 on #275, P2). `acquireSettlement` is a
+  // mutating UPDATE: when it answers `acquired` it has ALREADY written `settle_at`/`settle_by`.
+  // Suppressing only the returned verdict therefore left a freeze behind that nothing released — the
+  // action reported a retryable failure while the table stayed frozen for the settle TTL, which is
+  // worst for the Terminal settle, whose every retry carries a fresh attempt id and so meets its own
+  // orphan as `settling_other`.
+  //
+  // Releasing it is not as simple as `releaseSettlement(cartId)`: that is unconditional by cart and
+  // would null the WINNER's freeze — the very request we stood down for. `releaseSettlementFor` is
+  // scoped by `settle_by`, and a probe uuid makes that scope provably ours: no other request can
+  // hold it, so the release cannot reach anyone else's claim.
+  //
+  // The probe also closes the door this function exists for, structurally rather than by suppression.
+  // With a unique owner, `acquireSettlement`'s `settle_by.eq.<uid>` arm cannot match, so a stand-down
+  // can only ever acquire a cart that is genuinely FREE — and it gives that straight back.
+  const probe = crypto.randomUUID();
+
+  // ⚠️ THE RELEASE IS UNCONDITIONAL, AND THAT IS THE POINT (Codex round 9 on #275, P2).
+  //
+  // `acquireSettlement` ends its UPDATE with `if (error) throw error`, so a transport failure AFTER
+  // Postgres applied the conditional update — the response lost, not the write — rejects while the
+  // row already carries `settle_by = probe`. Whoever owns that freeze must release it, and only this
+  // scope knows the probe: the caller's catch sees the rejection but not the uuid, so it answered
+  // `unavailable` and left the orphan to block the next tap as `settling_other` until the TTL.
+  //
+  // Branching on the outcome is what produced that hole, so this does not branch. The release is
+  // scoped by `settle_by` to a uuid no other request can hold, which makes it SAFE on every outcome
+  // and not merely on the one we can prove: it matches our row when we took the freeze, and zero
+  // rows when we did not — including when we cannot tell which happened. The property that makes it
+  // correct is the SCOPING, never our confidence about the acquire.
+  let verdict: SettleTakeover = "unavailable";
+  try {
+    const r = await acquireSettlement(cartId, probe);
+    // The cart was free, and we are not taking it: this request already lost its claim.
+    // `unavailable` is the honest verdict — nothing is blocking, so the next tap should succeed.
+    if (r !== "acquired") verdict = collapse(r);
+  } catch (e) {
+    // Ambiguous: the freeze may or may not be ours. The release below settles it either way.
+    console.error(
+      "[settle] stand-down probe acquire threw — releasing under the probe regardless",
+      {
+        cartId,
+        error: e instanceof Error ? e.message : String(e),
+      },
+    );
+  }
+  const err = await releaseSettlementFor(cartId, probe);
+  if (err)
+    console.error("[settle] stand-down probe freeze not released — table frozen until the TTL", {
+      cartId,
+      error: err.message,
+    });
+  return verdict;
 }

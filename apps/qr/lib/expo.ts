@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { setTogoStatusInput } from "@mms/db/schemas";
@@ -19,6 +20,18 @@ import { catalogNameMy, isUuid, pairModifiersMy, uuidOptionIds } from "./ticket-
  */
 
 const QUEUE_CAP = 200; // a teahouse has a handful of live takeaway bags; bound the read regardless.
+/**
+ * M181 — the same shape as the kitchen's M180, with a tighter cap and a slower leak.
+ *
+ * `picked_up` is written ONLY by the manual bump (`mms_set_togo_status`, whose sole caller is
+ * `setTogoStatus` below), so every bag handed to a guest without that tap stays `ready` forever. The
+ * cap is applied by SQL on an oldest-first order, so once ~200 un-bumped orders accrue the read
+ * returns only ancient ones and today's paid bags never reach the counter screen at all.
+ *
+ * The floor bounds that population to one day's worth, which cannot approach the cap at teahouse
+ * volume. A bag `ready` for more than 24 hours is not waiting at the counter; the alternative is the
+ * board never showing the one that is.
+ */
 
 /**
  * Live takeaway queue: paid orders whose togo_status is preparing/ready (picked_up drops off), with
@@ -51,9 +64,31 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       "id,togo_status,session_id,table_number,pickup_slot,arrived_at,created_at,customer_name,cart_id",
     )
     .in("togo_status", ["preparing", "ready"])
+    // ⚠️ THE WINDOW IS ON THE DUE TIME, NOT THE ORDER TIME (Codex round 2 on #275, P1). A scheduled
+    // pickup is charged and its `qr_orders` row written the moment the guest pays, while the
+    // scheduling horizon allows slots more than a day out — so a `created_at` floor swept a paid,
+    // still-future bag off the counter before staff should even start it. The kitchen's floor never
+    // had this problem because `fire_at` IS the due time; expo's `created_at` is not. A slotted
+    // order is judged by its slot, and only a slotless (ASAP) one falls back to when it was placed.
+    .or(
+      `pickup_slot.gte.${queueFloorIso(nowIso)},and(pickup_slot.is.null,created_at.gte.${queueFloorIso(nowIso)})`,
+    )
     .order("created_at", { ascending: true })
     .limit(QUEUE_CAP);
   if (ordersError) return { ok: false, reason: "outage" };
+  // ⚠️ SATURATION IS AN OUTAGE, NOT A FOOTNOTE (Codex round 2, P2). Logging and continuing returned
+  // `ok: true` with a partial list — the oldest-first cap silently omits every newer order, so a
+  // just-paid bag simply never appears at the counter, which is the M181 lie in a quieter form.
+  // `outage` freezes the client on its last-known queue, so it never blanks a board; a board that
+  // cannot see the whole window must not present part of it as the whole.
+  //
+  // Checked BEFORE the empty return: a saturated read cannot claim emptiness either.
+  if (orders && queueEmptiness(orders.length, QUEUE_CAP) === "cannot-say") {
+    console.error("[expo] takeaway queue read saturated — refusing to render a partial counter", {
+      cap: QUEUE_CAP,
+    });
+    return { ok: false, reason: "outage" };
+  }
   if (!orders || orders.length === 0)
     return { ok: true, queue: { tickets: [], serverNow: nowIso } };
 

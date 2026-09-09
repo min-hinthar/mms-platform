@@ -81,6 +81,36 @@ export function classifyLiveIntent(status: string): LiveIntentVerdict {
 }
 
 /**
+ * ⚠️ THE SETTLEMENT DOOR NEEDS A STRICTER TABLE, AND `requires_capture` IS WHY (blind adversarial
+ * pass on #275, CRITICAL 1).
+ *
+ * `classifyLiveIntent` calls an authorized hold CANCELABLE, and the reason it gives is specific to
+ * ONE caller: create-intent's successor has taken the pay-lock with a fresh era, and
+ * `mms_settle_precheck_and_void` refuses to capture a hold whose era was superseded (→ -2). So the
+ * cron was never going to take that money anyway, and cancelling it early loses nothing.
+ *
+ * `acquireSettlementSuperseding` does NOT supersede the era. Its statement writes `settle_at` and
+ * `settle_by` and touches neither `locked`, `locked_by` nor `locked_at` — so the precheck would NOT
+ * have answered -2 and the cron WOULD have captured. A staff cash settle reusing the lenient table
+ * therefore VOIDS a guest's authorized pickup payment, writes `/track` a "this payment was replaced"
+ * row for a replacement that never happened, and — if anything downstream then refuses (a rival
+ * settlement winning the retry, a totals read failing, a zero amount) — leaves a pre-authorized
+ * order with no payment at all and nothing collected.
+ *
+ * `openCartFor` filters on `session_id` + `status = 'open'` with NO mode filter, so a pickup cart
+ * holding an authorization is reachable from every staff settle surface. This is not hypothetical.
+ *
+ * So for settlement an authorization is treated as `captured`: money the guest has committed, which
+ * a different tender must refuse rather than destroy. The asymmetry is the same one this file's
+ * header states — refusing a settle that could have proceeded is a retry; cancelling a real
+ * authorization is the guest's money.
+ */
+export function classifyLiveIntentForSettlement(status: string): LiveIntentVerdict {
+  if (status === "requires_capture") return "captured";
+  return classifyLiveIntent(status);
+}
+
+/**
  * The outcome of trying to make a predecessor unusable. `cleared` means the link may be dropped
  * and the pin replaced; `captured` means the successor must refuse; `unknown` means we could not
  * establish either and must refuse WITHOUT touching anything (a transport failure is not a verdict —
@@ -113,4 +143,58 @@ export function supersedeOutcome(input: {
   if (again === "captured") return "captured";
   // Still cancelable yet Stripe refused — do not guess.
   return "unknown";
+}
+
+/**
+ * What an off-session charge THREW, classified — the same "unknowable is never a verdict" rule
+ * `supersedeOutcome` applies above, for the other direction of the same problem.
+ *
+ * `closeSecureTab` charges a stored card with `confirm: true`. When that call throws it used to
+ * report EVERY exception to staff as "The card on file was declined — settle by cash or a fresh
+ * card", and release the settlement freeze. For a real decline that is right. For a connection
+ * reset, a 429, a 5xx or a timeout it is a fabricated verdict about money that may already have
+ * moved: the PaymentIntent was created with `confirm: true`, so it can be captured while the
+ * response never arrives. Staff read "declined", take cash, and the succeeded webhook then lands on
+ * the cross-tender guard and writes a `qr_refunds_needed` row — the guest is collected twice and
+ * waits on a manual refund.
+ *
+ * Only Stripe's CARD error says the money did not move. Everything else says nothing.
+ *
+ * Kept here, pure, rather than inline in the route: the caller needs a live Stripe, a secure-tab row
+ * and a totals read to reach its catch, so an inline predicate could only be falsified through five
+ * mocks — while the rule itself is a value in, a verdict out (CLAUDE.md: decision logic belongs in
+ * `lib/`, "finer-grained, not merely possible").
+ */
+export type OffSessionChargeOutcome =
+  /** The issuer refused. No money moved; the table is free to try another tender. */
+  | "declined"
+  /** The card needs SCA — a decline with a different remedy, so the copy must not say "refused". */
+  | "needs_action"
+  /**
+   * Stripe REJECTED the request before creating anything — the stored customer or payment method is
+   * gone (Codex round 4 on #275, P2). No PaymentIntent exists, so no charge can land later, which
+   * makes this a FACT rather than an ambiguity: holding the freeze on it blocks every other tender
+   * for the full TTL over a charge that provably never happened. The repo already treats
+   * `resource_missing` as definitive absence on the retrieve and cancel paths (`split-hold.ts`,
+   * `supersedeSettlementIntent`); the create path was the one that still called it unknown.
+   */
+  | "no_method"
+  /** We could not establish anything — a reset, a 429, a 5xx, a timeout. Never a verdict. */
+  | "unknown";
+
+export function offSessionChargeOutcome(err: {
+  type?: string | null;
+  code?: string | null;
+}): OffSessionChargeOutcome {
+  // A REQUEST Stripe refused outright: the customer or payment method on file has been deleted, so
+  // `paymentIntents.create` never made an intent and nothing can be captured afterwards. Definitive,
+  // and the freeze must not be held on it — see the `no_method` arm above.
+  if (err.code === "resource_missing") return "no_method";
+  // `StripeCardError` is the issuer's answer: card_declined, insufficient_funds,
+  // authentication_required. The charge did NOT happen and the table is free to try another tender.
+  if (err.type !== "StripeCardError") return "unknown";
+  // A card that needs SCA is a decline with a different remedy — the guest must confirm in person,
+  // so the copy must not tell staff the card was refused outright.
+  if (err.code === "authentication_required") return "needs_action";
+  return "declined";
 }

@@ -667,11 +667,14 @@ const EXEMPT = new Map([
   // guard's three rules cannot express. The dead-exemption rule keeps every one of them honest.
   [
     "openSettlement",
-    "refuses on the lock through `acquireSettlement`, which answers a discriminated string: " +
-      '`if (acq === "locked") throw new Error("Someone\u2019s checking out — try again in a ' +
-      'moment")`. The freeze IS the mutex it acquires, so the check cannot be an `if (locked)` on ' +
-      "the authz result — it has to be the acquisition's own outcome, or two opens race the " +
-      "derive/insert between the read and the write.",
+    "refuses on the lock through `acquireSettlement`, whose answer is a discriminated string fed " +
+      "to `openSplitRefusal` — an EXHAUSTIVE switch, so a new verdict is a compile error rather " +
+      "than a silent proceed (it was three `if`s with no `else` until #275, and anything they did " +
+      "not name fell through as though the freeze were held). The freeze IS the mutex it acquires, " +
+      "so the check cannot be an `if (locked)` on the authz result — it has to be the acquisition's " +
+      "own outcome, or two opens race the derive/insert between the read and the write. Note this " +
+      "door deliberately does NOT use `acquireSettlementSuperseding`: the host is an anonymous " +
+      "diner, and superseding would let them cancel a tablemate's live PaymentIntent.",
   ],
   [
     "abortSettlement",

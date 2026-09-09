@@ -31,6 +31,7 @@ import {
 import { toggleFavorite } from "@/lib/favorites";
 import { reorderOrder } from "@/lib/reorder";
 import { LEND_CHANGE_EVENT } from "@/lib/deviceIdentity";
+import { spyAdoption } from "@/lib/menu-spy";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import type { WelcomeBack } from "@/lib/rewards";
 
@@ -54,6 +55,16 @@ export type MenuItem = {
   // instant preview. Advisory only — the server re-derives the charge on add.
   modifierGroups: ModGroup[];
 };
+
+/**
+ * How long a programmatic jump may suppress the scroll-spy before the latch releases itself (M194).
+ *
+ * Sized for the worst honest case rather than the typical one: a smooth `scrollIntoView` from the
+ * first category to the last on a long menu. If it fires the jump simply stops being privileged —
+ * `releaseJump` re-syncs from the section rects — so an over-long value costs nothing but a beat of
+ * a stale tab, while an under-long one puts the flicker back.
+ */
+const JUMP_SETTLE_MS = 1200;
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -410,6 +421,58 @@ export function MenuBrowser({
     };
   }, []);
 
+  /**
+   * M194 — the programmatic-jump latch. See `lib/menu-spy.ts` for the rule and the hazard.
+   *
+   * `jumpTo` smooth-scrolls across every section between here and the target, and the observer fires
+   * at each boundary — about nine `setActiveCat` calls per tab tap, each one a full re-render of this
+   * component (the ~97-card grid is its child) plus a rail re-centre that forces layout twice and
+   * restarts its own smooth scroll. While a jump is in flight the intermediates are not reading
+   * positions and are dropped.
+   *
+   * THE LATCH RELEASES THREE WAYS and only one of them depends on arriving: `arrive`, the settle
+   * timeout below, and the diner's own next scroll input. That is deliberate — the target section
+   * may never cross the reading line at all (a short last category on a page that bottoms out
+   * first), and a latch that only cleared on arrival would freeze the rail on a stale tab for the
+   * rest of the visit.
+   */
+  const jumpTarget = useRef<string | null>(null);
+  const jumpTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The live `pickActive`, so a timeout release can re-sync the rail to where the page actually is. */
+  const resync = useRef<(() => void) | null>(null);
+  const releaseJump = useCallback(() => {
+    if (jumpTarget.current === null) return; // not latched — every release path is a no-op then
+    jumpTarget.current = null;
+    if (jumpTimer.current) {
+      clearTimeout(jumpTimer.current);
+      jumpTimer.current = null;
+    }
+    // Re-read the rects: the intermediates we dropped may have left the rail on a tab that is no
+    // longer where the diner is looking. Releasing without this is how the gate becomes the bug.
+    resync.current?.();
+  }, []);
+  useEffect(
+    () => () => {
+      if (jumpTimer.current) clearTimeout(jumpTimer.current);
+    },
+    [],
+  );
+  // A scroll the diner started themselves supersedes the jump immediately — a smooth scroll is
+  // interrupted by their input, so the target is no longer where the page is heading. Passive and
+  // cheap: `releaseJump` returns on the first line whenever nothing is latched, which is almost
+  // always (a `keydown` in the search field takes that exit too).
+  useEffect(() => {
+    const onUserScroll = () => releaseJump();
+    window.addEventListener("wheel", onUserScroll, { passive: true });
+    window.addEventListener("touchstart", onUserScroll, { passive: true });
+    window.addEventListener("keydown", onUserScroll);
+    return () => {
+      window.removeEventListener("wheel", onUserScroll);
+      window.removeEventListener("touchstart", onUserScroll);
+      window.removeEventListener("keydown", onUserScroll);
+    };
+  }, [releaseJump]);
+
   // Scroll-spy: mark the section nearest the top (just under the sticky toolbar) as the active tab.
   useEffect(() => {
     if (cats.length === 0) return;
@@ -435,8 +498,21 @@ export function MenuBrowser({
       // no tab was current until the SECOND category arrived. `approaching` covers exactly that gap;
       // once anything has crossed, `crossed` wins and the rule is unchanged.
       const next = crossed ?? approaching;
-      if (next) setActiveCat(next);
+      if (!next) return;
+      // M194 — a section swept past by a jump in flight is not a reading position.
+      const verdict = spyAdoption(jumpTarget.current, next);
+      if (verdict === "ignore") return;
+      if (verdict === "arrive") {
+        jumpTarget.current = null;
+        if (jumpTimer.current) {
+          clearTimeout(jumpTimer.current);
+          jumpTimer.current = null;
+        }
+      }
+      setActiveCat(next);
     };
+    // Published for `releaseJump`'s timeout arm, which has to re-sync from the rects it skipped.
+    resync.current = pickActive;
     const io = new IntersectionObserver(pickActive, {
       // Top inset = the toolbar's full occluded band (height + sticky offset — same binding as
       // scrollMarginTop) so boundary events fire around the real reading line.
@@ -447,7 +523,10 @@ export function MenuBrowser({
       const el = sectionRefs.current.get(c);
       if (el) io.observe(el);
     }
-    return () => io.disconnect();
+    return () => {
+      io.disconnect();
+      resync.current = null;
+    };
   }, [cats, toolbarH]);
 
   // Keep the active category chip centered in the horizontal rail whenever it changes — whether from a
@@ -498,6 +577,12 @@ export function MenuBrowser({
     setActiveCat(cat);
     const el = sectionRefs.current.get(cat);
     if (!el) return;
+    // M194 — latch the destination BEFORE the scroll starts, and arm the settle release. Under
+    // reduced motion the scroll is instant, so the observer's first pick is the target and `arrive`
+    // clears the latch before the timer is ever needed.
+    jumpTarget.current = cat;
+    if (jumpTimer.current) clearTimeout(jumpTimer.current);
+    jumpTimer.current = setTimeout(releaseJump, JUMP_SETTLE_MS);
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     el.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
   }

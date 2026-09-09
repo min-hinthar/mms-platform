@@ -220,17 +220,40 @@ export async function POST(req: NextRequest) {
           { status: 400 },
         );
       }
-      const { data: cart } = await db
+      // THIS READ FAILS CLOSED, for the same reason the session-mode read above does — and the
+      // consequence here is worse than charging the wrong mode.
+      //
+      // postgrest resolves a transport failure into `{ data: null, error }`. A null `cart` makes
+      // `cart?.fire_at` FALSY, which routes a SCHEDULED pickup straight into the ASAP arm below:
+      // `mms_pickup_asap` then OVERWRITES the slot the guest picked with today's earliest, sets
+      // `fire_at = null`, and the card is charged. The guest paid for 6:30pm and the kitchen fires
+      // the food immediately, while /track and the order snapshot show a time they never chose.
+      //
+      // And it is STICKY: `fire_at` is null afterwards, so every later attempt takes the ASAP arm
+      // too — the original choice cannot be recovered. The mirror case is just as bad: if the
+      // kitchen is closed or today is full, one blip hard-refuses a perfectly valid scheduled order
+      // with "The kitchen's closed right now".
+      //
+      // A dropped read must never be read as "this diner chose ASAP".
+      const { data: cart, error: cartErr } = await db
         .from("qr_carts")
         .select("pickup_slot,fire_at")
         .eq("id", cartId)
         .single();
+      if (cartErr || !cart) {
+        if (cartErr) console.error("[create-intent] pickup slot read failed:", cartErr.message);
+        await freeLock();
+        return NextResponse.json(
+          { error: "Couldn’t start checkout — please try again." },
+          { status: 500 },
+        );
+      }
       // Discriminate on fire_at, NOT pickup_slot: a SCHEDULED cart always carries fire_at = slot - prep
       // (non-null); an ASAP cart carries fire_at = null WHETHER OR NOT it already holds a snapped
       // pickup_slot from an earlier pay attempt. Keying on pickup_slot would route a retry of a
       // snapped-then-declined ASAP order into the scheduled validator and 409 it on a slot the diner
       // never chose (and could no longer clear); keying on fire_at re-snaps the current earliest instead.
-      if (cart?.fire_at) {
+      if (cart.fire_at) {
         // Scheduled: re-validate the held slot still has room. Exclude THIS cart's own hold so we're
         // asking "is there still room for me", not double-counting.
         // NOTE(soft-cap): this is a plain read, not advisory-locked like mms_set_pickup_slot — under a
