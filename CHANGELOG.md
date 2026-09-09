@@ -4,6 +4,39 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A category tap stops taking the scenic route (M194), and M195 is corrected (2026-09-09)
+
+- **M194 — a tab tap cost about nine full re-renders mid-animation.** `jumpTo` smooth-scrolls across
+  every section between here and the target, and the IntersectionObserver fires at each boundary, so
+  `setActiveCat` ran once per section swept past. Each of those re-rendered the whole browser (the
+  ~97-card grid is its child) and re-ran the rail-centring effect — two `getBoundingClientRect()`, a
+  forced synchronous layout _during a scroll_, plus a restarted smooth scroll on the rail, which
+  visibly flickered through every intermediate category on the way to the one the diner asked for.
+  A jump now latches its destination and the spy drops the intermediates. The rule is a pure module
+  (`lib/menu-spy.ts`) because `MenuBrowser.tsx` has no suite and no mutants, so a rule written inside
+  it would be guarded by nothing — the same reasoning as `cart-freeze.ts`'s.
+
+  Suppressing a spy is a gate, so it releases three ways and only one depends on arriving: the
+  target's own crossing, a settle timeout, and the diner's next scroll input. The target may never
+  cross the reading line at all — a short last category on a page that bottoms out first — and a
+  latch that only cleared on arrival would freeze the rail on a stale tab for the rest of the visit.
+  That case is asserted, not assumed.
+
+- **M195 is retracted in part, and the correction is the finding.** It claimed cart refusals never
+  reach the guest because Next.js redacts Server Action messages. Source says otherwise for the
+  surface that matters: `TableCartProvider` never reads the thrown message — it catches, re-reads,
+  and classifies the cause from server state (`explainCaught` → `classifyRefusedWrite`), and the
+  provider's own comment names the redaction as the reason it works that way. `Checkout.tsx` does
+  swallow blind, but J4's banner covers the freeze causes screen-wide and the rest are gated
+  client-side, leaving a race window rather than the stated defect. The production evidence the row
+  cited (8 × `POST /cart` 500 in 19s) could not be re-verified — Vercel's runtime-log retention had
+  rolled that window off.
+
+  What survives is a latency finding, filed as **M196**: the server already knows
+  `locked`/`settling`/`lockedBy` when it refuses and throws that verdict away, so every refused tap
+  buys a SECOND full `getCartView` to reconstruct it. Returning the refusal instead is a wide
+  money-path contract change across twelve call sites, so it gets its own PR rather than a fold-in.
+
 ### The lag, measured and removed: one context value, one re-read per tap (2026-09-09)
 
 The owner's report was "everything feels laggy and not responsive when selecting". Both halves of
