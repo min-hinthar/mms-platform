@@ -242,21 +242,13 @@ export async function releaseSettlement(cartId: string): Promise<ReleaseError> {
 export async function releaseSettlementFor(
   cartId: string,
   attemptId: string,
-  /**
-   * The exact `settle_at` this caller wrote. Supply it whenever the owner may be SHARED — a staff uid
-   * is, a per-attempt uuid is not — so the release cannot reach a successor who took the row over
-   * under the same owner. Omitted, this scopes by owner alone, which is correct only for a
-   * request-unique one (`terminal.ts`'s attempt id, `standDown`'s probe).
-   */
-  settleAt?: string,
 ): Promise<ReleaseError> {
   const db = serviceClient();
-  const scoped = db
+  const { error } = await db
     .from("qr_carts")
     .update({ settle_at: null, settle_by: null })
     .eq("id", cartId)
     .eq("settle_by", attemptId);
-  const { error } = await (settleAt === undefined ? scoped : scoped.eq("settle_at", settleAt));
   return error;
 }
 
@@ -549,21 +541,13 @@ export async function claimStaleSettlement(
   cartId: string,
   uid: string,
   intentId: string,
-): Promise<{ claimed: boolean; error: ReleaseError; settleAt: string }> {
+): Promise<{ claimed: boolean; error: ReleaseError }> {
   const db = serviceClient();
   const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
   const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
-  // ⚠️ THE ERA WE WRITE IS RETURNED, AND IT IS WHAT MAKES OUR FREEZE IDENTIFIABLE (Codex round 12 on
-  // #275, P1). `settle_by` alone cannot say WHICH request holds the row: `staff-cart.ts` passes
-  // `caller.uid` at both call sites, so a same-staff successor that acquires through
-  // `acquireSettlement`'s same-owner arm writes a byte-identical `settle_by`. Every writer of
-  // `settle_at` in this repo stamps a FRESH `new Date().toISOString()` and none restores an old one,
-  // so the pair (settle_by, settle_at) does identify this claim — and a release scoped to the pair
-  // matches zero rows the moment anyone else takes the row over.
-  const settleAt = new Date().toISOString();
   const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: settleAt, settle_by: uid }, { count: "exact" })
+    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
     .eq("locked", true)
@@ -578,7 +562,7 @@ export async function claimStaleSettlement(
     // for 24h). A one-shot takeover of an abandoned attempt has no legitimate re-entry: the loser
     // stands down and re-asks.
     .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
-  return { claimed: (count ?? 0) > 0, error, settleAt };
+  return { claimed: (count ?? 0) > 0, error };
 }
 
 /**
