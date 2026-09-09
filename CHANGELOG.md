@@ -4,6 +4,15 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A2 — the parked surfaces' rows, parked (Option A, slice 2) (2026-09-09)
+
+Docs only. With A1 on `main` (`bc6e393`, the prod column applied and verified first), 22 backlog
+rows that guard the self-serve split settlement, card-on-file tabs or the kiosk are marked
+`parked:A1` in place — each keeps its ID and text and names the `SURFACES` constant it reopens
+with. Judged by ROW against each row's own text, never by keyword: 79 rows matched "split/share",
+most about something else (a cash-order label, a grocery mode gate, the settle freeze `settleCash`
+still writes — M201 · M202 · M203 stay for A3). Open rows measured before and after in the A2 row.
+
 ### A1 — "Pay at the counter", and three doors parked (Option A, slice 1) (2026-09-09)
 
 The owner's go on Option A — _subtract to the core_ — after the measured brief: 5 paid orders in 30
@@ -28,8 +37,9 @@ restaurant actually needs and closes three it does not.
   reference breakdown stays), the diner "Save a card" and staff "Open a tab" affordances (an existing
   secure tab still closes), and the kiosk (page and actions). Constants, not env flags — a parked
   door is a diff to a test, never a Vercel setting.
-- **Prod:** the migration is NOT applied — OPEN-ITEMS A1 says how and why the apply must precede
-  the deploy.
+- **Prod:** ~~the migration is NOT applied~~ — SUPERSEDED the same day: applied via `apply_migration`
+  (history row `20260909123158`) and the column verified BEFORE the merge (`bc6e393`); OPEN-ITEMS A1
+  records it. The order — apply, verify, then deploy — was the point, and it held.
 - **Blind adversarial audit — REJECT, four findings, all real, all closed in the same PR.** (1) A
   tablemate's CARD flipped the cart to `paid` and every other phone read "settled at the counter":
   `counterPayOutcome` now reports the TENDER and is member-authorized; the close names cash/Terminal

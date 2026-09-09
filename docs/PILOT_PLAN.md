@@ -132,12 +132,17 @@ Three tables, one service, every staff surface in Burmese. Each line is a thing 
 feature to demo.
 
 1. **Table 1 — the ordinary night.** Two phones scan the same table, one host sends to the kitchen, one
-   adds a dish after the send, the bill is split by person, one pays with Apple Pay and one with a card.
-   _Watch:_ Mom's ticket reads without her leaning in — the Burmese line first, at 1–2 m, in Night (P1's
-   30px is body parity measured from the font files, never yet from eyes at the pass: the dial is
-   `--kfs-item-my`); Dad reads the English beneath it; count how many tickets scroll or span at
-   this load and whether the rail's Burmese wraps; the second round lands as a second ticket, not an
-   edit; the split reconciles to the cent on both receipts; both `/track` pages say paid.
+   adds a dish after the send, then the table taps **"Pay at the counter"** on the Bill and walks up —
+   Dad settles it on the reader (or cash) from `/staff/table/<id>`, where the ask sits above the
+   buttons. _(Was: split by person, Apple Pay + card. That door is PARKED — Option A, A1, 2026-09-09:
+   `SURFACES.selfServeSplit`; the reference breakdown on the Bill stays, the pay-separately verb does
+   not. It comes back only with the surface.)_ _Watch:_ Mom's ticket reads without her leaning in —
+   the Burmese line first, at 1–2 m, in Night (P1's 30px is body parity measured from the font files,
+   never yet from eyes at the pass: the dial is `--kfs-item-my`); Dad reads the English beneath it;
+   count how many tickets scroll or span at this load and whether the rail's Burmese wraps; the
+   second round lands as a second ticket, not an edit; BOTH phones flip to the counter card the moment
+   one taps it, and the table sorts FIRST on the floor with "Pay at counter"; after the settle, both
+   phones leave for the same `/track` receipt (the cleared table must not lose it).
 2. **Table 2 — cash and the code.** One phone, `PILOT15` typed at checkout — then they change their
    mind and pay cash. _Watch:_ Dad applies the code at the register; the floor card goes ordering →
    paying → paid; the receipt shows the discount once, never twice; nothing in Stripe.

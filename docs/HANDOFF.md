@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-09 · Option A is decided, A1 is built and open as a draft PR, the prod column is NOT applied)
+> ## ⏭️ NEXT SESSION — start here (2026-09-09 · Option A is decided; A1 is MERGED with the prod column applied; A2 parked 22 rows; A3 · A4 are next)
 >
 > Min's brief after #275: _"do we need to completely reimagine or redesign … especially for the
 > /staff?"_ The answer was measured, not argued (PostHog, prod host, 30 days; the host is on Stripe
@@ -34,12 +34,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### What is actually next
 >
-> 1. **Merge A1 on Min's go** (the migration first — above). Codex's quota was still exhausted when
->    it opened; the blind adversarial pass is in the PR thread.
-> 2. **A2** — close the parked surfaces' rows by ROW, measured (OPEN-ITEMS A2 names the greps).
-> 3. **A3** — settlement to cash + Terminal with one request-unique owner (M201/M202/M203 by
+> 1. ~~Merge A1~~ ✅ **MERGED `bc6e393` (2026-09-09)** — column applied via `apply_migration`
+>    (history row `20260909123158`) and verified BEFORE the merge; blind audit REJECT (four real
+>    findings) closed in-PR; no Codex round (quota). ~~A2~~ ✅ 22 rows parked by row.
+> 2. **A3** — settlement to cash + Terminal with one request-unique owner (M201/M202/M203 by
 >    subtraction); **A4** — `/staff` to five screens.
-> 4. **C18** still needs a real prod test payment to confirm the webhook is alive (Min only).
+> 3. **C18** still needs a real prod test payment to confirm the webhook is alive (Min only).
 
 > ## ⏭️ NEXT SESSION — start here (2026-09-07 · the P7 stack is ALL on `main`, M159 is on prod, and the first production test pass found the Stripe webhook DEAD)
 >
