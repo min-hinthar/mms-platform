@@ -60,6 +60,9 @@ vi.mock("./authz", () => ({
   AuthzError: class extends Error {},
 }));
 vi.mock("./rate", () => ({ withinMutationRate: () => Promise.resolve(true) }));
+// A1 — tabs are PARKED in production; the M119a cases run with the door OPEN, one pins the refusal.
+let tabsOpen = true;
+vi.mock("./surfaces", () => ({ surfaceOpen: () => tabsOpen }));
 vi.mock("./pay-guard", () => ({
   // The REAL contract, reproduced: a null cart resolves to null — "no cart", not "unknown".
   paymentInFlightReason: (c: unknown) => Promise.resolve(c ? inFlight : null),
@@ -87,6 +90,7 @@ vi.mock("@mms/db/server", () => ({
 const { openTab } = await import("./tabs");
 
 beforeEach(() => {
+  tabsOpen = true;
   cartRow = { id: CART, session_id: SESSION, locked: false };
   cartError = null;
   inFlight = null;
@@ -122,6 +126,15 @@ describe("M119a — openTab's payment mutex must fail CLOSED", () => {
     cartRow = null;
     cartError = { message: "transport failure" };
     await openTab({ cartId: CART });
+    expect(loggedEvents).toHaveLength(0);
+  });
+});
+
+describe("A1 — the parked door is answered at the action", () => {
+  it("refuses to open a tab while SURFACES.cardOnFileTabs is off, writing nothing", async () => {
+    tabsOpen = false;
+    const r = await openTab({ cartId: CART });
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/aren’t available/) });
     expect(loggedEvents).toHaveLength(0);
   });
 });

@@ -176,6 +176,9 @@ vi.mock("@/lib/authz", () => ({
   },
 }));
 vi.mock("@/lib/rate", () => ({ withinMutationRate: () => Promise.resolve(true) }));
+// A1 — the self-serve split is PARKED; the existing cases run with the door OPEN.
+let splitOpen = true;
+vi.mock("@/lib/surfaces", () => ({ surfaceOpen: () => splitOpen }));
 vi.mock("@/lib/lock", () => ({ extendSettlement: () => Promise.resolve(null) }));
 vi.mock("@/lib/split-settle", () => ({ captureAllIfReady: () => Promise.resolve() }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
@@ -189,6 +192,7 @@ function request(tipRate = 0.2) {
 }
 
 beforeEach(() => {
+  splitOpen = true;
   shareError = null;
   recorded = [];
   share = {
@@ -435,5 +439,14 @@ describe("create-share-intent — the $1,000 house tip ceiling", () => {
     const res = await POST(request(0.01));
     expect(res.status).toBe(400);
     expect(createdAmounts).toEqual([]);
+  });
+});
+
+describe("A1 — the parked door is answered at the route", () => {
+  it("answers 410 while SURFACES.selfServeSplit is off, before any intent is created", async () => {
+    splitOpen = false;
+    const res = await POST(request());
+    expect(res.status).toBe(410);
+    expect(createdKeys).toHaveLength(0);
   });
 });

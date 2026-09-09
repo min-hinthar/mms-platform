@@ -1,7 +1,8 @@
 "use server";
 import { serviceClient } from "@mms/db/server";
 import { counterPayInput } from "@mms/db/schemas";
-import { assertCartMember, AuthzError } from "./authz";
+import { assertCartMember, AuthzError, getCallerUid } from "./authz";
+import { COUNTER_TENDERS } from "./counter-tender";
 import {
   COUNTER_PAY_REFUSAL_COPY,
   counterPayRefusal,
@@ -52,10 +53,16 @@ export async function requestCounterPay(raw: unknown): Promise<CounterPayResult>
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table. Refusing the ask on "nothing to settle" over a
   // full order would be the false verdict, so an unreadable count is an outage, not `empty`.
+  // The SAME predicate the floor counts by (`floor.ts`: `state !== "voided" && !comped`), so the
+  // ask and the chip agree about what "something to settle" means. A table whose every line was
+  // voided or comped has nothing for the register to take; asking would light a card here and
+  // nothing on the floor.
   const { count, error: countError } = await db
     .from("qr_cart_items")
     .select("id", { count: "exact", head: true })
-    .eq("cart_id", cartId);
+    .eq("cart_id", cartId)
+    .neq("state", "voided")
+    .eq("comped", false);
   if (countError) return { ok: false, reason: "error", error: OUTAGE };
   const refusal = counterPayRefusal({
     mode: authz.mode,
@@ -100,29 +107,48 @@ export async function withdrawCounterPay(raw: unknown): Promise<CounterPayResult
   }
   // No freeze check: taking an ask BACK never needs to wait for anything — a table that started a
   // card payment after asking has, by that act, changed its mind, and the stamp should follow.
-  const { error } = await serviceClient()
+  const db = serviceClient();
+  const { data: rows, error } = await db
     .from("qr_carts")
     .update({ counter_requested_at: null })
     .eq("id", cartId)
     .eq("status", "open")
     .select("id");
   if (error) return { ok: false, reason: "error", error: OUTAGE };
-  // Zero rows here means "already null" or "already settled" — both leave the ask withdrawn.
+  if (rows && rows.length > 0) return { ok: true, counterRequestedAt: null };
+  // Zero rows: the cart closed under us (settled — the ask is moot, but the Bill must learn it
+  // closed, not "withdrawn"), or the ask was already null. Read back to tell them apart.
+  const { data: cart, error: readError } = await db
+    .from("qr_carts")
+    .select("status")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (readError || !cart) return { ok: false, reason: "error", error: OUTAGE };
+  if (cart.status !== "open") return { ok: false, reason: "closed", error: CLOSED };
   return { ok: true, counterRequestedAt: null };
 }
 
 /**
  * What became of this cart, for a Bill that just lost its read (`getCartView` answers `cart_closed`
- * the moment the register settles). The diner's screen needs to know whether to leave for the
- * receipt or stay put — and "the read failed" alone cannot tell a settle from a blip.
+ * the moment the cart settles). The diner's screen needs to know whether to leave for the receipt,
+ * show a close, or stay put — and "the read failed" alone cannot tell a settle from a blip.
  *
- * `paid` carries the order id only when the CALLER may see that order (`getCartOrderId`, member-
- * gated); a paid cart whose order this seat cannot read reports `paid` with `orderId: null`, and
- * the caller shows the plain "settled at the counter" close rather than a tracker it cannot load.
+ * AUTHORIZED by durable session membership (a `session_members` row for this seat on the cart's
+ * session), never by the cart id alone: a cart id is in every URL, and a status by id would be a
+ * public probe. `assertCartMember` is the wrong gate here — it refuses a closed cart, which is the
+ * one state this exists to report. A non-member, a missing seat and a failed read all answer
+ * `unknown` (LEARNINGS: unknowable ≠ verdict).
+ *
+ * `tender` says HOW it settled, because the close the diner sees depends on it (blind audit on
+ * this diff, CRITICAL 1): a tablemate's CARD flips the cart to `paid` too, and calling that
+ * "settled at the counter" is a false sentence on every other phone at the table. `orderId` is
+ * set only when the CALLER may see that order (`getCartOrderId`, member-gated for counter
+ * tenders; the payer's own proofs for a card); a paid cart with no visible order carries null and
+ * the caller shows the tender's close rather than a tracker it cannot load.
  */
 export type CounterPayOutcome =
   | { kind: "open" }
-  | { kind: "paid"; orderId: string | null }
+  | { kind: "paid"; tender: "counter" | "card" | "unknown"; orderId: string | null }
   | { kind: "gone" }
   | { kind: "unknown" };
 
@@ -130,15 +156,39 @@ export async function counterPayOutcome(raw: unknown): Promise<CounterPayOutcome
   const parsed = counterPayInput.safeParse(raw);
   if (!parsed.success) return { kind: "unknown" };
   const { cartId } = parsed.data;
-  const { data: cart, error } = await serviceClient()
+  const uid = await getCallerUid().catch(() => null);
+  if (!uid) return { kind: "unknown" };
+  const db = serviceClient();
+  const { data: cart, error } = await db
     .from("qr_carts")
-    .select("status")
+    .select("status,session_id")
     .eq("id", cartId)
     .maybeSingle();
   if (error) return { kind: "unknown" };
   if (!cart) return { kind: "gone" };
+  const { data: member, error: memberError } = await db
+    .from("session_members")
+    .select("seat_id")
+    .eq("session_id", cart.session_id)
+    .eq("seat_id", uid)
+    .limit(1)
+    .maybeSingle();
+  if (memberError || !member) return { kind: "unknown" };
   if (cart.status === "open") return { kind: "open" };
   if (cart.status !== "paid") return { kind: "gone" };
+  const { data: order, error: orderError } = await db
+    .from("qr_orders")
+    .select("tender")
+    .eq("cart_id", cartId)
+    .eq("status", "paid")
+    .limit(1)
+    .maybeSingle();
+  const tender: "counter" | "card" | "unknown" =
+    orderError || !order
+      ? "unknown"
+      : (COUNTER_TENDERS as readonly string[]).includes(order.tender)
+        ? "counter"
+        : "card";
   const orderId = await getCartOrderId(cartId).catch(() => null);
-  return { kind: "paid", orderId };
+  return { kind: "paid", tender, orderId };
 }

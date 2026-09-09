@@ -30,6 +30,19 @@ restaurant actually needs and closes three it does not.
   door is a diff to a test, never a Vercel setting.
 - **Prod:** the migration is NOT applied — OPEN-ITEMS A1 says how and why the apply must precede
   the deploy.
+- **Blind adversarial audit — REJECT, four findings, all real, all closed in the same PR.** (1) A
+  tablemate's CARD flipped the cart to `paid` and every other phone read "settled at the counter":
+  `counterPayOutcome` now reports the TENDER and is member-authorized; the close names cash/Terminal
+  or "paid on a phone at your table", never the wrong one, and the payer's own pay step is exempt.
+  (2) `/track` dead-ended on a cash order after clear-table (`is_member` needs an open session;
+  `getMyOrderFallback` authorized on `earned_by`, which the register never writes): the fallback
+  gained a durable-membership arm scoped to counter tenders and the tracker reads it at mount.
+  (3) The ask counted every line while the floor counted chargeable ones: a fully-voided table got a
+  counter card and no chip — same predicate on both sides now. (4) The parked split and tab doors
+  were gated only where DRAWN: `openSettlement`, `openTab`, `create-share-intent` and `setup-intent`
+  now refuse (410 at the routes), each pinned by a test and a `surfaces/*` mutant. Plus: `refresh`
+  stable again (refs, not deps), `withdrawCounterPay` row-counted with a read-back, the refusal
+  tests split one-per-reason, `COUNTER_TENDERS` pinned as a value.
 
 ### The kitchen and expo boards can no longer render empty over a working service (M180 · M181) (2026-09-09)
 

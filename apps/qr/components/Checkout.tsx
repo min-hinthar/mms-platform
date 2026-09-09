@@ -389,9 +389,18 @@ export function Checkout({
   const [counterBusy, setCounterBusy] = useState(false);
   // A1 — the register settled this cart while the Bill was open: the read is gone for good
   // (`cart_closed`), and this is the close the diner sees instead of a stale bill.
-  const [settledClose, setSettledClose] = useState(false);
+  const [settledClose, setSettledClose] = useState<"counter" | "card" | null>(null);
   const settleCheckRef = useRef(false);
+  // Refs, not deps: `useJourneyRouter` returns a fresh object per render and `step` changes on
+  // every view flip — either in `refresh`'s deps would recreate it each render and re-register the
+  // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
   const journey = useJourneyRouter();
+  const journeyRef = useRef(journey);
+  journeyRef.current = journey;
+  const stepRef = useRef<"review" | "pay">("review");
+  useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
   // W19 — the pickup timing choice, LIFTED above the keyed step wrapper. It lived in
   // PickupWhenChoice's own useState seeded from the server prop; the `key={viewKey}` remount on a
   // pay-step round-trip re-seeded it from that stale prop, relighting ASAP over a scheduled cart —
@@ -457,13 +466,21 @@ export function Checkout({
       // separates that from a blip, once per failure, and leave the screen only on a positive
       // answer: `paid` with an order this seat may see goes to the receipt; `paid` without one
       // gets the settled close; anything else keeps the last good bill (the swallow below).
-      if (isDineIn && !settleCheckRef.current) {
+      // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
+      // and the Payment Element's return_url is the right exit for the payer, not a close card.
+      if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
         settleCheckRef.current = true;
         void counterPayOutcome({ cartId })
           .then((o) => {
             if (o.kind !== "paid") return;
-            if (o.orderId) journey.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
-            else setSettledClose(true);
+            if (o.orderId) {
+              journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+              return;
+            }
+            // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
+            // says "paid on a phone at your table" — never "at the counter"; an unknown tender
+            // (the order row not yet readable) keeps the last good bill rather than guessing.
+            if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
           })
           .catch(() => {
             /* unknowable — the bill stays as it was, which is the honest floor */
@@ -484,7 +501,7 @@ export function Checkout({
       // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
       return false;
     }
-  }, [cartId, isDineIn, journey]);
+  }, [cartId, isDineIn]);
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
   // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
@@ -1476,6 +1493,7 @@ export function Checkout({
                 available on this device". */}
             {settledClose && (
               <CounterSettledCard
+                by={settledClose}
                 menuHref={menuHref(sessionMode)}
                 menuText={menuLinkText(sessionMode, "browse")}
               />

@@ -118,23 +118,38 @@ export function PayAtCounterCard({
   );
 }
 
-/** The close after the register settled — the diner's screen has no cart left to read. */
-export function CounterSettledCard({ menuHref, menuText }: { menuHref: string; menuText: string }) {
+/**
+ * The close after the bill settled while this screen was open and the cart read is gone for good.
+ * `by` names HOW — the register, or a tablemate's card on their phone — because the two are
+ * different sentences: "settled at the counter" on a phone whose tablemate just paid by card is
+ * a false statement about where the money went (blind audit on this diff, CRITICAL 1).
+ */
+export function CounterSettledCard({
+  by,
+  menuHref,
+  menuText,
+}: {
+  by: "counter" | "card";
+  menuHref: string;
+  menuText: string;
+}) {
+  const titleKey = by === "counter" ? "counterSettledTitle" : "billPaidTitle";
+  const bodyKey = by === "counter" ? "counterSettledBody" : "billPaidBody";
   return (
     <section className="card card-textured mms-pop" style={card} aria-labelledby="settled-h">
       <p style={{ ...eyebrow, color: "var(--ok)" }}>
-        <Icon name="check" size={14} /> Settled
+        <Icon name="check" size={14} /> {by === "counter" ? "Settled" : "Paid"}
       </p>
       <h3 id="settled-h" style={title}>
-        {TX("counterSettledTitle")}
+        {TX(titleKey)}
         <span lang="my" style={titleMy}>
-          {t("my", "counterSettledTitle")}
+          {t("my", titleKey)}
         </span>
       </h3>
       <p style={body}>
-        {TX("counterSettledBody")}
+        {TX(bodyKey)}
         <span lang="my" style={bodyMy}>
-          {t("my", "counterSettledBody")}
+          {t("my", bodyKey)}
         </span>
       </p>
       <a href={menuHref} className="nav-link-strong" style={{ marginTop: 6 }}>

@@ -73,7 +73,7 @@ vi.mock("@mms/db/server", () => ({
   }),
 }));
 
-const { getCartOrderId } = await import("./order");
+const { getCartOrderId, getCartOrderRef } = await import("./order");
 
 beforeEach(() => {
   uid = "u-1";
@@ -84,8 +84,9 @@ beforeEach(() => {
 });
 
 describe("getCartOrderId — the counter tenders", () => {
-  it("a member finds the cash order even after the table is cleared", async () => {
+  it("a member finds the cash order even after the table is cleared — and it is flagged counter", async () => {
     expect(await getCartOrderId("c-1")).toBe("o-1");
+    expect(await getCartOrderRef("c-1")).toEqual({ id: "o-1", counter: true });
   });
   it("a terminal order resolves the same way", async () => {
     orders[0]!.tender = "terminal";
@@ -103,9 +104,16 @@ describe("getCartOrderId — the counter tenders", () => {
     orders[0]!.status = "refunded";
     await expect(getCartOrderId("c-1")).rejects.toThrow();
   });
-  it("a payer's own split share still resolves first", async () => {
+  it("a payer's own split share still resolves first, and is NOT flagged counter", async () => {
     orders = [];
     shares = [{ cart_id: "c-1", seat_id: "u-1", order_id: "o-split" }];
     expect(await getCartOrderId("c-1")).toBe("o-split");
+    expect(await getCartOrderRef("c-1")).toEqual({ id: "o-split", counter: false });
+  });
+  it("COUNTER_TENDERS is cash and terminal, nothing else — widening it is the leak above", async () => {
+    // Pinned as a VALUE so `counter-tender.ts` cannot quietly admit "card": every membership-gated
+    // read (`getCartOrderRef`, `getMyOrderFallback`, `counterPayOutcome`) keys off this list.
+    const { COUNTER_TENDERS } = await import("./counter-tender");
+    expect([...COUNTER_TENDERS].sort()).toEqual(["cash", "terminal"]);
   });
 });

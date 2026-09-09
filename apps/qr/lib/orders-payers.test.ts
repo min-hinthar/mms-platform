@@ -17,6 +17,9 @@ let queries: Q[] = [];
 let payerRow: { order_id: string } | null = null;
 let orderRow: Record<string, unknown> | null = null;
 let paidOrderRow: { id: string } | null = null;
+/** A1 — the counter-tender read (`tender in (cash, terminal)`) and the membership row it gates on. */
+let counterRow: Record<string, unknown> | null = null;
+let memberRow: { seat_id: string } | null = null;
 
 function sel(table: string, cols: string) {
   const q: Q = { table, cols, eq: [] };
@@ -27,6 +30,10 @@ function sel(table: string, cols: string) {
       return api;
     },
     not() {
+      return api;
+    },
+    in(col: string, vals: unknown[]) {
+      q.eq.push([`in:${col}`, vals]);
       return api;
     },
     gte() {
@@ -47,6 +54,9 @@ function sel(table: string, cols: string) {
     },
     maybeSingle() {
       if (table === "qr_order_payers") return Promise.resolve({ data: payerRow, error: null });
+      if (table === "session_members") return Promise.resolve({ data: memberRow, error: null });
+      if (table === "qr_orders" && q.eq.some(([col]) => col === "in:tender"))
+        return Promise.resolve({ data: counterRow, error: null });
       // The earned_by-scoped reads answer EMPTY here — the whole point of these tests is the path a
       // split payer takes when `earned_by` never mentions them.
       if (q.eq.some(([col]) => col === "earned_by"))
@@ -81,6 +91,8 @@ const { getMyOrderFallback, didIPayForCart } = await import("./orders");
 const { getOrderHistory } = await import("./rewards");
 
 beforeEach(() => {
+  counterRow = null;
+  memberRow = null;
   queries = [];
   payerRow = null;
   orderRow = null;
@@ -134,5 +146,46 @@ describe("didIPayForCart — the durable proof probes payer_uid, never trusts th
 
   it("fails closed when nothing proves payment", async () => {
     await expect(didIPayForCart(CART)).resolves.toBe(false);
+  });
+});
+
+describe("A1 — a COUNTER order is readable by whoever sat at the table, even after clear-table", () => {
+  const COUNTER = {
+    id: ORDER,
+    status: "paid",
+    tender: "cash",
+    total_cents: 1547,
+    session_id: "sess-7",
+    qr_order_items: [],
+  };
+  it("resolves the cash order through a session_members row scoped to THIS uid", async () => {
+    counterRow = COUNTER;
+    memberRow = { seat_id: "uid-1" };
+    const r = await getMyOrderFallback({ orderId: ORDER });
+    expect(r.ok).toBe(true);
+    const read = queries.find(
+      (q) => q.table === "qr_orders" && q.eq.some(([c]) => c === "in:tender"),
+    );
+    expect(read?.eq).toContainEqual(["in:tender", ["cash", "terminal"]]);
+    const probe = queries.find((q) => q.table === "session_members");
+    expect(probe?.eq).toContainEqual(["session_id", "sess-7"]);
+    expect(probe?.eq).toContainEqual(["seat_id", "uid-1"]);
+  });
+  it("a non-member of that session stays not_found", async () => {
+    counterRow = COUNTER;
+    memberRow = null;
+    expect(await getMyOrderFallback({ orderId: ORDER })).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
+  });
+  it("membership never authorizes a CARD order — the tender filter is the scope", async () => {
+    // The fake answers the tender-filtered read from `counterRow` only; a card order is not in it.
+    counterRow = null;
+    memberRow = { seat_id: "uid-1" };
+    expect(await getMyOrderFallback({ orderId: ORDER })).toEqual({
+      ok: false,
+      reason: "not_found",
+    });
   });
 });

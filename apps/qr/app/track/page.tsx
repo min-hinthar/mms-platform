@@ -3,7 +3,7 @@ import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 j
 import { OrderTracker } from "@/components/OrderTracker";
 import { ReceiptCard } from "@/components/ReceiptCard";
 import { PrintReceiptButton } from "@/components/PrintReceiptButton";
-import { getCartOrderId } from "@/lib/order";
+import { getCartOrderRef } from "@/lib/order";
 import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
@@ -134,9 +134,19 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   // "payment received — finalizing" with a refresh, never the "no order yet" stub. The `paid` marker
   // distinguishes this from a stray direct visit to `/track?cart=…`.
   if (paid && cart) {
-    const orderId = await getCartOrderId(cart).catch(() => null);
-    if (orderId)
-      return <OrderTracker paymentIntent={null} orderId={orderId} processing={false} justPaid />;
+    const ref = await getCartOrderRef(cart).catch(() => null);
+    if (ref)
+      return (
+        <OrderTracker
+          paymentIntent={null}
+          orderId={ref.id}
+          processing={false}
+          justPaid
+          // A1 — a counter order is unreadable to the live subscription once the table is cleared
+          // (`is_member` needs an open session), so the tracker reads it server-side at once.
+          counterPaid={ref.counter}
+        />
+      );
     return (
       <main className={col} style={wrap}>
         <PaperAmbient />

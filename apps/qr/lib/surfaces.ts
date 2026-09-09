@@ -17,7 +17,10 @@
  *    on prod (OPEN-ITEMS C20). The page renders its honest closed state and the actions refuse.
  *
  * ⚠️ Read these where the door is DRAWN and where it is ANSWERED, never only one: a hidden button
- * with a live action behind it is a door with the sign taken down, not a parked one.
+ * with a live action behind it is a door with the sign taken down, not a parked one. Answered at:
+ * `openSettlement` + `create-share-intent` (split), `openTab` + `setup-intent` (tabs),
+ * `openKioskOrder` + the kiosk page (kiosk) — each pinned by a test that flips the constant and a
+ * `surfaces/*` mutant that deletes the refusal.
  */
 export const SURFACES = {
   selfServeSplit: false,

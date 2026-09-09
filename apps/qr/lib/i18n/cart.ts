@@ -102,6 +102,13 @@ export const CART = {
     en: "This bill was settled at the counter. There’s nothing left to pay here.",
     my: "ဒီဘောက်ချာကို ကောင်တာမှာ ရှင်းပြီးပါပြီ — ဒီမှာ ဘာမှ ရှင်းစရာ မကျန်တော့ပါဘူး",
   },
+  // The close when a TABLEMATE's card settled the bill on their phone — this seat cannot see that
+  // receipt (it is the payer's), so the sentence promises nothing about it.
+  billPaidTitle: { en: "All paid — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
+  billPaidBody: {
+    en: "This bill was paid on a phone at your table. There’s nothing left to pay here.",
+    my: "ဒီဘောက်ချာကို သင့်စားပွဲက ဖုန်းတစ်လုံးကနေ ရှင်းပြီးပါပြီ — ဒီမှာ ဘာမှ ရှင်းစရာ မကျန်တော့ပါဘူး",
+  },
 
   // ── status words ───────────────────────────────────────────────────────────
   paidInFull: { en: "Paid in full", my: "အပြည့် ရှင်းပြီးပါပြီ" },

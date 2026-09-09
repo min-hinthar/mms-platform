@@ -500,7 +500,8 @@ export const STAFF = {
   "table.detail.unregisteredBadge": { en: "Unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
   "table.detail.tabOpen": { en: "Tab open", my: "စာရင်း ဖွင့်ထား" },
   // A1 — the drill-down's ask banner, above the settle controls. Present tense, the table's own
-  // voice: they asked, they are waiting, the register acts. `{t}` is a relative time ("2 min ago").
+  // voice: they asked, they are waiting, the register acts. The relative time ("2 min ago") is
+  // rendered beside `counterAsked` by <RelativeTime>, English-only, outside the Burmese span.
   "table.detail.counterAsk": {
     en: "They’d like to pay here at the counter",
     my: "ကောင်တာမှာ ငွေရှင်းချင်ပါတယ်",

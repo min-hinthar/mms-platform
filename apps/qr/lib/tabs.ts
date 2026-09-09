@@ -1,5 +1,6 @@
 "use server";
 import { revalidatePath } from "next/cache";
+import { surfaceOpen } from "./surfaces";
 import { serviceClient } from "@mms/db/server";
 import { openTabInput } from "@mms/db/schemas";
 import { getStaffAuth } from "./staff";
@@ -30,6 +31,11 @@ export async function openTab(raw: unknown): Promise<OpenTabResult> {
   const parsed = openTabInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
   const { cartId } = parsed.data;
+  // A1 — tabs are PARKED (`SURFACES.cardOnFileTabs`): refused at the action, not only at the two
+  // buttons, so a POST with the affordance hidden opens nothing. An EXISTING tab still closes
+  // (`closeSecureTab` is untouched) — parking stops new ones, it strands nobody.
+  if (!surfaceOpen("cardOnFileTabs"))
+    return { ok: false, error: "Tabs aren’t available right now — pay here, or at the counter." };
 
   // Resolve authority. Staff first: a real (non-anon) account isn't a session_member, so assertCartMember
   // would wrongly reject them — branch before it. A diner (anon) falls through to the membership IDOR

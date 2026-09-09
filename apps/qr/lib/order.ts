@@ -72,6 +72,18 @@ export async function getSplitOrderId(cartId: string): Promise<string | null> {
  * `qr_order_payers`, the share row), which say who PAID rather than who SAT there.
  */
 export async function getCartOrderId(cartId: string): Promise<string | null> {
+  return (await getCartOrderRef(cartId))?.id ?? null;
+}
+
+/**
+ * The order AND how it settled — `counter: true` when it came through the register (cash /
+ * Terminal), which /track needs: a counter order is unreadable to the LIVE subscription once the
+ * table is cleared (`is_member` requires an open session), so the tracker goes straight to the
+ * membership-authorized server read instead of waiting out ten empty polls.
+ */
+export async function getCartOrderRef(
+  cartId: string,
+): Promise<{ id: string; counter: boolean } | null> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const uid = await getCallerUid().catch(() => null);
   if (uid) {
@@ -92,8 +104,9 @@ export async function getCartOrderId(cartId: string): Promise<string | null> {
         .eq("seat_id", uid)
         .limit(1)
         .maybeSingle();
-      if (member) return order.id;
+      if (member) return { id: order.id, counter: true };
     }
   }
-  return getSplitOrderId(id);
+  const split = await getSplitOrderId(id);
+  return split ? { id: split, counter: false } : null;
 }

@@ -782,10 +782,21 @@ offer the phone or nothing. The rules that came out of building the other door:
   wears the attention tone the paying/settling chips wear and sorts FIRST, longest wait on top — the
   floor is the register's queue for those tables, and a queue by table number would let the newest
   ask at table 1 cut in front of the family that asked ten minutes ago at table 9.
-- **The close is a receipt, never "isn't available on this device".** A settled cart's read is gone
-  for good; the Bill asks one question (`counterPayOutcome`) and leaves for `/track` only on a
-  positive answer, or shows the settled close when the seat cannot see the order. A failed read that
-  is NOT a settle keeps the last good bill — the honest floor.
+- **The close is a receipt, never "isn't available on this device" — and it names the tender.** A
+  settled cart's read is gone for good; the Bill asks one question (`counterPayOutcome`, member-
+  authorized) and leaves for `/track` only on a positive answer with an order this seat may see.
+  When it cannot, the close says HOW the bill settled: "settled at the counter" for cash/Terminal,
+  "paid on a phone at your table" for a tablemate's card — the two are different sentences, and the
+  blind audit caught the draft saying the first for the second. An unknown tender keeps the last
+  good bill; so does a failed read that is not a settle — the honest floor. The payer's own phone
+  never sees a close: on the pay step the Payment Element's return is the exit.
+- **A counter order stays readable after the table is cleared.** `is_member` needs an open session,
+  so the live tracker cannot read a cash order once the register clears the table; `/track` goes
+  straight to the uid-scoped server read, whose new arm is durable `session_members` membership
+  scoped to the counter tenders — who sat there is not who paid, so a card receipt never opens
+  through it.
+- **The ask counts what the floor counts.** "Something to settle" is `state !== 'voided' && !comped`
+  on both sides, or a fully-voided table gets a counter card while the register never sees a chip.
 - **Parking is a constant.** `lib/surfaces.ts` is where a door is switched off, read both where the
   door is drawn and where it is answered. A hidden button with a live action behind it is a door with
   the sign taken down, not a parked one.
