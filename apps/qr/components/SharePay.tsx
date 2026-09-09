@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
-import { TIP_LADDER } from "@/lib/tip";
+import { TIP_LADDER, tipWithinAmountCap } from "@/lib/tip";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import { confirmCopy } from "@/lib/confirm-copy";
 import { ConfirmSwap } from "./ConfirmSwap";
@@ -41,6 +41,18 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   const [retry, setRetry] = useState(0); // bump to re-mint after a transient failure
   const [clientSecret, setClientSecret] = useState<string | null>(null);
   const [amountCents, setAmountCents] = useState(0);
+  // ⚠️ THE SHARE'S NET, so the ladder can drop a rung the server would refuse (Codex round 1 on #275,
+  // P2). `create-share-intent` now enforces the $1,000 house ceiling on the DERIVED cents — which is
+  // right, and which made this component's raw `TIP_LADDER` a promise the server does not keep: on a
+  // share above ~$3,333 the advertised 30% mints a 400, and the diner's payment form simply never
+  // appears. `KioskReview` and `CashSettleButton` have filtered their presets against that cap all
+  // along; the split ask was the one surface that did not.
+  //
+  // Derived rather than added to the response: the route already returns both halves, and net =
+  // amount − tip is exact in integer cents. It is 0 until the first mint answers, and the filter
+  // treats 0 as "unknown, offer everything" — a first render that hid rungs on no evidence would be
+  // the over-blocking direction, and the server still refuses what it must.
+  const [netCents, setNetCents] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // W10c — this payer has a LIVE HOLD on their card. Changing the tip re-mints the PaymentIntent and
@@ -69,6 +81,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         const d = (await r.json()) as {
           clientSecret?: string;
           amountCents?: number;
+          tipCents?: number;
           error?: string;
         };
         if (!active) return;
@@ -81,6 +94,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         }
         setClientSecret(d.clientSecret);
         setAmountCents(d.amountCents ?? 0);
+        setNetCents(Math.max(0, (d.amountCents ?? 0) - (d.tipCents ?? 0)));
       })
       .catch(() => {
         if (active) setError("Couldn’t start your payment — please try again.");
@@ -125,7 +139,12 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
         aria-describedby={held ? "share-tip-locked" : undefined}
         style={{ display: "flex", gap: 8 }}
       >
-        {TIPS.map(([label, rate]) => {
+        {TIPS.filter(
+          // Same filter the kiosk and cash-settle asks apply, on the same authority. `netCents === 0`
+          // is "we have not been told yet" — offer the whole ladder rather than hide rungs on no
+          // evidence. "No tip" (rate 0) is never filtered: 0 × anything is inside every cap.
+          ([, rate]) => netCents === 0 || tipWithinAmountCap(Math.round(netCents * rate)),
+        ).map(([label, rate]) => {
           const on = tipRate === rate;
           // W21d (Codex P2 on #189, same rule as Checkout's None): rate 0 is the INITIAL state,
           // not an answer — the lit cap on it presented "No tip" as a promoted choice on arrival.
