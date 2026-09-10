@@ -72,6 +72,25 @@ const { AccountUpgrade } = await import("./AccountUpgrade");
  * assertion that waits on an async handler. jsdom fires rAF on its own ~16ms interval, and several of
  * these effects chain a frame onto a state update, so this yields more than once.
  */
+/**
+ * ⚠️ NEVER RESUME OFF `waitFor(() => expect(<mock>).toHaveBeenCalled())` — CI proved this one, twice.
+ * Every await in this card is followed by the state update that hands the card back: `setBusy(false)`,
+ * `setEmailTaken(true)`, `setCarryBlocked(…)`. `toHaveBeenCalled()` is satisfied the instant the call is
+ * INVOKED — a full state flush earlier — so a synchronous query on the next line races the render it
+ * depends on. Locally the flush won every run; on a loaded runner it did not, and the failure wears two
+ * different faces: a `getByRole` that throws (the CTA still reads “Sending…”, the escape hatch is not
+ * mounted yet), and — nastier — a `fireEvent.click` on a still-`disabled` control, which is a SILENT
+ * no-op that surfaces as a timeout in whatever waits for the press to land.
+ *
+ * The same trails the same way OUTSIDE the DOM: `clearMergeToken()` runs after the awaited call too, so
+ * `expect(stored).toBeNull()` on the line after a call-wait is asserting a clear that has not run yet —
+ * and that one is the stranded-token invariant, the most load-bearing assertion in this file.
+ *
+ * So resume off the OUTCOME, never off the mock: `findBy*` for a thing that must appear, `waitFor` around
+ * the assertion for a thing that must change (`stored` included), and an explicit wait for
+ * `disabled === false` before any press that follows an await. Asserting the mock ran is still fine —
+ * just never as the gate you then query behind.
+ */
 async function flushFrames() {
   for (let i = 0; i < 3; i++) {
     await act(async () => {
@@ -281,12 +300,14 @@ describe("the carry is secured before the session is abandoned", () => {
     mintMergeToken.mockResolvedValue({ kind: "failed" });
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
-    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
-    // The old code redirected regardless, and the anon uid became unreachable the moment it did.
-    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain(
-      "couldn’t get this device’s Stars ready",
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "couldn’t get this device’s Stars ready",
+      ),
     );
+    // The old code redirected regardless, and the anon uid became unreachable the moment it did.
+    // Asserted AFTER the message lands, so this is "never redirected", not "hasn't redirected yet".
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
   });
 
   it("does NOT redirect when the stash silently fails", async () => {
@@ -294,9 +315,10 @@ describe("the carry is secured before the session is abandoned", () => {
     stashDisabled = true; // private mode / storage quota — stashMergeToken swallows it by design
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
-    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
-    expect(auth.signInWithOAuth).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("private browsing");
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("private browsing"),
+    );
+    expect(auth.signInWithOAuth).not.toHaveBeenCalled(); // after the message: "never", not "not yet"
   });
 
   it("offers a way through that says what it costs, and it works", async () => {
@@ -304,9 +326,9 @@ describe("the carry is secured before the session is abandoned", () => {
     mintMergeToken.mockResolvedValue({ kind: "failed" });
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
-    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
-
-    const escape = screen.getByRole("button", { name: /leave this device’s Stars behind/i });
+    const escape = await screen.findByRole("button", {
+      name: /leave this device’s Stars behind/i,
+    });
     fireEvent.click(escape);
     await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
   });
@@ -352,7 +374,7 @@ describe("the carry is secured before the session is abandoned", () => {
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
     await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalled());
-    expect(stored).toBeNull();
+    await waitFor(() => expect(stored).toBeNull());
   });
 });
 
@@ -401,6 +423,14 @@ describe("round 1 — the doors that could race, and the one that must lose", ()
 
     fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
     await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
+    // Wait for the card to be HANDED BACK, not merely for the call to have happened — and note this is
+    // the test's own thesis, so it belongs here as an assertion regardless of the timing it also fixes.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /Sign in with Google/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
 
     auth.signInWithOAuth.mockResolvedValue({ error: null });
     fireEvent.click(screen.getByRole("button", { name: /Sign in with Google/i }));
@@ -437,7 +467,8 @@ describe("round 1 — the doors that could race, and the one that must lose", ()
     await flushFrames();
     await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalled());
 
-    expect(stored).toBeNull(); // the unbound proof is cleared, not left for the next person
+    // the unbound proof is cleared, not left for the next person
+    await waitFor(() => expect(stored).toBeNull());
     await waitFor(() =>
       expect(
         (screen.getByRole("button", { name: /Sign in with Google/i }) as HTMLButtonElement)
@@ -460,9 +491,9 @@ describe("round 1 — the doors that could race, and the one that must lose", ()
     // action is invoked, which is before the state update that relabels the CTA.
     const send = await screen.findByRole("button", { name: /Send sign-in code/i });
     fireEvent.submit(send.closest("form")!);
-    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
-
-    fireEvent.click(screen.getByRole("button", { name: /leave this device’s Stars behind/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /leave this device’s Stars behind/i }),
+    );
     await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
     expect(auth.signInWithOtp.mock.calls[0]?.[0]).toMatchObject({ email: "me@example.com" });
     expect(auth.signInWithOAuth).not.toHaveBeenCalled();
@@ -482,13 +513,17 @@ describe("the blind pass — what the invariant said in three places and enforce
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
     auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
     fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
-    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
+    // ⚠️ Wait on the BUTTON, not `updateUser` — same rule as the sibling above, and CI is what
+    // proved it: `toHaveBeenCalled()` resolves the instant the action is invoked, one state
+    // update BEFORE the CTA is relabelled, so the query can land while it still reads “Sending…”.
+    // Locally that update happened to flush first every run; on a slower runner it did not.
+    const send = await screen.findByRole("button", { name: /Send sign-in code/i });
 
     auth.signInWithOtp.mockResolvedValue({ error: { message: "Email rate limit exceeded" } });
-    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    fireEvent.submit(send.closest("form")!);
     await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalled());
 
-    expect(stored).toBeNull();
+    await waitFor(() => expect(stored).toBeNull());
   });
 
   it("does not wedge every door when the OTP send REJECTS", async () => {
@@ -501,12 +536,16 @@ describe("the blind pass — what the invariant said in three places and enforce
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
     auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
     fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
-    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
+    // ⚠️ Wait on the BUTTON, not `updateUser` — same rule as the sibling above, and CI is what
+    // proved it: `toHaveBeenCalled()` resolves the instant the action is invoked, one state
+    // update BEFORE the CTA is relabelled, so the query can land while it still reads “Sending…”.
+    // Locally that update happened to flush first every run; on a slower runner it did not.
+    const send = await screen.findByRole("button", { name: /Send sign-in code/i });
 
     auth.signInWithOtp.mockRejectedValueOnce(new Error("storage unavailable"));
-    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    fireEvent.submit(send.closest("form")!);
     await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
-    expect(stored).toBeNull(); // and the proof does not survive the throw either
+    await waitFor(() => expect(stored).toBeNull()); // the proof does not survive the throw either
 
     // The lock released: another door still works.
     auth.signInWithOtp.mockResolvedValue({ error: null });
@@ -558,8 +597,9 @@ describe("the blind pass — what the invariant said in three places and enforce
     // action is invoked, which is before the state update that relabels the CTA.
     const send = await screen.findByRole("button", { name: /Send sign-in code/i });
     fireEvent.submit(send.closest("form")!);
-    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: /leave this device’s Stars behind/i })).toBeTruthy();
+    expect(
+      await screen.findByRole("button", { name: /leave this device’s Stars behind/i }),
+    ).toBeTruthy();
 
     // The diner corrects the address. The block belonged to the old one.
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "bob@y.com" } });
