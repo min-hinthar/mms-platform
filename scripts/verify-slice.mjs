@@ -4651,9 +4651,9 @@ const MUTANTS = [
     id: "account-upgrade/otp-rejection-wedges-every-door",
     file: "apps/qr/components/AccountUpgrade.tsx",
     suite: "components/AccountUpgrade.test.tsx",
-    why: "BLIND PASS, CRITICAL — and the lock is what makes it critical. `signInWithOtp` builds the PKCE challenge from storage before it sends and rethrows anything that is not an AuthError, so it can REJECT rather than answer `{ error }`. Uncaught, the throw skips the release and `signInStarting` stays true for the life of the page: the Google button, a Welcome-back chip, a `?resume=` return and this form all become silent no-ops, with no message, because `setBusy(false)` sits after the throw",
-    find: "      const { error: e0 } = await supa.auth\n        .signInWithOtp({",
-    replace: "      const { error: e0 } = await supa.auth.signInWithOtp({",
+    why: 'BLIND PASS, CRITICAL — and the lock is what makes it critical. `signInWithOtp` builds the PKCE challenge from storage before it sends and rethrows anything that is not an AuthError, so it can REJECT rather than answer `{ error }`. Uncaught, the throw skips the release and `signInStarting` stays true for the life of the page: the Google button, a Welcome-back chip, a `?resume=` return and this form all become silent no-ops, with no message, because `setBusy(false)` sits after the throw. ⚠️ THE FIRST FORM OF THIS MUTANT SURVIVED, and deserved to: it matched `await supa.auth\\n  .signInWithOtp({` and collapsed it to one line, which deletes a LINE BREAK and leaves the `.catch` clause fully intact — semantically identical code. That is the repo\'s own "guards PARSE, never scan" rule turned on the mutation set: a matcher anchored on whitespace tests formatting, not behaviour. It now removes the catch clause itself',
+    find: '        })\n        .catch((e: unknown) => ({\n          error: {\n            message: e instanceof Error ? e.message : "Couldn’t send the sign-in code — try again.",\n          },\n        }));',
+    replace: "        });",
   },
   {
     id: "account-upgrade/hatch-acts-on-a-contradicted-address",
@@ -4670,6 +4670,14 @@ const MUTANTS = [
     why: 'BLIND PASS. A `generic` bounce carries no recovery — there is nothing to press differently — so reviving it only re-prints "Couldn\'t finish with Google" on a later visit where nothing was attempted. And it is unclearable in practice: `clearCallbackOutcome` runs from the non-anonymous auth listener and from a device handover, and an anonymous diner who never signs in reaches neither, so the false sentence follows them for the rest of the tab session',
     find: '  if (outcome.kind !== "already-linked") return;',
     replace: "  void outcome;",
+  },
+  {
+    id: "account-upgrade/oauth-rejection-wedges-the-card",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "the OTP path's twin, and it had no mutant until the blind pass named the asymmetry. `signInWithOAuth` writes the PKCE verifier to storage before it resolves, so a storage or browser failure REJECTS rather than answering `{ error }`. Uncaught, `busy` stays true with the manual recovery button disabled, the one-start lock is never released, and the token stashed a moment earlier stays live 24h for a later unrelated sign-in on this device",
+    find: '      })\n      .catch((e: unknown) => ({\n        error: { message: e instanceof Error ? e.message : "Couldn’t reach Google — try again." },\n      }));',
+    replace: "      });",
   },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   {

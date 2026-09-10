@@ -514,6 +514,34 @@ describe("the blind pass — what the invariant said in three places and enforce
     await waitFor(() => expect(auth.linkIdentity).toHaveBeenCalledTimes(1));
   });
 
+  it("hands the card back when a MANUAL Google press rejects — the arm with no outer catch", async () => {
+    // ⚠️ The mutation gate found the gap: the AUTOMATIC path wraps its own call
+    // (`void startGoogleSignIn(true).catch(…)`), so removing the catch INSIDE `startGoogleSignIn`
+    // changes nothing there and the mutant survived against that fixture. The manual presses —
+    // this button, a Welcome-back chip, the escape hatch — have no outer handler at all, so the
+    // inner catch is the only thing between a rejected call and a card stuck at `busy` with an
+    // unbound 24h token still stashed. Pressing is what separates the two.
+    params = new URLSearchParams(`error_code=${BOUNCE}`);
+    window.sessionStorage.setItem("mms.oauth_recovered", "1"); // no auto-recovery: measure the PRESS
+    auth.signInWithOAuth.mockRejectedValue(new Error("storage unavailable"));
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    const btn = screen.getByRole("button", { name: /Sign in with Google/i });
+    fireEvent.click(btn);
+    await waitFor(() => expect(auth.signInWithOAuth).toHaveBeenCalledTimes(1));
+
+    // The proof does not outlive the redirect that never happened…
+    await waitFor(() => expect(stored).toBeNull());
+    // …and the control is usable again rather than disabled behind a stuck `busy`.
+    await waitFor(() =>
+      expect(
+        (screen.getByRole("button", { name: /Sign in with Google/i }) as HTMLButtonElement)
+          .disabled,
+      ).toBe(false),
+    );
+  });
+
   it("retires the escape hatch once the diner edits the address it was raised for", async () => {
     // The hatch renders outside both `phase` branches and nothing cleared `carryBlocked` on an edit,
     // so a diner blocked on one address, who then corrected it and began an ordinary uid-PRESERVING
