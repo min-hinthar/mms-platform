@@ -2090,3 +2090,47 @@ mutation run (the claim's predicate was pinned by nothing) and one was UNREACHAB
 stubbed the function containing the rule). Both are #60's shape aimed at the author rather than at
 inherited code, and both were only found because the mutant harness was run _after_ the fix was
 believed rather than before. Run it before you believe it.
+
+## #108
+
+**A flaky test never fails alone — CI names one line, and the class behind it is the whole file. Go
+measure the class before you fix the line.** (CI red on #279's `3b632c3`; found by fixing the named
+line and then asking what else shared its shape.)
+
+`AccountUpgrade.test.tsx:507` failed on a loaded runner with "Unable to find an accessible element
+with the role button and name /Send sign-in code/i", the CTA still reading "Sending…". The query sat
+one line under `await waitFor(() => expect(auth.updateUser).toHaveBeenCalled())`, and that wait is
+satisfied the instant the call is **invoked** — a full state flush before the continuation runs
+`setBusy(false)`. Locally the flush won every run for weeks. The fix at that line was two words
+(`getByRole` → `await findByRole`), and stopping there would have shipped nine more.
+
+**Measure the class mechanically, not by eye.** Wrapping every auth + mint mock in a 200 ms delay —
+two lines, at the `vi.mock` factories, so it applies unchanged to the parent commit and to the fix —
+turned "is this flaky?" into a number: **10 of 31 tests failed at the parent, 0 after.** A grep for
+the literal pattern found six of the ten; the delay found all of them, including two the grep could
+never have matched. When a timing bug is suspected, make the timing WORSE and run it — that is the
+red-first rule applied to a race, and it is the difference between a fix and a measurement.
+
+The class wears three faces, and only the first is the one CI printed:
+
+1. **A query that throws** — the control is not mounted yet, or still wears its busy label.
+2. **A press that silently does nothing** — `fireEvent.click` on a `disabled` button is a **no-op,
+   not an error**, so it surfaces far away as a timeout in whatever waits for the press to land.
+   This is the dangerous face: nothing in the failure output points at the click.
+3. **A non-DOM assertion racing a non-DOM effect** — `expect(stored).toBeNull()` against a
+   `clearMergeToken()` that runs after the same await. No amount of DOM-query discipline reaches
+   this one, and in this file it was the stranded-token invariant: the most load-bearing assertion
+   in the suite, racy in four places.
+
+So the rule is not "prefer `findBy*`". It is: **resume off the OUTCOME, never off the mock.** A mock
+call-count says a function was entered; every assertion worth making is about what happened after it
+returned. Asserting the mock ran is still fine — just never as the gate you then query behind.
+
+Two corollaries worth keeping:
+
+- **A negative assertion placed before the wait is vacuous.** `expect(x).not.toHaveBeenCalled()`
+  under a call-wait for something else reads as "never happened" and means "hasn't happened yet".
+  Move it after the wait that establishes the outcome, and it starts meaning what it says.
+- **When the timing fix and the test's thesis coincide, write the thesis.** The wedged-lock test
+  needed the button re-enabled before its second press; "the card is handed back" is exactly what
+  that test exists to prove, so it is now an assertion rather than an assumption the sleep hid.

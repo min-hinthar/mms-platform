@@ -2,7 +2,12 @@
 import { Fragment, type ReactNode } from "react";
 import { STAFF, type StaffKey } from "@/lib/i18n/staff";
 import { fill } from "@/lib/i18n/fill";
-import { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } from "@/lib/staff-outage";
+import {
+  STAFF_WRITE_OUTAGE,
+  STAFF_WRITE_OUTAGE_MY,
+  AUTHORITY_UNCONFIRMED,
+  AUTHORITY_UNCONFIRMED_MY,
+} from "@/lib/staff-outage";
 import type { StaffLang } from "@/lib/staff-lang";
 
 /**
@@ -107,11 +112,24 @@ export function Chrome({
  * Burmese arm is a marked span so the console's Padauk companion rules can reach it. No echo — this
  * renders inside a live region, and a bilingual announcement says everything twice.
  */
+const OUTAGE_TWINS: ReadonlyMap<string, string> = new Map([
+  [STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY],
+  // M209 — the authority refresh could not be CHECKED. A separate sentence from the write outage
+  // because it means something different (nothing was attempted, and paper is not the fallback), so
+  // it needs its own twin rather than sharing one that would be false in both tongues.
+  [AUTHORITY_UNCONFIRMED, AUTHORITY_UNCONFIRMED_MY],
+]);
+
 export function OutageText({ lang, error }: { lang: StaffLang; error: string }) {
-  if (lang === "my" && error === STAFF_WRITE_OUTAGE)
+  // A MAP, not a chain of identity comparisons: every sentence that acquires a twin joins here, and
+  // the one that motivated the change (M209's) was invisible in Burmese precisely because a second
+  // arm had to be remembered. Anything without a twin still passes through verbatim — a sentence we
+  // cannot translate is better shown in English than guessed at in Burmese.
+  const twin = lang === "my" ? OUTAGE_TWINS.get(error) : undefined;
+  if (twin)
     return (
       <span lang="my" className="chrome-my">
-        {STAFF_WRITE_OUTAGE_MY}
+        {twin}
       </span>
     );
   return <>{error}</>;

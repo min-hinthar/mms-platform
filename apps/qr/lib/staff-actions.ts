@@ -17,6 +17,21 @@ const PROVISION_WINDOW_S = 3600;
  *  server sees when they POST at a screen they cannot open, and three hand-copied versions is how
  *  one of them ends up still saying "Owners only." after the floor moved. */
 const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
+/**
+ * M209 — the refusal for "we could not check", which is NOT the refusal for "you may not".
+ * Naming the outage keeps a database hiccup from telling a manager they are not one, while still
+ * refusing the write it could not authorize.
+ *
+ * Imported from `lib/staff-outage` rather than written here: this module is `"use server"`, so a
+ * client renderer cannot reach it, and `<OutageText>` picks the Burmese twin by string IDENTITY.
+ * A literal defined here would have been correct English and silently untranslated — which is what
+ * Codex round 1 on #279 caught, on the one console whose job is telling someone their authority.
+ */
+import { AUTHORITY_UNCONFIRMED } from "./staff-outage";
+/** The one mapping from a refused authority refresh to what the console should say. */
+function authorityRefusal(reason: "revoked" | "outage"): string {
+  return reason === "outage" ? AUTHORITY_UNCONFIRMED : MANAGERS_ONLY;
+}
 
 /**
  * A6 — RE-READ THE CALLER'S OWN AUTHORITY IMMEDIATELY BEFORE AN AUTHORITY WRITE, AND RETURN THE
@@ -38,8 +53,15 @@ const MANAGERS_ONLY = "That needs a manager — ask one to step in.";
  * revocation landing between them is unseen. Closing it properly means deciding the caller and the
  * target in ONE statement, which needs an RPC or an RLS UPDATE policy on `staff` — a prod
  * migration, blocked on the divergent history, and filed as OPEN-ITEMS M208.
+ *
+ * ⚠️ M209 — AND AN UNREADABLE ROW REFUSES RATHER THAN PROCEEDING. The first shipped version answered
+ * `{ ok: true }` on a read error, on the reasoning that a hiccup is not a revocation. That reasoning
+ * is sound and its conclusion was still wrong: it authorized an authority write on a rank the code
+ * had explicitly failed to confirm, which is the one thing this helper exists to stop. The answer is
+ * neither arm of that fork — it refuses, and `reason` carries WHY so the console can say "we couldn't
+ * confirm your access" instead of telling a manager they are not one.
  */
-type CallerAuthority = { ok: true; role: StaffRole } | { ok: false };
+type CallerAuthority = { ok: true; role: StaffRole } | { ok: false; reason: "revoked" | "outage" };
 
 async function refreshCallerAuthority(
   db: ReturnType<typeof serviceClient>,
@@ -50,15 +72,23 @@ async function refreshCallerAuthority(
     .select("role,active")
     .eq("user_id", caller.staffId)
     .maybeSingle();
-  // An unreadable row is NOT a revocation — the caller keeps the authority the session proved, and
-  // the outage surfaces from whichever read fails next. Refusing here would turn a database hiccup
-  // into "you are not a manager", which is the fabricated-diagnosis shape M116/M119 closed. The
-  // session's role is returned unchanged so the ceiling still HAS a value to decide against.
-  if (error) return { ok: true, role: caller.role };
-  if (!data) return { ok: false }; // the row is gone: no staff row, no authority
-  if (data.active !== true) return { ok: false };
+  // ⚠️ M209 — AN UNREADABLE ROW REFUSES, AND IT SAYS WHY. This used to answer `{ ok: true }` on the
+  // session's role, reasoning that a hiccup is not a revocation. Both arms of that fork are wrong.
+  // Proceeding authorizes a write on a role we explicitly FAILED to confirm, so a caller demoted or
+  // deactivated mid-request still provisions staff, changes a role, or deactivates a colleague — on a
+  // path with no database gate behind it, where these refusals are the whole authority model.
+  // Refusing with MANAGERS_ONLY is the other wrong arm: it tells a manager they are not one, which is
+  // the fabricated-diagnosis shape M116/M119 b-e closed across this codebase.
+  //
+  // So it refuses and NAMES THE OUTAGE. "We couldn't confirm your access" is true, actionable, and
+  // accuses nobody of lacking a permission they hold. The distinction is carried in `reason` rather
+  // than left to the call site, because every one of the four call sites had written the same
+  // MANAGERS_ONLY on both.
+  if (error) return { ok: false, reason: "outage" };
+  if (!data) return { ok: false, reason: "revoked" }; // the row is gone: no staff row, no authority
+  if (data.active !== true) return { ok: false, reason: "revoked" };
   const role = data.role as StaffRole;
-  if (!roleAtLeast(role, "manager")) return { ok: false };
+  if (!roleAtLeast(role, "manager")) return { ok: false, reason: "revoked" };
   return { ok: true, role };
 }
 
@@ -160,7 +190,7 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
   // mutant survived, correctly) and bought a rollback path for a side effect that need never have
   // happened.
   const fresh = await refreshCallerAuthority(db, caller);
-  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  if (!fresh.ok) return { ok: false, error: authorityRefusal(fresh.reason) };
   if (!canActOn(fresh.role, parsed.data.role))
     return { ok: false, error: "Only the owner can add another owner." };
 
@@ -253,7 +283,7 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
   // owner, and the account that could reinstate them is the one just switched off.
 
   const fresh = await refreshCallerAuthority(db, caller);
-  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  if (!fresh.ok) return { ok: false, error: authorityRefusal(fresh.reason) };
   // The ceiling AGAIN, on the REFRESHED role — see `refreshCallerAuthority`. An owner demoted to
   // manager between the session read and here may no longer touch an owner's account.
   if (!canActOn(fresh.role, target.role as StaffRole))
@@ -341,7 +371,7 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
   if (current === parsed.data.role) return { ok: true }; // already there — a no-op, not a failure
 
   const fresh = await refreshCallerAuthority(db, caller);
-  if (!fresh.ok) return { ok: false, error: MANAGERS_ONLY };
+  if (!fresh.ok) return { ok: false, error: authorityRefusal(fresh.reason) };
   // BOTH halves again, on the REFRESHED role — the target's current role and the requested one.
   if (!canActOn(fresh.role, current) || !canActOn(fresh.role, parsed.data.role))
     return { ok: false, error: "Only the owner can change an owner’s role." };

@@ -25,18 +25,43 @@ export type MergeSummary = { orders: number; stars: number; coupons: number };
 const TOKEN_TTL_MS = 24 * 60 * 60 * 1000; // 24h — long enough for an email round-trip / a distracted diner (P1)
 
 /**
- * Mint the single-use merge proof — WHILE STILL ANONYMOUS. Returns the token (the client stores it under
- * `mms.merge_token` before kicking off the sign-in) or null. Only an anonymous session has device-bound
- * Stars to carry, so a non-anon caller gets null (nothing to merge). Best-effort: a failed mint just means
- * this device's Stars stay put — the sign-in still proceeds; nothing is ever lost, only not-yet-moved.
+ * The three ways a mint can end. A7b split these apart because collapsing them into `null` was a live
+ * defect, not a style question.
+ *
+ * ⚠️ "NOTHING TO CARRY" AND "COULDN'T SECURE THE CARRY" ARE OPPOSITES, AND `null` SAID BOTH. The caller's
+ * only question is whether it is safe to abandon this anonymous session, and the two answers point in
+ * opposite directions: with nothing to carry, abandoning it costs the diner nothing; with a FAILED mint,
+ * abandoning it destroys their orders, Stars, coupons and favourites permanently — the anon uid becomes
+ * unreachable (this function requires `is_anonymous === true` and that session is replaced; `toGuest()`
+ * mints a NEW anon uid, not the old one), order history authorizes on `earned_by`, and only `service_role`
+ * can move it afterwards. A single `null` forced the caller to guess, and it guessed "proceed" — which is
+ * the fabricated-diagnosis shape M116 and M119 b–e closed across this codebase, on a path that loses
+ * value rather than merely misreporting it.
  */
-export async function mintMergeToken(): Promise<string | null> {
+export type MintOutcome =
+  | { kind: "minted"; token: string }
+  | { kind: "nothing-to-carry" }
+  | { kind: "failed" };
+
+/**
+ * Mint the single-use merge proof — WHILE STILL ANONYMOUS. On success the client stores the token under
+ * `mms.merge_token` before kicking off the sign-in.
+ *
+ * Only an anonymous session has device-bound Stars to carry, so a non-anon caller gets `nothing-to-carry`.
+ * Every other failure — an unreadable session, an insert error, a throw — is `failed`, and the caller MUST
+ * NOT proceed into a sign-in that switches uid on it. See `lib/merge-carry.ts` for that decision.
+ */
+export async function mintMergeToken(): Promise<MintOutcome> {
   try {
     const supa = serverClient(await cookies());
     const {
       data: { user },
     } = await supa.auth.getUser();
-    if (!user || user.is_anonymous !== true) return null;
+    // No user at all is an unreadable session, not an established "nothing to carry" — the honest answer
+    // is that we could not tell, which is `failed`. Only a CONFIRMED non-anonymous caller has nothing to
+    // lose by signing in.
+    if (!user) return { kind: "failed" };
+    if (user.is_anonymous !== true) return { kind: "nothing-to-carry" };
     const db = serviceClient();
     const token = randomBytes(32).toString("base64url"); // 256-bit, URL-safe
     // INSERT FIRST, prune AFTER (never delete-before-insert): if the insert fails / its response is lost, the
@@ -48,15 +73,15 @@ export async function mintMergeToken(): Promise<string | null> {
       anon_uid: user.id,
       expires_at: new Date(Date.now() + TOKEN_TTL_MS).toISOString(),
     });
-    if (error) return null;
+    if (error) return { kind: "failed" };
     // Now prune this anon's OLDER rows (bounds table growth: tokens are per-DEVICE, and this fresh token — the
     // one about to be stashed — fully supersedes any prior one). `.neq(token)` guards the just-inserted row;
     // best-effort (a failed prune just leaves a dead row, never affects the live token).
     await db.from("mms_merge_tokens").delete().eq("anon_uid", user.id).neq("token", token);
-    return token;
+    return { kind: "minted", token };
   } catch {
-    // Best-effort — the sign-in proceeds regardless; this device's Stars simply aren't moved this time.
-    return null;
+    // The proof was NOT secured. The caller must not abandon this session on it — see the type's docblock.
+    return { kind: "failed" };
   }
 }
 

@@ -329,6 +329,15 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
 - [ ] **A3 — settlement collapses to cash + Terminal with one request-unique owner** (M201 · M202 · M203
       by subtraction).
 - [ ] **A4 — `/staff` to five screens** — Kitchen · Tables & settle · Menu · Tips · Sign-in.
+- [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers
+      inviting staff and assigning roles, and orders following a diner onto their account (#278, `b341ac9`).
+- [x] **A7b — the Google sign-in dead end** — a returning customer's "Continue with Google" calls
+      `linkIdentity`, which cannot succeed for them; Supabase's correct `identity_already_exists` refusal
+      landed on a recovery the card then ERASED one frame later (Next 16 propagates `replaceState` to
+      `useSearchParams`, against the comment that said otherwise). The bounce is captured once and the
+      recovery now completes itself. Also: a failed merge-token mint no longer redirects past itself,
+      which was destroying a device's orders permanently. Retracts **C21** and **C22**; closes **M209**
+      and **M212**.
 
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
 

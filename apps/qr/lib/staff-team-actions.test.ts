@@ -428,13 +428,33 @@ describe("the caller's own authority is re-read immediately before each write", 
     expect(insertPatch).toBeNull();
   });
 
-  it("does NOT refuse when the caller's row is merely unreadable", async () => {
-    // A database hiccup is not a revocation. Refusing here would turn an outage into "you are not a
-    // manager" — the fabricated-diagnosis shape M116/M119 closed across this codebase.
+  it("REFUSES an unreadable caller row — and names the outage, not a missing permission (M209)", async () => {
+    // ⚠️ This case asserted the OPPOSITE until M209, and both arms of that fork were wrong. Proceeding
+    // authorized an authority write on a role the code had explicitly failed to confirm, on a path with
+    // no database gate behind it. Refusing with MANAGERS_ONLY would tell a manager they are not one —
+    // the fabricated-diagnosis shape M116/M119 b-e closed across this codebase. So it refuses AND says
+    // it could not check, which is the only statement that is actually true.
     callerRole = "manager";
     callerRowUnreadable = true;
     const res = await setStaffRole({ userId: TARGET, role: "manager" });
-    expect(res).toEqual({ ok: true });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("We couldn’t confirm your access just now — try again in a moment.");
+    // It must NOT accuse them of lacking the permission they hold.
+    expect(res.error).not.toContain("needs a manager");
+    expect(updatePatch).toBeNull();
+  });
+
+  it("keeps the two refusals DISTINCT: a revoked caller is told they may not, not that we failed", async () => {
+    // The other direction of the same rule. A caller whose row is GONE is a genuine authority refusal,
+    // and reporting an outage there would invite them to retry something that can never succeed.
+    callerRole = "manager";
+    callerRow = null;
+    const res = await setStaffRole({ userId: TARGET, role: "manager" });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("That needs a manager — ask one to step in.");
+    expect(updatePatch).toBeNull();
   });
 });
 
@@ -489,13 +509,16 @@ describe("the ceiling is re-decided on the REFRESHED role, not the session's cop
     expect(updatePatch?.role).toBe("owner");
   });
 
-  it("falls back to the SESSION's role when the row is unreadable, rather than to nothing", async () => {
-    // Fail-open keeps a hiccup from reading as a revocation — but the ceiling still needs a role to
-    // decide against, so the session's copy stands in. Refusing, or defaulting to the floor, would
-    // turn an outage into "only the owner can do that" for the owner themselves.
+  it("refuses an OWNER too when the row is unreadable — no role decides on an unconfirmed rank (M209)", async () => {
+    // The old behaviour stood the SESSION's copy in as the ceiling's operand, which is exactly the
+    // value the re-read exists to distrust. An owner is refused here like anyone else, and told the
+    // truth: we could not check. Nothing is lost but a retry.
     callerRole = "owner";
     callerRowUnreadable = true;
     const res = await setStaffRole({ userId: TARGET, role: "owner" });
-    expect(res).toEqual({ ok: true });
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable: asserted a refusal above");
+    expect(res.error).toBe("We couldn’t confirm your access just now — try again in a moment.");
+    expect(updatePatch).toBeNull();
   });
 });

@@ -211,10 +211,16 @@ describe("the dictionary guards", () => {
     const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
     const DECOR = /^[\s·+←→↑↓•\-—]+|[\s·+←→↑↓•\-—]+$/gu;
     const core = (v: string) => v.replace(DECOR, "").trim();
+    // ⚠️ `+` IS SIGNIFICANT HERE, unlike every other punctuation mark. Folding it away made
+    // "Latest of {n} rounds…" and "Latest of {n}+ rounds…" one English, while their Burmese
+    // differed by exactly that character — so a real distinction (an exact count versus a capped
+    // one) read as a wording fork. Measured before changing it: making `+` significant removes
+    // that one group and introduces none. It stays stripped at the EDGES by `core`, where a
+    // trailing "+" is decoration rather than meaning.
     const normEn = (v: string) =>
       core(v)
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/[^a-z0-9+]+/g, " ")
         .trim();
     const groups = new Map<string, string[]>();
     for (const [k, v] of Object.entries(STAFF)) {

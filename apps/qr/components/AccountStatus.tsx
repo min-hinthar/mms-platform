@@ -13,6 +13,8 @@ import { Card } from "@mms/ui";
 import { tierMeta, tierTint } from "@/lib/rewards-tiers";
 import { setLend, firstNameOf } from "@/lib/deviceIdentity";
 import { clearDeviceSession } from "@/lib/device-session";
+import { clearMergeToken } from "@/lib/mergeTokenStore";
+import { clearCallbackOutcome } from "@/lib/oauthCallbackStore";
 import { avatarGlyph, memberSinceLabel } from "@/lib/profile-view";
 import { AccountNameEditor } from "./AccountNameEditor";
 
@@ -99,6 +101,16 @@ export function AccountStatus({
     // dine-in join code, typed name, and resume pointers must not let the next holder rejoin the
     // owner's table under the owner's name. (The lend flag is written AFTER this, so it survives.)
     clearDeviceSession();
+    // A7b — and it clears the PENDING MERGE PROOF, for the same reason and one class of value further.
+    // A merge token stashed for a sign-in that never completed (backed out at Google's consent screen,
+    // or an OAuth call that errored) stays live for 24h, and `MergeRedeemer` redeems it on ANY later
+    // non-anonymous sign-in on this device — including a staff member arriving through
+    // /staff/auth/callback and then opening /account. That moves one person's orders and Stars onto
+    // another person's account. A handover is exactly the moment a pending proof stops belonging to
+    // whoever is holding the phone.
+    clearMergeToken();
+    // The remembered OAuth bounce and its spent auto-recovery belong to the previous holder's attempt.
+    clearCallbackOutcome();
     let { error } = await supa.auth.signInAnonymously();
     if (error) ({ error } = await supa.auth.signInAnonymously());
   }

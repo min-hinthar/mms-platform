@@ -161,6 +161,9 @@ export type TableDetail = {
    *  and `paidTotalCents` describe the LATEST one, matching the floor board's own reduction, so a
    *  count above 1 means the record on screen is one round of several and must say so. */
   settledOrderCount: number;
+  /** M212 — true when the settled-order read hit its cap, so `settledOrderCount` is a floor and the
+   *  surface must render it as "N+" rather than as an exact total it cannot know. */
+  settledOrderCountCapped: boolean;
   /** P3 — the promo code on the open cart, or null. The drill-down needs it for two things staff
    *  could not do before: SEE that a discount is in play before settling a table in cash, and REMOVE
    *  it (OPEN-ITEMS P2e — the merge refusal named that action for months while nothing implemented
