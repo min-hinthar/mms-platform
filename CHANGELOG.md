@@ -67,6 +67,20 @@ surfaces two guards that are NOT fast lane (`verify-merge-race.mjs --mutants`,
 `verify-mode-authority.mjs`): they sit in the separate `supabase` job behind `supabase start` and
 need Docker, so they are CI-only and cannot be run before a push from this environment.
 
+**And the suite proving all of the above was racy in ten places, not the one CI named.** The named
+failure was a query resuming off `waitFor(() => expect(auth.updateUser).toHaveBeenCalled())` — which
+is satisfied when the call is INVOKED, a state flush before `setBusy(false)` relabels the CTA, so the
+button still read “Sending…”. Fixing that line alone would have left nine siblings. Wrapping every
+auth and mint mock in a 200 ms delay — two lines at the `vi.mock` factories, so it applies unchanged
+to both commits — turned the question into a number: **10 of 31 tests fail at the parent, 0 after**.
+A grep for the literal pattern found six; the delay found all ten. Three faces: a query that throws,
+a `fireEvent.click` on a still-`disabled` control (a SILENT no-op that surfaces as a timeout far
+away), and `expect(stored).toBeNull()` racing the `clearMergeToken()` after the same await — the
+stranded-token invariant, racy in four places. Every one now resumes off the OUTCOME rather than the
+mock. Two negative assertions moved after the wait they belong behind, so they read “never” instead
+of “not yet”, and the wedged-lock test now ASSERTS the re-enable that its timing fix needed, because
+that is the test's own thesis. Recorded as `.claude/LEARNINGS.md` #108.
+
 ### A7 — orders follow the diner onto their account (2026-09-09)
 
 Order attribution is uid-based (`qr_orders.earned_by`), so an upgrade that keeps the uid carries
