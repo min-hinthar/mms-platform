@@ -70,6 +70,20 @@ export function AccountUpgrade({ stars }: { stars: number }) {
    * warn about. See `CarryBlock` in `lib/merge-carry.ts` for why the method has to travel with it.
    */
   const [carryBlocked, setCarryBlocked] = useState<CarryBlock | null>(null);
+  /**
+   * ⚠️ A BLOCK BELONGS TO THE ADDRESS IT WAS RAISED FOR. `carryBlocked` outlived the form that
+   * produced it: nothing cleared it when the diner corrected the address or when the card advanced to
+   * the code step, and the hatch renders outside both `phase` branches. So a diner who was blocked on
+   * `alice@x.com`, retyped `bob@y.com` and started an ordinary uid-PRESERVING upgrade still saw the
+   * button — and pressing it abandoned that upgrade and sent an OTP to the OLD address, converting it
+   * into a merge-suppressed sign-in to a different account. The label is consent about the Stars; it
+   * never mentioned the address or the method. Derived rather than another effect, so it cannot drift
+   * out of step with what the field currently says.
+   */
+  const blockStillApplies =
+    carryBlocked != null &&
+    (carryBlocked.flow.method === "google" ||
+      (phase === "idle" && carryBlocked.flow.email === email.trim()));
 
   /**
    * ⚠️ ONE LOCK ACROSS EVERY DOOR THAT MINTS — the automatic recovery, the Google button and the
@@ -118,11 +132,32 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       } else {
         clearMergeToken();
       }
-      const { error: e0 } = await supa.auth.signInWithOtp({
-        email: addr,
-        options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
-      });
+      // ⚠️ THIS CALL CAN REJECT, NOT ONLY RETURN `{ error }` — and the lock above makes a throw far
+      // worse than a stuck spinner. auth-js builds the PKCE challenge from storage before it sends
+      // (@supabase/ssr hardcodes `flowType: "pkce"`, so it cannot be turned off) and rethrows anything
+      // that is not an AuthError. Uncaught, `signInStarting` would stay true for the life of the page
+      // and EVERY door — the Google button, a Welcome-back chip, a `?resume=` return, this form again —
+      // would silently do nothing behind it. The blind pass caught this as the one uncaught `await`
+      // left on a path whose sibling await had already been given a catch.
+      const { error: e0 } = await supa.auth
+        .signInWithOtp({
+          email: addr,
+          options: { shouldCreateUser: false }, // sign in to the EXISTING account — never silently mint a new one
+        })
+        .catch((e: unknown) => ({
+          error: {
+            message: e instanceof Error ? e.message : "Couldn’t send the sign-in code — try again.",
+          },
+        }));
       if (e0) {
+        // ⚠️ AND THE PROOF GOES WITH IT — the same invariant the Google branch and
+        // `AccountStatus.toGuest()` state, missing here until the blind pass found it. The code was
+        // never sent, so nothing will consume the token minted moments ago; it lives 24h, and
+        // `MergeRedeemer` redeems it on ANY later non-anonymous sign-in on this device. The next
+        // person to sign in on that phone would be handed this diner's orders and Stars, and told
+        // "Your Stars followed you" about value that is not theirs. Supabase rate-limits OTP per
+        // address, so "the send failed and they gave up" is an ordinary evening, not a rare edge.
+        clearMergeToken();
         setError(e0.message || "Couldn’t send the sign-in code — try again.");
         signInStarting.current = false;
         return false;
@@ -689,7 +724,7 @@ export function AccountUpgrade({ stars }: { stars: number }) {
           it says what it costs rather than shrugging: the anonymous session holding this device's Stars is
           abandoned by the sign-in itself, and nothing can reach it afterwards. Rendered only while
           blocked, so a diner who never hit it never sees a way to throw their Stars away. */}
-      {carryBlocked && (
+      {carryBlocked && blockStillApplies && (
         <button
           type="button"
           onClick={() => {
@@ -726,7 +761,7 @@ export function AccountUpgrade({ stars }: { stars: number }) {
           // A7b — a blocked carry outranks both recoveries below: it is the only one describing value
           // that is about to be destroyed, and it is a real change to this persistent node, so it DOES
           // announce (unlike the SSR-initial callbackError).
-          carryBlocked?.message ??
+          (blockStillApplies ? carryBlocked?.message : null) ??
           // Only on the idle (email-entry) step — once we advance to the code step the "Send sign-in code"
           // button is gone, so the directive would contradict the screen (the diner already tapped it).
           (emailTaken && phase === "idle"

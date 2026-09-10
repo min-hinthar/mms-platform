@@ -4470,7 +4470,7 @@ const MUTANTS = [
     why: "THE PERMANENT LOSS. Proceeding on a failed mint abandons the anonymous uid that owns this device's orders, Stars, coupons and favourites, and it is unreachable the moment `signInWithOAuth` lands: a replacement token needs the anon session (gone), and only `service_role` can move the value afterwards. The card has already promised to move it. This is the shipped behaviour A7b replaced",
     find: '  if (outcome.kind === "failed") return { kind: "blocked", reason: "mint", message: MINT_FAILED };',
     replace:
-      '  if (outcome.kind === "never") return { kind: "blocked", reason: "mint", message: MINT_FAILED };',
+      '  if (outcome.kind === "minted") return { kind: "blocked", reason: "mint", message: MINT_FAILED };',
   },
   {
     id: "merge-carry/stash-presence-mistaken-for-identity",
@@ -4638,6 +4638,38 @@ const MUTANTS = [
     find: 'export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;',
     replace:
       'export const AUTHORITY_UNCONFIRMED = "We could not verify your access. Please try again.";',
+  },
+  {
+    id: "account-upgrade/otp-failure-strands-the-proof",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: 'BLIND PASS, CRITICAL. The invariant "a stashed merge proof must never outlive its redirect" is stated in three places and was enforced in two: the Google branch clears, `AccountStatus.toGuest()` clears, and this one did not. The mint succeeded and stashed; the send then failed — Supabase rate-limits OTP per address, so this is an ordinary evening — and the token lives 24h. `MergeRedeemer` redeems it on ANY later non-anonymous sign-in on this device, handing the next person this diner\'s orders and Stars under the words "Your Stars followed you"',
+    find: '        clearMergeToken();\n        setError(e0.message || "Couldn’t send the sign-in code — try again.");',
+    replace: '        setError(e0.message || "Couldn’t send the sign-in code — try again.");',
+  },
+  {
+    id: "account-upgrade/otp-rejection-wedges-every-door",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "BLIND PASS, CRITICAL — and the lock is what makes it critical. `signInWithOtp` builds the PKCE challenge from storage before it sends and rethrows anything that is not an AuthError, so it can REJECT rather than answer `{ error }`. Uncaught, the throw skips the release and `signInStarting` stays true for the life of the page: the Google button, a Welcome-back chip, a `?resume=` return and this form all become silent no-ops, with no message, because `setBusy(false)` sits after the throw",
+    find: "      const { error: e0 } = await supa.auth\n        .signInWithOtp({",
+    replace: "      const { error: e0 } = await supa.auth.signInWithOtp({",
+  },
+  {
+    id: "account-upgrade/hatch-acts-on-a-contradicted-address",
+    file: "apps/qr/components/AccountUpgrade.tsx",
+    suite: "components/AccountUpgrade.test.tsx",
+    why: "BLIND PASS, CRITICAL. The hatch renders outside both `phase` branches and nothing retired `carryBlocked` on an edit, so a diner blocked on one address who corrected it and began an ordinary uid-PRESERVING upgrade still saw the button — and pressing it abandoned that upgrade and sent an OTP to the OLD address, turning it into a merge-suppressed sign-in to a different account. The label is consent about the STARS; it never mentioned the address or the method",
+    find: "      {carryBlocked && blockStillApplies && (",
+    replace: "      {carryBlocked && (",
+  },
+  {
+    id: "oauth-store/an-apology-is-remembered-like-a-recovery",
+    file: "apps/qr/lib/oauthCallbackStore.ts",
+    suite: "lib/oauthCallbackStore.test.tsx",
+    why: 'BLIND PASS. A `generic` bounce carries no recovery — there is nothing to press differently — so reviving it only re-prints "Couldn\'t finish with Google" on a later visit where nothing was attempted. And it is unclearable in practice: `clearCallbackOutcome` runs from the non-anonymous auth listener and from a device handover, and an anonymous diner who never signs in reaches neither, so the false sentence follows them for the rest of the tab session',
+    find: '  if (outcome.kind !== "already-linked") return;',
+    replace: "  void outcome;",
   },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   {

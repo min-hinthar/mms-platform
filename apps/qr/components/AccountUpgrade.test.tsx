@@ -456,14 +456,90 @@ describe("round 1 — the doors that could race, and the one that must lose", ()
     fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
     auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
     fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
-    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
-    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    // ⚠️ Wait on the BUTTON, not the mock call: `waitFor(…toHaveBeenCalled())` resolves the moment the
+    // action is invoked, which is before the state update that relabels the CTA.
+    const send = await screen.findByRole("button", { name: /Send sign-in code/i });
+    fireEvent.submit(send.closest("form")!);
     await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole("button", { name: /leave this device’s Stars behind/i }));
     await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
     expect(auth.signInWithOtp.mock.calls[0]?.[0]).toMatchObject({ email: "me@example.com" });
     expect(auth.signInWithOAuth).not.toHaveBeenCalled();
+  });
+});
+
+describe("the blind pass — what the invariant said in three places and enforced in two", () => {
+  it("clears the stashed token when the OTP SEND fails, like its Google twin", async () => {
+    // ⚠️ THE CRITICAL. The mint succeeds and stashes; the send then fails (Supabase rate-limits OTP
+    // per address, so this is an ordinary evening) and the diner gives up. Left stashed, that token
+    // lives 24h and `MergeRedeemer` redeems it on ANY later non-anonymous sign-in on this device —
+    // handing the next person this diner's orders and Stars, with "Your Stars followed you" over
+    // value that is not theirs. The Google branch and `toGuest()` both clear; this one did not.
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
+
+    auth.signInWithOtp.mockResolvedValue({ error: { message: "Email rate limit exceeded" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalled());
+
+    expect(stored).toBeNull();
+  });
+
+  it("does not wedge every door when the OTP send REJECTS", async () => {
+    // The lock is taken before the send. A throw there left `signInStarting` true for the life of the
+    // page, so the Google button, a Welcome-back chip, a `?resume=` return and this form all became
+    // silent no-ops behind it — with no message, because `setBusy(false)` sits after the throw.
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "me@example.com" } });
+    auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
+    await waitFor(() => expect(auth.updateUser).toHaveBeenCalled());
+
+    auth.signInWithOtp.mockRejectedValueOnce(new Error("storage unavailable"));
+    fireEvent.submit(screen.getByRole("button", { name: /Send sign-in code/i }).closest("form")!);
+    await waitFor(() => expect(auth.signInWithOtp).toHaveBeenCalledTimes(1));
+    expect(stored).toBeNull(); // and the proof does not survive the throw either
+
+    // The lock released: another door still works.
+    auth.signInWithOtp.mockResolvedValue({ error: null });
+    fireEvent.click(screen.getByRole("button", { name: /Continue with Google/i }));
+    await waitFor(() => expect(auth.linkIdentity).toHaveBeenCalledTimes(1));
+  });
+
+  it("retires the escape hatch once the diner edits the address it was raised for", async () => {
+    // The hatch renders outside both `phase` branches and nothing cleared `carryBlocked` on an edit,
+    // so a diner blocked on one address, who then corrected it and began an ordinary uid-PRESERVING
+    // upgrade, still saw the button — and pressing it abandoned that upgrade and sent an OTP to the
+    // OLD address. The label is consent about the Stars; it never mentioned the address.
+    mintMergeToken.mockResolvedValue({ kind: "failed" });
+    render(<AccountUpgrade stars={3} />);
+    await flushFrames();
+
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "alice@x.com" } });
+    auth.updateUser.mockResolvedValue({ error: { code: "email_exists", message: "taken" } });
+    fireEvent.submit(screen.getByRole("button", { name: /Email me a code/i }).closest("form")!);
+    // ⚠️ Wait on the BUTTON, not the mock call: `waitFor(…toHaveBeenCalled())` resolves the moment the
+    // action is invoked, which is before the state update that relabels the CTA.
+    const send = await screen.findByRole("button", { name: /Send sign-in code/i });
+    fireEvent.submit(send.closest("form")!);
+    await waitFor(() => expect(mintMergeToken).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: /leave this device’s Stars behind/i })).toBeTruthy();
+
+    // The diner corrects the address. The block belonged to the old one.
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: "bob@y.com" } });
+    expect(screen.queryByRole("button", { name: /leave this device’s Stars behind/i })).toBeNull();
+    // …and the live region stops describing a block the screen no longer offers a way out of.
+    expect(screen.getByRole("status").textContent).not.toContain(
+      "couldn’t get this device’s Stars",
+    );
   });
 });
 

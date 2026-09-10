@@ -24,8 +24,19 @@ import type { CallbackOutcome } from "./oauth-callback";
 const KIND_KEY = "mms.oauth_callback";
 const ATTEMPT_KEY = "mms.oauth_recovered";
 
-/** Remember a bounce so a reload or a client navigation cannot erase the recovery with it. */
+/**
+ * Remember a bounce so a reload or a client navigation cannot erase the recovery with it.
+ *
+ * ⚠️ ONLY `already-linked` IS WORTH REMEMBERING, and storing both kinds was a defect the blind pass
+ * found. A `generic` bounce carries no recovery — there is nothing for the diner to press differently
+ * — so reviving it only re-prints "Couldn't finish with Google" on a later visit where nothing was
+ * attempted. Worse, it is unclearable in practice: `clearCallbackOutcome` runs from the non-anonymous
+ * auth listener and from a device handover, and an anonymous diner who never signs in reaches
+ * neither, so the false sentence follows them for the rest of the tab session. What is actionable
+ * survives a reload; what is only an apology belongs to the render that earned it.
+ */
 export function stashCallbackOutcome(outcome: CallbackOutcome): void {
+  if (outcome.kind !== "already-linked") return;
   try {
     window.sessionStorage.setItem(KIND_KEY, outcome.kind);
   } catch {

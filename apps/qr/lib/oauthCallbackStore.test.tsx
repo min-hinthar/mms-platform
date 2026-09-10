@@ -39,9 +39,12 @@ describe("the remembered bounce", () => {
     expect(readStashedCallbackOutcome()).toEqual({ kind: "already-linked" });
   });
 
-  it("round-trips a generic bounce", () => {
+  it("does NOT remember a generic bounce — an apology is not a recovery", () => {
+    // ⚠️ Blind pass. It carries nothing to press differently, and an anonymous diner can never clear
+    // it (both clear sites need a sign-in or a handover), so reviving it prints "Couldn't finish with
+    // Google" on later visits where nothing was attempted, for the rest of the tab session.
     stashCallbackOutcome({ kind: "generic" });
-    expect(readStashedCallbackOutcome()).toEqual({ kind: "generic" });
+    expect(readStashedCallbackOutcome()).toBeNull();
   });
 
   it("reads nothing when nothing was stashed", () => {

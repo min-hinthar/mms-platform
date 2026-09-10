@@ -50,7 +50,14 @@ const ORDER_LINE_CAP = 500;
  *  ⚠️ M212 — THE READ ASKS FOR ONE MORE THAN IT REPORTS. A bounded read cannot tell "exactly N" from
  *  "N and we stopped counting", and the surface printed the capped length as an exact figure, so a
  *  table with 21 settled rounds was described as having 20. Fetching cap+1 makes truncation
- *  observable with no second query, and the extra row is dropped before anything reads it. */
+ *  observable with no second query.
+ *
+ *  ⚠️ THE EXTRA ROW IS NOT DISCARDED — only the reported COUNT is clamped. An earlier draft of this
+ *  comment said it was dropped, which a blind pass caught as describing a mechanism the code does not
+ *  have. It is harmless as written, because the rows are ordered `created_at desc` and everything
+ *  downstream reads `[0]`; it is worth stating plainly because OPEN-ITEMS M211 proposes this same
+ *  shape for the 500-row LINE read, where a reader who trusted the old wording would assume a
+ *  truncation that never happens and render one row too many. */
 const SETTLED_ORDER_CAP = 20;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
