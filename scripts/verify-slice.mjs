@@ -4634,10 +4634,10 @@ const MUTANTS = [
     id: "staff/authority-outage-copy-cannot-be-translated",
     file: "apps/qr/lib/staff-outage.ts",
     suite: "components/staff/Chrome.test.tsx",
-    why: "Codex round 1 on #279, P2. `<OutageText>` picks the Burmese twin by string IDENTITY, so a literal that is not the shared constant renders as English on a Burmese console — on the one screen whose job is telling someone what their authority is. Reusing the WRITE-outage sentence instead is the other wrong answer: it says a change was not saved and to keep it on paper, and neither is true when nothing was attempted",
+    why: "Codex round 1 on #279, P2 — and the mutant had to be rewritten before it could express the defect. ⚠️ ITS FIRST FORM SURVIVED, and correctly: it replaced the constant with a literal CHARACTER-IDENTICAL to the dictionary entry, so both code paths produced the same value and no fixture could separate them. That is a mutant expressing nothing, not a weak guard — the distinction the doctrine draws. The rule actually worth pinning is CORRESPONDENCE: the English constant must BE `out.authority.unconfirmed`.en, because `<OutageText>` pairs it with that key's `.my` by string identity. A hand-written English literal that drifts from the entry leaves the Burmese twin describing a sentence nobody shows, and the console silently falls back to English — on the one screen whose job is telling someone what their authority is",
     find: 'export const AUTHORITY_UNCONFIRMED = STAFF["out.authority.unconfirmed"].en;',
     replace:
-      'export const AUTHORITY_UNCONFIRMED = "We couldn’t confirm your access just now — try again in a moment.";',
+      'export const AUTHORITY_UNCONFIRMED = "We could not verify your access. Please try again.";',
   },
   // ── K33 · the drill-down AFTER the table pays ───────────────────────────────────────────────
   {

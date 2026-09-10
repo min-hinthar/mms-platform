@@ -82,9 +82,21 @@ async function flushFrames() {
 
 const BOUNCE = "identity_already_exists";
 
-afterEach(cleanup);
+/** Every url `history.replaceState` was called with, oldest first — see the strip assertion below. */
+let replaceStateCalls: string[] = [];
+
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 beforeEach(() => {
+  replaceStateCalls = [];
+  const realReplaceState = window.history.replaceState.bind(window.history);
+  vi.spyOn(window.history, "replaceState").mockImplementation((data, unused, url) => {
+    if (typeof url === "string") replaceStateCalls.push(url);
+    realReplaceState(data, unused, url as string);
+  });
   for (const fn of Object.values(auth)) if (typeof fn === "function") fn.mockReset?.();
   auth.onAuthStateChange.mockReturnValue({ data: { subscription: { unsubscribe: vi.fn() } } });
   auth.linkIdentity.mockResolvedValue({ error: null });
@@ -153,6 +165,8 @@ describe("the bounce survives the URL cleanup", () => {
     window.history.replaceState(null, "", `/account?error_code=${BOUNCE}&resume=owner%40x.com`);
     params = new URLSearchParams(`error_code=${BOUNCE}&resume=owner@x.com`);
     window.sessionStorage.setItem("mms.oauth_recovered", "1"); // isolate: no auto-recovery racing it
+    // Only the CARD's own writes are evidence — the setup calls above are this test arranging the URL.
+    replaceStateCalls.length = 0;
     render(<AccountUpgrade stars={3} />);
     await flushFrames();
 
@@ -160,8 +174,22 @@ describe("the bounce survives the URL cleanup", () => {
     expect(auth.signInWithOtp.mock.calls[0]?.[0]).toMatchObject({ email: "owner@x.com" });
     // A resume is the owner returning to their OWN account, so the friend's Stars are never swept along.
     expect(mintMergeToken).not.toHaveBeenCalled();
-    // And the raw error is gone from the address bar either way.
-    expect(window.location.search).not.toContain("error_code");
+
+    // ⚠️ ASSERT THE STRIP'S OWN CALL, and the mutation gate is why. Neither of the two obvious
+    // assertions can separate `${url.pathname}${url.search}` from a bare `url.pathname`:
+    //   · the FINAL url is `/account` either way, because the resume effect deletes `resume` itself
+    //     once it fires — "preserved then consumed" and "never there" look identical;
+    //   · the BEHAVIOUR above is identical too, because `useSearchParams` is mocked here and does
+    //     not react to `replaceState`. Next 16 propagates it (that is the whole defect this file
+    //     exists for), the mock cannot, so `resumeParam` stays truthy under either variant.
+    // The one observable difference is the URL the strip itself wrote, so that is what is asserted.
+    // The strip runs first (a plain effect; the resume effect defers to a frame), so the card's FIRST
+    // write is the one under test. The resume effect's later write legitimately drops `resume`.
+    expect(replaceStateCalls.length).toBeGreaterThan(0);
+    const stripped = replaceStateCalls[0]!;
+    expect(stripped).not.toContain("error_code");
+    expect(stripped).not.toContain("error_description");
+    expect(stripped).toContain("resume=");
   });
 });
 

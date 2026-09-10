@@ -3,6 +3,7 @@ import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Chrome, OutageText } from "./Chrome";
 import { al, chromeVisible, type ChromeEcho } from "@/lib/staff-labels";
+import { STAFF } from "@/lib/i18n/staff";
 import {
   STAFF_WRITE_OUTAGE,
   STAFF_WRITE_OUTAGE_MY,
@@ -144,6 +145,17 @@ describe("OutageText — the one server sentence with a Burmese twin", () => {
     expect(marked.textContent).toBe(AUTHORITY_UNCONFIRMED_MY);
     expect(marked.className).toContain("chrome-my");
     expect(marked.textContent).not.toBe(STAFF_WRITE_OUTAGE_MY);
+  });
+
+  it("ties the English constant to the dictionary entry its twin is paired with", () => {
+    // ⚠️ THE SEPARATING ASSERTION, added after the first mutant SURVIVED. `<OutageText>` pairs
+    // `AUTHORITY_UNCONFIRMED` with `out.authority.unconfirmed`.my by identity, so the English must BE
+    // that key's `.en` rather than a hand-written twin of it. A literal that drifts leaves the Burmese
+    // describing a sentence nobody shows, and the swap silently stops matching — English on a Burmese
+    // console, which is the defect. Reading the dictionary here rather than restating the sentence is
+    // the point: a copy of the string in this file would drift the same way.
+    expect(AUTHORITY_UNCONFIRMED).toBe(STAFF["out.authority.unconfirmed"].en);
+    expect(AUTHORITY_UNCONFIRMED_MY).toBe(STAFF["out.authority.unconfirmed"].my);
   });
 
   it("keeps the two outage sentences DISTINCT in both tongues", () => {
