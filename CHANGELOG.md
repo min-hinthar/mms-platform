@@ -70,11 +70,33 @@ repeated-hour test named the wrong instant (both 01:30s pinned now). A partial i
 Guards: 3 new mutants (`board/ready-minutes-off-the-wall-clock`,
 `board/saturated-read-keeps-the-oldest-bags`, `board/collected-bag-keeps-waiting`), 1 retargeted
 (`day-window/…rolling-24-hours`) —
-**643** across 113 modules, `day-window.ts` joining the set; `served-today` and `line-names` carry
+**645** across 113 modules, `day-window.ts` joining the set; `served-today` and `line-names` carry
 value suites watched red by hand; the two render paths (`KdsBoard`'s served branch, `BoardCard`'s
 wait span) have no component suite — the rules they draw are pinned one layer down, in the read
 and the route — and a T18-style wiring suite is the follow-up. New Burmese (`kds.served.*`, `kds.a11y.served`,
 `kds.a11y.railView`, `board.card.*`) is a machine draft → K15.
+
+**Codex round 1 on #281 — seven P2s, five fixed on the head, two filed.** Fixed: `dayStartIso`
+alternated back to the day BEFORE in a zone whose DST jump lands on midnight (Santiago, Havana,
+Cairo — no instant reads 00:00 that date, the day begins at 01:00, and the second pass rebuilt the
+candidate once more after the check failed), so the rail carried the prior day's last hour — the
+rule is now the EARLIEST candidate whose wall clock reads today's date, built from every offset
+within an hour of the first (five instants pinned by an independent minute-by-minute walk; a
+fall-back AT midnight, where 00:00 reads twice, takes the first); the wall's capped read ranked by
+`created_at`, so a scheduled pickup placed at breakfast and readied at six was the row a saturated
+read dropped — `togo_ready_at DESC NULLS LAST` then creation (the route mock now honours every
+`.order()`, nulls placement included); a stale board kept drawing each bag's wait minutes while the
+band beside it was blanked — the count is an age and goes with the band; a failed `mms_kds_stats`
+was defaulted to 0 and the capped rail read "the last 40 of 0 served today" — `shapeKdsStats`
+(`lib/kitchen-stats.ts`) keeps the absence (`servedToday: null`) and `kds.served.moreUnknown` says
+the total could not be read; the served rail's code lookup was `paid`-only, so a refunded pickup
+lost the code printed on the guest's order (`paid` or `refunded`). Filed: the Intl fallback and the
+SQL stats disagree by an hour on a zone only Postgres accepts (`'PST'`) — storage-time validation is
+a trigger, **K34**; a table merge re-parents served lines so the rail relabels history — a bump-time
+identity snapshot is a migration, **K31 (c)**, and the fold underneath it (a served row added to an
+unserved target line — the kitchen re-cooks eaten food) is **M217**. Two mutants added
+(`board/capped-read-ranks-by-creation-not-readiness`, `board/stale-wait-keeps-ticking`), one
+re-anchored (`day-window/…rolling-24-hours`), every one watched red by `verify:slice --only`.
 
 ### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
 
