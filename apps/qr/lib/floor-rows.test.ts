@@ -8,12 +8,16 @@ import type { RegisterQueueRow } from "./register-queue";
  * (A1's sort on the floor, oldest-first on the queue), so the cases pin the seam and the
  * preservation, never a re-sort this module does not perform.
  */
-const table = (id: string, counterRequestedAt: string | null): FloorTable => ({
+const table = (
+  id: string,
+  counterRequestedAt: string | null,
+  status: FloorTable["status"] = counterRequestedAt ? "counter" : "ordering",
+): FloorTable => ({
   sessionId: id,
   label: id,
   tableNumber: 7,
   mode: "dinein",
-  status: counterRequestedAt ? "counter" : "ordering",
+  status,
   partySize: 2,
   hostName: null,
   itemCount: 1,
@@ -42,6 +46,22 @@ describe("mergeFloorRows — tables and counter orders as ONE list", () => {
     const rows = mergeFloorRows([table("t-ask", "2026-09-13T17:50:00Z")], [order("reg-1")]);
     expect(keys(rows)).toEqual(["t-ask", "reg-1"]);
   });
+  it("a stamped table that moved on to a card payment keeps its floor place — only status `counter` rises (Codex round 1)", () => {
+    // The stamp outlives the ask: a table that asked, then started a fresh card or split payment,
+    // keeps `counterRequestedAt` while `deriveFloorStatus` reports `paying` — and the floor's own
+    // sort (A1) lifts only status `counter`. The first draft partitioned on the stamp and lifted
+    // the paying table above the counter orders, where staff cannot settle it.
+    const rows = mergeFloorRows(
+      [
+        table("t-paying", "2026-09-13T17:50:00Z", "paying"),
+        table("t-ask", "2026-09-13T17:55:00Z"),
+        table("t-open", null),
+      ],
+      [order("c1")],
+    );
+    expect(keys(rows)).toEqual(["t-ask", "c1", "t-paying", "t-open"]);
+  });
+
   it("counter orders come before the tables that have not asked, in the queue's own order", () => {
     const rows = mergeFloorRows(
       [table("t-1", null), table("t-2", null)],

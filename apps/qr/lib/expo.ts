@@ -149,16 +149,38 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   // a failed read logs and leaves the map empty, so every bag reads `unknown` — the counter keeps
   // its queue and its due-time order. A badge cannot misidentify a bag; refusing the whole counter
   // over one is the over-blocking direction.
-  const { data: cartLines, error: cartLinesError } = cartIds.length
-    ? await db.from("qr_cart_items").select("cart_id,state,fulfillment").in("cart_id", cartIds)
-    : { data: [] as { cart_id: string; state: string; fulfillment: string }[], error: null };
+  const {
+    data: cartLines,
+    error: cartLinesError,
+    count: cartLinesCount,
+  } = cartIds.length
+    ? await db
+        .from("qr_cart_items")
+        .select("cart_id,state,fulfillment", { count: "exact" })
+        .in("cart_id", cartIds)
+    : {
+        data: [] as { cart_id: string; state: string; fulfillment: string }[],
+        error: null,
+        count: 0,
+      };
   const linesByCart = new Map<string, KitchenLineRow[]>();
+  // A response SHORT of its own count is PostgREST's max-rows cap, and it is silent (Codex round 1
+  // on A4·2): a cart whose cooking row fell past the cap would read `done` off its surviving served
+  // rows and be lifted as finished. `count: "exact"` rides the same statement; a count above the
+  // rows is the truncation, and it takes the failed read's posture — every bag `unknown`, logged.
+  const cartLinesTruncated =
+    typeof cartLinesCount === "number" && cartLinesCount > (cartLines?.length ?? 0);
   if (cartLinesError) {
     console.error(
       "[expo] kitchen-state read failed — bags will not say whether the kitchen is done",
       {
         message: cartLinesError.message,
       },
+    );
+  } else if (cartLinesTruncated) {
+    console.error(
+      "[expo] kitchen-state read truncated — bags will not say whether the kitchen is done",
+      { count: cartLinesCount, rows: cartLines?.length ?? 0 },
     );
   } else {
     for (const l of cartLines ?? []) {

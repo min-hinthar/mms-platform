@@ -3802,8 +3802,9 @@ const MUTANTS = [
     file: "apps/qr/lib/expo.ts",
     suite: "lib/expo.test.ts",
     why: "A4·2 (K30 B) — the badge is ADVISORY: a cart-lines read that fails must log and leave every bag `unknown`, never answer `outage` — which freezes the lane on its last-known queue over a label. A badge cannot misidentify a bag; refusing the whole counter over one is the over-blocking direction (the blind pass on A4·1 rejected exactly this posture on the served rail)",
-    find: '  if (cartLinesError) {\n    console.error(\n      "[expo] kitchen-state read failed — bags will not say whether the kitchen is done",\n      {\n        message: cartLinesError.message,\n      },\n    );\n  } else {',
-    replace: '  if (cartLinesError) {\n    return { ok: false, reason: "outage" };\n  } else {',
+    find: '  if (cartLinesError) {\n    console.error(\n      "[expo] kitchen-state read failed — bags will not say whether the kitchen is done",\n      {\n        message: cartLinesError.message,\n      },\n    );\n  } else if (cartLinesTruncated) {',
+    replace:
+      '  if (cartLinesError) {\n    return { ok: false, reason: "outage" };\n  } else if (cartLinesTruncated) {',
   },
   {
     id: "expo/the-kitchen-state-is-never-read",
@@ -3814,6 +3815,14 @@ const MUTANTS = [
     replace: '      kitchen: "unknown",',
   },
   {
+    id: "expo/a-truncated-kitchen-read-still-verdicts",
+    file: "apps/qr/lib/expo.ts",
+    suite: "lib/expo.test.ts",
+    why: "A4·2 Codex round 1 — PostgREST's max-rows cap is SILENT: a cart-lines response short of its own `count: \"exact\"` has dropped rows, and a cart whose one cooking row fell past the cap reads `done` off its surviving served rows and is lifted as finished. The truncation must take the failed read's posture (every bag `unknown`, logged); constant-false keeps the count in the select and ships a verdict on a partial read",
+    find: '  const cartLinesTruncated =\n    typeof cartLinesCount === "number" && cartLinesCount > (cartLines?.length ?? 0);',
+    replace: "  const cartLinesTruncated = false;",
+  },
+  {
     id: "floor-rows/a-counter-order-outranks-a-table-asking-to-pay",
     file: "apps/qr/lib/floor-rows.ts",
     suite: "lib/floor-rows.test.ts",
@@ -3821,6 +3830,15 @@ const MUTANTS = [
     find: '    ...asks.map((table): FloorRow => ({ kind: "table", table })),\n    ...counter.map((order): FloorRow => ({ kind: "counter", order })),',
     replace:
       '    ...counter.map((order): FloorRow => ({ kind: "counter", order })),\n    ...asks.map((table): FloorRow => ({ kind: "table", table })),',
+  },
+  {
+    id: "floor-rows/a-stale-stamp-under-a-card-payment-jumps-the-queue",
+    file: "apps/qr/lib/floor-rows.ts",
+    suite: "lib/floor-rows.test.ts",
+    why: "A4·2 Codex round 1 — `counterRequestedAt` outlives the ask: a table that asked to pay at the counter, then started a card payment or a split, keeps the stamp while `deriveFloorStatus` reports `paying`/`settling`, and the floor's own sort lifts only status `counter`. Partitioned on the stamp, a table staff cannot settle is lifted above the orders they are building — the partition must read the STATUS the card shows",
+    find: '  const asks = tables.filter((t) => t.status === "counter");\n  const rest = tables.filter((t) => t.status !== "counter");',
+    replace:
+      "  const asks = tables.filter((t) => t.counterRequestedAt !== null);\n  const rest = tables.filter((t) => t.counterRequestedAt === null);",
   },
   {
     id: "register-queue/settled-carts-return-to-the-counter",

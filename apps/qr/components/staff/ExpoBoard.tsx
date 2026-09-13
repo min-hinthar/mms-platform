@@ -20,7 +20,8 @@ import { ExpoLineMy } from "./TicketText";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { Badge, EmptyState, Icon } from "@mms/ui";
-import { useReportLive } from "./LiveConnection";
+import { useLiveBoardState, useReportLive } from "./LiveConnection";
+import { ts } from "@/lib/i18n/staff";
 import { useStaffLang } from "./StaffLangProvider";
 import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
 import { Chrome, OutageText } from "./Chrome";
@@ -164,6 +165,29 @@ export function ExpoBoard({
   ).length;
   const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
+  // What the lane's region ANNOUNCES (Codex round 1 on A4·2): the counts as they change — a bag
+  // arriving or leaving is a state change a screen-reader user was hearing before this slice — and
+  // the freeze, but only while the floor is live. When the floor is frozen too, its region is the
+  // screen's one voice for that (the blind pass measured two regions flipping to the same frozen
+  // sentence in one second) and this one falls silent. Visually hidden: the visible line below
+  // draws the same facts.
+  const floorState = useLiveBoardState("floor");
+  const announced = degraded
+    ? floorState === "not_updating"
+      ? ""
+      : frozenBoardCopy(lang, snap.serverNow, nowMs - degraded.since, "what.bags", degraded.cause)
+    : count === 0
+      ? ts(lang, "expo.none")
+      : [
+          bagCount > 0
+            ? tf(lang, bagCount === 1 ? "expo.count.one" : "expo.count.many", { n: bagCount })
+            : null,
+          verifyCount > 0 ? tf(lang, "expo.count.verify", { n: verifyCount }) : null,
+          handOverCount > 0 ? tf(lang, "expo.count.handOver", { n: handOverCount }) : null,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+
   return (
     <section aria-labelledby="expo-h" onFocusCapture={markFocus} className="staff-zone">
       <div style={headRow}>
@@ -178,17 +202,20 @@ export function ExpoBoard({
               those two branches have nowhere else to carry a mark. Every other branch renders
               <Chrome>, which marks itself. (It used to be conditional because the other branches
               were English literals "until PR B converts them" — this is PR B.) */}
-        {/* A4·2 — the lane's ONE live region carries only what the person's own tap caused (a bump
-            that did not save). The counts and the freeze are plain text: the floor's region above
-            is the screen's state region, and two regions flipping to the same frozen sentence in
-            the same second was measured by the blind pass, not imagined. Empty until an error. */}
+        {/* A4·2 — the lane's ONE live region: a bump that did not save when there is one, else the
+            lane's own state, visually hidden and deduped against the floor's region (`announced`,
+            above). The visible count/freeze line beneath stays plain text — one voice per fact. */}
         <p role="status" className={err ? "expo-status expo-status-warn" : "expo-status"}>
           {err !== null ? (
             // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
             // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
             // counter reads when a bump did not save) and passes every other error through verbatim.
             <OutageText lang={lang} error={err} />
-          ) : null}
+          ) : (
+            <span className="sr-only" lang={lang}>
+              {announced}
+            </span>
+          )}
         </p>
         <p
           lang={degraded ? lang : undefined}

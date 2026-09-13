@@ -19,8 +19,13 @@ export function mergeFloorRows(
   tables: readonly FloorTable[],
   counter: readonly RegisterQueueRow[],
 ): FloorRow[] {
-  const asks = tables.filter((t) => t.counterRequestedAt !== null);
-  const rest = tables.filter((t) => t.counterRequestedAt === null);
+  // Partition on the floor's STATUS, never the stamp (Codex round 1 on A4·2): `counterRequestedAt`
+  // outlives the ask — a table that asked, then started a fresh card or split payment, keeps the
+  // stamp while `deriveFloorStatus` reports `paying` / `settling`, and the floor's own sort (A1)
+  // lifts only status `counter`. Partitioned on the stamp, this lifted a table staff cannot settle
+  // above the orders they are building.
+  const asks = tables.filter((t) => t.status === "counter");
+  const rest = tables.filter((t) => t.status !== "counter");
   return [
     ...asks.map((table): FloorRow => ({ kind: "table", table })),
     ...counter.map((order): FloorRow => ({ kind: "counter", order })),

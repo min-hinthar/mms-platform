@@ -20,6 +20,7 @@ import { aggregateConnection, type LiveBoardState } from "@/lib/live-connection"
  */
 type Ctx = {
   connection: ReportConnection;
+  states: Readonly<Record<string, LiveBoardState>>;
   report: (board: string, state: LiveBoardState) => void;
 };
 const LiveConnectionContext = createContext<Ctx | null>(null);
@@ -30,13 +31,23 @@ export function LiveConnectionProvider({ children }: { children: ReactNode }) {
     setReports((r) => (r[board] === state ? r : { ...r, [board]: state }));
   }, []);
   const connection = aggregateConnection(reports);
-  const value = useMemo(() => ({ connection, report }), [connection, report]);
+  const value = useMemo(
+    () => ({ connection, states: reports, report }),
+    [connection, reports, report],
+  );
   return <LiveConnectionContext.Provider value={value}>{children}</LiveConnectionContext.Provider>;
 }
 
 /** The fold, for the door — `undefined` outside a provider (a page with no live board). */
 export function useLiveConnection(): ReportConnection | undefined {
   return useContext(LiveConnectionContext)?.connection;
+}
+
+/** One board's reported state — for a sibling region that must not repeat what that board's own
+ *  region says (the lane's freeze is announced only while the floor is live). `undefined` before
+ *  the board has reported, or outside a provider. */
+export function useLiveBoardState(board: string): LiveBoardState | undefined {
+  return useContext(LiveConnectionContext)?.states[board];
 }
 
 /** A board reports its state on every change; a no-op outside a provider. */

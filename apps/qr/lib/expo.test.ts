@@ -31,6 +31,8 @@ type Row = Record<string, unknown>;
 type Rec = { table: string; ins: [string, unknown[]][] };
 let recs: Rec[] = [];
 let cartLinesFail = false;
+/** The `count: "exact"` the cart-lines read carries — more than the rows means PostgREST truncated. */
+let cartLinesCount: number | null = null;
 let orderRows: Row[] = [];
 let cartLineRows: Row[] = [];
 
@@ -47,8 +49,8 @@ function tableApi(name: string) {
       r.ins.push([col, vals]);
       return api;
     },
-    then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
-      const answer = (): { data: unknown; error: unknown } => {
+    then(resolve: (v: { data: unknown; error: unknown; count?: number | null }) => unknown) {
+      const answer = (): { data: unknown; error: unknown; count?: number | null } => {
         if (name === "qr_orders") return { data: orderRows, error: null };
         if (name === "qr_order_items")
           return {
@@ -75,8 +77,8 @@ function tableApi(name: string) {
           };
         if (name === "qr_cart_items")
           return cartLinesFail
-            ? { data: null, error: { message: "lines unreadable" } }
-            : { data: cartLineRows, error: null };
+            ? { data: null, error: { message: "lines unreadable" }, count: null }
+            : { data: cartLineRows, error: null, count: cartLinesCount ?? cartLineRows.length };
         return { data: [], error: null };
       };
       return Promise.resolve(answer()).then(resolve);
@@ -108,6 +110,7 @@ const order = (id: string, cartId: string | null, createdAt: string): Row => ({
 beforeEach(() => {
   recs = [];
   cartLinesFail = false;
+  cartLinesCount = null;
   // B is due EARLIER than A; only the kitchen state can put A first.
   orderRows = [
     order(ORDER_A, CART_A, "2026-09-13T17:30:00Z"),
@@ -147,6 +150,27 @@ describe("getExpoQueue — the kitchen state reaches the bags (K30 B)", () => {
       expect.anything(),
     );
   });
+  it("a cart-lines read that came back SHORT of its own count is truncated — every bag reads unknown (Codex round 1)", async () => {
+    // PostgREST caps a response at its max-rows and says nothing; a cart whose cooking row fell past
+    // the cap would read `done` off its surviving served rows and be lifted as finished. The read
+    // carries `count: "exact"` from the SAME statement, and a count above the rows is the truncation
+    // — advisory, like a failed read: every bag `unknown`, the queue keeps its due order, logged.
+    cartLineRows = [
+      { cart_id: CART_A, state: "served", fulfillment: "togo" },
+      { cart_id: CART_B, state: "fired", fulfillment: "togo" },
+    ];
+    cartLinesCount = 3;
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const res = await getExpoQueue();
+    if (!res.ok) throw new Error("expected a queue");
+    expect(res.queue.tickets.map((t) => [t.orderId, t.kitchen])).toEqual([
+      [ORDER_B, "unknown"],
+      [ORDER_A, "unknown"],
+    ]);
+    expect(spy).toHaveBeenCalledWith(expect.stringContaining("truncated"), expect.anything());
+    spy.mockRestore();
+  });
+
   it("an order with no cart (or a cart whose lines are absent) reads unknown, never done", async () => {
     orderRows = [
       order(ORDER_A, null, "2026-09-13T17:30:00Z"),
