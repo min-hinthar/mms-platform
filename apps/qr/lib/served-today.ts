@@ -161,7 +161,14 @@ export async function readServedToday(
     sessionIds.length
       ? db.from("table_sessions").select("id,qr_code,table_number,mode").in("id", sessionIds)
       : Promise.resolve({ data: [] as ServedSessionRow[], error: null }),
-    db.from("qr_orders").select("id,cart_id").in("cart_id", cartIds).eq("status", "paid"),
+    // Both SETTLED statuses (Codex round 1 on A4·1): a full refund flips `qr_orders.status` to
+    // `refunded` and touches no cart item, so a `paid`-only read dropped the code printed on the
+    // guest's order the moment money went back — the one durable identifier a post-refund lookup has.
+    db
+      .from("qr_orders")
+      .select("id,cart_id")
+      .in("cart_id", cartIds)
+      .in("status", ["paid", "refunded"]),
     loadLineNames(db, served, { tag: "kitchen/served" }),
   ]);
   if (sessRes.error || orderRes.error) {

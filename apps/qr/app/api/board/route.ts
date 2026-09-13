@@ -138,15 +138,22 @@ export async function GET(req: NextRequest) {
       // the public board until the kitchen actually starts (the diner's own /track carries their
       // status). Separate .or() calls AND together in PostgREST.
       .or(`fire_at.is.null,fire_at.lte.${nowIso}`)
-      // NEWEST first, then reversed below (blind pass on A4·1, CRITICAL 3): `picked_up` is written
-      // only by the manual expo tap, so untapped `ready` rows accumulate all day, and an oldest-first
-      // cap would drop the bag that just came up in favour of one handed over at lunch. Past the cap
-      // the wall shows the latest bags and the OLDEST untapped ones fall off — the safe direction.
+      // NEWEST READINESS first, then creation, reversed below (blind pass on A4·1, CRITICAL 3; the
+      // key reshaped by Codex round 1): `picked_up` is written only by the manual expo tap, so
+      // untapped `ready` rows accumulate all day and an oldest-first cap would drop the bag that
+      // just came up in favour of one handed over at lunch. And `created_at` is the wrong key for a
+      // cap: a scheduled pickup placed at breakfast and readied at six is the OLDEST creation on the
+      // wall, so a saturated read dropped it while its guest stood at the counter. `togo_ready_at
+      // DESC NULLS LAST` keeps the newest readiness first and the still-preparing bags after it
+      // (they surface when they come up); past the cap the wall shows the latest bags and the ones
+      // readied longest ago fall off — the safe direction.
+      .order("togo_ready_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(BOARD_ORDER_CAP),
   ]);
   const { error } = ordersRes;
-  const data = ordersRes.data ? [...ordersRes.data].reverse() : ordersRes.data; // back to oldest-first
+  // back to oldest-first: preparing bags by creation, then ready bags by the time they came up
+  const data = ordersRes.data ? [...ordersRes.data].reverse() : ordersRes.data;
   if (error) {
     console.error("[board] read failed:", error.message);
     return NextResponse.json({ error: "Board read failed" }, { status: 500 });
@@ -158,7 +165,7 @@ export async function GET(req: NextRequest) {
   // up, and the log says so.
   if (queueEmptiness((data ?? []).length, BOARD_ORDER_CAP) === "cannot-say")
     console.warn(
-      "[board] orders read saturated — the oldest untapped bags are off the wall; tap them picked up",
+      "[board] orders read saturated — the bags readied longest ago are off the wall; tap them picked up",
       { cap: BOARD_ORDER_CAP },
     );
   // ⚠️ VALIDATED, not merely defaulted. `dbNowMs` feeds two `new Date(...).toISOString()` calls

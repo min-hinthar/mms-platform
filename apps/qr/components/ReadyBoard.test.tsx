@@ -384,5 +384,45 @@ describe("P6 — the kitchen pulse band", () => {
       // The Ready column is untouched: this is not a blanket blank, it is a claim-by-claim one.
       expect(container.textContent).toContain("A1B2C3");
     });
+
+    it("drops the wait minutes with the band — a stale count would tick on for hours (Codex round 1 on A4·1)", async () => {
+      // `readyMinutes` is a server-derived age, and an age rots exactly as the pulse's do: carried
+      // through an outage, a bag reads "5 min" an hour later while the note beside it says the
+      // board is reconnecting. The name and code stay (they do not rot); the count goes.
+      vi.useFakeTimers();
+      let answering = true;
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => {
+          if (!answering) throw new Error("network");
+          return {
+            status: 200,
+            ok: true,
+            json: async () => ({
+              orders: [
+                {
+                  code: "A1B2C3",
+                  name: "Nilar",
+                  status: "ready",
+                  readyAt: SERVER_NOW,
+                  readyMinutes: 5,
+                },
+              ],
+              serverNow: SERVER_NOW,
+              pulse: pulse(),
+            }),
+          };
+        }),
+      );
+      const { container } = render(<ReadyBoard token="t" lang="en" />);
+      const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+      await tick(1);
+      expect(container.querySelector(".orb-wait")?.textContent).toBe("5 min");
+
+      answering = false;
+      for (let i = 0; i < BOARD_FAIL_THRESHOLD; i++) await tick(5_000);
+      expect(container.textContent).toContain("A1B2C3");
+      expect(container.querySelector(".orb-wait")).toBeNull();
+    });
   });
 });

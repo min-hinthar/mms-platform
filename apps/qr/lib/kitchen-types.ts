@@ -93,7 +93,8 @@ export type KdsThresholds = {
 
 /** Today's bump-derived metrics (mms_kds_stats): avg fire→bump seconds + tickets served since local
  *  midnight. Zero-state renders as "—", never a fabricated number. */
-export type KdsStats = { avgSecs: number; servedToday: number };
+/** `servedToday` is `null` when the stats rpc answered nothing — an unknown count, never 0 (`shapeKdsStats`). */
+export type KdsStats = { avgSecs: number; servedToday: number | null };
 
 /**
  * A4·1 (K31) — a line that went OUT today, for the read-only served rail. The same text shape the

@@ -235,6 +235,9 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
   }
 
   const orders = state.kind === "live" ? state.orders : [];
+  // A stale snapshot keeps its names and codes (they do not rot) and drops every AGE — the pulse's
+  // below, and each card's wait minutes (Codex round 1 on A4·1).
+  const stale = state.kind === "live" && state.stale;
   const preparing = orders.filter((o) => o.status === "preparing");
   // Freshest call-outs at the top — the person walking up scans the top of the Ready column.
   const ready = orders
@@ -277,7 +280,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           ) : (
             <ul role="list">
               {preparing.map((o) => (
-                <BoardCard key={o.code} order={o} flash={null} lang={lang} />
+                <BoardCard key={o.code} order={o} flash={null} lang={lang} stale={stale} />
               ))}
             </ul>
           )}
@@ -292,7 +295,13 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           ) : (
             <ul role="list">
               {ready.map((o) => (
-                <BoardCard key={o.code} order={o} flash={flashes.get(o.code) ?? null} lang={lang} />
+                <BoardCard
+                  key={o.code}
+                  order={o}
+                  flash={flashes.get(o.code) ?? null}
+                  lang={lang}
+                  stale={stale}
+                />
               ))}
             </ul>
           )}
@@ -512,21 +521,25 @@ function BoardCard({
   order,
   flash,
   lang,
+  stale,
 }: {
   order: BoardOrder;
   flash: number | null;
   lang: StaffLang;
+  stale: boolean;
 }) {
   // K32 (A4·1) — how long a bag has waited, drawn from the server's own minute count (never a
   // subtraction from this screen's clock). The ROUTE decides which cards carry one — Ready only,
   // never a collected bag — and pins that in its suite; this card draws the number it was sent.
-  // An older server sends no count at all, and then nothing is drawn rather than "0".
+  // An older server sends no count at all, and then nothing is drawn rather than "0". A STALE
+  // snapshot draws none either: the count is an age, and carried through an outage it would read
+  // "5 min" an hour later beside a note saying the board is reconnecting (Codex round 1 on A4·1).
   const wait = order.readyMinutes ?? null;
   return (
     <li className={`orb-card${flash != null ? " orb-card-flash" : ""}`}>
       <span>{order.name ?? `#${order.code}`}</span>
       {order.name && <span className="orb-code">#{order.code}</span>}
-      {wait !== null && (
+      {wait !== null && !stale && (
         <span className="orb-wait" lang={lang === "my" ? "my" : undefined}>
           {wait === 0
             ? ts(lang, "board.card.justNow")

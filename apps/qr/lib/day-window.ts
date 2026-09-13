@@ -9,15 +9,19 @@
  * function taking the zone, and `laDayStartIso` is now that function applied to LA.
  *
  * DST-correct by VERIFICATION, never by a fixed-offset subtraction: the calendar date comes from a
- * zone-aware format, the candidate midnight is built from the offset in force at `now`, and the
- * candidate is formatted BACK into the zone and required to read 00:00 on that date. Where the
- * offset changed between midnight and now (a DST day), the first candidate is an hour off and the
- * check fails; the second pass rebuilds it from the offset in force AT THE CANDIDATE, which is the
- * offset midnight actually had. Two passes suffice because a zone changes offset at most once per
- * calendar day.
+ * zone-aware format, a candidate is built from every offset the zone shows around midnight, each
+ * candidate is formatted BACK into the zone, and the EARLIEST one whose wall clock reads today's
+ * date is the day's first instant. "Reads 00:00" was the first rule, and it is wrong twice a year
+ * in a zone whose jump lands ON midnight (Santiago, Havana, Cairo): on the spring-forward day no
+ * instant reads 00:00 and the day begins at 01:00 — the first draft's second pass rebuilt the
+ * candidate once more and alternated back to 23:00 the day before (Codex round 1 on A4·1) — and
+ * on the fall-back day 00:00 reads twice and the day began at the first. "Earliest instant dated
+ * today" is right in all three shapes, because no instant before the day's first can read today.
  */
 
 const WALL = new Map<string, Intl.DateTimeFormat>();
+/** The widest jump a zone makes at one transition — the probe radius around the first candidate. */
+const HOUR_MS = 60 * 60 * 1000;
 
 /**
  * The zone the SQL side coalesces to when `pickup_config.tz` cannot be read — kept identical, and
@@ -46,10 +50,14 @@ export function isIntlZone(tz: string): boolean {
 export function resolveServiceTz(raw: string | null | undefined): string {
   if (raw && isIntlZone(raw)) return raw;
   if (raw)
-    console.error("[day-window] pickup_config.tz is not a zone Intl accepts — using the default", {
-      tz: raw,
-      fallback: DEFAULT_SERVICE_TZ,
-    });
+    // Said with its consequence (Codex round 1 on A4·1): `mms_kds_stats` keeps deriving ITS day from
+    // the stored value in SQL (Postgres accepts 'PST' as a fixed −08:00), so until the value is an
+    // IANA name the served rail and the Avg cell beside it can disagree by an hour in summer.
+    // Storage-time validation is a trigger, i.e. a prod migration — OPEN-ITEMS K34.
+    console.error(
+      "[day-window] pickup_config.tz is not a zone Intl accepts — using the default; the SQL stats still derive their day from the stored value, so the served rail and Avg today may disagree until it is an IANA name (K34)",
+      { tz: raw, fallback: DEFAULT_SERVICE_TZ },
+    );
   return DEFAULT_SERVICE_TZ;
 }
 
@@ -109,16 +117,39 @@ export function dayStartIso(nowIso: string, tz: string): string {
   if (!isIntlZone(tz)) return dayStartIso(nowIso, resolveServiceTz(tz));
   const today = wallAt(now, tz);
   const midnightAsUtc = Date.UTC(today.y, today.m - 1, today.d);
-  let candidate = midnightAsUtc - offsetAt(now, tz);
-  for (let pass = 0; pass < 2; pass++) {
+  // The day's first instant is midnight-as-UTC minus the offset in force AT that instant — which the
+  // offset at `now` need not be (a DST day). Build a candidate from the offset at `now`, then from
+  // every offset the zone shows within an hour of it (a transition's far side, whichever side that
+  // is; an hour is the widest jump a zone makes), and keep the EARLIEST candidate whose wall clock
+  // reads today's date. Nothing before the day's first instant can read today, so nothing earlier
+  // qualifies, and the first instant itself is a candidate because its offset is one of those
+  // probed. The same rule on an ordinary day (the one candidate that reads 00:00), on a jump that
+  // lands ON midnight (the wall never reads 00:00; the day begins at 01:00), and on a fall-back at
+  // midnight (00:00 reads twice; the first is the start).
+  const first = midnightAsUtc - offsetAt(now, tz);
+  const offsets = new Set([
+    offsetAt(now, tz),
+    offsetAt(first, tz),
+    offsetAt(first - HOUR_MS, tz),
+    offsetAt(first + HOUR_MS, tz),
+  ]);
+  let start: number | null = null;
+  for (const off of offsets) {
+    const candidate = midnightAsUtc - off;
     const w = wallAt(candidate, tz);
-    if (w.y === today.y && w.m === today.m && w.d === today.d && w.hh === 0 && w.mm === 0) {
-      return new Date(candidate).toISOString();
-    }
-    candidate = midnightAsUtc - offsetAt(candidate, tz);
+    if (w.y !== today.y || w.m !== today.m || w.d !== today.d) continue;
+    if (start === null || candidate < start) start = candidate;
   }
-  // Reached only by a zone whose DST jump lands ON midnight (America/Santiago, America/Havana): the
-  // wall never reads 00:00 on that date, so the second candidate — built from the offset in force at
-  // the first — is the instant the day actually began, the first minute after the gap. Not LA.
-  return new Date(candidate).toISOString();
+  if (start === null) {
+    // Unreachable by the argument above; said rather than silently floored somewhere else.
+    console.error(
+      "[day-window] no candidate read today's date — flooring from the current offset",
+      {
+        tz,
+        nowIso,
+      },
+    );
+    start = first;
+  }
+  return new Date(start).toISOString();
 }

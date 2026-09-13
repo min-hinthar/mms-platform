@@ -27,6 +27,7 @@ import { catalogNameMy, pairModifiersMy, UUID_RE } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 import { dayStartIso, resolveServiceTz } from "./day-window";
 import { readServedToday, settleServedRail } from "./served-today";
+import { shapeKdsStats } from "./kitchen-stats";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -133,11 +134,16 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         rechimeSec: cfg.rechime_sec,
       }
     : DEFAULT_THRESHOLDS;
-  const statsRow = statsRes.data?.[0];
-  const stats: KdsStats = {
-    avgSecs: statsRow?.avg_secs ?? 0,
-    servedToday: statsRow?.served_count ?? 0,
-  };
+  // A failed stats rpc is an UNKNOWN count, never zero (Codex round 1 on A4·1): the rail's capped
+  // sentence takes it as a denominator. Logged, and the queue is answered regardless.
+  if (statsRes.error)
+    console.error(
+      "[kitchen] mms_kds_stats failed — Avg today and the day's served count are unknown",
+      {
+        message: statsRes.error.message,
+      },
+    );
+  const stats: KdsStats = shapeKdsStats(statsRes.data?.[0]);
   if (tzRes.error)
     console.error(
       "[kitchen] pickup_config tz read failed — served rail floors on the default zone",

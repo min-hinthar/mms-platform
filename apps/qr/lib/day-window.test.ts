@@ -50,6 +50,28 @@ describe("dayStartIso — the service day, in any zone, DST-correct by verificat
       "2026-11-01T07:00:00.000Z",
     );
   });
+  it("a zone whose spring-forward lands ON midnight begins its day at the jump, not the hour before (Codex round 1 on A4·1)", () => {
+    // Santiago 2026-09-06: 00:00 (−4) → 01:00 (−3). No instant reads 00:00 on that date; the day's
+    // first minute reads 01:00. The first draft's second pass rebuilt the candidate once more after
+    // the check failed and alternated back to 03:00Z — 23:00 on the 5th — so the rail carried the
+    // prior day's last hour. Havana and Cairo jump at midnight the same way. Walked back by brute
+    // force, minute by minute, until the wall date changed.
+    expect(dayStartIso("2026-09-06T12:00:00Z", "America/Santiago")).toBe(
+      "2026-09-06T04:00:00.000Z",
+    );
+    expect(dayStartIso("2026-03-08T12:00:00Z", "America/Havana")).toBe("2026-03-08T05:00:00.000Z");
+    expect(dayStartIso("2026-04-24T12:00:00Z", "Africa/Cairo")).toBe("2026-04-23T22:00:00.000Z");
+  });
+  it("a zone whose fall-back lands ON midnight begins its day at the FIRST 00:00, not the repeat", () => {
+    // Havana 2026-11-01: 01:00 (−4) → 00:00 (−5), so 00:00 reads twice — at 04:00Z and again at
+    // 05:00Z — and the day began at the first. A candidate built from the offset at noon (−5) is the
+    // second one, an hour late, and the rail would drop the day's first hour. Santiago 2026-04-05
+    // falls back the night before (00:00 → 23:00 on the 4th), so its 00:00 is unique.
+    expect(dayStartIso("2026-11-01T12:00:00Z", "America/Havana")).toBe("2026-11-01T04:00:00.000Z");
+    expect(dayStartIso("2026-04-05T12:00:00Z", "America/Santiago")).toBe(
+      "2026-04-05T04:00:00.000Z",
+    );
+  });
   it("a half-hour zone with no DST (Yangon, +6:30) — the zone the family reads the clock in", () => {
     // 19:30Z is 02:00 on the 16th in Yangon; its midnight is 17:30Z on the 15th.
     expect(dayStartIso("2026-07-15T19:30:00Z", "Asia/Yangon")).toBe("2026-07-15T17:30:00.000Z");

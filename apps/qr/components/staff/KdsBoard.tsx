@@ -34,6 +34,7 @@ import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
+import { servedMoreKey } from "@/lib/kitchen-stats";
 
 /**
  * The KDS — kitchen display (S2.1b, rebuilt by W3 to SPEC-KDS). Server-rendered initial queue, kept
@@ -525,7 +526,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             <span lang={lang}>{ts(lang, "kds.stat.late")}</span>
           </p>
           <p className="kds-stat" style={{ margin: 0 }}>
-            <b>{snap.stats.servedToday === 0 ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
+            <b>{!snap.stats.servedToday ? "—" : fmtElapsed(snap.stats.avgSecs * 1000)}</b>
             <span lang={lang}>{ts(lang, "kds.stat.avg")}</span>
           </p>
         </div>
@@ -722,8 +723,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                       >
                         <Chrome
                           lang={lang}
-                          k="kds.served.more"
-                          vars={{ n: snap.served.lines.length, total: snap.stats.servedToday }}
+                          k={servedMoreKey(snap.stats.servedToday)}
+                          vars={{ n: snap.served.lines.length, total: snap.stats.servedToday ?? 0 }}
                         />
                       </p>
                     )}

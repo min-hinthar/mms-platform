@@ -217,12 +217,19 @@ describe("readServedToday — the read asks exactly for today's served lines", (
     expect((await readServedToday(db, FLOOR, TZ))?.truncated).toBe(false);
   });
 
-  it("labels a pickup by its PAID order — the orders read is scoped to paid, by cart", async () => {
+  it("labels a pickup by its SETTLED order — paid or refunded, by cart (Codex round 1 on A4·1)", async () => {
+    // A fully refunded pickup keeps its served lines: `mms_apply_refund_reconcile` flips
+    // `qr_orders.status` to `refunded` and touches no cart item, so a `paid`-only read stopped
+    // resolving the code printed on the guest's order the moment money went back. Both settled
+    // statuses resolve; `refunded` is never dropped.
     itemRows = [row({ id: "l1", bumped_at: "2026-09-13T18:00:00Z" })];
     await readServedToday(db, FLOOR, TZ);
     const q = queries.find((x) => x.table === "qr_orders");
-    expect(q?.in).toEqual([["cart_id", [CART_A]]]);
-    expect(q?.eq).toEqual([["status", "paid"]]);
+    expect(q?.in).toEqual([
+      ["cart_id", [CART_A]],
+      ["status", ["paid", "refunded"]],
+    ]);
+    expect(q?.eq).toEqual([]);
   });
 
   it("an empty day asks nothing further and answers [] — an empty rail, not an unreadable one", async () => {

@@ -191,6 +191,12 @@ export const STAFF = {
     en: "Showing the last {n} of {total} served today.",
     my: "ဒီနေ့ ထုတ်ပြီး {total} ခုထဲက နောက်ဆုံး {n} ခုကို ပြထားသည်။",
   },
+  // The capped read came back full but the stats rpc answered nothing, so the day's count is
+  // UNKNOWN — said as such, never "of 0" (Codex round 1 on A4·1).
+  "kds.served.moreUnknown": {
+    en: "Showing the last {n} served today — the day’s total couldn’t be read.",
+    my: "ဒီနေ့ ထုတ်ပြီး နောက်ဆုံး {n} ခုကို ပြထားသည် — တစ်နေ့တာ စုစုပေါင်းကို မဖတ်နိုင်ပါ။",
+  },
   "kds.served.unreadable": {
     en: "Couldn’t read what went out. The board above is live.",
     my: "ထုတ်ပြီးသမျှကို မဖတ်နိုင်ပါ။ အပေါ်က ဘုတ်က ပုံမှန်ပါ။",

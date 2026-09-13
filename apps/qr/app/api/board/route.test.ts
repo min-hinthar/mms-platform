@@ -111,25 +111,38 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => {
       if (table === "qr_orders") {
-        // Honours ORDER and LIMIT (A4·1): the saturation rule is about which rows a capped read keeps,
-        // and a mock that returned the whole fixture would let ASC and DESC pass the same test.
-        let ascending = true;
+        // Honours EVERY `.order()` in sequence, nulls placement included, and LIMIT (A4·1; widened
+        // for Codex round 1): the saturation rule is about which rows a capped read keeps, and a
+        // mock that sorted by one hard-coded column would let a ranking regression pass — a mock
+        // that returned the whole fixture would let ASC and DESC pass the same test.
+        const keys: { col: keyof OrderRow; ascending: boolean; nullsFirst: boolean }[] = [];
         const chain: Record<string, unknown> = {
           select: () => chain,
           is: () => chain,
           gte: () => chain,
           or: () => chain,
-          order: (_col: string, opts?: { ascending?: boolean }) => {
-            ascending = opts?.ascending !== false;
+          order: (col: keyof OrderRow, opts?: { ascending?: boolean; nullsFirst?: boolean }) => {
+            keys.push({
+              col,
+              ascending: opts?.ascending !== false,
+              nullsFirst: opts?.nullsFirst === true,
+            });
             return chain;
           },
           limit: (n: number) => {
             if (ordersError) return Promise.resolve({ data: null, error: ordersError });
-            const sorted = [...orders].sort((a, b) =>
-              ascending
-                ? a.created_at.localeCompare(b.created_at)
-                : b.created_at.localeCompare(a.created_at),
-            );
+            const sorted = [...orders].sort((a, b) => {
+              for (const k of keys) {
+                const av = a[k.col];
+                const bv = b[k.col];
+                if (av === bv) continue;
+                if (av === null) return k.nullsFirst ? -1 : 1;
+                if (bv === null) return k.nullsFirst ? 1 : -1;
+                const c = String(av).localeCompare(String(bv));
+                if (c !== 0) return k.ascending ? c : -c;
+              }
+              return 0;
+            });
             return Promise.resolve({ data: sorted.slice(0, n), error: null });
           },
         };
@@ -633,6 +646,30 @@ describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock
     expect(codes).not.toContain("AA0000"); // the oldest untapped one fell off
     // and the wall still reads oldest-first within what it shows
     expect(codes[0]).toBe("AA0001");
+  });
+
+  it("a scheduled bag placed early and readied LAST survives the cap — the wall ranks by readiness, not creation (Codex round 1 on A4·1)", async () => {
+    // Sixty bags placed and readied through the afternoon, plus one placed at breakfast for a six
+    // o'clock pickup that came up a moment ago. Under `created_at DESC` it is the oldest creation
+    // on the wall and the row the cap drops — a guest at the counter with no name on the wall.
+    // Under `togo_ready_at DESC` it is the newest readiness and the first row kept; the row that
+    // falls off is the one readied longest ago.
+    const afternoon = Array.from({ length: 60 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
+    }));
+    const scheduled = {
+      ...order(`${TOGO.slice(0, -4)}5chd`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - 6 * 60 * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - 30_000).toISOString(),
+    };
+    orders = [scheduled, ...afternoon];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA5CHD");
+    expect(codes).not.toContain("AA0000");
   });
 
   it("one under the cap is a complete read and publishes every row", async () => {
