@@ -195,6 +195,11 @@ describe("releaseSettlementOfSettledCart — the one owner-less release, and its
     expect(q.eq).toContainEqual(["id", "cart-1"]);
     expect(q.neq).toContainEqual(["status", "open"]);
   });
+
+  it("surfaces its write error — the null above is an answer, not a default", async () => {
+    updateError = { message: "connection reset" };
+    expect(await releaseSettlementOfSettledCart("cart-1")).toEqual({ message: "connection reset" });
+  });
 });
 
 describe("extendSettlementFor — scoped to the owner, fresh-only, and it REPORTS (A3 · M203)", () => {

@@ -144,11 +144,15 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
  * acquireCartLock; same app-clock basis. PRECONDITION: the caller has already proved its authority
  * (`staffGate` for the counter, `assertCartMember` + host for the split).
  *
- * ⚠️ `owner` IS A REQUEST-UNIQUE ID, NEVER A PERSON (A3 · M201). Every live caller mints
+ * ⚠️ `owner` IS A REQUEST-UNIQUE ID, NEVER A PERSON (A3 · M201). Every LIVE caller mints
  * `crypto.randomUUID()` per request — `settleCard` always did; `settleCash` and `closeSecureTab`
  * passed `caller.uid` until A3 — and the whole settlement API leans on that: a release, an extend
  * or a post-claim cleanup scoped by `settle_by = owner` names exactly ONE request's freeze and can
- * never reach a sibling's, which is what makes each of them sound to write at all.
+ * never reach a sibling's, which is what makes each of them sound to write at all. The one caller
+ * that does NOT is the PARKED split door (`openSettlement` / `abortSettlement`, behind
+ * `SURFACES.selfServeSplit`): it keys on the host's seat uid — a person. Its releases are scoped to
+ * that uid, which is narrower than by-cart, but two opens by one host share it, so the uniqueness
+ * argument above does not transfer; reopening that door must mint per open (`lib/surfaces.ts`).
  *
  * ⚠️ THE SAME-OWNER RE-ACQUIRE ARM IS GONE, and it was the whole defect. The predicate used to
  * read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a re-open door for a host

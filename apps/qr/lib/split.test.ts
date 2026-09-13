@@ -350,6 +350,24 @@ describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 ·
     expect(cancelled).toEqual(["pi_1"]);
   });
 
+  it("does not refreeze what it never released — a null claim leaves no freeze to restore", async () => {
+    // With `released: false` the pre-abort state had NO host freeze; restoring one on a failed read
+    // would invent it (and, over a stale Terminal attempt's owner, hand that attempt a lost mutex).
+    releaseResult = false;
+    cartRow = { settle_at: null };
+    sharesError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
+    const refreeze = queries.find(
+      (q) =>
+        q.table === "qr_carts" &&
+        q.op === "update" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_at" in q.patch,
+    );
+    expect(refreeze).toBeUndefined();
+  });
+
   it("proceeds past a STALE foreign freeze — it can no longer protect anything", async () => {
     releaseResult = false;
     cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };

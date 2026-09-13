@@ -32,6 +32,10 @@ let piCreateFails = false;
 let processFails: { code: string } | null = null;
 let piCancelFails = false;
 let retrieved: Record<string, unknown> | null = null;
+/** A3 — what `retrieve` answers AFTER a `cancel` has been attempted: the re-read that decides whether
+ *  a refused cancel means "the tap won", "already canceled" or "cannot tell". */
+let retrievedAfterCancel: Record<string, unknown> | null = null;
+let retrieveFailsAfterCancel = false;
 let readerAction: Record<string, unknown> | null = null;
 vi.mock("./stripe", () => ({
   getStripe: () => ({
@@ -52,9 +56,13 @@ vi.mock("./stripe", () => ({
       },
       retrieve: (id: string) => {
         log("pi.retrieve", id);
-        return Promise.resolve(
-          retrieved ?? { id, status: "requires_payment_method", metadata: {} },
-        );
+        const afterCancel = calls.some((c) => c.op === "pi.cancel");
+        if (afterCancel && retrieveFailsAfterCancel)
+          return Promise.reject(Object.assign(new Error("net"), { code: "api_connection_error" }));
+        // `false ?? x` is `false`, not `x` — a bare `afterCancel && …` here returned `false` on every
+        // base-case read and made all 15 poll/cancel cases refuse as "Invalid request."
+        const answer = afterCancel && retrievedAfterCancel ? retrievedAfterCancel : retrieved;
+        return Promise.resolve(answer ?? { id, status: "requires_payment_method", metadata: {} });
       },
     },
     terminal: {
@@ -109,8 +117,10 @@ vi.mock("./totals", () => ({
   },
 }));
 let acquireResult: "acquired" | "locked" | "settling_other" | "closed" = "acquired";
-/** A3 — the extend now ANSWERS. `false` is "nothing of this attempt's was fresh to extend". */
+/** A3 — the extend now ANSWERS. `false` is "nothing of this attempt's was fresh to extend";
+ *  `extendError` non-null is an OUTAGE, which must never be read as a verdict. */
 let extendResult = true;
+let extendError: { message: string } | null = null;
 vi.mock("./lock", () => ({
   acquireSettlement: (cartId: string, uid: string) => {
     log("acquire", { cartId, uid });
@@ -122,7 +132,7 @@ vi.mock("./lock", () => ({
   },
   extendSettlementFor: (cartId: string, owner: string) => {
     log("extend", { cartId, owner });
-    return Promise.resolve({ extended: extendResult, error: null });
+    return Promise.resolve({ extended: extendResult, error: extendError });
   },
 }));
 vi.mock("./posthog-server", () => ({
@@ -174,6 +184,10 @@ beforeEach(() => {
 });
 afterEach(() => {
   extendResult = true;
+  extendError = null;
+  retrievedAfterCancel = null;
+  retrieveFailsAfterCancel = false;
+  acquireResult = "acquired";
   vi.unstubAllEnvs();
 });
 
@@ -314,6 +328,7 @@ describe("terminalStatus — the collect-window poll", () => {
       process_payment_intent: { payment_intent: "pi_test_1" },
     };
     extendResult = false;
+    acquireResult = "settling_other"; // a colleague holds the table fresh — the re-acquire refuses
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     expect(r).toEqual({
       ok: true,
@@ -321,14 +336,23 @@ describe("terminalStatus — the collect-window poll", () => {
       error: expect.stringMatching(/payment hold was lost/),
     });
     const ops = calls.map((c) => c.op);
-    expect(ops.indexOf("reader.cancelAction")).toBeGreaterThan(-1);
+    // The re-acquire was ASKED before anything was abandoned — it is what separates "aged out" from
+    // "taken", and it is keyed on the same attempt.
+    expect(calls.find((c) => c.op === "acquire")?.args).toEqual({
+      cartId: "cart-1",
+      uid: "attempt-1",
+    });
+    expect(ops.indexOf("acquire")).toBeLessThan(ops.indexOf("reader.cancelAction"));
     expect(ops.indexOf("reader.cancelAction")).toBeLessThan(ops.indexOf("pi.cancel"));
     // Nothing of ours to release: the freeze is not this attempt's, and the webhook's canceled arm
     // scopes its own release to the attempt anyway.
     expect(ops).not.toContain("releaseFor");
   });
 
-  it("a mutex lost mid-collect whose cancel is REFUSED reports `succeeded` — the tap already won", async () => {
+  it("a freeze that merely AGED OUT is re-acquired under the same attempt and the collect continues", async () => {
+    // A backgrounded tablet stops polling; ten minutes later the freeze is stale but nobody took the
+    // table. Abandoning a live tap there would be the over-block. The re-acquire succeeds on a stale
+    // freeze — the same statement the counter uses — and the reader keeps going.
     retrieved = {
       id: "pi_test_1",
       status: "requires_payment_method",
@@ -337,10 +361,102 @@ describe("terminalStatus — the collect-window poll", () => {
       amount: 4321,
     };
     extendResult = false;
+    acquireResult = "acquired";
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: true, state: "collecting" });
+    const ops = calls.map((c) => c.op);
+    expect(ops).toContain("acquire");
+    expect(ops).not.toContain("pi.cancel");
+    expect(ops).not.toContain("reader.cancelAction");
+  });
+
+  it("an extend OUTAGE is a poll miss, not a lost mutex — nothing is cancelled and nothing re-acquired (blind pass, CRITICAL 2)", async () => {
+    // `{ extended: false, error }` is what a PostgREST hiccup produces. The first draft read it as
+    // "lost": it wiped the guest's live tap and told staff the hold "was lost … being settled
+    // another way" — a fabricated diagnosis over an outage.
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    extendResult = false;
+    extendError = { message: "connection reset" };
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: false, error: expect.stringMatching(/still trying/) });
+    const ops = calls.map((c) => c.op);
+    expect(ops).not.toContain("acquire");
+    expect(ops).not.toContain("pi.cancel");
+    expect(ops).not.toContain("reader.cancelAction");
+  });
+
+  it("a refused cancel whose re-read says SUCCEEDED reports `succeeded` — the tap already won", async () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    extendResult = false;
+    acquireResult = "settling_other";
     piCancelFails = true;
+    retrievedAfterCancel = {
+      id: "pi_test_1",
+      status: "succeeded",
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     piCancelFails = false;
     expect(r).toEqual({ ok: true, state: "succeeded", orderId: null, totalCents: 4321 });
+  });
+
+  it("a refused cancel on an ALREADY-CANCELED intent is `failed`, never `succeeded` (blind pass, CRITICAL 1)", async () => {
+    // Stripe answers `payment_intent_unexpected_state` for a canceled intent exactly as it does for a
+    // succeeded one. Reading every refusal as "the tap won" reported a paid state with a dollar
+    // total for money never taken — two tablets polling one attempt is all it takes.
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    extendResult = false;
+    acquireResult = "settling_other";
+    piCancelFails = true;
+    retrievedAfterCancel = {
+      id: "pi_test_1",
+      status: "canceled",
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    piCancelFails = false;
+    expect(r).toEqual({
+      ok: true,
+      state: "failed",
+      error: expect.stringMatching(/payment hold was lost/),
+    });
+  });
+
+  it("a refused cancel whose re-read FAILS is a poll miss — never a paid state", async () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    extendResult = false;
+    acquireResult = "settling_other";
+    piCancelFails = true;
+    retrieveFailsAfterCancel = true;
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    piCancelFails = false;
+    expect(r).toEqual({ ok: false, error: expect.stringMatching(/still trying/) });
   });
 
   it("captured-but-unfulfilled: the extend is scoped, and a lost freeze is LOGGED rather than hidden", async () => {
@@ -451,6 +567,39 @@ describe("cancelTerminal — scoped release, PI-verified reader clear", () => {
     const r = await cancelTerminal({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     expect(r).toEqual({ ok: true }); // our PI still cancels; the other table's prompt survives
     expect(calls.map((c) => c.op)).not.toContain("reader.cancelAction");
+  });
+
+  it("a refused cancel on an already-CANCELED intent still releases scoped and answers ok", async () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    piCancelFails = true;
+    retrievedAfterCancel = { id: "pi_test_1", status: "canceled", metadata: TERMINAL_META };
+    const r = await cancelTerminal({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    piCancelFails = false;
+    expect(r).toEqual({ ok: true });
+    expect(calls.find((c) => c.op === "releaseFor")?.args).toEqual({
+      cartId: "cart-1",
+      attemptId: "attempt-1",
+    });
+  });
+
+  it("a refused cancel whose re-read fails is 'couldn't reach Stripe', not 'too late'", async () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    piCancelFails = true;
+    retrieveFailsAfterCancel = true;
+    const r = await cancelTerminal({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    piCancelFails = false;
+    expect(r).toEqual({ ok: false, error: expect.stringMatching(/reach Stripe/) });
+    expect(calls.map((c) => c.op)).not.toContain("releaseFor");
   });
 
   it("a tap that won the race keeps the freeze — 'too late' is the honest answer", async () => {

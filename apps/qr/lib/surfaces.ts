@@ -27,10 +27,14 @@
  * `acquireSettlement`'s `settle_by.eq.<uid>` arm, and that arm was the counter's double-mint —
  * `settleCash` / `closeSecureTab` inherited it by passing a shared uid — so A3 removed it rather
  * than argue around it. `openSettlement` still acquires under the host's seat uid and every release
- * in `split.ts` is scoped to it, so the door is SOUND when flipped; what it lacks is the re-open:
- * a second `openSettlement` by the same host now answers `settling_other` until the freeze ages
- * out. Restore it as release-own-then-acquire (`releaseSettlementFor(id, uid)` before the
- * acquire, refusing if any share is already authorized), never by putting the arm back.
+ * in `split.ts` is scoped to it — narrower than the by-cart form it replaced, but a seat uid is a
+ * PERSON, not a request, so the counter's uniqueness argument does not transfer (two opens by one
+ * host share it). Flipping the constant therefore reopens a door whose freeze is scoped but not
+ * request-unique, and whose same-host re-open is gone: a second `openSettlement` by the same host
+ * answers `settling_other` until the freeze ages out. Reopening needs BOTH: a per-open uuid as the
+ * owner (carried on the share intents as `settleOwner`, which the route already stamps), and the
+ * re-open restored as release-own-then-acquire (refusing if any share is already authorized) —
+ * never by putting the arm back.
  */
 export const SURFACES = {
   selfServeSplit: false,

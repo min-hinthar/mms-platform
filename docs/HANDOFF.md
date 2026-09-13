@@ -18,8 +18,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > is GONE (every release names its owner and returns its row count; the one owner-less release,
 > `releaseSettlementOfSettledCart`, refuses an open cart in its predicate); `extendSettlementFor`
 > is scoped and reports; the Terminal poll abandons the attempt on a lost mutex; `create-share-intent`
-> extends under the host's owner BEFORE minting. Closes **M201 · M202 · M203**. 628 mutants (18 new,
-> 8 rewritten); CHANGELOG § A3 has the full shape, LEARNINGS **#109** the lesson (the defect was the
+> extends under the host's owner BEFORE minting. Closes **M201 · M202 · M203**. 632 mutants (22 new — four of them
+> from the blind pass's two CRITICALs — 8 rewritten, 6 re-anchored); CHANGELOG § A3 has the full shape, LEARNINGS **#109** the lesson (the defect was the
 > OWNER, not the discriminator — five rounds reasoned about the wrong one).
 >
 > **Merge ritual, unchanged:** final push → ready → `@codex review` → WAIT for a `codex-review`
@@ -336,7 +336,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **628 `verify:slice` mutants** · **112 target modules** (99 under `apps/qr/lib`, 3 API routes,
+> **632 `verify:slice` mutants** · **112 target modules** (99 under `apps/qr/lib`, 3 API routes,
 > 9 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 98 tracked docs files ·
 > `check:docs` clean · all twelve fast-lane guards green.
@@ -806,7 +806,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (628 today)**, **1372 qr + 138 ui tests at the time (2350 + 142 today)**, 69 target modules at the time (99 under `apps/qr/lib` today, 112 in all), 97 local
+> **334 mutants at the time (632 today)**, **1372 qr + 138 ui tests at the time (2358 + 142 today)**, 69 target modules at the time (99 under `apps/qr/lib` today, 112 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1698,7 +1698,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 628 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2350 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 632 `verify:slice` mutants green · `pnpm check:docs` clean (98 files, 2358 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2420,7 +2420,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (628 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (632 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

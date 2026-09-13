@@ -16,13 +16,14 @@ per-attempt idempotency keys. Four consecutive fixes on #275 each MOVED that hol
 stayed, and three attempts to write a safe release — by owner, by owner+era, by cart — were each
 falsified for the same reason, so the supersede module HELD a claimed freeze to the settle TTL as
 its doctrine. Every live caller now mints `crypto.randomUUID()` per request (the Terminal always
-did), the arm is removed rather than argued around, and every path that could not release before
+did; the parked split door keys on the host's seat and is recorded as the exception on
+`SURFACES`), the arm is removed rather than argued around, and every path that could not release before
 releases under the owner: a refused supersede, a failed pin clear, a post-claim throw, the
 AMBIGUOUS claim (shipped and reverted across rounds 10/11), and the diagnosing acquire that sat
 outside every catch.
 
 **The unconditional-by-cart release no longer exists.** `releaseSettlement(cartId)` nulled whatever
-freeze the row carried at sixteen sites, and between an acquire and its release the row can change
+freeze the row carried at seventeen sites (the sixteen M202 counted, plus the fulfilment's), and between an acquire and its release the row can change
 owner — after which the release strips the successor's mutex, which `captureAllIfReady` tolerates
 stale but can never revive null. Every release names the owner it acquired under and returns its
 affected-row COUNT, so the split abort refuses past a claim it did not land (a fresh foreign
@@ -43,11 +44,26 @@ always stamped; `closedByUid` — the shared staff uid, the residual M201 named 
 Reopening the parked split is no longer a one-line flip: its same-host re-open rode the removed
 arm. `SURFACES` records the shape that restores it (release-own-then-acquire, never the arm).
 
-Guards: 18 new mutants and 8 rewritten (**628** across 112 modules); the takeover suite's three
+Guards: 22 new mutants, 8 rewritten and 6 re-anchored (**632** across 112 modules); the takeover suite's three
 held-freeze assertions flipped to owner-scoped releases; a parsed owner-binding guard on both staff
 settles (the acquire's argument is a local bound to `crypto.randomUUID()`, every release names it,
 the tab close stamps it); a value test that the cash owner is a uuid, not `caller.uid`, and unique
 per request; the extend and both release query shapes pinned, `.neq("status", "open")` included.
+
+**The blind adversarial pass on this diff returned REJECT with two CRITICALs, both in the Terminal's
+new arm, both real and both fixed before the PR opened.** (1) `abandonAttempt`'s catch-all read
+every refused cancel as "the tap already won", and the poll reported `succeeded` with a dollar
+total for money never taken — Stripe answers `payment_intent_unexpected_state` for an already-
+canceled intent exactly as for a succeeded one, and a transport failure says nothing. It now
+re-reads the intent and answers only what its state says: `too_late`, `canceled`, or `unknown`
+(a poll miss, never a paid state). (2) A DB OUTAGE on the extend (`extended: false` with an error)
+was read as a lost mutex: it cancelled a live tap and told staff the hold "was lost … being
+settled another way" — a fabricated diagnosis. An error is a poll miss now, and a genuine zero-row
+extend first RE-ACQUIRES under the same attempt, so a freeze that merely aged out with nobody
+taking it (a backgrounded tablet) resumes rather than abandons; only a refusal abandons. Also from
+that pass: the split abort no longer refreezes a freeze it never released. Four mutants pin the
+fixes — the outage read as a lost mutex, the refused cancel read as paid, the aged-out freeze
+abandoned without a re-acquire, and the abort refreezing what it never released — each watched red.
 
 ### A7b — the Google sign-in dead end, and the carry it was destroying (2026-09-09)
 

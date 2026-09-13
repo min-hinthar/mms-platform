@@ -7,7 +7,12 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { releaseSettlementFor, extendSettlementFor } from "./lock";
+import {
+  acquireSettlement,
+  releaseSettlementFor,
+  extendSettlementFor,
+  type SettleResult,
+} from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
 import { getStripe } from "./stripe";
@@ -256,7 +261,7 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
       paymentIntent: paymentIntentId,
       code: (e as { code?: string }).code,
     });
-    return { ok: false, error: "Couldn’t check the reader just now — still trying." };
+    return { ok: false, error: POLL_MISS_COPY };
   }
   // Only OUR reader PIs are pollable — the id is a handle, the metadata is the authority.
   const cartId = intent.metadata?.cartId;
@@ -318,27 +323,72 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
   // freeze alive so the collect can outlast the 10-min TTL without the cart being taken over.
   //
   // ⚠️ A MUTEX LOST MID-COLLECT ENDS THE COLLECT (A3 · M203 — the half of that row that stayed
-  // live after A1 parked the share route). `extendSettlementFor` matching zero rows here means the
-  // reader is still prompting for a table this attempt no longer holds: the freeze aged past the
-  // TTL and someone else acquired, or a scoped release for this attempt already ran. Either way a
-  // cash settle can now proceed beside a live card prompt, which is the double-collect. The old
-  // silent no-op hid exactly that. So this abandons the attempt the way staff Cancel does — the
-  // reader first, then the PaymentIntent — and reports `failed` with copy that says what happened.
-  // If the cancel is refused because the tap already won, the money moved: report `succeeded` and
-  // let the webhook fulfil, as the cancel action does.
+  // live after A1 parked the share route). The old unscoped extend no-oped silently, so a reader
+  // could keep prompting for a table a cash settle had since taken — the double-collect.
+  // `extendSettlementFor` answers three ways here, and the blind pass on this diff is why they are
+  // three and not one:
+  //
+  //   • `extended`          — ours and fresh: keep collecting.
+  //   • an ERROR            — an OUTAGE, not a verdict. The first draft read it as "lost", cancelled
+  //                           a live tap, and told staff the hold "was lost … being settled another
+  //                           way" over a PostgREST hiccup — a fabricated diagnosis. A poll miss lets
+  //                           the next tick ask again, which is what the retrieve failure above does.
+  //   • zero rows, no error — nothing of ours was FRESH: the freeze aged past the TTL with nobody
+  //                           taking it (a backgrounded tablet), or someone acquired it. A re-acquire
+  //                           under the SAME attempt separates the two with the statement the counter
+  //                           uses: it succeeds only on a free or stale freeze and refuses when a
+  //                           colleague holds it fresh (or a diner holds the pay lock). Aged out and
+  //                           free → we hold it again, keep collecting. Refused → the table is being
+  //                           settled another way beside a live card prompt, so abandon the attempt
+  //                           the way staff Cancel does and say what happened.
   const { extended, error: extErr } = await extendSettlementFor(cartId, attempt);
   if (extended) return { ok: true, state: "collecting" };
+  if (extErr) {
+    console.error("[terminal] settlement extend failed mid-collect — an outage, not a lost mutex", {
+      cartId,
+      paymentIntent: intent.id,
+      attempt,
+      error: extErr.message,
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  let back: SettleResult;
+  try {
+    back = await acquireSettlement(cartId, attempt);
+  } catch (e) {
+    console.error("[terminal] re-acquire threw mid-collect", {
+      cartId,
+      paymentIntent: intent.id,
+      attempt,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  if (back === "acquired") {
+    console.warn("[terminal] settlement freeze re-acquired after aging out mid-collect", {
+      cartId,
+      paymentIntent: intent.id,
+      attempt,
+    });
+    return { ok: true, state: "collecting" };
+  }
   console.error("[terminal] settlement freeze lost mid-collect — abandoning the attempt", {
     cartId,
     paymentIntent: intent.id,
     attempt,
-    error: extErr?.message ?? null,
+    refusal: back,
   });
   const abandoned = await abandonAttempt(getStripe(), intent);
   if (abandoned === "too_late")
     return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
+  // We could not establish the intent's state — neither "paid" nor "nothing charged" is honest.
+  if (abandoned === "unknown") return { ok: false, error: POLL_MISS_COPY };
   return { ok: true, state: "failed", error: LOST_HOLD_COPY };
 }
+
+/** The poll's transient-miss answer — the panel counts it and keeps Cancel available; the next
+ *  tick asks again. Named ONCE because three arms now return it and they must read as one thing. */
+const POLL_MISS_COPY = "Couldn’t check the reader just now — still trying.";
 
 /**
  * The poll's copy for a lost mutex. Not a decline (`declineCopy`) — the card was never refused —
@@ -352,14 +402,15 @@ const LOST_HOLD_COPY =
 /**
  * Abandon a Terminal attempt the way staff Cancel does — the reader's action first (only when its
  * live action IS this PaymentIntent, so a stale panel never wipes another table's prompt), then the
- * PaymentIntent. Returns `"too_late"` when Stripe refuses the cancel because the tap already
- * succeeded or is processing: money is moving and the webhook owns the lifecycle from there.
- * Shared by `cancelTerminal` and the poll's lost-mutex arm so the sequence exists once.
+ * PaymentIntent. Three answers: `"canceled"` (nothing was charged), `"too_late"` (the tap already
+ * succeeded or is processing — money is moving and the webhook owns the lifecycle from there), and
+ * `"unknown"` (Stripe refused the cancel and we could not establish why). Shared by
+ * `cancelTerminal` and the poll's lost-mutex arm so the sequence exists once.
  */
 async function abandonAttempt(
   stripe: ReturnType<typeof getStripe>,
   intent: { id: string },
-): Promise<"canceled" | "too_late"> {
+): Promise<"canceled" | "too_late" | "unknown"> {
   const readerId = process.env.STRIPE_TERMINAL_READER_ID;
   if (readerId) {
     // Clear the reader ONLY if its current action is THIS payment — cancelAction is reader-scoped,
@@ -383,13 +434,30 @@ async function abandonAttempt(
   try {
     await stripe.paymentIntents.cancel(intent.id);
   } catch (e) {
-    // Already succeeded (the tap won the race) or processing — money is moving; the webhook owns
-    // the lifecycle and the freeze stays held.
+    // ⚠️ THE ERROR CODE DOES NOT SAY WHY (blind pass on this diff, CRITICAL 1). Stripe answers
+    // `payment_intent_unexpected_state` both for a tap that already SUCCEEDED and for an intent
+    // already CANCELED (a second tablet's poll got there first), and a transport failure says
+    // nothing at all. The first draft read every refusal as "the tap won", and the poll then
+    // reported `succeeded` with a dollar total for money never taken. So ask the intent itself,
+    // and answer only what its state actually says.
     console.error("[terminal] PI cancel refused", {
       paymentIntent: intent.id,
       code: (e as { code?: string }).code,
     });
-    return "too_late";
+    let status: string;
+    try {
+      status = (await stripe.paymentIntents.retrieve(intent.id)).status;
+    } catch (re) {
+      console.error("[terminal] PI re-read after a refused cancel failed", {
+        paymentIntent: intent.id,
+        code: (re as { code?: string }).code,
+      });
+      return "unknown";
+    }
+    if (status === "succeeded" || status === "processing") return "too_late";
+    if (status === "canceled") return "canceled";
+    // Still live: the cancel failed for a reason that was not the intent's state. Not a verdict.
+    return "unknown";
   }
   return "canceled";
 }
@@ -421,8 +489,10 @@ export async function cancelTerminal(raw: unknown): Promise<CancelTerminalResult
   if (intent.metadata?.kind !== "terminal" || !cartId || !attempt)
     return { ok: false, error: "Invalid request." };
 
-  if ((await abandonAttempt(stripe, intent)) === "too_late")
+  const outcome = await abandonAttempt(stripe, intent);
+  if (outcome === "too_late")
     return { ok: false, error: "Too late to cancel — the payment already went through." };
+  if (outcome === "unknown") return { ok: false, error: "Couldn’t reach Stripe — try again." };
   // Scoped to THIS attempt: a stale panel canceling an old orphaned PI can never null a newer
   // attempt's live freeze (the review's confirmed-HIGH era-confusion class).
   const { error: settleErr } = await releaseSettlementFor(cartId, attempt);

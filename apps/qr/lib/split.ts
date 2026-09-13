@@ -608,9 +608,11 @@ export async function abortSettlement(cartId: string): Promise<void> {
     .select("stripe_payment_intent_id,status,capture_started_at")
     .eq("cart_id", id);
   if (sharesErr) {
-    // Nothing has been cancelled or deleted yet, so putting the freeze back restores the exact
-    // pre-abort state. If that write ALSO fails, say so — the table is now unfrozen over live holds.
-    const refreezeErr = await refreeze(db, id, uid);
+    // Nothing has been cancelled or deleted yet. Put the freeze back ONLY if this abort lifted it —
+    // a claim that matched nothing (already null, or a stale foreign owner) has nothing to restore,
+    // and writing a fresh host freeze there would create one that did not exist (blind pass on A3).
+    // If the restore ALSO fails, say so — the table is now unfrozen over live holds.
+    const refreezeErr = released ? await refreeze(db, id, uid) : null;
     console.error("[split] abort share read failed", {
       error: sharesErr,
       refreezeError: refreezeErr?.message,
