@@ -117,6 +117,22 @@ under a foreign zone, and a different text from a UTC server's render — it is 
 on the server like the clock beside it. P2: the takings note said "Since midnight (LA)" over a floor
 that now reads the configured zone — zone-neutral in both tongues. **669** across 120 modules.
 
+**Codex round 3 on #283 — three P1s and one P2 on the polled ledger, all real, all fixed on sight
+(one small commit, per the two-rounds-then-merge rule).** The queue's rejection was raised BEFORE
+the roster's and the ledger's settled answers were applied, so an approvals-table outage threw
+away every good ledger read beside it — each feed is applied first, the throw comes last. A
+ledger read that failed AFTER a good one only logged, so an empty strip read as all-clear over a
+feed the board could not hear — `ledgerStale` and `table.appr.refunds.stale` ("couldn't refresh —
+showing the last good list; a newly stranded charge may be missing"), over the rows or alone,
+cleared by the next good read. A row marked refunded while a poll was already in flight came back
+on that poll's older answer (`refresh()` returns early under `inFlight`) — and a reappearing row
+prompts a duplicate dashboard refund — so the confirmed ids are pinned against any later answer
+that still lists them, forgotten once a fresh read no longer does. And the today-ledger read was
+unpaged under PostgREST's silent max-rows cap — it carries `count: "exact"` now and a short answer
+marks the list `truncated` (mutant `refunds/a-truncated-ledger-read-still-ranks`, watched red);
+the deterministic page is **M219** (low). `ApprovalsBoard.test.tsx` gains three cases, every one
+watched red first. **670** across 120 modules.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

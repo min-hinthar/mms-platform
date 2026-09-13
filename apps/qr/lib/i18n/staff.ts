@@ -475,6 +475,13 @@ export const STAFF = {
     en: "The refunds ledger can’t load right now — anything already recorded is still there.",
     my: "ပြန်အမ်းရန် စာရင်းကို အခု မဖတ်နိုင်သေးပါ — မှတ်ထားပြီးသားတွေ ရှိနေဆဲပါ။",
   },
+  // The ledger loaded once and the latest poll could not read it (Codex round 3 on #283): the
+  // last rows stay, and this line stands over them — or alone — so an empty strip never reads as
+  // "nothing stranded" while the board cannot hear the feed.
+  "table.appr.refunds.stale": {
+    en: "The refunds ledger couldn’t refresh — showing the last good list; a newly stranded charge may be missing.",
+    my: "ပြန်အမ်းရန် စာရင်းကို ပြန်မဖတ်နိုင်ပါ — နောက်ဆုံး ဖတ်နိုင်ခဲ့တဲ့ စာရင်းကို ပြထားပါတယ်၊ အသစ် ကျန်နေတဲ့ ငွေကောက်ခံမှု ပါမလာနိုင်ပါ။",
+  },
 
   // ═══ P2 PR B · browse ═══════════════════════════════════════════════════════════
   // ── the staff order screen: the page header (app/staff/table/[id]/add) ─────

@@ -98,6 +98,15 @@ export function ApprovalsBoard({
   const [snap, setSnap] = useState(initial);
   const [roster, setRoster] = useState(approvers);
   const [refunds, setRefunds] = useState(initialRefunds);
+  // A ledger read that failed AFTER a good one (Codex round 3 on #283, P1): the last rows stay,
+  // but an empty strip over a feed the board cannot hear must never read as all-clear — the
+  // strip says the ledger could not refresh until a read succeeds again.
+  const [ledgerStale, setLedgerStale] = useState(false);
+  // Rows the server has CONFIRMED resolved (the action throws otherwise). A poll already in flight
+  // when the manager marked one can answer AFTER the resolve with the row still listed; that
+  // older answer must not put it back (Codex round 3 on #283, P1 — a reappearing row prompts a
+  // duplicate dashboard refund). Forgotten once a fresh read no longer lists the id.
+  const resolvedIds = useRef(new Set<string>());
   const [serverNow] = useState(() => new Date().toISOString());
   // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
   // (listPendingApprovals THROWS on an unreadable queue instead of returning a false "all clear"),
@@ -138,11 +147,9 @@ export function ApprovalsBoard({
           : Promise.resolve(rosterRef.current),
         raceTimeout(listRefundsNeeded()),
       ]);
-      if (queue.status === "rejected") throw queue.reason;
-      setSnap(queue.value);
-      setAsOfIso(new Date().toISOString());
-      fails.current = 0;
-      setDegraded(null);
+      // Each feed's settled answer is applied on its own, BEFORE the queue's failure is raised
+      // (Codex round 3 on #283, P1): raised first, an approvals-table outage threw away every
+      // good ledger read beside it and hid newly stranded charges until the queue recovered.
       if (who.status === "fulfilled") {
         rosterRef.current = who.value;
         setRoster(who.value);
@@ -153,15 +160,25 @@ export function ApprovalsBoard({
         );
       }
       if (ledger.status === "fulfilled") {
-        setRefunds(ledger.value);
+        const seen = new Set(ledger.value.map((r) => r.id));
+        for (const id of resolvedIds.current) if (!seen.has(id)) resolvedIds.current.delete(id);
+        setRefunds(ledger.value.filter((r) => !resolvedIds.current.has(r.id)));
+        setLedgerStale(false);
       } else {
         // The last good rows stay (an empty strip must MEAN empty); a ledger that never loaded
-        // keeps its honest outage line until a poll reads it.
+        // keeps its honest outage line until a poll reads it, and one that loaded before says
+        // it could not refresh.
+        setLedgerStale(true);
         console.error(
           "[ApprovalsBoard] refunds-needed read failed — the strip keeps its last rows",
           ledger.reason,
         );
       }
+      if (queue.status === "rejected") throw queue.reason;
+      setSnap(queue.value);
+      setAsOfIso(new Date().toISOString());
+      fails.current = 0;
+      setDegraded(null);
     } catch (e) {
       // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
       fails.current += 1;
@@ -219,8 +236,11 @@ export function ApprovalsBoard({
       <RefundsNeededStrip
         lang={lang}
         refunds={refunds}
+        stale={ledgerStale}
         onResolved={(id) => {
-          // The server confirmed (the action throws otherwise) — drop the row now, then re-poll.
+          // The server confirmed (the action throws otherwise) — drop the row now, pin the id
+          // against a poll already in flight, then re-poll.
+          resolvedIds.current.add(id);
           setRefunds((prev) => (prev === null ? prev : prev.filter((r) => r.id !== id)));
           void refresh();
         }}

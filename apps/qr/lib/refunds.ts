@@ -141,11 +141,26 @@ export async function getSettledToday(): Promise<SettledToday> {
   // console makes and the webhook-recorded ones; a refund issued from the processor's dashboard
   // writes no ledger row (W23b) and is the one shape this list cannot date. And WHEN it moved: the
   // latest row per order is the instant such a row is ranked and dated by below.
-  const { data: todayLedger, error: todayLedgerError } = await db
+  const {
+    data: todayLedger,
+    error: todayLedgerError,
+    count: todayLedgerCount,
+  } = await db
     .from("mms_refunds")
-    .select("order_id,created_at")
+    .select("order_id,created_at", { count: "exact" })
     .gte("created_at", sinceIso);
   if (todayLedgerError) return { ok: false, reason: "outage" };
+  // PostgREST's max-rows cap is silent (Codex round 3 on #283): a ledger answer SHORT of its own
+  // count is a subset, and a ranking over a subset may miss the day's newest refunds — the list
+  // then cannot say it is the day (`truncated`), logged. The full fix is a deterministic page
+  // over the ledger, filed as M219; a day with more than a thousand refunds has not happened.
+  const ledgerTruncated =
+    typeof todayLedgerCount === "number" && todayLedgerCount > (todayLedger?.length ?? 0);
+  if (ledgerTruncated)
+    console.error("[refunds] today-ledger read truncated — the settled list is marked capped", {
+      count: todayLedgerCount,
+      rows: todayLedger?.length ?? 0,
+    });
   const refundedTodayAt = new Map<string, string>();
   for (const r of todayLedger ?? []) {
     const prev = refundedTodayAt.get(r.order_id);
@@ -204,6 +219,7 @@ export async function getSettledToday(): Promise<SettledToday> {
     queueEmptiness(paidRows.length, SETTLED_CAP) === "cannot-say" ||
     queueEmptiness(unionRows.length, SETTLED_CAP) === "cannot-say" ||
     unionOverflow ||
+    ledgerTruncated ||
     byId.size > SETTLED_CAP;
   if (rows.length === 0) return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso };
 

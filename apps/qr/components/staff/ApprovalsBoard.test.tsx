@@ -117,6 +117,53 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     vi.restoreAllMocks();
   });
 
+  it("an approvals-table outage does not discard a good ledger read beside it (Codex round 3 on #283, P1)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    approvalsAnswer = () => Promise.reject(new Error("queue down"));
+    refundsAnswer = () => Promise.resolve([refundNeeded("r-1")]);
+    mount([], [], []);
+    await tick(5_000);
+    expect(screen.getByText(/pi_r-1/)).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it("a ledger read that fails AFTER a good one says so — an empty strip never reads as all-clear over a feed it cannot hear (Codex round 3 on #283, P1)", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    mount([], [], []); // loaded once, empty
+    expect(screen.queryByText(STAFF["table.appr.refunds.stale"].en)).toBeNull();
+    refundsAnswer = () => Promise.reject(new Error("ledger down"));
+    await tick(5_000);
+    expect(screen.getByText(STAFF["table.appr.refunds.stale"].en)).toBeTruthy();
+    // A good read clears it again.
+    refundsAnswer = () => Promise.resolve([]);
+    await tick(5_000);
+    expect(screen.queryByText(STAFF["table.appr.refunds.stale"].en)).toBeNull();
+    vi.restoreAllMocks();
+  });
+
+  it("a row resolved while a poll is in flight does not come back on that poll's older answer (Codex round 3 on #283, P1)", async () => {
+    vi.useFakeTimers();
+    let release: ((rows: RefundNeeded[]) => void) | null = null;
+    refundsAnswer = () =>
+      new Promise<RefundNeeded[]>((r) => {
+        release = r;
+      });
+    mount([], [], [refundNeeded("r-1")]);
+    await tick(5_000); // the poll is in flight; its ledger read has not answered
+    expect(release).not.toBeNull();
+    await act(async () => {
+      screen.getByRole("button", { name: /pi_r-1/ }).click();
+    });
+    await act(async () => {});
+    expect(resolved).toEqual(["r-1"]);
+    expect(screen.queryByText(/pi_r-1/)).toBeNull();
+    // The OLDER read lands, still listing the row the server has since confirmed resolved.
+    await act(async () => release!([refundNeeded("r-1")]));
+    expect(screen.queryByText(/pi_r-1/)).toBeNull();
+  });
+
   it("marking a row refunded removes it once the server has confirmed — never before", async () => {
     mount([], [], [refundNeeded("r-1")]);
     const btn = screen.getByRole("button", { name: /pi_r-1/ });

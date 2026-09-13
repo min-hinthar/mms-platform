@@ -20,11 +20,16 @@ import { Chrome } from "./Chrome";
 export function RefundsNeededStrip({
   lang,
   refunds,
+  stale = false,
   onResolved,
 }: {
   lang: StaffLang;
   /** null — the ledger could not be read (the page's read rejected, and no poll has since). */
   refunds: RefundNeeded[] | null;
+  /** The ledger loaded once but the latest poll could not read it: the rows below are the last
+   *  good ones and new stranded charges may be missing — said, never an all-clear (Codex round 3
+   *  on #283). */
+  stale?: boolean;
   /** The server confirmed the row resolved: drop it and re-poll. */
   onResolved?: (id: string) => void;
 }) {
@@ -34,9 +39,15 @@ export function RefundsNeededStrip({
         <Chrome lang={lang} k="table.appr.refunds.outage" echo="stack" />
       </p>
     );
-  if (refunds.length === 0) return null;
+  const staleLine = stale ? (
+    <p style={outageText}>
+      <Chrome lang={lang} k="table.appr.refunds.stale" echo="stack" />
+    </p>
+  ) : null;
+  if (refunds.length === 0) return staleLine;
   return (
     <section aria-label={sx(lang, "table.appr.a11y.refunds")} style={refundsStrip}>
+      {staleLine}
       <p style={refundsHead}>
         <strong>
           <Chrome

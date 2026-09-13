@@ -3906,6 +3906,14 @@ const MUTANTS = [
     replace: "  const refundedTodayIds = [...refundedTodayAt.entries()].map(([id]) => id);\n",
   },
   {
+    id: "refunds/a-truncated-ledger-read-still-ranks",
+    file: "apps/qr/lib/refunds.ts",
+    suite: "lib/refunds.test.ts",
+    why: "A4·3 Codex round 3 on #283 (P2) — PostgREST's max-rows cap is silent: a today-ledger answer SHORT of its own `count: \"exact\"` is a subset, and a ranking over a subset may miss the day's newest refunds. The list must say it cannot be the whole day (`truncated`); constant-false keeps the count in the select and passes a partial ranking off as the day",
+    find: '  const ledgerTruncated =\n    typeof todayLedgerCount === "number" && todayLedgerCount > (todayLedger?.length ?? 0);\n',
+    replace: "  const ledgerTruncated = false;\n",
+  },
+  {
     id: "refunds/the-ledger-no-longer-marks-the-refunded-line",
     file: "apps/qr/lib/refunds.ts",
     suite: "lib/refunds.test.ts",
