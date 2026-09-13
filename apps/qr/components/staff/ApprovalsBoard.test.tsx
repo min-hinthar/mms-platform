@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { PendingApproval } from "@/lib/approvals";
+import type { PendingApproval, RefundNeeded } from "@/lib/approvals";
 import type { Approver } from "@/lib/voids";
 import { STAFF } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
@@ -14,9 +14,16 @@ import { tf } from "@/lib/i18n/fill";
  */
 let approvalsAnswer: () => Promise<PendingApproval[]> = () => Promise.resolve([]);
 let rosterAnswer: () => Promise<Approver[]> = () => Promise.resolve([]);
+let refundsAnswer: () => Promise<RefundNeeded[]> = () => Promise.resolve([]);
+const resolved: string[] = [];
 vi.mock("@/lib/approvals", () => ({
   listPendingApprovals: () => approvalsAnswer(),
+  listRefundsNeeded: () => refundsAnswer(),
   resolveApproval: () => Promise.resolve({ ok: false, reason: "error" }),
+  resolveRefundNeeded: (id: string) => {
+    resolved.push(id);
+    return Promise.resolve();
+  },
 }));
 vi.mock("@/lib/voids", () => ({ listApprovers: () => rosterAnswer() }));
 
@@ -28,6 +35,17 @@ afterEach(() => {
   vi.useRealTimers();
   approvalsAnswer = () => Promise.resolve([]);
   rosterAnswer = () => Promise.resolve([]);
+  refundsAnswer = () => Promise.resolve([]);
+  resolved.length = 0;
+});
+
+const refundNeeded = (id: string): RefundNeeded => ({
+  id,
+  paymentIntent: `pi_${id}`,
+  cartId: null,
+  amountCents: 1250,
+  reason: "capture_after_destroy",
+  createdAt: "2026-09-13T18:41:00Z",
 });
 
 const pending = (id: string): PendingApproval => ({
@@ -44,10 +62,14 @@ const pending = (id: string): PendingApproval => ({
   createdAt: "2026-09-13T18:41:00Z",
 });
 
-function mount(initial: PendingApproval[], approvers: Approver[] | null) {
+function mount(
+  initial: PendingApproval[],
+  approvers: Approver[] | null,
+  initialRefunds: RefundNeeded[] | null = [],
+) {
   return render(
     <StaffLangProvider lang="en">
-      <ApprovalsBoard initial={initial} approvers={approvers} />
+      <ApprovalsBoard initial={initial} approvers={approvers} initialRefunds={initialRefunds} />
     </StaffLangProvider>,
   );
 }
@@ -69,6 +91,38 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     expect(screen.queryByText(STAFF["table.appr.allclear"].en)).toBeNull();
     expect(console.error).toHaveBeenCalled();
     vi.restoreAllMocks();
+  });
+
+  it("the refunds-needed ledger rides the poll: a row the webhook writes after load reaches the tablet (Codex round 2 on #283, P1)", async () => {
+    vi.useFakeTimers();
+    mount([], []);
+    expect(screen.queryByText(tf("en", "table.appr.refunds.one", { n: 1 }))).toBeNull();
+    refundsAnswer = () => Promise.resolve([refundNeeded("r-1")]);
+    await tick(5_000);
+    expect(screen.getByText(tf("en", "table.appr.refunds.one", { n: 1 }))).toBeTruthy();
+    expect(screen.getByText(/pi_r-1/)).toBeTruthy();
+  });
+
+  it("a ledger read that fails keeps the last good strip, and one that never loaded says so", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    refundsAnswer = () => Promise.reject(new Error("ledger down"));
+    mount([], [], [refundNeeded("r-1")]);
+    await tick(5_000);
+    expect(screen.getByText(/pi_r-1/)).toBeTruthy(); // the last good rows stay
+    expect(screen.queryByText(STAFF["table.appr.refunds.outage"].en)).toBeNull();
+    cleanup();
+    mount([], [], null);
+    expect(screen.getByText(STAFF["table.appr.refunds.outage"].en)).toBeTruthy();
+    vi.restoreAllMocks();
+  });
+
+  it("marking a row refunded removes it once the server has confirmed — never before", async () => {
+    mount([], [], [refundNeeded("r-1")]);
+    const btn = screen.getByRole("button", { name: /pi_r-1/ });
+    btn.click();
+    await waitFor(() => expect(resolved).toEqual(["r-1"]));
+    await waitFor(() => expect(screen.queryByText(/pi_r-1/)).toBeNull());
   });
 
   it("a same-page jump to the zone's fragment moves focus to its heading, not only the scroll", async () => {

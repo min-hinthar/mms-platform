@@ -321,19 +321,11 @@ function OrderCard({
                 <Chrome lang={lang} k="floor.settled.code" vars={{ id: o.code }} />
               </>
             )}
-            {o.pickupSlot && (
+            {o.pickupSlotAt && (
               <>
                 {" · "}
-                <Chrome
-                  lang={lang}
-                  k="floor.settled.slot"
-                  vars={{
-                    t: new Date(o.pickupSlot).toLocaleTimeString([], {
-                      hour: "numeric",
-                      minute: "2-digit",
-                    }),
-                  }}
-                />
+                {/* Zoned on the server, like the clock beside it — never re-formatted here. */}
+                <Chrome lang={lang} k="floor.settled.slot" vars={{ t: o.pickupSlotAt }} />
               </>
             )}
           </span>

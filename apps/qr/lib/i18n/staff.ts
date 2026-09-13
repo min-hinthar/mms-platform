@@ -1336,9 +1336,11 @@ export const STAFF = {
     en: "{n} orders paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
     my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
   },
+  // Zone-neutral (Codex round 2 on #283): the takings floor on the CONFIGURED service zone
+  // (`readServiceDay`), so the note must not name a city the owner's setting may not be.
   "reg.day.note": {
-    en: "Since midnight (LA). Order totals by status — line-level refunds aren’t netted out; Settled today, below, shows each one on its order.",
-    my: "လော့စ်အိန်ဂျယ်လိစ် အချိန် သန်းခေါင်ကစပြီး။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အောက်က ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ အော်ဒါတစ်ခုချင်းအလိုက် ပြပါတယ်။",
+    en: "Since the service day began. Order totals by status — line-level refunds aren’t netted out; Settled today, below, shows each one on its order.",
+    my: "ဒီနေ့ ဝန်ဆောင်မှုနေ့ စကတည်းက။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အောက်က ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ အော်ဒါတစ်ခုချင်းအလိုက် ပြပါတယ်။",
   },
   "reg.day.outage": {
     en: "Today’s takings can’t load right now — the system is unreachable.",

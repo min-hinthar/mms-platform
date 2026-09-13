@@ -3898,6 +3898,14 @@ const MUTANTS = [
       "  const movedMs = (o: { id: string; created_at: string }) => Date.parse(o.created_at);\n",
   },
   {
+    id: "refunds/the-refund-arm-is-capped-by-order-age",
+    file: "apps/qr/lib/refunds.ts",
+    suite: "lib/refunds.test.ts",
+    why: "A4·3 Codex round 2 on #283 (P1) — the ids the union read is given are ranked by the LATEST refund and capped BEFORE the read; handed every id, the read's own `.order(\"created_at\")` under its `.limit` keeps the fifty newest-CREATED, and with more than fifty refunded today the oldest order carrying today's latest refund is gone before the merge can rank it",
+    find: "  const refundedTodayIds = [...refundedTodayAt.entries()]\n    .sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]) || (a[0] < b[0] ? 1 : -1))\n    .slice(0, SETTLED_CAP)\n    .map(([id]) => id);\n",
+    replace: "  const refundedTodayIds = [...refundedTodayAt.entries()].map(([id]) => id);\n",
+  },
+  {
     id: "refunds/the-ledger-no-longer-marks-the-refunded-line",
     file: "apps/qr/lib/refunds.ts",
     suite: "lib/refunds.test.ts",

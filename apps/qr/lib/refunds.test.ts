@@ -219,6 +219,29 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     expect(res.orders.filter((o) => o.id !== OLD).length).toBe(49);
   });
 
+  it("with more than fifty orders refunded today, the union arm keeps the fifty most recently REFUNDED — capped by the refund, before the read (Codex round 2 on #283, P1)", async () => {
+    // Fifty-one orders refunded today. The OLDEST-created one carries today's LATEST refund; the
+    // newest-created one carries the EARLIEST. Capped by creation (the DB's own order under the
+    // limit), the oldest fell out before the merge could rank it.
+    const idOf = (i: number) => `66666666-6666-4666-8666-${String(i).padStart(12, "0")}`;
+    ledgerTodayRows = Array.from({ length: 51 }, (_, i) => ({
+      order_id: idOf(i),
+      // i = 0 refunded last (12:51 PM), i = 50 refunded first (12:01 PM)
+      created_at: new Date(Date.parse("2026-09-13T19:51:00Z") - i * 60_000).toISOString(),
+    }));
+    unionOrderRows = [];
+    const res = await getSettledToday();
+    if (!res.ok) throw new Error("expected ok");
+    const union = recs.filter((r) => r.table === "qr_orders")[1]!;
+    const inCall = union.calls.find((c) => c[0] === "in" && (c[1] as unknown[])[0] === "id")!;
+    const ids = (inCall[1] as [string, string[]])[1];
+    expect(ids.length).toBe(50);
+    expect(ids).toContain(idOf(0)); // the latest refund today, on the oldest order
+    expect(ids).not.toContain(idOf(50)); // the earliest refund today is the one that falls off
+    expect(ids[0]).toBe(idOf(0)); // ranked newest refund first
+    expect(res.truncated).toBe(true);
+  });
+
   it("a failed today-ledger read answers `outage` — the union is not silently narrowed to the paid arm", async () => {
     failTable = "mms_refunds";
     expect(await getSettledToday()).toEqual({ ok: false, reason: "outage" });
@@ -232,6 +255,7 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     expect(a.settledAt).toBe("11:41 AM");
     expect(a.settledOn).toBeNull();
     expect(a.refundedTodayAt).toBeNull();
+    expect(a.pickupSlotAt).toBeNull();
     expect(a.tableNumber).toBe(4);
     expect(a.breakdown).toEqual({
       subtotalCents: 4000,
@@ -249,6 +273,13 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
       refunded: false,
       refundedCents: 0,
     });
+  });
+
+  it("a pickup slot is formatted in the SERVICE zone on the server, like the clock — never the tablet's (Codex round 2 on #283)", async () => {
+    orderRows = [order(ORDER_A, { table_number: null, pickup_slot: "2026-09-13T19:30:00Z" })];
+    const res = await getSettledToday();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.orders[0]!.pickupSlotAt).toBe("12:30 PM");
   });
 
   it("M183 — the path comes from tender + PaymentIntent: a card order with a PI refunds in-app, a cash order from the drawer", async () => {

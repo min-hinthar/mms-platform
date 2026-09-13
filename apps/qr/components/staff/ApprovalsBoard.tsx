@@ -8,10 +8,17 @@ import {
   type CSSProperties,
   type FormEvent,
 } from "react";
-import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/lib/approvals";
+import {
+  listPendingApprovals,
+  listRefundsNeeded,
+  resolveApproval,
+  type PendingApproval,
+  type RefundNeeded,
+} from "@/lib/approvals";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
+import { RefundsNeededStrip } from "./RefundsNeededStrip";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
@@ -74,11 +81,15 @@ const GUEST_REQUEST_KEY: Record<"void" | "comp", StaffKey> = {
 export function ApprovalsBoard({
   initial,
   approvers,
+  initialRefunds,
   initialOutage = false,
 }: {
   initial: PendingApproval[];
   /** null — the approver roster could not be read at render; the poll fetches it. */
   approvers: Approver[] | null;
+  /** The refunds-needed ledger (W11/M43) at render; null — unreadable. Rides the poll from here
+   *  (Codex round 2 on #283, P1): a row the webhook writes after load must reach the tablet. */
+  initialRefunds: RefundNeeded[] | null;
   /** The server could not read the queue at render: start FROZEN (`outage`), never all-clear. */
   initialOutage?: boolean;
 }) {
@@ -86,6 +97,7 @@ export function ApprovalsBoard({
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   const [roster, setRoster] = useState(approvers);
+  const [refunds, setRefunds] = useState(initialRefunds);
   const [serverNow] = useState(() => new Date().toISOString());
   // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
   // (listPendingApprovals THROWS on an unreadable queue instead of returning a false "all clear"),
@@ -116,11 +128,15 @@ export function ApprovalsBoard({
       // The queue is the board; the roster only gates the decision controls (`approvers === null`
       // reads "Loading…" in the step-up, never "No managers available"). Each arm carries its own
       // timeout, so a hung roster cannot stall the queue either.
-      const [queue, who] = await Promise.allSettled([
+      // The refunds-needed ledger rides the same poll, on its own promise too (Codex round 2 on
+      // #283, P1): server-rendered once, the strip never re-read the ledger, so a charge the
+      // webhook recorded after load stayed hidden until someone reloaded.
+      const [queue, who, ledger] = await Promise.allSettled([
         raceTimeout(listPendingApprovals()),
         rosterRef.current === null
           ? raceTimeout(listApprovers())
           : Promise.resolve(rosterRef.current),
+        raceTimeout(listRefundsNeeded()),
       ]);
       if (queue.status === "rejected") throw queue.reason;
       setSnap(queue.value);
@@ -134,6 +150,16 @@ export function ApprovalsBoard({
         console.error(
           "[ApprovalsBoard] approver roster read failed — decisions wait for the next poll",
           who.reason,
+        );
+      }
+      if (ledger.status === "fulfilled") {
+        setRefunds(ledger.value);
+      } else {
+        // The last good rows stay (an empty strip must MEAN empty); a ledger that never loaded
+        // keeps its honest outage line until a poll reads it.
+        console.error(
+          "[ApprovalsBoard] refunds-needed read failed — the strip keeps its last rows",
+          ledger.reason,
         );
       }
     } catch (e) {
@@ -188,70 +214,82 @@ export function ApprovalsBoard({
   const count = snap.length;
 
   return (
-    <section aria-labelledby="appr-h" className="staff-zone" onFocusCapture={markFocus}>
-      <div style={headRow}>
-        <h2 id="appr-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
-          {/* echo={false} is REQUIRED here, not a style choice: this heading is the
+    <>
+      {/* The strip keeps its own region above the queue's, exactly as the page laid it out. */}
+      <RefundsNeededStrip
+        lang={lang}
+        refunds={refunds}
+        onResolved={(id) => {
+          // The server confirmed (the action throws otherwise) — drop the row now, then re-poll.
+          setRefunds((prev) => (prev === null ? prev : prev.filter((r) => r.id !== id)));
+          void refresh();
+        }}
+      />
+      <section aria-labelledby="appr-h" className="staff-zone" onFocusCapture={markFocus}>
+        <div style={headRow}>
+          <h2 id="appr-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
+            {/* echo={false} is REQUIRED here, not a style choice: this heading is the
               `aria-labelledby` target of the section above, and the computed name is the
               element’s full text — an English echo would name the region twice, once per script. */}
-          <Chrome lang={lang} k="table.appr.open" echo={false} />
-        </h2>
-        {/* P2 — every branch of this line is dictionary content, so the mark is unconditional.
+            <Chrome lang={lang} k="table.appr.open" echo={false} />
+          </h2>
+          {/* P2 — every branch of this line is dictionary content, so the mark is unconditional.
               PLAIN text, not a live region (A4·2): the floor's region is the screen's one state
               region, and three regions flipping to the same frozen sentence in the same second is
               worse than one. No echo — a count line saying everything twice reads as two counts. */}
-        <p
-          lang={lang}
-          style={{
-            margin: 0,
-            fontSize: "var(--fs-sm)",
-            color: degraded ? "var(--warn)" : "var(--t2)",
-          }}
-        >
-          {degraded
-            ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", degraded.cause)
-            : count === 0
-              ? ts(lang, "table.appr.allclear")
-              : tf(lang, "table.appr.waiting", { n: count })}
-        </p>
-      </div>
+          <p
+            lang={lang}
+            style={{
+              margin: 0,
+              fontSize: "var(--fs-sm)",
+              color: degraded ? "var(--warn)" : "var(--t2)",
+            }}
+          >
+            {degraded
+              ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", degraded.cause)
+              : count === 0
+                ? ts(lang, "table.appr.allclear")
+                : tf(lang, "table.appr.waiting", { n: count })}
+          </p>
+        </div>
 
-      {count === 0 ? (
-        // W10b — mid-freeze this must not read as an authoritative "queue clear", nor promise
-        // arrivals this board can't currently hear about.
-        <EmptyState
-          title={
-            <Chrome
-              lang={lang}
-              k={degraded ? "table.appr.empty.degraded" : "table.appr.empty"}
-              echo="stack"
-            />
-          }
-          subtitle={
-            <Chrome
-              lang={lang}
-              k={degraded ? "table.appr.empty.outage" : "table.appr.empty.hint"}
-              echo="stack"
-            />
-          }
-        />
-      ) : (
-        <StaggerList
-          items={snap}
-          getKey={(a) => a.id}
-          ariaLabel={sx(lang, "table.appr.a11y.queue")}
-          style={grid}
-          renderItem={(a) => (
-            <RequestCard
-              request={a}
-              approvers={roster}
-              serverNow={serverNow}
-              onResolved={refresh}
-            />
-          )}
-        />
-      )}
-    </section>
+        {count === 0 ? (
+          // W10b — mid-freeze this must not read as an authoritative "queue clear", nor promise
+          // arrivals this board can't currently hear about.
+          <EmptyState
+            title={
+              <Chrome
+                lang={lang}
+                k={degraded ? "table.appr.empty.degraded" : "table.appr.empty"}
+                echo="stack"
+              />
+            }
+            subtitle={
+              <Chrome
+                lang={lang}
+                k={degraded ? "table.appr.empty.outage" : "table.appr.empty.hint"}
+                echo="stack"
+              />
+            }
+          />
+        ) : (
+          <StaggerList
+            items={snap}
+            getKey={(a) => a.id}
+            ariaLabel={sx(lang, "table.appr.a11y.queue")}
+            style={grid}
+            renderItem={(a) => (
+              <RequestCard
+                request={a}
+                approvers={roster}
+                serverNow={serverNow}
+                onResolved={refresh}
+              />
+            )}
+          />
+        )}
+      </section>
+    </>
   );
 }
 

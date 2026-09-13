@@ -101,6 +101,22 @@ four mutants added (`refunds/the-union-read-is-never-made`,
 on the paid arm (`refunds/the-settled-list-forgets-the-service-day`) and one retired with the
 `.or()` it guarded (`refunds/the-union-arm-drops-the-floor`) — **668** across 120 modules.
 
+**Codex round 2 on #283 — two P1s and two P2s, all verified real, all fixed on the head.** P1: the
+union arm still ran its own `.order("created_at")` under its `.limit`, so with more than fifty
+orders refunded today the read kept the fifty newest-CREATED and the oldest order carrying today's
+latest refund was gone before the merge could rank it — the ledger's ids are now ranked by their
+latest refund and capped BEFORE the read (mutant `refunds/the-refund-arm-is-capped-by-order-age`,
+watched red; a 51-refund case pins which id falls off). P1: the refunds-needed strip was a server
+component read once at render, so a charge the webhook recorded after load — a captured card
+arriving behind a cash settlement — stayed hidden on a tablet left on the one screen; the strip is
+a client component now and its rows ride `ApprovalsBoard`'s 5 s poll on their own settled promise
+(a failed read keeps the last good rows, a ledger that never loaded keeps its honest line), and a
+row leaves only once the server confirmed the resolve (`ApprovalsBoard.test.tsx`, three cases). P2:
+the pickup slot was re-formatted on the tablet with `toLocaleTimeString` — the wrong wall clock
+under a foreign zone, and a different text from a UTC server's render — it is `pickupSlotAt`, zoned
+on the server like the clock beside it. P2: the takings note said "Since midnight (LA)" over a floor
+that now reads the configured zone — zone-neutral in both tongues. **669** across 120 modules.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

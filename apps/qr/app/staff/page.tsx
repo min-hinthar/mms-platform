@@ -17,7 +17,6 @@ import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { DayCash } from "@/components/staff/DayCash";
 import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
-import { RefundsNeededStrip } from "@/components/staff/RefundsNeededStrip";
 import { SettledToday } from "@/components/staff/SettledToday";
 import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
@@ -263,16 +262,15 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
 
           {/* 4 · THE MANAGER RAILS (A4·3) — money taken with no order behind it, then the open
               void/comp requests. Each read fails alone: a rejected queue starts the zone frozen
-              (never all-clear), a rejected roster loads on the poll, a rejected ledger says so. */}
+              (never all-clear), a rejected roster loads on the poll, a rejected ledger says so
+              until the poll reads it. The board renders the strip so BOTH ride its 5 s poll. */}
           {rails && (
-            <>
-              <RefundsNeededStrip lang={lang} refunds={settledValue(rails[2], null)} />
-              <ApprovalsBoard
-                initial={settledValue(rails[0], [])}
-                approvers={settledValue(rails[1], null)}
-                initialOutage={rails[0].status === "rejected"}
-              />
-            </>
+            <ApprovalsBoard
+              initial={settledValue(rails[0], [])}
+              approvers={settledValue(rails[1], null)}
+              initialRefunds={settledValue(rails[2], null)}
+              initialOutage={rails[0].status === "rejected"}
+            />
           )}
 
           {/* 5 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}

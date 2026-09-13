@@ -51,7 +51,7 @@ const order = (id: string, over: Partial<SettledOrder> = {}): SettledOrder => ({
   tender: "card",
   tableNumber: 4,
   customerName: null,
-  pickupSlot: null,
+  pickupSlotAt: null,
   breakdown: {
     subtotalCents: 4000,
     discountCents: 0,
@@ -210,6 +210,18 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     expect(screen.getByText(/refunded 11:50 AM/)).toBeTruthy();
     // A paid-today row keeps the bare clock.
     expect(screen.getAllByText(/11:41 AM/).length).toBe(2);
+  });
+
+  it("a pickup slot renders the server's zoned clock verbatim — no re-formatting on the tablet (Codex round 2 on #283)", () => {
+    mount(
+      snapshot([
+        order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", {
+          tableNumber: null,
+          pickupSlotAt: "12:30 PM",
+        }),
+      ]),
+    );
+    expect(screen.getByText(/Pickup at 12:30 PM/)).toBeTruthy();
   });
 
   it("a same-page jump to the zone's fragment moves focus to its heading, not only the scroll (Codex round 1 on #283)", async () => {

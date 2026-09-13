@@ -74,7 +74,10 @@ export type SettledOrder = {
   tender: string;
   tableNumber: number | null;
   customerName: string | null;
-  pickupSlot: string | null;
+  /** "12:30 PM" in the service zone, formatted on the server like the clock (Codex round 2 on #283:
+   *  the tablet's own zone re-formatted it, and a UTC server hydrated a different text); null when
+   *  the order has no slot. */
+  pickupSlotAt: string | null;
   breakdown: ReceiptBreakdownish;
   totalCents: number;
   /** ONE verdict for the whole row (W23b): a partial refund leaves `status = 'paid'`. */
@@ -149,7 +152,16 @@ export async function getSettledToday(): Promise<SettledToday> {
     if (prev === undefined || Date.parse(r.created_at) > Date.parse(prev))
       refundedTodayAt.set(r.order_id, r.created_at);
   }
-  const refundedTodayIds = [...refundedTodayAt.keys()];
+  // Ranked by the LATEST refund and capped BEFORE the read (Codex round 2 on #283, P1): the union
+  // arm's own `.order("created_at")` under its `.limit` chose the fifty newest-CREATED of the
+  // ledger's orders, so with more than fifty refunded today the oldest order carrying today's
+  // latest refund was gone before the merge below could rank it. The ids the read is given are
+  // already the fifty that rank highest by the instant they settled today.
+  const refundedTodayIds = [...refundedTodayAt.entries()]
+    .sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]) || (a[0] < b[0] ? 1 : -1))
+    .slice(0, SETTLED_CAP)
+    .map(([id]) => id);
+  const unionOverflow = refundedTodayAt.size > SETTLED_CAP;
 
   // TWO reads, never one `.or()` (Codex round 1 on #283, P1): a single read ranked by `created_at`
   // and capped put an earlier day's order refunded today behind every order paid today, and on a
@@ -191,6 +203,7 @@ export async function getSettledToday(): Promise<SettledToday> {
   const truncated =
     queueEmptiness(paidRows.length, SETTLED_CAP) === "cannot-say" ||
     queueEmptiness(unionRows.length, SETTLED_CAP) === "cannot-say" ||
+    unionOverflow ||
     byId.size > SETTLED_CAP;
   if (rows.length === 0) return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso };
 
@@ -242,7 +255,7 @@ export async function getSettledToday(): Promise<SettledToday> {
         tender: o.tender,
         tableNumber: o.table_number ?? null,
         customerName: o.customer_name ?? null,
-        pickupSlot: o.pickup_slot ?? null,
+        pickupSlotAt: o.pickup_slot ? settledClock(o.pickup_slot, tz) : null,
         breakdown: {
           subtotalCents: o.subtotal_cents,
           discountCents: o.discount_cents,

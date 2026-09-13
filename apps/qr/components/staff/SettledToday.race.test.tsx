@@ -47,7 +47,7 @@ const order = (refunded: boolean): SettledOrder => ({
   tender: "card",
   tableNumber: 4,
   customerName: null,
-  pickupSlot: null,
+  pickupSlotAt: null,
   breakdown: {
     subtotalCents: 2000,
     discountCents: 0,

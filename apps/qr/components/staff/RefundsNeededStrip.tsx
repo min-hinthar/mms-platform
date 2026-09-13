@@ -1,3 +1,4 @@
+"use client";
 import { type CSSProperties } from "react";
 import { resolveRefundNeeded, type RefundNeeded } from "@/lib/approvals";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -11,15 +12,21 @@ import { Chrome } from "./Chrome";
  * screen as the first of the manager rails. Every row is a charge (or a hold we knowingly
  * abandoned) that no order accounts for; the manager refunds it in the processor's dashboard and
  * marks it done here. Renders nothing when the ledger is empty; an UNREADABLE ledger says so —
- * an empty strip must MEAN empty. Server component (the resolve is an inline server action).
+ * an empty strip must MEAN empty. A client component since Codex round 2 on #283: its rows ride
+ * the approvals poll (`ApprovalsBoard`), because a server-rendered strip never re-read the ledger
+ * and a tablet left on the one screen hid a stranded charge the webhook wrote after load. The
+ * resolve is the exported server action; the row leaves the strip only once the server confirmed.
  */
 export function RefundsNeededStrip({
   lang,
   refunds,
+  onResolved,
 }: {
   lang: StaffLang;
-  /** null — the ledger could not be read (the page's read rejected). */
+  /** null — the ledger could not be read (the page's read rejected, and no poll has since). */
   refunds: RefundNeeded[] | null;
+  /** The server confirmed the row resolved: drop it and re-poll. */
+  onResolved?: (id: string) => void;
 }) {
   if (refunds === null)
     return (
@@ -67,8 +74,9 @@ export function RefundsNeededStrip({
             </code>
             <form
               action={async () => {
-                "use server";
+                // The server action throws on an unreadable table — the row then stays, honestly.
                 await resolveRefundNeeded(r.id);
+                onResolved?.(r.id);
               }}
               style={{ display: "inline-block", marginLeft: 8 }}
             >
