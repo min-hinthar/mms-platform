@@ -14,7 +14,7 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
-import { releaseSettlement } from "./lock";
+import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
 import { offSessionChargeOutcome } from "./live-intent";
@@ -267,8 +267,16 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // linked one at Stripe first. `locked` is never cleared by this acquire either way. A comment that
   // states the invariant a reviewer is about to check is worse than no comment: it answers the
   // double-collect question for them, wrongly. The live predicate is in `acquireSettlement`.
-  // Keyed by the staff session uid (provenance; re-acquire by the same staff is idempotent).
-  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
+  //
+  // ⚠️ KEYED BY A FRESH PER-REQUEST ID, NOT `caller.uid` (A3 · M201). The uid made two same-staff
+  // requests byte-identical on the row, and `acquireSettlement`'s same-owner arm — a re-open door
+  // for the host's split that this path inherited by accident — admitted the second on the freeze
+  // the first had just written. Cash survived that only because the settle RPC de-duplicates
+  // downstream; `closeSecureTab` did not (two off-session PaymentIntents under per-attempt keys).
+  // Every release below is scoped to this id, so it can never null a successor's freeze either.
+  // Provenance is `caller.staffId` on the order row, not this owner.
+  const attempt = crypto.randomUUID();
+  const freeze = await acquireSettlementSuperseding(cart.id, attempt);
   if (freeze !== "acquired") {
     return {
       ok: false,
@@ -466,7 +474,9 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
     revalidatePath(`/staff/table/${sessionId}`);
     return { ok: true, orderId, totalCents: collectedCents, tipCents: collectedTipCents };
   } finally {
-    await releaseSettlement(cart.id);
+    // Scoped to THIS request's owner: on the success path the cart is already `paid` and the row is
+    // ours; on a failure path the table must come back, but only if nobody has since taken it.
+    await releaseSettlementFor(cart.id, attempt);
   }
 }
 
@@ -525,7 +535,14 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.
-  const freeze = await acquireSettlementSuperseding(cart.id, caller.uid);
+  //
+  // ⚠️ A FRESH PER-REQUEST OWNER (A3 · M201) — and on THIS path it was money, not latency. Under
+  // `caller.uid` a same-staff double-tap both matched `acquireSettlement`'s same-owner arm, and each
+  // request minted its own off-session PaymentIntent under a per-attempt idempotency key: the guest
+  // was charged twice off one thumb. The id is stamped on the intent as `settleAttempt`, so the
+  // webhook's decline arm can scope its release to exactly this freeze (`settle-release-scope.ts`).
+  const attempt = crypto.randomUUID();
+  const freeze = await acquireSettlementSuperseding(cart.id, attempt);
   if (freeze !== "acquired")
     return {
       ok: false,
@@ -539,13 +556,13 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // once acquireSettlement stopped 42703-ing here (the cart-lock PostgREST-14 fix in this PR).
   const totals = await getCartTotals(cart.id, 0).catch(() => null); // final total, NO added tip (see doc)
   if (!totals) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attempt);
     console.error("[staff-cart] closeSecureTab totals failed", { sessionId, cartId: cart.id });
     return { ok: false, error: "Couldn’t total this tab just now — try again." };
   }
   const amount = totals.totalCents;
   if (amount <= 0) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attempt);
     return { ok: false, error: "There’s nothing on this table to settle." };
   }
 
@@ -562,7 +579,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   try {
     stripe = getStripe();
   } catch (e) {
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attempt);
     console.error("[staff-cart] closeSecureTab could not resolve Stripe", {
       sessionId,
       cartId: cart.id,
@@ -591,10 +608,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
           tipRate: "0",
           closedBy: "staff",
           closedByStaffId: caller.staffId,
-          // The freeze is held under caller.uid (acquireSettlementSuperseding above), NOT staffId.
-          // The webhook's decline arm needs the OWNER to scope its release; without this it could
-          // only release by cart id, nulling whatever freeze the row carried. See settle-release-scope.
-          closedByUid: caller.uid,
+          // The freeze is held under THIS request's `attempt` (acquireSettlementSuperseding above),
+          // NOT staffId and no longer the staff uid. The webhook's decline arm needs the OWNER to
+          // scope its release; without it the arm could only release by cart id, nulling whatever
+          // freeze the row carried. Same key the Terminal stamps. See settle-release-scope.
+          settleAttempt: attempt,
         },
       },
       // Per-ATTEMPT idempotency key (covers the SDK's network retries WITHIN this one create call). It is
@@ -628,7 +646,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
       return { ok: true };
     }
     // requires_action / requires_payment_method / etc. — not captured. Free the table; surface honestly.
-    await releaseSettlement(cart.id);
+    await releaseSettlementFor(cart.id, attempt);
     return {
       ok: false,
       error: "That card needs the guest to confirm — settle by cash or a fresh card.",
@@ -656,7 +674,7 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
     const err = e as { type?: string; code?: string };
     const outcome = offSessionChargeOutcome(err);
     const declined = outcome !== "unknown";
-    if (declined) await releaseSettlement(cart.id);
+    if (declined) await releaseSettlementFor(cart.id, attempt);
     console.error("[staff-cart] closeSecureTab off-session charge failed", {
       sessionId,
       cartId: cart.id,

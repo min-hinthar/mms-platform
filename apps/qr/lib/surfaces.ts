@@ -21,6 +21,16 @@
  * `openSettlement` + `create-share-intent` (split), `openTab` + `setup-intent` (tabs),
  * `openKioskOrder` + the kiosk page (kiosk) — each pinned by a test that flips the constant and a
  * `surfaces/*` mutant that deletes the refusal.
+ *
+ * ⚠️ REOPENING `selfServeSplit` IS NO LONGER A ONE-LINE FLIP, and the reason is A3 (M201). The
+ * split's same-host re-open (even ↔ by-person before anyone authorizes) rode
+ * `acquireSettlement`'s `settle_by.eq.<uid>` arm, and that arm was the counter's double-mint —
+ * `settleCash` / `closeSecureTab` inherited it by passing a shared uid — so A3 removed it rather
+ * than argue around it. `openSettlement` still acquires under the host's seat uid and every release
+ * in `split.ts` is scoped to it, so the door is SOUND when flipped; what it lacks is the re-open:
+ * a second `openSettlement` by the same host now answers `settling_other` until the freeze ages
+ * out. Restore it as release-own-then-acquire (`releaseSettlementFor(id, uid)` before the
+ * acquire, refusing if any share is already authorized), never by putting the arm back.
  */
 export const SURFACES = {
   selfServeSplit: false,

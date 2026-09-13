@@ -123,8 +123,13 @@ vi.mock("./stripe", () => ({
     },
   }),
 }));
+/** A3 — the post-fulfil release is the OWNER-LESS one, sound only on a cart no longer open. */
+let settledReleases = 0;
 vi.mock("./lock", () => ({
-  releaseSettlement: () => Promise.resolve(null),
+  releaseSettlementOfSettledCart: () => {
+    settledReleases += 1;
+    return Promise.resolve(null);
+  },
 }));
 // T20 — there is deliberately NO `./lock-ttl` mock here. There used to be a 90s CART_LOCK_TTL_MS
 // override on `./lock`, and moving the constants left it INERT without a single test going red. It
@@ -138,6 +143,7 @@ const mod = await import("./split-settle");
 
 beforeEach(() => {
   log = [];
+  settledReleases = 0;
   // A fresh freeze and a fully-authorized table — the state in which the loop captures.
   cartRow = {
     status: "open",
@@ -232,5 +238,8 @@ describe("onShareCaptured — the fulfillment call carries no derived expectatio
     // The reconcile lives in SQL, against the total PINNED at openSettlement. A derived second
     // argument reappearing here is the exact tautology-or-live-value regression W10d documented.
     expect(Object.keys(rpc?.args ?? {})).toEqual(["p_cart_id"]);
+    // A3 · M202 — and the freeze comes off through the OWNER-LESS release, the one form that is
+    // sound here because its predicate refuses a cart that is still open. Never the by-cart one.
+    expect(settledReleases).toBe(1);
   });
 });

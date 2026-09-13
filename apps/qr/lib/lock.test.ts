@@ -17,12 +17,24 @@ type Q = {
   or: string[];
   /** M197 — the claim's staleness re-test is an `.lte`, and nothing recorded it before. */
   lte: [string, unknown][];
+  /** A3 — `extendSettlementFor`'s freshness hinge is a `.gt`, and `releaseSettlementOfSettledCart`'s
+   *  whole invariant is a `.neq`. Unrecorded, either could be dropped with every assertion green. */
+  gt: [string, unknown][];
+  neq: [string, unknown][];
 };
 let queries: Q[] = [];
 function chain(q: Q) {
   const api = {
     eq(col: string, val: unknown) {
       q.eq.push([col, val]);
+      return api;
+    },
+    neq(col: string, val: unknown) {
+      q.neq.push([col, val]);
+      return api;
+    },
+    gt(col: string, val: unknown) {
+      q.gt.push([col, val]);
       return api;
     },
     // M153 — the plain (non-count) chain carries `updateError` too. It used to hardcode `{ error:
@@ -61,7 +73,7 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => ({
       update: (payload: Record<string, unknown>, opts?: { count?: string }) => {
-        const q: Q = { table, payload, eq: [], or: [], lte: [] };
+        const q: Q = { table, payload, eq: [], or: [], lte: [], gt: [], neq: [] };
         queries.push(q);
         return opts?.count ? countChain(q) : chain(q);
       },
@@ -100,15 +112,25 @@ function countChain(q?: Q) {
       q?.lte.push([col, val]);
       return api;
     },
+    gt: (col: string, val: unknown) => {
+      q?.gt.push([col, val]);
+      return api;
+    },
+    neq: (col: string, val: unknown) => {
+      q?.neq.push([col, val]);
+      return api;
+    },
     then: (r: (v: { count: number | null; error: unknown }) => unknown) =>
       Promise.resolve({ count: updateCount, error: updateError }).then(r),
   };
   return api;
 }
 
+const lockModule = await import("./lock");
 const {
   releaseSettlementFor,
-  releaseSettlement,
+  releaseSettlementOfSettledCart,
+  extendSettlementFor,
   releasePromoGrantFor,
   acquireCartLock,
   releasePayAttempt,
@@ -131,23 +153,87 @@ beforeEach(() => {
   statusError = null;
 });
 
-describe("releaseSettlementFor — the era guard lives IN the statement", () => {
-  it("nulls the freeze ONLY where this attempt still owns it", async () => {
-    const err = await releaseSettlementFor("cart-1", "attempt-1");
-    expect(err).toBeNull();
+describe("releaseSettlementFor — the owner guard lives IN the statement", () => {
+  it("nulls the freeze ONLY where this owner still holds it, and says whether it did", async () => {
+    updateCount = 1;
+    const { released, error } = await releaseSettlementFor("cart-1", "attempt-1");
+    expect(error).toBeNull();
+    expect(released).toBe(true);
     const q = queries[0]!;
     expect(q.table).toBe("qr_carts");
     expect(q.payload).toEqual({ settle_at: null, settle_by: null });
     expect(q.eq).toContainEqual(["id", "cart-1"]);
-    // Without this predicate a release that outlived its attempt nulls a SUCCESSOR's live freeze.
+    // Without this predicate a release that outlived its request nulls a SUCCESSOR's live freeze.
     expect(q.eq).toContainEqual(["settle_by", "attempt-1"]);
   });
 
-  it("the unscoped release stays unscoped (the online paths' documented, TTL-backstopped shape)", async () => {
-    await releaseSettlement("cart-1");
+  it("reports `released: false` when the owner no longer holds it — a zero-row update is a FACT, not a success", async () => {
+    // A3 — the split abort must not proceed past a claim it did not land, and the Terminal poll wants
+    // a lost mutex told apart from a healthy one. `{ error: null }` alone said neither.
+    updateCount = 0;
+    const { released, error } = await releaseSettlementFor("cart-1", "attempt-1");
+    expect(error).toBeNull();
+    expect(released).toBe(false);
+  });
+
+  it("there is NO unconditional-by-cart settlement release any more (A3 · M202)", () => {
+    // Sixteen call sites released by cart id alone and each could null a successor's mutex. The
+    // primitive is gone, not merely unused: a helper that exists will be reached for.
+    expect("releaseSettlement" in lockModule).toBe(false);
+  });
+});
+
+describe("releaseSettlementOfSettledCart — the one owner-less release, and its invariant is in the SQL", () => {
+  it("refuses an OPEN cart in the predicate, not in a comment", async () => {
+    // `acquireSettlement` requires `status = 'open'`, so a cart that is no longer open can have no
+    // successor freeze to strip — which is the only reason a release without an owner is sound. A
+    // call on an open cart must match zero rows, or this is the seventeenth unconditional release.
+    const err = await releaseSettlementOfSettledCart("cart-1");
+    expect(err).toBeNull();
     const q = queries[0]!;
+    expect(q.payload).toEqual({ settle_at: null, settle_by: null });
     expect(q.eq).toContainEqual(["id", "cart-1"]);
-    expect(q.eq.some(([col]) => col === "settle_by")).toBe(false);
+    expect(q.neq).toContainEqual(["status", "open"]);
+  });
+});
+
+describe("extendSettlementFor — scoped to the owner, fresh-only, and it REPORTS (A3 · M203)", () => {
+  it("slides `settle_at` forward only where THIS owner holds a still-fresh freeze on an open cart", async () => {
+    updateCount = 1;
+    const before = Date.now();
+    const { extended, error } = await extendSettlementFor("cart-1", "attempt-1");
+    expect(error).toBeNull();
+    expect(extended).toBe(true);
+    const q = queries[0]!;
+    expect(q.table).toBe("qr_carts");
+    expect(Object.keys(q.payload)).toEqual(["settle_at"]);
+    expect(new Date(q.payload.settle_at as string).getTime()).toBeGreaterThanOrEqual(before);
+    expect(q.eq).toContainEqual(["id", "cart-1"]);
+    expect(q.eq).toContainEqual(["status", "open"]);
+    // ⚠️ THE OWNER TERM. Unscoped, this extended whatever freeze the row held — the "rides a freeze it
+    // never wrote" half of M203 — so a share route could keep a STAFF settle's freeze alive.
+    expect(q.eq).toContainEqual(["settle_by", "attempt-1"]);
+    // The freshness hinge: never revive a null (aborted) or stale (taken-over) freeze.
+    const gt = q.gt.find(([col]) => col === "settle_at");
+    expect(gt).toBeDefined();
+    expect(new Date(gt![1] as string).getTime()).toBeLessThan(before);
+  });
+
+  it("answers `extended: false` when nothing of ours was fresh to extend", async () => {
+    // The old `Promise<void>` could not say this, and the Terminal poll kept collecting on a table
+    // this attempt no longer held.
+    updateCount = 0;
+    const { extended, error } = await extendSettlementFor("cart-1", "attempt-1");
+    expect(error).toBeNull();
+    expect(extended).toBe(false);
+  });
+
+  it("surfaces the write error rather than reading an outage as `extended: false`", async () => {
+    updateCount = 0;
+    updateError = { message: "connection reset" };
+    const { extended, error } = await extendSettlementFor("cart-1", "attempt-1");
+    expect(extended).toBe(false);
+    expect(error).toEqual({ message: "connection reset" });
   });
 });
 
@@ -479,6 +565,22 @@ describe("acquireSettlement — M197: the pay-lock term has a way out, and it is
     // that both substrings appear somewhere — two independent disjuncts would read the same to a
     // careless matcher and ship exactly the defect this term exists to prevent.
     expect(lockTerm).toMatch(/,and\(locked_at\.lte\.[^,]+,live_payment_intent_id\.is\.null\)$/);
+  });
+
+  it("carries NO same-owner re-acquire arm — a mutex admits nobody twice (A3 · M201)", async () => {
+    // The predicate used to read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a
+    // re-open door for the host's split that the counter inherited by passing a shared staff uid.
+    // Two same-staff requests then both matched — the second on the freeze the first had just
+    // written — and `closeSecureTab` minted two off-session PaymentIntents. Four consecutive fixes
+    // each MOVED that hole because the arm stayed; this asserts it is gone, as a query shape.
+    updateCount = 1;
+    expect(await acquireSettlement(CART, UID)).toBe("acquired");
+    const update = queries.find((q) => q.payload.settle_at !== undefined)!;
+    expect(update.payload).toEqual({ settle_at: expect.any(String), settle_by: UID });
+    const settleTerm = update.or.find((o) => o.startsWith("settle_at.is.null"));
+    expect(settleTerm).toBeDefined();
+    expect(settleTerm).not.toContain("settle_by");
+    expect(settleTerm).toMatch(/^settle_at\.is\.null,settle_at\.lte\.[^,]+$/);
   });
 
   it("reports an unreadable cart as `unavailable`, never as `closed`", async () => {

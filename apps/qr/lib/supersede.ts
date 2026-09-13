@@ -14,7 +14,6 @@ import {
   claimStaleSettlement,
   readLiveIntent,
   releaseByIntent,
-  releaseSettlement,
   releaseSettlementFor,
   readLiveIntentFor,
   releasePayAttempt,
@@ -332,7 +331,8 @@ export type SettleTakeover =
  */
 export async function acquireSettlementSuperseding(
   cartId: string,
-  uid: string,
+  /** REQUEST-UNIQUE — see `acquireSettlement`. Every release below is scoped to it. */
+  owner: string,
   /**
    * ⚠️ TWO NAMED PARAMETERS, and the default is INTENT-LEVEL. The previous shape took `(id,
    * classify)` and defaulted to the CART-level `supersedeCartIntent`, so passing the diagnosed
@@ -344,7 +344,26 @@ export async function acquireSettlementSuperseding(
     intentId: string,
   ) => Promise<SupersedeOutcome> = supersedeSettlementIntent,
 ): Promise<SettleTakeover> {
-  const first = await acquireSettlement(cartId, uid);
+  // ⚠️ THE DIAGNOSING ACQUIRE IS A SETTLEMENT WRITE TOO, and it used to sit outside any catch (M201
+  // (c), Codex round 12 on #275). `acquireSettlement` ends its UPDATE with `if (error) throw error`,
+  // so a transport failure AFTER Postgres applied it rejects while the row already carries
+  // `settle_by = owner` — and the rejection escaped to a Server Action that had set `busy` with no
+  // catch of its own. The orphan then blocked every retry as `settling_other` until the TTL, and
+  // for the Terminal, whose every retry carries a fresh attempt id, met its own freeze that way.
+  // The release is safe on EVERY outcome for the same reason `standDown`'s is: `owner` is
+  // request-unique, so `settle_by = owner` matches our row when the write landed and zero rows when
+  // it did not, including when we cannot tell which happened.
+  let first: SettleResult;
+  try {
+    first = await acquireSettlement(cartId, owner);
+  } catch (e) {
+    console.error("[settle] diagnosing acquire threw — releasing under this request's owner", {
+      cartId,
+      error: e instanceof Error ? e.message : String(e),
+    });
+    await releaseOwn(cartId, owner, "diagnosing-acquire-threw");
+    return "unavailable";
+  }
   if (first !== "locked_stale") return first;
 
   // ⚠️ EVERY STEP BELOW IS WRAPPED, because two of them THROW rather than answering (Codex round 2,
@@ -387,33 +406,28 @@ export async function acquireSettlementSuperseding(
     // blocks `acquireCartLock`, so this freezes the exact state we diagnosed; and the predicate
     // names THIS intent, so a create-intent that superseded and relinked in the meantime matches
     // zero rows. See `claimStaleSettlement`.
-    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, uid, live);
+    const { claimed, error: claimErr } = await claimStaleSettlement(cartId, owner, live);
     if (claimErr) {
-      // ⚠️ THE CLEANUP THAT BELONGS HERE CANNOT BE WRITTEN YET, AND THAT IS THE FINDING
-      // (Codex round 10 asked for it, round 11 showed why it is unsafe — I shipped it in between and
-      // it was a REGRESSION, reverted here).
+      // ⚠️ AN AMBIGUOUS CLAIM IS RELEASED UNDER THE OWNER, AND THAT IS SAFE NOW (M201 (b); Codex
+      // rounds 10 and 11 on #275 — shipped, reverted, and filed rather than approximated).
       //
-      // The hazard is real: `claimStaleSettlement` reports `{ claimed: false, error }` for a LOST
-      // RESPONSE as well as a rejected request, so the UPDATE may have committed `settle_by = uid`
-      // and told us nothing. The claim deliberately carries no same-owner arm, so the retry this
-      // verdict invites cannot reclaim its own orphan and the table is blocked for the settle TTL.
+      // The hazard: `claimStaleSettlement` reports `{ claimed: false, error }` for a LOST RESPONSE
+      // as well as a rejected request, so the UPDATE may have committed `settle_by = owner` and told
+      // us nothing. The claim carries no same-owner arm, so a retry could never reclaim its own
+      // orphan and the table sat blocked for the settle TTL.
       //
-      // But releasing under `uid` is WORSE than the orphan, because `uid` is NOT request-unique:
-      // `staff-cart.ts` passes `caller.uid` at both call sites (only `terminal.ts` passes a
-      // per-attempt id). So when request B's claim errors while same-staff request A holds a real
-      // claim, `releaseSettlementFor(cartId, uid)` matches A's row and strips A's mutex mid-charge —
-      // trading a self-healing 10-minute freeze for an unprotected concurrent settle. "It matches
-      // zero rows when our write never landed" is false whenever a sibling shares the uid.
-      //
-      // This is undecidable from here: A's row and ours are byte-identical, both `settle_by = uid`.
-      // The fix is a REQUEST-UNIQUE claim owner — M201 — and it is filed with this mechanism rather
-      // than approximated. The TTL remains the backstop, as it was before this branch was touched.
-      console.error("[settle] stale-attempt claim failed", {
+      // Why this cleanup was unsafe before A3 and is sound after: `staff-cart.ts` passed `caller.uid`
+      // — a SHARED owner — so a release from request B whose claim errored matched same-staff
+      // request A's LIVE claim and stripped A's mutex mid-charge; A's row and ours were
+      // byte-identical. With a request-unique owner that sibling row cannot exist: `settle_by =
+      // owner` matches our row when our write landed and zero rows when it did not, including when
+      // we cannot tell which happened. The property that makes it correct is the SCOPING, never our
+      // confidence about the claim — the same argument `standDown` makes for its probe.
+      console.error("[settle] stale-attempt claim failed — releasing under this request's owner", {
         cartId,
         error: claimErr.message,
-        // The freeze may or may not be ours and we cannot tell; see M201.
-        ambiguous: true,
       });
+      await releaseOwn(cartId, owner, "ambiguous-claim");
       return "unavailable";
     }
     // Something moved under us. Re-ask the ordinary way and report whatever it now says.
@@ -424,9 +438,10 @@ export async function acquireSettlementSuperseding(
     claimHeld = true;
     const outcome = await supersede(cartId, live);
     if (outcome !== "cleared") {
-      // ⚠️ WE DO NOT RELEASE HERE, AND THAT IS THE CONCLUSION OF FOUR REVIEW ROUNDS (see the
-      // docblock). The freeze we took stays until the settle TTL heals it.
-      logHeldFreeze(cartId, "supersede-refused");
+      // Give the claimed freeze back, scoped to THIS request (see `releaseOwn` for why four review
+      // rounds could not write this line before A3). A refused supersede must not block the table
+      // for the settle TTL over an attempt we decided not to touch.
+      await releaseOwn(cartId, owner, "supersede-refused");
       // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
       // diner is checking out when what actually happened is that we could not reach Stripe.
       return outcome === "captured" ? "paying" : "unavailable";
@@ -452,7 +467,7 @@ export async function acquireSettlementSuperseding(
         intentId: live,
         error: pinErr.message,
       });
-      logHeldFreeze(cartId, "pin-clear-failed");
+      await releaseOwn(cartId, owner, "pin-clear-failed");
       return "unavailable";
     }
     // The freeze is already ours, claimed above. No second acquire: re-running it would only risk
@@ -463,44 +478,62 @@ export async function acquireSettlementSuperseding(
       cartId,
       error: e instanceof Error ? e.message : String(e),
     });
-    // A freeze we took and could not use is LEFT for the TTL, deliberately — see `logHeldFreeze`.
-    if (claimHeld) logHeldFreeze(cartId, "post-claim-throw");
+    // A freeze we took and could not use goes BACK, scoped to this request — see `releaseOwn`.
+    if (claimHeld) await releaseOwn(cartId, owner, "post-claim-throw");
     return "unavailable";
   }
 }
 
 /**
- * We claimed the freeze, could not use it, and are LEAVING IT for the settle TTL to heal.
+ * Give back a freeze THIS REQUEST claimed and could not use — scoped to its request-unique owner.
  *
- * That is the conclusion of Codex rounds 8, 10, 11, 12 and 13 on #275, after three attempts to
- * release it correctly were each falsified:
+ * ⚠️ A3 · M201 IS WHAT MAKES THIS LINE WRITABLE. Codex rounds 8, 10, 11, 12 and 13 on #275 each
+ * falsified a release here, and the function this replaces (`logHeldFreeze`) HELD the freeze to the
+ * settle TTL instead, because every discriminator available then was wrong:
  *
- *   • by OWNER (`settle_by = uid`) — `staff-cart.ts` passes `caller.uid` at both call sites, so a
- *     same-staff sibling's row is byte-identical. Shipped in `bebeef8`, reverted in `bd362b6`.
- *   • by owner + ERA (`settle_at` too) — the era says who WROTE the freeze, not who currently
- *     DEPENDS on it. `create-share-intent` mints its PaymentIntent (`route.ts:190`) and only then
- *     calls `extendSettlement` (`:328`), so between those it relies on a freeze it never wrote; our
- *     era still matches, our release clears it, and `extendSettlement`'s `.gt("settle_at", cutoff)`
- *     then no-ops on the null — handing back a confirmable client secret with no settlement mutex.
- *   • by cart (`releaseSettlement`) — matches everyone, which is where this started.
+ *   • by OWNER (`settle_by = uid`) — `staff-cart.ts` passed `caller.uid` at both call sites, so a
+ *     same-staff sibling's row was byte-identical. Shipped in `bebeef8`, reverted in `bd362b6`.
+ *   • by owner + ERA (`settle_at` too) — the era says who WROTE the freeze, not who DEPENDS on it.
+ *     `create-share-intent` minted its PaymentIntent and only then extended, riding a freeze it
+ *     never wrote; our era still matched, our release cleared it, and the unscoped `extendSettlement`
+ *     no-oped on the null — a confirmable client secret with no settlement mutex.
+ *   • by cart (`releaseSettlement`) — matched everyone, which is where this started.
  *
- * So the release is withheld. The cost is real and bounded: a refused supersede leaves the table
- * frozen for the settle TTL rather than immediately. The alternative is not bounded, and the file's
- * own doctrine decides it — refusing a settlement that could have proceeded is a retry; permitting
- * one that could not is money.
+ * What changed is the OWNER, not the discriminator: every caller now mints `crypto.randomUUID()`
+ * per request (`acquireSettlement`'s contract), so `settle_by = owner` names this request's freeze
+ * and no other. The second falsification is closed from the other side as well — `create-share-
+ * intent` now extends under its own owner BEFORE minting and refuses when nothing was extended
+ * (`extendSettlementFor`), so no live path rides a freeze it does not own. The by-cart release no
+ * longer exists.
  *
- * ⚠️ THE FIX IS M201 (a request-unique settlement owner), NOT A FOURTH DISCRIMINATOR. Every
- * approximation attempted so far looked obviously correct and was not. `terminal.ts` already passes
- * a per-attempt id and is the shape to copy.
+ * Best-effort: the TTL is still the backstop, and a release that fails is LOGGED, never allowed to
+ * turn the retryable verdict the caller is about to return into a rejection.
  */
-function logHeldFreeze(
+async function releaseOwn(
   cartId: string,
-  at: "supersede-refused" | "pin-clear-failed" | "post-claim-throw",
-) {
-  console.error("[settle] claimed freeze HELD to the TTL — no safe release exists yet (M201)", {
-    cartId,
-    at,
-  });
+  owner: string,
+  at:
+    | "diagnosing-acquire-threw"
+    | "ambiguous-claim"
+    | "supersede-refused"
+    | "pin-clear-failed"
+    | "post-claim-throw",
+): Promise<void> {
+  try {
+    const { error } = await releaseSettlementFor(cartId, owner);
+    if (error)
+      console.error("[settle] claimed freeze not released — table frozen until the TTL", {
+        cartId,
+        at,
+        error: error.message,
+      });
+  } catch (e) {
+    console.error("[settle] claimed freeze release threw — table frozen until the TTL", {
+      cartId,
+      at,
+      error: e instanceof Error ? e.message : String(e),
+    });
+  }
 }
 
 /** `locked_stale` has no arm at any call site, and a re-ask can still answer it (the link survived a
@@ -538,11 +571,10 @@ function collapse(r: SettleResult): SettleTakeover {
  * once it has been told `locked_stale`, only the exclusive claim may promote this request, and the
  * claim carries no same-owner arm. Every other exit is a diagnosis.
  *
- * The same-owner arm in `acquireSettlement` is NOT touched here. It predates this PR, it is what
- * lets a host re-open their own split, and `staff-cart.test.ts` records that two same-staff cash
- * settles rely on a downstream RPC early-return rather than on the freeze. It remains a live hazard
- * on `closeSecureTab`'s card path, which has no such RPC — filed as M201, and NOT reachable from
- * this function any more.
+ * The same-owner arm in `acquireSettlement` was left in place by #275 and REMOVED by A3 (M201):
+ * with every caller passing a request-unique owner it could only ever admit a re-entrant sibling.
+ * The probe below therefore no longer needs the arm to be unmatchable "by uniqueness" — there is
+ * no arm — but its uniqueness is still what scopes the release, so it stays a fresh uuid.
  */
 async function standDown(cartId: string): Promise<SettleTakeover> {
   // ⚠️ A PROBE OWNER, NOT THE CALLER'S UID (Codex round 6 on #275, P2). `acquireSettlement` is a
@@ -591,7 +623,7 @@ async function standDown(cartId: string): Promise<SettleTakeover> {
       },
     );
   }
-  const err = await releaseSettlementFor(cartId, probe);
+  const { error: err } = await releaseSettlementFor(cartId, probe);
   if (err)
     console.error("[settle] stand-down probe freeze not released — table frozen until the TTL", {
       cartId,

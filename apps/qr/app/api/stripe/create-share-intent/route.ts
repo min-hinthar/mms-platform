@@ -5,7 +5,7 @@ import { shareIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { assertCartMember, AuthzError } from "@/lib/authz";
 import { withinMutationRate } from "@/lib/rate";
-import { extendSettlement } from "@/lib/lock";
+import { extendSettlementFor } from "@/lib/lock";
 import { captureAllIfReady } from "@/lib/split-settle";
 import { shareIntentKey } from "@/lib/split-intent-key";
 import { releaseHold } from "@/lib/split-hold";
@@ -36,7 +36,8 @@ export async function POST(req: NextRequest) {
       );
 
     // Only a verified member may pay, and only THEIR own seat's share (uid is the authorized seat).
-    const { uid, settling } = await assertCartMember(cartId);
+    // `settleBy` is the host who opened the split — the OWNER of the freeze this share rides.
+    const { uid, settling, settleBy } = await assertCartMember(cartId);
 
     // Per-device flood guard (P3.4): bound share-PI minting per seat (a tip change mints a fresh PI, so
     // the idempotency key doesn't bound distinct amounts). Fail-open. Before any Stripe call.
@@ -199,6 +200,37 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ⚠️ EXTEND BEFORE MINTING, SCOPED TO THE HOST'S OWNER, AND REFUSE WHEN NOTHING WAS EXTENDED
+    // (A3 · M203 — the root of that row). This route used to gate on `settling` (a READ of whatever
+    // `settle_at` happened to be fresh), mint a confirmable PaymentIntent, and only THEN call the
+    // unscoped `extendSettlement`. Anything that released the freeze in between left the share
+    // confirmable with NO settlement mutex, and the extend's zero-row update was a silent
+    // `{ error: null }` — a client secret went back and nothing anywhere noticed. Extending first,
+    // under `settleBy`, is a conditional write that proves the freeze is still the host's at the
+    // instant we act; `extended: false` is the refusal the old code could not express.
+    if (!settleBy)
+      return NextResponse.json(
+        { error: "No split is in progress for this order." },
+        { status: 400 },
+      );
+    const { extended, error: extendErr } = await extendSettlementFor(cartId, settleBy);
+    if (extendErr) {
+      console.error("[create-share-intent] settlement extend failed", {
+        cartId,
+        shareId: share.id,
+        error: extendErr.message,
+      });
+      return NextResponse.json(
+        { error: "Couldn’t confirm the split is still open — try again in a moment." },
+        { status: 503 },
+      );
+    }
+    if (!extended)
+      return NextResponse.json(
+        { error: "The split was closed or taken over — refresh and try again." },
+        { status: 409 },
+      );
+
     const intent = await getStripe().paymentIntents.create(
       {
         amount,
@@ -208,7 +240,15 @@ export async function POST(req: NextRequest) {
         // Link) so confirmPayment never navigates away — the payer stays on the live board (a
         // redirect-based method would return to /cart with no result handler and re-mint a fresh PI).
         automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-        metadata: { cartId, seatId: uid, shareId: share.id, kind: "split_share" },
+        // `settleOwner` is the freeze owner this share rides, so the authorization webhook can extend
+        // under it rather than under whatever the row holds by then (A3 · M203).
+        metadata: {
+          cartId,
+          seatId: uid,
+          shareId: share.id,
+          kind: "split_share",
+          settleOwner: settleBy,
+        },
       },
       // Share + amount + the intent being REPLACED: a tip change mints a fresh PI, a retry after a
       // decline mints a fresh PI, and an identical re-submit (double tap, which reads the same
@@ -333,11 +373,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // W1·Q4: payer activity — slide the settlement freeze forward (extend-only while still fresh;
-    // `settling` was just verified above, so this keeps a slow table alive without ever reviving an
-    // aborted or taken-over settlement). Without it, a table that takes >TTL to enter cards
-    // dead-ends: captures refused, holds authorized ~7 days.
-    await extendSettlement(cartId);
+    // W1·Q4's post-mint extend moved ABOVE the mint (A3 · M203): the freeze was proved live and
+    // extended under its owner before any client secret existed.
 
     getPostHogClient().capture({
       distinctId: uid,

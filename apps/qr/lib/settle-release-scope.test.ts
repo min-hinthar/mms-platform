@@ -10,8 +10,18 @@ const UID = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 const OTHER = "9c858901-8a57-4791-81fe-4c455b099bc9";
 
 describe("settleReleaseOwner", () => {
-  it("names the owner a staff close is holding the freeze under", () => {
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: UID })).toBe(UID);
+  it("names the owner a staff close is holding the freeze under — the per-request `settleAttempt`", () => {
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: UID })).toBe(UID);
+  });
+
+  it("does NOT read the legacy shared uid (`closedByUid`) — that was the residual M201 named", () => {
+    // Between #275 and A3 the key was the staff auth uid, which every request by that person shares:
+    // a DELAYED decline could strip a same-staff retry's live freeze. An intent from that deploy
+    // heals on the TTL like any other owner-less intent; it is never an owner.
+    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: UID })).toBeNull();
+    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: UID, settleAttempt: OTHER })).toBe(
+      OTHER,
+    );
   });
 
   it("refuses a DINER single-pay intent — it never held the settlement freeze", () => {
@@ -31,15 +41,17 @@ describe("settleReleaseOwner", () => {
   });
 
   it("refuses anything that is not a uuid — settle_by is a uuid column, so a bad owner is a 22P02", () => {
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: "" })).toBeNull();
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: "   " })).toBeNull();
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: "staff_7" })).toBeNull();
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: `${UID}x` })).toBeNull();
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: "" })).toBeNull();
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: "   " })).toBeNull();
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: "staff_7" })).toBeNull();
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: `${UID}x` })).toBeNull();
   });
 
-  it("refuses a non-staff kind even when a well-formed uid rides along", () => {
-    expect(settleReleaseOwner({ closedBy: "diner", closedByUid: OTHER })).toBeNull();
-    expect(settleReleaseOwner({ closedByUid: OTHER })).toBeNull();
+  it("refuses a non-staff kind even when a well-formed owner rides along", () => {
+    // A Terminal intent ALSO carries `settleAttempt`, and its own arm releases it — this scope is
+    // the generic decline arm's, and a non-staff kind must never reach it.
+    expect(settleReleaseOwner({ closedBy: "diner", settleAttempt: OTHER })).toBeNull();
+    expect(settleReleaseOwner({ settleAttempt: OTHER })).toBeNull();
   });
 
   it("survives a missing metadata object", () => {
@@ -48,7 +60,7 @@ describe("settleReleaseOwner", () => {
     expect(settleReleaseOwner({})).toBeNull();
   });
 
-  it("trims surrounding whitespace rather than rejecting a padded uid", () => {
-    expect(settleReleaseOwner({ closedBy: "staff", closedByUid: ` ${UID} ` })).toBe(UID);
+  it("trims surrounding whitespace rather than rejecting a padded owner", () => {
+    expect(settleReleaseOwner({ closedBy: "staff", settleAttempt: ` ${UID} ` })).toBe(UID);
   });
 });

@@ -109,6 +109,8 @@ vi.mock("./totals", () => ({
   },
 }));
 let acquireResult: "acquired" | "locked" | "settling_other" | "closed" = "acquired";
+/** A3 — the extend now ANSWERS. `false` is "nothing of this attempt's was fresh to extend". */
+let extendResult = true;
 vi.mock("./lock", () => ({
   acquireSettlement: (cartId: string, uid: string) => {
     log("acquire", { cartId, uid });
@@ -116,11 +118,11 @@ vi.mock("./lock", () => ({
   },
   releaseSettlementFor: (cartId: string, attemptId: string) => {
     log("releaseFor", { cartId, attemptId });
-    return Promise.resolve(null);
+    return Promise.resolve({ released: true, error: null });
   },
-  extendSettlement: (cartId: string) => {
-    log("extend", cartId);
-    return Promise.resolve();
+  extendSettlementFor: (cartId: string, owner: string) => {
+    log("extend", { cartId, owner });
+    return Promise.resolve({ extended: extendResult, error: null });
   },
 }));
 vi.mock("./posthog-server", () => ({
@@ -171,6 +173,7 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => {
+  extendResult = true;
   vi.unstubAllEnvs();
 });
 
@@ -286,7 +289,80 @@ describe("terminalStatus — the collect-window poll", () => {
     };
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     expect(r).toEqual({ ok: true, state: "collecting" });
-    expect(calls.find((c) => c.op === "extend")?.args).toBe("cart-1");
+    // ⚠️ SCOPED to this attempt (A3 · M203): an unscoped extend kept alive whatever freeze the row
+    // held — a cash settle's, after a takeover — and could not say when it had extended nothing.
+    expect(calls.find((c) => c.op === "extend")?.args).toEqual({
+      cartId: "cart-1",
+      owner: "attempt-1",
+    });
+  });
+
+  it("a mutex lost MID-COLLECT abandons the attempt — reader first, then the PI — and reports `failed` (A3 · M203)", async () => {
+    // `extended: false` while the customer is on the reader means the table's freeze is no longer this
+    // attempt's: it aged past the TTL and someone else acquired, or a scoped release already ran. A
+    // cash settle can now proceed beside a live card prompt — the double-collect. The old unscoped
+    // extend no-oped silently here and the poll kept saying "collecting".
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    readerAction = {
+      type: "process_payment_intent",
+      process_payment_intent: { payment_intent: "pi_test_1" },
+    };
+    extendResult = false;
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({
+      ok: true,
+      state: "failed",
+      error: expect.stringMatching(/payment hold was lost/),
+    });
+    const ops = calls.map((c) => c.op);
+    expect(ops.indexOf("reader.cancelAction")).toBeGreaterThan(-1);
+    expect(ops.indexOf("reader.cancelAction")).toBeLessThan(ops.indexOf("pi.cancel"));
+    // Nothing of ours to release: the freeze is not this attempt's, and the webhook's canceled arm
+    // scopes its own release to the attempt anyway.
+    expect(ops).not.toContain("releaseFor");
+  });
+
+  it("a mutex lost mid-collect whose cancel is REFUSED reports `succeeded` — the tap already won", async () => {
+    retrieved = {
+      id: "pi_test_1",
+      status: "requires_payment_method",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    extendResult = false;
+    piCancelFails = true;
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    piCancelFails = false;
+    expect(r).toEqual({ ok: true, state: "succeeded", orderId: null, totalCents: 4321 });
+  });
+
+  it("captured-but-unfulfilled: the extend is scoped, and a lost freeze is LOGGED rather than hidden", async () => {
+    // Money has moved and the webhook owns fulfilment; nothing can be undone. The honest act in the
+    // worst window is to say so under the attempt, not to swallow a zero-row update as before.
+    retrieved = { id: "pi_test_1", status: "succeeded", metadata: TERMINAL_META, amount: 4321 };
+    orderRow = null;
+    extendResult = false;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: true, state: "succeeded", orderId: null, totalCents: 4321 });
+    expect(calls.find((c) => c.op === "extend")?.args).toEqual({
+      cartId: "cart-1",
+      owner: "attempt-1",
+    });
+    expect(
+      errSpy.mock.calls.some(([msg]) =>
+        String(msg).includes("no longer holds the settlement freeze"),
+      ),
+    ).toBe(true);
+    errSpy.mockRestore();
+    expect(calls.map((c) => c.op)).not.toContain("pi.cancel"); // never cancel a captured charge
   });
 
   it("a non-terminal PI is not pollable — the id is a handle, the metadata is the authority", async () => {
@@ -323,7 +399,11 @@ describe("terminalStatus — the collect-window poll", () => {
     orderRow = null; // the webhook hasn't landed the order yet
     const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
     expect(r).toEqual({ ok: true, state: "succeeded", orderId: null, totalCents: 4321 });
-    expect(calls.find((c) => c.op === "extend")?.args).toBe("cart-1");
+    // Scoped to this attempt (A3): the recording window is exactly where a takeover double-collects.
+    expect(calls.find((c) => c.op === "extend")?.args).toEqual({
+      cartId: "cart-1",
+      owner: "attempt-1",
+    });
   });
 
   it("succeeded reports the fulfilled order once the webhook lands it", async () => {

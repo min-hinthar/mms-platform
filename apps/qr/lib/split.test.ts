@@ -143,6 +143,7 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
       ],
       error: null,
     };
+  if (q.table === "qr_carts" && q.op === "select") return { data: cartRow, error: null }; // A3 abort re-read
   if (
     q.table === "qr_carts" &&
     q.op === "update" &&
@@ -188,6 +189,10 @@ function builder(
       return Promise.resolve(respond(q));
     },
     single() {
+      return Promise.resolve(respond(q));
+    },
+    // A3 — the abort's `qr_carts` re-read after a scoped release matched nothing.
+    maybeSingle() {
       return Promise.resolve(respond(q));
     },
     limit() {
@@ -264,11 +269,17 @@ vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
 // one pins the parked refusal at the ACTION (it is directly POST-able — see the W21 note).
 let splitOpen = true;
 vi.mock("./surfaces", () => ({ surfaceOpen: () => splitOpen }));
+/** A3 — the release is scoped and COUNTED; the abort's claim reads the count. */
+let releaseResult = true;
+const releaseOwners: string[] = [];
+/** The `qr_carts` row the abort re-reads when its scoped release matched nothing. */
+let cartRow: { settle_at: string | null } | null = null;
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
-  releaseSettlement: () => {
+  releaseSettlementFor: (_cartId: string, owner: string) => {
     releasedFreeze += 1;
-    return Promise.resolve(null);
+    releaseOwners.push(owner);
+    return Promise.resolve({ released: releaseResult, error: null });
   },
 }));
 vi.mock("./totals", () => ({
@@ -300,6 +311,9 @@ beforeEach(() => {
   retrieveStatus = {};
   retrieveThrows = {};
   releasedFreeze = 0;
+  releaseResult = true;
+  releaseOwners.length = 0;
+  cartRow = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -307,6 +321,43 @@ const ledgerDelete = () =>
   queries.find((q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0);
 const loggedText = () =>
   JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
+
+describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 · M202)", () => {
+  it("releases under the host's owner, never by cart", async () => {
+    shares = [];
+    await abortSettlement(CART);
+    expect(releaseOwners).toHaveLength(1);
+    expect(releaseOwners[0]).toBeTruthy();
+    expect(releaseOwners[0]).not.toBe(CART);
+  });
+
+  it("REFUSES when the freeze is held FRESH by another owner — the table is being settled another way", async () => {
+    // The by-cart release nulled whatever the row carried, so an abort could cancel holds and delete
+    // rows under a staff settle's mutex. A scoped release that matched nothing is the signal.
+    releaseResult = false;
+    cartRow = { settle_at: new Date().toISOString() };
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    expect(cancelled).toEqual([]);
+    expect(ledgerDelete()).toBeUndefined();
+  });
+
+  it("proceeds when the freeze is already gone — a prior abort got this far and nothing can capture a null freeze", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: null };
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    expect(cancelled).toEqual(["pi_1"]);
+  });
+
+  it("proceeds past a STALE foreign freeze — it can no longer protect anything", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    expect(cancelled).toEqual(["pi_1"]);
+  });
+});
 
 describe("abortSettlement — every hold it abandons must be released (M40)", () => {
   it("cancels the PaymentIntent on EVERY non-captured status, not just authorized", async () => {

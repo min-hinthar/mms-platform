@@ -1,7 +1,7 @@
 import "server-only";
 import { serviceClient } from "@mms/db/server";
 import { getStripe } from "./stripe";
-import { extendSettlement, releaseSettlement } from "./lock";
+import { extendSettlementFor, releaseSettlementOfSettledCart } from "./lock";
 import { CART_LOCK_TTL_MS, SETTLE_TTL_MS } from "./lock-ttl";
 
 /**
@@ -69,7 +69,7 @@ async function cartIdForPi(
 async function livePaymentIntent(
   piId: string,
   opts: { missingIsFatal: boolean },
-): Promise<{ status: string } | null> {
+): Promise<{ status: string; metadata?: Record<string, string | undefined> | null } | null> {
   try {
     return await getStripe().paymentIntents.retrieve(piId);
   } catch (e) {
@@ -147,7 +147,30 @@ export async function onShareAuthorized(piId: string): Promise<void> {
   // W1·Q4: a payer just authorized — the settlement is demonstrably alive, so slide the freeze
   // forward (extend-only; never revives an aborted/stale one). Keeps a slow table's freeze fresh
   // between authorizations so the LAST payer's capture isn't refused at the TTL.
-  await extendSettlement(cartId);
+  //
+  // ⚠️ UNDER THE OWNER THE SHARE WAS MINTED AGAINST, never whatever the row holds now (A3 · M203).
+  // `create-share-intent` stamps `settleOwner` — the host's freeze owner it extended under before
+  // minting — so this extends the SAME freeze or nothing. A share minted before that stamp existed
+  // carries no owner and extends nothing: it heals on the TTL rather than reviving a freeze a
+  // different owner may have taken since. Either way the answer is logged, never silent.
+  const owner = pi.metadata?.settleOwner;
+  if (typeof owner === "string" && owner.length > 0) {
+    const { extended, error: extErr } = await extendSettlementFor(cartId, owner);
+    if (!extended)
+      console.warn(
+        "[split-settle] onShareAuthorized extended nothing — freeze not the share's owner's",
+        {
+          cartId,
+          paymentIntent: piId,
+          error: extErr?.message ?? null,
+        },
+      );
+  } else {
+    console.warn("[split-settle] onShareAuthorized: share carries no settleOwner — not extending", {
+      cartId,
+      paymentIntent: piId,
+    });
+  }
   await captureAllIfReady(db, cartId);
 }
 
@@ -365,7 +388,9 @@ export async function onShareCaptured(piId: string): Promise<string | null> {
     }
     throw new Error(`mms_fulfill_split_order failed: ${error.message}`);
   }
-  await releaseSettlement(cartId); // lift the freeze (idempotent; the cart is already 'paid')
+  // Lift the freeze on the now-`paid` cart. No owner of our own here, and none is needed: the
+  // predicate refuses an OPEN cart, so this can never strip a successor's mutex (A3 · M202).
+  await releaseSettlementOfSettledCart(cartId);
   return wasOpen ? (orderId ?? null) : null;
 }
 

@@ -152,9 +152,14 @@ vi.mock("@mms/db/server", () => ({
 vi.mock("@/lib/stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
-      create: (params: { amount: number }, opts: { idempotencyKey: string }) => {
+      create: (
+        params: { amount: number; metadata?: Record<string, string | undefined> },
+        opts: { idempotencyKey: string },
+      ) => {
         createdKeys.push(opts.idempotencyKey);
         createdAmounts.push(params.amount);
+        createdMeta.push(params.metadata ?? {});
+        order.push("create");
         return Promise.resolve({ id: NEW_PI, client_secret: "cs_test" });
       },
       cancel: (id: string) => {
@@ -170,7 +175,8 @@ vi.mock("@/lib/stripe", () => ({
 }));
 
 vi.mock("@/lib/authz", () => ({
-  assertCartMember: () => Promise.resolve({ uid: "seat-1", settling: true }),
+  // `settleBy` is the host who opened the split — the freeze owner the share must extend under.
+  assertCartMember: () => Promise.resolve({ uid: "seat-1", settling: true, settleBy: "host-1" }),
   AuthzError: class extends Error {
     status = 403;
   },
@@ -179,7 +185,18 @@ vi.mock("@/lib/rate", () => ({ withinMutationRate: () => Promise.resolve(true) }
 // A1 — the self-serve split is PARKED; the existing cases run with the door OPEN.
 let splitOpen = true;
 vi.mock("@/lib/surfaces", () => ({ surfaceOpen: () => splitOpen }));
-vi.mock("@/lib/lock", () => ({ extendSettlement: () => Promise.resolve(null) }));
+/** A3 · M203 — the extend runs BEFORE the mint, scoped to the host, and its answer is a gate. */
+let extendResult = true;
+const extendCalls: { cartId: string; owner: string }[] = [];
+const createdMeta: Record<string, string | undefined>[] = [];
+const order: string[] = [];
+vi.mock("@/lib/lock", () => ({
+  extendSettlementFor: (cartId: string, owner: string) => {
+    extendCalls.push({ cartId, owner });
+    order.push("extend");
+    return Promise.resolve({ extended: extendResult, error: null });
+  },
+}));
 vi.mock("@/lib/split-settle", () => ({ captureAllIfReady: () => Promise.resolve() }));
 vi.mock("@/lib/posthog-server", () => ({ getPostHogClient: () => ({ capture: () => {} }) }));
 
@@ -193,6 +210,10 @@ function request(tipRate = 0.2) {
 
 beforeEach(() => {
   splitOpen = true;
+  extendResult = true;
+  extendCalls.length = 0;
+  createdMeta.length = 0;
+  order.length = 0;
   shareError = null;
   recorded = [];
   share = {
@@ -448,5 +469,28 @@ describe("A1 — the parked door is answered at the route", () => {
     const res = await POST(request());
     expect(res.status).toBe(410);
     expect(createdKeys).toHaveLength(0);
+  });
+});
+
+describe("A3 · M203 — the share extends the HOST's freeze before minting, and refuses when it cannot", () => {
+  it("extends under `settleBy` BEFORE paymentIntents.create, and stamps it as `settleOwner`", async () => {
+    // The old order was mint → unscoped extend: a freeze released in between left the share
+    // confirmable with no settlement mutex, and the zero-row extend was a silent `{ error: null }`.
+    const res = await POST(request());
+    expect(res.status).toBe(200);
+    expect(extendCalls).toEqual([
+      { cartId: "11111111-1111-4111-8111-111111111111", owner: "host-1" },
+    ]);
+    expect(order.indexOf("extend")).toBeGreaterThan(-1);
+    expect(order.indexOf("extend")).toBeLessThan(order.indexOf("create"));
+    expect(createdMeta[0]?.settleOwner).toBe("host-1");
+  });
+
+  it("409s and mints NOTHING when nothing of the host's was extended — the freeze moved", async () => {
+    extendResult = false;
+    createdKeys.splice(0);
+    const res = await POST(request());
+    expect(res.status).toBe(409);
+    expect(createdKeys).toEqual([]);
   });
 });

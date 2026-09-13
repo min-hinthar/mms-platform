@@ -7,7 +7,7 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
-import { releaseSettlementFor, extendSettlement } from "./lock";
+import { releaseSettlementFor, extendSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
 import { getStripe } from "./stripe";
@@ -33,8 +33,9 @@ import { getPostHogClient } from "./posthog-server";
  * (`releaseSettlementFor`), so a release that outlives its attempt — a late webhook
  * canceled/failed delivery after a cancel→retry, a stale panel, a double-tap loser — matches zero
  * rows instead of nulling a successor's live freeze. The attempt key also makes the acquire
- * STRICT by construction: acquireSettlement's same-owner re-acquire disjunct can never match a
- * different attempt, so a concurrent second settleCard refuses instead of sharing the freeze.
+ * STRICT by construction: the freeze is keyed on a per-request uuid, and since A3 `acquireSettlement`
+ * has no same-owner re-acquire arm at all, so a concurrent second settleCard refuses instead of
+ * sharing the freeze — the counter paths now key the same way (M201).
  * A decline is released by the POLL the moment it's observed (the attempt is dead — no live
  * authorization), so "try another card or cash" is immediately true; the webhook releases are the
  * scoped backstop for a closed register tab.
@@ -285,7 +286,20 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
     // Captured but not yet fulfilled — the window where the freeze matters MOST (money has moved,
     // the cart is still open). Keep it fresh, or a delayed webhook past the TTL hands the cart to
     // a cash settle and the guest is double-charged (review finding).
-    await extendSettlement(cartId);
+    //
+    // ⚠️ AND SAY SO WHEN THERE IS NOTHING OF OURS TO EXTEND (A3 · M203). The unscoped
+    // `extendSettlement` no-oped silently on a null or foreign freeze, so a mutex lost in this exact
+    // window — the worst one — left no trace. Nothing can be undone here (the money has moved; the
+    // webhook fulfils it, and its cross-tender guard writes `qr_refunds_needed` if cash landed
+    // first), so the honest act is to log it loudly under the attempt, not to pretend.
+    const { extended, error: extErr } = await extendSettlementFor(cartId, attempt);
+    if (!extended)
+      console.error("[terminal] captured attempt no longer holds the settlement freeze", {
+        cartId,
+        paymentIntent: intent.id,
+        attempt,
+        error: extErr?.message ?? null,
+      });
     return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
   }
   if (intent.status === "canceled") return { ok: true, state: "canceled" };
@@ -295,15 +309,89 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
     // attempt: "try another card or cash" must be true the moment we say it, not after a webhook
     // lands (review finding: the pre-check refuses every retry while the dead freeze is fresh).
     // A stale panel polling an OLD attempt matches zero rows and harms nothing.
-    const relErr = await releaseSettlementFor(cartId, attempt);
+    const { error: relErr } = await releaseSettlementFor(cartId, attempt);
     if (relErr)
       console.error("[terminal] decline release failed", { cartId, message: relErr.message });
     return { ok: true, state: "failed", error: declineCopy(intent.last_payment_error.code) };
   }
   // requires_payment_method (fresh) / processing — the customer is mid-interaction: keep the
   // freeze alive so the collect can outlast the 10-min TTL without the cart being taken over.
-  await extendSettlement(cartId);
-  return { ok: true, state: "collecting" };
+  //
+  // ⚠️ A MUTEX LOST MID-COLLECT ENDS THE COLLECT (A3 · M203 — the half of that row that stayed
+  // live after A1 parked the share route). `extendSettlementFor` matching zero rows here means the
+  // reader is still prompting for a table this attempt no longer holds: the freeze aged past the
+  // TTL and someone else acquired, or a scoped release for this attempt already ran. Either way a
+  // cash settle can now proceed beside a live card prompt, which is the double-collect. The old
+  // silent no-op hid exactly that. So this abandons the attempt the way staff Cancel does — the
+  // reader first, then the PaymentIntent — and reports `failed` with copy that says what happened.
+  // If the cancel is refused because the tap already won, the money moved: report `succeeded` and
+  // let the webhook fulfil, as the cancel action does.
+  const { extended, error: extErr } = await extendSettlementFor(cartId, attempt);
+  if (extended) return { ok: true, state: "collecting" };
+  console.error("[terminal] settlement freeze lost mid-collect — abandoning the attempt", {
+    cartId,
+    paymentIntent: intent.id,
+    attempt,
+    error: extErr?.message ?? null,
+  });
+  const abandoned = await abandonAttempt(getStripe(), intent);
+  if (abandoned === "too_late")
+    return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
+  return { ok: true, state: "failed", error: LOST_HOLD_COPY };
+}
+
+/**
+ * The poll's copy for a lost mutex. Not a decline (`declineCopy`) — the card was never refused —
+ * and not a reader fault (`readerFailCopy`): the table's settlement hold went to someone else while
+ * the reader was still prompting. English only, like the two families beside it (K15 owns the
+ * Terminal panel's copy as a set; see `settle.reader.*` in `lib/i18n/staff.ts`).
+ */
+const LOST_HOLD_COPY =
+  "This table's payment hold was lost while the reader was waiting — nothing was charged. Check the table isn't being settled another way, then start again.";
+
+/**
+ * Abandon a Terminal attempt the way staff Cancel does — the reader's action first (only when its
+ * live action IS this PaymentIntent, so a stale panel never wipes another table's prompt), then the
+ * PaymentIntent. Returns `"too_late"` when Stripe refuses the cancel because the tap already
+ * succeeded or is processing: money is moving and the webhook owns the lifecycle from there.
+ * Shared by `cancelTerminal` and the poll's lost-mutex arm so the sequence exists once.
+ */
+async function abandonAttempt(
+  stripe: ReturnType<typeof getStripe>,
+  intent: { id: string },
+): Promise<"canceled" | "too_late"> {
+  const readerId = process.env.STRIPE_TERMINAL_READER_ID;
+  if (readerId) {
+    // Clear the reader ONLY if its current action is THIS payment — cancelAction is reader-scoped,
+    // and a stale panel's Cancel must never wipe a different table's live prompt mid-guest-
+    // interaction (review finding). Best-effort throughout: the reader may be offline/idle.
+    try {
+      const reader = await stripe.terminal.readers.retrieve(readerId);
+      const actionPi =
+        !("deleted" in reader) && reader.action?.type === "process_payment_intent"
+          ? (reader.action.process_payment_intent?.payment_intent ?? null)
+          : null;
+      const actionPiId = typeof actionPi === "string" ? actionPi : (actionPi?.id ?? null);
+      if (actionPiId === intent.id) await stripe.terminal.readers.cancelAction(readerId);
+    } catch (e) {
+      console.error("[terminal] reader cancelAction failed", {
+        paymentIntent: intent.id,
+        code: (e as { code?: string }).code,
+      });
+    }
+  }
+  try {
+    await stripe.paymentIntents.cancel(intent.id);
+  } catch (e) {
+    // Already succeeded (the tap won the race) or processing — money is moving; the webhook owns
+    // the lifecycle and the freeze stays held.
+    console.error("[terminal] PI cancel refused", {
+      paymentIntent: intent.id,
+      code: (e as { code?: string }).code,
+    });
+    return "too_late";
+  }
+  return "canceled";
 }
 
 export type CancelTerminalResult = { ok: true } | { ok: false; error: string };
@@ -333,40 +421,11 @@ export async function cancelTerminal(raw: unknown): Promise<CancelTerminalResult
   if (intent.metadata?.kind !== "terminal" || !cartId || !attempt)
     return { ok: false, error: "Invalid request." };
 
-  const readerId = process.env.STRIPE_TERMINAL_READER_ID;
-  if (readerId) {
-    // Clear the reader ONLY if its current action is THIS payment — cancelAction is reader-scoped,
-    // and a stale panel's Cancel must never wipe a different table's live prompt mid-guest-
-    // interaction (review finding). Best-effort throughout: the reader may be offline/idle.
-    try {
-      const reader = await stripe.terminal.readers.retrieve(readerId);
-      const actionPi =
-        !("deleted" in reader) && reader.action?.type === "process_payment_intent"
-          ? (reader.action.process_payment_intent?.payment_intent ?? null)
-          : null;
-      const actionPiId = typeof actionPi === "string" ? actionPi : (actionPi?.id ?? null);
-      if (actionPiId === intent.id) await stripe.terminal.readers.cancelAction(readerId);
-    } catch (e) {
-      console.error("[terminal] reader cancelAction failed", {
-        paymentIntent: paymentIntentId,
-        code: (e as { code?: string }).code,
-      });
-    }
-  }
-  try {
-    await stripe.paymentIntents.cancel(intent.id);
-  } catch (e) {
-    // Already succeeded (the tap won the race) or processing — money is moving; the webhook owns
-    // the lifecycle and the freeze stays held.
-    console.error("[terminal] PI cancel refused", {
-      paymentIntent: intent.id,
-      code: (e as { code?: string }).code,
-    });
+  if ((await abandonAttempt(stripe, intent)) === "too_late")
     return { ok: false, error: "Too late to cancel — the payment already went through." };
-  }
   // Scoped to THIS attempt: a stale panel canceling an old orphaned PI can never null a newer
   // attempt's live freeze (the review's confirmed-HIGH era-confusion class).
-  const settleErr = await releaseSettlementFor(cartId, attempt);
+  const { error: settleErr } = await releaseSettlementFor(cartId, attempt);
   if (settleErr)
     console.error("[terminal] cancel release failed", { cartId, message: settleErr.message });
   return { ok: true };

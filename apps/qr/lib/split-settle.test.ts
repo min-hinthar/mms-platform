@@ -66,12 +66,20 @@ function chain(table: string, patch: Record<string, unknown>) {
   return api;
 }
 
+/** A3 — the share the authorization resolves to, so the extend after the mark is reachable. */
+let shareCartId: string | null = null;
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
       update: (patch: Record<string, unknown>) => chain(table, patch),
       select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
+        eq: () => ({
+          maybeSingle: () =>
+            Promise.resolve({
+              data: table === "qr_cart_shares" && shareCartId ? { cart_id: shareCartId } : null,
+              error: null,
+            }),
+        }),
       }),
     }),
   }),
@@ -79,20 +87,27 @@ vi.mock("@mms/db/server", () => ({
 
 // The PaymentIntent `onShareFailed` will retrieve, and an optional error to throw instead.
 let piStatus = "requires_payment_method";
+let piMetadata: Record<string, string> = {};
 let retrieveError: unknown = null;
 vi.mock("./stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
       retrieve: () =>
-        retrieveError ? Promise.reject(retrieveError) : Promise.resolve({ status: piStatus }),
+        retrieveError
+          ? Promise.reject(retrieveError)
+          : Promise.resolve({ status: piStatus, metadata: piMetadata }),
     },
   }),
 }));
 
-// `onShareAuthorized` calls these after its mark; they are not what these tests pin.
+// `onShareAuthorized` calls these after its mark. The extend's OWNER is what A3 pins.
+const extendCalls: { cartId: string; owner: string }[] = [];
 vi.mock("./lock", () => ({
-  extendSettlement: () => Promise.resolve(),
-  releaseSettlement: () => Promise.resolve(null),
+  extendSettlementFor: (cartId: string, owner: string) => {
+    extendCalls.push({ cartId, owner });
+    return Promise.resolve({ extended: true, error: null });
+  },
+  releaseSettlementOfSettledCart: () => Promise.resolve(null),
 }));
 // T20 — the TTLs live in `./lock-ttl` now. Left UNMOCKED on purpose: these two values already equal
 // production, so stubbing them was a transcribed copy of a number whose source has since changed
@@ -105,6 +120,9 @@ beforeEach(() => {
   piStatus = "requires_payment_method";
   retrieveError = null;
   updateResult = { data: [{ status: "x" }], error: null };
+  piMetadata = {};
+  shareCartId = null;
+  extendCalls.length = 0;
 });
 
 const marked = () => calls.filter((c) => c.patch.status === "failed");
@@ -205,5 +223,28 @@ describe("onShareAuthorized — a declined share must be able to come back", () 
     piStatus = "requires_capture";
     updateResult = { data: null, error: { message: "fetch failed" } };
     await expect(onShareAuthorized("pi_1")).rejects.toThrow(/mark failed/);
+  });
+});
+
+describe("onShareAuthorized — the extend is scoped to the share's OWNER, never the row's (A3 · M203)", () => {
+  it("extends under `settleOwner` from the share's own metadata", async () => {
+    // `create-share-intent` stamps the host's freeze owner it extended under BEFORE minting, so this
+    // extends the SAME freeze or nothing — never whatever `settle_by` happens to hold by now.
+    piStatus = "requires_capture";
+    piMetadata = { settleOwner: "host-uid-1" };
+    shareCartId = "cart-1";
+    await onShareAuthorized("pi_1");
+    expect(extendCalls).toEqual([{ cartId: "cart-1", owner: "host-uid-1" }]);
+  });
+
+  it("extends NOTHING for a share minted without an owner — it heals on the TTL rather than reviving a stranger's freeze", async () => {
+    piStatus = "requires_capture";
+    piMetadata = {};
+    shareCartId = "cart-1";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(extendCalls).toEqual([]);
+    expect(warn.mock.calls.some(([m]) => String(m).includes("no settleOwner"))).toBe(true);
+    warn.mockRestore();
   });
 });
