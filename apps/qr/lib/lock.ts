@@ -330,6 +330,51 @@ export async function extendSettlementFor(
 }
 
 /**
+ * Is THIS owner's freeze still fresh on the row? A READ, never an acquire (Codex round 1 on A3,
+ * P2). `acquireSettlement` has no same-owner arm by design (M201) — so two polls of one Terminal
+ * attempt that overlap as the freeze ages out both extend zero rows, the first re-acquires, and
+ * the second is refused as if a colleague held the table. This is how the second tells "a
+ * colleague holds it" from "my own attempt holds it" without restoring the arm.
+ */
+export async function settlementHeldBy(
+  cartId: string,
+  owner: string,
+): Promise<{ held: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("settle_at,settle_by")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) return { held: false, error };
+  const fresh =
+    data?.settle_at != null && new Date(data.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  return { held: fresh && data?.settle_by === owner, error: null };
+}
+
+/**
+ * Clear a STALE freeze, whoever wrote it — the second and last owner-less release, and stale-only
+ * by predicate (Codex round 1 on A3, P1). A stale freeze protects nothing (`paymentInFlightReason`
+ * already ignores it) EXCEPT that `captureAllIfReady` proceeds on a stale non-null freeze once every
+ * share is authorized — which is exactly the capture the split abort must shut before it cancels
+ * holds and deletes the ledger. The predicate can never lift a colleague's LIVE settle; zero rows
+ * means the marker went fresh (someone took the table over) or null, and the caller re-reads.
+ */
+export async function releaseStaleSettlement(
+  cartId: string,
+): Promise<{ released: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ settle_at: null, settle_by: null }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .lte("settle_at", cutoff);
+  return { released: (count ?? 0) > 0, error };
+}
+
+/**
  * Release the promo grant this attempt pinned (M70 · Codex P1 on #233, unanswered until now).
  *
  * `create-intent` pins `promo_granted_cents` at authorization so a promo that expires or a basket

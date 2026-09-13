@@ -375,6 +375,7 @@ export async function acquireSettlementSuperseding(
   // on every tender; a throw after that point converted to `unavailable` while LEAVING it held, so
   // the retryable answer stranded the table for the settle TTL over a step that never ran.
   let claimHeld = false;
+  let predecessorDead = false;
   try {
     // The attempt we DIAGNOSED, named. Everything after this acts on this id and nothing else.
     const live = await readLiveIntent(cartId);
@@ -438,14 +439,24 @@ export async function acquireSettlementSuperseding(
     claimHeld = true;
     const outcome = await supersede(cartId, live);
     if (outcome !== "cleared") {
-      // Give the claimed freeze back, scoped to THIS request (see `releaseOwn` for why four review
-      // rounds could not write this line before A3). A refused supersede must not block the table
-      // for the settle TTL over an attempt we decided not to touch.
-      await releaseOwn(cartId, owner, "supersede-refused");
+      // ⚠️ HOLD THE CLAIMED FREEZE — do not give it back (Codex round 1 on A3, P1; a regression the
+      // first A3 draft introduced). Reaching this path means the diner's pay lock is already STALE,
+      // so this freeze is the ONLY thing `paymentInFlightReason` still honours. `captured` means the
+      // predecessor is charging or charged and its webhook has not landed; `unknown` means we could
+      // not tell. Releasing here let a diner edit the cart, or the counter clear the table, in the
+      // window before the webhook snapshotted the order — a captured payment with no fulfillable
+      // order. The freeze belongs to THIS request's owner and ages out at the settle TTL; because
+      // the owner is request-unique (M201) the next attempt cannot walk through it the way the
+      // old same-staff arm did, which is the double-mint A3 removed. Held-to-the-TTL was always
+      // right for a charging predecessor; it was wrong only for the OWNER it used to be held under.
+      holdClaimed(cartId, owner, "supersede-refused", outcome);
       // `unknown` is not "no" — it is "we could not tell". Reporting `locked` would tell staff a
       // diner is checking out when what actually happened is that we could not reach Stripe.
       return outcome === "captured" ? "paying" : "unavailable";
     }
+    // From here the predecessor is PROVEN dead (cancelled at Stripe), so a freeze we cannot use is
+    // safe to give back — nothing is charging under it any more.
+    predecessorDead = true;
 
     // ⚠️ THE CANCELLED ATTEMPT'S PROMO PIN GOES WITH IT (Codex round 2, P1). `supersedeCartIntent`
     // only unlinks, and it is right not to touch the pin for create-intent's sake — M70's rule is
@@ -478,8 +489,12 @@ export async function acquireSettlementSuperseding(
       cartId,
       error: e instanceof Error ? e.message : String(e),
     });
-    // A freeze we took and could not use goes BACK, scoped to this request — see `releaseOwn`.
-    if (claimHeld) await releaseOwn(cartId, owner, "post-claim-throw");
+    // A freeze we took and could not use goes BACK, scoped to this request — see `releaseOwn` —
+    // but ONLY once the predecessor is proven dead. A throw from the supersede step itself leaves
+    // the intent's state unknown, and an unknown predecessor may be charging: held (Codex round 1
+    // on A3, P1 — the same rule as the refused arm above).
+    if (claimHeld && predecessorDead) await releaseOwn(cartId, owner, "post-claim-throw");
+    else if (claimHeld) holdClaimed(cartId, owner, "post-claim-throw", "unknown");
     return "unavailable";
   }
 }
@@ -509,15 +524,30 @@ export async function acquireSettlementSuperseding(
  * Best-effort: the TTL is still the backstop, and a release that fails is LOGGED, never allowed to
  * turn the retryable verdict the caller is about to return into a rejection.
  */
+/**
+ * The other exit for a claimed freeze: KEEP it, and say so. Used where the predecessor's state is
+ * `captured` or `unknown` — the two verdicts under which releasing would unfreeze a cart whose
+ * card may be charging (Codex round 1 on A3, P1). The freeze ages out at the settle TTL under
+ * this request's unique owner; nothing else needs to happen for the table to recover.
+ */
+function holdClaimed(
+  cartId: string,
+  owner: string,
+  at: "supersede-refused" | "post-claim-throw",
+  outcome: SupersedeOutcome,
+): void {
+  console.error("[settle] claimed freeze HELD to the TTL — the predecessor may be charging", {
+    cartId,
+    owner,
+    at,
+    outcome,
+  });
+}
+
 async function releaseOwn(
   cartId: string,
   owner: string,
-  at:
-    | "diagnosing-acquire-threw"
-    | "ambiguous-claim"
-    | "supersede-refused"
-    | "pin-clear-failed"
-    | "post-claim-throw",
+  at: "diagnosing-acquire-threw" | "ambiguous-claim" | "pin-clear-failed" | "post-claim-throw",
 ): Promise<void> {
   try {
     const { error } = await releaseSettlementFor(cartId, owner);

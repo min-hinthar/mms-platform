@@ -6,7 +6,12 @@ import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
-import { acquireSettlement, releaseSettlementFor, type SettleResult } from "./lock";
+import {
+  acquireSettlement,
+  releaseSettlementFor,
+  releaseStaleSettlement,
+  type SettleResult,
+} from "./lock";
 import { SETTLE_TTL_MS } from "./lock-ttl";
 import { releaseHold } from "./split-hold";
 
@@ -569,7 +574,8 @@ export async function abortSettlement(cartId: string): Promise<void> {
   await assertMutationRate(uid); // W1·Q6 — abort churns Stripe cancels + ledger deletes; bound it
   const db = serviceClient();
 
-  // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a fresh settle_at, so any
+  // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a NON-NULL settle_at (a
+  // stale one still passes once every share is authorized — see the stale arm below), so any
   // capture path that hasn't started yet now bails. (A capture already past its gate finishes + fulfills;
   // we detect that below and defer to it — money taken must always become an order.)
   //
@@ -599,6 +605,27 @@ export async function abortSettlement(cartId: string): Promise<void> {
       row?.settle_at != null && new Date(row.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
     if (foreignFresh)
       throw new Error("This table is being settled another way — try again in a moment");
+    if (row?.settle_at != null) {
+      // ⚠️ A STALE FOREIGN FREEZE IS CLEARED BEFORE ANYTHING DESTRUCTIVE (Codex round 1 on A3, P1).
+      // The first A3 draft walked past it as "it can no longer protect anything" — but
+      // `captureAllIfReady` PROCEEDS on a stale non-null freeze once every share is authorized, so
+      // a late authorization webhook could capture while this abort cancels holds and deletes the
+      // ledger: money taken, no order. The clear is stale-only by predicate
+      // (`releaseStaleSettlement`), so it can never lift a colleague's live settle; zero rows means
+      // the marker went fresh or null under us, and one more read says which.
+      const { released: cleared, error: clearErr } = await releaseStaleSettlement(id);
+      if (clearErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+      if (!cleared) {
+        const { data: again, error: againErr } = await db
+          .from("qr_carts")
+          .select("settle_at")
+          .eq("id", id)
+          .maybeSingle();
+        if (againErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+        if (again?.settle_at != null)
+          throw new Error("This table is being settled another way — try again in a moment");
+      }
+    }
   }
 
   // Same rule on the abort side: an unreadable share list is not "no captured shares". Dropping this

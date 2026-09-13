@@ -12,6 +12,7 @@ import {
   releaseSettlementFor,
   extendSettlementFor,
   type SettleResult,
+  settlementHeldBy,
 } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
@@ -372,6 +373,33 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
     });
     return { ok: true, state: "collecting" };
   }
+  // ⚠️ A REFUSAL IS NOT YET "ANOTHER OWNER" (Codex round 1 on A3, P2). Two polls of THIS attempt
+  // can overlap as the freeze ages out — a slow poll past the interval, or two register panels on
+  // one attempt: both extend zero rows, the first re-acquires, and the second is refused, because
+  // `acquireSettlement` has no same-owner arm by design (M201). So read the row before abandoning
+  // anything: a fresh freeze under this attempt is ours, held by a sibling poll, and the collect
+  // simply continues. A read, never an acquire arm.
+  const { held, error: heldErr } = await settlementHeldBy(cartId, attempt);
+  if (heldErr) {
+    console.error(
+      "[terminal] freeze ownership re-read failed mid-collect — a poll miss, not a verdict",
+      {
+        cartId,
+        paymentIntent: intent.id,
+        attempt,
+        error: heldErr.message,
+      },
+    );
+    return { ok: false, error: POLL_MISS_COPY };
+  }
+  if (held) {
+    console.warn("[terminal] a sibling poll of this attempt holds the freeze — still ours", {
+      cartId,
+      paymentIntent: intent.id,
+      attempt,
+    });
+    return { ok: true, state: "collecting" };
+  }
   console.error("[terminal] settlement freeze lost mid-collect — abandoning the attempt", {
     cartId,
     paymentIntent: intent.id,
@@ -381,6 +409,10 @@ export async function terminalStatus(raw: unknown): Promise<TerminalPollResult> 
   const abandoned = await abandonAttempt(getStripe(), intent);
   if (abandoned === "too_late")
     return { ok: true, state: "succeeded", orderId: null, totalCents: intent.amount };
+  // `processing` is PROVISIONAL (Codex round 1 on A3, P2): the charge can still fail, so it is
+  // neither "paid" — the panel would latch a false receipt — nor "failed". Keep collecting; the
+  // next poll's own retrieve settles it either way.
+  if (abandoned === "processing") return { ok: true, state: "collecting" };
   // We could not establish the intent's state — neither "paid" nor "nothing charged" is honest.
   if (abandoned === "unknown") return { ok: false, error: POLL_MISS_COPY };
   return { ok: true, state: "failed", error: LOST_HOLD_COPY };
@@ -402,7 +434,9 @@ const LOST_HOLD_COPY =
 /**
  * Abandon a Terminal attempt the way staff Cancel does — the reader's action first (only when its
  * live action IS this PaymentIntent, so a stale panel never wipes another table's prompt), then the
- * PaymentIntent. Three answers: `"canceled"` (nothing was charged), `"too_late"` (the tap already
+ * PaymentIntent. Four answers: `"canceled"` (nothing was charged), `"processing"` (the charge is in
+ * flight — neither paid nor failed yet, so the poll keeps collecting; Codex round 1 on A3, P2),
+ * `"too_late"` (the tap already
  * succeeded or is processing — money is moving and the webhook owns the lifecycle from there), and
  * `"unknown"` (Stripe refused the cancel and we could not establish why). Shared by
  * `cancelTerminal` and the poll's lost-mutex arm so the sequence exists once.
@@ -410,7 +444,7 @@ const LOST_HOLD_COPY =
 async function abandonAttempt(
   stripe: ReturnType<typeof getStripe>,
   intent: { id: string },
-): Promise<"canceled" | "too_late" | "unknown"> {
+): Promise<"canceled" | "too_late" | "processing" | "unknown"> {
   const readerId = process.env.STRIPE_TERMINAL_READER_ID;
   if (readerId) {
     // Clear the reader ONLY if its current action is THIS payment — cancelAction is reader-scoped,
@@ -454,7 +488,8 @@ async function abandonAttempt(
       });
       return "unknown";
     }
-    if (status === "succeeded" || status === "processing") return "too_late";
+    if (status === "succeeded") return "too_late";
+    if (status === "processing") return "processing";
     if (status === "canceled") return "canceled";
     // Still live: the cancel failed for a reason that was not the intent's state. Not a verdict.
     return "unknown";
@@ -492,6 +527,11 @@ export async function cancelTerminal(raw: unknown): Promise<CancelTerminalResult
   const outcome = await abandonAttempt(stripe, intent);
   if (outcome === "too_late")
     return { ok: false, error: "Too late to cancel — the payment already went through." };
+  if (outcome === "processing")
+    return {
+      ok: false,
+      error: "Too late to cancel — the charge is going through. Wait for the result.",
+    };
   if (outcome === "unknown") return { ok: false, error: "Couldn’t reach Stripe — try again." };
   // Scoped to THIS attempt: a stale panel canceling an old orphaned PI can never null a newer
   // attempt's live freeze (the review's confirmed-HIGH era-confusion class).

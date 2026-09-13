@@ -44,7 +44,7 @@ always stamped; `closedByUid` — the shared staff uid, the residual M201 named 
 Reopening the parked split is no longer a one-line flip: its same-host re-open rode the removed
 arm. `SURFACES` records the shape that restores it (release-own-then-acquire, never the arm).
 
-Guards: 22 new mutants, 8 rewritten and 6 re-anchored (**632** across 112 modules); the takeover suite's three
+Guards: 26 new mutants, 8 rewritten and 8 re-anchored (**636** across 112 modules); the takeover suite's three
 held-freeze assertions flipped to owner-scoped releases; a parsed owner-binding guard on both staff
 settles (the acquire's argument is a local bound to `crypto.randomUUID()`, every release names it,
 the tab close stamps it); a value test that the cash owner is a uuid, not `caller.uid`, and unique
@@ -64,6 +64,27 @@ taking it (a backgrounded tablet) resumes rather than abandons; only a refusal a
 that pass: the split abort no longer refreezes a freeze it never released. Four mutants pin the
 fixes — the outage read as a lost mutex, the refused cancel read as paid, the aged-out freeze
 abandoned without a re-acquire, and the abort refreezing what it never released — each watched red.
+
+**Codex round 1 (on `9744800`) returned two P1s and two P2s; all four verified real and fixed.**
+(P1) **A refused supersede released the claimed freeze — a regression this very PR introduced.**
+The first draft gave the freeze back on `captured`/`unknown`, reasoning that a request-unique owner
+made the release safe. It is safe against the sibling-request hole (M201) and wrong for the reason
+the hold always existed: reaching that arm means the diner's pay lock is already STALE, so the
+claimed freeze is the only thing `paymentInFlightReason` still honours, and `captured` means the
+predecessor is charging with its webhook not yet landed — released, a diner could edit the cart or
+the counter clear the table before the webhook snapshotted the order. Held now, under the unique
+owner, to the TTL: the next attempt is refused as `settling_other` and cannot double-mint. The
+post-claim catch splits the same way — a throw BEFORE the predecessor is proven dead holds, a
+throw after (the pin clear) releases. (P1) **The split abort walked past a STALE foreign freeze**,
+and `captureAllIfReady` proceeds on a stale non-null freeze once every share is authorized — a
+late authorization webhook could capture while the abort cancelled holds and deleted the ledger.
+`releaseStaleSettlement` (stale-only by predicate, the second and last owner-less release) clears
+the marker before anything destructive; zero rows re-reads and refuses if it went fresh. (P2)
+**`processing` was folded into `too_late`**, so the poll reported `succeeded` on a charge that can
+still fail — it is its own answer now and the poll keeps collecting. (P2) **Two overlapping polls of
+one attempt**: the second's re-acquire is refused (no same-owner arm, by design) and read that as
+another owner, cancelling a valid tap the first poll had just resumed — `settlementHeldBy`, a READ
+of ownership, separates the two without restoring the arm. Four new mutants, two retargeted.
 
 ### A7b — the Google sign-in dead end, and the carry it was destroying (2026-09-09)
 

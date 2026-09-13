@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 vi.mock("server-only", () => ({}));
+import { SETTLE_TTL_MS } from "./lock-ttl";
 
 type Q = {
   table: string;
@@ -57,6 +58,8 @@ let statusRow: {
   locked?: boolean;
   locked_at?: string | null;
   live_payment_intent_id?: string | null;
+  settle_at?: string | null;
+  settle_by?: string | null;
 } | null = null;
 let statusError: { message: string } | null = null;
 
@@ -141,6 +144,8 @@ const {
   releaseByIntent,
   acquireSettlement,
   claimStaleSettlement,
+  releaseStaleSettlement,
+  settlementHeldBy,
 } = await import("./lock");
 
 beforeEach(() => {
@@ -707,5 +712,60 @@ describe("claimStaleSettlement — the mutex, as a QUERY SHAPE (M197, Codex roun
     const { claimed, error } = await claimStaleSettlement("cart-1", "staff-1", "pi_abandoned");
     expect(claimed).toBe(false);
     expect(error).toBeNull();
+  });
+});
+
+describe("settlementHeldBy — a READ of ownership, never an acquire arm (Codex round 1 on A3, P2)", () => {
+  it("held when the row names this owner and the freeze is fresh", async () => {
+    statusRow = { status: "open", settle_at: new Date().toISOString(), settle_by: "attempt-1" };
+    expect(await settlementHeldBy("cart-1", "attempt-1")).toEqual({ held: true, error: null });
+  });
+  it("NOT held under another owner, however fresh — that is a colleague's settle", async () => {
+    statusRow = { status: "open", settle_at: new Date().toISOString(), settle_by: "attempt-2" };
+    expect((await settlementHeldBy("cart-1", "attempt-1")).held).toBe(false);
+  });
+  it("NOT held when this owner's freeze has aged out — stale is not ours to keep", async () => {
+    statusRow = {
+      status: "open",
+      settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      settle_by: "attempt-1",
+    };
+    expect((await settlementHeldBy("cart-1", "attempt-1")).held).toBe(false);
+  });
+  it("a failed read is an error, never `held: true`", async () => {
+    statusError = { message: "connection reset" };
+    expect(await settlementHeldBy("cart-1", "attempt-1")).toEqual({
+      held: false,
+      error: { message: "connection reset" },
+    });
+  });
+});
+
+describe("releaseStaleSettlement — stale-only by predicate, owner-less by design (Codex round 1 on A3, P1)", () => {
+  it("nulls the freeze on an OPEN cart whose settle_at is at or past the TTL, and reports the row", async () => {
+    updateCount = 1;
+    const before = Date.now() - SETTLE_TTL_MS;
+    const r = await releaseStaleSettlement("cart-1");
+    const after = Date.now() - SETTLE_TTL_MS;
+    expect(r).toEqual({ released: true, error: null });
+    const q = queries.find((x) => x.table === "qr_carts");
+    expect(q?.payload).toEqual({ settle_at: null, settle_by: null });
+    expect(q?.eq).toContainEqual(["id", "cart-1"]);
+    expect(q?.eq).toContainEqual(["status", "open"]);
+    // MUTATION: drop the `lte` → the clear lifts a colleague's LIVE settle. The bound is the TTL,
+    // measured against the clock on both sides of the call rather than transcribed.
+    const [col, cutoff] = q?.lte[0] ?? [];
+    expect(col).toBe("settle_at");
+    const cutoffMs = Date.parse(String(cutoff));
+    expect(cutoffMs).toBeGreaterThanOrEqual(before);
+    expect(cutoffMs).toBeLessThanOrEqual(after);
+  });
+  it("zero rows is `released: false` — the marker went fresh or null, the caller re-reads", async () => {
+    updateCount = 0;
+    expect(await releaseStaleSettlement("cart-1")).toEqual({ released: false, error: null });
+  });
+  it("surfaces its write error", async () => {
+    updateError = { message: "connection reset" };
+    expect((await releaseStaleSettlement("cart-1")).error).toEqual({ message: "connection reset" });
   });
 });

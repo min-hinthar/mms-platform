@@ -44,6 +44,9 @@ let liveIntent: string | null = "pi_abandoned";
 let liveIntentThrows = false;
 let claimed = true;
 let pinClearFails = false;
+/** Codex round 1 on A3 — a THROW after the predecessor is proven dead (vs. a throw from the
+ *  supersede step, which leaves it unknown): the two halves of the post-claim catch. */
+let pinClearThrows = false;
 let supersedeThrows = false;
 let claimCalls: { intentId: string }[] = [];
 let probeReleases: { cartId: string; attemptId: string }[] = [];
@@ -83,6 +86,7 @@ vi.mock("./lock", () => ({
     return Promise.resolve({ released: true, error: null });
   },
   releaseByIntent: (cartId: string, intentId: string) => {
+    if (pinClearThrows) throw new Error("pin clear threw");
     if (pinClearFails)
       return Promise.resolve({ released: false, error: { message: "write failed" } });
     pinCleared.push({ cartId, intentId });
@@ -121,6 +125,7 @@ beforeEach(() => {
   acquireOwners = [];
   supersedeArgs = [];
   pinClearFails = false;
+  pinClearThrows = false;
   supersedeThrows = false;
   intentFixture = {
     id: "pi_x",
@@ -199,18 +204,25 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(supersedeCalls).toBe(0);
   });
 
-  it("gives the freeze BACK when the supersede refuses", async () => {
-    // The claim is a real freeze on a live table. Refusing without releasing would strand every
-    // tender for the settle TTL over an attempt we decided not to touch.
+  it("HOLDS the claimed freeze when the supersede refuses on `captured` — the predecessor is charging", async () => {
+    // Codex round 1 on A3, P1 — the first A3 draft released here and that was a regression: reaching
+    // this arm means the diner's pay lock is STALE, so the claimed freeze is the only thing
+    // `paymentInFlightReason` still honours, and `captured` means the card is charging with its
+    // webhook not yet landed. Released, a diner could edit the cart or the counter clear the table
+    // before the webhook snapshotted the order. Held under the request-unique owner, the next
+    // attempt is refused as `settling_other` until the TTL — and cannot double-mint (M201).
     acquireResults = ["locked_stale"];
     supersedeResult = "captured";
     expect(await takeover("c", "u")).toBe("paying");
-    // ⚠️ RELEASED, UNDER THE OWNER — the line four review rounds could not write (Codex rounds
-    // 8/10/11/12/13 on #275). Owner, owner+era and cart were each falsified while `staff-cart.ts`
-    // passed a SHARED uid; A3 made the owner request-unique, so `settle_by = owner` names this
-    // request's freeze and no other. Held-to-the-TTL was the cost of the old owner, not a doctrine.
-    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(probeReleases).toEqual([]);
     expect(pinCleared).toEqual([]); // a captured attempt keeps its pin — the webhook reconciles it
+  });
+
+  it("HOLDS the claimed freeze on `unknown` too — we could not tell, and unknown may be charging", async () => {
+    acquireResults = ["locked_stale"];
+    supersedeResult = "unknown";
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(probeReleases).toEqual([]);
   });
 
   it("answers `unavailable` when a step THROWS instead of returning", async () => {
@@ -302,14 +314,23 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(supersedeArgs).toEqual([{ cartId: "c", intentId: "pi_abandoned" }]);
   });
 
-  it("releases the claimed freeze when a post-claim step THROWS", async () => {
-    // Codex round 3, P2. Once the claim lands the freeze blocks every tender; converting a throw to
-    // `unavailable` while holding it stranded the table for the settle TTL over a step that never
-    // ran. `supersedeSettlementIntent` calls `getStripe()`, which throws on a missing key.
+  it("HOLDS the claimed freeze when the supersede step itself THROWS — the predecessor's state is unknown", async () => {
+    // Codex round 1 on A3, P1 — the same rule as the refused arm: a throw from the cancel leaves
+    // the intent's state unknown, and unknown may be charging. `supersedeSettlementIntent` calls
+    // `getStripe()`, which throws on a missing key — Stripe unreachable mid-cancel.
     acquireResults = ["locked_stale"];
     supersedeThrows = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    // Released under THIS request's owner (A3 · M201) — see "gives the freeze BACK" above.
+    expect(probeReleases).toEqual([]);
+  });
+
+  it("releases the claimed freeze when a step AFTER the predecessor is proven dead throws", async () => {
+    // Codex round 3, P2, narrowed by round 1 on A3: once the cancel has returned `cleared` nothing
+    // is charging under this freeze, so a throw from the pin clear must not strand the table for
+    // the settle TTL. Released under THIS request's owner (A3 · M201).
+    acquireResults = ["locked_stale"];
+    pinClearThrows = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
     expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
   });
 
@@ -338,7 +359,7 @@ describe("acquireSettlementSuperseding — M197", () => {
     // release keyed on a constant matches two concurrent requests on one cart. The owner is the
     // caller's request-unique id, passed straight through.
     acquireResults = ["locked_stale"];
-    supersedeResult = "unknown";
+    pinClearFails = true; // a releasing exit — the predecessor is proven dead, the pin clear failed
     expect(await takeover("c", "owner-9f3a")).toBe("unavailable");
     expect(probeReleases).toHaveLength(1);
     expect(probeReleases[0]!.attemptId).toBe("owner-9f3a");

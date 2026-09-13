@@ -143,7 +143,8 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
       ],
       error: null,
     };
-  if (q.table === "qr_carts" && q.op === "select") return { data: cartRow, error: null }; // A3 abort re-read
+  if (q.table === "qr_carts" && q.op === "select")
+    return { data: cartReads++ === 0 ? cartRow : (cartRowAfterClear ?? cartRow), error: null }; // A3 abort re-read(s)
   if (
     q.table === "qr_carts" &&
     q.op === "update" &&
@@ -274,8 +275,18 @@ let releaseResult = true;
 const releaseOwners: string[] = [];
 /** The `qr_carts` row the abort re-reads when its scoped release matched nothing. */
 let cartRow: { settle_at: string | null } | null = null;
+/** Codex round 1 on A3 — the row as re-read AFTER a stale-clear that matched nothing. */
+let cartRowAfterClear: { settle_at: string | null } | null = null;
+let cartReads = 0;
+let staleClears = 0;
+let staleClearResult = true;
+let staleClearError: { message: string } | null = null;
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
+  releaseStaleSettlement: () => {
+    staleClears += 1;
+    return Promise.resolve({ released: staleClearResult, error: staleClearError });
+  },
   releaseSettlementFor: (_cartId: string, owner: string) => {
     releasedFreeze += 1;
     releaseOwners.push(owner);
@@ -312,6 +323,11 @@ beforeEach(() => {
   retrieveThrows = {};
   releasedFreeze = 0;
   releaseResult = true;
+  cartRowAfterClear = null;
+  cartReads = 0;
+  staleClears = 0;
+  staleClearResult = true;
+  staleClearError = null;
   releaseOwners.length = 0;
   cartRow = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -368,12 +384,37 @@ describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 ·
     expect(refreeze).toBeUndefined();
   });
 
-  it("proceeds past a STALE foreign freeze — it can no longer protect anything", async () => {
+  it("CLEARS a STALE foreign freeze before anything destructive, then proceeds (Codex round 1 on A3, P1)", async () => {
+    // `captureAllIfReady` proceeds on a stale non-null freeze once every share is authorized, so
+    // walking past it races a late authorization webhook. The stale-only clear shuts that gate.
     releaseResult = false;
     cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
-    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
     await abortSettlement(CART);
-    expect(cancelled).toEqual(["pi_1"]);
+    expect(staleClears).toBe(1);
+  });
+
+  it("refuses when the stale marker cannot be cleared and the row is FRESH on re-read — someone took the table", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = false;
+    cartRowAfterClear = { settle_at: new Date().toISOString() };
+    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    expect(staleClears).toBe(1);
+  });
+
+  it("proceeds when the stale marker vanished under the clear — null protects nothing", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = false;
+    cartRowAfterClear = { settle_at: null };
+    await abortSettlement(CART);
+  });
+
+  it("a stale-clear write error refuses — the gate is not provably shut", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/try again in a moment/);
   });
 });
 
