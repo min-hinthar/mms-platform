@@ -1397,6 +1397,14 @@ const MUTANTS = [
     replace: "    const refreezeErr = await refreeze(db, id, uid);",
   },
   {
+    id: "terminal/canceled-poll-keeps-the-freeze",
+    file: "apps/qr/lib/terminal.ts",
+    suite: "lib/terminal.test.ts",
+    why: "Codex round 3 on A3, P2 — a poll that retrieved the intent before staff cancelled it can re-acquire the freeze cancel just released, off a stale `requires_payment_method` snapshot; the next tick sees `canceled` and, without this scoped release, the successfully cancelled table stays frozen for the TTL. Dropping it restores exactly that",
+    find: '    const { error: relErr } = await releaseSettlementFor(cartId, attempt);\n    if (relErr)\n      console.error("[terminal] canceled-poll release failed", { cartId, message: relErr.message });\n    return { ok: true, state: "canceled" };',
+    replace: '    return { ok: true, state: "canceled" };',
+  },
+  {
     id: "split/abort-forgets-the-stale-clear-it-made",
     file: "apps/qr/lib/split.ts",
     suite: "lib/split.test.ts",
@@ -2959,8 +2967,9 @@ const MUTANTS = [
     file: "apps/qr/lib/terminal.ts",
     suite: "lib/terminal.test.ts",
     why: "W6c review — a decline whose freeze waits for the webhook strands the register: the pre-check refuses every retry AND the cash fallback with false 'paying on their phone' copy until the delivery lands (or the 10-min TTL)",
-    find: "    const { error: relErr } = await releaseSettlementFor(cartId, attempt);",
-    replace: "    const relErr = null as { message: string } | null;",
+    find: '    const { error: relErr } = await releaseSettlementFor(cartId, attempt);\n    if (relErr)\n      console.error("[terminal] decline release failed", { cartId, message: relErr.message });',
+    replace:
+      '    const relErr = null as { message: string } | null;\n    if (relErr)\n      console.error("[terminal] decline release failed", { cartId, message: relErr.message });',
   },
   {
     id: "terminal/recording-window-stops-extending",

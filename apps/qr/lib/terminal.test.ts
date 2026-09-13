@@ -383,6 +383,27 @@ describe("terminalStatus — the collect-window poll", () => {
     expect(ops).not.toContain("reader.cancelAction");
   });
 
+  it("a poll that finds the intent CANCELED releases the freeze scoped to THIS attempt — a freeze re-acquired off a stale snapshot must not outlive the cancel (Codex round 3 on A3, P2)", async () => {
+    // A status poll can retrieve the intent BEFORE `cancelTerminal` cancels it, then meet the freeze
+    // that cancel released, and re-acquire it under this attempt off that stale snapshot. The next
+    // tick sees `canceled`; without a scoped release here the successfully cancelled table stays
+    // frozen until the TTL or a webhook. Scoped, so a stale panel's poll matches zero rows.
+    retrieved = {
+      id: "pi_test_1",
+      status: "canceled",
+      last_payment_error: null,
+      metadata: TERMINAL_META,
+      amount: 4321,
+    };
+    const r = await terminalStatus({ sessionId: SESSION, paymentIntentId: "pi_test_1" });
+    expect(r).toEqual({ ok: true, state: "canceled" });
+    const release = calls.find((c) => c.op === "releaseFor");
+    expect(release).toBeDefined();
+    expect((release as { args: { attemptId: string } }).args.attemptId).toBe(
+      TERMINAL_META.settleAttempt,
+    );
+  });
+
   it("an extend OUTAGE is a poll miss, not a lost mutex — nothing is cancelled and nothing re-acquired (blind pass, CRITICAL 2)", async () => {
     // `{ extended: false, error }` is what a PostgREST hiccup produces. The first draft read it as
     // "lost": it wiped the guest's live tap and told staff the hold "was lost … being settled
