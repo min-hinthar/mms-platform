@@ -19,13 +19,10 @@ import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { ExpoLineMy } from "./TicketText";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
-import { EmptyState, Icon } from "@mms/ui";
+import { Badge, EmptyState, Icon } from "@mms/ui";
+import { useReportLive } from "./LiveConnection";
 import { useStaffLang } from "./StaffLangProvider";
-import { StaffBar } from "./StaffBar";
-import { HelpButton } from "./HelpButton";
-import { RoleBadge } from "./RoleBadge";
 import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
-import type { StaffRole } from "@/lib/staff";
 import { Chrome, OutageText } from "./Chrome";
 
 /**
@@ -37,17 +34,21 @@ import { Chrome, OutageText } from "./Chrome";
  * picked_up, drops off both). W3a: the queue arrives sorted by EFFECTIVE DUE TIME with "Here now"
  * pinned; pickup/scango bags headline the first name + short code. K10: an expired staff cookie or a
  * locked console redirects honestly instead of wearing "Reconnecting…" forever.
+ *
+ * A4·2 — a LANE of the counter's one screen, not a page: the page's bar carries the help door and
+ * the language control (rule 4 holds a page to ONE), so the board mounts no bar and no column of
+ * its own; its h2 is the section's name and the focus target after a bump. The kitchen's own
+ * progress (K30 (B)) badges a bag whose to-go food is done and lifts it above bags still cooking.
  */
 export function ExpoBoard({
   initial,
-  hasPin = false,
-  role,
+  initialOutage = false,
 }: {
   initial: ExpoQueue;
-  /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
-  hasPin?: boolean;
-  /** The caller's role, for the badge beside the title (the page used to render it). */
-  role?: StaffRole;
+  /** A4·2 — the server's own read of the lane failed as an OUTAGE while the floor's succeeded: the
+   *  lane starts frozen (its empty-as-of-the-last-update face, never an all-clear) and the floor
+   *  beside it stays live — the same posture the client takes on a failed poll. */
+  initialOutage?: boolean;
 }) {
   // P2 — the device language, from app/staff/layout.tsx. The outage banner below is the first
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
@@ -57,7 +58,9 @@ export function ExpoBoard({
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
   // `since` and `nowMs` are BOTH the device clock here, so the elapsed driving the paper-flow
   // escalation is measured in one domain — a skewed tablet can't shorten or extend it.
-  const [degraded, setDegraded] = useState<StaffDegraded | null>(null);
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(() =>
+    initialOutage ? nextDegraded(null, "outage", Date.now()) : null,
+  );
   // Clock for the escalation only (no 1s ticker here like the KDS): Date.now() in render is impure
   // under the compiler, so it advances in the failure callbacks and a slow tick while degraded.
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -112,7 +115,11 @@ export function ExpoBoard({
     debounceRef.current = setTimeout(refresh, 400);
   }, [refresh]);
 
-  useFloorRealtime(true, onChange);
+  // A4·2 — the lane's OWN channel name: the floor beside it holds "floor", and a repeated topic on
+  // the singleton client returns the floor's already-subscribed channel, whose `.on()` throws.
+  useFloorRealtime(true, onChange, undefined, undefined, "expo");
+  // …and the lane reports its feed to the screen's help door (a report filed while frozen says so).
+  useReportLive("bags", degraded ? "not_updating" : "live");
 
   useEffect(() => {
     const id = setInterval(refresh, 5000);
@@ -158,126 +165,108 @@ export function ExpoBoard({
   const bagCount = tickets.filter((t) => t.lines.some((l) => l.fulfillment !== "grocery")).length;
 
   return (
-    <>
-      {/* P7·1b — the board OWNS the staff bar (the KDS pattern): its h1 is the section's
-          `aria-labelledby` target and the focus target after a bump, and it carries the language
-          control — so the board mounts NONE of its own (rule 4 now counts, and two on one page were
-          two writes racing for one cookie). */}
-      <StaffBar
-        lang={lang}
-        title="expo.title"
-        titleId="expo-h"
-        titleRef={headingRef}
-        titleTabIndex={-1}
-        after={role ? <RoleBadge role={role} /> : undefined}
-        help={
-          <HelpButton lang={lang} screen="expo" connection={degraded ? "not_updating" : "live"} />
-        }
-        lock={hasPin}
-      />
-      <div className="staff-col" style={{ maxWidth: 1100, margin: "0 auto" }}>
-        <section aria-labelledby="expo-h" onFocusCapture={markFocus}>
-          <div style={headRow}>
-            {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
+    <section aria-labelledby="expo-h" onFocusCapture={markFocus} className="staff-zone">
+      <div style={headRow}>
+        {/* A4·2 — the lane's own heading, in the place the board's bar used to hold it: the
+                section's `aria-labelledby` target (no echo — a chrome-pair echo would name it in
+                both scripts at once) and the focus target after a picked-up bump drops a card. */}
+        <h2 id="expo-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
+          <Chrome lang={lang} k="expo.title" />
+        </h2>
+        {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
               returns a flat STRING and `<OutageText>`'s passthrough arm returns a bare text node, so
               those two branches have nowhere else to carry a mark. Every other branch renders
               <Chrome>, which marks itself. (It used to be conditional because the other branches
               were English literals "until PR B converts them" — this is PR B.) */}
-            <p
-              role="status"
-              lang={!err && degraded ? lang : undefined}
-              className={err || degraded ? "expo-status expo-status-warn" : "expo-status"}
-            >
-              {err !== null ? (
-                // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
-                // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
-                // counter reads when a bump did not save) and passes every other error through verbatim.
-                <OutageText lang={lang} error={err} />
-              ) : degraded ? (
-                frozenBoardCopy(
-                  lang,
-                  snap.serverNow,
-                  nowMs - degraded.since,
-                  "what.bags",
-                  degraded.cause,
-                )
-              ) : count === 0 ? (
-                <Chrome lang={lang} k="expo.none" />
-              ) : (
-                // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
-                // line: the middot is rendered between the surviving segments instead. Same output,
-                // same order, and each segment carries its own `lang` mark.
-                [
-                  bagCount > 0 ? (
-                    <Chrome
-                      key="bags"
-                      lang={lang}
-                      k={bagCount === 1 ? "expo.count.one" : "expo.count.many"}
-                      vars={{ n: bagCount }}
-                    />
-                  ) : null,
-                  verifyCount > 0 ? (
-                    <Chrome
-                      key="verify"
-                      lang={lang}
-                      k="expo.count.verify"
-                      vars={{ n: verifyCount }}
-                    />
-                  ) : null,
-                  handOverCount > 0 ? (
-                    <Chrome
-                      key="hand"
-                      lang={lang}
-                      k="expo.count.handOver"
-                      vars={{ n: handOverCount }}
-                    />
-                  ) : null,
-                ]
-                  .filter(Boolean)
-                  .map((seg, i) => (
-                    <Fragment key={i}>
-                      {i > 0 ? " · " : null}
-                      {seg}
-                    </Fragment>
-                  ))
-              )}
-            </p>
-          </div>
-
-          {count === 0 ? (
-            // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
-            <EmptyState
-              title={
-                <Chrome lang={lang} k={degraded ? "expo.emptyFrozen" : "expo.empty"} echo="stack" />
-              }
-              subtitle={
-                <Chrome
-                  lang={lang}
-                  k={degraded ? "expo.emptyFrozenSub" : "expo.emptySub"}
-                  echo="stack"
-                />
-              }
-              icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
-            />
+        {/* A4·2 — the lane's ONE live region carries only what the person's own tap caused (a bump
+            that did not save). The counts and the freeze are plain text: the floor's region above
+            is the screen's state region, and two regions flipping to the same frozen sentence in
+            the same second was measured by the blind pass, not imagined. Empty until an error. */}
+        <p role="status" className={err ? "expo-status expo-status-warn" : "expo-status"}>
+          {err !== null ? (
+            // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
+            // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
+            // counter reads when a bump did not save) and passes every other error through verbatim.
+            <OutageText lang={lang} error={err} />
+          ) : null}
+        </p>
+        <p
+          lang={degraded ? lang : undefined}
+          className={degraded ? "expo-status expo-status-warn" : "expo-status"}
+        >
+          {degraded ? (
+            frozenBoardCopy(
+              lang,
+              snap.serverNow,
+              nowMs - degraded.since,
+              "what.bags",
+              degraded.cause,
+            )
+          ) : count === 0 ? (
+            <Chrome lang={lang} k="expo.none" />
           ) : (
-            <StaggerList
-              items={tickets}
-              getKey={(t) => t.orderId}
-              ariaLabel={sx(lang, "expo.a11y.bags")}
-              style={grid}
-              renderItem={(t) => (
-                <ExpoCard
-                  ticket={t}
-                  serverNow={snap.serverNow}
-                  onBumped={refresh}
-                  onError={setErr}
+            // The three counts are ELEMENTS now, not strings, so `.join(" · ")` cannot make the
+            // line: the middot is rendered between the surviving segments instead. Same output,
+            // same order, and each segment carries its own `lang` mark.
+            [
+              bagCount > 0 ? (
+                <Chrome
+                  key="bags"
+                  lang={lang}
+                  k={bagCount === 1 ? "expo.count.one" : "expo.count.many"}
+                  vars={{ n: bagCount }}
                 />
-              )}
-            />
+              ) : null,
+              verifyCount > 0 ? (
+                <Chrome key="verify" lang={lang} k="expo.count.verify" vars={{ n: verifyCount }} />
+              ) : null,
+              handOverCount > 0 ? (
+                <Chrome
+                  key="hand"
+                  lang={lang}
+                  k="expo.count.handOver"
+                  vars={{ n: handOverCount }}
+                />
+              ) : null,
+            ]
+              .filter(Boolean)
+              .map((seg, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? " · " : null}
+                  {seg}
+                </Fragment>
+              ))
           )}
-        </section>
+        </p>
       </div>
-    </>
+
+      {count === 0 ? (
+        // W10b — mid-freeze this must not read as an all-clear, nor promise bags we can't hear about.
+        <EmptyState
+          title={
+            <Chrome lang={lang} k={degraded ? "expo.emptyFrozen" : "expo.empty"} echo="stack" />
+          }
+          subtitle={
+            <Chrome
+              lang={lang}
+              k={degraded ? "expo.emptyFrozenSub" : "expo.emptySub"}
+              echo="stack"
+            />
+          }
+          icon={<Icon name="bag" size={30} style={{ color: "var(--ac)" }} />}
+        />
+      ) : (
+        <StaggerList
+          items={tickets}
+          getKey={(t) => t.orderId}
+          ariaLabel={sx(lang, "expo.a11y.bags")}
+          style={grid}
+          renderItem={(t) => (
+            <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
+          )}
+        />
+      )}
+    </section>
   );
 }
 
@@ -385,6 +374,18 @@ function ExpoCard({
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
               outranks bag age; hand this one over first. Rendered only from the real stamp. */}
           {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
+          {/* A4·2 · K30 (B): the kitchen has bumped every to-go food line on this bag — bag it now.
+              Advisory (derived from the cart's lines, `unknown` draws nothing), and only on a FOOD
+              bag still at the first stage: a bagged one is past it, a scan-and-go basket was never
+              cooked. */}
+          {!grocery && firstStage && ticket.kitchen === "done" && (
+            // A bordered chip, not the bare uppercase tag "Ready" wears: two facts a bagger acts on
+            // differently (the wok is done → bag it · the bag is done → hand it over) do not share
+            // one visual token (blind pass). Decorative — the card's name says the stage.
+            <Badge tone="ok" bordered decorative>
+              <Chrome lang={lang} k="expo.kitchenDone" />
+            </Badge>
+          )}
           {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly. */}
           {ticket.status === "ready" && (
             <span style={readyTag}>{grocery ? "Verified" : "Ready"}</span>
@@ -519,8 +520,7 @@ const headRow: CSSProperties = {
   alignItems: "baseline",
   justifyContent: "space-between",
   gap: "var(--s4)",
-  marginBottom: "var(--s4)",
-  // P7·1b — the live region alone now (the heading and the language control are the bar's).
+  // A4·2 — the lane's heading and its live region, on one baseline; the bar is the page's.
   flexWrap: "wrap",
 };
 const grid: CSSProperties = {

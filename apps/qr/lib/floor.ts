@@ -12,6 +12,7 @@ import { summarizeRefund } from "./refund-view";
 import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
+import { readRegisterQueue } from "./register-queue";
 import type {
   ClearTableResult,
   FloorPoll,
@@ -81,17 +82,25 @@ export async function getFloorView(): Promise<FloorPoll> {
   const db = serviceClient();
   const nowIso = new Date().toISOString();
 
-  const { data: sessions, error: sessionsError } = await db
-    .from("table_sessions")
-    .select("id,qr_code,table_number,mode,host_seat,created_at")
-    .eq("status", "active")
-    .gt("expires_at", nowIso)
-    // W6a: counter orders (`reg-` sessions, table-less by design) live on /staff/register's queue —
-    // on the floor they'd pile up labelled with raw codes and eat the session cap.
-    .not("qr_code", "like", "reg-%")
-    .order("created_at", { ascending: true })
-    .limit(ACTIVE_SESSION_CAP);
-  if (sessionsError) return { ok: false, reason: "outage" };
+  // A4·2 — the counter orders ride the SAME snapshot (`readRegisterQueue`, the read the register
+  // page owned until it became a redirect): one poll, one outage posture. The floor's own read
+  // keeps excluding exactly those sessions below, so the one list cannot key a session twice.
+  const [{ data: sessions, error: sessionsError }, counter] = await Promise.all([
+    db
+      .from("table_sessions")
+      .select("id,qr_code,table_number,mode,host_seat,created_at")
+      .eq("status", "active")
+      .gt("expires_at", nowIso)
+      // W6a: counter orders (`reg-` sessions, table-less by design) are `snapshot.counter` —
+      // on the floor they'd pile up labelled with raw codes and eat the session cap.
+      .not("qr_code", "like", "reg-%")
+      .order("created_at", { ascending: true })
+      .limit(ACTIVE_SESSION_CAP),
+    readRegisterQueue(db),
+  ]);
+  // A failed counter read misstates the counter the way a failed party read misstates a table —
+  // an outage, never an empty queue beside a live room.
+  if (sessionsError || !counter.ok) return { ok: false, reason: "outage" };
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
   // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. TS-side
@@ -101,7 +110,16 @@ export async function getFloorView(): Promise<FloorPoll> {
     (s) => !(s.qr_code.startsWith("kiosk-") && s.mode === "pickup"),
   );
   const sessionIds = floorSessions.map((s) => s.id);
-  if (sessionIds.length === 0) return { ok: true, snapshot: { tables: [], serverNow: nowIso } };
+  if (sessionIds.length === 0)
+    return {
+      ok: true,
+      snapshot: {
+        tables: [],
+        counter: counter.rows,
+        counterTruncated: counter.truncated,
+        serverNow: nowIso,
+      },
+    };
 
   // Members (party size + host name), open carts, paid orders, and the tab policy (the silent ceiling) for
   // exactly these sessions. One singleton config read on the floor refresh (cached well enough; tiny row).
@@ -249,7 +267,15 @@ export async function getFloorView(): Promise<FloorPoll> {
     if (b.tableNumber != null) return 1;
     return a.label.localeCompare(b.label, undefined, { numeric: true });
   });
-  return { ok: true, snapshot: { tables, serverNow: nowIso } };
+  return {
+    ok: true,
+    snapshot: {
+      tables,
+      counter: counter.rows,
+      counterTruncated: counter.truncated,
+      serverNow: nowIso,
+    },
+  };
 }
 
 /**

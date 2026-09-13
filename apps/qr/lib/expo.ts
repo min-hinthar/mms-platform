@@ -8,6 +8,7 @@ import { getStaffAuth, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type { ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
+import { compareExpoTickets, kitchenStateOf, type KitchenLineRow } from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
 
@@ -144,6 +145,29 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   if (cartsError) return { ok: false, reason: "outage" };
   const phoneByCart = new Map((carts ?? []).map((c) => [c.id, c.customer_phone]));
 
+  // A4·2 · K30 (B) — the kitchen's own progress, off the cart's lines (`kitchenStateOf`). ADVISORY:
+  // a failed read logs and leaves the map empty, so every bag reads `unknown` — the counter keeps
+  // its queue and its due-time order. A badge cannot misidentify a bag; refusing the whole counter
+  // over one is the over-blocking direction.
+  const { data: cartLines, error: cartLinesError } = cartIds.length
+    ? await db.from("qr_cart_items").select("cart_id,state,fulfillment").in("cart_id", cartIds)
+    : { data: [] as { cart_id: string; state: string; fulfillment: string }[], error: null };
+  const linesByCart = new Map<string, KitchenLineRow[]>();
+  if (cartLinesError) {
+    console.error(
+      "[expo] kitchen-state read failed — bags will not say whether the kitchen is done",
+      {
+        message: cartLinesError.message,
+      },
+    );
+  } else {
+    for (const l of cartLines ?? []) {
+      const arr = linesByCart.get(l.cart_id);
+      if (arr) arr.push(l);
+      else linesByCart.set(l.cart_id, [l]);
+    }
+  }
+
   const tickets: ExpoTicket[] = [];
   for (const o of orders) {
     const lines = linesByOrder.get(o.id);
@@ -160,6 +184,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
       customerPhone: (o.cart_id ? phoneByCart.get(o.cart_id) : null) ?? null,
       shortCode: o.id.slice(-6).toUpperCase(),
       status: o.togo_status === "ready" ? "ready" : "preparing",
+      kitchen: kitchenStateOf(o.cart_id ? linesByCart.get(o.cart_id) : undefined),
       pickupSlot: o.pickup_slot ?? null,
       arrivedAt: o.arrived_at ?? null,
       lines,
@@ -167,16 +192,10 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     });
   }
 
-  // W3a: effective due time. "Here now" pins (a waiting HUMAN outranks bag age); then due = the
-  // pickup slot when one exists, else payment time. Stable tiebreak on the short code.
-  tickets.sort((a, b) => {
-    const arrived = Number(!a.arrivedAt) - Number(!b.arrivedAt);
-    if (arrived !== 0) return arrived;
-    const dueA = new Date(a.pickupSlot ?? a.createdAt).getTime();
-    const dueB = new Date(b.pickupSlot ?? b.createdAt).getTime();
-    if (dueA !== dueB) return dueA - dueB;
-    return a.orderId.localeCompare(b.orderId);
-  });
+  // W3a + K30 (B): "Here now" pins (a waiting HUMAN outranks everything), then a bag the kitchen has
+  // finished, then the effective due time (the pickup slot when one exists, else payment time), then
+  // the short code — the ONE comparator, in `lib/expo-rules.ts` where a value can falsify it.
+  tickets.sort(compareExpoTickets);
   return { ok: true, queue: { tickets, serverNow: nowIso } };
 }
 
@@ -223,6 +242,6 @@ export async function setTogoStatus(raw: unknown): Promise<ExpoActionResult> {
       }
     });
   }
-  revalidatePath("/staff/expo");
+  revalidatePath("/staff"); // A4·2 — the takeaway lane lives on the counter's screen
   return { ok: true };
 }

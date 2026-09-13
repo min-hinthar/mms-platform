@@ -7,6 +7,7 @@ import { Chrome, OutageText } from "./Chrome";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
+import { startBtn, startBtnActive } from "./register-stage";
 
 /**
  * P2 — what the zone has to say, and who authored it.
@@ -29,7 +30,13 @@ type Notice = { kind: "local"; k: StaffKey } | { kind: "server"; error: string }
  * One busy state for the whole zone: a counter mints one order at a time, and a double-tap minting two
  * sessions is worse than a beat of waiting.
  */
-export function RegisterStart() {
+export function RegisterStart({
+  labelledBy,
+}: {
+  /** A4·2 — on the counter's one screen the zone's visible heading names the region; without it
+   *  (nothing renders it that way today) the region names itself with the same words, aria-only. */
+  labelledBy?: string;
+}) {
   const lang = useStaffLang();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -55,7 +62,11 @@ export function RegisterStart() {
   }
 
   return (
-    <section aria-label={sx(lang, "reg.a11y.start")} style={zone}>
+    <section
+      aria-labelledby={labelledBy}
+      aria-label={labelledBy ? undefined : sx(lang, "reg.a11y.start")}
+      style={zone}
+    >
       <div style={row}>
         <button
           type="button"
@@ -175,22 +186,7 @@ const EXAMPLE_TABLE = 4;
 
 const zone: CSSProperties = { display: "grid", gap: "var(--s3)" };
 const row: CSSProperties = { display: "flex", gap: "var(--s3)", flexWrap: "wrap" };
-const startBtn: CSSProperties = {
-  minHeight: 48,
-  padding: "0 var(--s4)",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-body)",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-const startBtnActive: CSSProperties = {
-  ...startBtn,
-  borderColor: "var(--ac-strong)",
-  color: "var(--ac-strong)",
-};
+// `startBtn` / `startBtnActive` live in `register-stage.ts` — the help card draws them too.
 const subForm: CSSProperties = { display: "grid", gap: "var(--s2)" };
 const label: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--t2)" };
 const input: CSSProperties = {

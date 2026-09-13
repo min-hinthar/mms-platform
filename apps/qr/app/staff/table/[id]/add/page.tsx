@@ -81,7 +81,8 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name);
 
-  const backHref = counterOrder ? "/staff/register" : `/staff/table/${id}`;
+  // A4·2 — a counter order's way back up is the counter's one screen (the register is a zone of it).
+  const backHref = counterOrder ? "/staff?floor=1" : `/staff/table/${id}`;
   const lang = await readStaffLang();
 
   return (
@@ -96,7 +97,7 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
         title={counterOrder ? "browse.title.counter" : "browse.title.add"}
         leading={
           counterOrder
-            ? { kind: "back", href: backHref, k: "browse.back.register" }
+            ? { kind: "back", href: backHref, k: "floor.back" }
             : { kind: "back", href: backHref, k: "browse.back.table", vars: { id: detail.label } }
         }
         trailing={

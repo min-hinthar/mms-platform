@@ -1174,7 +1174,65 @@ for (const file of ARIA_ALL) failures.push(...nameableFindings(file));
 // the JSX a module returns, excluding the enumerated literal-dead shapes below. It is liveness
 // against a PARKED DEAD COPY, not a reachability proof — a page whose only mount sits behind a
 // runtime-false condition passes here, and the preview a11y tick is what covers that shape.
-const staffPages = walkFiles(join(APP, "staff")).filter((f) => f.endsWith("/page.tsx"));
+/**
+ * A4·2 — a page that only REDIRECTS has no reader. `/staff/register` and `/staff/expo` stay as
+ * routes so a tablet's bookmark lands on the counter's one screen instead of a 404, and their
+ * whole body is `redirect("/staff?floor=1")`; rule 4 asks whether the person can change the
+ * language on the page they are LOOKING AT, and nobody looks at one of these.
+ *
+ * PARSED to its exact SHAPE, never matched by name and never a presence check: the module's
+ * default export is a function whose body is EXACTLY ONE statement, a call to `redirect(…)`, and
+ * the module carries no JSX node anywhere. That is the whole of what a redirect page is. A page
+ * that renders (JSX, `createElement`, a returned string) is a reader's page; a page that redirects
+ * on a CONDITION (every real staff page does, on the gate race) or does anything else first is a
+ * reader's page — all of them stay held, and the self-tests below pin each near-miss.
+ */
+function isRedirectOnlyPage(file, srcOverride) {
+  let sf;
+  try {
+    sf = parse(file, srcOverride);
+  } catch {
+    return false;
+  }
+  const bareRedirect = (fn) => {
+    const body = fn.body;
+    if (!body || !ts.isBlock(body) || body.statements.length !== 1) return false;
+    const [only] = body.statements;
+    return (
+      ts.isExpressionStatement(only) &&
+      ts.isCallExpression(only.expression) &&
+      ts.isIdentifier(only.expression.expression) &&
+      only.expression.expression.text === "redirect"
+    );
+  };
+  let jsx = false;
+  let shape = false;
+  function visit(node) {
+    if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node))
+      jsx = true;
+    const mods = ts.canHaveModifiers(node) ? (ts.getModifiers(node) ?? []) : [];
+    const isDefaultExport =
+      mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword) &&
+      mods.some((m) => m.kind === ts.SyntaxKind.DefaultKeyword);
+    if (isDefaultExport && ts.isFunctionDeclaration(node) && bareRedirect(node)) shape = true;
+    if (
+      ts.isExportAssignment(node) &&
+      !node.isExportEquals &&
+      (ts.isArrowFunction(node.expression) || ts.isFunctionExpression(node.expression)) &&
+      bareRedirect(node.expression)
+    )
+      shape = true;
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return !jsx && shape;
+}
+
+const allStaffPages = walkFiles(join(APP, "staff")).filter((f) => f.endsWith("/page.tsx"));
+const redirectPages = allStaffPages.filter((f) => isRedirectOnlyPage(f));
+const staffPages = allStaffPages.filter((f) => !redirectPages.includes(f));
 if (staffPages.length < 10)
   failures.push(
     `rule 4 DID NOT RUN: found only ${staffPages.length} staff pages — the discovery is broken, not the codebase.`,
@@ -1632,6 +1690,54 @@ for (const c of SELF_TEST_CASES) {
     );
 }
 
+// A4·2 — the redirect-only exemption is a PARSED predicate, and both directions are pinned: the
+// exact shape the two folded routes ship, and the near-miss (a real page that also redirects on
+// the gate race, which every staff page does) that must stay held.
+{
+  const F = join(QR, "app/staff/__selftest__/page.tsx");
+  const bare = isRedirectOnlyPage(
+    F,
+    'import { redirect } from "next/navigation";\nexport default function P(): never {\n  redirect("/staff?floor=1");\n}\n',
+  );
+  const withJsx = isRedirectOnlyPage(
+    F,
+    'import { redirect } from "next/navigation";\nexport default async function P() {\n  const ok = await gate();\n  if (!ok) redirect("/staff/login");\n  return <main />;\n}\n',
+  );
+  const noDefault = isRedirectOnlyPage(
+    F,
+    'import { redirect } from "next/navigation";\nexport function P() {\n  redirect("/staff");\n}\n',
+  );
+  const noRedirect = isRedirectOnlyPage(F, "export default function P() {\n  return null;\n}\n");
+  const createElement = isRedirectOnlyPage(
+    F,
+    'import { createElement } from "react";\nexport default function P() {\n  return createElement("main");\n}\n',
+  );
+  const conditional = isRedirectOnlyPage(
+    F,
+    'import { redirect } from "next/navigation";\nexport default function P({ ok }) {\n  if (!ok) redirect("/staff/login");\n}\n',
+  );
+  const andThen = isRedirectOnlyPage(
+    F,
+    'import { redirect } from "next/navigation";\nexport default function P() {\n  audit();\n  redirect("/staff");\n}\n',
+  );
+  if (createElement || conditional || andThen)
+    failures.push(
+      "SELF-TEST: rule 4 exempts a page that is not a bare redirect (a createElement render, a conditional redirect, or work before the redirect) — the exemption is wider than the shape it claims.",
+    );
+  if (!bare)
+    failures.push(
+      "SELF-TEST: rule 4 no longer recognises a redirect-only page — the two folded routes would be reported as unreachable by a person who never sees them.",
+    );
+  if (withJsx)
+    failures.push(
+      "SELF-TEST: rule 4 exempts a page that RENDERS because it also redirects — every staff page redirects on the gate race, so this exemption would swallow the rule.",
+    );
+  if (noDefault || noRedirect)
+    failures.push(
+      "SELF-TEST: rule 4 exempts a module that is not a redirect page (no default export, or no redirect call).",
+    );
+}
+
 // Self-check: a rule that finds nothing to hold is not passing, it is not running.
 if (marked < 10)
   failures.push(
@@ -1645,5 +1751,5 @@ if (failures.length) {
   process.exit(1);
 }
 console.error(
-  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert · ${marked} marked dictionary renders)\x1b[0m`,
+  `staff locale isolation … \x1b[32mclean\x1b[0m\x1b[2m (${routeRoots.length} non-staff roots walked · ${COOKIES.length} cookie names each in 1 file · ${ARIA_FILES.length} staff files aria-clean, ${ARIA_TODO.size} still to convert · ${staffPages.length - SWITCH_TODO.size}/${staffPages.length} staff pages reach the language control, ${SWITCH_TODO.size} still to convert, ${redirectPages.length} redirect-only pages exempt · ${marked} marked dictionary renders)\x1b[0m`,
 );

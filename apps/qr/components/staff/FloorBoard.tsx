@@ -1,16 +1,19 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { getFloorView } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import type { FloorSnapshot } from "@/lib/floor-types";
+import { floorRowKey, mergeFloorRows } from "@/lib/floor-rows";
 import { EmptyState } from "@mms/ui";
 import { TableCard } from "./TableCard";
+import { CounterOrderCard } from "./CounterOrderCard";
 import { StaggerList } from "./StaggerList";
 import { isRealTransition, type PulseMeta } from "@/lib/floor-pulse";
 import { useStaffLang } from "./StaffLangProvider";
 import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
+import { useReportLive } from "./LiveConnection";
 
 const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
   status: t.status,
@@ -18,16 +21,18 @@ const metaOf = (t: { status: string; lastActivityAt: string }): PulseMeta => ({
 });
 
 /**
- * The live floor (S1.2). Server-rendered initial snapshot, then kept fresh by Postgres-Changes
- * (useFloorRealtime → re-fetch the server-authoritative getFloorView; never client math) with a 5s poll
- * BACKSTOP so a dropped socket can't leave a server staring at a stale room. Re-fetches are debounced so
- * a burst of changes (a party of 6 joining) collapses to one fetch. One polite live region announces the
- * table count so a screen-reader user hears the room fill/empty without it chattering per card.
+ * The live floor (S1.2) — and, since A4·2, the counter orders beside it in ONE list. Server-rendered
+ * initial snapshot, then kept fresh by Postgres-Changes (useFloorRealtime → re-fetch the
+ * server-authoritative getFloorView; never client math) with a 5s poll BACKSTOP so a dropped socket
+ * can't leave a server staring at a stale room. Re-fetches are debounced so a burst of changes (a
+ * party of 6 joining) collapses to one fetch. One polite live region announces the table and counter
+ * counts so a screen-reader user hears the room fill/empty without it chattering per card.
+ *
+ * The counter orders ride the SAME snapshot (`snapshot.counter`, read by `readRegisterQueue` inside
+ * `getFloorView`), so they refresh on the same tick and freeze on the same outage; `mergeFloorRows`
+ * decides where the two lists meet and `floorRowKey` keys every row by its session.
  */
 export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
-  // P2 — the device language, from app/staff/layout.tsx. The outage banner below and the grid's
-  // accessible name are what speak it today; the rest of this board's copy follows in its own
-  // commit (OPEN-ITEMS P2c).
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
   // W10b — outage parity with the KDS/expo boards (the floor previously had NO degraded state: a
@@ -43,7 +48,7 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   // R9 live-notice: remember each table's last {status, activity} so a refresh can flag the ones that made a
   // REAL transition (seated→ordering→paying→paid, or a void/edit revert — but NOT a passive TTL self-revert;
   // see isRealTransition). Seeded from the initial snapshot so the first realtime refresh diffs against real
-  // state (no false pulse on already-seated tables).
+  // state (no false pulse on already-seated tables). Tables only — a counter order has no status to pulse.
   const prevMeta = useRef<Map<string, PulseMeta>>(
     new Map(initial.tables.map((t) => [t.sessionId, metaOf(t)])),
   );
@@ -143,6 +148,8 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
   }, [refresh]);
 
   useFloorRealtime(true, onChange);
+  // A4·2 — the floor reports its feed to the screen's help door (`LiveConnection`).
+  useReportLive("floor", degraded ? "not_updating" : "live");
 
   // 5s poll backstop (independent of the socket); cleared on unmount.
   useEffect(() => {
@@ -157,22 +164,25 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
     };
   }, [refresh]);
 
-  const tables = snap.tables;
-  const count = tables.length;
+  // A4·2 — ONE list, keyed by session: the floor's tables and the open counter orders, in the order
+  // `mergeFloorRows` states once (a table asking to pay, the counter orders, the rest of the room).
+  const rows = mergeFloorRows(snap.tables, snap.counter);
+  const count = rows.length;
+  const tableCount = snap.tables.length;
+  const counterCount = snap.counter.length;
 
   return (
-    <section aria-labelledby="floor-h">
+    <section aria-labelledby="floor-h" className="staff-zone">
       <div style={headRow}>
-        <h2 id="floor-h" style={{ fontSize: "var(--fs-body)", margin: 0 }}>
+        <h2 id="floor-h" className="staff-zone-head">
           {/* `echo={false}`: this heading is the `aria-labelledby` target for the whole section, and
-              a `chrome-pair` echo would name it "စားပွဲများTables". */}
+              a `chrome-pair` echo would name it "စားပွဲများ…Tables…". */}
           <Chrome lang={lang} k="floor.tables.title" />
         </h2>
         {/* P2 — the `lang` mark is STILL conditional, and now for one reason only: `frozenBoardCopy`
               returns a flat STRING, so the freeze branch has nowhere else to carry its mark. Every
               other branch renders <Chrome>, which marks itself, and an unconditional `lang={lang}`
-              on the <p> would then double-mark them. (It used to be conditional because the other
-              branches were English literals "until PR B converts them" — this is PR B.) */}
+              on the <p> would then double-mark them. */}
         <p
           role="status"
           lang={degraded ? lang : undefined}
@@ -183,21 +193,53 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           }}
         >
           {degraded ? (
+            // A4·2 — this is the counter screen's ONE state region: the lane beside it freezes on
+            // the same outage and says so in plain text, never in a second live region (two
+            // near-identical announcements in one second, the blind pass measured). So the freeze
+            // names the floor — the screen — not the room.
             frozenBoardCopy(
               lang,
               snap.serverNow,
               nowMs - degraded.since,
-              "what.room",
+              "what.floor",
               degraded.cause,
             )
           ) : count === 0 ? (
-            <Chrome lang={lang} k="floor.tables.none" />
+            <Chrome lang={lang} k="floor.rows.none" />
           ) : (
-            <Chrome
-              lang={lang}
-              k={count === 1 ? "floor.tables.count.one" : "floor.tables.count.many"}
-              vars={{ n: count }}
-            />
+            // Two counts as ELEMENTS (the expo's pattern): the middot is rendered between the
+            // surviving segments, and each segment carries its own `lang` mark.
+            [
+              tableCount > 0 ? (
+                <Chrome
+                  key="tables"
+                  lang={lang}
+                  k={tableCount === 1 ? "floor.tables.count.one" : "floor.tables.count.many"}
+                  vars={{ n: tableCount }}
+                />
+              ) : null,
+              counterCount > 0 ? (
+                <Chrome
+                  key="counter"
+                  lang={lang}
+                  k={counterCount === 1 ? "floor.counter.count.one" : "floor.counter.count.many"}
+                  vars={{ n: counterCount }}
+                />
+              ) : null,
+              // A FULL counter read says so HERE, in the live region and above the cards — the
+              // oldest-first cap hides exactly the newest order, and a caveat beneath forty cards
+              // is one a screen-reader user never reaches.
+              snap.counterTruncated ? (
+                <Chrome key="truncated" lang={lang} k="floor.counter.truncated" />
+              ) : null,
+            ]
+              .filter(Boolean)
+              .map((seg, i) => (
+                <Fragment key={i}>
+                  {i > 0 ? " · " : null}
+                  {seg}
+                </Fragment>
+              ))
           )}
         </p>
       </div>
@@ -221,23 +263,28 @@ export function FloorBoard({ initial }: { initial: FloorSnapshot }) {
           }
         />
       ) : (
-        // Card-enter on scan-in / exit on clear (keyed by sessionId → only added/removed tables animate) +
-        // a status-change pulse per card. The board's single live region (above) stays the only one.
+        // Card-enter on scan-in / exit on clear (keyed by sessionId → only added/removed rows animate) +
+        // a status-change pulse per table card. The board's single live region (above) stays the only one.
         <StaggerList
-          items={tables}
-          getKey={(t) => t.sessionId}
+          items={rows}
+          getKey={floorRowKey}
           // The grid is a `role="list"` with no visible label of its own, so the name is aria-only
           // (`sx`) rather than an al() pair — there is no visible text for WCAG 2.5.3 to contain.
-          ariaLabel={sx(lang, "floor.a11y.tables")}
+          // It names what the list HOLDS (tables and counter orders), the same fact as the heading.
+          ariaLabel={sx(lang, "floor.a11y.rows")}
           style={grid}
-          renderItem={(t) => (
-            <TableCard
-              table={t}
-              serverNow={snap.serverNow}
-              pulse={pulses.get(t.sessionId)}
-              lang={lang}
-            />
-          )}
+          renderItem={(r) =>
+            r.kind === "table" ? (
+              <TableCard
+                table={r.table}
+                serverNow={snap.serverNow}
+                pulse={pulses.get(r.table.sessionId)}
+                lang={lang}
+              />
+            ) : (
+              <CounterOrderCard order={r.order} serverNow={snap.serverNow} lang={lang} />
+            )
+          }
         />
       )}
     </section>
@@ -249,7 +296,7 @@ const headRow: CSSProperties = {
   alignItems: "baseline",
   justifyContent: "space-between",
   gap: "var(--s4)",
-  marginBottom: "var(--s4)",
+  flexWrap: "wrap",
 };
 const grid: CSSProperties = {
   listStyle: "none",

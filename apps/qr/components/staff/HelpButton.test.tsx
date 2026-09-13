@@ -2,7 +2,7 @@
 import { StrictMode } from "react";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { HELP_CARD_COUNT, helpSeenKey } from "@/lib/help";
+import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -38,8 +38,7 @@ beforeEach(() => {
 });
 const later = <T,>(value: T) => new Promise<T>((r) => setTimeout(() => r(value), 0));
 
-const seen = (screen: "kitchen" | "counter" | "expo") =>
-  localStorage.setItem(helpSeenKey(screen), "1");
+const seen = (screen: HelpDoorScreen) => localStorage.setItem(helpSeenKey(screen), "1");
 /** The board's undo window as the kitchen door requires it (typed from the key's slot). */
 const kitchenVars = { 2: { n: 6 } };
 /** jsdom has no `matchMedia`; stub the ONE query the sheet asks (the board's wide envelope). */
@@ -64,8 +63,8 @@ const circle = () => screen.getByRole("button", { name: "Help" });
 
 describe("HelpButton", () => {
   it("is a named gold circle that opens the Help sheet onto its rows", async () => {
-    seen("expo");
-    render(<HelpButton lang="en" screen="expo" />);
+    seen("counter");
+    render(<HelpButton lang="en" screen="counter" />);
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(circle().className).toContain("staff-circ-gold");
     expect(circle().getAttribute("aria-haspopup")).toBe("dialog");
@@ -108,11 +107,11 @@ describe("HelpButton", () => {
     // StrictMode (`reactStrictMode: true`), so that is where the promise would silently break.
     render(
       <StrictMode>
-        <HelpButton lang="en" screen="expo" />
+        <HelpButton lang="en" screen="counter" />
       </StrictMode>,
     );
     await screen.findByRole("dialog");
-    expect(localStorage.getItem(helpSeenKey("expo"))).toBe("1");
+    expect(localStorage.getItem(helpSeenKey("counter"))).toBe("1");
   });
 
   it("pages the cards one at a time, moves focus to each, and Got it closes on the last", async () => {
@@ -121,15 +120,17 @@ describe("HelpButton", () => {
     fireEvent.click(circle());
     fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
     const lede = () => document.getElementById("help-lede")!;
-    await waitFor(() => expect(lede().textContent).toMatch(/Tap Register/));
+    await waitFor(() => expect(lede().textContent).toMatch(/Tap Walk-up/));
     expect(document.activeElement).toBe(lede());
     // Focus lands on the sentence; the step count is its DESCRIPTION, so "Step 1 of 4" is read too.
     expect(lede().getAttribute("aria-describedby")).toBe("help-step");
-    expect(document.getElementById("help-step")!.textContent).toBe(`Step 1 of ${HELP_CARD_COUNT}`);
-    for (let n = 2; n <= HELP_CARD_COUNT; n++) {
+    expect(document.getElementById("help-step")!.textContent).toBe(
+      `Step 1 of ${helpCardCount("counter")}`,
+    );
+    for (let n = 2; n <= helpCardCount("counter"); n++) {
       fireEvent.click(screen.getByRole("button", { name: "Next" }));
       await waitFor(() =>
-        expect(screen.getByText(`Step ${n} of ${HELP_CARD_COUNT}`)).not.toBeNull(),
+        expect(screen.getByText(`Step ${n} of ${helpCardCount("counter")}`)).not.toBeNull(),
       );
       expect(document.activeElement).toBe(lede());
     }
@@ -142,8 +143,8 @@ describe("HelpButton", () => {
   });
 
   it("Back on the first card returns to the rows; Back later steps back", async () => {
-    seen("expo");
-    render(<HelpButton lang="en" screen="expo" />);
+    seen("counter");
+    render(<HelpButton lang="en" screen="counter" />);
     fireEvent.click(circle());
     fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
     await screen.findByText(/Step 1 of/);
@@ -247,8 +248,8 @@ describe("HelpButton", () => {
 
   describe("P7·4 — Something’s wrong", () => {
     const openReport = async (props: Partial<Parameters<typeof HelpButton>[0]> = {}) => {
-      seen("expo");
-      render(<HelpButton lang="en" screen="expo" {...(props as object)} />);
+      seen("counter");
+      render(<HelpButton lang="en" screen="counter" {...(props as object)} />);
       fireEvent.click(circle());
       fireEvent.click(await screen.findByRole("button", { name: /Something’s wrong/ }));
       return screen.findByRole("textbox", { name: /What happened/ });
@@ -282,7 +283,7 @@ describe("HelpButton", () => {
       expect((field as HTMLTextAreaElement).maxLength).toBe(2000);
       expect(screen.getByText("Sent with it")).not.toBeNull();
       const facts = screen.getByRole("list", { name: "Sent with the report" });
-      expect(facts.textContent).toMatch(/Screen: Takeaway bags/);
+      expect(facts.textContent).toMatch(/Screen: Counter & tables/);
       expect(facts.textContent).toMatch(/Connection: not updating/);
       expect(facts.textContent).toMatch(/Version: dev/);
       // Exactly one live region in this view, and it is empty until something happens.
@@ -321,7 +322,7 @@ describe("HelpButton", () => {
       await waitFor(() => expect(submitStaffReport).toHaveBeenCalledTimes(1));
       const draft = submitStaffReport.mock.calls[0]![0] as Record<string, unknown>;
       expect(draft).toMatchObject({
-        screen: "expo",
+        screen: "counter",
         message: "Bump did nothing on T4",
         lang: "en",
         connection: "live",
@@ -338,8 +339,8 @@ describe("HelpButton", () => {
 
     it("before the table exists the door says it is not switched on — no form, no 'try again'", async () => {
       listMyStaffReports.mockImplementation(() => later({ ok: false, reason: "off" }));
-      seen("expo");
-      render(<HelpButton lang="en" screen="expo" />);
+      seen("counter");
+      render(<HelpButton lang="en" screen="counter" />);
       fireEvent.click(circle());
       fireEvent.click(await screen.findByRole("button", { name: /Something’s wrong/ }));
       await screen.findByText(/Reports aren’t switched on for this app yet/);

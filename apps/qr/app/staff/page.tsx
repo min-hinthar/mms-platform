@@ -7,9 +7,15 @@ import { Icon } from "@mms/ui";
 import { requireStaffPage, roleAtLeast } from "@/lib/staff";
 import { staffHasPin } from "@/lib/staff-pin";
 import { getFloorView } from "@/lib/floor";
+import { getExpoQueue } from "@/lib/expo";
+import { getDayCashSummary } from "@/lib/register";
 import { countPendingApprovals } from "@/lib/approvals";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
+import { ExpoBoard } from "@/components/staff/ExpoBoard";
+import { RegisterStart } from "@/components/staff/RegisterStart";
+import { DayCash } from "@/components/staff/DayCash";
+import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid, type MoreTile } from "@/components/staff/StaffDoors";
@@ -18,7 +24,7 @@ import { HelpButton } from "@/components/staff/HelpButton";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { readStaffDoor } from "@/lib/staff-door-server";
 import { isColdStart, resolveStaffHome } from "@/lib/staff-door";
-import { sx } from "@/lib/staff-labels";
+import { localizeCount } from "@/lib/i18n/fill";
 
 export const dynamic = "force-dynamic";
 
@@ -47,20 +53,26 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
 }
 
 /**
- * Staff console home (S1.1a shell · S1.2 floor · P7 doors). Gated by requireStaffPage (verified
- * staff row → console lock).
+ * Staff console home (S1.1a shell · S1.2 floor · P7 doors · A4·2 the counter's ONE screen). Gated
+ * by requireStaffPage (verified staff row → console lock).
  *
  * P7 — `/staff` is THREE things, decided by `resolveStaffHome` from this device's remembered door:
  *
  *   doors  — no door yet, or `?doors=1` (the Screens chip), or an in-app arrival on a kitchen
  *            device: two big tiles, Kitchen and Counter, and the manager pages beneath as More.
- *   floor  — a counter device: the register-first row, then the live floor, then More.
+ *   floor  — a counter device: the counter's one screen (A4·2), in the order the counter person
+ *            works it — START an order (walk-up · phone · a table), the TABLES and the counter
+ *            orders being built in one list, the TO-GO BAGS lane, TODAY'S TAKINGS (manager+) —
+ *            then More. `/staff/register` and `/staff/expo` redirect here: the register is a zone
+ *            and the bagger is the same person at this counter.
  *   redirect → /staff/kitchen — a kitchen device on a COLD start (the app icon, a bookmark): Mom's
  *            tablet opens on her board with nothing to tap. Never on an in-app tap, so a tablet can
  *            always reach the doors (`isColdStart` reads the referer).
  *
  * The staff bar (P7·1b) is the header in every branch — the switch and Lock ride in it, Sign out
  * lives on the profile page — and `check-staff-lang.mjs` rule 4 reaches the switch through the bar.
+ * The two live boards keep their own subscriptions and 5s backstops for this slice (two pollers on
+ * one screen is measured, not assumed, before a unified poll is built — `docs/A4_PLAN.md`).
  */
 export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const caller = await requireStaffPage();
@@ -78,13 +90,12 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // The More grid — every page that is not a door, role-gated exactly as the old pill row was.
   // Two of these were reachable from nowhere in-app before P7: the TV board (bookmark only) and the
   // word-check sheet (only from the manager-only pilot sheet, so Mom could never print her own).
-  // The kitchen board is here as a PLAIN link too (blind pass CRITICAL 3): on the floor a manager's
-  // row slot holds Approvals, and the only other way to the board was the Kitchen DOOR — which
-  // remembers itself, so a manager peeking at the board re-doored the counter tablet as a kitchen
-  // one. A tile is a look; a door is a decision. Each view drops the entry its own surface carries.
+  // The kitchen board is here as a PLAIN link for everyone (blind pass CRITICAL 3): the only other
+  // way to the board was the Kitchen DOOR — which remembers itself, so a manager peeking at the
+  // board re-doored the counter tablet as a kitchen one. A tile is a look; a door is a decision.
+  // A4·2: no Register and no Expo tile — both are zones of the floor view now.
   const more: MoreTile[] = [
     { href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" },
-    { href: "/staff/expo", k: "floor.nav.expo", icon: "bag" },
     { href: "/board", k: "floor.nav.board", icon: "tv" },
     ...(isManager
       ? ([
@@ -116,6 +127,29 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // count rides a dedicated tile label built here. Kept as one key so the zero case has no "(0)".
   const approvalsVars = pendingApprovals > 0 ? { n: pendingApprovals } : undefined;
 
+  // A4·2 — the approvals count rides the counter's BAR (a manager's, in the trailing slot before
+  // Help): the row of tiles it used to sit in is gone, and a manager on this screen should see a
+  // pending void or refund without scrolling to More. The circle is icon-only to the eye, the count
+  // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the same dictionary key
+  // the More tile uses, so the two never say different things.
+  const approvalsChip = isManager ? (
+    <Link href="/staff/approvals" className="staff-circ staff-press staff-circ-count-host">
+      <Icon name="check" size={20} />
+      {pendingApprovals > 0 && (
+        <span className="staff-circ-count" aria-hidden>
+          {localizeCount(pendingApprovals, lang)}
+        </span>
+      )}
+      <span className="sr-only">
+        <Chrome
+          lang={lang}
+          k={pendingApprovals > 0 ? "floor.nav.approvalsCount" : "floor.nav.approvals"}
+          vars={approvalsVars}
+        />
+      </span>
+    </Link>
+  ) : undefined;
+
   // P7·1b — the bar names the page (Screens over the doors, Floor over the floor) and carries the
   // Screens circle only where it leads somewhere else. The greeting is a line beneath it — the
   // person's name is a `{x}`, rendered verbatim in whatever script it arrives in and marked
@@ -126,6 +160,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       title={home.view === "floor" ? "floor.eyebrow" : "shell.screens"}
       leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
       after={<RoleBadge role={caller.role} />}
+      trailing={home.view === "floor" ? approvalsChip : undefined}
       // P7·3 — the Help door rides the counter's bar, not the doors': the doors explain themselves
       // (two named tiles), and a help circle beside a static mark would be a control that leads
       // somewhere from a screen that has nothing to explain.
@@ -158,86 +193,66 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     );
   }
 
-  // The counter's floor. The read is only made on this branch: the doors need no floor, and a
-  // floor outage must not hide the doors from a tablet that has not chosen one yet.
-  const floor = await getFloorView();
+  // The counter's one screen. The reads are only made on this branch: the doors need none of them,
+  // and an outage must not hide the doors from a tablet that has not chosen one yet. Three
+  // postures, each the one its zone takes on the client too: the FLOOR unreadable is the outage
+  // shell (it is the screen); the LANE unreadable alone starts the lane frozen beside a live floor
+  // (`initialOutage` — never an all-clear, never the whole screen gone over one lane); the
+  // TAKINGS unreadable is one honest line in the manager's zone (`DayCash`).
+  const [floor, expo, day] = await Promise.all([
+    getFloorView(),
+    getExpoQueue(),
+    getDayCashSummary(),
+  ]);
   if (!floor.ok) {
     if (floor.reason === "outage") return <StaffOutageShell what="what.floor" />;
     redirect("/staff/login"); // gate race between requireStaffPage and the read
   }
+  if (!expo.ok && expo.reason !== "outage")
+    redirect(expo.reason === "locked" ? "/staff/lock" : "/staff/login");
+  const lane = expo.ok ? expo.queue : { tickets: [], serverNow: new Date().toISOString() };
 
   return (
     <main className="staff-main">
-      {header}
-      <div className="staff-col" style={wrapWide}>
-        {greeting}
-        {/* Register first — the one action Dad takes most, gold-capped; Approvals and Expo beside it.
-          The remaining pages sit under More below the floor, so nothing the old pill row reached is
-          further than one screen away. */}
-        <nav className="staff-counter-row" aria-label={sx(lang, "floor.a11y.tools")}>
-          <Link href="/staff/register" className="staff-counter-primary card-textured staff-press">
-            <span className="staff-door-icon" aria-hidden>
-              <Icon name="cash" size={36} />
-            </span>
-            <span className="staff-door-name">
-              <Chrome lang={lang} k="floor.nav.register" echo="stack" />
-              <span className="staff-door-sub">
-                <Chrome lang={lang} k="floor.door.counter.sub" echo="stack" />
-              </span>
-            </span>
-          </Link>
-          {isManager ? (
-            <Link href="/staff/approvals" className="staff-counter-side card-textured staff-press">
-              <span className="staff-tile-icon" aria-hidden>
-                <Icon name="check" size={30} />
-              </span>
-              <span className="staff-tile-name">
-                {pendingApprovals > 0 ? (
-                  <Chrome lang={lang} k="floor.nav.approvalsCount" vars={{ n: pendingApprovals }} />
-                ) : (
-                  <Chrome lang={lang} k="floor.nav.approvals" />
-                )}
-              </span>
-            </Link>
-          ) : (
-            <Link href="/staff/kitchen" className="staff-counter-side card-textured staff-press">
-              <span className="staff-tile-icon" aria-hidden>
-                <Icon name="flame" size={30} />
-              </span>
-              <span className="staff-tile-name">
-                <Chrome lang={lang} k="floor.nav.kitchen" />
-              </span>
-            </Link>
-          )}
-          <Link href="/staff/expo" className="staff-counter-side card-textured staff-press">
-            <span className="staff-tile-icon" aria-hidden>
-              <Icon name="bag" size={30} />
-            </span>
-            <span className="staff-tile-name">
-              <Chrome lang={lang} k="floor.nav.expo" />
-            </span>
-          </Link>
-        </nav>
+      {/* A4·2 — the two live boards report their feed to the bar's help door through this
+          provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
+      <LiveConnectionProvider>
+        {header}
+        <div className="staff-col" style={wrapWide}>
+          {greeting}
+          {/* 1 · START — the one action taken most, first. The zone's region is `RegisterStart`'s own,
+            named by this heading. */}
+          <div className="staff-zone">
+            <h2 id="start-h" className="staff-zone-head">
+              <Chrome lang={lang} k="floor.zone.start" />
+            </h2>
+            <p style={sub}>
+              <Chrome lang={lang} k="reg.sub" echo="stack" />
+            </p>
+            <RegisterStart labelledBy="start-h" />
+          </div>
 
-        <FloorBoard initial={floor.snapshot} />
+          {/* 2 · TABLES & COUNTER ORDERS — one list, keyed by session; the board owns its heading. */}
+          <FloorBoard initial={floor.snapshot} />
 
-        <div style={{ marginTop: "var(--s6)" }}>
-          {/* The row above carries Register, Expo and — for a manager, Approvals; for anyone else,
-            Kitchen — so More drops exactly what the row shows. A manager keeps the Kitchen tile. */}
-          <MoreGrid
-            lang={lang}
-            more={withApprovals(
-              more.filter(
-                (t) =>
-                  t.href !== "/staff/expo" &&
-                  t.href !== "/staff/approvals" &&
-                  (isManager || t.href !== "/staff/kitchen"),
-              ),
-              approvalsVars,
-            )}
-          />
+          {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
+          <ExpoBoard initial={lane} initialOutage={!expo.ok} />
+
+          {/* 4 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}
+          <DayCash lang={lang} day={day} />
+
+          <div style={{ marginTop: "var(--s6)" }}>
+            {/* The bar carries Approvals for a manager, so More drops exactly that. */}
+            <MoreGrid
+              lang={lang}
+              more={withApprovals(
+                more.filter((t) => t.href !== "/staff/approvals"),
+                approvalsVars,
+              )}
+            />
+          </div>
         </div>
-      </div>
+      </LiveConnectionProvider>
     </main>
   );
 }
@@ -248,3 +263,4 @@ function withApprovals(more: MoreTile[], vars: { n: number } | undefined): MoreT
 }
 
 const wrapWide: CSSProperties = { maxWidth: 1080 };
+const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 };

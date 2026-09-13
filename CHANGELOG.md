@@ -4,6 +4,87 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
+
+The second A4 slice. What the counter person did across three pages — `/staff` (the floor),
+`/staff/register`, `/staff/expo` — is ONE screen, in the order they work it:
+
+- **Start an order** — `RegisterStart` as built (walk-up · phone · a table), first, because it is
+  the one action taken most: a zone, not a link. Its region is named by the visible heading.
+- **Tables & counter orders, one list.** The floor's tables and the open counter orders (`reg-` and
+  kiosk pickup sessions with an open cart) in ONE `role="list"` keyed by session. The counter orders
+  ride the floor's own snapshot: `lib/register-queue.ts` · `readRegisterQueue` is the read the
+  register page owned, now called inside `getFloorView` — one poll, one realtime subscription, one
+  outage posture (a failed counter read is an outage beside a live room, never an empty queue). The
+  floor's read keeps excluding exactly those sessions, so the list cannot key a session twice.
+  `lib/floor-rows.ts` · `mergeFloorRows` states ONCE where the two lists meet — a table asking to
+  pay at the counter (A1's top), the counter orders being built, the rest of the room — and re-sorts
+  neither. `CounterOrderCard` is `TableCard`'s own card surface (its exported styles), a channel
+  chip (Counter · Kiosk) telling it from a table, the whole card the link into the order screen the
+  register's rows opened. A FULL counter read (40) says so instead of passing part off as the whole.
+- **To-go bags — the lane, with K30 (B).** `ExpoBoard` is a lane of this screen (no bar and no
+  column of its own; its h2 is the section's name and the focus target after a bump). `getExpoQueue`
+  reads the tickets' cart lines and derives the kitchen's own progress — `lib/expo-rules.ts` ·
+  `kitchenStateOf`: `done` once every to-go FOOD line is served (grocery is never fired; a voided
+  line is off the ticket; a dine-in line on a mixed order stays on the table), `cooking` while any
+  is not, `unknown` when the lines could not be read — as a **Kitchen done** badge on a food bag
+  still at the first stage, and `compareExpoTickets` lifts finished bags above cooking ones: after
+  "Here now", before the due time. ADVISORY end to end: a failed lines read logs and every bag
+  reads `unknown`; the lane keeps its bags and its order. K30 (A) — the stamp on the ORDER that the
+  guest's tracker and the wall read — is still Min's migration.
+- **Today's takings** — `DayCash`, moved verbatim from the register page (manager+; the read hides
+  itself otherwise).
+- **Navigation.** The approvals count rides the bar for a manager (a circle with a badge, named by
+  the More tile's own key so the two never disagree); the More grid drops Register, Expo and — on
+  this screen — Approvals. `/staff/register` and `/staff/expo` are `redirect("/staff?floor=1")` (a
+  tablet's bookmark must land, not 404; `?floor=1` wins over a remembered kitchen door), and a
+  counter order's back link points home. `check-staff-lang` rule 4 exempts a redirect-only page by
+  PARSING it — zero JSX nodes, a `redirect()` call, a default export; a real page that also
+  redirects on the gate race stays held, and both directions are self-tested — so the guard reads
+  **14/14** pages reaching the language control, 2 redirect-only exempt.
+- **Help.** The counter's sheet is six cards (start · a table · the bags · paper · the doors · the
+  lock): the bump card is COMPOSED from the takeaway board's two bump SENTENCES, verbatim in both
+  tongues (their two sub-lines did not survive the fold), the paper card moved whole (its K15-HIGH
+  marker with it), and card 1 teaches the Start zone's buttons in the zone's own exported style
+  (`register-stage.ts`, the `expo-stage.ts` discipline). The board's own door and cards are gone —
+  `HELP_SCREENS` is kitchen · counter, `helpCardCount(screen)` replaces the fixed four; `expo` stays
+  in `HelpScreen` for the reports already filed from it. The counter's "seen" key carries a
+  REVISION, so a tablet that dismissed the four-card sheet sees the six-card one once. The screen's
+  live boards report their feed to the bar's help door (`LiveConnection`), so a "Something's wrong"
+  filed from a frozen lane still says `not_updating` — the fact the takeaway board used to pass to
+  its own door.
+
+**The blind adversarial pass on this slice returned REJECT with four CRITICALs, all real, all
+closed before the PR opened.** (1) The two live boards shared the singleton client's ONE `"floor"`
+channel: `RealtimeClient.channel(topic)` returns the existing channel for a repeated topic and its
+`.on("postgres_changes")` throws once subscribed, so the lane silently lost realtime and every load
+raised an unhandled rejection — `useFloorRealtime` takes a channel name now, the lane names its
+own, and `counter-boards.test.tsx` mounts both boards on a fake that keeps exactly the real
+client's two contracts (watched red on the shared-topic shape). (2) The counter card drew "Order
+in progress" inside the link and left it out of the name (WCAG 2.5.3) — the line is gone. (3) The
+one list was named "Active tables" while holding counter orders — `floor.a11y.rows` names what it
+holds, and the empty state promises counter orders too. (4) Three `role="status"` regions flipped
+to the same frozen sentence in the same second — the floor's region is the screen's ONE state
+region (naming the floor, not the room), the lane's live region carries only a bump that did not
+save, and its counts and freeze are plain text. Also from that pass: the report's connection fact
+(above); a bag whose every dish was voided read "Kitchen done" (now `unknown`); the truncation
+caveat sat beneath forty cards outside the live region (now a segment of the count line); the
+redirect exemption was a presence check (now the exact shape — one bare `redirect()` statement in
+the default export — with a `createElement` page, a conditional redirect and work-before-redirect
+pinned as near-misses); six dictionary keys died unnoticed (removed); "Kitchen done" and "Ready"
+wore one visual token (a bordered chip now); the loading skeleton drew the old floor-only layout;
+and the page's own comment claimed a whole-screen outage where the takings render inline. The
+server render takes the client's posture for a lane outage too (`initialOutage`: the lane frozen,
+the floor live). Two 5 s pollers on one screen stay, measured against a unified poll later.
+
+Guards: 9 new mutants (`expo-rules/…` ×4, `expo/…` ×2, `floor-rows/…`, `register-queue/…` ×2),
+every one watched red by `verify:slice --only` — **655** across 117 modules; `expo.ts` (previously
+unpinned) and the three new modules join the mutate set, `expo.ts` with a wiring suite. The
+screen keeps one state region (the floor's) and two action regions that speak only after the
+person's own tap (the lane's bump, the Start zone's mint). New Burmese (`floor.zone.start`,
+`floor.counter.*`, `floor.rows.none`, `floor.a11y.rows`, `expo.kitchenDone`, `help.how.counter.1` +
+`.1.more`; `floor.tables.title` and `floor.tables.emptySub` re-drafted) is a machine draft → K15.
+
 ### A4·1 — Kitchen + the wall: the served rail, one service day, one name loader, wait minutes (2026-09-13)
 
 The first of five A4 slices (`docs/A4_PLAN.md` carries the map: sixteen `/staff` routes into
