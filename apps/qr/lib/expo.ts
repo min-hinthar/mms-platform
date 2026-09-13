@@ -8,7 +8,8 @@ import { getStaffAuth, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type { ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
-import { catalogNameMy, isUuid, pairModifiersMy, uuidOptionIds } from "./ticket-names";
+import { catalogNameMy, pairModifiersMy } from "./ticket-names";
+import { loadLineNames } from "./line-names";
 
 /**
  * Expo / bagging station (S4.3a, reshaped by W3a) — the takeaway counterpart to the KDS. Read-only
@@ -101,43 +102,12 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
     .in("fulfillment", ["togo", "grocery"]);
   if (itemsError) return { ok: false, reason: "outage" };
 
-  // P1 — the Burmese half of every bag line, from the LIVE catalog (the `cart.ts` precedent): dishes
-  // by uuid, grocery by barcode (`menu_item_id` is a soft ref that carries both — PARTITIONED before
-  // the IN-lists, since a barcode in a uuid list errors the whole query), options by their stored
-  // ids. All three are ADVISORY: a failed read is logged by table and that half renders English —
-  // which is exactly what the counter showed before P1 — never `outage`. A name read cannot
-  // misidentify a bag; freezing the counter over a label is the over-blocking direction.
-  const menuIds = [...new Set((items ?? []).map((i) => i.menu_item_id).filter(isUuid))];
-  const barcodes = [
-    ...new Set((items ?? []).map((i) => i.menu_item_id).filter((id) => !isUuid(id))),
-  ];
-  const optionIds = [
-    ...new Set((items ?? []).flatMap((i) => uuidOptionIds(i.modifier_option_ids))),
-  ];
-  const none = { data: [] as { id: string; name_my: string | null }[], error: null };
-  const [menuRes, groceryRes, optRes] = await Promise.all([
-    menuIds.length ? db.from("menu_items").select("id,name_my").in("id", menuIds) : none,
-    barcodes.length
-      ? db.from("grocery_items").select("barcode,name_my").in("barcode", barcodes)
-      : { data: [] as { barcode: string; name_my: string | null }[], error: null },
-    optionIds.length ? db.from("modifier_options").select("id,name_my").in("id", optionIds) : none,
-  ]);
-  for (const [what, r] of [
-    ["menu_items", menuRes],
-    ["grocery_items", groceryRes],
-    ["modifier_options", optRes],
-  ] as const)
-    if (r.error)
-      console.error(`[expo] ${what} name_my read failed — that half renders EN`, {
-        message: r.error.message,
-      });
-  const nameMyByRef = new Map<string, string | null>();
-  for (const m of menuRes.error ? [] : (menuRes.data ?? [])) nameMyByRef.set(m.id, m.name_my);
-  for (const g of groceryRes.error ? [] : (groceryRes.data ?? []))
-    nameMyByRef.set(g.barcode, g.name_my);
-  const optionNameMy = new Map(
-    (optRes.error ? [] : (optRes.data ?? [])).map((o) => [o.id, o.name_my] as const),
-  );
+  // P1 — the Burmese half of every bag line, from the LIVE catalog, through the ONE loader (F18,
+  // A4·1): dishes by uuid, grocery by barcode, options by their stored ids — partitioned before the
+  // IN-lists and ADVISORY by table, so a failed name read logs and that half renders English (what
+  // the counter showed before P1), never `outage`. A name read cannot misidentify a bag; freezing
+  // the counter over a label is the over-blocking direction.
+  const { nameMyByRef, optionNameMy } = await loadLineNames(db, items ?? [], { tag: "expo" });
 
   const linesByOrder = new Map<string, ExpoLine[]>();
   for (const it of items ?? []) {

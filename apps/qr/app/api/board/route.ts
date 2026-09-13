@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { authorizeDevice } from "@/lib/device-auth";
-import { isUuid } from "@/lib/ticket-names";
+import { loadLineNames } from "@/lib/line-names";
+import { queueEmptiness, queueFloorIso } from "@/lib/queue-window";
 import {
   PULSE_PASS_LINGER_MS,
   shapeBoardPulse,
@@ -72,6 +73,9 @@ const PULSE_LINE_CAP = 500;
  *    "we can't read the kitchen", never "all clear" over a full wok, which is the lie `lib/kitchen.ts`
  *    already learned to refuse.
  */
+/** K32 (A4·1) — the orders scan's cap, named so the saturation guard and the read agree. */
+const BOARD_ORDER_CAP = 60;
+
 export async function GET(req: NextRequest) {
   const gate = await authorizeDevice("board", req.nextUrl.searchParams.get("k") ?? "");
   if (!gate.ok) {
@@ -113,7 +117,8 @@ export async function GET(req: NextRequest) {
   const since = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // the picked-up linger window
   // Bound the scan to today's service (parity with the reconciler's 24h window) — an unbumped stray
   // "ready" from the morning must never crowd a just-ready customer off the ASC + limit read.
-  const dayFloor = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  // K32 (A4·1) — the SHARED window rule the KDS and expo already read, not a hand-rolled copy.
+  const dayFloor = queueFloorIso(nowIso);
   // P6 — the DATABASE clock, for the pulse alone. Every other window on this route is coarse
   // (10 minutes, 24 hours) and app-clock skew cannot reach it; the pulse's undo-grace comparison is
   // 10 SECONDS wide, and `lib/kitchen.ts` documents what a skew does there — a line the DB still
@@ -133,14 +138,29 @@ export async function GET(req: NextRequest) {
       // the public board until the kitchen actually starts (the diner's own /track carries their
       // status). Separate .or() calls AND together in PostgREST.
       .or(`fire_at.is.null,fire_at.lte.${nowIso}`)
-      .order("created_at", { ascending: true })
-      .limit(60),
+      // NEWEST first, then reversed below (blind pass on A4·1, CRITICAL 3): `picked_up` is written
+      // only by the manual expo tap, so untapped `ready` rows accumulate all day, and an oldest-first
+      // cap would drop the bag that just came up in favour of one handed over at lunch. Past the cap
+      // the wall shows the latest bags and the OLDEST untapped ones fall off — the safe direction.
+      .order("created_at", { ascending: false })
+      .limit(BOARD_ORDER_CAP),
   ]);
-  const { data, error } = ordersRes;
+  const { error } = ordersRes;
+  const data = ordersRes.data ? [...ordersRes.data].reverse() : ordersRes.data; // back to oldest-first
   if (error) {
     console.error("[board] read failed:", error.message);
     return NextResponse.json({ error: "Board read failed" }, { status: 500 });
   }
+  // K32 (A4·1) — a capped read that came back FULL did not see the whole window. It is LOGGED and the
+  // newest bags publish; it is never a refusal. The first draft answered 503 here, which the TV reads
+  // as "can't reach the ordering system" for the rest of the window — at sixty untapped bags, a busy
+  // Saturday, not a pathology (blind pass on A4·1, CRITICAL 3). The cure is tapping old bags picked
+  // up, and the log says so.
+  if (queueEmptiness((data ?? []).length, BOARD_ORDER_CAP) === "cannot-say")
+    console.warn(
+      "[board] orders read saturated — the oldest untapped bags are off the wall; tap them picked up",
+      { cap: BOARD_ORDER_CAP },
+    );
   // ⚠️ VALIDATED, not merely defaulted. `dbNowMs` feeds two `new Date(...).toISOString()` calls
   // below, and `toISOString()` on a NaN date THROWS `RangeError` — which would 500 the customer-
   // facing Ready column, a surface that had no dependency on this rpc before P6 added one. A
@@ -159,7 +179,7 @@ export async function GET(req: NextRequest) {
   // would age on rows the shaper is about to discard as non-live. SQL cannot apply the session
   // liveness test that discards them (it lives two reads away), so the cap is a real bound and not
   // a formality; at teahouse volume it is far out of reach, and it is filed rather than assumed.
-  const pulseDayFloor = new Date(dbNowMs - 24 * 60 * 60 * 1000).toISOString();
+  const pulseDayFloor = queueFloorIso(new Date(dbNowMs).toISOString());
   const passFloor = new Date(dbNowMs - PULSE_PASS_LINGER_MS).toISOString();
   const linesRes = await db
     .from("qr_cart_items")
@@ -257,6 +277,18 @@ export async function GET(req: NextRequest) {
       // A just-picked-up bag stays visible under Ready for its linger window, then drops.
       status: o.togo_status === "preparing" ? ("preparing" as const) : ("ready" as const),
       readyAt: o.togo_ready_at ?? null,
+      // K32 (A4·1) — the wait, derived HERE from the DATABASE clock (the same `dbNowMs` the pulse
+      // ages on), never an instant a wall subtracts from its own clock: a TV's clock is the least
+      // trusted in the building, and `board-pulse.ts` already makes this exact call for
+      // `oldestMinutes`. Floored at 0 because the app-clock FALLBACK (rpc failed) can trail a
+      // fresh `togo_ready_at` by seconds, and a negative wait is a lie either way.
+      // A COLLECTED bag has no wait (blind pass on A4·1, CRITICAL 4): a picked-up row lingers under
+      // Ready for ten minutes so the guest sees their name leave, and a count that kept climbing on it
+      // would say a bag someone is holding is still waiting.
+      readyMinutes:
+        o.togo_ready_at === null || o.togo_picked_up_at !== null
+          ? null
+          : Math.max(0, Math.floor((dbNowMs - Date.parse(o.togo_ready_at)) / 60_000)),
     }));
 
   // The Burmese half of the all-day rail, from the LIVE catalog — ADVISORY, the P1 posture: a failed
@@ -265,25 +297,18 @@ export async function GET(req: NextRequest) {
   // band over a label would be the over-blocking direction. Partitioned to uuid-shaped ids BEFORE
   // the IN-list: `menu_item_id` is a soft ref that also carries grocery barcodes, and one malformed
   // value fails the whole query.
-  const menuIds = [...new Set(lines.map((l) => l.menu_item_id).filter(isUuid))];
-  const menuRes =
-    pulseReadable && menuIds.length
-      ? await db.from("menu_items").select("id,name_my").in("id", menuIds)
-      : { data: [] as { id: string; name_my: string | null }[], error: null };
-  if (menuRes.error)
-    console.error(
-      "[board] pulse name_my read failed — the rail renders EN:",
-      menuRes.error.message,
-    );
+  // Through the ONE loader (F18, A4·1); the pulse lines select no option ids, so only the menu is
+  // asked. Not asked at all when the pulse itself is unreadable — there is no rail to name.
+  const names = pulseReadable
+    ? await loadLineNames(db, lines, { tag: "board" })
+    : { nameMyByRef: new Map<string, string | null>() };
 
   const pulse: BoardPulse | null = pulseReadable
     ? shapeBoardPulse({
         lines,
         cartById: new Map(pulseCarts.map((c) => [c.id, c])),
         sessionById: new Map<string, PulseSessionRow>((sessions ?? []).map((s) => [s.id, s])),
-        nameMyByItem: new Map(
-          (menuRes.error ? [] : (menuRes.data ?? [])).map((m) => [m.id, m.name_my]),
-        ),
+        nameMyByItem: names.nameMyByRef,
         nowMs: dbNowMs,
       })
     : null;

@@ -179,6 +179,22 @@ export const STAFF = {
   "kds.allday.chip": { en: "All-day", my: "စုစုပေါင်း" },
   "kds.allday.title": { en: "All day", my: "စုစုပေါင်း" },
   "kds.allday.empty": { en: "Nothing live.", my: "ဘာမှ မရှိပါ။" },
+  // A4·1 (K31) — the served rail: what went OUT today, read-only, beside the all-day counts.
+  "kds.served.chip": { en: "Served", my: "ထုတ်ပြီး" },
+  "kds.served.title": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
+  "kds.served.empty": { en: "Nothing served yet today.", my: "ဒီနေ့ ဘာမှ မထုတ်ရသေးပါ။" },
+  // The rail's read failed (ADVISORY — the live board above is unaffected). Said rather than an
+  // empty history: "nothing served" over a full day's service is the fabricated-diagnosis class.
+  // The capped read came back full: say what is shown against the day's real count (the stat cell's
+  // `served_count`, same midnight), never a "today" heading over a list missing the morning.
+  "kds.served.more": {
+    en: "Showing the last {n} of {total} served today.",
+    my: "ဒီနေ့ ထုတ်ပြီး {total} ခုထဲက နောက်ဆုံး {n} ခုကို ပြထားသည်။",
+  },
+  "kds.served.unreadable": {
+    en: "Couldn’t read what went out. The board above is live.",
+    my: "ထုတ်ပြီးသမျှကို မဖတ်နိုင်ပါ။ အပေါ်က ဘုတ်က ပုံမှန်ပါ။",
+  },
 
   // ── KDS: empty and frozen states ───────────────────────────────────────────
   "kds.empty": { en: "Nothing on the line", my: "ချက်စရာ ဘာမှ မရှိပါ" },
@@ -239,6 +255,8 @@ export const STAFF = {
   "kds.a11y.stationFilter": { en: "Station filter", my: "စတေရှင် စစ်ထုတ်" },
   "kds.a11y.tickets": { en: "Open kitchen tickets", my: "ဖွင့်ထားတဲ့ မီးဖိုချောင် အော်ဒါများ" },
   "kds.a11y.allDay": { en: "All-day counts", my: "စုစုပေါင်း အရေအတွက်" },
+  "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
+  "kds.a11y.railView": { en: "Rail view", my: "ဘေးဘား အမြင်" },
   "kds.a11y.volume": { en: "Chime volume", my: "အသံ အတိုးအကျယ်" },
   "kds.a11y.pager": { en: "Ticket pages", my: "အော်ဒါ စာမျက်နှာများ" },
   "kds.a11y.prevPage": { en: "Previous page", my: "ရှေ့ စာမျက်နှာ" },
@@ -1337,6 +1355,11 @@ export const STAFF = {
   // unchecked on K15, and this slice does not reword them.
   "board.col.preparing": { en: "Preparing", my: "ပြင်ဆင်နေသည်" },
   "board.col.ready": { en: "Ready", my: "ယူသွားနိုင်ပါပြီ" },
+  // K32 (A4·1) — how long a Ready bag has waited, a count the SERVER derives from the DB clock.
+  // `{mins}` is NOT a count slot, so the digits stay Latin in both languages — the pulse's minute
+  // count beside it is Latin by construction, and one wall renders a duration one way.
+  "board.card.wait": { en: "{mins} min", my: "{mins} မိနစ်" },
+  "board.card.justNow": { en: "Just now", my: "ခုလေးတင်" },
   "board.connecting": { en: "Connecting…", my: "ဆက်သွယ်နေပါတယ်…" },
   "board.reconnecting": {
     en: "Reconnecting — showing the last update",

@@ -3567,6 +3567,31 @@ const MUTANTS = [
     replace: "  if (false) {",
   },
   {
+    id: "board/ready-minutes-off-the-wall-clock",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "K32 (A4·1) — the wait is derived from the DATABASE clock, the same `dbNowMs` the pulse ages on, because a TV's clock is the least trusted in the building. Off the process clock the count drifts with the app instance; shipping the instant instead and letting the wall subtract is the same defect one screen later",
+    find: "          : Math.max(0, Math.floor((dbNowMs - Date.parse(o.togo_ready_at)) / 60_000)),",
+    replace:
+      "          : Math.max(0, Math.floor((Date.now() - Date.parse(o.togo_ready_at)) / 60_000)),",
+  },
+  {
+    id: "board/saturated-read-keeps-the-oldest-bags",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "K32 (A4·1), reshaped by the blind pass: `picked_up` is a manual expo tap, so untapped `ready` rows accumulate all day and the cap WILL be reached on a busy Saturday. Oldest-first + limit then drops the bag that just came up in favour of one handed over at lunch — and the first draft's 503 on saturation was worse, a guest-facing outage sentence for the rest of the window. Newest-first keeps the wall honest under the cap: the latest bags publish, the oldest untapped fall off",
+    find: '      .order("created_at", { ascending: false })\n      .limit(BOARD_ORDER_CAP),',
+    replace: '      .order("created_at", { ascending: true })\n      .limit(BOARD_ORDER_CAP),',
+  },
+  {
+    id: "board/collected-bag-keeps-waiting",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "Blind pass on A4·1, CRITICAL 4. A picked-up row lingers under Ready for ten minutes so the guest sees their name leave; a wait derived from `togo_ready_at` alone keeps climbing on it, and the wall states a bag someone is holding is still waiting",
+    find: "        o.togo_ready_at === null || o.togo_picked_up_at !== null",
+    replace: "        o.togo_ready_at === null",
+  },
+  {
     id: "lock/unreadable-status-reads-as-closed",
     file: "apps/qr/lib/lock.ts",
     suite: "lib/lock.test.ts",
@@ -3714,12 +3739,13 @@ const MUTANTS = [
     replace: "    break;",
   },
   {
-    id: "register-math/the-service-day-becomes-a-rolling-24-hours",
-    file: "apps/qr/lib/register-math.ts",
-    suite: "lib/register-math.test.ts",
-    why: "P5 — \"tonight\" must mean the same instant on the register, the tip report and the pilot sheet, and `laDayStartIso` is now that ONE definition: the pilot sheet ADOPTS the register's instant rather than deriving its own. A rolling 24 hours looks identical on a quiet evening and disagrees with the Z-report every time service crosses midnight or a clock changes. This mutant used to sit on `pilot.ts`'s own `laDayStartIso(new Date())` call; adopting the register's window deleted that line and left the rule pinned NOWHERE, so it moved to the definition rather than being dropped — a stale mutant whose rule still matters is RETARGETED, never deleted. ⚠️ The retarget an agent first proposed emptied the offset-probe loop, which disables the DST probe and is a different rule from the one this id names; the mutation below returns an actual rolling 24 hours, so the id, the why and the edit agree",
-    find: "    if (hour % 24 === 0) return candidate.toISOString();",
-    replace: "    if (hour % 24 === 0) return new Date(now.getTime() - 86_400_000).toISOString();",
+    id: "day-window/the-service-day-becomes-a-rolling-24-hours",
+    file: "apps/qr/lib/day-window.ts",
+    suite: "lib/day-window.test.ts",
+    why: "P5 — \"tonight\" must mean the same instant on the register, the tip report and the pilot sheet, and `laDayStartIso` is now that ONE definition: the pilot sheet ADOPTS the register's instant rather than deriving its own. A rolling 24 hours looks identical on a quiet evening and disagrees with the Z-report every time service crosses midnight or a clock changes. This mutant used to sit on `pilot.ts`'s own `laDayStartIso(new Date())` call; adopting the register's window deleted that line and left the rule pinned NOWHERE, so it moved to the definition rather than being dropped — a stale mutant whose rule still matters is RETARGETED, never deleted. ⚠️ The retarget an agent first proposed emptied the offset-probe loop, which disables the DST probe and is a different rule from the one this id names; the mutation below returns an actual rolling 24 hours, so the id, the why and the edit agree. A4·1 (K31) moved the definition AGAIN — `laDayStartIso` is now `dayStartIso(now, 'America/Los_Angeles')` in `day-window.ts`, because the KDS served rail needed the same floor from `pickup_config.tz` — so the mutant followed it a second time: it sits on the verified return inside the probe loop, and the suite that reddens is the one asserting exact instants in four zones",
+    find: "      return new Date(candidate).toISOString();\n    }\n    candidate = midnightAsUtc",
+    replace:
+      "      return new Date(now - 86_400_000).toISOString();\n    }\n    candidate = midnightAsUtc",
   },
   {
     id: "glossary/a-settled-row-is-dropped-instead-of-locked",

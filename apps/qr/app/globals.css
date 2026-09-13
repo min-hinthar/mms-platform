@@ -7904,6 +7904,41 @@ a .chrome-en {
   font-variant-numeric: tabular-nums;
 }
 
+/* K31 (A4·1): the rail's two views — one segmented track, the chosen segment under the gold cap
+   (`.staff-seg` is the ONE selection vocabulary; never a second accent fill here). */
+.kds-rail-seg {
+  margin: 0 0 var(--s2);
+  width: 100%;
+}
+.kds-rail-seg > .kds-chip {
+  flex: 1;
+  justify-content: center;
+}
+/* The served row: the ticket's own line text (Burmese first) with where and when it went out. */
+.kds-rail li.kds-served {
+  align-items: flex-start;
+}
+.kds-served-text {
+  flex: 1;
+  min-width: 0;
+}
+.kds-served-text p {
+  margin: 0;
+}
+.kds-served-meta {
+  flex: none;
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+  color: var(--t2);
+  font-size: var(--kfs-meta);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.kds-rail li.kds-served b {
+  font-size: var(--kfs-mod);
+}
+
 /* Recall rail (Fresh Recall): the last bumps, restorable — a greasy mis-tap is never fatal (O-E). */
 .kds-recall {
   display: flex;
@@ -8057,6 +8092,14 @@ a .chrome-en {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.05em;
+}
+/* K32 (A4·1): minutes on the shelf — the server's count, quiet beside the code. */
+.orb-wait {
+  flex: none;
+  color: var(--t2);
+  font-size: 0.5em;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 .orb-card-flash {
   animation: orbFlash 2s var(--ease-out);

@@ -149,6 +149,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // Board controls (persisted per device).
   const [station, setStation] = useState<"all" | KitchenStation>("all");
   const [railOpen, setRailOpen] = useState(false);
+  // K31 (A4·1) — the rail's two views. Not persisted: the served rail is a question ("did table
+  // 6's go out?"), the all-day counts are the standing view a cook works from.
+  const [railView, setRailView] = useState<"allday" | "served">("allday");
   const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
@@ -636,25 +639,120 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         )}
 
         {railOpen && (
-          <aside className="kds-rail" aria-label={sx(lang, "kds.a11y.allDay")}>
-            <h3>
-              <Chrome lang={lang} k="kds.allday.title" echo="stack" />
-            </h3>
-            {allDay.length === 0 ? (
-              <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--t2)" }}>
-                <Chrome lang={lang} k="kds.allday.empty" />
-              </p>
+          <aside
+            className="kds-rail"
+            aria-label={sx(lang, railView === "served" ? "kds.a11y.served" : "kds.a11y.allDay")}
+          >
+            {/* K31 — one track, two views; the chosen segment wears the gold cap (the same selection
+                vocabulary as the stations in the bar), 44px each, `aria-pressed` the state. */}
+            <div
+              className="staff-seg kds-rail-seg"
+              role="group"
+              aria-label={sx(lang, "kds.a11y.railView")}
+            >
+              <button
+                type="button"
+                className="kds-chip"
+                aria-pressed={railView === "allday"}
+                onClick={() => {
+                  if (railView !== "allday") haptic("pick");
+                  setRailView("allday");
+                }}
+              >
+                <Chrome lang={lang} k="kds.allday.chip" />
+              </button>
+              <button
+                type="button"
+                className="kds-chip"
+                aria-pressed={railView === "served"}
+                onClick={() => {
+                  if (railView !== "served") haptic("pick");
+                  setRailView("served");
+                }}
+              >
+                <Chrome lang={lang} k="kds.served.chip" />
+              </button>
+            </div>
+            {railView === "allday" ? (
+              <>
+                <h3>
+                  <Chrome lang={lang} k="kds.allday.title" echo="stack" />
+                </h3>
+                {allDay.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--t2)" }}>
+                    <Chrome lang={lang} k="kds.allday.empty" />
+                  </p>
+                ) : (
+                  <ul role="list">
+                    {allDay.map((row) => (
+                      <li key={row.label}>
+                        <span style={{ minWidth: 0 }}>
+                          <RailRowText row={row} />
+                        </span>
+                        <b>×{row.qty}</b>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </>
             ) : (
-              <ul role="list">
-                {allDay.map((row) => (
-                  <li key={row.label}>
-                    <span style={{ minWidth: 0 }}>
-                      <RailRowText row={row} />
-                    </span>
-                    <b>×{row.qty}</b>
-                  </li>
-                ))}
-              </ul>
+              <>
+                <h3>
+                  <Chrome lang={lang} k="kds.served.title" echo="stack" />
+                </h3>
+                {/* Three honest states, never conflated: unreadable (the ADVISORY read failed —
+                    said, not shown as an empty day), empty, and the rows newest-first. */}
+                {snap.served === null ? (
+                  <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--warn)" }}>
+                    <Chrome lang={lang} k="kds.served.unreadable" />
+                  </p>
+                ) : snap.served.lines.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: "var(--kfs-meta)", color: "var(--t2)" }}>
+                    <Chrome lang={lang} k="kds.served.empty" />
+                  </p>
+                ) : (
+                  <>
+                    {snap.served.truncated && (
+                      <p
+                        style={{
+                          margin: "0 0 var(--s2)",
+                          fontSize: "var(--kfs-meta)",
+                          color: "var(--t2)",
+                        }}
+                      >
+                        <Chrome
+                          lang={lang}
+                          k="kds.served.more"
+                          vars={{ n: snap.served.lines.length, total: snap.stats.servedToday }}
+                        />
+                      </p>
+                    )}
+                    <ul role="list">
+                      {snap.served.lines.map((l) => (
+                        <li key={l.id} className="kds-served">
+                          <span className="kds-served-text">
+                            <TicketLineText line={l} />
+                          </span>
+                          <span className="kds-served-meta">
+                            {/* The same identity the live ticket renders — the dictionary's table
+                                word, a Latin number; a pickup by its code. */}
+                            <b>
+                              {l.tableNumber !== null ? (
+                                <Chrome lang={lang} k="kds.table" vars={{ id: l.tableNumber }} />
+                              ) : l.shortCode ? (
+                                `#${l.shortCode}`
+                              ) : (
+                                l.label
+                              )}
+                            </b>
+                            <time dateTime={l.bumpedAt}>{l.bumpedAtLabel}</time>
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </>
             )}
           </aside>
         )}

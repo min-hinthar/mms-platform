@@ -30,6 +30,10 @@ type BoardOrder = {
   name: string | null;
   status: "preparing" | "ready";
   readyAt: string | null;
+  /** K32 (A4·1) — minutes on the Ready shelf, derived by the server from the DB clock. Optional
+   *  because a TV is the longest-lived client in the building and may poll a server that
+   *  predates the field; absent means "do not draw a wait", never 0. */
+  readyMinutes?: number | null;
 };
 
 type BoardState =
@@ -273,7 +277,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           ) : (
             <ul role="list">
               {preparing.map((o) => (
-                <BoardCard key={o.code} order={o} flash={null} />
+                <BoardCard key={o.code} order={o} flash={null} lang={lang} />
               ))}
             </ul>
           )}
@@ -288,7 +292,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
           ) : (
             <ul role="list">
               {ready.map((o) => (
-                <BoardCard key={o.code} order={o} flash={flashes.get(o.code) ?? null} />
+                <BoardCard key={o.code} order={o} flash={flashes.get(o.code) ?? null} lang={lang} />
               ))}
             </ul>
           )}
@@ -504,11 +508,31 @@ function BilingualHeading({
   );
 }
 
-function BoardCard({ order, flash }: { order: BoardOrder; flash: number | null }) {
+function BoardCard({
+  order,
+  flash,
+  lang,
+}: {
+  order: BoardOrder;
+  flash: number | null;
+  lang: StaffLang;
+}) {
+  // K32 (A4·1) — how long a bag has waited, drawn from the server's own minute count (never a
+  // subtraction from this screen's clock). The ROUTE decides which cards carry one — Ready only,
+  // never a collected bag — and pins that in its suite; this card draws the number it was sent.
+  // An older server sends no count at all, and then nothing is drawn rather than "0".
+  const wait = order.readyMinutes ?? null;
   return (
     <li className={`orb-card${flash != null ? " orb-card-flash" : ""}`}>
       <span>{order.name ?? `#${order.code}`}</span>
       {order.name && <span className="orb-code">#{order.code}</span>}
+      {wait !== null && (
+        <span className="orb-wait" lang={lang === "my" ? "my" : undefined}>
+          {wait === 0
+            ? ts(lang, "board.card.justNow")
+            : tf(lang, "board.card.wait", { mins: wait })}
+        </span>
+      )}
     </li>
   );
 }

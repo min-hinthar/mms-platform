@@ -111,13 +111,27 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => {
       if (table === "qr_orders") {
+        // Honours ORDER and LIMIT (A4·1): the saturation rule is about which rows a capped read keeps,
+        // and a mock that returned the whole fixture would let ASC and DESC pass the same test.
+        let ascending = true;
         const chain: Record<string, unknown> = {
           select: () => chain,
           is: () => chain,
           gte: () => chain,
           or: () => chain,
-          order: () => chain,
-          limit: () => Promise.resolve({ data: orders, error: ordersError }),
+          order: (_col: string, opts?: { ascending?: boolean }) => {
+            ascending = opts?.ascending !== false;
+            return chain;
+          },
+          limit: (n: number) => {
+            if (ordersError) return Promise.resolve({ data: null, error: ordersError });
+            const sorted = [...orders].sort((a, b) =>
+              ascending
+                ? a.created_at.localeCompare(b.created_at)
+                : b.created_at.localeCompare(a.created_at),
+            );
+            return Promise.resolve({ data: sorted.slice(0, n), error: null });
+          },
         };
         return chain;
       }
@@ -188,6 +202,15 @@ vi.mock("@mms/db/server", () => ({
         };
         return chain;
       }
+      if (table === "grocery_items") {
+        // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table before its
+        // IN-lists; the pulse fixtures use short ids, so it asks here and the answer is empty.
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: () => Promise.resolve({ data: [], error: null }),
+        };
+        return chain;
+      }
       throw new Error(`unexpected ${table}`);
     },
   }),
@@ -216,7 +239,7 @@ const DISH = "cccccccc-cccc-4ccc-8ccc-cccccccc0003";
 const OTHER_DISH = "dddddddd-dddd-4ddd-8ddd-dddddddd0004";
 
 type Body = {
-  orders?: { name: string | null }[];
+  orders?: { code: string; name: string | null; status: string; readyMinutes?: number | null }[];
   pulse?: {
     tickets: number;
     oldestMinutes: number | null;
@@ -543,5 +566,82 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
       { name: "Mohinga", nameMy: null, qty: 2 },
       { name: "Tea leaf salad", nameMy: null, qty: 2 },
     ]);
+  });
+});
+
+describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock, and a full read refuses", () => {
+  it("derives readyMinutes from `mms_now`, never from the wall's own clock", async () => {
+    // MUTATION: `Date.now()` in place of `dbNowMs` → the fixture's DB clock is 2026-09-01 and the
+    // process clock is not, so the count is off by days; a wall that subtracted a shipped instant
+    // from its own clock would have the same defect, one screen later.
+    orders = [
+      {
+        ...order(TOGO, "sess-togo", "Nilar"),
+        togo_ready_at: new Date(NOW - 5 * MIN - 20_000).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders).toHaveLength(1);
+    expect(body.orders?.[0]).toMatchObject({ name: "Nilar", status: "ready", readyMinutes: 5 });
+  });
+
+  it("a preparing bag has no shelf time — null, not 0", async () => {
+    orders = [
+      { ...order(TOGO, "sess-togo", "Nilar"), togo_status: "preparing", togo_ready_at: null },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]).toMatchObject({ status: "preparing", readyMinutes: null });
+  });
+
+  it("a ready stamp AHEAD of the clock (app-clock fallback skew) floors at 0, never negative", async () => {
+    orders = [
+      { ...order(TOGO, "sess-togo", "Nilar"), togo_ready_at: new Date(NOW + 30_000).toISOString() },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]?.readyMinutes).toBe(0);
+  });
+
+  it("a collected bag has NO wait — a picked-up row lingers under Ready without a climbing count", async () => {
+    // Blind pass, CRITICAL 4. MUTATION: derive the wait from `togo_ready_at` alone → "13 min" on a
+    // bag someone took ten minutes ago.
+    orders = [
+      {
+        ...order(TOGO, "sess-togo", "Nilar"),
+        togo_status: "picked_up",
+        togo_ready_at: new Date(NOW - 8 * MIN).toISOString(),
+        togo_picked_up_at: new Date(NOW - 2 * MIN).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]).toMatchObject({ status: "ready", readyMinutes: null });
+  });
+
+  it("a read that came back FULL keeps the NEWEST bags and publishes — never a 503, never an empty wall", async () => {
+    // Blind pass, CRITICAL 3: untapped `ready` rows accumulate (picked_up is a manual tap), so the
+    // cap WILL be reached on a busy day. MUTATION: oldest-first → the bag that just came up is the
+    // one dropped. The mock honours order + limit, so this fixture of 61 separates the two.
+    orders = Array.from({ length: 61 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (61 - i) * MIN).toISOString(),
+    }));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA0060"); // the newest bag is on the wall
+    expect(codes).not.toContain("AA0000"); // the oldest untapped one fell off
+    // and the wall still reads oldest-first within what it shows
+    expect(codes[0]).toBe("AA0001");
+  });
+
+  it("one under the cap is a complete read and publishes every row", async () => {
+    orders = Array.from({ length: 59 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (59 - i) * MIN).toISOString(),
+    }));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Body).orders?.length).toBe(59);
   });
 });
