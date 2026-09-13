@@ -326,8 +326,10 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
       code 2026-09-09; the prod column (`counter_requested_at`) is applied on Min's go (OPEN-ITEMS A1).
 - [x] **A2 — close the parked surfaces' backlog rows** — 22 rows parked by ROW (2026-09-09), each keeping its ID,
       text and the constant it reopens with; M201–M203 deliberately left for A3.
-- [ ] **A3 — settlement collapses to cash + Terminal with one request-unique owner** (M201 · M202 · M203
-      by subtraction).
+- [x] **A3 — settlement collapses to cash + Terminal with one request-unique owner** (M201 · M202 · M203
+      by subtraction) — shipped 2026-09-13: every freeze keyed on a per-request uuid, the same-owner
+      re-acquire arm removed, the by-cart release deleted, extends scoped and reporting, the Terminal
+      acting on a lost mutex, the share route extending before it mints.
 - [ ] **A4 — `/staff` to five screens** — Kitchen · Tables & settle · Menu · Tips · Sign-in.
 - [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers
       inviting staff and assigning roles, and orders following a diner onto their account (#278, `b341ac9`).

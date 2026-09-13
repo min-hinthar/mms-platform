@@ -21,6 +21,20 @@
  * `openSettlement` + `create-share-intent` (split), `openTab` + `setup-intent` (tabs),
  * `openKioskOrder` + the kiosk page (kiosk) — each pinned by a test that flips the constant and a
  * `surfaces/*` mutant that deletes the refusal.
+ *
+ * ⚠️ REOPENING `selfServeSplit` IS NO LONGER A ONE-LINE FLIP, and the reason is A3 (M201). The
+ * split's same-host re-open (even ↔ by-person before anyone authorizes) rode
+ * `acquireSettlement`'s `settle_by.eq.<uid>` arm, and that arm was the counter's double-mint —
+ * `settleCash` / `closeSecureTab` inherited it by passing a shared uid — so A3 removed it rather
+ * than argue around it. `openSettlement` still acquires under the host's seat uid and every release
+ * in `split.ts` is scoped to it — narrower than the by-cart form it replaced, but a seat uid is a
+ * PERSON, not a request, so the counter's uniqueness argument does not transfer (two opens by one
+ * host share it). Flipping the constant therefore reopens a door whose freeze is scoped but not
+ * request-unique, and whose same-host re-open is gone: a second `openSettlement` by the same host
+ * answers `settling_other` until the freeze ages out. Reopening needs BOTH: a per-open uuid as the
+ * owner (carried on the share intents as `settleOwner`, which the route already stamps), and the
+ * re-open restored as release-own-then-acquire (refusing if any share is already authorized) —
+ * never by putting the arm back.
  */
 export const SURFACES = {
   selfServeSplit: false,

@@ -143,6 +143,8 @@ function respond(q: Query): { data: unknown; error: { message: string } | null }
       ],
       error: null,
     };
+  if (q.table === "qr_carts" && q.op === "select")
+    return { data: cartReads++ === 0 ? cartRow : (cartRowAfterClear ?? cartRow), error: null }; // A3 abort re-read(s)
   if (
     q.table === "qr_carts" &&
     q.op === "update" &&
@@ -188,6 +190,10 @@ function builder(
       return Promise.resolve(respond(q));
     },
     single() {
+      return Promise.resolve(respond(q));
+    },
+    // A3 — the abort's `qr_carts` re-read after a scoped release matched nothing.
+    maybeSingle() {
       return Promise.resolve(respond(q));
     },
     limit() {
@@ -264,11 +270,27 @@ vi.mock("./rate", () => ({ assertMutationRate: () => Promise.resolve() }));
 // one pins the parked refusal at the ACTION (it is directly POST-able — see the W21 note).
 let splitOpen = true;
 vi.mock("./surfaces", () => ({ surfaceOpen: () => splitOpen }));
+/** A3 — the release is scoped and COUNTED; the abort's claim reads the count. */
+let releaseResult = true;
+const releaseOwners: string[] = [];
+/** The `qr_carts` row the abort re-reads when its scoped release matched nothing. */
+let cartRow: { settle_at: string | null } | null = null;
+/** Codex round 1 on A3 — the row as re-read AFTER a stale-clear that matched nothing. */
+let cartRowAfterClear: { settle_at: string | null } | null = null;
+let cartReads = 0;
+let staleClears = 0;
+let staleClearResult = true;
+let staleClearError: { message: string } | null = null;
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
-  releaseSettlement: () => {
+  releaseStaleSettlement: () => {
+    staleClears += 1;
+    return Promise.resolve({ released: staleClearResult, error: staleClearError });
+  },
+  releaseSettlementFor: (_cartId: string, owner: string) => {
     releasedFreeze += 1;
-    return Promise.resolve(null);
+    releaseOwners.push(owner);
+    return Promise.resolve({ released: releaseResult, error: null });
   },
 }));
 vi.mock("./totals", () => ({
@@ -300,6 +322,14 @@ beforeEach(() => {
   retrieveStatus = {};
   retrieveThrows = {};
   releasedFreeze = 0;
+  releaseResult = true;
+  cartRowAfterClear = null;
+  cartReads = 0;
+  staleClears = 0;
+  staleClearResult = true;
+  staleClearError = null;
+  releaseOwners.length = 0;
+  cartRow = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 
@@ -307,6 +337,108 @@ const ledgerDelete = () =>
   queries.find((q) => q.op === "delete" && q.table === "qr_cart_shares" && q.neq.length > 0);
 const loggedText = () =>
   JSON.stringify((console.error as unknown as { mock: { calls: unknown[][] } }).mock.calls);
+
+describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 · M202)", () => {
+  it("releases under the host's owner, never by cart", async () => {
+    shares = [];
+    await abortSettlement(CART);
+    expect(releaseOwners).toHaveLength(1);
+    expect(releaseOwners[0]).toBeTruthy();
+    expect(releaseOwners[0]).not.toBe(CART);
+  });
+
+  it("REFUSES when the freeze is held FRESH by another owner — the table is being settled another way", async () => {
+    // The by-cart release nulled whatever the row carried, so an abort could cancel holds and delete
+    // rows under a staff settle's mutex. A scoped release that matched nothing is the signal.
+    releaseResult = false;
+    cartRow = { settle_at: new Date().toISOString() };
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    expect(cancelled).toEqual([]);
+    expect(ledgerDelete()).toBeUndefined();
+  });
+
+  it("proceeds when the freeze is already gone — a prior abort got this far and nothing can capture a null freeze", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: null };
+    shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
+    await abortSettlement(CART);
+    expect(cancelled).toEqual(["pi_1"]);
+  });
+
+  it("does not refreeze what it never released — a null claim leaves no freeze to restore", async () => {
+    // With `released: false` the pre-abort state had NO host freeze; restoring one on a failed read
+    // would invent it (and, over a stale Terminal attempt's owner, hand that attempt a lost mutex).
+    releaseResult = false;
+    cartRow = { settle_at: null };
+    sharesError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
+    const refreeze = queries.find(
+      (q) =>
+        q.table === "qr_carts" &&
+        q.op === "update" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_at" in q.patch,
+    );
+    expect(refreeze).toBeUndefined();
+  });
+
+  it("REFREEZES after clearing a stale foreign marker when the share read then fails — this abort took the marker, so it puts one back (Codex round 2 on A3, P2)", async () => {
+    // `released` stays false on this path (the host-scoped release matched nothing) but the stale
+    // clear DID lift the marker; a share-read failure that skipped the refreeze left `settle_at`
+    // null over an intact ledger — `SettlementBoard` unmounts, pending intents authorize with
+    // nothing to capture them, and the authorized shares block cash settlement and the table.
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = true;
+    sharesError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
+    expect(staleClears).toBe(1);
+    const refreeze = queries.find(
+      (q) =>
+        q.table === "qr_carts" &&
+        q.op === "update" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_at" in q.patch,
+    );
+    expect(refreeze).toBeDefined();
+  });
+
+  it("CLEARS a STALE foreign freeze before anything destructive, then proceeds (Codex round 1 on A3, P1)", async () => {
+    // `captureAllIfReady` proceeds on a stale non-null freeze once every share is authorized, so
+    // walking past it races a late authorization webhook. The stale-only clear shuts that gate.
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    await abortSettlement(CART);
+    expect(staleClears).toBe(1);
+  });
+
+  it("refuses when the stale marker cannot be cleared and the row is FRESH on re-read — someone took the table", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = false;
+    cartRowAfterClear = { settle_at: new Date().toISOString() };
+    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    expect(staleClears).toBe(1);
+  });
+
+  it("proceeds when the stale marker vanished under the clear — null protects nothing", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = false;
+    cartRowAfterClear = { settle_at: null };
+    await abortSettlement(CART);
+  });
+
+  it("a stale-clear write error refuses — the gate is not provably shut", async () => {
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/try again in a moment/);
+  });
+});
 
 describe("abortSettlement — every hold it abandons must be released (M40)", () => {
   it("cancels the PaymentIntent on EVERY non-captured status, not just authorized", async () => {

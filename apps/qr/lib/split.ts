@@ -6,7 +6,13 @@ import { assertCartMember, AuthzError } from "./authz";
 import { assertMutationRate } from "./rate";
 import { getCartTotals } from "./totals";
 import { deriveShareBreakdowns } from "./split-math";
-import { acquireSettlement, releaseSettlement, type SettleResult } from "./lock";
+import {
+  acquireSettlement,
+  releaseSettlementFor,
+  releaseStaleSettlement,
+  type SettleResult,
+} from "./lock";
+import { SETTLE_TTL_MS } from "./lock-ttl";
 import { releaseHold } from "./split-hold";
 
 /**
@@ -278,8 +284,10 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     // which case we're in, so releasing picks the unsafe one. Worse, `captureAllIfReady` will still
     // capture a STALE freeze once the table is fully covered but can never capture a NULL one, and
     // `extendSettlement` can't revive null either — so a released freeze here is the harder failure.
-    // Keeping it costs nothing: `acquireSettlement`'s `settle_by.eq.<uid>` disjunct lets this same
-    // host retry immediately, and the 10-minute TTL frees it for anyone else.
+    // Keeping it costs one TTL: A3 removed `acquireSettlement`'s same-owner re-acquire arm (it was
+    // the counter's double-mint), so this host's own retry now meets `settling_other` until the
+    // freeze ages out. When this door reopens, a same-host re-open must release under `uid` and
+    // acquire again rather than lean on the arm — see `SURFACES` in `lib/surfaces.ts`.
     console.error("[split] in-flight share check failed", liveErr);
     throw new Error("Couldn’t start the split — please try again");
   }
@@ -293,13 +301,13 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
   const grand = await getCartTotals(id).catch(() => null); // grand breakdown, no tip
   if (!grand) {
     console.error("[split] openSettlement totals unreadable", { cartId: id });
-    await releaseSettlement(id);
+    await releaseSettlementFor(id, uid);
     throw new Error("Couldn’t start the split — please try again");
   }
   // A $0 cart can't be paid (mirrors create-intent's "Empty cart") and would auto-settle every share
   // to 'captured' with nothing to ever trigger fulfillment — refuse it (and lift the just-taken freeze).
   if (grand.subtotalCents - grand.discountCents + grand.serviceChargeCents + grand.taxCents <= 0) {
-    await releaseSettlement(id);
+    await releaseSettlementFor(id, uid);
     throw new Error("Nothing to pay");
   }
   // ⚠️ OPEN-ITEMS **M24** — these two reads used to drop their errors on the floor, and `data ?? []`
@@ -323,7 +331,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .eq("cart_id", id);
   if (membersErr || linesErr) {
     console.error("[split] settlement derive read failed", membersErr ?? linesErr);
-    await releaseSettlement(id);
+    await releaseSettlementFor(id, uid);
     throw new Error("Couldn’t start the split — please try again");
   }
   // A voided/comped line is charged at $0 (S2.3) — exclude it so no seat pays a share of a removed/comped
@@ -368,7 +376,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .select("stripe_payment_intent_id,status,capture_started_at")
     .eq("cart_id", id);
   if (priorErr) {
-    await releaseSettlement(id); // nothing written yet, so this strands nothing
+    await releaseSettlementFor(id, uid); // nothing written yet, so this strands nothing
     console.error("[split] open could not read the prior share set", priorErr);
     throw new Error("Could not start the split");
   }
@@ -407,7 +415,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
       // hold is the best it can do. A re-open is optional — nothing has been deleted yet, so refusing
       // costs nothing, while proceeding deletes the only row that records a hold we could not prove
       // dead. Same signal, same answer as create-share-intent's 503.
-      await releaseSettlement(id); // nothing written yet, so this strands nothing
+      await releaseSettlementFor(id, uid); // nothing written yet, so this strands nothing
       console.error("[split] open could not establish a prior hold's state — refusing", {
         cartId: id,
         paymentIntent: row.stripe_payment_intent_id,
@@ -430,7 +438,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
       "seat_id,subtotal_cents,discount_cents,service_charge_cents,tax_cents,amount_cents,tip_cents,tip_rate,stripe_payment_intent_id",
     );
   if (replacedErr) {
-    await releaseSettlement(id); // don't strand a freeze over a ledger we could not clear
+    await releaseSettlementFor(id, uid); // don't strand a freeze over a ledger we could not clear
     console.error("[split] open could not clear the prior share set", replacedErr);
     throw new Error("Could not start the split");
   }
@@ -441,7 +449,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .eq("status", "captured")
     .is("stripe_payment_intent_id", null);
   if (zeroErr) {
-    await releaseSettlement(id);
+    await releaseSettlementFor(id, uid);
     console.error("[split] open could not clear the prior $0 shares", zeroErr);
     throw new Error("Could not start the split");
   }
@@ -513,7 +521,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     })),
   );
   if (error) {
-    await releaseSettlement(id); // don't strand a freeze with no shares behind it
+    await releaseSettlementFor(id, uid); // don't strand a freeze with no shares behind it
     throw new Error("Could not start the split");
   }
   // ⚠️ W11 (M1/M25) — PIN the expectation, from the SAME derivation that produced the rows above.
@@ -529,7 +537,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     .update({ settle_expected_cents: pinned })
     .eq("id", id);
   if (pinError) {
-    const releaseErr = await releaseSettlement(id);
+    const { error: releaseErr } = await releaseSettlementFor(id, uid);
     if (releaseErr) {
       // Double fault: the freeze survived over freshly-inserted shares with a STALE pin — a payable
       // settlement guaranteed to mismatch. Best-effort null the pin so the SQL degrade branch (no
@@ -566,7 +574,8 @@ export async function abortSettlement(cartId: string): Promise<void> {
   await assertMutationRate(uid); // W1·Q6 — abort churns Stripe cancels + ledger deletes; bound it
   const db = serviceClient();
 
-  // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a fresh settle_at, so any
+  // CLAIM the abort FIRST by lifting the freeze: captureAllIfReady gates on a NON-NULL settle_at (a
+  // stale one still passes once every share is authorized — see the stale arm below), so any
   // capture path that hasn't started yet now bails. (A capture already past its gate finishes + fulfills;
   // we detect that below and defer to it — money taken must always become an order.)
   //
@@ -575,8 +584,53 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // went on to cancel every hold and DELETE the share rows. A concurrent `captureAllIfReady` still sees a
   // fresh freeze, captures, and then `cartIdForPi` finds no row on the succeeded webhook: money taken,
   // no order. Nothing may be cancelled or deleted until the freeze is provably lifted.
-  const releaseError = await releaseSettlement(id);
+  //
+  // ⚠️ SCOPED TO THE HOST WHO OPENED IT, AND COUNTED (A3 · M202). The by-cart release nulled whatever
+  // freeze the row carried — including one a staff settle had since taken over, after which this
+  // abort cancelled holds and deleted rows under somebody else's mutex. `released: false` means the
+  // freeze is not ours to lift: either it is already gone (a prior abort attempt got this far —
+  // proceed, nothing can capture a null freeze) or another owner holds it FRESH, in which case the
+  // table is being settled another way and this abort must refuse rather than tear the ledger out
+  // from under it. One read separates the two; an unreadable row fails closed.
+  const { released, error: releaseError } = await releaseSettlementFor(id, uid);
   if (releaseError) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  // What THIS request took off the row — the host-scoped release, or the stale clear below. It is
+  // what a failure before anything destructive has to put back (Codex round 2 on A3, P2).
+  let lifted = released;
+  if (!released) {
+    const { data: row, error: rowErr } = await db
+      .from("qr_carts")
+      .select("settle_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (rowErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+    const foreignFresh =
+      row?.settle_at != null && new Date(row.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+    if (foreignFresh)
+      throw new Error("This table is being settled another way — try again in a moment");
+    if (row?.settle_at != null) {
+      // ⚠️ A STALE FOREIGN FREEZE IS CLEARED BEFORE ANYTHING DESTRUCTIVE (Codex round 1 on A3, P1).
+      // The first A3 draft walked past it as "it can no longer protect anything" — but
+      // `captureAllIfReady` PROCEEDS on a stale non-null freeze once every share is authorized, so
+      // a late authorization webhook could capture while this abort cancels holds and deletes the
+      // ledger: money taken, no order. The clear is stale-only by predicate
+      // (`releaseStaleSettlement`), so it can never lift a colleague's live settle; zero rows means
+      // the marker went fresh or null under us, and one more read says which.
+      const { released: cleared, error: clearErr } = await releaseStaleSettlement(id);
+      if (clearErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+      if (cleared) lifted = true;
+      if (!cleared) {
+        const { data: again, error: againErr } = await db
+          .from("qr_carts")
+          .select("settle_at")
+          .eq("id", id)
+          .maybeSingle();
+        if (againErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+        if (again?.settle_at != null)
+          throw new Error("This table is being settled another way — try again in a moment");
+      }
+    }
+  }
 
   // Same rule on the abort side: an unreadable share list is not "no captured shares". Dropping this
   // error skipped the cancel loop AND let the delete below remove rows whose holds are still live.
@@ -585,9 +639,14 @@ export async function abortSettlement(cartId: string): Promise<void> {
     .select("stripe_payment_intent_id,status,capture_started_at")
     .eq("cart_id", id);
   if (sharesErr) {
-    // Nothing has been cancelled or deleted yet, so putting the freeze back restores the exact
-    // pre-abort state. If that write ALSO fails, say so — the table is now unfrozen over live holds.
-    const refreezeErr = await refreeze(db, id, uid);
+    // Nothing has been cancelled or deleted yet. Put the freeze back ONLY if this abort lifted it —
+    // by the host-scoped release OR by clearing a stale foreign marker (Codex round 2 on A3, P2:
+    // `released` alone missed the second, leaving `settle_at` null over an intact ledger — the
+    // board unmounts, pending intents authorize with nothing to capture them, and the authorized
+    // shares block cash settlement). A claim that matched nothing (already null) has nothing to
+    // restore, and writing a fresh host freeze there would create one that did not exist (blind
+    // pass on A3). If the restore ALSO fails, say so — the table is now unfrozen over live holds.
+    const refreezeErr = lifted ? await refreeze(db, id, uid) : null;
     console.error("[split] abort share read failed", {
       error: sharesErr,
       refreezeError: refreezeErr?.message,
@@ -798,10 +857,10 @@ async function refreeze(
   // ⚠️ Round 5 — two fixes. (1) RETURN the write error: this is a compensating write, and its callers
   // now reach it precisely BECAUSE a read just failed, so it is the write most likely to fail too —
   // a silent one leaves the table unfrozen over live holds with nothing in the logs, the exact swallow
-  // this slice exists to delete. (2) Restore `settle_by`: `releaseSettlement` nulls it, and
-  // `acquireSettlement` matches on `settle_at.is.null | settle_by.eq.<uid> | settle_at.lte.<cutoff>`
-  // — so a refreeze that left it null told the ABORTING HOST "Another host is already splitting this
-  // order" for the full TTL, on his own table.
+  // this slice exists to delete. (2) Restore `settle_by`: the release nulls it, and a refreeze that
+  // left it null would leave a freeze with NO owner — one no scoped release or extend could ever
+  // reach, so it could only age out. (The same-owner re-acquire arm this restore once also served
+  // was removed by A3; the aborting host's retry now waits on the TTL like anyone else's.)
   const { error } = await db
     .from("qr_carts")
     .update({

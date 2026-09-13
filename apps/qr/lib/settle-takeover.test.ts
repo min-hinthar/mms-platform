@@ -44,11 +44,13 @@ let liveIntent: string | null = "pi_abandoned";
 let liveIntentThrows = false;
 let claimed = true;
 let pinClearFails = false;
+/** Codex round 1 on A3 — a THROW after the predecessor is proven dead (vs. a throw from the
+ *  supersede step, which leaves it unknown): the two halves of the post-claim catch. */
+let pinClearThrows = false;
 let supersedeThrows = false;
 let claimCalls: { intentId: string }[] = [];
 let probeReleases: { cartId: string; attemptId: string }[] = [];
 let acquireOwners: string[] = [];
-let released: string[] = [];
 let pinCleared: { cartId: string; intentId: string }[] = [];
 
 vi.mock("./lock", () => ({
@@ -77,16 +79,14 @@ vi.mock("./lock", () => ({
       return Promise.resolve({ claimed: false, error: { message: "postgrest down" } });
     return Promise.resolve({ claimed, error: null });
   },
-  releaseSettlement: (cartId: string) => {
-    released.push(cartId);
-    return Promise.resolve(null);
-  },
+  // `releaseSettlement` (by cart) is GONE since A3; every release names its owner.
   releaseSettlementFor: (cartId: string, attemptId: string) => {
     probeReleases.push({ cartId, attemptId });
     if (releaseForThrows) return Promise.reject(new Error("postgrest down"));
-    return Promise.resolve(null);
+    return Promise.resolve({ released: true, error: null });
   },
   releaseByIntent: (cartId: string, intentId: string) => {
+    if (pinClearThrows) throw new Error("pin clear threw");
     if (pinClearFails)
       return Promise.resolve({ released: false, error: { message: "write failed" } });
     pinCleared.push({ cartId, intentId });
@@ -125,6 +125,7 @@ beforeEach(() => {
   acquireOwners = [];
   supersedeArgs = [];
   pinClearFails = false;
+  pinClearThrows = false;
   supersedeThrows = false;
   intentFixture = {
     id: "pi_x",
@@ -134,7 +135,6 @@ beforeEach(() => {
   };
   retrieveThrows = null;
   cancelCalls = [];
-  released = [];
   pinCleared = [];
 });
 
@@ -204,18 +204,25 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(supersedeCalls).toBe(0);
   });
 
-  it("gives the freeze BACK when the supersede refuses", async () => {
-    // The claim is a real freeze on a live table. Refusing without releasing would strand every
-    // tender for the settle TTL over an attempt we decided not to touch.
+  it("HOLDS the claimed freeze when the supersede refuses on `captured` — the predecessor is charging", async () => {
+    // Codex round 1 on A3, P1 — the first A3 draft released here and that was a regression: reaching
+    // this arm means the diner's pay lock is STALE, so the claimed freeze is the only thing
+    // `paymentInFlightReason` still honours, and `captured` means the card is charging with its
+    // webhook not yet landed. Released, a diner could edit the cart or the counter clear the table
+    // before the webhook snapshotted the order. Held under the request-unique owner, the next
+    // attempt is refused as `settling_other` until the TTL — and cannot double-mint (M201).
     acquireResults = ["locked_stale"];
     supersedeResult = "captured";
     expect(await takeover("c", "u")).toBe("paying");
-    // ⚠️ NOTHING IS RELEASED, and that is the rule (Codex rounds 8/10/11/12/13). Three
-    // discriminators were tried — owner, owner+era, cart — and each was falsified. The claimed
-    // freeze is held to the settle TTL until M201 gives it a request-unique owner.
-    expect(released).toEqual([]);
     expect(probeReleases).toEqual([]);
     expect(pinCleared).toEqual([]); // a captured attempt keeps its pin — the webhook reconciles it
+  });
+
+  it("HOLDS the claimed freeze on `unknown` too — we could not tell, and unknown may be charging", async () => {
+    acquireResults = ["locked_stale"];
+    supersedeResult = "unknown";
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(probeReleases).toEqual([]);
   });
 
   it("answers `unavailable` when a step THROWS instead of returning", async () => {
@@ -307,26 +314,33 @@ describe("acquireSettlementSuperseding — M197", () => {
     expect(supersedeArgs).toEqual([{ cartId: "c", intentId: "pi_abandoned" }]);
   });
 
-  it("releases the claimed freeze when a post-claim step THROWS", async () => {
-    // Codex round 3, P2. Once the claim lands the freeze blocks every tender; converting a throw to
-    // `unavailable` while holding it stranded the table for the settle TTL over a step that never
-    // ran. `supersedeSettlementIntent` calls `getStripe()`, which throws on a missing key.
+  it("HOLDS the claimed freeze when the supersede step itself THROWS — the predecessor's state is unknown", async () => {
+    // Codex round 1 on A3, P1 — the same rule as the refused arm: a throw from the cancel leaves
+    // the intent's state unknown, and unknown may be charging. `supersedeSettlementIntent` calls
+    // `getStripe()`, which throws on a missing key — Stripe unreachable mid-cancel.
     acquireResults = ["locked_stale"];
     supersedeThrows = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    // ⚠️ NOTHING IS RELEASED, and that is the rule (Codex rounds 8/10/11/12/13). Three
-    // discriminators were tried — owner, owner+era, cart — and each was falsified. The claimed
-    // freeze is held to the settle TTL until M201 gives it a request-unique owner.
-    expect(released).toEqual([]);
     expect(probeReleases).toEqual([]);
   });
 
+  it("releases the claimed freeze when a step AFTER the predecessor is proven dead throws", async () => {
+    // Codex round 3, P2, narrowed by round 1 on A3: once the cancel has returned `cleared` nothing
+    // is charging under this freeze, so a throw from the pin clear must not strand the table for
+    // the settle TTL. Released under THIS request's owner (A3 · M201).
+    acquireResults = ["locked_stale"];
+    pinClearThrows = true;
+    expect(await takeover("c", "u")).toBe("unavailable");
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+  });
+
   it("does NOT release a freeze it never claimed", async () => {
-    // The other direction: a throw BEFORE the claim must not null a freeze someone else holds.
+    // The other direction: a throw BEFORE the claim must not release anything — even scoped, a
+    // release here is a write we have no reason to make.
     acquireResults = ["locked_stale"];
     liveIntentThrows = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    expect(released).toEqual([]);
+    expect(probeReleases).toEqual([]);
   });
 
   it("REFUSES to settle when the cancelled attempt's pin cannot be cleared", async () => {
@@ -336,11 +350,39 @@ describe("acquireSettlementSuperseding — M197", () => {
     acquireResults = ["locked_stale"];
     pinClearFails = true;
     expect(await takeover("c", "u")).toBe("unavailable");
-    // ⚠️ NOTHING IS RELEASED, and that is the rule (Codex rounds 8/10/11/12/13). Three
-    // discriminators were tried — owner, owner+era, cart — and each was falsified. The claimed
-    // freeze is held to the settle TTL until M201 gives it a request-unique owner.
-    expect(released).toEqual([]);
-    expect(probeReleases).toEqual([]);
+    // Released under THIS request's owner (A3 · M201) — see "gives the freeze BACK" above.
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+  });
+
+  it("every post-claim release names the OWNER, never the cart (A3 · M202)", async () => {
+    // The scoping is the whole property: a release keyed on the cart id matches everyone, and a
+    // release keyed on a constant matches two concurrent requests on one cart. The owner is the
+    // caller's request-unique id, passed straight through.
+    acquireResults = ["locked_stale"];
+    pinClearFails = true; // a releasing exit — the predecessor is proven dead, the pin clear failed
+    expect(await takeover("c", "owner-9f3a")).toBe("unavailable");
+    expect(probeReleases).toHaveLength(1);
+    expect(probeReleases[0]!.attemptId).toBe("owner-9f3a");
+    expect(probeReleases[0]!.attemptId).not.toBe("c");
+  });
+
+  it("a THROWING diagnosing acquire releases under the owner and answers `unavailable` (M201 (c))", async () => {
+    // The first acquire is a settlement WRITE that sat outside every catch: `acquireSettlement`
+    // throws AFTER its UPDATE may have applied, so the row could carry `settle_by = owner` while the
+    // Server Action rejected and the staff control latched on `busy`. The Terminal met its own
+    // orphan as `settling_other` on every retry until the TTL. Safe to release on every outcome for
+    // the stand-down's reason: the owner is unique, so the scope reaches our row or nothing.
+    acquireThrowsFromCall = 0;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
+    expect(supersedeCalls).toBe(0);
+    expect(claimCalls).toEqual([]);
+  });
+
+  it("a diagnosing-acquire throw whose release ALSO throws still answers `unavailable`, never rejects", async () => {
+    acquireThrowsFromCall = 0;
+    releaseForThrows = true;
+    await expect(takeover("c", "u")).resolves.toBe("unavailable");
   });
 });
 
@@ -418,12 +460,10 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
   });
 
   it("probes under a UNIQUE owner, never the caller's uid", async () => {
-    // Two things ride on this. The release is scoped by `settle_by`, so a probe uuid is what makes
-    // it provably OURS — `releaseSettlement(cartId)` is unconditional by cart and would null the
-    // WINNER's freeze, the very request we stood down for. And a unique owner cannot match
-    // `acquireSettlement`'s `settle_by.eq.<uid>` arm, so a stand-down can only ever acquire a cart
-    // that is genuinely free: the promotion this function exists to prevent becomes structurally
-    // impossible rather than suppressed after the fact.
+    // The release is scoped by `settle_by`, so a probe uuid is what makes it provably OURS — a
+    // by-cart release would null the WINNER's freeze, the very request we stood down for. (Since
+    // A3 there is no same-owner arm in `acquireSettlement` for the probe to dodge; its uniqueness
+    // still carries the release.)
     acquireResults = ["locked_stale", "acquired"];
     liveIntent = null;
     await takeover("c", "u");
@@ -451,11 +491,10 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
   it("releases under the probe even when it did NOT acquire, and never cart-wide", async () => {
     // The winner holds the freeze. What protects it is that the release names a uuid the winner
     // cannot have — not that we abstain — so the release is safe to attempt on every outcome and
-    // matches zero rows here. `releaseSettlement` (cart-wide) is the catastrophe this design avoids.
+    // matches zero rows here. A cart-wide release is the catastrophe this design avoids.
     acquireResults = ["locked_stale", "settling_other"];
     liveIntent = null;
     expect(await takeover("c", "u")).toBe("settling_other");
-    expect(released).toEqual([]);
     expect(probeReleases).toHaveLength(1);
     expect(probeReleases[0]!.attemptId).not.toBe("c");
     expect(probeReleases[0]!.attemptId).not.toBe("u");
@@ -498,8 +537,7 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
     acquireThrowsFromCall = 1;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
     expect(probeReleases).toHaveLength(1);
-    // Scoped to the probe, never the cart: the unconditional form would null the winner's freeze.
-    expect(released).toEqual([]);
+    // Scoped to the probe, never the cart: a by-cart form would null the winner's freeze.
     expect(probeReleases[0]!.attemptId).not.toBe("c");
     expect(probeReleases[0]!.attemptId).not.toBe("u");
   });
@@ -510,18 +548,18 @@ describe("standDown — a diagnosis must not leave a freeze behind (Codex round 
    * the file: the claim carries no same-owner arm, so the retry this verdict invites cannot reclaim
    * its own orphan and every tender is blocked for the settle TTL.
    */
-  it("REFUSES to clean up an ambiguous claim, because `uid` is not request-unique", async () => {
-    // Codex round 10 asked for this cleanup; round 11 showed it is a REGRESSION, and it shipped in
-    // between. `staff-cart.ts` passes `caller.uid` at both call sites, so a release under `uid` from
-    // request B matches same-staff request A's live claim and strips A's mutex mid-charge. A
-    // self-healing TTL freeze is strictly better than an unprotected concurrent settle. The real fix
-    // is a request-unique claim owner — M201 — and this asserts we do NOT approximate it.
+  it("cleans up an ambiguous claim UNDER THE OWNER — sound only because the owner is request-unique (M201 (b))", async () => {
+    // Codex round 10 asked for this cleanup; round 11 showed it was a REGRESSION while
+    // `staff-cart.ts` passed `caller.uid`: a release under a SHARED owner from request B matched
+    // same-staff request A's live claim and stripped A's mutex mid-charge. A3 made every owner a
+    // per-request uuid, so the sibling row cannot exist and the release reaches our row or nothing
+    // — the same scoping argument the probe makes. The orphan this closes blocked every tender for
+    // the settle TTL, because the claim carries no same-owner arm for a retry to reclaim it.
     acquireResults = ["locked_stale"];
     liveIntent = "pi_abandoned";
     claimErrors = true;
     await expect(takeover("c", "u")).resolves.toBe("unavailable");
-    expect(probeReleases).toEqual([]);
-    expect(released).toEqual([]);
+    expect(probeReleases).toEqual([{ cartId: "c", attemptId: "u" }]);
   });
 
   it("does not supersede or clear a pin on an ambiguous claim — only the freeze is given back", async () => {

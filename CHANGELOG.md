@@ -4,6 +4,88 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
+
+**The counter's double-mint was a shared owner, not a missing discriminator.** `settleCash` and
+`closeSecureTab` keyed the table-wide settlement freeze on `caller.uid`, and `acquireSettlement`
+carried a `settle_by.eq.<uid>` re-acquire arm — a re-open door for the host's split that the
+counter inherited by accident. Two same-staff requests were byte-identical on the row, so the
+second matched on the freeze the first had just written; cash survived only because the settle
+RPC de-duplicates downstream, and `closeSecureTab` minted two off-session PaymentIntents under
+per-attempt idempotency keys. Four consecutive fixes on #275 each MOVED that hole because the arm
+stayed, and three attempts to write a safe release — by owner, by owner+era, by cart — were each
+falsified for the same reason, so the supersede module HELD a claimed freeze to the settle TTL as
+its doctrine. Every live caller now mints `crypto.randomUUID()` per request (the Terminal always
+did; the parked split door keys on the host's seat and is recorded as the exception on
+`SURFACES`), the arm is removed rather than argued around, and every path that could not release before
+releases under the owner: a refused supersede, a failed pin clear, a post-claim throw, the
+AMBIGUOUS claim (shipped and reverted across rounds 10/11), and the diagnosing acquire that sat
+outside every catch.
+
+**The unconditional-by-cart release no longer exists.** `releaseSettlement(cartId)` nulled whatever
+freeze the row carried at seventeen sites (the sixteen M202 counted, plus the fulfilment's), and between an acquire and its release the row can change
+owner — after which the release strips the successor's mutex, which `captureAllIfReady` tolerates
+stale but can never revive null. Every release names the owner it acquired under and returns its
+affected-row COUNT, so the split abort refuses past a claim it did not land (a fresh foreign
+freeze) and proceeds past a null or stale one; the fulfilment's post-`paid` release is
+`releaseSettlementOfSettledCart`, whose predicate refuses an open cart rather than a comment.
+
+**Extends are scoped and they REPORT.** `extendSettlementFor(cartId, owner)` answers `{ extended }`
+where the old form was `Promise<void>` over a zero-row update that postgrest reports as
+`{ error: null }`. The Terminal poll acts on it: a mutex lost mid-collect abandons the attempt —
+reader first, then the PaymentIntent — and reports `failed` with copy that says what happened, or
+`succeeded` when the cancel is refused because the tap already won; captured-but-unfulfilled it
+logs loudly under the attempt. `create-share-intent` extends under the host's `settleBy` BEFORE
+minting and 409s when nothing was extended, stamping `settleOwner` so the authorization webhook
+extends the same freeze or none — the "rides a freeze it never wrote" half of M203, closed from the
+writer's side. The webhook's generic decline arm scopes by `settleAttempt`, the key the Terminal
+always stamped; `closedByUid` — the shared staff uid, the residual M201 named — is not read at all.
+
+Reopening the parked split is no longer a one-line flip: its same-host re-open rode the removed
+arm. `SURFACES` records the shape that restores it (release-own-then-acquire, never the arm).
+
+Guards: 26 new mutants, 8 rewritten and 8 re-anchored (**636** across 112 modules); the takeover suite's three
+held-freeze assertions flipped to owner-scoped releases; a parsed owner-binding guard on both staff
+settles (the acquire's argument is a local bound to `crypto.randomUUID()`, every release names it,
+the tab close stamps it); a value test that the cash owner is a uuid, not `caller.uid`, and unique
+per request; the extend and both release query shapes pinned, `.neq("status", "open")` included.
+
+**The blind adversarial pass on this diff returned REJECT with two CRITICALs, both in the Terminal's
+new arm, both real and both fixed before the PR opened.** (1) `abandonAttempt`'s catch-all read
+every refused cancel as "the tap already won", and the poll reported `succeeded` with a dollar
+total for money never taken — Stripe answers `payment_intent_unexpected_state` for an already-
+canceled intent exactly as for a succeeded one, and a transport failure says nothing. It now
+re-reads the intent and answers only what its state says: `too_late`, `canceled`, or `unknown`
+(a poll miss, never a paid state). (2) A DB OUTAGE on the extend (`extended: false` with an error)
+was read as a lost mutex: it cancelled a live tap and told staff the hold "was lost … being
+settled another way" — a fabricated diagnosis. An error is a poll miss now, and a genuine zero-row
+extend first RE-ACQUIRES under the same attempt, so a freeze that merely aged out with nobody
+taking it (a backgrounded tablet) resumes rather than abandons; only a refusal abandons. Also from
+that pass: the split abort no longer refreezes a freeze it never released. Four mutants pin the
+fixes — the outage read as a lost mutex, the refused cancel read as paid, the aged-out freeze
+abandoned without a re-acquire, and the abort refreezing what it never released — each watched red.
+
+**Codex round 1 (on `9744800`) returned two P1s and two P2s; all four verified real and fixed.**
+(P1) **A refused supersede released the claimed freeze — a regression this very PR introduced.**
+The first draft gave the freeze back on `captured`/`unknown`, reasoning that a request-unique owner
+made the release safe. It is safe against the sibling-request hole (M201) and wrong for the reason
+the hold always existed: reaching that arm means the diner's pay lock is already STALE, so the
+claimed freeze is the only thing `paymentInFlightReason` still honours, and `captured` means the
+predecessor is charging with its webhook not yet landed — released, a diner could edit the cart or
+the counter clear the table before the webhook snapshotted the order. Held now, under the unique
+owner, to the TTL: the next attempt is refused as `settling_other` and cannot double-mint. The
+post-claim catch splits the same way — a throw BEFORE the predecessor is proven dead holds, a
+throw after (the pin clear) releases. (P1) **The split abort walked past a STALE foreign freeze**,
+and `captureAllIfReady` proceeds on a stale non-null freeze once every share is authorized — a
+late authorization webhook could capture while the abort cancelled holds and deleted the ledger.
+`releaseStaleSettlement` (stale-only by predicate, the second and last owner-less release) clears
+the marker before anything destructive; zero rows re-reads and refuses if it went fresh. (P2)
+**`processing` was folded into `too_late`**, so the poll reported `succeeded` on a charge that can
+still fail — it is its own answer now and the poll keeps collecting. (P2) **Two overlapping polls of
+one attempt**: the second's re-acquire is refused (no same-owner arm, by design) and read that as
+another owner, cancelling a valid tap the first poll had just resumed — `settlementHeldBy`, a READ
+of ownership, separates the two without restoring the arm. Four new mutants, two retargeted.
+
 ### A7b — the Google sign-in dead end, and the carry it was destroying (2026-09-09)
 
 **The owner's report was right and this repo's diagnosis of it was wrong.** `docs/OPEN-ITEMS.md` C21

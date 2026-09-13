@@ -822,7 +822,10 @@ export async function POST(req: NextRequest) {
       // freeze (the generic branch below is unconditional-by-cart — the exact era hazard the W6c
       // review confirmed HIGH for reader flows, where cancel→retry cycles are routine).
       try {
-        const settleErr = await releaseSettlementFor(cartId, intent.metadata.settleAttempt);
+        const { error: settleErr } = await releaseSettlementFor(
+          cartId,
+          intent.metadata.settleAttempt,
+        );
         if (settleErr)
           console.error("[stripe webhook] terminal decline release failed", {
             cartId,
@@ -867,15 +870,15 @@ export async function POST(req: NextRequest) {
       // including one a staff settle was actively relying on. `closeSecureTab` names the freeze,
       // not its idempotency key, as its concurrent double-charge guard.
       //
-      // A predicate DOES exist: `closeSecureTab` already stamps `closedBy: "staff"`, and now also
-      // the freeze owner (`closedByUid` — the intent previously carried only `closedByStaffId`,
-      // which is attribution, while the freeze is held under `caller.uid`). So this arm releases
-      // exactly the owner the event belongs to, or nothing at all. A diner intent releases NOTHING,
-      // which is correct: it never held this mutex. That makes this arm consistent with the Terminal
-      // arm above, which has always used `releaseSettlementFor`.
+      // A predicate DOES exist: `closeSecureTab` already stamps `closedBy: "staff"`, and the freeze
+      // owner — `settleAttempt`, a per-request uuid since A3 (the intent previously carried only
+      // `closedByStaffId`, which is attribution, and between #275 and A3 the shared staff uid). So
+      // this arm releases exactly the owner the event belongs to, or nothing at all. A diner intent
+      // releases NOTHING, which is correct: it never held this mutex. That makes this arm consistent
+      // with the Terminal arm above, which has always used `releaseSettlementFor`.
       //
       // Still best-effort and still logged: an outage here must not be invisible, and an intent from
-      // an older deploy (no `closedByUid`) resolves to `null` and heals on the TTL as before.
+      // an older deploy (no `settleAttempt`) resolves to `null` and heals on the TTL as before.
       //
       // ⚠️ Pre-merge review — the try/catch is what KEEPS the 200 the paragraph above argues for.
       // Dropping the old `.catch(() => {})` when these started returning their error left a throw
@@ -899,7 +902,7 @@ export async function POST(req: NextRequest) {
         // automatic-capture idempotency key can leave naming an era the cart no longer has.
         const settleOwner = settleReleaseOwner(intent.metadata);
         if (settleOwner) {
-          const settleErr = await releaseSettlementFor(cartId, settleOwner);
+          const { error: settleErr } = await releaseSettlementFor(cartId, settleOwner);
           if (settleErr)
             console.error("[stripe webhook] payment_failed settle release failed", {
               cartId,
@@ -958,7 +961,7 @@ export async function POST(req: NextRequest) {
       // a successor's freeze, while genuinely-orphaned attempts (a closed register tab, a failed
       // in-action release) still get cleaned. Best-effort, 200-ack; the TTL remains the backstop.
       try {
-        const settleErr = await releaseSettlementFor(
+        const { error: settleErr } = await releaseSettlementFor(
           intent.metadata.cartId,
           intent.metadata.settleAttempt,
         );

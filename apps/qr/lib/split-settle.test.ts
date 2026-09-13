@@ -66,33 +66,68 @@ function chain(table: string, patch: Record<string, unknown>) {
   return api;
 }
 
+/** A3 — the share the authorization resolves to, so the extend after the mark is reachable. */
+let shareCartId: string | null = null;
+/** Codex round 2 on A3 — the cart row the ownership re-read sees after a zero-row extend. */
+let cartRow: { settle_at: string | null; settle_by: string | null } | null = null;
+let cartRowError: { message: string } | null = null;
+/** Every SELECT the module ran, by table and columns — `captureAllIfReady` announces itself by
+ *  its own column list, so "was a capture attempted?" is a question about the query, not a mock. */
+const selects: { table: string; cols: string }[] = [];
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
       update: (patch: Record<string, unknown>) => chain(table, patch),
-      select: () => ({
-        eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }),
-      }),
+      select: (cols: string) => {
+        selects.push({ table, cols });
+        return {
+          eq: () => ({
+            maybeSingle: () =>
+              Promise.resolve(
+                table === "qr_carts"
+                  ? { data: cartRowError ? null : cartRow, error: cartRowError }
+                  : {
+                      data:
+                        table === "qr_cart_shares" && shareCartId ? { cart_id: shareCartId } : null,
+                      error: null,
+                    },
+              ),
+          }),
+        };
+      },
     }),
   }),
 }));
+const captureAttempted = () =>
+  selects.some((s) => s.table === "qr_carts" && s.cols.startsWith("status,settle_at"));
 
 // The PaymentIntent `onShareFailed` will retrieve, and an optional error to throw instead.
 let piStatus = "requires_payment_method";
+let piMetadata: Record<string, string> = {};
 let retrieveError: unknown = null;
 vi.mock("./stripe", () => ({
   getStripe: () => ({
     paymentIntents: {
       retrieve: () =>
-        retrieveError ? Promise.reject(retrieveError) : Promise.resolve({ status: piStatus }),
+        retrieveError
+          ? Promise.reject(retrieveError)
+          : Promise.resolve({ status: piStatus, metadata: piMetadata }),
     },
   }),
 }));
 
-// `onShareAuthorized` calls these after its mark; they are not what these tests pin.
+// `onShareAuthorized` calls these after its mark. The extend's OWNER is what A3 pins.
+const extendCalls: { cartId: string; owner: string }[] = [];
+let extendResult: { extended: boolean; error: { message: string } | null } = {
+  extended: true,
+  error: null,
+};
 vi.mock("./lock", () => ({
-  extendSettlement: () => Promise.resolve(),
-  releaseSettlement: () => Promise.resolve(null),
+  extendSettlementFor: (cartId: string, owner: string) => {
+    extendCalls.push({ cartId, owner });
+    return Promise.resolve(extendResult);
+  },
+  releaseSettlementOfSettledCart: () => Promise.resolve(null),
 }));
 // T20 — the TTLs live in `./lock-ttl` now. Left UNMOCKED on purpose: these two values already equal
 // production, so stubbing them was a transcribed copy of a number whose source has since changed
@@ -105,6 +140,13 @@ beforeEach(() => {
   piStatus = "requires_payment_method";
   retrieveError = null;
   updateResult = { data: [{ status: "x" }], error: null };
+  piMetadata = {};
+  shareCartId = null;
+  extendCalls.length = 0;
+  extendResult = { extended: true, error: null };
+  cartRow = null;
+  cartRowError = null;
+  selects.length = 0;
 });
 
 const marked = () => calls.filter((c) => c.patch.status === "failed");
@@ -205,5 +247,97 @@ describe("onShareAuthorized — a declined share must be able to come back", () 
     piStatus = "requires_capture";
     updateResult = { data: null, error: { message: "fetch failed" } };
     await expect(onShareAuthorized("pi_1")).rejects.toThrow(/mark failed/);
+  });
+});
+
+describe("onShareAuthorized — the extend is scoped to the share's OWNER, never the row's (A3 · M203)", () => {
+  it("extends under `settleOwner` from the share's own metadata", async () => {
+    // `create-share-intent` stamps the host's freeze owner it extended under BEFORE minting, so this
+    // extends the SAME freeze or nothing — never whatever `settle_by` happens to hold by now.
+    piStatus = "requires_capture";
+    piMetadata = { settleOwner: "host-uid-1" };
+    shareCartId = "cart-1";
+    await onShareAuthorized("pi_1");
+    expect(extendCalls).toEqual([{ cartId: "cart-1", owner: "host-uid-1" }]);
+  });
+
+  it("extends NOTHING for a share minted without an owner — and captures nothing it cannot prove is its own", async () => {
+    piStatus = "requires_capture";
+    piMetadata = {};
+    shareCartId = "cart-1";
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(extendCalls).toEqual([]);
+    expect(warn.mock.calls.some(([m]) => String(m).includes("no settleOwner"))).toBe(true);
+    expect(captureAttempted()).toBe(false);
+    warn.mockRestore();
+  });
+});
+
+describe("onShareAuthorized — a zero-row extend is a LOST settlement only when another owner holds the freeze (Codex round 2 on A3, P1)", () => {
+  const setup = () => {
+    piStatus = "requires_capture";
+    piMetadata = { settleOwner: "host-uid-1" };
+    shareCartId = "cart-1";
+    extendResult = { extended: false, error: null };
+  };
+
+  it("does NOT capture when the freeze is another owner's — a cash/reader settle took the table", async () => {
+    // `captureAllIfReady` gates only on a non-null `settle_at`, so the counter's fresh freeze would
+    // pass it and every authorized share would be captured while staff collect the whole bill.
+    setup();
+    cartRow = { settle_at: new Date().toISOString(), settle_by: "attempt-b" };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(captureAttempted()).toBe(false);
+    expect(warn.mock.calls.some(([m]) => String(m).includes("another owner"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("does NOT capture under a STALE foreign freeze either — its owner may come back and settle by cash", async () => {
+    setup();
+    cartRow = {
+      settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      settle_by: "attempt-b",
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(captureAttempted()).toBe(false);
+    vi.restoreAllMocks();
+  });
+
+  it("still captures when the freeze is this share's own settlement that merely aged out — captureAllIfReady's stale arm decides", async () => {
+    setup();
+    cartRow = {
+      settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      settle_by: "host-uid-1",
+    };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(captureAttempted()).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("still reaches captureAllIfReady when the freeze is null — a null freeze captures nothing by its own gate", async () => {
+    setup();
+    cartRow = { settle_at: null, settle_by: null };
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    await onShareAuthorized("pi_1");
+    expect(captureAttempted()).toBe(true);
+    vi.restoreAllMocks();
+  });
+
+  it("throws on an extend OUTAGE so Stripe redelivers — an unreadable freeze is not a lost settlement", async () => {
+    setup();
+    extendResult = { extended: false, error: { message: "connection reset" } };
+    await expect(onShareAuthorized("pi_1")).rejects.toThrow(/extend failed/);
+    expect(captureAttempted()).toBe(false);
+  });
+
+  it("throws when the ownership re-read fails — it neither captures nor 200-ACKs blind", async () => {
+    setup();
+    cartRowError = { message: "connection reset" };
+    await expect(onShareAuthorized("pi_1")).rejects.toThrow(/re-read failed/);
+    expect(captureAttempted()).toBe(false);
   });
 });

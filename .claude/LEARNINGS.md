@@ -2134,3 +2134,78 @@ Two corollaries worth keeping:
 - **When the timing fix and the test's thesis coincide, write the thesis.** The wedged-lock test
   needed the button re-enabled before its second press; "the card is handed back" is exactly what
   that test exists to prove, so it is now an assertion rather than an assumption the sleep hid.
+
+## #109
+
+**When a safe release cannot be written, ask what the OWNER is before trying a fourth
+discriminator.** (A3, closing M201 · M202 · M203 — the settlement freeze.)
+
+Five Codex rounds on #275 each falsified a release of a claimed settlement freeze: by owner, a
+same-staff sibling's row was byte-identical; by owner + era, a share route rode a freeze it never
+wrote; by cart, everyone matched. The module concluded — correctly, given its inputs — that no safe
+release existed, HELD the freeze to the settle TTL, and wrote that down as doctrine with a mutant
+guarding it. Every one of those rounds was reasoning about the _discriminator_. The defect was the
+_owner_: `settleCash` and `closeSecureTab` passed `caller.uid`, which every request by that person
+shares, while `terminal.ts` beside them had minted `crypto.randomUUID()` per request from the start.
+Once the owner is unique, "release under the owner" is provably scoped — the same argument the
+stand-down probe already made for itself two functions down — and all five held paths become
+one-line releases. The row (M201) said so; the fix was to believe it rather than approximate it.
+
+The shape to recognise: a scoping predicate that is _correct_ against a value that is _not unique
+enough for the predicate to mean anything_. Signs you are in it —
+
+1. Successive fixes each "move the hole" rather than close it, and each is locally right.
+2. The safe alternative is to _withhold_ an action (hold to a TTL, fail closed) and call that a
+   doctrine — a cost accepted because no discriminator works.
+3. A sibling call site already does it right with a different key, and nobody asked why.
+
+And two things the fix taught about _removal_:
+
+- **Delete the primitive, not just its callers.** The by-cart `releaseSettlement` had sixteen
+  callers and one sound use; scoping the sixteen and leaving the export would have left a helper
+  that exists to be reached for. The one sound use got a name that carries its invariant
+  (`releaseSettlementOfSettledCart`) and a predicate that enforces it (`status <> 'open'`), so the
+  next reader cannot call it wrongly without the SQL refusing.
+- **A removed arm has consumers you did not name.** The same-owner re-acquire arm was the counter's
+  double-mint AND the split's legitimate same-host re-open. Removing it is right — the split is
+  parked — but "parked, reopens with a one-line flip" stopped being true the moment the arm went,
+  and that has to be written where the flip lives (`SURFACES`), not discovered on the flip.
+
+## #110
+
+**A hold you dissolve because its OWNER was wrong may have existed for a different reason — ask
+what the hold was protecting before you release it.** (A3, Codex round 1 on #280 — a P1 that this
+very PR introduced.)
+
+#109 was right that the held-freeze doctrine in `supersede.ts` was written around the wrong owner,
+and once owners were request-unique every "cannot release safely" arm became a scoped release. One
+of those arms was wrong to convert, and Codex found it in a round: the REFUSED supersede
+(`captured` / `unknown`). Its hold was never about the owner. Reaching that arm means the diner's
+pay lock is already stale, so the claimed freeze is the only thing `paymentInFlightReason` still
+honours — and `captured` means the predecessor is charging with its webhook not yet landed.
+Released, a diner could edit the cart, or the counter clear the table, before the webhook
+snapshotted the order. Held to the TTL under the UNIQUE owner, the next attempt is refused as
+`settling_other` and cannot double-mint — which is what A3 actually needed. Two reasons for one
+hold; the fix for one was a regression for the other.
+
+The shape: a rule you are deleting because its stated rationale is wrong. Before deleting, list
+every consequence the rule had, not just the one its comment names — a hold, a refusal, a fail-closed
+path protects against whatever it happens to block, and a second reason may have grown under it
+unwritten. The tell here: the arm's own test comment argued about the owner; nobody re-asked what
+the freeze was blocking. (The post-claim catch had the same split hidden in it — a throw BEFORE the
+predecessor is proven dead is a different animal from a throw after — and now carries a flag that
+says which.)
+
+## #111
+
+**A patch script that anchors an INSERTION on text the insertion does not change is not idempotent
+— re-running it inserts again, and the second copy typechecks fine right up to `tsc`.** (A4·1, the
+audit-fix script.)
+
+The script guarded replacements with "old absent and new present → already applied", which is
+correct for a replacement and useless for an insertion: `rep(s, anchor, anchor + block)` sees the
+anchor still there on the second run and inserts the block a second time. Three files gained
+duplicate exports; prettier formatted both copies identically; only `tsc` (redeclared variable) and
+a duplicated test title said so. Guard an insertion by the NEW text (`if block in s: skip`), and
+never let a partially-applied script be re-run from the top without that guard — an abort halfway
+(one bad anchor) is exactly when you re-run it.

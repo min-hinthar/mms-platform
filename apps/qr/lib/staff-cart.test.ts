@@ -65,9 +65,18 @@ vi.mock("./staff", () => ({
   STAFF_WRITE_OUTAGE: "outage",
 }));
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
+/** A3 — the owner each settle acquires and releases under, recorded so uniqueness is a VALUE. */
+const acquireOwners: string[] = [];
+const releaseOwners: string[] = [];
 vi.mock("./lock", () => ({
-  acquireSettlement: () => Promise.resolve("acquired"),
-  releaseSettlement: () => Promise.resolve(null),
+  acquireSettlement: (_cartId: string, owner: string) => {
+    acquireOwners.push(owner);
+    return Promise.resolve("acquired");
+  },
+  releaseSettlementFor: (_cartId: string, owner: string) => {
+    releaseOwners.push(owner);
+    return Promise.resolve({ released: true, error: null });
+  },
 }));
 vi.mock("./totals", () => ({ getCartTotals: () => Promise.resolve(null) }));
 vi.mock("./posthog-server", () => ({ getPostHogClient: () => ({ capture() {}, flush() {} }) }));
@@ -80,40 +89,44 @@ let sessionMode = "pickup";
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: (table: string) => ({
-      select: () => ({
-        eq: (_c: string, _v: unknown) => ({
-          maybeSingle: () =>
-            Promise.resolve(
-              table === "table_sessions"
-                ? { data: { id: SESSION, status: "active", mode: sessionMode }, error: null }
-                : { data: null, error: null },
-            ),
-          eq: () => ({
-            maybeSingle: () =>
-              Promise.resolve(
-                table === "qr_carts"
-                  ? {
-                      data: {
-                        id: "cart-1",
-                        locked: false,
-                        locked_at: null,
-                        settle_at: null,
-                        tab_type: "none",
-                      },
-                      error: null,
-                    }
-                  : { data: null, error: null },
-              ),
-          }),
-        }),
-      }),
+      select: (_cols?: string, opts?: { count?: string; head?: boolean }) =>
+        opts?.head
+          ? // settleCash's line count — one line, so the settle reaches the freeze.
+            { eq: () => Promise.resolve({ count: 1, error: null }) }
+          : {
+              eq: (_c: string, _v: unknown) => ({
+                maybeSingle: () =>
+                  Promise.resolve(
+                    table === "table_sessions"
+                      ? { data: { id: SESSION, status: "active", mode: sessionMode }, error: null }
+                      : { data: null, error: null },
+                  ),
+                eq: () => ({
+                  maybeSingle: () =>
+                    Promise.resolve(
+                      table === "qr_carts"
+                        ? {
+                            data: {
+                              id: "cart-1",
+                              locked: false,
+                              locked_at: null,
+                              settle_at: null,
+                              tab_type: "none",
+                            },
+                            error: null,
+                          }
+                        : { data: null, error: null },
+                    ),
+                }),
+              }),
+            },
     }),
   }),
 }));
 
 const SESSION = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
-const { staffAddItem } = await import("./staff-cart");
+const { staffAddItem, settleCash } = await import("./staff-cart");
 
 beforeEach(() => {
   priceItemCalls.length = 0;
@@ -272,7 +285,7 @@ describe("closeSecureTab — the freeze is the double-charge guard, so an UNKNOW
     // Exactly ONE statement in the catch may release, it must be an `if`, and its condition must be
     // the bare predicate identifier — not a literal, not a negation, not some other boolean.
     const releasing = catchBlock().statements.filter((st) =>
-      st.getText().includes("releaseSettlement("),
+      st.getText().includes("releaseSettlementFor("),
     );
     expect(releasing).toHaveLength(1);
     const gate = releasing[0]!;
@@ -282,7 +295,131 @@ describe("closeSecureTab — the freeze is the double-charge guard, so an UNKNOW
     expect((cond as ts.Identifier).text).toBe(predName);
     // And the release is the THEN branch, not the else — `if (declined) {} else release()` would
     // read as guarded while shipping the inversion.
-    expect((gate as ts.IfStatement).thenStatement.getText()).toContain("releaseSettlement(");
+    expect((gate as ts.IfStatement).thenStatement.getText()).toContain("releaseSettlementFor(");
     expect((gate as ts.IfStatement).elseStatement).toBeUndefined();
+  });
+});
+
+describe("settleCash — the freeze owner is REQUEST-UNIQUE, never the staff uid (A3 · M201)", () => {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  it("acquires under a fresh uuid, releases under the SAME id, and never under `caller.uid`", async () => {
+    // Under `caller.uid` two same-staff requests were byte-identical on the row, and the acquire's
+    // same-owner arm admitted the second on the freeze the first had just written. The uid is what
+    // the mocked gate answers ("u-1"); the owner must be something no other request can hold.
+    acquireOwners.length = 0;
+    releaseOwners.length = 0;
+    await settleCash({ sessionId: SESSION, tipCents: 0 });
+    expect(acquireOwners).toHaveLength(1);
+    expect(acquireOwners[0]).toMatch(UUID_RE);
+    expect(acquireOwners[0]).not.toBe("u-1");
+    // …and the `finally` release names exactly that owner, so it can never null a successor's freeze.
+    expect(releaseOwners).toEqual([acquireOwners[0]]);
+    // ⚠️ UNIQUE PER REQUEST, NOT MERELY "NOT THE UID": a constant would pass the line above and
+    // collide across two concurrent settles on one table.
+    await settleCash({ sessionId: SESSION, tipCents: 0 });
+    expect(acquireOwners[1]).not.toBe(acquireOwners[0]);
+  });
+});
+
+describe("the freeze-owner binding, PARSED — bound to crypto.randomUUID(), and every release and stamp reads it (A3)", () => {
+  /**
+   * `closeSecureTab`'s owner cannot be reached by value here (it needs a secure-tab row, a totals
+   * read and a live Stripe before the mint), so the rule is asserted on the DECISION CHAIN, the
+   * way the catch-block guard above is: the identifier the acquire receives, the declaration that
+   * binds it, and every consumer of it. A scan for the string `randomUUID` would be satisfied by a
+   * comment; this walks nodes.
+   */
+  const source = () => {
+    const abs = path.join(__dirname, "staff-cart.ts");
+    return ts.createSourceFile(abs, readFileSync(abs, "utf8"), ts.ScriptTarget.Latest, true);
+  };
+  const fnBody = (name: string): ts.Block => {
+    let found: ts.Block | undefined;
+    const walk = (n: ts.Node) => {
+      if (ts.isFunctionDeclaration(n) && n.name?.text === name && n.body) found = n.body;
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(source());
+    if (!found) throw new Error(`${name} not found`);
+    return found;
+  };
+  const calls = (body: ts.Node, callee: string): ts.CallExpression[] => {
+    const out: ts.CallExpression[] = [];
+    const walk = (n: ts.Node) => {
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === callee)
+        out.push(n);
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(body);
+    return out;
+  };
+  /** The identifier the acquire is keyed on — the owner every other site must name. */
+  const ownerOf = (body: ts.Block): string => {
+    const acquires = calls(body, "acquireSettlementSuperseding");
+    expect(acquires).toHaveLength(1);
+    const arg = acquires[0]!.arguments[1];
+    expect(arg && ts.isIdentifier(arg)).toBe(true);
+    return (arg as ts.Identifier).text;
+  };
+  const declInit = (body: ts.Node, name: string): ts.Expression | undefined => {
+    let init: ts.Expression | undefined;
+    const walk = (n: ts.Node) => {
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === name)
+        init = n.initializer;
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(body);
+    return init;
+  };
+  const isRandomUUID = (e: ts.Expression | undefined) =>
+    !!e &&
+    ts.isCallExpression(e) &&
+    ts.isPropertyAccessExpression(e.expression) &&
+    ts.isIdentifier(e.expression.expression) &&
+    e.expression.expression.text === "crypto" &&
+    e.expression.name.text === "randomUUID";
+
+  for (const fn of ["settleCash", "closeSecureTab"] as const) {
+    it(`${fn}: the acquire's owner is a local bound to crypto.randomUUID(), not the caller`, () => {
+      const body = fnBody(fn);
+      const owner = ownerOf(body);
+      expect(isRandomUUID(declInit(body, owner))).toBe(true);
+    });
+
+    it(`${fn}: every releaseSettlementFor names that owner — and there is at least one`, () => {
+      const body = fnBody(fn);
+      const owner = ownerOf(body);
+      const releases = calls(body, "releaseSettlementFor");
+      expect(releases.length).toBeGreaterThan(0);
+      for (const r of releases) {
+        const a = r.arguments[1];
+        expect(a && ts.isIdentifier(a) && a.text === owner).toBe(true);
+      }
+    });
+  }
+
+  it("closeSecureTab stamps that owner on the PaymentIntent as `settleAttempt`, and no shared uid", () => {
+    // The webhook's decline arm scopes its release by this key (`settle-release-scope.ts`), and the
+    // Terminal stamps the same one. `closedByUid` — the staff uid — was the residual M201 named.
+    const body = fnBody("closeSecureTab");
+    const owner = ownerOf(body);
+    const props: ts.PropertyAssignment[] = [];
+    const walk = (n: ts.Node) => {
+      if (ts.isPropertyAssignment(n) && ts.isIdentifier(n.name)) props.push(n);
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(body);
+    const stamp = props.find((p) => (p.name as ts.Identifier).text === "settleAttempt");
+    expect(stamp).toBeDefined();
+    expect(ts.isIdentifier(stamp!.initializer) && stamp!.initializer.text === owner).toBe(true);
+    expect(props.some((p) => (p.name as ts.Identifier).text === "closedByUid")).toBe(false);
   });
 });

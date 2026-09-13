@@ -138,13 +138,33 @@ export async function acquireCartLock(cartId: string, uid: string): Promise<Lock
 }
 
 /**
- * Acquire the table-wide SETTLEMENT freeze (split-tender, M3·P3.3b) for `uid` (the host opening the
- * split). ONE conditional UPDATE: the cart must be OPEN, NOT single-pay-locked, and either not
- * settling, already settling by THIS seat (re-open), or STALE (TTL elapsed). Postgres re-evaluates
- * under the row lock so two opens can't both win. Mirrors acquireCartLock; same app-clock basis.
- * PRECONDITION: caller has already assertCartMember'd (host check is the caller's).
+ * Acquire the table-wide SETTLEMENT freeze for `owner`. ONE conditional UPDATE: the cart must be
+ * OPEN, NOT single-pay-locked (or abandoned — see M197 below), and either not settling or STALE
+ * (TTL elapsed). Postgres re-evaluates under the row lock so two acquires can't both win. Mirrors
+ * acquireCartLock; same app-clock basis. PRECONDITION: the caller has already proved its authority
+ * (`staffGate` for the counter, `assertCartMember` + host for the split).
+ *
+ * ⚠️ `owner` IS A REQUEST-UNIQUE ID, NEVER A PERSON (A3 · M201). Every LIVE caller mints
+ * `crypto.randomUUID()` per request — `settleCard` always did; `settleCash` and `closeSecureTab`
+ * passed `caller.uid` until A3 — and the whole settlement API leans on that: a release, an extend
+ * or a post-claim cleanup scoped by `settle_by = owner` names exactly ONE request's freeze and can
+ * never reach a sibling's, which is what makes each of them sound to write at all. The one caller
+ * that does NOT is the PARKED split door (`openSettlement` / `abortSettlement`, behind
+ * `SURFACES.selfServeSplit`): it keys on the host's seat uid — a person. Its releases are scoped to
+ * that uid, which is narrower than by-cart, but two opens by one host share it, so the uniqueness
+ * argument above does not transfer; reopening that door must mint per open (`lib/surfaces.ts`).
+ *
+ * ⚠️ THE SAME-OWNER RE-ACQUIRE ARM IS GONE, and it was the whole defect. The predicate used to
+ * read `settle_at.is.null,settle_by.eq.<uid>,settle_at.lte.<cutoff>`: a re-open door for a host
+ * changing their split, which the counter paths inherited by passing a shared uid. Two same-staff
+ * requests moments apart both matched — the second on the freeze the first had just written — and
+ * `closeSecureTab` minted two off-session PaymentIntents under per-attempt idempotency keys (Codex
+ * rounds 3–13 on #275; four consecutive fixes each MOVED that hole because the arm stayed). With a
+ * request-unique owner the arm could only ever admit a re-entrant sibling, so it is removed rather
+ * than argued around. The split door's same-host re-open needs a different shape when it reopens —
+ * see `SURFACES` in `lib/surfaces.ts`.
  */
-export async function acquireSettlement(cartId: string, uid: string): Promise<SettleResult> {
+export async function acquireSettlement(cartId: string, owner: string): Promise<SettleResult> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
   // `{ count: "exact" }`, not `.select()` — same PostgREST-14 `return=representation` + `or()` re-projection
@@ -174,11 +194,12 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
   const lockCutoff = new Date(Date.now() - CART_LOCK_TTL_MS).toISOString();
   const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
+    .update({ settle_at: new Date().toISOString(), settle_by: owner }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
     .or(`locked.eq.false,and(locked_at.lte.${lockCutoff},live_payment_intent_id.is.null)`)
-    .or(`settle_at.is.null,settle_by.eq.${uid},settle_at.lte.${cutoff}`);
+    // No `settle_by.eq.<owner>` disjunct — see the docblock. A mutex admits nobody twice.
+    .or(`settle_at.is.null,settle_at.lte.${cutoff}`);
   if (error) throw error;
   if ((count ?? 0) > 0) return "acquired";
   // ⚠️ THE READ'S ERROR IS BOUND (M119's rule, and this function was the counter-example). Dropping
@@ -220,56 +241,137 @@ export async function acquireSettlement(cartId: string, uid: string): Promise<Se
  */
 export type ReleaseError = { message: string } | null;
 
-/** Release the settlement freeze (abort or fulfill). Unconditional by cart — the host owns it and the
- *  TTL is the backstop. Idempotent. Returns the write error, or null on success. */
-export async function releaseSettlement(cartId: string): Promise<ReleaseError> {
-  const db = serviceClient();
-  const { error } = await db
-    .from("qr_carts")
-    .update({ settle_at: null, settle_by: null })
-    .eq("id", cartId);
-  return error;
-}
+/**
+ * ⚠️ THERE IS NO UNCONDITIONAL-BY-CART SETTLEMENT RELEASE ANY MORE (A3 · M202). `releaseSettlement(cartId)`
+ * nulled whatever freeze the row carried at sixteen call sites, and the harm was never the release
+ * itself — each caller did hold the freeze once — but that between its acquire and its release the
+ * row can change owner, after which the release nulls the SUCCESSOR's mutex. `captureAllIfReady`
+ * tolerates a stale freeze and can never capture a null one, and `extendSettlementFor` cannot
+ * revive null either, so that release put a split into the one state `split.ts` refuses to create.
+ * Every caller now names the owner it acquired under (`releaseSettlementFor`), and the single site
+ * that releases a freeze it never acquired — the fulfilment that just flipped the cart to `paid` —
+ * says so in its predicate (`releaseSettlementOfSettledCart`).
+ */
 
 /**
- * Release the freeze ONLY IF a specific attempt still owns it (W6c). The Terminal settle keys the
- * freeze on a per-ATTEMPT id (not the staff uid), so every release — the poll's decline release,
- * staff cancel, and the late webhook canceled/payment_failed deliveries — carries the attempt it
- * belongs to in the predicate. A release that outlived its attempt (a redelivered event, a stale
- * panel, a double-tap loser) matches ZERO rows instead of nulling a successor's live freeze —
- * the era-confusion class the W6c review confirmed HIGH.
+ * Release the freeze ONLY IF a specific owner still holds it (W6c, generalised by A3). Every
+ * release on the settlement axis — the counter's `finally`, the tab-close error arms, the poll's
+ * decline release, staff cancel, the webhook's late canceled / payment_failed deliveries, the
+ * supersede module's post-claim cleanups — carries the request-unique owner it acquired under. A
+ * release that outlived its request (a redelivered event, a stale panel, a double-tap loser)
+ * matches ZERO rows instead of nulling a successor's live freeze — the era-confusion class the W6c
+ * review confirmed HIGH.
+ *
+ * Returns the affected-row COUNT as `released`, not just the error (A3): "we asked and it was not
+ * ours" is a fact some callers act on — the split abort must not proceed past a claim it did not
+ * land, and the Terminal poll wants to know a lost mutex from a healthy one.
  */
 export async function releaseSettlementFor(
   cartId: string,
-  attemptId: string,
-): Promise<ReleaseError> {
+  owner: string,
+): Promise<{ released: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ settle_at: null, settle_by: null }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("settle_by", owner);
+  return { released: (count ?? 0) > 0, error };
+}
+
+/**
+ * Release the freeze on a cart that is NO LONGER OPEN — the fulfilment that just flipped it to
+ * `paid` (`captureAllIfReady`) holds no owner of its own, and this is the one place a release
+ * without one is sound: `acquireSettlement` requires `status = 'open'`, so no successor can exist on
+ * a settled cart and there is nobody's mutex to strip. The invariant lives IN the predicate
+ * (`status <> 'open'`) rather than in a comment, so a call on an open cart matches zero rows
+ * instead of becoming the sixteenth-and-a-half unconditional release. Best-effort + idempotent.
+ */
+export async function releaseSettlementOfSettledCart(cartId: string): Promise<ReleaseError> {
   const db = serviceClient();
   const { error } = await db
     .from("qr_carts")
     .update({ settle_at: null, settle_by: null })
     .eq("id", cartId)
-    .eq("settle_by", attemptId);
+    .neq("status", "open");
   return error;
 }
 
 /**
- * Extend a LIVE settlement freeze (W1·Q4): slide `settle_at` forward only while it is STILL FRESH.
- * Called on payer activity (a share PI mint, a share authorization) so a table that takes longer
- * than the TTL to cover the bill can't dead-end with every card authorized and capture refused.
- * The `.gt(settle_at, cutoff)` predicate is the safety hinge — this NEVER revives a settlement
- * that is null (host aborted: shares are being canceled) or stale (a single payer may have taken
- * over via acquireCartLock, whose takeover branch requires exactly that staleness). `settle_by`
- * is untouched (the host keeps ownership). Best-effort + idempotent.
+ * Extend a LIVE settlement freeze THIS OWNER HOLDS (W1·Q4, scoped and made honest by A3 · M203):
+ * slide `settle_at` forward only while it is STILL FRESH and still ours. Called on payer activity
+ * — the Terminal poll while the customer is on the reader, a share authorization — so a table that
+ * takes longer than the TTL to cover the bill can't dead-end with capture refused.
+ *
+ * ⚠️ IT REPORTS WHEN IT EXTENDS NOTHING. The old form was `extendSettlement(cartId)`: unscoped, and
+ * `Promise<void>`. Its `.gt("settle_at", cutoff)` hinge was right — this must NEVER revive a null
+ * freeze (an abort: holds are being cancelled) or a stale one (a single payer may have taken over
+ * via `acquireCartLock`, whose takeover requires exactly that staleness) — but a zero-row update is
+ * a `{ error: null }` in postgrest, so the caller could not tell "extended" from "there was nothing
+ * of ours to extend". On the Terminal that silence hid a lost mutex MID-COLLECT: the reader still
+ * prompting while a cash settle could take the table. `create-share-intent` had the same shape one
+ * step worse — it minted a confirmable client secret and only then extended, riding a freeze it
+ * never wrote. `extended: false` is the answer both of them needed and could not get.
  */
-export async function extendSettlement(cartId: string): Promise<void> {
+export async function extendSettlementFor(
+  cartId: string,
+  owner: string,
+): Promise<{ extended: boolean; error: ReleaseError }> {
   const db = serviceClient();
   const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
-  await db
+  const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString() })
+    .update({ settle_at: new Date().toISOString() }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
+    .eq("settle_by", owner)
     .gt("settle_at", cutoff);
+  return { extended: (count ?? 0) > 0, error };
+}
+
+/**
+ * Is THIS owner's freeze still fresh on the row? A READ, never an acquire (Codex round 1 on A3,
+ * P2). `acquireSettlement` has no same-owner arm by design (M201) — so two polls of one Terminal
+ * attempt that overlap as the freeze ages out both extend zero rows, the first re-acquires, and
+ * the second is refused as if a colleague held the table. This is how the second tells "a
+ * colleague holds it" from "my own attempt holds it" without restoring the arm.
+ */
+export async function settlementHeldBy(
+  cartId: string,
+  owner: string,
+): Promise<{ held: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const { data, error } = await db
+    .from("qr_carts")
+    .select("settle_at,settle_by")
+    .eq("id", cartId)
+    .maybeSingle();
+  if (error) return { held: false, error };
+  const fresh =
+    data?.settle_at != null && new Date(data.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
+  return { held: fresh && data?.settle_by === owner, error: null };
+}
+
+/**
+ * Clear a STALE freeze, whoever wrote it — the second and last owner-less release, and stale-only
+ * by predicate (Codex round 1 on A3, P1). A stale freeze protects nothing (`paymentInFlightReason`
+ * already ignores it) EXCEPT that `captureAllIfReady` proceeds on a stale non-null freeze once every
+ * share is authorized — which is exactly the capture the split abort must shut before it cancels
+ * holds and deletes the ledger. The predicate can never lift a colleague's LIVE settle; zero rows
+ * means the marker went fresh (someone took the table over) or null, and the caller re-reads.
+ */
+export async function releaseStaleSettlement(
+  cartId: string,
+): Promise<{ released: boolean; error: ReleaseError }> {
+  const db = serviceClient();
+  const cutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
+  const { count, error } = await db
+    .from("qr_carts")
+    .update({ settle_at: null, settle_by: null }, { count: "exact" })
+    .eq("id", cartId)
+    .eq("status", "open")
+    .lte("settle_at", cutoff);
+  return { released: (count ?? 0) > 0, error };
 }
 
 /**
@@ -539,7 +641,7 @@ export async function releaseCartLock(cartId: string, uid: string | null): Promi
  */
 export async function claimStaleSettlement(
   cartId: string,
-  uid: string,
+  owner: string,
   intentId: string,
 ): Promise<{ claimed: boolean; error: ReleaseError }> {
   const db = serviceClient();
@@ -547,20 +649,20 @@ export async function claimStaleSettlement(
   const settleCutoff = new Date(Date.now() - SETTLE_TTL_MS).toISOString();
   const { count, error } = await db
     .from("qr_carts")
-    .update({ settle_at: new Date().toISOString(), settle_by: uid }, { count: "exact" })
+    .update({ settle_at: new Date().toISOString(), settle_by: owner }, { count: "exact" })
     .eq("id", cartId)
     .eq("status", "open")
     .eq("locked", true)
     .lte("locked_at", lockCutoff)
     .eq("live_payment_intent_id", intentId)
-    // ⚠️ NO SAME-OWNER RE-ACQUIRE ARM, unlike `acquireSettlement` (Codex round 3 on #275, P1). That
-    // disjunct exists there so a host can RE-OPEN their own split; here it would defeat the whole
-    // mutex. `settleCash` and `closeSecureTab` both pass `caller.uid`, so two concurrent takeovers
-    // by the same staff member would BOTH match — the first writes `settle_by = uid`, the second
-    // sails through on `settle_by.eq.<uid>` — and each then mints its own Stripe charge, because the
-    // off-session idempotency key is deliberately per-attempt (a stable key would cache a decline
-    // for 24h). A one-shot takeover of an abandoned attempt has no legitimate re-entry: the loser
-    // stands down and re-asks.
+    // ⚠️ NO SAME-OWNER RE-ACQUIRE ARM (Codex round 3 on #275, P1) — and since A3, `acquireSettlement`
+    // has none either. The claim never had one because two concurrent takeovers by one staff member
+    // (both passing `caller.uid`, back then) would BOTH match — the first writes `settle_by`, the
+    // second sails through on `settle_by.eq.<uid>` — and each then mints its own Stripe charge,
+    // because the off-session idempotency key is deliberately per-attempt (a stable key would cache
+    // a decline for 24h). A one-shot takeover of an abandoned attempt has no legitimate re-entry:
+    // the loser stands down and re-asks. `owner` is request-unique now, so the arm would be
+    // unreachable rather than wrong — it stays out for the same reason it always did.
     .or(`settle_at.is.null,settle_at.lte.${settleCutoff}`);
   return { claimed: (count ?? 0) > 0, error };
 }

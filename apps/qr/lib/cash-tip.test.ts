@@ -42,7 +42,8 @@ vi.mock("./staff-open-cart", () => ({
 vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
 vi.mock("./lock", () => ({
   acquireSettlement: () => Promise.resolve("acquired"),
-  releaseSettlement: () => Promise.resolve(),
+  // A3 — the release names its request-unique owner and reports whether it matched.
+  releaseSettlementFor: () => Promise.resolve({ released: true, error: null }),
 }));
 vi.mock("./tax", () => ({ lineTax: () => 0 }));
 vi.mock("./order-lines", () => ({
@@ -181,9 +182,11 @@ describe("settleCash — the cash tip is recorded, and the collected total inclu
   });
 
   it("W21d — the PERSISTED order's total outranks the request echo (a raced duplicate settle)", async () => {
-    // Two same-staff tabs can both pass acquireSettlement; the second RPC early-returns the FIRST
-    // request's order without applying this request's tip. The change/handoff/audit figure must be
-    // what the ledger recorded, not this request's arithmetic.
+    // Since A3 two same-staff requests can no longer both pass `acquireSettlement` (the owner is
+    // request-unique and the same-owner arm is gone), but the RPC's early-return is still reachable:
+    // a settle whose RESPONSE was lost is retried once the first freeze has released, and the RPC
+    // hands back the FIRST request's order without applying this request's tip. The
+    // change/handoff/audit figure must be what the ledger recorded, not this request's arithmetic.
     orderRowTotal = 3868; // the first request settled tip-free; this one asks for 500
     orderRowTip = 0;
     const r = await settleCash({ sessionId: SESSION, tipCents: 500 });
