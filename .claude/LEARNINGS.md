@@ -2170,3 +2170,42 @@ And two things the fix taught about _removal_:
   double-mint AND the split's legitimate same-host re-open. Removing it is right — the split is
   parked — but "parked, reopens with a one-line flip" stopped being true the moment the arm went,
   and that has to be written where the flip lives (`SURFACES`), not discovered on the flip.
+
+## #110
+
+**A hold you dissolve because its OWNER was wrong may have existed for a different reason — ask
+what the hold was protecting before you release it.** (A3, Codex round 1 on #280 — a P1 that this
+very PR introduced.)
+
+#109 was right that the held-freeze doctrine in `supersede.ts` was written around the wrong owner,
+and once owners were request-unique every "cannot release safely" arm became a scoped release. One
+of those arms was wrong to convert, and Codex found it in a round: the REFUSED supersede
+(`captured` / `unknown`). Its hold was never about the owner. Reaching that arm means the diner's
+pay lock is already stale, so the claimed freeze is the only thing `paymentInFlightReason` still
+honours — and `captured` means the predecessor is charging with its webhook not yet landed.
+Released, a diner could edit the cart, or the counter clear the table, before the webhook
+snapshotted the order. Held to the TTL under the UNIQUE owner, the next attempt is refused as
+`settling_other` and cannot double-mint — which is what A3 actually needed. Two reasons for one
+hold; the fix for one was a regression for the other.
+
+The shape: a rule you are deleting because its stated rationale is wrong. Before deleting, list
+every consequence the rule had, not just the one its comment names — a hold, a refusal, a fail-closed
+path protects against whatever it happens to block, and a second reason may have grown under it
+unwritten. The tell here: the arm's own test comment argued about the owner; nobody re-asked what
+the freeze was blocking. (The post-claim catch had the same split hidden in it — a throw BEFORE the
+predecessor is proven dead is a different animal from a throw after — and now carries a flag that
+says which.)
+
+## #111
+
+**A patch script that anchors an INSERTION on text the insertion does not change is not idempotent
+— re-running it inserts again, and the second copy typechecks fine right up to `tsc`.** (A4·1, the
+audit-fix script.)
+
+The script guarded replacements with "old absent and new present → already applied", which is
+correct for a replacement and useless for an insertion: `rep(s, anchor, anchor + block)` sees the
+anchor still there on the second run and inserts the block a second time. Three files gained
+duplicate exports; prettier formatted both copies identically; only `tsc` (redeclared variable) and
+a duplicated test title said so. Guard an insertion by the NEW text (`if block in s: skip`), and
+never let a partially-applied script be re-run from the top without that guard — an abort halfway
+(one bad anchor) is exactly when you re-run it.
