@@ -12,6 +12,7 @@
 // wrong. Re-examine this line if the file ever grows a second function.
 import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
+import type { RegisterQueueRow } from "./register-queue";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -62,6 +63,12 @@ export type FloorTable = {
 
 export type FloorSnapshot = {
   tables: FloorTable[];
+  /** A4·2 — the open COUNTER orders (`reg-` and kiosk pickup sessions with an open cart), read by
+   *  `readRegisterQueue` on the same poll. The floor's `tables` never carry these sessions, so the
+   *  one list `mergeFloorRows` builds cannot key a session twice. */
+  counter: RegisterQueueRow[];
+  /** The counter read hit its cap — the newest orders are not in `counter`, and the board says so. */
+  counterTruncated: boolean;
   /** Server clock at snapshot time (ISO) — the client seeds its relative-time ticks from this so a
    *  clock skew between the staff device and the server doesn't show "in 3m" for a fresh table. */
   serverNow: string;

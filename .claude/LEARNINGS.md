@@ -2209,3 +2209,7 @@ duplicate exports; prettier formatted both copies identically; only `tsc` (redec
 a duplicated test title said so. Guard an insertion by the NEW text (`if block in s: skip`), and
 never let a partially-applied script be re-run from the top without that guard — an abort halfway
 (one bad anchor) is exactly when you re-run it.
+
+## #112 — Proving a guard red-first on an UNCOMMITTED file: reverse the edit, never `git checkout` it (2026-09-13, A4·2)
+
+To watch `counter-boards.test.tsx` fail on the shape it was written against, the lane's channel name was `sed`-swapped back to the floor's, the suite run (red, the exact rejection), and the file "restored" with `git checkout -- <file>` — which restores the COMMITTED version, and the file carried six uncommitted edits from the same fix round. All six were silently gone; only the next typecheck/test would have said so, and only for the ones that break. The prescribed `git checkout -- .` is for a killed `verify:slice` run on a CLEAN tree (LEARNINGS #74); on a dirty tree it is a data-loss command. Red-first on a file you are mid-editing: apply the inverse `sed`, or commit (WIP) first and then checkout.

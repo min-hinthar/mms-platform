@@ -24,6 +24,14 @@ export function useFloorRealtime(
   // On the detail page, the session's open cart id — so line changes (no session_id column) are watched
   // by cart_id. Omit on the whole-floor view (which listens to ALL line changes as a subtotal signal).
   cartId?: string | null,
+  // ⚠️ A4·2 — the whole-floor CHANNEL NAME, and it must be unique per mounted consumer. The browser
+  // client is a singleton (`@supabase/ssr` caches it), and `RealtimeClient.channel(topic)` returns
+  // the EXISTING channel for a repeated topic; once the first consumer has called `subscribe()`,
+  // the second's `.on("postgres_changes")` THROWS ("cannot add callbacks … after subscribe()") —
+  // so two boards on one screen sharing "floor" left one of them with no realtime at all and an
+  // unhandled rejection on every load (the blind pass on A4·2, CRITICAL 1). The floor keeps
+  // "floor"; the takeaway lane beside it names its own.
+  topic = "floor",
 ) {
   const cbRef = useRef(onChange);
   useEffect(() => {
@@ -48,7 +56,7 @@ export function useFloorRealtime(
 
       const fire = () => cbRef.current();
       channel = supa
-        .channel(sessionId ? `floor:${sessionId}` : "floor")
+        .channel(sessionId ? `floor:${sessionId}` : topic)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "table_sessions", ...sessFilter },
@@ -103,5 +111,5 @@ export function useFloorRealtime(
       cancelled = true;
       if (channel) supa.removeChannel(channel);
     };
-  }, [enabled, sessionId, cartId]);
+  }, [enabled, sessionId, cartId, topic]);
 }

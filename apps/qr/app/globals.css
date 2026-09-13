@@ -9889,53 +9889,38 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 800;
   line-height: var(--lh-snug);
 }
-/* The counter home's register-first row: the one action Dad takes most, gold-capped; two smaller
-   tiles beside it. */
-.staff-counter-row {
+/* A4·2 — the counter's one screen: four zones (start · tables & counter orders · to-go bags ·
+   today's takings), one heading style, one rhythm between them. */
+.staff-zone {
   display: grid;
-  grid-template-columns: 2fr 1fr 1fr;
   gap: var(--s3);
-  margin-bottom: var(--s6);
+  margin-top: var(--s6);
 }
-@media (max-width: 720px) {
-  .staff-counter-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
+.staff-zone-head {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: 700;
+  line-height: var(--lh-snug);
 }
-.staff-counter-primary {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  min-height: 96px;
-  padding: var(--s5) var(--s6);
-  border-radius: var(--r-card);
-  border: 1px solid color-mix(in oklab, var(--gold) 55%, var(--bd));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 18%, var(--cd)), var(--cd));
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    0 0 18px -8px var(--glow-gold);
-  color: var(--tx);
-  text-decoration: none;
+/* The approvals circle in the counter's bar carries its count as a small badge on the ring. */
+.staff-circ-count-host {
+  position: relative;
 }
-/* Register's title reuses the door structure one step smaller: h2 in English, h1 Burmese. */
-.staff-counter-primary .staff-door-name {
-  font-size: var(--fs-h2);
-}
-.staff-counter-primary .staff-door-name > .chrome-pair > [lang="my"] {
-  font-size: var(--fs-h1);
-}
-.staff-counter-side {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  min-height: 96px;
-  padding: var(--s5);
-  border-radius: var(--r-card);
-  border: 1px solid var(--bd);
-  background: var(--cd);
-  box-shadow: var(--sh);
-  color: var(--tx);
-  text-decoration: none;
+.staff-circ-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--fs-xs);
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
 }
 
 /* KDS TEXT SIZE — three steps, the middle two derived by scaling every `--kfs-*` together so the
@@ -10313,7 +10298,6 @@ html[data-fx="lite"] .mms-scrim {
 
 /* ── the doors and tiles pick up the vocabulary ─────────────────────────────────────────────── */
 .staff-door,
-.staff-counter-side,
 .staff-tile {
   box-shadow:
     inset 0 1px 0 var(--sheen),

@@ -110,6 +110,11 @@ function tableApi(name: string) {
     not() {
       return api;
     },
+    // A4·2 — the counter-queue read the floor snapshot now carries (`readRegisterQueue`) filters
+    // by `.or(...)` on the joined session; carried like the liveness bounds above.
+    or() {
+      return api;
+    },
     is() {
       return api;
     },

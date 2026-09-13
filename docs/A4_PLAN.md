@@ -35,7 +35,7 @@ thing being measured.
 | Slice    | Screen          | What lands                                                                                                                                                                                                                                                                                                                                                                                                                   | Rows                      |
 | -------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | **A4·1** | Kitchen + wall  | ✅ The served rail (`lib/served-today.ts` + the rail's segmented view in `KdsBoard`), the ONE service-day rule (`lib/day-window.ts`, from `pickup_config.tz` — `laDayStartIso` is now that rule applied to LA), the ONE Burmese name loader (`lib/line-names.ts`, replacing the copies in kitchen · expo · `/api/board`), the wall's wait minutes off the DB clock and its saturation refusal (`/api/board` + `ReadyBoard`). | K31 · K32 (a) · F18 (a)   |
-| A4·2     | Tables & settle | Floor + register + expo on one screen; `/staff/register` and `/staff/expo` become redirects; K30 (B) "kitchen done" badge on the to-go lane; the approvals count in the bar.                                                                                                                                                                                                                                                 | K30 (B) · M204 groundwork |
+| A4·2     | Tables & settle | ✅ Floor + register + expo on one screen; `/staff/register` and `/staff/expo` become redirects; K30 (B) "kitchen done" badge on the to-go lane; the approvals count in the bar.                                                                                                                                                                                                                                              | K30 (B) · M204 groundwork |
 | A4·3     | Tables & settle | The manager rails: approvals and "settled today" with the refund console reading the receipt (`receipt-view.ts` · `refund-view.ts`); `/staff/approvals` and `/staff/orders` redirect. ⚠️ `refunds.ts` has no mutant — this PR lands one.                                                                                                                                                                                     | M204 · M183 · F18 (b)     |
 | A4·4     | Sign-in         | login · lock · profile · team as one screen with states; `/staff/profile` and `/staff/team` redirect. The front-door rules of §17 (top-aligned card, the escape a quiet link, last) hold for every state.                                                                                                                                                                                                                    | —                         |
 | A4·5     | Menu + Tips     | Glossary → a Menu action; feedback → beneath Tips; the More grid → three tiles. `resolveStaffHome` unchanged.                                                                                                                                                                                                                                                                                                                | —                         |
@@ -57,7 +57,7 @@ AFTER `get diagnostics`); the machine-authored Burmese in every slice (K15).
 - **Measured surfaces stay measured.** Nothing sticky is added to a page (§17); the KDS ticket
   envelope is untouched by A4·1 (the served rail lives inside the rail the board already had).
 
-## A4·2 — Tables & settle, as one screen (scoped 2026-09-13, not yet built)
+## A4·2 — Tables & settle, as one screen (scoped and built 2026-09-13)
 
 What the counter person does today across three pages, in the order they do it, on one column
 (mobile-first; the tablet tier may lay the to-go lane beside the tables):
@@ -68,7 +68,10 @@ What the counter person does today across three pages, in the order they do it, 
 2. **Tables & counter orders** — `FloorBoard` (the live floor, A1's sort: the longest "pay at
    counter" ask first) and the register's open counter orders (`getRegisterQueue`, the walk-up and
    phone sessions still being built, today's `/staff/register` list) in ONE `role="list"` keyed by
-   session, each row carrying its channel. Both are SESSIONS; the drill-down stays
+   session, each row carrying its channel. _As built:_ the counter read moved to
+   `lib/register-queue.ts` · `readRegisterQueue` and rides the floor's own snapshot inside
+   `getFloorView` (one poll, one outage posture); `lib/floor-rows.ts` · `mergeFloorRows` is the
+   seam. Both are SESSIONS; the drill-down stays
    `/staff/table/[id]` · `/add`.
 3. **To-go bags** — `ExpoBoard`'s queue (two-stage bump, "Here now" pinned, due-time sort) as a
    lane on this screen. These are ORDERS, post-settlement work, so they are their own list, not rows
@@ -79,7 +82,11 @@ What the counter person does today across three pages, in the order they do it, 
    register renders it.
 
 The two live boards keep their own realtime subscriptions and 5s backstops for this slice (two
-pollers on one screen is measured, not assumed, before a unified poll is built). `/staff/register`
+pollers on one screen is measured, not assumed, before a unified poll is built). _As built:_ the
+takeaway board's help door went with the board — the counter's sheet (six cards) composes its bump
+card from the board's two bump sentences and takes the paper card whole; a redirect-only page is
+exempt from rule 4 by its exact parsed shape. The blind pass found the two boards colliding on one
+realtime channel — `useFloorRealtime` takes a channel name now. `/staff/register`
 and `/staff/expo` become `redirect("/staff?floor=1")` — a tablet bookmark must land, not 404 — and
 the floor's More grid drops the two tiles the screen now carries. `check-staff-lang` rule 4's page
 count moves from 16 to 14 in the same commit. The bar keeps `floor.eyebrow` as the title until

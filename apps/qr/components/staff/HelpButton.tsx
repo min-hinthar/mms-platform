@@ -6,12 +6,12 @@ import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
 import {
-  HELP_CARD_COUNT,
+  helpCardCount,
   helpCardKeys,
   helpScreenNameKey,
   helpSeenKey,
   helpTitleKey,
-  type HelpScreen,
+  type HelpDoorScreen,
 } from "@/lib/help";
 import { KDS_SIZES, KDS_SIZE_PX, KDS_WIDE_MIN_PX, kdsPageSize, type KdsSize } from "@/lib/kds-size";
 import type { SlotsOf } from "@/lib/i18n/fill";
@@ -32,6 +32,7 @@ import {
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { HelpPicture } from "./HelpPicture";
+import { useLiveConnection } from "./LiveConnection";
 
 type View = "menu" | "how" | "size" | "report";
 
@@ -54,7 +55,7 @@ type HelpProps = {
        *  so a board that forgets it is a compile error rather than a literal `{n}` on the card. */
       cardVars: { 2: Record<SlotsOf<"help.how.kitchen.2">, number> };
     }
-  | { screen: Exclude<HelpScreen, "kitchen">; cardVars?: undefined }
+  | { screen: Exclude<HelpDoorScreen, "kitchen">; cardVars?: undefined }
 );
 
 /** The size as the sheet quotes it — ONE formatting for the row and the three size rows. */
@@ -100,7 +101,11 @@ function safe(read: () => string | undefined): string | undefined {
  * circle in the bar.
  */
 export function HelpButton(props: HelpProps) {
-  const { lang, screen, size, sheetClassName, connection = "page" } = props;
+  const { lang, screen, size, sheetClassName } = props;
+  // A4·2 — a screen whose live boards report their feed (`LiveConnectionProvider`) supplies the
+  // report's connection word when the page's bar cannot know it; an explicit prop still wins.
+  const live = useLiveConnection();
+  const connection: ReportConnection = props.connection ?? live ?? "page";
   const cardVars: HelpCardVars | undefined = props.cardVars;
   const [open, setOpen] = useState(false);
   // "{n} across" is true only in the board's fixed envelope (`KDS_WIDE_MIN_PX`); narrower, the grid
@@ -255,7 +260,8 @@ export function HelpButton(props: HelpProps) {
   }
 
   const card = helpCardKeys(screen, step);
-  const last = step === HELP_CARD_COUNT;
+  const total = helpCardCount(screen);
+  const last = step === total;
   const title =
     view === "how"
       ? helpTitleKey(screen)
@@ -315,12 +321,7 @@ export function HelpButton(props: HelpProps) {
                   <span className="staff-row-name">
                     <Chrome lang={lang} k="help.row.how" echo="stack" />
                     <span className="help-row-sub">
-                      <Chrome
-                        lang={lang}
-                        k="help.row.how.sub"
-                        vars={{ n: HELP_CARD_COUNT }}
-                        echo="stack"
-                      />
+                      <Chrome lang={lang} k="help.row.how.sub" vars={{ n: total }} echo="stack" />
                     </span>
                   </span>
                   <Icon name="chevron" size={20} className="staff-row-chev" aria-hidden />
@@ -409,7 +410,7 @@ export function HelpButton(props: HelpProps) {
                 <Chrome lang={lang} k="help.back" echo="inline" />
               </button>
               <p id="help-step" className="help-step">
-                <Chrome lang={lang} k="help.step" vars={{ n: step, total: HELP_CARD_COUNT }} />
+                <Chrome lang={lang} k="help.step" vars={{ n: step, total }} />
               </p>
               <button
                 type="button"

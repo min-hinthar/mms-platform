@@ -6,6 +6,7 @@ import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
 import { laDayStartIso, summarizeDay, type DaySummary } from "./register-math";
 import { scopeToSelf, summarizeTips, type TipOrderRow, type TipReport } from "./tip-report";
+import { REG_PREFIX } from "./register-queue";
 
 /**
  * The FOH register mint (W6a — closes K6's "an order cannot exist without a diner's phone").
@@ -28,7 +29,6 @@ export type OpenRegisterResult =
   | { ok: true; sessionId: string; created: boolean }
   | { ok: false; error: string };
 
-const REG_PREFIX = "reg-";
 /** Counter-order session window — long enough for any same-day phone order; the settle closes the
  *  session anyway, so this is the ABANDONED-order horizon, not a working TTL. */
 const REG_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -81,7 +81,7 @@ export async function openRegisterOrder(raw: unknown): Promise<OpenRegisterResul
       await db.from("table_sessions").update({ status: "closed" }).eq("id", sess.id);
       return { ok: false, error: STAFF_WRITE_OUTAGE };
     }
-    revalidatePath("/staff/register");
+    revalidatePath("/staff"); // A4·2 — the counter orders live on the floor's own screen now
     return { ok: true, sessionId: sess.id, created: true };
   }
   return { ok: false, error: "Couldn’t start the order — try again." };
@@ -197,62 +197,9 @@ export async function setCartCustomerName(raw: unknown): Promise<SetCartNameResu
   return { ok: true };
 }
 
-/** One open counter order (the register queue row). */
-export type RegisterQueueRow = {
-  sessionId: string;
-  customerName: string | null;
-  itemCount: number;
-  subtotalCents: number;
-  startedAt: string;
-  /** W6b: where the order was entered — the queue card badges kiosk orders. */
-  source: "register" | "kiosk";
-};
-
-export type RegisterQueue =
-  | { ok: true; rows: RegisterQueueRow[] }
-  | { ok: false; reason: "outage" };
-
-/** The open counter orders (`reg-` sessions with an open cart). Register-page read; the floor board
- *  deliberately EXCLUDES these sessions (lib/floor.ts) so the counter queue lives here alone. */
-export async function getRegisterQueue(): Promise<RegisterQueue> {
-  const gate = await staffGate();
-  if (!gate.ok) return { ok: false, reason: "outage" };
-  const db = serviceClient();
-  // OPEN CARTS first (the review's confirmed HIGH): a limit applied to ACTIVE SESSIONS is consumed
-  // by settled-but-not-yet-expired ones, hiding genuinely open orders in a rush. The inner join
-  // scopes to counter sessions; no expires_at filter — an open cart IS the liveness signal (the
-  // 11am-phone-order-for-4pm case must stay visible its whole day).
-  const { data: carts, error: cartErr } = await db
-    .from("qr_carts")
-    .select(
-      "id,session_id,customer_name,created_at,qr_cart_items(qty,unit_price_cents,state,comped),table_sessions!inner(qr_code,mode,status)",
-    )
-    .eq("status", "open")
-    .eq("table_sessions.mode", "pickup")
-    .eq("table_sessions.status", "active")
-    // Counter-style orders: staff-minted (`reg-`, W6a) and kiosk-minted (`kiosk-`, W6b) both pay
-    // at this counter — one queue.
-    .or(`qr_code.like.${REG_PREFIX}%,qr_code.like.kiosk-%`, { referencedTable: "table_sessions" })
-    .order("created_at", { ascending: true })
-    .limit(40);
-  if (cartErr) return { ok: false, reason: "outage" };
-
-  const rows: RegisterQueueRow[] = (carts ?? []).map((cart) => {
-    const lines = (cart.qr_cart_items ?? []).filter((l) => l.state !== "voided" && !l.comped);
-    return {
-      sessionId: cart.session_id,
-      source: cart.table_sessions.qr_code.startsWith("kiosk-")
-        ? ("kiosk" as const)
-        : ("register" as const),
-      customerName: cart.customer_name ?? null,
-      itemCount: lines.reduce((n, l) => n + l.qty, 0),
-      // Display-only running subtotal for the queue card — the charge is always getCartTotals at settle.
-      subtotalCents: lines.reduce((n, l) => n + l.qty * l.unit_price_cents, 0),
-      startedAt: cart.created_at,
-    };
-  });
-  return { ok: true, rows };
-}
+// A4·2 — the open counter orders are read by `readRegisterQueue` (`lib/register-queue.ts`) inside
+// the floor's own snapshot: the register page that owned `getRegisterQueue` is a redirect now, and
+// the one list on the counter screen carries tables and counter orders from ONE poll.
 
 export type DayCashResult =
   | { ok: true; summary: DaySummary; sinceIso: string }

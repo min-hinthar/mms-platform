@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
-import { HELP_CARD_COUNT, HELP_SCREENS, type HelpScreen } from "@/lib/help";
+import { HELP_SCREENS, helpCardCount, type HelpDoorScreen } from "@/lib/help";
 import { HelpPicture } from "./HelpPicture";
 
 /**
@@ -19,13 +19,13 @@ const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").repla
   /\/\*[\s\S]*?\*\//g,
   "",
 );
-const pic = (screen: HelpScreen, n: number) =>
+const pic = (screen: HelpDoorScreen, n: number) =>
   render(<HelpPicture screen={screen} n={n} lang="en" />).container.querySelector(".help-pic")!;
 
 describe("HelpPicture — the real control, inert", () => {
   it("every card's picture is hidden and never empty", () => {
     for (const screen of HELP_SCREENS)
-      for (let n = 1; n <= HELP_CARD_COUNT; n++) {
+      for (let n = 1; n <= helpCardCount(screen); n++) {
         const p = pic(screen, n);
         expect(p.getAttribute("aria-hidden"), `${screen} ${n}`).toBe("true");
         expect(p.children.length, `${screen} ${n}`).toBeGreaterThan(0);
@@ -42,14 +42,17 @@ describe("HelpPicture — the real control, inert", () => {
     expect(css).not.toMatch(/^\s*\.help-pic-undo-btn\s*\{/m);
   });
 
-  it("the Screens circle is the control's class, never the bar's static mark; Register is the real tile", () => {
-    const circ = pic("counter", 3).querySelector(".staff-circ")!;
+  it("the Screens circle is the control's class, never the bar's static mark; the Start zone's three buttons spread the zone's own style", () => {
+    const circ = pic("counter", 5).querySelector(".staff-circ")!;
     expect(circ).not.toBeNull();
     expect(circ.className).not.toContain("staff-circ-here");
     cleanup();
-    const tile = pic("counter", 1).querySelector(".staff-counter-primary.card-textured")!;
-    expect(tile).not.toBeNull();
-    expect(tile.querySelector(".staff-door-name")).not.toBeNull();
+    // A4·2 — three buttons in `startBtn` (`register-stage.ts`), the real zone's declaration: jsdom
+    // keeps `var()` values on inline styles, so the spread can be read back.
+    const starts = pic("counter", 1).querySelectorAll(".help-pic-stage");
+    expect(starts.length).toBe(3);
+    for (const b of starts) expect((b as HTMLElement).style.background).toBe("var(--sf)");
+    expect(pic("counter", 1).textContent).toContain("Walk-up");
     cleanup();
     const table = pic("counter", 2);
     expect(table.querySelector(".card.card-textured")).not.toBeNull();
@@ -57,24 +60,20 @@ describe("HelpPicture — the real control, inert", () => {
     expect(table.textContent).toContain("Ordering");
   });
 
-  it("the takeaway stages spread the board's own style objects: first stage accent, second plain", () => {
+  it("the takeaway stages (the counter's third card since A4·2) spread the board's own style objects: first stage accent, second plain", () => {
     // jsdom keeps `var()` values on inline styles, so the spread can be read back.
-    const first = pic("expo", 1).querySelector(".staff-btn") as HTMLElement;
+    const pair = pic("counter", 3).querySelectorAll(".staff-btn");
+    expect(pair.length).toBe(2);
+    const first = pair[0] as HTMLElement;
     expect(first.style.background).toBe("var(--ac)");
     expect(first.style.color).toBe("var(--oa)");
-    cleanup();
-    const second = pic("expo", 2).querySelector(".staff-btn") as HTMLElement;
+    const second = pair[1] as HTMLElement;
     expect(second.style.background).toBe("var(--cd)");
     expect(second.style.color).toBe("var(--tx)");
-    cleanup();
-    const pair = pic("expo", 3).querySelectorAll(".staff-btn");
-    expect(pair.length).toBe(2);
-    expect((pair[0] as HTMLElement).style.background).toBe("var(--ac)");
-    expect((pair[1] as HTMLElement).style.background).toBe("var(--cd)");
   });
 
-  it("the takeaway frozen card is the board's status line, never the kitchen strip", () => {
-    const p = pic("expo", 4);
+  it("the frozen card (the counter's fourth) is the lane's status line, never the kitchen strip", () => {
+    const p = pic("counter", 4);
     expect(p.querySelector(".expo-status.expo-status-warn")).not.toBeNull();
     expect(p.querySelector(".kds-strip")).toBeNull();
     const warn = css.match(/\.expo-status-warn\s*\{([^}]*)\}/);

@@ -5,6 +5,8 @@
  * pays and walks out without their bag. Money never appears here beyond the order total for identification.
  */
 
+import type { KitchenState } from "./expo-rules";
+
 /** A takeaway line on an expo ticket. `fulfillment` is the destination — `togo` food (cooked by the
  *  kitchen, then bagged) vs `grocery` (never fired; bag-and-go). `notes` (W3b) is the allergy/request
  *  channel — the bagger needs "no peanuts" as much as the wok does (sauce packed separately, etc.). */
@@ -43,6 +45,10 @@ export type ExpoTicket = {
   /** The short order code (#A1B2C3, uuid tail) — matches the diner's /track + exit pass. */
   shortCode: string;
   status: "preparing" | "ready";
+  /** A4·2 · K30 (B): the kitchen's own progress on the bag's to-go food lines, derived from the
+   *  cart (`lib/expo-rules.ts`) — ADVISORY. `done` badges the card and lifts it above bags still
+   *  cooking; `unknown` (the lines could not be read) draws nothing and moves nothing. */
+  kitchen: KitchenState;
   /** Pickup orders carry a slot — the expo shows it as the honest ready-by time (no fabricated countdown). */
   pickupSlot: string | null;
   /** J5: the diner's "I'm here" stamp (null until they announce) — the board flags a waiting diner. */

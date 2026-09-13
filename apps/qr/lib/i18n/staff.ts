@@ -54,8 +54,6 @@ export const STAFF = {
   "what.console": { en: "the console", my: "ဒီစက်" },
   "what.floor": { en: "the floor", my: "ခန်းမ" },
   "what.kitchen": { en: "the kitchen board", my: "မီးဖိုချောင် ဘုတ်" }, // glossary: မီးဖိုချောင်
-  "what.expo": { en: "the expo board", my: "ထုတ်ပေးရေး ဘုတ်" },
-  "what.register": { en: "the register", my: "ကောင်တာ" },
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
   "what.approvals": { en: "approvals", my: "ခွင့်ပြုချက်များ" },
@@ -284,7 +282,19 @@ export const STAFF = {
   "floor.back": { en: "← Floor", my: "← ခန်းမ" },
   "floor.hi": { en: "Hi, {x}", my: "မင်္ဂလာပါ {x}" },
   "floor.eyebrow": { en: "Floor", my: "ခန်းမ" },
-  "floor.a11y.tools": { en: "Staff tools", my: "ဝန်ထမ်း ကိရိယာများ" },
+  // A4·2 — the counter's one screen: the Start zone's visible heading (its region name is
+  // `reg.a11y.start`, the same words), the channel chip on a counter order's card, and its status.
+  "floor.zone.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },
+  "floor.counter.chip": { en: "Counter", my: "ကောင်တာ" },
+  // {n} is a COUNT (Burmese numerals). EN singular/plural pair — ONE Burmese value.
+  "floor.counter.count.one": { en: "{n} counter order", my: "ကောင်တာ အော်ဒါ {n} ခု" },
+  "floor.counter.count.many": { en: "{n} counter orders", my: "ကောင်တာ အော်ဒါ {n} ခု" },
+  "floor.rows.none": {
+    en: "No tables or counter orders",
+    my: "စားပွဲ ဒါမှမဟုတ် ကောင်တာ အော်ဒါ မရှိပါ",
+  },
+  // A segment of the count line ("40 counter orders · the newest are not listed"): a FULL read.
+  "floor.counter.truncated": { en: "the newest are not listed", my: "အသစ်ဆုံးတွေ မပါပါ" },
 
   // ── the floor: the per-table STATUS chip ──────────────────────────────────
   // ⚠️ THE VISIBLE CHIP AND THE ACCESSIBLE NAME READ THESE SAME KEYS (`FLOOR_STATUS_KEY` in
@@ -442,7 +452,6 @@ export const STAFF = {
   // ═══ P2 PR B · browse ═══════════════════════════════════════════════════════════
   // ── the staff order screen: the page header (app/staff/table/[id]/add) ─────
   // {id} is the table number off the physical tent card — Latin in both tongues.
-  "browse.back.register": { en: "← Register", my: "← ကောင်တာ" },
   "browse.back.table": { en: "← Table {id}", my: "← စားပွဲ {id}" },
   "browse.title.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
   "browse.title.add": { en: "Add items", my: "ပစ္စည်း ထည့်ရန်" },
@@ -678,6 +687,8 @@ export const STAFF = {
   "expo.count.many": { en: "{n} bags waiting", my: "စောင့်နေတဲ့ ပါဆယ်ထုပ် {n} ခု" },
   "expo.count.verify": { en: "{n} to verify", my: "စစ်ဆေးရန် {n} ခု" },
   "expo.count.handOver": { en: "{n} to hand over", my: "လွှဲပေးရန် {n} ခု" },
+  // A4·2 · K30 (B) — the badge on a bag whose to-go food the kitchen has bumped (advisory).
+  "expo.kitchenDone": { en: "Kitchen done", my: "မီးဖိုချောင် ပြီးပြီ" }, // glossary: မီးဖိုချောင်
   "expo.empty": { en: "Nothing to bag", my: "ထုပ်စရာ မရှိပါ" },
   "expo.emptyFrozen": {
     en: "Nothing to bag as of the last update",
@@ -714,14 +725,12 @@ export const STAFF = {
   // chip. The `→` lives INSIDE the value, the way `floor.back`/`kds.back` carry their `←`: it is
   // part of the label a person reads, not a decorative glyph beside it.
   //
-  // Vocabulary is reused, never re-invented: ကောင်တာ from `what.register`, မီးဖိုချောင် from
-  // `kds.title` (owner-verified W21), ထုတ်ပေးရေး from `what.expo`, ခွင့်ပြုချက်များ from
+  // Vocabulary is reused, never re-invented: ကောင်တာ from `floor.counter.chip`, မီးဖိုချောင် from
+  // `kds.title` (owner-verified W21), ထုတ်ပေးရေး from `kds.station.expo` where it still applies, ခွင့်ပြုချက်များ from
   // `what.approvals`, ဧည့်သည် မှတ်ချက် from `what.feedback`, အပိုကြေး from `what.tips`, and
   // မီနူး ဈေးနှုန်း / မီနူး ရနိုင်မှု verbatim from `browse.price.title`/`titleAvail` — the pill and
   // the page it opens must not read as two different screens.
-  "floor.nav.register": { en: "Register →", my: "ကောင်တာ →" },
   "floor.nav.kitchen": { en: "Kitchen →", my: "မီးဖိုချောင် →" },
-  "floor.nav.expo": { en: "Expo →", my: "ထုတ်ပေးရေး →" },
   // TWO keys rather than a count concatenated onto one label: the badge is a COUNT in prose, so it
   // rides an `{n}` slot and becomes Burmese numerals at render. NOT a `.one`/`.many` pair — English
   // reads "Approvals (1)" and "Approvals (3)" identically; the fork is has-a-count vs has-none.
@@ -757,13 +766,14 @@ export const STAFF = {
   "floor.door.here": { en: "This tablet opens here", my: "ဒီတက်ဘလက် ဖွင့်တိုင်း ဒီစခရင် ရောက်မယ်" },
   "floor.door.more": { en: "More", my: "နောက်ထပ်" },
   "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
+  // A4·2 — the one list holds tables AND counter orders; its name says so, like its heading.
+  "floor.a11y.rows": { en: "Tables & counter orders", my: "စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ" },
   // Two surfaces that were reachable only by bookmark (the wall TV) or from the manager-only pilot
   // sheet (the word-check sheet): Mom on the kitchen tablet could never reach the sheet at all.
   "floor.nav.board": { en: "TV board →", my: "တီဗီ ဘုတ် →" },
   "floor.nav.glossary": { en: "Word check →", my: "စာလုံး စစ်ဆေးစာရွက် →" },
 
   // ── the floor board: a region name with no visible label to pair with ─────
-  "floor.a11y.tables": { en: "Active tables", my: "အသုံးပြုနေတဲ့ စားပွဲများ" },
 
   // ── the floor: the tables board's OWN chrome (FloorBoard.tsx) ─────────────
   // The console's landing copy. It stayed English through the first cut of this slice under a
@@ -771,8 +781,8 @@ export const STAFF = {
   // against the file and found the console home still saying "The floor is quiet" in English under
   // a Burmese greeting. Vocabulary is reused, never re-invented: `စားပွဲ` from `floor.table`,
   // `အသုံးပြုနေတဲ့ စားပွဲများ` verbatim from `floor.a11y.tables` one line up, `ခန်းမ` from `what.room`.
-  "floor.tables.title": { en: "Tables", my: "စားပွဲများ" },
-  "floor.tables.none": { en: "No active tables", my: "အသုံးပြုနေတဲ့ စားပွဲ မရှိပါ" },
+  // A4·2 — the one list carries the counter orders beside the tables, and the heading says so.
+  "floor.tables.title": { en: "Tables & counter orders", my: "စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ" },
   "floor.tables.count.one": {
     en: "{n} active table",
     my: "အသုံးပြုနေတဲ့ စားပွဲ {n} ခု",
@@ -788,8 +798,8 @@ export const STAFF = {
     my: "နောက်ဆုံး အသစ်တက်ချိန်အထိ စားပွဲ မရှိပါ",
   },
   "floor.tables.emptySub": {
-    en: "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated.",
-    my: "ဧည့်သည် စကန်ဖတ်တာနဲ့ စားပွဲက ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ ဘာမှာထားလဲ၊ ထိုင်နေတာ ဘယ်လောက်ကြာပြီလဲ။",
+    en: "Active tables appear here the moment a guest scans in — party, what they’re ordering, and how long they’ve been seated. Counter orders appear the moment you start one above.",
+    my: "ဧည့်သည် စကန်ဖတ်တာနဲ့ စားပွဲက ဒီမှာ ချက်ချင်း ပေါ်ပါမယ် — ဘယ်နှစ်ယောက်၊ ဘာမှာထားလဲ၊ ထိုင်နေတာ ဘယ်လောက်ကြာပြီလဲ။ အပေါ်မှာ အော်ဒါ စဖွင့်တာနဲ့ ကောင်တာ အော်ဒါလည်း ဒီမှာ ပေါ်ပါမယ်။",
   },
   "floor.tables.emptyFrozenSub": {
     en: "New tables won’t appear here until this board is updating again. Nothing already open is lost.",
@@ -1128,8 +1138,8 @@ export const STAFF = {
   // reason stated there: K15 is a per-key native check, and the counter's exit may want different
   // wording from the kitchen's. The arrow lives INSIDE the value — it is part of the label, not a
   // decorative glyph beside it.
-  "reg.back": { en: "← Floor", my: "← ခန်းမ" },
-  "reg.title": { en: "Register", my: "ကောင်တာ" }, // same word as `what.register`
+  // A4·2 — the register is a ZONE of the counter's one screen now (`/staff/register` redirects), so
+  // it has no title and no back link of its own; `reg.sub` is the line under the Start heading.
   "reg.sub": {
     en: "Walk-up and phone orders, entered here and paid at the counter.",
     my: "လမ်းလျှောက်လာနဲ့ ဖုန်း အော်ဒါတွေကို ဒီမှာ သွင်းပြီး ကောင်တာမှာ ငွေရှင်းပါတယ်။",
@@ -1155,12 +1165,6 @@ export const STAFF = {
   "reg.err.table": { en: "Enter the table number.", my: "စားပွဲ နံပါတ် ထည့်ပါ။" },
 
   // ── the register: the open-counter queue ──────────────────────────────────
-  "reg.queue.title": { en: "Open counter orders", my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါများ" },
-  "reg.queue.failed": {
-    en: "Couldn’t load the counter queue — check the connection and refresh.",
-    my: "ကောင်တာ အော်ဒါတန်းကို မဖတ်နိုင်ပါ — ချိတ်ဆက်မှုကို စစ်ပြီး ပြန်ဖွင့်ပါ။",
-  },
-  "reg.queue.empty": { en: "None right now.", my: "အခု တစ်ခုမှ မရှိပါ။" },
   "reg.row.walkup": { en: "Walk-up", my: "လမ်းလျှောက်လာ" },
   "reg.row.kiosk": { en: "Kiosk", my: "အော်ဒါစက်" }, // the SAME word settle.cash.kiosk* uses
   // {n} is a prose count (Burmese numerals); {m} is preformatted money (Latin, always).
@@ -1203,7 +1207,6 @@ export const STAFF = {
 
   // ── the register: accessible names with no visible text to pair with ──────
   "reg.a11y.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },
-  "reg.a11y.queue": { en: "Open counter orders", my: "ဖွင့်ထားတဲ့ ကောင်တာ အော်ဒါများ" },
 
   // ═══ P2 PR B · settle ═══════════════════════════════════════════════════════════
   // ── settling a cart: cash, the card on file, the reader, clear and merge ──
@@ -1880,10 +1883,6 @@ export const STAFF = {
     my: "မီးဖိုချောင် ဘုတ် ဘယ်လို သုံးရမလဲ",
   },
   "help.how.title.counter": { en: "How the counter works", my: "ကောင်တာ ဘယ်လို သုံးရမလဲ" },
-  "help.how.title.expo": {
-    en: "How the takeaway board works",
-    my: "ပါဆယ်ဘုတ် ဘယ်လို သုံးရမလဲ",
-  },
   // the kitchen board — bump · undo · 86 · fire (the canvas's four, verified against KdsBoard.tsx)
   "help.how.kitchen.1": {
     en: "Food up? Tap the green button. The ticket clears.",
@@ -1922,14 +1921,17 @@ export const STAFF = {
     en: "Until then it waits — nothing is cooking.",
     my: "အဲဒီအထိ စောင့်နေပါမယ် — ဘာမှ မချက်ရသေးပါ။",
   },
-  // the counter — register · a table · the doors · the lock (verified against app/staff/page.tsx)
+  // the counter — start · a table · the bags · paper · the doors · the lock (verified against
+  // app/staff/page.tsx). A4·2 folded the takeaway board into this screen: the bump card (3) is
+  // COMPOSED from the board's two bump SENTENCES, verbatim in both tongues (their two sub-lines did
+  // not survive the fold); the paper card (4) moved whole; the scan-and-go card went with the sheet.
   "help.how.counter.1": {
-    en: "Someone at the counter? Tap Register to start their order.",
-    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ ကောင်တာ ခလုတ်ကို နှိပ်ပါ။",
+    en: "Someone at the counter? Tap Walk-up to start their order.",
+    my: "ကောင်တာမှာ လူရောက်ပြီလား? အော်ဒါ စဖို့ လမ်းလျှောက်လာ ကို နှိပ်ပါ။",
   },
   "help.how.counter.1.more": {
-    en: "Walk-up, phone, or a table — it asks which.",
-    my: "လမ်းလျှောက်လာ၊ ဖုန်း ဒါမှမဟုတ် စားပွဲ — ဘယ်ဟာလဲ မေးပါမယ်။",
+    en: "Phone order and Start a table sit beside it — each opens the order screen.",
+    my: "ဖုန်း အော်ဒါ နဲ့ စားပွဲ ဖွင့် က ဘေးမှာ ရှိပါတယ် — တစ်ခုချင်းက အော်ဒါ စခရင်ကို ဖွင့်ပေးပါမယ်။",
   },
   "help.how.counter.2": {
     en: "Tap a table to see its order.",
@@ -1940,53 +1942,36 @@ export const STAFF = {
     my: "ဟင်း ထပ်ထည့်၊ ငွေ လက်ခံ၊ စားပွဲ ပေါင်း — အားလုံး အဲဒီကနေပါ။",
   },
   "help.how.counter.3": {
-    en: "The grid circle takes you to the two doors.",
-    my: "အကွက်ပုံ အဝိုင်းက တံခါးနှစ်ပေါက်ဆီ ခေါ်သွားပါမယ်။",
-  },
-  "help.how.counter.3.more": {
-    en: "Kitchen or Counter — this tablet remembers the last one.",
-    my: "မီးဖိုချောင် ဒါမှမဟုတ် ကောင်တာ — နောက်ဆုံး ရွေးထားတာကို ဒီတက်ဘလက် မှတ်ထားပါမယ်။",
-  },
-  "help.how.counter.4": {
-    en: "Stepping away? Tap the lock — it shows once you have a PIN.",
-    my: "ခဏ ထွက်မလား? သော့ပုံ အဝိုင်းကို နှိပ်ပါ — ပင်နံပါတ် ရှိမှ ပေါ်ပါမယ်။",
-  },
-  "help.how.counter.4.more": {
-    en: "Your PIN opens it again. Set one on your profile.",
-    my: "သင့်ပင်နံပါတ်နဲ့ ပြန်ဖွင့်လို့ ရပါတယ်။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ သတ်မှတ်ပါ။",
-  },
-  // the takeaway board — bagged · picked up · the scan-and-go pair · frozen (verified against ExpoBoard.tsx)
-  "help.how.expo.1": {
     en: "Bag packed? Tap Bagged & ready.",
     my: "ထုပ်ပြီးပြီလား? ထုပ်ပြီး၊ ယူလို့ရပြီ ကို နှိပ်ပါ။",
   },
-  "help.how.expo.1.more": {
-    en: "The button changes to Picked up — the card stays until the guest has it.",
-    my: "ခလုတ်က ယူသွားပြီ ဖြစ်သွားပါမယ် — ဧည့်သည် ယူသွားတဲ့အထိ ကတ် ရှိနေပါမယ်။",
-  },
-  "help.how.expo.2": {
+  "help.how.counter.3.more": {
     en: "Guest has it? Tap Picked up. The card clears.",
     my: "ဧည့်သည် ယူသွားပြီလား? ယူသွားပြီ ကို နှိပ်ပါ။ ကတ် ပျောက်သွားပါမယ်။",
   },
-  "help.how.expo.2.more": {
-    en: "The name on the card is who’s collecting.",
-    my: "ကတ်ပေါ်က နာမည်က ယူမယ့်သူပါ။",
-  },
-  "help.how.expo.3": {
-    en: "A scan-and-go basket says Verified, then Handed over.",
-    my: "စကင်န်ဖတ်ပြီး ယူသွားတဲ့ ခြင်းက စစ်ဆေးပြီး၊ ပြီးရင် လွှဲပေးပြီး လို့ ပြပါမယ်။",
-  },
-  "help.how.expo.3.more": {
-    en: "Check the bag against the list before you tap.",
-    my: "မနှိပ်ခင် အိတ်ထဲက ပစ္စည်းတွေကို စာရင်းနဲ့ တိုက်စစ်ပါ။",
-  },
-  "help.how.expo.4": {
+  "help.how.counter.4": {
     en: "Board says it isn’t updating? Keep going on paper.",
     my: "ဘုတ်က အသစ်မတက်ဘူးလို့ ပြရင် စာရွက်နဲ့ ဆက်လုပ်ပါ။",
   }, // K15-HIGH — the paper instruction, on the screen that hands food to guests
-  "help.how.expo.4.more": {
+  "help.how.counter.4.more": {
     en: "Nothing already recorded is lost — it catches up when we’re back.",
     my: "မှတ်ထားပြီးသမျှ မပျောက်ပါ — ပြန်ကောင်းတာနဲ့ အလိုလို ပြန်တက်လာပါမယ်။",
+  },
+  "help.how.counter.5": {
+    en: "The grid circle takes you to the two doors.",
+    my: "အကွက်ပုံ အဝိုင်းက တံခါးနှစ်ပေါက်ဆီ ခေါ်သွားပါမယ်။",
+  },
+  "help.how.counter.5.more": {
+    en: "Kitchen or Counter — this tablet remembers the last one.",
+    my: "မီးဖိုချောင် ဒါမှမဟုတ် ကောင်တာ — နောက်ဆုံး ရွေးထားတာကို ဒီတက်ဘလက် မှတ်ထားပါမယ်။",
+  },
+  "help.how.counter.6": {
+    en: "Stepping away? Tap the lock — it shows once you have a PIN.",
+    my: "ခဏ ထွက်မလား? သော့ပုံ အဝိုင်းကို နှိပ်ပါ — ပင်နံပါတ် ရှိမှ ပေါ်ပါမယ်။",
+  },
+  "help.how.counter.6.more": {
+    en: "Your PIN opens it again. Set one on your profile.",
+    my: "သင့်ပင်နံပါတ်နဲ့ ပြန်ဖွင့်လို့ ရပါတယ်။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ သတ်မှတ်ပါ။",
   },
   // {n} and {total} are counts — "အဆင့် ၂ / ၄" under my.
   "help.step": { en: "Step {n} of {total}", my: "အဆင့် {n} / {total}" },
@@ -2078,6 +2063,7 @@ export type StaffKey = keyof typeof STAFF;
  */
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
   ["floor.tables.count.one", "floor.tables.count.many"],
+  ["floor.counter.count.one", "floor.counter.count.many"],
   ["expo.count.one", "expo.count.many"],
   ["kds.open.one", "kds.open.many"],
   ["floor.card.item.one", "floor.card.item.many"],
@@ -2152,7 +2138,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "entry.login.denied",
   "floor.orders.sub",
   "floor.tabOverLimit",
-  "help.how.expo.4",
+  "help.how.counter.4",
   "help.how.kitchen.1",
   "help.how.kitchen.3",
   "help.how.kitchen.4",

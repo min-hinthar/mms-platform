@@ -145,15 +145,14 @@ describe("the door-title CSS matches the DOM the doors render", () => {
     /\/\*[\s\S]*?\*\//g,
     "",
   );
-  // Rule selectors that name the title, wherever they sit (the register row reuses the title
-  // structure under `.staff-counter-primary`, whose prefix is dropped so the tail is held to the
-  // same DOM). `@media` blocks contain no `.staff-door-name` rule, so a flat scan is exact here.
-  // P7·1b widened this to the More rows' name (`.staff-row-name`), which render the same
-  // `<Chrome echo="stack">` pair — so the guard renders ONE tile beneath the doors.
+  // Rule selectors that name the title, wherever they sit. `@media` blocks contain no
+  // `.staff-door-name` rule, so a flat scan is exact here. P7·1b widened this to the More rows'
+  // name (`.staff-row-name`), which render the same `<Chrome echo="stack">` pair — so the guard
+  // renders ONE tile beneath the doors. (A4·2 removed the register tile that reused the title
+  // structure under `.staff-counter-primary`; nothing prefixes these selectors any more.)
   const selectors = [...css.matchAll(/([^{}]*\.staff-(?:door|row)-name[^{}]*)\{/g)]
     .map((m) => m[1]!.trim())
-    .filter((s) => !s.startsWith("@"))
-    .map((s) => s.replace(/^\.staff-counter-primary\s+/, ""));
+    .filter((s) => !s.startsWith("@"));
   const oneTile = [{ href: "/board", k: "floor.nav.board", icon: "tv" } as const];
   it("names at least the title, its Burmese, its echo, its sub-line and the row name", () => {
     expect(selectors.length).toBeGreaterThanOrEqual(5);

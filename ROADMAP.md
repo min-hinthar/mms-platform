@@ -334,7 +334,8 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
       and the order: `docs/A4_PLAN.md`.
   - [x] **A4·1 — Kitchen + the wall** (2026-09-13): the served rail (K31), one service-day rule,
         one Burmese name loader (F18 a), the wall's wait minutes + saturation refusal (K32 a).
-  - [ ] **A4·2 — Tables & settle**: floor + register + expo on one screen; K30 (B).
+  - [x] **A4·2 — Tables & settle** (2026-09-13): floor + register + expo on one screen; K30 (B); the
+        two routes redirect; the counter's help sheet absorbs the takeaway board's.
   - [ ] **A4·3 — Tables & settle, the manager rails**: approvals + settled today; M204 reads the receipt.
   - [ ] **A4·4 — Sign-in**: login · lock · profile · team as one screen with states.
   - [ ] **A4·5 — Menu + Tips**: glossary → Menu; feedback → Tips; the More grid → three tiles.
