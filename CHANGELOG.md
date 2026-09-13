@@ -78,12 +78,30 @@ server render takes the client's posture for a lane outage too (`initialOutage`:
 the floor live). Two 5 s pollers on one screen stay, measured against a unified poll later.
 
 Guards: 9 new mutants (`expo-rules/…` ×4, `expo/…` ×2, `floor-rows/…`, `register-queue/…` ×2),
-every one watched red by `verify:slice --only` — **655** across 117 modules; `expo.ts` (previously
+every one watched red by `verify:slice --only` — **655** across 117 modules at open; `expo.ts` (previously
 unpinned) and the three new modules join the mutate set, `expo.ts` with a wiring suite. The
 screen keeps one state region (the floor's) and two action regions that speak only after the
 person's own tap (the lane's bump, the Start zone's mint). New Burmese (`floor.zone.start`,
 `floor.counter.*`, `floor.rows.none`, `floor.a11y.rows`, `expo.kitchenDone`, `help.how.counter.1` +
 `.1.more`; `floor.tables.title` and `floor.tables.emptySub` re-drafted) is a machine draft → K15.
+
+**Codex round 1 on #282 — three P2s, all verified real and fixed on the head.** The one list
+partitioned on `counterRequestedAt`, a stamp that OUTLIVES the ask: a table that asked to pay at
+the counter and then started a card payment or a split keeps the stamp while `deriveFloorStatus`
+reports `paying`/`settling`, and the floor's own sort lifts only status `counter` — so a table staff
+cannot settle sat above the orders they were building. `mergeFloorRows` partitions on the status the
+card shows. The lane's cart-lines read had no truncation posture: PostgREST's max-rows cap is
+silent, so a cart whose one cooking row fell past the cap read `done` off its surviving served rows
+and was lifted as finished — the read carries `count: "exact"` from the same statement now, and a
+count above the rows takes the failed read's posture (every bag `unknown`, logged). And the lane's
+one `role="status"` region carried only a bump that did not save, so a screen reader heard nothing
+when the lane froze or its count changed — it now carries a visually-hidden, deduped announcement
+(the bag counts, the empty state, or the frozen-board copy), suppressed when the floor's region is
+already saying the same thing (`useLiveBoardState("floor")` on the shared `LiveConnection`
+context). Two mutants added (`floor-rows/a-stale-stamp-under-a-card-payment-jumps-the-queue`,
+`expo/a-truncated-kitchen-read-still-verdicts`), one re-anchored on the new `else if`
+(`expo/a-failed-kitchen-read-freezes-the-counter`), every one watched red by `verify:slice --only`
+— **657** across 117 modules.
 
 ### A4·1 — Kitchen + the wall: the served rail, one service day, one name loader, wait minutes (2026-09-13)
 
