@@ -97,6 +97,9 @@ export type SettledToday =
       truncated: boolean;
       sinceIso: string;
       serverNow: string;
+      /** `serverNow` as a clock in the SERVICE zone ("12:00 PM") — the "as of" a failed refresh
+       *  dates the list by, formatted where the zone is known (Codex round 4 on #283). */
+      serverClock: string;
     }
   | { ok: false; reason: "outage" | "forbidden" };
 
@@ -221,7 +224,9 @@ export async function getSettledToday(): Promise<SettledToday> {
     unionOverflow ||
     ledgerTruncated ||
     byId.size > SETTLED_CAP;
-  if (rows.length === 0) return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso };
+  const serverClock = settledClock(nowIso, tz);
+  if (rows.length === 0)
+    return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso, serverClock };
 
   const orderIds = rows.map((o) => o.id);
   const { data: ledger, error: ledgerError } = await db
@@ -244,6 +249,7 @@ export async function getSettledToday(): Promise<SettledToday> {
     truncated,
     sinceIso,
     serverNow: nowIso,
+    serverClock,
     orders: rows.map((o) => {
       const lines = o.qr_order_items ?? [];
       // The taxable subtotal base for this order (taxable lines have a stored per-unit tax > 0) —

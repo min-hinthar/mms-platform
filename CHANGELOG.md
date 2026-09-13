@@ -133,6 +133,17 @@ marks the list `truncated` (mutant `refunds/a-truncated-ledger-read-still-ranks`
 the deterministic page is **M219** (low). `ApprovalsBoard.test.tsx` gains three cases, every one
 watched red first. **670** across 120 modules.
 
+**Codex round 4 on #283 — one P1 and one P2, both fixed on sight; the loop is called here.** The
+strip's "Mark refunded" was a client form action with no catch, so a server refusal after the
+manager had already issued the dashboard refund reached the route's error boundary and replaced
+the whole counter screen — it is caught in the strip now: the row stays (nothing was recorded) and a
+`role="status"` line mounted only after that tap says try again (`table.appr.msg.failed`). And the
+settled list's "as of" clock was formatted in the tablet's zone while every clock beside it was
+the service zone's — the snapshot carries `serverClock`, formatted on the server. Pinned in
+`ApprovalsBoard.test.tsx` and `SettledToday.test.tsx`, both watched red first. Four rounds
+(8 → 4 → 4 → 2), every finding real and each smaller than the last — the shape W22a/#194 named;
+anything the next per-head round raises goes to `docs/OPEN-ITEMS.md` and the PR merges.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

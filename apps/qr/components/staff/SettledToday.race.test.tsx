@@ -86,6 +86,7 @@ const snapshot = (o: SettledOrder): Snapshot => ({
   truncated: false,
   sinceIso: "2026-09-13T07:00:00.000Z",
   serverNow: "2026-09-13T19:00:00.000Z",
+  serverClock: "12:00 PM",
 });
 
 describe("SettledToday — overlapping refreshes", () => {

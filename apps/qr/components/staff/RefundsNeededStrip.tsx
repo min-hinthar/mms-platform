@@ -1,5 +1,5 @@
 "use client";
-import { type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 import { resolveRefundNeeded, type RefundNeeded } from "@/lib/approvals";
 import type { StaffLang } from "@/lib/staff-lang";
 import { al, sx } from "@/lib/staff-labels";
@@ -33,6 +33,11 @@ export function RefundsNeededStrip({
   /** The server confirmed the row resolved: drop it and re-poll. */
   onResolved?: (id: string) => void;
 }) {
+  // The row whose resolve the server refused — caught HERE (Codex round 4 on #283, P1): uncaught,
+  // the action's rejection reached the route's error boundary and replaced the whole counter
+  // screen with it. The row stays (nothing was recorded) and the line says try again; the region
+  // exists only after the person's own tap failed, so it never announces on load.
+  const [failedId, setFailedId] = useState<string | null>(null);
   if (refunds === null)
     return (
       <p style={outageText}>
@@ -85,9 +90,15 @@ export function RefundsNeededStrip({
             </code>
             <form
               action={async () => {
-                // The server action throws on an unreadable table — the row then stays, honestly.
-                await resolveRefundNeeded(r.id);
-                onResolved?.(r.id);
+                try {
+                  // The server action throws on an unreadable table — the row then stays, honestly.
+                  await resolveRefundNeeded(r.id);
+                  setFailedId(null);
+                  onResolved?.(r.id);
+                } catch (e) {
+                  console.error("[RefundsNeededStrip] resolve failed — the row stays", e);
+                  setFailedId(r.id);
+                }
               }}
               style={{ display: "inline-block", marginLeft: 8 }}
             >
@@ -111,6 +122,11 @@ export function RefundsNeededStrip({
                 <Chrome lang={lang} k="table.appr.verb.markRefunded" echo="stack" />
               </button>
             </form>
+            {failedId === r.id && (
+              <span role="status" style={failText}>
+                <Chrome lang={lang} k="table.appr.msg.failed" echo="stack" />
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -150,3 +166,9 @@ const refundsList: CSSProperties = {
   gap: 6,
 };
 const refundsRow: CSSProperties = { fontSize: "var(--fs-sm)" };
+const failText: CSSProperties = {
+  display: "block",
+  marginTop: 4,
+  fontSize: "var(--fs-sm)",
+  color: "var(--warn)",
+};

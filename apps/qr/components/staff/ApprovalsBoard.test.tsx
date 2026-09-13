@@ -15,6 +15,7 @@ import { tf } from "@/lib/i18n/fill";
 let approvalsAnswer: () => Promise<PendingApproval[]> = () => Promise.resolve([]);
 let rosterAnswer: () => Promise<Approver[]> = () => Promise.resolve([]);
 let refundsAnswer: () => Promise<RefundNeeded[]> = () => Promise.resolve([]);
+let resolveAnswer: () => Promise<void> = () => Promise.resolve();
 const resolved: string[] = [];
 vi.mock("@/lib/approvals", () => ({
   listPendingApprovals: () => approvalsAnswer(),
@@ -22,7 +23,7 @@ vi.mock("@/lib/approvals", () => ({
   resolveApproval: () => Promise.resolve({ ok: false, reason: "error" }),
   resolveRefundNeeded: (id: string) => {
     resolved.push(id);
-    return Promise.resolve();
+    return resolveAnswer();
   },
 }));
 vi.mock("@/lib/voids", () => ({ listApprovers: () => rosterAnswer() }));
@@ -36,6 +37,7 @@ afterEach(() => {
   approvalsAnswer = () => Promise.resolve([]);
   rosterAnswer = () => Promise.resolve([]);
   refundsAnswer = () => Promise.resolve([]);
+  resolveAnswer = () => Promise.resolve();
   resolved.length = 0;
 });
 
@@ -162,6 +164,18 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     // The OLDER read lands, still listing the row the server has since confirmed resolved.
     await act(async () => release!([refundNeeded("r-1")]));
     expect(screen.queryByText(/pi_r-1/)).toBeNull();
+  });
+
+  it("a resolve the server refuses keeps the row and says so in place — the screen stays up (Codex round 4 on #283, P1)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    resolveAnswer = () => Promise.reject(new Error("We can’t reach the ordering system right now"));
+    mount([], [], [refundNeeded("r-1")]);
+    screen.getByRole("button", { name: /pi_r-1/ }).click();
+    await waitFor(() => expect(resolved).toEqual(["r-1"]));
+    await screen.findByText(STAFF["table.appr.msg.failed"].en);
+    expect(screen.getByText(/pi_r-1/)).toBeTruthy(); // the row stays — nothing was recorded
+    expect(screen.getByRole("heading", { level: 2 })).toBeTruthy(); // the zone is still mounted
+    vi.restoreAllMocks();
   });
 
   it("marking a row refunded removes it once the server has confirmed — never before", async () => {

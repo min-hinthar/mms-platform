@@ -168,6 +168,7 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     expect(q.calls.some((c) => c[0] === "or")).toBe(false);
     expect(res.sinceIso).toBe("2026-09-13T07:00:00.000Z");
     expect(res.serverNow).toBe(NOW);
+    expect(res.serverClock).toBe("12:00 PM"); // the same instant, in the service zone
     expect(res.truncated).toBe(false);
   });
 

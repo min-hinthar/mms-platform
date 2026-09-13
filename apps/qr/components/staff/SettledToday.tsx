@@ -175,11 +175,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   }
 
   const { orders, truncated } = snap;
-  // The instant of the last GOOD read — the snapshot's own — shown only while a refresh has failed
-  // since, in this device's clock domain. Latin in both tongues (a clock).
-  const staleClock = stale
-    ? new Date(snap.serverNow).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
-    : null;
+  // The instant of the last GOOD read — the snapshot's own, formatted on the server in the
+  // SERVICE zone like every clock beside it (Codex round 4 on #283: the tablet's own zone put the
+  // list "as of 7:00 PM" over rows stamped noon) — shown only while a refresh has failed since.
+  // Latin in both tongues (a clock).
+  const staleClock = stale ? snap.serverClock : null;
 
   return (
     <section aria-labelledby="settled-h" className="staff-zone">

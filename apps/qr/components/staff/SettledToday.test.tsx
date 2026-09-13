@@ -72,6 +72,7 @@ const snapshot = (orders: SettledOrder[], truncated = false): Snapshot => ({
   truncated,
   sinceIso: "2026-09-13T07:00:00.000Z",
   serverNow: "2026-09-13T19:00:00.000Z",
+  serverClock: "12:00 PM",
 });
 
 function mount(initial: Snapshot, lang: "en" | "my" = "en") {
@@ -183,16 +184,13 @@ describe("SettledToday — the refund console, reading the receipt", () => {
   it("a failed refresh dates the list by the last GOOD read, never by the moment it failed (Codex round 1 on #283)", async () => {
     // The snapshot is from 19:00Z; the refresh fails "now". The line must name the snapshot's
     // instant — the list it is showing — not the failure's, which would claim an hours-old list
-    // current through the present.
+    // current through the present. And in the SERVICE zone, like every clock beside it (Codex
+    // round 4 on #283): the server formats it (`serverClock`), the tablet's zone never does.
     mount(snapshot([order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001")]));
     refreshAnswer = { ok: false, reason: "outage" };
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
-    const asOf = new Date("2026-09-13T19:00:00.000Z").toLocaleTimeString([], {
-      hour: "numeric",
-      minute: "2-digit",
-    });
     const line = await screen.findByText(/Couldn’t refresh/);
-    expect(line.textContent).toContain(`as of ${asOf}`);
+    expect(line.textContent).toContain("as of 12:00 PM");
   });
 
   it("an earlier day's order refunded today shows the day it was paid and the refund's own time (Codex round 1 on #283)", () => {
