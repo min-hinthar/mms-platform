@@ -111,13 +111,40 @@ vi.mock("@mms/db/server", () => ({
     },
     from: (table: string) => {
       if (table === "qr_orders") {
+        // Honours EVERY `.order()` in sequence, nulls placement included, and LIMIT (A4·1; widened
+        // for Codex round 1): the saturation rule is about which rows a capped read keeps, and a
+        // mock that sorted by one hard-coded column would let a ranking regression pass — a mock
+        // that returned the whole fixture would let ASC and DESC pass the same test.
+        const keys: { col: keyof OrderRow; ascending: boolean; nullsFirst: boolean }[] = [];
         const chain: Record<string, unknown> = {
           select: () => chain,
           is: () => chain,
           gte: () => chain,
           or: () => chain,
-          order: () => chain,
-          limit: () => Promise.resolve({ data: orders, error: ordersError }),
+          order: (col: keyof OrderRow, opts?: { ascending?: boolean; nullsFirst?: boolean }) => {
+            keys.push({
+              col,
+              ascending: opts?.ascending !== false,
+              nullsFirst: opts?.nullsFirst === true,
+            });
+            return chain;
+          },
+          limit: (n: number) => {
+            if (ordersError) return Promise.resolve({ data: null, error: ordersError });
+            const sorted = [...orders].sort((a, b) => {
+              for (const k of keys) {
+                const av = a[k.col];
+                const bv = b[k.col];
+                if (av === bv) continue;
+                if (av === null) return k.nullsFirst ? -1 : 1;
+                if (bv === null) return k.nullsFirst ? 1 : -1;
+                const c = String(av).localeCompare(String(bv));
+                if (c !== 0) return k.ascending ? c : -c;
+              }
+              return 0;
+            });
+            return Promise.resolve({ data: sorted.slice(0, n), error: null });
+          },
         };
         return chain;
       }
@@ -188,6 +215,15 @@ vi.mock("@mms/db/server", () => ({
         };
         return chain;
       }
+      if (table === "grocery_items") {
+        // F18 (A4·1) — the ONE name loader partitions non-uuid refs to the grocery table before its
+        // IN-lists; the pulse fixtures use short ids, so it asks here and the answer is empty.
+        const chain: Record<string, unknown> = {
+          select: () => chain,
+          in: () => Promise.resolve({ data: [], error: null }),
+        };
+        return chain;
+      }
       throw new Error(`unexpected ${table}`);
     },
   }),
@@ -216,7 +252,7 @@ const DISH = "cccccccc-cccc-4ccc-8ccc-cccccccc0003";
 const OTHER_DISH = "dddddddd-dddd-4ddd-8ddd-dddddddd0004";
 
 type Body = {
-  orders?: { name: string | null }[];
+  orders?: { code: string; name: string | null; status: string; readyMinutes?: number | null }[];
   pulse?: {
     tickets: number;
     oldestMinutes: number | null;
@@ -543,5 +579,132 @@ describe("GET /api/board — the kitchen pulse publishes load, not people", () =
       { name: "Mohinga", nameMy: null, qty: 2 },
       { name: "Tea leaf salad", nameMy: null, qty: 2 },
     ]);
+  });
+});
+
+describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock, and a full read refuses", () => {
+  it("derives readyMinutes from `mms_now`, never from the wall's own clock", async () => {
+    // MUTATION: `Date.now()` in place of `dbNowMs` → the fixture's DB clock is 2026-09-01 and the
+    // process clock is not, so the count is off by days; a wall that subtracted a shipped instant
+    // from its own clock would have the same defect, one screen later.
+    orders = [
+      {
+        ...order(TOGO, "sess-togo", "Nilar"),
+        togo_ready_at: new Date(NOW - 5 * MIN - 20_000).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders).toHaveLength(1);
+    expect(body.orders?.[0]).toMatchObject({ name: "Nilar", status: "ready", readyMinutes: 5 });
+  });
+
+  it("a preparing bag has no shelf time — null, not 0", async () => {
+    orders = [
+      { ...order(TOGO, "sess-togo", "Nilar"), togo_status: "preparing", togo_ready_at: null },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]).toMatchObject({ status: "preparing", readyMinutes: null });
+  });
+
+  it("a ready stamp AHEAD of the clock (app-clock fallback skew) floors at 0, never negative", async () => {
+    orders = [
+      { ...order(TOGO, "sess-togo", "Nilar"), togo_ready_at: new Date(NOW + 30_000).toISOString() },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]?.readyMinutes).toBe(0);
+  });
+
+  it("a collected bag has NO wait — a picked-up row lingers under Ready without a climbing count", async () => {
+    // Blind pass, CRITICAL 4. MUTATION: derive the wait from `togo_ready_at` alone → "13 min" on a
+    // bag someone took ten minutes ago.
+    orders = [
+      {
+        ...order(TOGO, "sess-togo", "Nilar"),
+        togo_status: "picked_up",
+        togo_ready_at: new Date(NOW - 8 * MIN).toISOString(),
+        togo_picked_up_at: new Date(NOW - 2 * MIN).toISOString(),
+      },
+    ];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.[0]).toMatchObject({ status: "ready", readyMinutes: null });
+  });
+
+  it("a read that came back FULL keeps the NEWEST bags and publishes — never a 503, never an empty wall", async () => {
+    // Blind pass, CRITICAL 3: untapped `ready` rows accumulate (picked_up is a manual tap), so the
+    // cap WILL be reached on a busy day. MUTATION: oldest-first → the bag that just came up is the
+    // one dropped. The mock honours order + limit, so this fixture of 61 separates the two.
+    orders = Array.from({ length: 61 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (61 - i) * MIN).toISOString(),
+    }));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA0060"); // the newest bag is on the wall
+    expect(codes).not.toContain("AA0000"); // the oldest untapped one fell off
+    // and the wall still reads oldest-first within what it shows
+    expect(codes[0]).toBe("AA0001");
+  });
+
+  it("a scheduled bag placed early and readied LAST survives the cap — the wall ranks by readiness, not creation (Codex round 1 on A4·1)", async () => {
+    // Sixty bags placed and readied through the afternoon, plus one placed at breakfast for a six
+    // o'clock pickup that came up a moment ago. Under `created_at DESC` it is the oldest creation
+    // on the wall and the row the cap drops — a guest at the counter with no name on the wall.
+    // Under `togo_ready_at DESC` it is the newest readiness and the first row kept; the row that
+    // falls off is the one readied longest ago.
+    const afternoon = Array.from({ length: 60 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
+    }));
+    const scheduled = {
+      ...order(`${TOGO.slice(0, -4)}5chd`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - 6 * 60 * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - 30_000).toISOString(),
+    };
+    orders = [scheduled, ...afternoon];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA5CHD");
+    expect(codes).not.toContain("AA0000");
+  });
+
+  it("a lingered handoff never evicts a bag still waiting — active rows rank ahead of collected ones (Codex's per-head round on A4·1)", async () => {
+    // Sixty bags still waiting, plus one collected a minute ago that rides along for the linger
+    // window — and its readiness is the NEWEST on the wall. Ranked by readiness alone it takes a slot
+    // and the bag readied longest ago, still waiting, falls off. Active rows (`togo_picked_up_at`
+    // null) sort ahead of every collected one, so the sixty waiting bags all publish and the
+    // collected name is the row that yields.
+    const waiting = Array.from({ length: 60 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
+    }));
+    const collected = {
+      ...order(`${TOGO.slice(0, -4)}d0ne`, "sess-togo", "Nilar"),
+      togo_status: "picked_up",
+      created_at: new Date(NOW - 3 * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - 90_000).toISOString(),
+      togo_picked_up_at: new Date(NOW - 60_000).toISOString(),
+    };
+    orders = [collected, ...waiting];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA0000"); // the bag waiting longest is still on the wall
+    expect(codes).not.toContain("AAD0NE"); // the collected name is the row that yielded
+  });
+
+  it("one under the cap is a complete read and publishes every row", async () => {
+    orders = Array.from({ length: 59 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (59 - i) * MIN).toISOString(),
+    }));
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Body).orders?.length).toBe(59);
   });
 });

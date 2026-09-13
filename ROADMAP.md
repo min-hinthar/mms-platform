@@ -330,7 +330,14 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
       by subtraction) — shipped 2026-09-13: every freeze keyed on a per-request uuid, the same-owner
       re-acquire arm removed, the by-cart release deleted, extends scoped and reporting, the Terminal
       acting on a lost mutex, the share route extending before it mints.
-- [ ] **A4 — `/staff` to five screens** — Kitchen · Tables & settle · Menu · Tips · Sign-in.
+- [ ] **A4 — `/staff` to five screens** — Kitchen · Tables & settle · Menu · Tips · Sign-in. The map
+      and the order: `docs/A4_PLAN.md`.
+  - [x] **A4·1 — Kitchen + the wall** (2026-09-13): the served rail (K31), one service-day rule,
+        one Burmese name loader (F18 a), the wall's wait minutes + saturation refusal (K32 a).
+  - [ ] **A4·2 — Tables & settle**: floor + register + expo on one screen; K30 (B).
+  - [ ] **A4·3 — Tables & settle, the manager rails**: approvals + settled today; M204 reads the receipt.
+  - [ ] **A4·4 — Sign-in**: login · lock · profile · team as one screen with states.
+  - [ ] **A4·5 — Menu + Tips**: glossary → Menu; feedback → Tips; the More grid → three tiles.
 - [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers
       inviting staff and assigning roles, and orders following a diner onto their account (#278, `b341ac9`).
 - [x] **A7b — the Google sign-in dead end** — a returning customer's "Continue with Google" calls

@@ -20,9 +20,14 @@ import type {
   KitchenLine,
   KitchenPoll,
   KitchenStation,
+  KitchenQueue,
   KitchenTicket,
 } from "./kitchen-types";
-import { catalogNameMy, pairModifiersMy, UUID_RE, uuidOptionIds } from "./ticket-names";
+import { catalogNameMy, pairModifiersMy, UUID_RE } from "./ticket-names";
+import { loadLineNames } from "./line-names";
+import { dayStartIso, resolveServiceTz } from "./day-window";
+import { readServedToday, settleServedRail } from "./served-today";
+import { shapeKdsStats } from "./kitchen-stats";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -105,13 +110,17 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const db = serviceClient();
   // S2-audit S3: the grace cutoff is the DB clock (mms_now), not the Next process clock — a skew between
   // the app instance and Postgres must not let the KDS surface a line the DB still considers undoable.
-  const [nowRes, cfgRes, statsRes] = await Promise.all([
+  const [nowRes, cfgRes, statsRes, tzRes] = await Promise.all([
     db.rpc("mms_now"),
     db
       .from("mms_kds_config")
       .select("dinein_amber_min,dinein_red_min,pickup_amber_min,pickup_red_min,rechime_sec")
       .maybeSingle(),
     db.rpc("mms_kds_stats"),
+    // K31 — the served rail's day floor comes from the SAME zone `mms_kds_stats` derives "today"
+    // from, so the rail and the "Avg today" cell beside it never disagree about when today began.
+    // ADVISORY: a failed read coalesces to the zone the SQL coalesces to, and says so.
+    db.from("pickup_config").select("tz").maybeSingle(),
   ]);
   const nowIso = nowRes.data ?? new Date().toISOString(); // app-clock fallback only if the rpc fails
   const nowMs = new Date(nowIso).getTime();
@@ -125,12 +134,38 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
         rechimeSec: cfg.rechime_sec,
       }
     : DEFAULT_THRESHOLDS;
-  const statsRow = statsRes.data?.[0];
-  const stats: KdsStats = {
-    avgSecs: statsRow?.avg_secs ?? 0,
-    servedToday: statsRow?.served_count ?? 0,
-  };
-  const empty = { tickets: [], serverNow: nowIso, thresholds, stats };
+  // A failed stats rpc is an UNKNOWN count, never zero (Codex round 1 on A4·1): the rail's capped
+  // sentence takes it as a denominator. Logged, and the queue is answered regardless.
+  if (statsRes.error)
+    console.error(
+      "[kitchen] mms_kds_stats failed — Avg today and the day's served count are unknown",
+      {
+        message: statsRes.error.message,
+      },
+    );
+  const stats: KdsStats = shapeKdsStats(statsRes.data?.[0]);
+  if (tzRes.error)
+    console.error(
+      "[kitchen] pickup_config tz read failed — served rail floors on the default zone",
+      {
+        message: tzRes.error.message,
+      },
+    );
+  // VALIDATED, never just defaulted: `pickup_config.tz` is text with no CHECK and no validating
+  // writer, so a typo (or a name only Postgres's own table knows) reaches here — and the first
+  // draft would have thrown a RangeError on the KDS's only read path over one (blind pass on
+  // A4·1, CRITICAL 1).
+  const serviceTz = resolveServiceTz(tzRes.data?.tz);
+  // K31 — the rail is history and must NEVER gate the pass: started here beside the live reads,
+  // awaited only where the queue is about to be answered, and never past its budget
+  // (`settleServedRail` — past that it reads `null` and the queue is answered on time). Its own
+  // failures answer `null` and never touch the live queue.
+  const servedPromise = readServedToday(db, dayStartIso(nowIso, serviceTz), serviceTz);
+  const withServed = async (queue: Omit<KitchenQueue, "served">): Promise<KitchenPoll> => ({
+    ok: true,
+    queue: { ...queue, served: await settleServedRail(servedPromise) },
+  });
+  const empty = { tickets: [] as KitchenTicket[], serverNow: nowIso, thresholds, stats };
 
   // Live kitchen lines — HELD (future fire_at) included; the grace/held split happens per channel below.
   // W10b — every read that FEEDS ticket assembly (lines/carts/sessions/orders/menu) checks its error
@@ -160,7 +195,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     });
     return { ok: false, reason: "outage" };
   }
-  if (!lines || lines.length === 0) return { ok: true, queue: empty };
+  if (!lines || lines.length === 0) return await withServed(empty);
 
   // Resolve each line's cart. W3a: carts in ('open','paid') — dine-in cooks while open (and its
   // fired-at-checkout to-go food lives on the just-paid cart); pickup/scango only ever fire paid.
@@ -174,17 +209,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   const cartById = new Map((carts ?? []).map((c) => [c.id, c]));
   const sessionIds = [...new Set([...cartById.values()].map((c) => c.session_id))];
   // Unsaturated (refused above), so "every line is on a dead cart" really does mean nothing live.
-  if (sessionIds.length === 0) return { ok: true, queue: empty };
+  if (sessionIds.length === 0) return await withServed(empty);
 
   // Menu-station lookup: kitchen lines are always restaurant items (grocery never fires), but filter to
   // uuid-shaped ids defensively — menu_item_id is a soft ref that also carries grocery barcodes.
   const menuIds = [...new Set(lines.map((l) => l.menu_item_id).filter((id) => UUID_RE.test(id)))];
-  // P1 — the option ids behind the Burmese modifier labels. Partitioned to uuid-shaped ids BEFORE the
-  // IN-list: `modifier_option_ids` is a soft jsonb ref and ONE malformed value would fail the whole
-  // read (and, being advisory, silently strip Burmese from every modifier on the board).
-  const optionIds = [...new Set(lines.flatMap((l) => uuidOptionIds(l.modifier_option_ids)))];
-
-  const [sessRes, orderRes, menuRes, optRes] = await Promise.all([
+  const [sessRes, orderRes, menuRes, names] = await Promise.all([
     // No mode/status filter (W3a): dine-in enforces active below; pickup/scango outlive their session.
     db.from("table_sessions").select("id,qr_code,table_number,mode,status").in("id", sessionIds),
     // The order anchors the pickup/scango identity: its uuid tail IS the short code the diner's
@@ -204,25 +234,18 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
           }[],
           error: null,
         }),
-    // P1 — ADVISORY: the Burmese half of the modifiers. Its failure is a logged degrade (every
-    // modifier renders English, which is exactly what the board showed before P1), never `outage`:
-    // a name read cannot misidentify a ticket, and freezing the board over a label would be the
-    // over-blocking direction. Flipping this to `outage` is a one-line change if that ever changes.
-    optionIds.length
-      ? db.from("modifier_options").select("id,name_my").in("id", optionIds)
-      : Promise.resolve({ data: [] as { id: string; name_my: string | null }[], error: null }),
+    // P1 — ADVISORY: the Burmese half of the modifiers, through the ONE loader (F18, A4·1). Its
+    // failure is a logged degrade (every modifier renders English, which is exactly what the board
+    // showed before P1), never `outage`: a name read cannot misidentify a ticket, and freezing the
+    // board over a label would be the over-blocking direction. `menu: "skip"` because the menu read
+    // above is THIS function's — it carries stations and sold-out and gates on `outage`.
+    loadLineNames(db, lines, { tag: "kitchen", menu: "skip" }),
   ]);
   // Same rule as the anchor reads: a failed session read skips every ticket (false-empty); a failed
   // order/menu read strips pickup call-out codes / station routing — misidentity, not degradation.
   // (`name_my` rides the menu read that already gates on `outage` — one query, one posture.)
   if (sessRes.error || orderRes.error || menuRes.error) return { ok: false, reason: "outage" };
-  if (optRes.error)
-    console.error("[kitchen] modifier_options name_my read failed — modifiers render EN", {
-      message: optRes.error.message,
-    });
-  const optionNameMy = new Map(
-    (optRes.error ? [] : (optRes.data ?? [])).map((o) => [o.id, o.name_my]),
-  );
+  const optionNameMy = names.optionNameMy;
   const sessById = new Map((sessRes.data ?? []).map((s) => [s.id, s]));
   const orderByCart = new Map<string, string>();
   for (const o of orderRes.data ?? []) {
@@ -307,7 +330,7 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
     ...all.filter((t) => !t.held).sort(byFire),
     ...all.filter((t) => t.held).sort(byFire),
   ];
-  return { ok: true, queue: { tickets, serverNow: nowIso, thresholds, stats } };
+  return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
 }
 
 export type KitchenActionResult = { ok: true } | { ok: false; error: string };

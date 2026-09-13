@@ -4,6 +4,123 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·1 — Kitchen + the wall: the served rail, one service day, one name loader, wait minutes (2026-09-13)
+
+The first of five A4 slices (`docs/A4_PLAN.md` carries the map: sixteen `/staff` routes into
+Kitchen · Tables & settle · Menu · Tips · Sign-in, the two doors untouched). This one touches the
+screen the family actually uses and the wall beside it, and closes three filed defects on the way:
+
+- **K31 — what went OUT today.** A bumped ticket left `/staff/kitchen` forever and the only list of
+  finished orders was manager-gated, undated and English. The rail the board already had is now
+  two views under one segmented track (`.staff-seg`, the gold cap, 44px each): the all-day counts
+  and **Served today** — `state = 'served'` lines bumped since the service day began, newest
+  first, capped at 40, through `<TicketLineText>` so Burmese comes first for free, with the table
+  (the dictionary's word, a Latin number) or pickup code and the clock time it went out in the
+  service zone. Read-only (`mms_recall_ticket` refuses past two minutes). Three states, never
+  conflated: a failed read is SAID ("Couldn't read what went out. The board above is live.") rather
+  than shown as an empty day — the advisory read answers `null`, and the live queue is untouched
+  either way — and a read that came back FULL says "Showing the last 40 of {served_count}" over the
+  list rather than letting a "today" heading stand over a list missing the morning. The rail never
+  gates the pass: it is awaited only where the queue is answered and never past a 2.5s budget, after
+  which the queue is answered without it. `lib/served-today.ts`: the read (every predicate pinned)
+  - the pure shape; carts of ANY status, because a dish served on a table cleared without settling
+    still went out.
+- **"Today" in ONE place.** The verifier's warning on K31 was exact: `laDayStartIso` hardcodes LA
+  while the "Avg today" cell on the SAME strip derives its day from `pickup_config.tz` in SQL.
+  `lib/day-window.ts` · `dayStartIso(now, tz)` is the TS rule now — DST-correct by VERIFICATION
+  (the candidate midnight is formatted back into the zone and must read 00:00; the fall-back and
+  spring-forward days are pinned, every expected instant derived by an independent brute-force
+  walk, never by the function) — and `laDayStartIso` is that rule applied to LA. The kitchen reads
+  the zone beside its config and stats; a failed zone read coalesces to the same default the SQL
+  coalesces to, and so does a stored value ICU refuses (a typo, or a name only Postgres's own table
+  knows — `Intl` throws on it; `resolveServiceTz` validates once and reports). The rolling-24-hours
+  mutant followed the
+  definition a second time.
+- **F18 (a) — the Burmese half of a line, loaded ONCE.** `expo.ts` carried the general case
+  (dish uuids + grocery barcodes + option ids, partitioned before the IN-lists, advisory by table);
+  `kitchen.ts` and `/api/board` carried copies. `lib/line-names.ts` · `loadLineNames` is the one
+  loader; the three read it, and so does the served rail (which would have been the fourth copy).
+  Server-only by construction — `ticket-names.ts` stays pure because `TicketText.tsx` is a client
+  component. The KDS passes `menu: "skip"` because its menu read carries stations and sold-out and
+  gates on `outage`; everything else is advisory, logged by TABLE, that half rendering English.
+- **K32 (a) — the wall says how long a bag has waited.** `/api/board` shipped `readyAt` and nothing
+  drew it. `readyMinutes` is derived on the server from the DATABASE clock (the same `dbNowMs` the
+  pulse ages on — a TV's clock is the least trusted in the building), floored at 0 under the
+  app-clock fallback, `null` for a collected bag (a picked-up row lingers under Ready for ten
+  minutes and must not keep counting), drawn by `BoardCard` as a third quiet span ("12 min" / "Just
+  now", Latin digits like the pulse's minute count beside it). An older TV build that receives no
+  count draws nothing rather than 0. The hand-rolled `dayFloor` is the shared `queueFloorIso`, and
+  the orders read is NEWEST-first under its cap: `picked_up` is a manual tap, so untapped bags
+  accumulate all day and an oldest-first cap would drop the bag that just came up — a full read now
+  publishes the latest sixty and logs that the oldest untapped fell off, never a refusal. K32 (b), a
+  table number on the wall, stays with Min: it is a spec reversal.
+
+**The blind adversarial pass on this slice returned REJECT with four CRITICALs, all real, all
+closed before the PR opened:** a stored zone ICU refuses threw on the KDS's only read path (now
+validated with a fallback); the rail truncated silently at 40 under a "today" heading (now says
+"the last N of {count}"); the wall's saturation refusal was a guest-facing outage sentence at sixty
+untapped bags (now newest-first under the cap, logged, never refused); and a collected bag's wait
+kept climbing through its linger window (now `null`). Also from that pass: the rail's read was
+awaited ahead of the live phase-2 reads (now budgeted and never gating); the wait's digits were
+Burmese beside a Latin pulse count (now Latin); the served row's label and time were a hand-built
+`T6` and a ticking `m:ss` (now the dictionary's table word and a clock time); the day-window's
+repeated-hour test named the wrong instant (both 01:30s pinned now). A partial index for
+`state = 'served'` on `qr_cart_items` is filed as K31 (b) — a prod migration.
+
+Guards: 3 new mutants (`board/ready-minutes-off-the-wall-clock`,
+`board/saturated-read-keeps-the-oldest-bags`, `board/collected-bag-keeps-waiting`), 1 retargeted
+(`day-window/…rolling-24-hours`) —
+**645** across 113 modules, `day-window.ts` joining the set; `served-today` and `line-names` carry
+value suites watched red by hand; the two render paths (`KdsBoard`'s served branch, `BoardCard`'s
+wait span) have no component suite — the rules they draw are pinned one layer down, in the read
+and the route — and a T18-style wiring suite is the follow-up. New Burmese (`kds.served.*`, `kds.a11y.served`,
+`kds.a11y.railView`, `board.card.*`) is a machine draft → K15.
+
+**Codex round 1 on #281 — seven P2s, five fixed on the head, two filed.** Fixed: `dayStartIso`
+alternated back to the day BEFORE in a zone whose DST jump lands on midnight (Santiago, Havana,
+Cairo — no instant reads 00:00 that date, the day begins at 01:00, and the second pass rebuilt the
+candidate once more after the check failed), so the rail carried the prior day's last hour — the
+rule is now the EARLIEST candidate whose wall clock reads today's date, built from every offset
+within an hour of the first (five instants pinned by an independent minute-by-minute walk; a
+fall-back AT midnight, where 00:00 reads twice, takes the first); the wall's capped read ranked by
+`created_at`, so a scheduled pickup placed at breakfast and readied at six was the row a saturated
+read dropped — `togo_ready_at DESC NULLS LAST` then creation (the route mock now honours every
+`.order()`, nulls placement included); a stale board kept drawing each bag's wait minutes while the
+band beside it was blanked — the count is an age and goes with the band; a failed `mms_kds_stats`
+was defaulted to 0 and the capped rail read "the last 40 of 0 served today" — `shapeKdsStats`
+(`lib/kitchen-stats.ts`) keeps the absence (`servedToday: null`) and `kds.served.moreUnknown` says
+the total could not be read; the served rail's code lookup was `paid`-only, so a refunded pickup
+lost the code printed on the guest's order (`paid` or `refunded`). Filed: the Intl fallback and the
+SQL stats disagree by an hour on a zone only Postgres accepts (`'PST'`) — storage-time validation is
+a trigger, **K34**; a table merge re-parents served lines so the rail relabels history — a bump-time
+identity snapshot is a migration, **K31 (c)**, and the fold underneath it (a served row added to an
+unserved target line — the kitchen re-cooks eaten food) is **M217**. Two mutants added
+(`board/capped-read-ranks-by-creation-not-readiness`, `board/stale-wait-keeps-ticking`), one
+re-anchored (`day-window/…rolling-24-hours`), every one watched red by `verify:slice --only`.
+
+**Codex round 2 on #281 — three P2s, all fixed on the head.** The rail drew no quantity, so one
+portion and three read the same (`×{qty}`, the live ticket's own mark); its `state = 'served'`
+predicate made food that went out and was then written off as a cooked loss VANISH from "what went
+out today" (`mms_void_line` flips the state and keeps the stamp; only a recall clears `bumped_at`)
+— the read is now `state in ('served','voided') and bumped_at is not null`, and a voided line
+carries a "Voided after service" mark; and the capped sentence's denominator came from
+`mms_kds_stats`, counted BEFORE the rail read, so a bump between the two read "the last 40 of 39"
+— the total now rides the rows read as `count: "exact"` (`ServedRail.total`, one statement, one
+snapshot), `truncated` is that total against the cap, and the stats rpc feeds the Avg cell alone.
+Every rule pinned in `served-today.test.ts`, each watched red first. New Burmese
+(`kds.served.voided`) is a machine draft → K15.
+
+**Codex's per-head round on #281 — two P2s, both fixed on sight.** The day-window's round-1 rule
+("the earliest candidate dated today") took the FIRST 00:00 of a fall-back that repeats midnight
+(Havana 2026-11-01, 04:00Z) where the SQL half takes the second: PostgreSQL resolves an ambiguous
+local midnight on the standard-time side, measured on this project's database (17.6) with
+`mms_kds_stats`'s own expression — `2026-11-01 05:00:00+00`, while every other transition day
+already agreed. The rule now mirrors Postgres: the LATEST candidate reading exactly 00:00 today,
+else the earliest dated today (the jump). And the wall's capped read let a bag collected a minute
+ago — riding along for the ten-minute linger with the newest readiness on the wall — take a slot
+from a bag still waiting: active rows (`togo_picked_up_at` null) now rank ahead of every collected
+one. Mutant `board/lingered-handoff-evicts-a-waiting-bag`; both rules watched red first.
+
 ### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
 
 **The counter's double-mint was a shared owner, not a missing discriminator.** `settleCash` and

@@ -1,3 +1,4 @@
+import { dayStartIso } from "./day-window";
 // Register money math (W6a) — pure, no I/O, mutation-tested via verify:slice. Two concerns:
 // the day summary (Z-report-lite buckets) and the counter's change arithmetic. Every value is
 // integer CENTS. The charge itself is NEVER computed here — getCartTotals owns it; this module
@@ -79,31 +80,10 @@ export function changeDue(totalCents: number, tenderedCents: number): number {
 }
 
 /** The UTC instant of the CURRENT Los Angeles calendar day's midnight — the day window every
- *  register summary is scoped to. DST-correct by construction: the LA calendar date comes from a
- *  timezone-aware format, and the candidate offsets (PDT −7 / PST −8) are verified by formatting
- *  the candidate instant BACK into LA and demanding hour 0 — never a device-clock or fixed-offset
- *  subtraction (the two-clock duration class in LEARNINGS). */
+ *  register summary is scoped to. A4·1 (K31): the derivation moved to `lib/day-window.ts`'s
+ *  `dayStartIso`, which takes the ZONE, because the KDS served rail needed the same floor from
+ *  `pickup_config.tz` and a second implementation would be a second "today". This is that one rule
+ *  applied to LA; DST-correctness is verified there, never by a fixed-offset subtraction here. */
 export function laDayStartIso(now: Date): string {
-  const [y, m, d] = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Los_Angeles",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  })
-    .format(now)
-    .split("-")
-    .map(Number) as [number, number, number];
-  for (const offsetHours of [7, 8]) {
-    const candidate = new Date(Date.UTC(y, m - 1, d, offsetHours));
-    const hour = Number(
-      new Intl.DateTimeFormat("en-US", {
-        timeZone: "America/Los_Angeles",
-        hour: "2-digit",
-        hour12: false,
-      }).format(candidate),
-    );
-    if (hour % 24 === 0) return candidate.toISOString();
-  }
-  // Unreachable (LA is always −7 or −8), kept so the fn totals — PST, the standard offset.
-  return new Date(Date.UTC(y, m - 1, d, 8)).toISOString();
+  return dayStartIso(now.toISOString(), "America/Los_Angeles");
 }

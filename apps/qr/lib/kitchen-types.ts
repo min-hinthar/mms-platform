@@ -93,7 +93,47 @@ export type KdsThresholds = {
 
 /** Today's bump-derived metrics (mms_kds_stats): avg fire→bump seconds + tickets served since local
  *  midnight. Zero-state renders as "—", never a fabricated number. */
-export type KdsStats = { avgSecs: number; servedToday: number };
+/** `servedToday` is `null` when the stats rpc answered nothing — an unknown count, never 0 (`shapeKdsStats`). */
+export type KdsStats = { avgSecs: number; servedToday: number | null };
+
+/**
+ * A4·1 (K31) — a line that went OUT today, for the read-only served rail. The same text shape the
+ * live ticket carries (`nameMy` / `modifiersMy` through the one loader) plus where it went and when
+ * it was bumped; no state and no controls — `mms_recall_ticket` refuses past two minutes, and the
+ * live board's recall rail already covers that window.
+ */
+export type ServedLine = {
+  id: string;
+  name: string;
+  nameMy: string | null;
+  qty: number;
+  modifiers: string[];
+  modifiersMy: (string | null)[];
+  bumpedAt: string;
+  /** The bump as a clock time in the service zone ("12:42", Latin — a clock, per the numerals
+   *  rule), formatted where the zone is known. A history line reads as a time, not a ticking age. */
+  bumpedAtLabel: string;
+  /** Bumped, then voided (a cooked loss) — it went out, and the rail says what became of it. */
+  voided: boolean;
+  channel: KitchenChannel;
+  label: string;
+  tableNumber: number | null;
+  shortCode: string | null;
+  fulfillment: "dinein" | "togo" | "grocery";
+};
+
+/**
+ * K31 — the served rail: the lines, and whether the capped read saw the whole day. `truncated` is
+ * `queueEmptiness`'s `cannot-say` for THIS read; the board says "the last N of {served_count}" over
+ * the list rather than letting a heading that says "today" stand over a list missing the morning.
+ */
+export type ServedRail = {
+  lines: ServedLine[];
+  truncated: boolean;
+  /** The day's bumped-line count from the SAME statement as `lines` (`count: "exact"`); `null` when
+   *  no count came back, and then the board shows the last N with no denominator. */
+  total: number | null;
+};
 
 export type KitchenQueue = {
   tickets: KitchenTicket[];
@@ -101,6 +141,9 @@ export type KitchenQueue = {
   serverNow: string;
   thresholds: KdsThresholds;
   stats: KdsStats;
+  /** K31 — today's served lines, newest first; `null` when that ADVISORY read failed (the rail says
+   *  so; the live queue above is unaffected either way). */
+  served: ServedRail | null;
 };
 
 /**
