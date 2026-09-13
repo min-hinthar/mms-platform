@@ -181,6 +181,8 @@ export const STAFF = {
   "kds.allday.empty": { en: "Nothing live.", my: "ဘာမှ မရှိပါ။" },
   // A4·1 (K31) — the served rail: what went OUT today, read-only, beside the all-day counts.
   "kds.served.chip": { en: "Served", my: "ထုတ်ပြီး" },
+  // A line that went out and was then written off (a cooked loss) stays on the rail, marked.
+  "kds.served.voided": { en: "Voided after service", my: "ထုတ်ပြီးမှ ပယ်ဖျက်" },
   "kds.served.title": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.served.empty": { en: "Nothing served yet today.", my: "ဒီနေ့ ဘာမှ မထုတ်ရသေးပါ။" },
   // The rail's read failed (ADVISORY — the live board above is unaffected). Said rather than an

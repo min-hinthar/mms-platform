@@ -723,8 +723,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                       >
                         <Chrome
                           lang={lang}
-                          k={servedMoreKey(snap.stats.servedToday)}
-                          vars={{ n: snap.served.lines.length, total: snap.stats.servedToday ?? 0 }}
+                          k={servedMoreKey(snap.served.total)}
+                          vars={{ n: snap.served.lines.length, total: snap.served.total ?? 0 }}
                         />
                       </p>
                     )}
@@ -735,6 +735,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                             <TicketLineText line={l} />
                           </span>
                           <span className="kds-served-meta">
+                            {/* The quantity the live ticket draws (Codex round 2 on A4·1): one
+                                portion or three is the question the cook is asking. */}
+                            <b>×{l.qty}</b>
+                            {l.voided && (
+                              <span lang={lang} style={{ color: "var(--warn)" }}>
+                                {ts(lang, "kds.served.voided")}
+                              </span>
+                            )}
                             {/* The same identity the live ticket renders — the dictionary's table
                                 word, a Latin number; a pickup by its code. */}
                             <b>

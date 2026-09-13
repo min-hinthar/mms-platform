@@ -113,6 +113,8 @@ export type ServedLine = {
   /** The bump as a clock time in the service zone ("12:42", Latin — a clock, per the numerals
    *  rule), formatted where the zone is known. A history line reads as a time, not a ticking age. */
   bumpedAtLabel: string;
+  /** Bumped, then voided (a cooked loss) — it went out, and the rail says what became of it. */
+  voided: boolean;
   channel: KitchenChannel;
   label: string;
   tableNumber: number | null;
@@ -125,7 +127,13 @@ export type ServedLine = {
  * `queueEmptiness`'s `cannot-say` for THIS read; the board says "the last N of {served_count}" over
  * the list rather than letting a heading that says "today" stand over a list missing the morning.
  */
-export type ServedRail = { lines: ServedLine[]; truncated: boolean };
+export type ServedRail = {
+  lines: ServedLine[];
+  truncated: boolean;
+  /** The day's bumped-line count from the SAME statement as `lines` (`count: "exact"`); `null` when
+   *  no count came back, and then the board shows the last N with no denominator. */
+  total: number | null;
+};
 
 export type KitchenQueue = {
   tickets: KitchenTicket[];

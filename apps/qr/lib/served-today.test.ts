@@ -29,6 +29,7 @@ const PU: ServedSessionRow = { id: SESS_PU, qr_code: "P-12", table_number: null,
 const row = (over: Partial<ServedRow> & Pick<ServedRow, "id" | "bumped_at">): ServedRow => ({
   name: "Mohinga",
   qty: 1,
+  state: "served",
   modifiers: [],
   modifier_option_ids: null,
   cart_id: CART_A,
@@ -83,6 +84,21 @@ describe("shapeServedLines — newest first, labelled like the live ticket", () 
     });
   });
 
+  it("a line voided AFTER service still went out — carried, and marked (Codex round 2 on A4·1)", () => {
+    const out = shapeServedLines(
+      [
+        row({ id: "kept", bumped_at: "2026-09-13T18:00:00Z" }),
+        row({ id: "lost", bumped_at: "2026-09-13T18:05:00Z", state: "voided" }),
+      ],
+      ctx(),
+      TZ,
+    );
+    expect(out.map((l) => [l.id, l.voided])).toEqual([
+      ["lost", true],
+      ["kept", false],
+    ]);
+  });
+
   it("orders by bump time, NEWEST first — the cook asks about the last thing that left", () => {
     // MUTATION: drop the sort (trust the read's order) → the fixture below is oldest-first and the
     // rail reads backwards; the SQL's ORDER BY is the read's business, the rule is stated here.
@@ -131,6 +147,7 @@ describe("shapeServedLines — newest first, labelled like the live ticket", () 
 // ── the read ──────────────────────────────────────────────────────────────────────────────────
 type Q = {
   table: string;
+  select: unknown[];
   eq: [string, unknown][];
   not: [string, string, unknown][];
   gte: [string, unknown][];
@@ -140,16 +157,22 @@ type Q = {
 };
 let queries: Q[] = [];
 let itemRows: unknown[] | null = [];
+/** The `count: "exact"` the rows read carries — the day's total from the SAME statement. */
+let itemCount: number | null = null;
 let itemsError: { message: string } | null = null;
 let cartsError: { message: string } | null = null;
 let sessionsError: { message: string } | null = null;
 
 function builder(table: string) {
-  const q: Q = { table, eq: [], not: [], gte: [], in: [], order: [], limit: [] };
+  const q: Q = { table, select: [], eq: [], not: [], gte: [], in: [], order: [], limit: [] };
   queries.push(q);
   const answer = () => {
     if (table === "qr_cart_items")
-      return Promise.resolve({ data: itemsError ? null : itemRows, error: itemsError });
+      return Promise.resolve({
+        data: itemsError ? null : itemRows,
+        error: itemsError,
+        count: itemsError ? null : itemCount,
+      });
     if (table === "qr_carts")
       return Promise.resolve({
         data: cartsError ? null : [{ id: CART_A, session_id: SESS_T6 }],
@@ -164,7 +187,7 @@ function builder(table: string) {
   // (`.in()` alone, `.in().eq()`, `.limit()`) answers from the fixture — the query's shape is
   // asserted from the record, never from where the mock happened to stop chaining.
   const chain: Record<string, unknown> = {
-    select: () => chain,
+    select: (_cols: string, opts?: unknown) => (q.select.push(opts ?? null), chain),
     eq: (c: string, v: unknown) => (q.eq.push([c, v]), chain),
     not: (c: string, op: string, v: unknown) => (q.not.push([c, op, v]), chain),
     gte: (c: string, v: unknown) => (q.gte.push([c, v]), chain),
@@ -182,6 +205,7 @@ let errorSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
   queries = [];
   itemRows = [];
+  itemCount = null;
   itemsError = null;
   cartsError = null;
   sessionsError = null;
@@ -190,12 +214,16 @@ beforeEach(() => {
 afterEach(() => errorSpy.mockRestore());
 
 describe("readServedToday — the read asks exactly for today's served lines", () => {
-  it("state = served, bumped since the CALLER's day floor, newest first, capped", async () => {
+  it("bumped rows — served, or VOIDED after service — since the CALLER's day floor, newest first, capped", async () => {
     // MUTATION: `state = fired` (the live queue's rows) or a dropped `gte` (all time) or a dropped
     // `order` / `limit` — each is a different rail: cooking food, last week's, or an unbounded read.
+    // `served` alone (the first draft) made food that went out and was then written off as a cooked
+    // loss VANISH from "what went out today" — `mms_void_line` flips the state and keeps the stamp;
+    // only a recall clears `bumped_at`, and the stamp predicate still excludes those (Codex round 2).
     await readServedToday(db, FLOOR, TZ);
     const q = queries.find((x) => x.table === "qr_cart_items");
-    expect(q?.eq).toEqual([["state", "served"]]);
+    expect(q?.eq).toEqual([]);
+    expect(q?.in).toEqual([["state", ["served", "voided"]]]);
     expect(q?.not).toEqual([["bumped_at", "is", null]]);
     expect(q?.gte).toEqual([["bumped_at", FLOOR]]);
     expect(q?.order).toEqual([["bumped_at", { ascending: false }]]);
@@ -217,6 +245,29 @@ describe("readServedToday — the read asks exactly for today's served lines", (
     expect((await readServedToday(db, FLOOR, TZ))?.truncated).toBe(false);
   });
 
+  it("the day's total rides the rows read — one statement, one snapshot (Codex round 2 on A4·1)", async () => {
+    // "Showing the last 40 of 39" was reachable: the stats rpc counted before the rail read, and a
+    // bump between the two put the rail ahead of its own denominator. `count: "exact"` on the rows
+    // read answers the total from the SAME statement, and `truncated` is that total against the cap
+    // — no longer a full-page inference.
+    itemRows = Array.from({ length: SERVED_RAIL_CAP }, (_, i) =>
+      row({ id: `l${i}`, bumped_at: new Date(Date.parse(FLOOR) + i * 60_000).toISOString() }),
+    );
+    itemCount = 57;
+    const out = await readServedToday(db, FLOOR, TZ);
+    const q = queries.find((x) => x.table === "qr_cart_items");
+    expect(q?.select).toEqual([{ count: "exact" }]);
+    expect(out?.total).toBe(57);
+    expect(out?.truncated).toBe(true);
+    itemCount = SERVED_RAIL_CAP; // a full page that IS the whole day
+    expect(await readServedToday(db, FLOOR, TZ)).toMatchObject({
+      total: SERVED_RAIL_CAP,
+      truncated: false,
+    });
+    itemCount = null; // no count header — the page-full inference stands in, and the total is unknown
+    expect(await readServedToday(db, FLOOR, TZ)).toMatchObject({ total: null, truncated: true });
+  });
+
   it("labels a pickup by its SETTLED order — paid or refunded, by cart (Codex round 1 on A4·1)", async () => {
     // A fully refunded pickup keeps its served lines: `mms_apply_refund_reconcile` flips
     // `qr_orders.status` to `refunded` and touches no cart item, so a `paid`-only read stopped
@@ -234,7 +285,7 @@ describe("readServedToday — the read asks exactly for today's served lines", (
 
   it("an empty day asks nothing further and answers [] — an empty rail, not an unreadable one", async () => {
     const out = await readServedToday(db, FLOOR, TZ);
-    expect(out).toEqual({ lines: [], truncated: false });
+    expect(out).toEqual({ lines: [], truncated: false, total: null });
     expect(queries.map((q) => q.table)).toEqual(["qr_cart_items"]);
   });
 
@@ -273,14 +324,14 @@ describe("clockLabel / settleServedRail — the rail's clock and its budget", ()
     expect(clockLabel("2026-09-13T18:05:00Z", "Asia/Yangon")).toBe("00:35");
   });
   it("answers the rail when it lands inside the budget", async () => {
-    const rail = Promise.resolve({ lines: [], truncated: false });
-    expect(await settleServedRail(rail, 50)).toEqual({ lines: [], truncated: false });
+    const rail = Promise.resolve({ lines: [], truncated: false, total: 0 });
+    expect(await settleServedRail(rail, 50)).toEqual({ lines: [], truncated: false, total: 0 });
   });
   it("answers null — not a rejected queue, not a hung poll — when the rail overruns its budget", async () => {
     // MUTATION: await the rail unconditionally → three serial history hops gate the pass on every poll.
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const slow = new Promise<{ lines: never[]; truncated: false }>((resolve) =>
-      setTimeout(() => resolve({ lines: [], truncated: false }), 200),
+    const slow = new Promise<{ lines: never[]; truncated: false; total: number }>((resolve) =>
+      setTimeout(() => resolve({ lines: [], truncated: false, total: 0 }), 200),
     );
     expect(await settleServedRail(slow, 20)).toBeNull();
     expect(spy).toHaveBeenCalledTimes(1);

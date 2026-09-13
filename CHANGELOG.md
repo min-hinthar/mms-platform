@@ -98,6 +98,18 @@ unserved target line — the kitchen re-cooks eaten food) is **M217**. Two mutan
 (`board/capped-read-ranks-by-creation-not-readiness`, `board/stale-wait-keeps-ticking`), one
 re-anchored (`day-window/…rolling-24-hours`), every one watched red by `verify:slice --only`.
 
+**Codex round 2 on #281 — three P2s, all fixed on the head.** The rail drew no quantity, so one
+portion and three read the same (`×{qty}`, the live ticket's own mark); its `state = 'served'`
+predicate made food that went out and was then written off as a cooked loss VANISH from "what went
+out today" (`mms_void_line` flips the state and keeps the stamp; only a recall clears `bumped_at`)
+— the read is now `state in ('served','voided') and bumped_at is not null`, and a voided line
+carries a "Voided after service" mark; and the capped sentence's denominator came from
+`mms_kds_stats`, counted BEFORE the rail read, so a bump between the two read "the last 40 of 39"
+— the total now rides the rows read as `count: "exact"` (`ServedRail.total`, one statement, one
+snapshot), `truncated` is that total against the cap, and the stats rpc feeds the Avg cell alone.
+Every rule pinned in `served-today.test.ts`, each watched red first. New Burmese
+(`kds.served.voided`) is a machine draft → K15.
+
 ### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
 
 **The counter's double-mint was a shared owner, not a missing discriminator.** `settleCash` and

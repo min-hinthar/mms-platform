@@ -9,9 +9,10 @@ import { catalogNameMy, pairModifiersMy } from "./ticket-names";
  *
  * A bumped ticket left `/staff/kitchen` forever, and the one screen that listed finished orders was
  * manager-gated, not day-scoped and English-only — so a cook could not answer "what went out on
- * table 6?" without a manager. This is the read-only answer: `state = 'served'` lines bumped since
- * the service day began, newest first, capped, rendered through the same ticket text the live board
- * uses so it is Burmese-first for free. No recall control — `mms_recall_ticket` refuses past two
+ * table 6?" without a manager. This is the read-only answer: the lines BUMPED since the service day
+ * began — `served`, or `voided` after service (a cooked loss keeps its stamp; only a recall clears
+ * `bumped_at`, and those are rightly absent) — newest first, capped, rendered through the same
+ * ticket text the live board uses so it is Burmese-first for free. No recall control — `mms_recall_ticket` refuses past two
  * minutes, and the live board's own recall rail already covers that window.
  *
  * ⚠️ The day floor is the CALLER's, derived from `pickup_config.tz` by `dayStartIso` — never
@@ -49,6 +50,7 @@ export type ServedRow = {
   id: string;
   name: string;
   qty: number;
+  state: string;
   modifiers: unknown;
   modifier_option_ids: unknown;
   bumped_at: string;
@@ -98,6 +100,8 @@ export function shapeServedLines(
       modifiersMy: pairModifiersMy(r.modifier_option_ids, modifiers, ctx.names.optionNameMy),
       bumpedAt: r.bumped_at,
       bumpedAtLabel: clockLabel(r.bumped_at, tz),
+      // Went out, then written off (Codex round 2 on A4·1): still what went out, said as such.
+      voided: r.state === "voided",
       channel,
       label: sess.qr_code,
       tableNumber: channel === "dinein" ? (sess.table_number ?? null) : null,
@@ -121,10 +125,20 @@ export async function readServedToday(
   tz: string,
   cap: number = SERVED_RAIL_CAP,
 ): Promise<ServedRail | null> {
-  const { data: rows, error: rowsError } = await db
+  // `count: "exact"` rides the SAME statement as the rows (Codex round 2 on A4·1): the day's total
+  // used to come from `mms_kds_stats`, counted before this read began, and a bump between the two
+  // put the rail ahead of its own denominator — "the last 40 of 39". One statement, one snapshot.
+  const {
+    data: rows,
+    error: rowsError,
+    count,
+  } = await db
     .from("qr_cart_items")
-    .select("id,name,qty,modifiers,modifier_option_ids,bumped_at,cart_id,fulfillment,menu_item_id")
-    .eq("state", "served")
+    .select(
+      "id,name,qty,state,modifiers,modifier_option_ids,bumped_at,cart_id,fulfillment,menu_item_id",
+      { count: "exact" },
+    )
+    .in("state", ["served", "voided"])
     .not("bumped_at", "is", null)
     .gte("bumped_at", dayFloorIso)
     .order("bumped_at", { ascending: false })
@@ -140,10 +154,14 @@ export async function readServedToday(
   const served: ServedRow[] = (rows ?? []).flatMap((r) =>
     r.bumped_at === null ? [] : [{ ...r, bumped_at: r.bumped_at }],
   );
-  // A read that came back FULL did not see the whole day — said on the rail, never a heading that
-  // reads "today" over a list missing the morning (blind pass on A4·1, CRITICAL 2).
-  const truncated = queueEmptiness(served.length, cap) === "cannot-say";
-  if (served.length === 0) return { lines: [], truncated };
+  // A read that did not see the whole day is said on the rail, never a heading that reads "today"
+  // over a list missing the morning (blind pass on A4·1, CRITICAL 2). With the count in hand that
+  // is exact; without one (no count header) the page-full inference stands in and the total is
+  // unknown — the board then says the last N without a denominator.
+  const total = typeof count === "number" ? count : null;
+  const truncated =
+    total !== null ? total > served.length : queueEmptiness(served.length, cap) === "cannot-say";
+  if (served.length === 0) return { lines: [], truncated, total };
 
   // Carts of ANY status: a line that went out on a table cleared without settling still went out.
   const cartIds = [...new Set(served.map((r) => r.cart_id))];
@@ -191,7 +209,7 @@ export async function readServedToday(
     },
     tz,
   );
-  return { lines, truncated };
+  return { lines, truncated, total };
 }
 
 /**
