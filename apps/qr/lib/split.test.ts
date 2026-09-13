@@ -384,6 +384,28 @@ describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 ·
     expect(refreeze).toBeUndefined();
   });
 
+  it("REFREEZES after clearing a stale foreign marker when the share read then fails — this abort took the marker, so it puts one back (Codex round 2 on A3, P2)", async () => {
+    // `released` stays false on this path (the host-scoped release matched nothing) but the stale
+    // clear DID lift the marker; a share-read failure that skipped the refreeze left `settle_at`
+    // null over an intact ledger — `SettlementBoard` unmounts, pending intents authorize with
+    // nothing to capture them, and the authorized shares block cash settlement and the table.
+    releaseResult = false;
+    cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
+    staleClearResult = true;
+    sharesError = { message: "connection reset" };
+    await expect(abortSettlement(CART)).rejects.toThrow(/Couldn’t cancel the split/);
+    expect(staleClears).toBe(1);
+    const refreeze = queries.find(
+      (q) =>
+        q.table === "qr_carts" &&
+        q.op === "update" &&
+        typeof q.patch === "object" &&
+        q.patch !== null &&
+        "settle_at" in q.patch,
+    );
+    expect(refreeze).toBeDefined();
+  });
+
   it("CLEARS a STALE foreign freeze before anything destructive, then proceeds (Codex round 1 on A3, P1)", async () => {
     // `captureAllIfReady` proceeds on a stale non-null freeze once every share is authorized, so
     // walking past it races a late authorization webhook. The stale-only clear shuts that gate.

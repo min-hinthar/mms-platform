@@ -594,6 +594,9 @@ export async function abortSettlement(cartId: string): Promise<void> {
   // from under it. One read separates the two; an unreadable row fails closed.
   const { released, error: releaseError } = await releaseSettlementFor(id, uid);
   if (releaseError) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+  // What THIS request took off the row — the host-scoped release, or the stale clear below. It is
+  // what a failure before anything destructive has to put back (Codex round 2 on A3, P2).
+  let lifted = released;
   if (!released) {
     const { data: row, error: rowErr } = await db
       .from("qr_carts")
@@ -615,6 +618,7 @@ export async function abortSettlement(cartId: string): Promise<void> {
       // the marker went fresh or null under us, and one more read says which.
       const { released: cleared, error: clearErr } = await releaseStaleSettlement(id);
       if (clearErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
+      if (cleared) lifted = true;
       if (!cleared) {
         const { data: again, error: againErr } = await db
           .from("qr_carts")
@@ -636,10 +640,13 @@ export async function abortSettlement(cartId: string): Promise<void> {
     .eq("cart_id", id);
   if (sharesErr) {
     // Nothing has been cancelled or deleted yet. Put the freeze back ONLY if this abort lifted it —
-    // a claim that matched nothing (already null, or a stale foreign owner) has nothing to restore,
-    // and writing a fresh host freeze there would create one that did not exist (blind pass on A3).
-    // If the restore ALSO fails, say so — the table is now unfrozen over live holds.
-    const refreezeErr = released ? await refreeze(db, id, uid) : null;
+    // by the host-scoped release OR by clearing a stale foreign marker (Codex round 2 on A3, P2:
+    // `released` alone missed the second, leaving `settle_at` null over an intact ledger — the
+    // board unmounts, pending intents authorize with nothing to capture them, and the authorized
+    // shares block cash settlement). A claim that matched nothing (already null) has nothing to
+    // restore, and writing a fresh host freeze there would create one that did not exist (blind
+    // pass on A3). If the restore ALSO fails, say so — the table is now unfrozen over live holds.
+    const refreezeErr = lifted ? await refreeze(db, id, uid) : null;
     console.error("[split] abort share read failed", {
       error: sharesErr,
       refreezeError: refreezeErr?.message,

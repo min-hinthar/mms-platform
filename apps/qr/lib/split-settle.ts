@@ -153,23 +153,44 @@ export async function onShareAuthorized(piId: string): Promise<void> {
   // minting — so this extends the SAME freeze or nothing. A share minted before that stamp existed
   // carries no owner and extends nothing: it heals on the TTL rather than reviving a freeze a
   // different owner may have taken since. Either way the answer is logged, never silent.
+  //
+  // ⚠️ AND THE CAPTURE IS GATED ON THE SAME OWNERSHIP (Codex round 2 on A3, P1). `captureAllIfReady`
+  // gates only on a NON-NULL `settle_at`, so once every share is authorized it would capture under
+  // ANY freeze — including the fresh one a cash, reader or tab settle has since acquired (`acquire`
+  // takes a stale row from anyone), charging every split payer while the counter collects the whole
+  // bill. A zero-row extend has three causes and only one is a lost settlement: the row is this
+  // settlement's own but aged out (the stale arm inside `captureAllIfReady` decides), the row is
+  // null (that gate returns), or ANOTHER owner holds it — fresh or stale, because a stale foreign
+  // owner can re-acquire and settle by cash while these captures fulfil. Money moves only under a
+  // marker this settlement can prove is its own; a share with no owner cannot prove it and captures
+  // nothing (its hold heals on the ~7-day window, or the host's abort cancels it).
   const owner = pi.metadata?.settleOwner;
-  if (typeof owner === "string" && owner.length > 0) {
-    const { extended, error: extErr } = await extendSettlementFor(cartId, owner);
-    if (!extended)
+  if (typeof owner !== "string" || owner.length === 0) {
+    console.warn(
+      "[split-settle] onShareAuthorized: share carries no settleOwner — not extending, not capturing",
+      { cartId, paymentIntent: piId },
+    );
+    return;
+  }
+  const { extended, error: extErr } = await extendSettlementFor(cartId, owner);
+  // An unreadable freeze is not a lost settlement: 5xx so Stripe redelivers, exactly as an
+  // unreadable cart or share list does inside `captureAllIfReady`.
+  if (extErr) throw new Error(`onShareAuthorized: extend failed — ${extErr.message}`);
+  if (!extended) {
+    const { data: row, error: rowErr } = await db
+      .from("qr_carts")
+      .select("settle_at,settle_by")
+      .eq("id", cartId)
+      .maybeSingle();
+    if (rowErr) throw new Error(`onShareAuthorized: settlement re-read failed — ${rowErr.message}`);
+    if (row?.settle_at != null && row.settle_by !== owner) {
       console.warn(
-        "[split-settle] onShareAuthorized extended nothing — freeze not the share's owner's",
-        {
-          cartId,
-          paymentIntent: piId,
-          error: extErr?.message ?? null,
-        },
+        "[split-settle] onShareAuthorized: the freeze is another owner's — settlement lost, not capturing",
+        { cartId, paymentIntent: piId },
       );
-  } else {
-    console.warn("[split-settle] onShareAuthorized: share carries no settleOwner — not extending", {
-      cartId,
-      paymentIntent: piId,
-    });
+      return;
+    }
+    // Ours but aged out, or already null — `captureAllIfReady`'s own gates decide.
   }
   await captureAllIfReady(db, cartId);
 }
