@@ -4,6 +4,51 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
+
+**The counter's double-mint was a shared owner, not a missing discriminator.** `settleCash` and
+`closeSecureTab` keyed the table-wide settlement freeze on `caller.uid`, and `acquireSettlement`
+carried a `settle_by.eq.<uid>` re-acquire arm — a re-open door for the host's split that the
+counter inherited by accident. Two same-staff requests were byte-identical on the row, so the
+second matched on the freeze the first had just written; cash survived only because the settle
+RPC de-duplicates downstream, and `closeSecureTab` minted two off-session PaymentIntents under
+per-attempt idempotency keys. Four consecutive fixes on #275 each MOVED that hole because the arm
+stayed, and three attempts to write a safe release — by owner, by owner+era, by cart — were each
+falsified for the same reason, so the supersede module HELD a claimed freeze to the settle TTL as
+its doctrine. Every live caller now mints `crypto.randomUUID()` per request (the Terminal always
+did), the arm is removed rather than argued around, and every path that could not release before
+releases under the owner: a refused supersede, a failed pin clear, a post-claim throw, the
+AMBIGUOUS claim (shipped and reverted across rounds 10/11), and the diagnosing acquire that sat
+outside every catch.
+
+**The unconditional-by-cart release no longer exists.** `releaseSettlement(cartId)` nulled whatever
+freeze the row carried at sixteen sites, and between an acquire and its release the row can change
+owner — after which the release strips the successor's mutex, which `captureAllIfReady` tolerates
+stale but can never revive null. Every release names the owner it acquired under and returns its
+affected-row COUNT, so the split abort refuses past a claim it did not land (a fresh foreign
+freeze) and proceeds past a null or stale one; the fulfilment's post-`paid` release is
+`releaseSettlementOfSettledCart`, whose predicate refuses an open cart rather than a comment.
+
+**Extends are scoped and they REPORT.** `extendSettlementFor(cartId, owner)` answers `{ extended }`
+where the old form was `Promise<void>` over a zero-row update that postgrest reports as
+`{ error: null }`. The Terminal poll acts on it: a mutex lost mid-collect abandons the attempt —
+reader first, then the PaymentIntent — and reports `failed` with copy that says what happened, or
+`succeeded` when the cancel is refused because the tap already won; captured-but-unfulfilled it
+logs loudly under the attempt. `create-share-intent` extends under the host's `settleBy` BEFORE
+minting and 409s when nothing was extended, stamping `settleOwner` so the authorization webhook
+extends the same freeze or none — the "rides a freeze it never wrote" half of M203, closed from the
+writer's side. The webhook's generic decline arm scopes by `settleAttempt`, the key the Terminal
+always stamped; `closedByUid` — the shared staff uid, the residual M201 named — is not read at all.
+
+Reopening the parked split is no longer a one-line flip: its same-host re-open rode the removed
+arm. `SURFACES` records the shape that restores it (release-own-then-acquire, never the arm).
+
+Guards: 18 new mutants and 8 rewritten (**628** across 112 modules); the takeover suite's three
+held-freeze assertions flipped to owner-scoped releases; a parsed owner-binding guard on both staff
+settles (the acquire's argument is a local bound to `crypto.randomUUID()`, every release names it,
+the tab close stamps it); a value test that the cash owner is a uuid, not `caller.uid`, and unique
+per request; the extend and both release query shapes pinned, `.neq("status", "open")` included.
+
 ### A7b — the Google sign-in dead end, and the carry it was destroying (2026-09-09)
 
 **The owner's report was right and this repo's diagnosis of it was wrong.** `docs/OPEN-ITEMS.md` C21
