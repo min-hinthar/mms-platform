@@ -146,7 +146,12 @@ export async function GET(req: NextRequest) {
       // wall, so a saturated read dropped it while its guest stood at the counter. `togo_ready_at
       // DESC NULLS LAST` keeps the newest readiness first and the still-preparing bags after it
       // (they surface when they come up); past the cap the wall shows the latest bags and the ones
-      // readied longest ago fall off — the safe direction.
+      // readied longest ago fall off — the safe direction. And ACTIVE rows ahead of collected ones
+      // (Codex's per-head round on A4·1): a bag handed over a minute ago rides along for the linger
+      // window so its name is seen leaving, and its readiness is the newest on the wall — so under
+      // the cap it took a slot from a bag still waiting. `togo_picked_up_at` null (still waiting)
+      // sorts first; among the collected, the newest handoff.
+      .order("togo_picked_up_at", { ascending: false, nullsFirst: true })
       .order("togo_ready_at", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false })
       .limit(BOARD_ORDER_CAP),

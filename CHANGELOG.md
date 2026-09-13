@@ -110,6 +110,17 @@ snapshot), `truncated` is that total against the cap, and the stats rpc feeds th
 Every rule pinned in `served-today.test.ts`, each watched red first. New Burmese
 (`kds.served.voided`) is a machine draft → K15.
 
+**Codex's per-head round on #281 — two P2s, both fixed on sight.** The day-window's round-1 rule
+("the earliest candidate dated today") took the FIRST 00:00 of a fall-back that repeats midnight
+(Havana 2026-11-01, 04:00Z) where the SQL half takes the second: PostgreSQL resolves an ambiguous
+local midnight on the standard-time side, measured on this project's database (17.6) with
+`mms_kds_stats`'s own expression — `2026-11-01 05:00:00+00`, while every other transition day
+already agreed. The rule now mirrors Postgres: the LATEST candidate reading exactly 00:00 today,
+else the earliest dated today (the jump). And the wall's capped read let a bag collected a minute
+ago — riding along for the ten-minute linger with the newest readiness on the wall — take a slot
+from a bag still waiting: active rows (`togo_picked_up_at` null) now rank ahead of every collected
+one. Mutant `board/lingered-handoff-evicts-a-waiting-bag`; both rules watched red first.
+
 ### A3 — one request-unique settlement owner; M201 · M202 · M203 by subtraction (2026-09-13)
 
 **The counter's double-mint was a shared owner, not a missing discriminator.** `settleCash` and

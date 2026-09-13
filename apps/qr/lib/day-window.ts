@@ -10,13 +10,15 @@
  *
  * DST-correct by VERIFICATION, never by a fixed-offset subtraction: the calendar date comes from a
  * zone-aware format, a candidate is built from every offset the zone shows around midnight, each
- * candidate is formatted BACK into the zone, and the EARLIEST one whose wall clock reads today's
- * date is the day's first instant. "Reads 00:00" was the first rule, and it is wrong twice a year
- * in a zone whose jump lands ON midnight (Santiago, Havana, Cairo): on the spring-forward day no
- * instant reads 00:00 and the day begins at 01:00 — the first draft's second pass rebuilt the
- * candidate once more and alternated back to 23:00 the day before (Codex round 1 on A4·1) — and
- * on the fall-back day 00:00 reads twice and the day began at the first. "Earliest instant dated
- * today" is right in all three shapes, because no instant before the day's first can read today.
+ * candidate is formatted BACK into the zone, and the one chosen is the one the SQL half chooses —
+ * because "one definition" means agreeing with `mms_kds_stats`, whose `date_trunc('day', now() at
+ * time zone tz) at time zone tz` is the fixed half. PostgreSQL, measured on this project's database
+ * (17.6): an ambiguous local midnight (a fall-back that repeats the hour — Havana) resolves on the
+ * STANDARD-time side, the LATER instant; a missing local midnight (a spring-forward AT midnight —
+ * Santiago, Havana, Cairo) maps forward to the jump, the day's first instant, 01:00. So: the latest
+ * candidate reading exactly 00:00 today, else the earliest candidate dated today. "Reads 00:00"
+ * alone alternated back to 23:00 the day before on the jump (Codex round 1 on A4·1); "earliest
+ * dated today" alone took the first 00:00 where Postgres takes the second (Codex's per-head round).
  */
 
 const WALL = new Map<string, Intl.DateTimeFormat>();
@@ -117,15 +119,14 @@ export function dayStartIso(nowIso: string, tz: string): string {
   if (!isIntlZone(tz)) return dayStartIso(nowIso, resolveServiceTz(tz));
   const today = wallAt(now, tz);
   const midnightAsUtc = Date.UTC(today.y, today.m - 1, today.d);
-  // The day's first instant is midnight-as-UTC minus the offset in force AT that instant — which the
-  // offset at `now` need not be (a DST day). Build a candidate from the offset at `now`, then from
-  // every offset the zone shows within an hour of it (a transition's far side, whichever side that
-  // is; an hour is the widest jump a zone makes), and keep the EARLIEST candidate whose wall clock
-  // reads today's date. Nothing before the day's first instant can read today, so nothing earlier
-  // qualifies, and the first instant itself is a candidate because its offset is one of those
-  // probed. The same rule on an ordinary day (the one candidate that reads 00:00), on a jump that
-  // lands ON midnight (the wall never reads 00:00; the day begins at 01:00), and on a fall-back at
-  // midnight (00:00 reads twice; the first is the start).
+  // Local midnight is midnight-as-UTC minus the offset in force AT that instant — which the offset
+  // at `now` need not be (a DST day). Build a candidate from the offset at `now`, then from every
+  // offset the zone shows within an hour of it (a transition's far side, whichever side that is; an
+  // hour is the widest jump a zone makes), format each back, and choose as PostgreSQL does: the
+  // LATEST candidate that reads exactly 00:00 today (an ordinary day has one; a fall-back at
+  // midnight has two and Postgres resolves the ambiguity on the standard-time side, the later), else
+  // — a jump that lands ON midnight, where no instant reads 00:00 — the EARLIEST candidate dated
+  // today, the first minute after the gap, which is where Postgres maps the missing midnight too.
   const first = midnightAsUtc - offsetAt(now, tz);
   const offsets = new Set([
     offsetAt(now, tz),
@@ -133,13 +134,17 @@ export function dayStartIso(nowIso: string, tz: string): string {
     offsetAt(first - HOUR_MS, tz),
     offsetAt(first + HOUR_MS, tz),
   ]);
-  let start: number | null = null;
+  let atMidnight: number | null = null; // the latest candidate reading 00:00 today
+  let firstOfDay: number | null = null; // the earliest candidate dated today (the jump case)
   for (const off of offsets) {
     const candidate = midnightAsUtc - off;
     const w = wallAt(candidate, tz);
     if (w.y !== today.y || w.m !== today.m || w.d !== today.d) continue;
-    if (start === null || candidate < start) start = candidate;
+    if (firstOfDay === null || candidate < firstOfDay) firstOfDay = candidate;
+    if (w.hh === 0 && w.mm === 0 && (atMidnight === null || candidate > atMidnight))
+      atMidnight = candidate;
   }
+  let start = atMidnight ?? firstOfDay;
   if (start === null) {
     // Unreachable by the argument above; said rather than silently floored somewhere else.
     console.error(

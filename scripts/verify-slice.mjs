@@ -3584,6 +3584,14 @@ const MUTANTS = [
     replace: '      .order("created_at", { ascending: true })\n      .limit(BOARD_ORDER_CAP),',
   },
   {
+    id: "board/lingered-handoff-evicts-a-waiting-bag",
+    file: "apps/qr/app/api/board/route.ts",
+    suite: "app/api/board/route.test.ts",
+    why: "Codex's per-head round on A4·1 (P2): a bag collected a minute ago rides along for the ten-minute linger and its readiness is the newest on the wall, so ranked by readiness alone it takes one of the sixty slots and the bag readied longest ago — still waiting, its guest at the counter — falls off. Active rows (`togo_picked_up_at` null) rank ahead of every collected one; the collected name is the row that yields",
+    find: '      .order("togo_picked_up_at", { ascending: false, nullsFirst: true })\n',
+    replace: "",
+  },
+  {
     id: "board/capped-read-ranks-by-creation-not-readiness",
     file: "apps/qr/app/api/board/route.ts",
     suite: "app/api/board/route.test.ts",

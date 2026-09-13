@@ -55,19 +55,24 @@ describe("dayStartIso — the service day, in any zone, DST-correct by verificat
     // first minute reads 01:00. The first draft's second pass rebuilt the candidate once more after
     // the check failed and alternated back to 03:00Z — 23:00 on the 5th — so the rail carried the
     // prior day's last hour. Havana and Cairo jump at midnight the same way. Walked back by brute
-    // force, minute by minute, until the wall date changed.
+    // force, minute by minute, until the wall date changed — and the same three instants measured
+    // from the SQL half on the project's database (PostgreSQL 17.6 maps the missing local midnight
+    // forward to the jump): `2026-09-06 04:00:00+00`, `2026-03-08 05:00:00+00`, `2026-04-23 22:00:00+00`.
     expect(dayStartIso("2026-09-06T12:00:00Z", "America/Santiago")).toBe(
       "2026-09-06T04:00:00.000Z",
     );
     expect(dayStartIso("2026-03-08T12:00:00Z", "America/Havana")).toBe("2026-03-08T05:00:00.000Z");
     expect(dayStartIso("2026-04-24T12:00:00Z", "Africa/Cairo")).toBe("2026-04-23T22:00:00.000Z");
   });
-  it("a zone whose fall-back lands ON midnight begins its day at the FIRST 00:00, not the repeat", () => {
+  it("a zone whose fall-back lands ON midnight takes the SECOND 00:00 — PostgreSQL's side of the repeated hour", () => {
     // Havana 2026-11-01: 01:00 (−4) → 00:00 (−5), so 00:00 reads twice — at 04:00Z and again at
-    // 05:00Z — and the day began at the first. A candidate built from the offset at noon (−5) is the
-    // second one, an hour late, and the rail would drop the day's first hour. Santiago 2026-04-05
-    // falls back the night before (00:00 → 23:00 on the 4th), so its 00:00 is unique.
-    expect(dayStartIso("2026-11-01T12:00:00Z", "America/Havana")).toBe("2026-11-01T04:00:00.000Z");
+    // 05:00Z. The SQL half of "today" (`mms_kds_stats`: `date_trunc('day', now() at time zone tz) at
+    // time zone tz`) resolves an ambiguous local midnight on the STANDARD-time side, the later
+    // instant — measured on the project's database (PostgreSQL 17.6): `2026-11-01 05:00:00+00`.
+    // One definition means the TS half mirrors that, not the calendar's first minute (Codex's
+    // per-head round on A4·1 caught the round-1 rule taking the first). Santiago 2026-04-05 falls
+    // back the night before (00:00 → 23:00 on the 4th), so its 00:00 is unique — Postgres: 04:00Z.
+    expect(dayStartIso("2026-11-01T12:00:00Z", "America/Havana")).toBe("2026-11-01T05:00:00.000Z");
     expect(dayStartIso("2026-04-05T12:00:00Z", "America/Santiago")).toBe(
       "2026-04-05T04:00:00.000Z",
     );

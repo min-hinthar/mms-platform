@@ -672,6 +672,32 @@ describe("K32 (A4·1) — the wait is the SERVER's minute count off the DB clock
     expect(codes).not.toContain("AA0000");
   });
 
+  it("a lingered handoff never evicts a bag still waiting — active rows rank ahead of collected ones (Codex's per-head round on A4·1)", async () => {
+    // Sixty bags still waiting, plus one collected a minute ago that rides along for the linger
+    // window — and its readiness is the NEWEST on the wall. Ranked by readiness alone it takes a slot
+    // and the bag readied longest ago, still waiting, falls off. Active rows (`togo_picked_up_at`
+    // null) sort ahead of every collected one, so the sixty waiting bags all publish and the
+    // collected name is the row that yields.
+    const waiting = Array.from({ length: 60 }, (_, i) => ({
+      ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
+      created_at: new Date(NOW - (120 - i) * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - (119 - i) * MIN).toISOString(),
+    }));
+    const collected = {
+      ...order(`${TOGO.slice(0, -4)}d0ne`, "sess-togo", "Nilar"),
+      togo_status: "picked_up",
+      created_at: new Date(NOW - 3 * MIN).toISOString(),
+      togo_ready_at: new Date(NOW - 90_000).toISOString(),
+      togo_picked_up_at: new Date(NOW - 60_000).toISOString(),
+    };
+    orders = [collected, ...waiting];
+    const body = (await (await GET(req())).json()) as Body;
+    expect(body.orders?.length).toBe(60);
+    const codes = body.orders?.map((o) => o.code) ?? [];
+    expect(codes).toContain("AA0000"); // the bag waiting longest is still on the wall
+    expect(codes).not.toContain("AAD0NE"); // the collected name is the row that yielded
+  });
+
   it("one under the cap is a complete read and publishes every row", async () => {
     orders = Array.from({ length: 59 }, (_, i) => ({
       ...order(`${TOGO.slice(0, -4)}${String(i).padStart(4, "0")}`, "sess-togo", "Nilar"),
