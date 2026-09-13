@@ -35,6 +35,12 @@
  * owner (carried on the share intents as `settleOwner`, which the route already stamps), and the
  * re-open restored as release-own-then-acquire (refusing if any share is already authorized) —
  * never by putting the arm back.
+ *
+ * A THIRD prerequisite since #280's Codex round 4 (OPEN-ITEMS M215): the capture gate.
+ * `onShareAuthorized` proves ownership with a READ and `captureAllIfReady` gates on a bare non-null
+ * `settle_at`, so a stale-ours row the counter takes between the two statements captures every
+ * share under a foreign fresh freeze — the re-claim must be atomic and the capture must refuse
+ * any other owner.
  */
 export const SURFACES = {
   selfServeSplit: false,

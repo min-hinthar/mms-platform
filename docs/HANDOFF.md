@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-13 · A3 in PR #280 awaiting Min's merge go; A4·1 built and gated behind it; A4·2 is next)
+> ## ⏭️ NEXT SESSION — start here (2026-09-13 · A3 merged as `1058087` (#280); A4·1 is the open PR; A4·2 and A4·3 are built on `a4-local` behind it)
 >
 > **A4·1 — Kitchen + the wall** is the first of five A4 slices; the map and the order are in
 > `docs/A4_PLAN.md` (read it before touching `/staff`). It lands: the KDS **served rail** (K31 —
@@ -32,21 +32,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ---
 >
-> ## ⏭️ (2026-09-13 · A3 built and gated on `claude/qr-app-backlog-cj2t0m`, awaiting Min's merge go)
+> ## ⏭️ (2026-09-13 · A3 MERGED as `1058087` — #280, four Codex rounds)
 >
-> **`main` is at `c84f3650`** — #278 (K33 · A6 · A7, `b341ac9`) and #279 (A7b, `c84f3650`) both merged
+> **`main` is at `1058087`** — #278 (K33 · A6 · A7, `b341ac9`), #279 (A7b, `c84f3650`) and #280 (A3, `1058087`) all merged
 > on Min's go. ⚠️ The 2026-09-09 block below is superseded on two points: **C21 and C22 are
 > RETRACTED** — Google sign-in was never a Supabase config problem; Google completes and Supabase
 > correctly refuses at the LINK step for a returning customer, and the card was erasing its own
 > recovery one frame later (CHANGELOG § A7b). Do not send Min back to the dashboard for it.
 >
-> **A3 is BUILT on this branch and is the open PR.** Every settlement freeze is keyed on a
+> **A3 is MERGED (#280, squash `1058087`).** Every settlement freeze is keyed on a
 > per-request uuid; `acquireSettlement`'s same-owner arm is gone; the by-cart `releaseSettlement`
 > is GONE (every release names its owner and returns its row count; the one owner-less release,
 > `releaseSettlementOfSettledCart`, refuses an open cart in its predicate); `extendSettlementFor`
 > is scoped and reports; the Terminal poll abandons the attempt on a lost mutex; `create-share-intent`
-> extends under the host's owner BEFORE minting. Closes **M201 · M202 · M203**. 632 mutants (22 new — four of them
-> from the blind pass's two CRITICALs — 8 rewritten, 6 re-anchored); CHANGELOG § A3 has the full shape, LEARNINGS **#109** the lesson (the defect was the
+> extends under the host's owner BEFORE minting. Closes **M201 · M202 · M203**. 640 mutants at the merge, up from 610 at the
+> branch point (the blind pass's two CRITICALs and Codex rounds 1–3 each added theirs; round 4's two
+> residuals are **M215 · M216**, filed rather than fixed per the two-round budget); CHANGELOG § A3 has the full shape, LEARNINGS **#109** the lesson (the defect was the
 > OWNER, not the discriminator — five rounds reasoned about the wrong one).
 >
 > **Merge ritual, unchanged:** final push → ready → `@codex review` → WAIT for a `codex-review`
