@@ -18,6 +18,7 @@ import {
   receiptRowKey,
   settledChipKey,
   settledClock,
+  settledDate,
   settledStatusKey,
   tenderKey,
 } from "./settled-view";
@@ -113,5 +114,12 @@ describe("settled-view — the dictionary mirrors the receipt", () => {
     expect(settledClock("2026-09-13T19:41:00Z", "America/Los_Angeles")).toBe("12:41 PM");
     expect(settledClock("2026-09-13T19:41:00Z", "Asia/Yangon")).toBe("2:11 AM");
     expect(settledClock("not a date", "America/Los_Angeles")).toBe("");
+  });
+
+  it("settledDate renders the service zone's calendar day, Latin, and '' for an unparseable stamp (Codex round 1 on #283)", () => {
+    // 2026-09-13T05:41Z is still Sep 12 in Los Angeles — the date is the ZONE's, never UTC's.
+    expect(settledDate("2026-09-13T05:41:00Z", "America/Los_Angeles")).toBe("Sep 12");
+    expect(settledDate("2026-09-13T05:41:00Z", "Asia/Yangon")).toBe("Sep 13");
+    expect(settledDate("not a date", "America/Los_Angeles")).toBe("");
   });
 });

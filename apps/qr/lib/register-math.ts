@@ -79,11 +79,13 @@ export function changeDue(totalCents: number, tenderedCents: number): number {
   return Math.max(0, tenderedCents - totalCents);
 }
 
-/** The UTC instant of the CURRENT Los Angeles calendar day's midnight — the day window every
- *  register summary is scoped to. A4·1 (K31): the derivation moved to `lib/day-window.ts`'s
- *  `dayStartIso`, which takes the ZONE, because the KDS served rail needed the same floor from
- *  `pickup_config.tz` and a second implementation would be a second "today". This is that one rule
- *  applied to LA; DST-correctness is verified there, never by a fixed-offset subtraction here. */
+/** The UTC instant of the CURRENT Los Angeles calendar day's midnight. A4·1 (K31): the derivation
+ *  moved to `lib/day-window.ts`'s `dayStartIso`, which takes the ZONE, because the KDS served rail
+ *  needed the same floor from `pickup_config.tz` and a second implementation would be a second
+ *  "today". A4·3 (Codex round 1 on #283): the register reads that configured zone too, through
+ *  `lib/service-day.ts`'s `readServiceDay` — no surface floors on this LA instance any more. It
+ *  stays as the rule applied to LA for `register-math.test.ts`'s DST pins; DST-correctness is
+ *  verified there, never by a fixed-offset subtraction here. */
 export function laDayStartIso(now: Date): string {
   return dayStartIso(now.toISOString(), "America/Los_Angeles");
 }

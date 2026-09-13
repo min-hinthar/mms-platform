@@ -873,6 +873,8 @@ export const STAFF = {
   "floor.settled.code": { en: "Receipt {id}", my: "ပြေစာ {id}" },
   "floor.settled.for": { en: "for {x}", my: "{x} အတွက်" },
   "floor.settled.slot": { en: "Pickup at {t}", my: "{t} မှာ လာယူမယ်" },
+  // An earlier day's order the ledger admitted: when today its money moved (Codex round 1 on #283).
+  "floor.settled.refundedAt": { en: "refunded {t}", my: "{t} မှာ ပြန်အမ်းပြီး" },
   // The receipt rows (`buildReceiptRows` · `buildRefundRows`) — EN pinned to the artifact's labels,
   // except `row.net`: the artifact says "You paid" to the guest, and a manager is not the guest.
   // The receipt's destination headings (`fulfillmentLabel`), only when an order spans two or more.
@@ -896,10 +898,12 @@ export const STAFF = {
   "floor.settled.status.full": { en: "Refunded in full", my: "အပြည့် ပြန်အမ်းပြီး" },
   "floor.settled.chip.partial": { en: "Partly refunded", my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး" },
   // M183 — how money goes back, from the order's own tender and PaymentIntent, never guessed.
+  // Honest about what the screen keeps (Codex round 1 on #283, P1 → M218): no flow records a cash
+  // refund yet, so the sentence must not read as if handing the money back is logged anywhere.
   "floor.settled.path.cash": {
-    en: "Cash order — refund from the drawer; there is no card to return it to.",
-    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပါ၊ ပြန်ထည့်ပေးစရာ ကတ် မရှိပါ။",
-  }, // K15-HIGH — a wrong word here sends a manager to a dashboard where no charge exists
+    en: "Cash order — hand it back from the drawer. This screen can’t record a cash refund yet, so the receipt and the takings still show it as paid.",
+    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပါ။ ငွေသား ပြန်အမ်းတာကို ဒီစခရင်က မမှတ်တမ်းတင်နိုင်သေးလို့ ပြေစာနဲ့ ရငွေစာရင်းမှာ ပေးပြီးသားအဖြစ်ပဲ ပြနေပါမယ်။",
+  }, // K15-HIGH — a wrong word here sends a manager to a dashboard where no charge exists, or lets them believe the drawer's money out was recorded
   "floor.settled.path.dashboard": {
     en: "Paid by more than one card — refund each payer’s charge in {x}.",
     my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီရဲ့ ငွေကို {x} မှာ ပြန်အမ်းပါ။",

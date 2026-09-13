@@ -4,7 +4,8 @@ import { serviceClient } from "@mms/db/server";
 import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
-import { laDayStartIso, summarizeDay, type DaySummary } from "./register-math";
+import { summarizeDay, type DaySummary } from "./register-math";
+import { readServiceDay } from "./service-day";
 import { scopeToSelf, summarizeTips, type TipOrderRow, type TipReport } from "./tip-report";
 import { REG_PREFIX } from "./register-queue";
 
@@ -205,9 +206,11 @@ export type DayCashResult =
   | { ok: true; summary: DaySummary; sinceIso: string }
   | { ok: false; reason: "outage" | "forbidden" };
 
-/** The Z-report-lite (W6a): today's orders bucketed by tender, LA-day window. MANAGER-gated — a
- *  drawer figure is money truth, same floor as the refunds surface. Read-only; the pure bucketing
- *  lives in register-math (mutation-tested). */
+/** The Z-report-lite (W6a): today's orders bucketed by tender, the SERVICE-day window
+ *  (`readServiceDay` — the configured zone, the same floor the settled list beside it and the
+ *  served rail use; Codex round 1 on #283 found this zone on hardcoded LA while its neighbour read
+ *  `pickup_config.tz`). MANAGER-gated — a drawer figure is money truth, same floor as the refunds
+ *  surface. Read-only; the pure bucketing lives in register-math (mutation-tested). */
 export async function getDayCashSummary(): Promise<DayCashResult> {
   const gate = await staffGate("manager");
   if (!gate.ok) {
@@ -217,7 +220,7 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
     return { ok: false, reason: gate.error === STAFF_WRITE_OUTAGE ? "outage" : "forbidden" };
   }
   const db = serviceClient();
-  const sinceIso = laDayStartIso(new Date());
+  const { sinceIso } = await readServiceDay(db, "register");
   // Page explicitly: PostgREST truncates at its max-rows (default 1000) with error still null, and a
   // silently-truncated drawer figure is exactly the lie this surface exists to prevent. Ordered pages
   // until a short page; statuses the buckets ignore are filtered server-side so they don't burn rows.
@@ -275,8 +278,8 @@ export async function getDayTips(): Promise<TipReportResult> {
   const caller = gate.caller;
   const seesEveryone = roleAtLeast(caller.role, "manager");
 
-  const sinceIso = laDayStartIso(new Date());
   const db = serviceClient();
+  const { sinceIso } = await readServiceDay(db, "register");
 
   // W21d (Codex P2 on #186) — scope the QUERY for a server, with the predicate that keeps the
   // shared bucket: `settled_by = me OR settled_by IS NULL`. The first version's plain

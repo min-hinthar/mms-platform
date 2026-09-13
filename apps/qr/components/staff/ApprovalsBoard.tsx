@@ -109,20 +109,33 @@ export function ApprovalsBoard({
     inFlight.current = true;
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      // The roster rides the same poll while it is still unknown — a card must never offer "No
-      // managers available" over a roster that simply failed to load.
-      const [next, who] = await raceTimeout(
-        Promise.all([
-          listPendingApprovals(),
-          rosterRef.current === null ? listApprovers() : Promise.resolve(rosterRef.current),
-        ]),
-      );
-      setSnap(next);
-      rosterRef.current = who;
-      setRoster(who);
+      // The roster rides the same poll while it is still unknown — on its OWN promise, settled
+      // separately (Codex round 1 on #283, P1): coupled in one `Promise.all`, a roster read that
+      // kept failing rejected every poll and the QUEUE's good answers were thrown away with it —
+      // new requests hidden behind the initial "all clear" for as long as the roster was down.
+      // The queue is the board; the roster only gates the decision controls (`approvers === null`
+      // reads "Loading…" in the step-up, never "No managers available"). Each arm carries its own
+      // timeout, so a hung roster cannot stall the queue either.
+      const [queue, who] = await Promise.allSettled([
+        raceTimeout(listPendingApprovals()),
+        rosterRef.current === null
+          ? raceTimeout(listApprovers())
+          : Promise.resolve(rosterRef.current),
+      ]);
+      if (queue.status === "rejected") throw queue.reason;
+      setSnap(queue.value);
       setAsOfIso(new Date().toISOString());
       fails.current = 0;
       setDegraded(null);
+      if (who.status === "fulfilled") {
+        rosterRef.current = who.value;
+        setRoster(who.value);
+      } else {
+        console.error(
+          "[ApprovalsBoard] approver roster read failed — decisions wait for the next poll",
+          who.reason,
+        );
+      }
     } catch (e) {
       // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
       fails.current += 1;
@@ -161,9 +174,15 @@ export function ApprovalsBoard({
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
   // A4·3 — `/staff/approvals` redirects onto this zone's fragment; a fragment scrolls but does not
-  // move focus (WCAG 2.4.3). Take it once, on arrival.
+  // move focus (WCAG 2.4.3). Take it on arrival — and on a same-page jump (the bar's approvals
+  // circle, the doors' More tile), which changes the hash with no mount (Codex round 1 on #283).
   useEffect(() => {
-    if (window.location.hash === "#appr-h") headingRef.current?.focus({ preventScroll: true });
+    const take = () => {
+      if (window.location.hash === "#appr-h") headingRef.current?.focus({ preventScroll: true });
+    };
+    take();
+    window.addEventListener("hashchange", take);
+    return () => window.removeEventListener("hashchange", take);
   }, []);
 
   const count = snap.length;

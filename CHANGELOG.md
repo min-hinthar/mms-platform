@@ -69,6 +69,38 @@ New Burmese (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.app
 `floor.nav.settled`; `reg.day.note` / `reg.day.refunded.*` re-pointed at the zone) is a machine
 draft → K15.
 
+**Codex round 1 on #283 — three P1s and five P2s, every one verified real; seven fixed on the head,
+one filed.** P1: the settled list's union read ranked every row by `created_at` and capped at 50,
+so on a day with fifty paid orders an earlier day's order refunded today — the row the takings had
+just pointed the manager at — sat behind all of them and fell off the page. `getSettledToday` now
+makes TWO reads (the paid arm with its floor, the ledger's ids on their own, each capped) and merges
+them ranked by the instant each row settled TODAY: its own time for an order paid today, the
+latest refund for one the ledger admitted. P1: the approvals poll read the queue and the approver
+roster in one `Promise.all`, so a roster that kept failing rejected every poll and threw the queue's
+good answers away — new requests hidden behind the initial "all clear" for as long as the roster was
+down; the two arms are settled separately, each under its own timeout, and the roster's failure is
+logged while the queue lands. P1, filed: a cash refund is told, never recorded —
+`mms_refund_authorize` refuses an order with no PaymentIntent and nothing writes the ledger or
+`refunded_cents` for cash, so the receipt keeps saying "Paid in full" and the takings keep the money;
+the cash note now says exactly that in both tongues, and the recording flow (a SQL function beside
+the card authorizer, a prod migration) is **M218**. P2: a failed refresh dated the list by the
+failure, claiming an hours-old server render current through the present — it is dated by the
+snapshot's own `serverNow`, and only a good read moves it; a manual Refresh and a refund's own
+re-read could overlap and the OLDER answer put the Refund button back over a line the ledger already
+held — a read generation lets only the newest answer replace the list; an earlier day's order under
+"Settled today" showed a bare "11:41 AM" — it names the day it was paid (`settledDate`) and when
+today its money moved (`floor.settled.refundedAt`, a machine draft → K15); the bar's approvals
+circle scrolled to `#appr-h` through the router and left focus on itself — a native anchor now, and
+both zones take focus on `hashchange`; and "Today's takings" floored on hardcoded LA while "Settled
+today" beside it floored on `pickup_config.tz` — `lib/service-day.ts` · `readServiceDay` is the ONE
+floor read (the server's `mms_now` + the validated configured zone, every failure logged and
+coalesced) behind the takings, the tips and the settled list. Guards: `service-day.test.ts`,
+`ApprovalsBoard.test.tsx` and `SettledToday.race.test.tsx` are new, every case watched red first;
+four mutants added (`refunds/the-union-read-is-never-made`,
+`refunds/an-earlier-day-refund-is-ranked-by-its-order-time`, `service-day/…` ×2), one re-anchored
+on the paid arm (`refunds/the-settled-list-forgets-the-service-day`) and one retired with the
+`.or()` it guarded (`refunds/the-union-arm-drops-the-floor`) — **668** across 120 modules.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

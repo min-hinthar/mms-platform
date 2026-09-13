@@ -1,6 +1,5 @@
 import { type CSSProperties } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Icon } from "@mms/ui";
@@ -139,9 +138,12 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // Help): the row of tiles it used to sit in is gone, and a manager on this screen should see a
   // pending void or refund without scrolling to More. The circle is icon-only to the eye, the count
   // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the same dictionary key
-  // the More tile uses, so the two never say different things. A4·3: it scrolls to the zone.
+  // the More tile uses, so the two never say different things. A4·3: it scrolls to the zone — a
+  // NATIVE anchor, not <Link>: a same-page fragment through the router changes the URL without a
+  // `hashchange`, and the zone's heading takes focus on that event (Codex round 1 on #283, P2 —
+  // the router scrolled and left focus on this circle).
   const approvalsChip = isManager ? (
-    <Link href="#appr-h" className="staff-circ staff-press staff-circ-count-host">
+    <a href="#appr-h" className="staff-circ staff-press staff-circ-count-host">
       <Icon name="check" size={20} />
       {pendingApprovals > 0 && (
         <span className="staff-circ-count" aria-hidden>
@@ -155,7 +157,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           vars={approvalsVars}
         />
       </span>
-    </Link>
+    </a>
   ) : undefined;
 
   // P7·1b — the bar names the page (Screens over the doors, Floor over the floor) and carries the

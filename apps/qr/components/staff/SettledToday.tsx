@@ -56,9 +56,11 @@ import { ExpoLineMy } from "./TicketText";
 export function SettledToday({ initial }: { initial: Snapshot }) {
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
-  // A refresh that failed keeps the last good list and says when it is from — this device's clock,
-  // the same domain the "as of" instant is displayed in.
-  const [staleAsOf, setStaleAsOf] = useState<string | null>(null);
+  // A refresh that failed keeps the last good list and says when it is from — the SNAPSHOT's own
+  // instant (`serverNow`, the read that produced the list it is showing), never the failure's
+  // (Codex round 1 on #283): dated by the failure, an hours-old server render read as current
+  // through the present, which misleads a reconciliation after a refund.
+  const [stale, setStale] = useState(false);
   const [open, setOpen] = useState<Set<string>>(new Set());
   const [refunding, setRefunding] = useState<{ order: SettledOrder; line: SettledLine } | null>(
     null,
@@ -69,10 +71,17 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   const [confirmCents, setConfirmCents] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // Only the NEWEST read may replace the list (Codex round 1 on #283): a manual Refresh does not
+  // disable the line Refund controls, so a refund can complete — and fire its own re-read — while
+  // the manual read is still in flight. Whichever answer landed LAST used to win, and the older,
+  // pre-refund one put the Refund button back over a line the ledger already holds.
+  const readGen = useRef(0);
   const refresh = useCallback(() => {
+    const mine = ++readGen.current;
     startTransition(async () => {
       try {
         const next = await raceTimeout(getSettledToday());
+        if (mine !== readGen.current) return; // superseded — a newer read owns the list now
         // `getSettledToday` RETURNS its failures (`{ ok: false }`), it does not throw — so the
         // first draft installed an outage over a good list, and the manager who had just moved
         // money saw "can't load right now" where the confirmation was (blind pass on A4·3,
@@ -80,22 +89,30 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
         // the count line says when the list is from. Only a good answer replaces the list.
         if (next.ok) {
           setSnap(next);
-          setStaleAsOf(null);
+          setStale(false);
         } else {
-          setStaleAsOf(new Date().toISOString());
+          setStale(true);
         }
       } catch (e) {
-        setStaleAsOf(new Date().toISOString());
+        if (mine !== readGen.current) return;
+        setStale(true);
         console.error("[SettledToday] refresh failed", e);
       }
     });
   }, []);
 
   // The two folded routes redirect onto this zone's fragment; a fragment scrolls but does not
-  // move focus (WCAG 2.4.3 — a screen-reader user would land at the top of the page). Take it once.
+  // move focus (WCAG 2.4.3 — a screen-reader user would land at the top of the page). Take it on
+  // arrival — and on a same-page jump (the doors' More tile), which changes the hash with no mount
+  // (Codex round 1 on #283).
   const headingRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    if (window.location.hash === "#settled-h") headingRef.current?.focus({ preventScroll: true });
+    const take = () => {
+      if (window.location.hash === "#settled-h") headingRef.current?.focus({ preventScroll: true });
+    };
+    take();
+    window.addEventListener("hashchange", take);
+    return () => window.removeEventListener("hashchange", take);
   }, []);
 
   const toggle = (id: string) =>
@@ -158,12 +175,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   }
 
   const { orders, truncated } = snap;
-  // The instant of the last GOOD read as this device saw it — shown only while a refresh has
-  // failed since. Latin in both tongues (a clock).
-  const staleClock =
-    staleAsOf === null
-      ? null
-      : new Date(staleAsOf).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // The instant of the last GOOD read — the snapshot's own — shown only while a refresh has failed
+  // since, in this device's clock domain. Latin in both tongues (a clock).
+  const staleClock = stale
+    ? new Date(snap.serverNow).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
+    : null;
 
   return (
     <section aria-labelledby="settled-h" className="staff-zone">
@@ -288,7 +304,15 @@ function OrderCard({
             )}
           </span>
           <span style={meta}>
-            {o.settledAt}
+            {/* An earlier day's order the ledger admitted names the day it was PAID and when today
+                its money moved (Codex round 1 on #283) — a bare clock here read as today's. */}
+            {o.settledOn ? `${o.settledOn}, ${o.settledAt}` : o.settledAt}
+            {o.refundedTodayAt && (
+              <>
+                {" · "}
+                <Chrome lang={lang} k="floor.settled.refundedAt" vars={{ t: o.refundedTodayAt }} />
+              </>
+            )}
             {" · "}
             {tKey ? <Chrome lang={lang} k={tKey} /> : o.tender}
             {(o.tableNumber !== null || o.customerName) && (

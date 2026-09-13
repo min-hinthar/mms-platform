@@ -45,6 +45,8 @@ const order = (id: string, over: Partial<SettledOrder> = {}): SettledOrder => ({
   code: id.slice(-6).toUpperCase(),
   createdAt: "2026-09-13T18:41:00Z",
   settledAt: "11:41 AM",
+  settledOn: null,
+  refundedTodayAt: null,
   status: "paid",
   tender: "card",
   tableNumber: 4,
@@ -176,6 +178,46 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     fireEvent.click(refreshBtn);
     await screen.findByText(STAFF["floor.settled.none"].en);
     await waitFor(() => expect(screen.queryByText(/Couldn’t refresh/)).toBeNull());
+  });
+
+  it("a failed refresh dates the list by the last GOOD read, never by the moment it failed (Codex round 1 on #283)", async () => {
+    // The snapshot is from 19:00Z; the refresh fails "now". The line must name the snapshot's
+    // instant — the list it is showing — not the failure's, which would claim an hours-old list
+    // current through the present.
+    mount(snapshot([order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001")]));
+    refreshAnswer = { ok: false, reason: "outage" };
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    const asOf = new Date("2026-09-13T19:00:00.000Z").toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const line = await screen.findByText(/Couldn’t refresh/);
+    expect(line.textContent).toContain(`as of ${asOf}`);
+  });
+
+  it("an earlier day's order refunded today shows the day it was paid and the refund's own time (Codex round 1 on #283)", () => {
+    mount(
+      snapshot([
+        order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", {
+          settledOn: "Sep 12",
+          refundedTodayAt: "11:50 AM",
+          refund: { state: "partial", refundedCents: 2100, netPaidCents: 2900 },
+        }),
+        order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002"),
+      ]),
+    );
+    expect(screen.getByText(/Sep 12, 11:41 AM/)).toBeTruthy();
+    expect(screen.getByText(/refunded 11:50 AM/)).toBeTruthy();
+    // A paid-today row keeps the bare clock.
+    expect(screen.getAllByText(/11:41 AM/).length).toBe(2);
+  });
+
+  it("a same-page jump to the zone's fragment moves focus to its heading, not only the scroll (Codex round 1 on #283)", async () => {
+    mount(snapshot([]));
+    expect(document.activeElement?.id).not.toBe("settled-h");
+    window.location.hash = "#settled-h";
+    await waitFor(() => expect(document.activeElement?.id).toBe("settled-h"));
+    window.location.hash = "";
   });
 
   it("takes focus on arrival by the folded route's fragment (WCAG 2.4.3)", () => {

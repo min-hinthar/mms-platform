@@ -95,6 +95,7 @@ export type RefundReason = keyof typeof REFUND_REASON_KEY;
 export const REFUND_REASONS = Object.keys(REFUND_REASON_KEY) as RefundReason[];
 
 const CLOCK = new Map<string, Intl.DateTimeFormat>();
+const DAY = new Map<string, Intl.DateTimeFormat>();
 
 /**
  * The wall-clock time an order settled, in the SERVICE zone (the same `pickup_config.tz` the day
@@ -106,6 +107,21 @@ export function settledClock(iso: string, tz: string): string {
   if (!f) {
     f = new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", minute: "2-digit" });
     CLOCK.set(tz, f);
+  }
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? f.format(new Date(ms)) : "";
+}
+
+/**
+ * The calendar day an order settled, in the SERVICE zone — "Sep 12" — for a row the list admits
+ * from an earlier day (refunded here today; Codex round 1 on #283): a bare clock under "Settled
+ * today" read as today's. Latin in both tongues, like the clock.
+ */
+export function settledDate(iso: string, tz: string): string {
+  let f = DAY.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", { timeZone: tz, month: "short", day: "numeric" });
+    DAY.set(tz, f);
   }
   const ms = Date.parse(iso);
   return Number.isFinite(ms) ? f.format(new Date(ms)) : "";

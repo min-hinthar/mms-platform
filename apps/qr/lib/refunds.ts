@@ -8,13 +8,13 @@ import { verifyStaffPin } from "./staff-pin";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
 import { STAFF_WRITE_OUTAGE } from "./staff-outage";
-import { dayStartIso, resolveServiceTz } from "./day-window";
+import { readServiceDay } from "./service-day";
 import { queueEmptiness } from "./queue-window";
 import { loadLineNames } from "./line-names";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
 import type { ReceiptBreakdownish } from "./receipt-view";
-import { SETTLED_CAP, settledClock } from "./settled-view";
+import { SETTLED_CAP, settledClock, settledDate } from "./settled-view";
 import {
   lineRefundableCents,
   offeredRefund,
@@ -64,6 +64,12 @@ export type SettledOrder = {
   createdAt: string;
   /** "12:41 PM" in the service zone — formatted here, where the zone is known. */
   settledAt: string;
+  /** "Sep 12" — the calendar day it was PAID, only for an order from an earlier day the ledger
+   *  admitted (refunded here today); null for an order paid today. Codex round 1 on #283: a bare
+   *  clock under "Settled today" read as today's. */
+  settledOn: string | null;
+  /** "12:10 PM" — the LATEST refund on this order today, when the ledger admitted it; else null. */
+  refundedTodayAt: string | null;
   status: string; // 'paid' | 'refunded'
   tender: string;
   tableNumber: number | null;
@@ -99,9 +105,9 @@ const SETTLED_SELECT =
 /**
  * Today's settled orders (paid or refunded), newest first, for the manager's zone of the counter
  * screen. Manager-gated; service-role read (the cross-table order list is a manager tool, like the
- * KDS). "Today" is the ONE service-day rule (`dayStartIso` from `pickup_config.tz`, the same floor
- * the takings and the served rail use), so the three "today" zones on this screen agree about when
- * it began.
+ * KDS). "Today" is the ONE service-day read (`readServiceDay` — `dayStartIso` from
+ * `pickup_config.tz`, the same floor the takings and the served rail use), so the three "today"
+ * zones on this screen agree about when it began.
  *
  * Every figure is the fulfillment-time snapshot the receipt renders (`breakdown`, `totalCents`, the
  * lines' unit prices), never recomputed. The refund state is `summarizeRefund`, derived ONCE. The
@@ -123,48 +129,69 @@ export async function getSettledToday(): Promise<SettledToday> {
     return { ok: false, reason: gate.error === STAFF_WRITE_OUTAGE ? "outage" : "forbidden" };
   }
   const db = serviceClient();
-  const [nowRes, tzRes] = await Promise.all([
-    db.rpc("mms_now"),
-    db.from("pickup_config").select("tz").maybeSingle(),
-  ]);
-  const nowIso = nowRes.data ?? new Date().toISOString(); // app-clock fallback only if the rpc fails
-  if (tzRes.error)
-    console.error(
-      "[refunds] pickup_config tz read failed — settled list floors on the default zone",
-      {
-        message: tzRes.error.message,
-      },
-    );
-  const tz = resolveServiceTz(tzRes.data?.tz);
-  const sinceIso = dayStartIso(nowIso, tz);
+  const { nowIso, tz, sinceIso } = await readServiceDay(db, "refunds");
 
   // "Settled today" is paid TODAY *or refunded here today* (blind pass on A4·3, CRITICAL 1): the
   // takings send a manager here for an earlier day's order refunded today, and a `created_at`
   // floor alone would hold it on neither surface. The ledger's rows since the floor name the
   // orders whose money moved today, whatever day they were paid — the in-app line refunds this
   // console makes and the webhook-recorded ones; a refund issued from the processor's dashboard
-  // writes no ledger row (W23b) and is the one shape this list cannot date.
+  // writes no ledger row (W23b) and is the one shape this list cannot date. And WHEN it moved: the
+  // latest row per order is the instant such a row is ranked and dated by below.
   const { data: todayLedger, error: todayLedgerError } = await db
     .from("mms_refunds")
-    .select("order_id")
+    .select("order_id,created_at")
     .gte("created_at", sinceIso);
   if (todayLedgerError) return { ok: false, reason: "outage" };
-  const refundedTodayIds = [...new Set((todayLedger ?? []).map((r) => r.order_id))];
-  const settled = db.from("qr_orders").select(SETTLED_SELECT).in("status", ["paid", "refunded"]);
-  const { data: orders, error: ordersError } = await (
-    refundedTodayIds.length
-      ? settled.or(`created_at.gte.${sinceIso},id.in.(${refundedTodayIds.join(",")})`)
-      : settled.gte("created_at", sinceIso)
-  )
+  const refundedTodayAt = new Map<string, string>();
+  for (const r of todayLedger ?? []) {
+    const prev = refundedTodayAt.get(r.order_id);
+    if (prev === undefined || Date.parse(r.created_at) > Date.parse(prev))
+      refundedTodayAt.set(r.order_id, r.created_at);
+  }
+  const refundedTodayIds = [...refundedTodayAt.keys()];
+
+  // TWO reads, never one `.or()` (Codex round 1 on #283, P1): a single read ranked by `created_at`
+  // and capped put an earlier day's order refunded today behind every order paid today, and on a
+  // day with fifty of those the cap dropped it — the takings had just sent the manager here to
+  // find it. Each arm is capped on its own; the merge ranks by the instant each row settled TODAY,
+  // so the two compete for the page fairly.
+  const settled = () =>
+    db.from("qr_orders").select(SETTLED_SELECT).in("status", ["paid", "refunded"]);
+  const paidQ = settled()
+    .gte("created_at", sinceIso)
     .order("created_at", { ascending: false })
     .order("id", { ascending: false }) // a stable tiebreak under the cap
     // The lines in the receipt's own order (`receipt-entry.ts` reads `.order("id")`), so this
     // list and the guest's slip list the same order identically.
     .order("id", { referencedTable: "qr_order_items", ascending: true })
     .limit(SETTLED_CAP);
-  if (ordersError) return { ok: false, reason: "outage" };
-  const rows = orders ?? [];
-  const truncated = queueEmptiness(rows.length, SETTLED_CAP) === "cannot-say";
+  const unionQ = refundedTodayIds.length
+    ? settled()
+        .in("id", refundedTodayIds)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .order("id", { referencedTable: "qr_order_items", ascending: true })
+        .limit(SETTLED_CAP)
+    : null;
+  const [paidRes, unionRes] = await Promise.all([paidQ, unionQ]);
+  if (paidRes.error || unionRes?.error) return { ok: false, reason: "outage" };
+  const paidRows = paidRes.data ?? [];
+  const unionRows = unionRes?.data ?? [];
+  // The instant a row settled TODAY: its own time for an order paid today, the latest refund for
+  // one the ledger admitted. Newest first; the id a stable tiebreak.
+  const movedMs = (o: { id: string; created_at: string }) =>
+    Math.max(Date.parse(o.created_at), Date.parse(refundedTodayAt.get(o.id) ?? "") || 0);
+  const byId = new Map<string, (typeof paidRows)[number]>();
+  for (const o of [...paidRows, ...unionRows]) byId.set(o.id, o);
+  const rows = [...byId.values()]
+    .sort((a, b) => movedMs(b) - movedMs(a) || (a.id < b.id ? 1 : -1))
+    .slice(0, SETTLED_CAP);
+  // A FULL arm, or a merge past the cap, is a list that cannot say it is the whole day.
+  const truncated =
+    queueEmptiness(paidRows.length, SETTLED_CAP) === "cannot-say" ||
+    queueEmptiness(unionRows.length, SETTLED_CAP) === "cannot-say" ||
+    byId.size > SETTLED_CAP;
   if (rows.length === 0) return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso };
 
   const orderIds = rows.map((o) => o.id);
@@ -202,11 +229,15 @@ export async function getSettledToday(): Promise<SettledToday> {
         tipCents: o.tip_cents,
         ledgerRefundedCents: ledgerByOrder.get(o.id) ?? 0,
       });
+      const movedAt = refundedTodayAt.get(o.id);
       return {
         id: o.id,
         code: o.id.slice(-6).toUpperCase(),
         createdAt: o.created_at,
         settledAt: settledClock(o.created_at, tz),
+        settledOn:
+          Date.parse(o.created_at) < Date.parse(sinceIso) ? settledDate(o.created_at, tz) : null,
+        refundedTodayAt: movedAt === undefined ? null : settledClock(movedAt, tz),
         status: o.status,
         tender: o.tender,
         tableNumber: o.table_number ?? null,

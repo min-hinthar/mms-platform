@@ -42,6 +42,9 @@ type Row = Record<string, unknown>;
 type Rec = { table: string; calls: [string, unknown[]][] };
 let recs: Rec[] = [];
 let orderRows: Row[] = [];
+/** The rows the UNION read (`in("id", …)` on `qr_orders`, no floor) answers — the orders the
+ *  today-ledger named. The paid read (a `gte` floor) answers `orderRows`. */
+let unionOrderRows: Row[] = [];
 let ledgerRows: Row[] = [];
 /** The ledger rows SINCE the floor — the today-ledger read (a `gte` on `mms_refunds`) answers these. */
 let ledgerTodayRows: Row[] = [];
@@ -62,7 +65,13 @@ function tableApi(name: string) {
     then(resolve: (v: { data: unknown; error: unknown }) => unknown) {
       const answer = (): { data: unknown; error: unknown } => {
         if (failTable === name) return { data: null, error: { message: `${name} unreadable` } };
-        if (name === "qr_orders") return { data: orderRows, error: null };
+        if (name === "qr_orders")
+          return {
+            data: r.calls.some((c) => c[0] === "in" && (c[1] as unknown[])[0] === "id")
+              ? unionOrderRows
+              : orderRows,
+            error: null,
+          };
         if (name === "mms_refunds")
           return {
             data: r.calls.some((c) => c[0] === "gte") ? ledgerTodayRows : ledgerRows,
@@ -122,7 +131,17 @@ beforeEach(() => {
   recs = [];
   gateOk = true;
   failTable = null;
-  orderRows = [order(ORDER_A), order(ORDER_B, { tender: "cash", stripe_payment_intent_id: null })];
+  // A is the newer order: the list is newest first, and the merge ranks by that same instant (the
+  // id is only a tiebreak), so the fixture's order must be the ranking's, not insertion's.
+  orderRows = [
+    order(ORDER_A),
+    order(ORDER_B, {
+      tender: "cash",
+      stripe_payment_intent_id: null,
+      created_at: "2026-09-13T18:30:00Z",
+    }),
+  ];
+  unionOrderRows = [];
   ledgerRows = [];
   ledgerTodayRows = [];
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -149,19 +168,55 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     expect(res.truncated).toBe(false);
   });
 
-  it("an earlier day's order refunded HERE today is in the list — the union keeps the floor on the paid arm (blind pass on A4·3, CRITICAL 1)", async () => {
+  it("an earlier day's order refunded HERE today is in the list — its own read, no floor; the paid arm keeps the floor (blind pass on A4·3, CRITICAL 1)", async () => {
     const OLD = "44444444-4444-4444-8444-444444444444";
-    ledgerTodayRows = [{ order_id: OLD }, { order_id: OLD }];
+    ledgerTodayRows = [
+      { order_id: OLD, created_at: "2026-09-13T18:20:00Z" },
+      { order_id: OLD, created_at: "2026-09-13T18:50:00Z" },
+    ];
+    unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z", refunded_cents: 2100 })];
     const res = await getSettledToday();
     if (!res.ok) throw new Error("expected ok");
     const today = recs.filter((r) => r.table === "mms_refunds")[0]!;
     expect(today.calls).toContainEqual(["gte", ["created_at", "2026-09-13T07:00:00.000Z"]]);
-    const q = recs.find((r) => r.table === "qr_orders")!;
-    expect(q.calls).toContainEqual([
-      "or",
-      [`created_at.gte.2026-09-13T07:00:00.000Z,id.in.(${OLD})`],
-    ]);
-    expect(q.calls.some((c) => c[0] === "gte")).toBe(false);
+    const [paid, union] = recs.filter((r) => r.table === "qr_orders");
+    expect(paid!.calls).toContainEqual(["gte", ["created_at", "2026-09-13T07:00:00.000Z"]]);
+    expect(union!.calls).toContainEqual(["in", ["id", [OLD]]]);
+    expect(union!.calls.some((c) => c[0] === "gte")).toBe(false);
+    expect(union!.calls).toContainEqual(["limit", [50]]);
+    const old = res.orders.find((o) => o.id === OLD)!;
+    // The row says WHICH day it was paid and WHEN today its money moved (Codex round 1 on #283, P2).
+    expect(old.settledOn).toBe("Sep 12");
+    expect(old.settledAt).toBe("12:41 PM");
+    expect(old.refundedTodayAt).toBe("11:50 AM"); // the LATEST movement today, not the first
+    // A paid-today row carries neither.
+    expect(res.orders.find((o) => o.id === ORDER_A)).toMatchObject({
+      settledOn: null,
+      refundedTodayAt: null,
+    });
+  });
+
+  it("with the day's paid page FULL, an earlier day's order refunded today still makes the list — ranked by the refund, not its order time (Codex round 1 on #283, P1)", async () => {
+    const OLD = "44444444-4444-4444-8444-444444444444";
+    // Fifty orders paid today, 11:41 AM through 12:30 PM — the paid read's whole page.
+    orderRows = Array.from({ length: 50 }, (_, i) =>
+      order(`55555555-5555-4555-8555-${String(i).padStart(12, "0")}`, {
+        created_at: new Date(Date.parse("2026-09-13T18:41:00Z") + i * 60_000).toISOString(),
+      }),
+    );
+    ledgerTodayRows = [{ order_id: OLD, created_at: "2026-09-13T19:10:30Z" }]; // 12:10:30 PM
+    unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z", refunded_cents: 2100 })];
+    const res = await getSettledToday();
+    if (!res.ok) throw new Error("expected ok");
+    expect(res.orders.length).toBe(50);
+    expect(res.truncated).toBe(true);
+    const at = res.orders.findIndex((o) => o.id === OLD);
+    expect(at).toBeGreaterThanOrEqual(0);
+    // Ranked by the instant it settled TODAY (12:10:30): after the twenty orders paid 12:11–12:30,
+    // before the thirty paid earlier — not last, and not off the list.
+    expect(at).toBe(20);
+    // Both arms full → one of the fifty paid today fell off, and the row says the list is capped.
+    expect(res.orders.filter((o) => o.id !== OLD).length).toBe(49);
   });
 
   it("a failed today-ledger read answers `outage` — the union is not silently narrowed to the paid arm", async () => {
@@ -175,6 +230,8 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     const a = res.orders[0]!;
     expect(a.code).toBe("0A1B2C");
     expect(a.settledAt).toBe("11:41 AM");
+    expect(a.settledOn).toBeNull();
+    expect(a.refundedTodayAt).toBeNull();
     expect(a.tableNumber).toBe(4);
     expect(a.breakdown).toEqual({
       subtotalCents: 4000,
