@@ -9,8 +9,8 @@ import {
   type FormEvent,
 } from "react";
 import { listPendingApprovals, resolveApproval, type PendingApproval } from "@/lib/approvals";
-import { frozenBoardCopy, raceTimeout } from "@/lib/staff-outage";
-import type { Approver } from "@/lib/voids";
+import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
+import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
 import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
@@ -61,41 +61,65 @@ const GUEST_REQUEST_KEY: Record<"void" | "comp", StaffKey> = {
 };
 
 /**
- * The manager approvals queue (S2.4) — server-rendered snapshot kept live by a 5s POLL (mms_approvals is
- * owner-read RLS, so it's not on the realtime publication; requests/resolves are low-frequency, so a poll
- * is the right tool). Each request resolves via the manager-PIN step-up (tap your name → PIN), so it works
- * on a shared tablet regardless of who's signed in; the server re-checks role + self + once-only.
+ * The manager approvals queue (S2.4 · A4·3 a zone of the counter's one screen) — server-rendered
+ * snapshot kept live by a 5s POLL (mms_approvals is owner-read RLS, so it's not on the realtime
+ * publication; requests/resolves are low-frequency, so a poll is the right tool). Each request
+ * resolves via the manager-PIN step-up (tap your name → PIN), so it works on a shared tablet
+ * regardless of who's signed in; the server re-checks role + self + once-only.
+ *
+ * Live regions (A4·2's rule for this screen): the floor's region is the ONE state region; this
+ * zone's count and freeze are plain text, and each card's `role="status"` exists only once the
+ * manager has opened a decision on it — it speaks only about their own tap.
  */
 export function ApprovalsBoard({
   initial,
   approvers,
+  initialOutage = false,
 }: {
   initial: PendingApproval[];
-  approvers: Approver[];
+  /** null — the approver roster could not be read at render; the poll fetches it. */
+  approvers: Approver[] | null;
+  /** The server could not read the queue at render: start FROZEN (`outage`), never all-clear. */
+  initialOutage?: boolean;
 }) {
   // P2 — the device language, from app/staff/layout.tsx (the outage banner below speaks it).
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
+  const [roster, setRoster] = useState(approvers);
   const [serverNow] = useState(() => new Date().toISOString());
   // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
-  // (listPendingApprovals now THROWS on an unreadable queue instead of returning a false "all
-  // clear"), so a rejection can be an outage OR an expired session OR this device's wifi — we
-  // genuinely cannot tell them apart here, and the cause is therefore always `unknown`: the copy
-  // says "not updating", never "we can't reach the ordering system" (pre-merge review — don't
-  // assert a side you have no evidence about). `asOfIso`/`since`/`nowMs` are all this device's
-  // clock, so the escalation elapsed is single-domain.
-  const [degraded, setDegraded] = useState<{ since: number } | null>(null);
+  // (listPendingApprovals THROWS on an unreadable queue instead of returning a false "all clear"),
+  // so a rejection can be an outage OR an expired session OR this device's wifi — we genuinely
+  // cannot tell them apart here, and a poll miss is therefore `unknown`: the copy says "not
+  // updating", never "we can't reach the ordering system" (pre-merge review — don't assert a side
+  // you have no evidence about). The ONE exception is the server render's own failed read
+  // (`initialOutage`): that side IS known. `asOfIso`/`since`/`nowMs` are all this device's clock,
+  // so the escalation elapsed is single-domain.
+  const [degraded, setDegraded] = useState<StaffDegraded | null>(() =>
+    initialOutage ? nextDegraded(null, "outage", Date.now()) : null,
+  );
   const [asOfIso, setAsOfIso] = useState(() => new Date().toISOString());
   const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
+  const rosterRef = useRef(approvers);
 
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      setSnap(await raceTimeout(listPendingApprovals()));
+      // The roster rides the same poll while it is still unknown — a card must never offer "No
+      // managers available" over a roster that simply failed to load.
+      const [next, who] = await raceTimeout(
+        Promise.all([
+          listPendingApprovals(),
+          rosterRef.current === null ? listApprovers() : Promise.resolve(rosterRef.current),
+        ]),
+      );
+      setSnap(next);
+      rosterRef.current = who;
+      setRoster(who);
       setAsOfIso(new Date().toISOString());
       fails.current = 0;
       setDegraded(null);
@@ -103,7 +127,7 @@ export function ApprovalsBoard({
       // Keep the last good queue on a transient error; flag stale after 2 misses (S2-audit S9).
       fails.current += 1;
       setNowMs(Date.now());
-      if (fails.current >= 2) setDegraded((d) => d ?? { since: Date.now() });
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
       console.error("[ApprovalsBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
@@ -136,29 +160,28 @@ export function ApprovalsBoard({
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
+  // A4·3 — `/staff/approvals` redirects onto this zone's fragment; a fragment scrolls but does not
+  // move focus (WCAG 2.4.3). Take it once, on arrival.
+  useEffect(() => {
+    if (window.location.hash === "#appr-h") headingRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const count = snap.length;
 
   return (
-    <section aria-labelledby="appr-h" onFocusCapture={markFocus}>
+    <section aria-labelledby="appr-h" className="staff-zone" onFocusCapture={markFocus}>
       <div style={headRow}>
-        <h2
-          id="appr-h"
-          ref={headingRef}
-          tabIndex={-1}
-          style={{ fontSize: "var(--fs-body)", margin: 0 }}
-        >
+        <h2 id="appr-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
           {/* echo={false} is REQUIRED here, not a style choice: this heading is the
               `aria-labelledby` target of the section above, and the computed name is the
               element’s full text — an English echo would name the region twice, once per script. */}
           <Chrome lang={lang} k="table.appr.open" echo={false} />
         </h2>
-        {/* P2 — every branch of this region is now dictionary content, so the mark is
-              unconditional. It was conditional while the other two branches were English literals:
-              a `lang={lang}` over an English string announces it as Burmese and typesets it in
-              Padauk. No echo — one live region saying everything twice is worse than not at all. */}
+        {/* P2 — every branch of this line is dictionary content, so the mark is unconditional.
+              PLAIN text, not a live region (A4·2): the floor's region is the screen's one state
+              region, and three regions flipping to the same frozen sentence in the same second is
+              worse than one. No echo — a count line saying everything twice reads as two counts. */}
         <p
-          role="status"
           lang={lang}
           style={{
             margin: 0,
@@ -167,7 +190,7 @@ export function ApprovalsBoard({
           }}
         >
           {degraded
-            ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", "unknown")
+            ? frozenBoardCopy(lang, asOfIso, nowMs - degraded.since, "what.list", degraded.cause)
             : count === 0
               ? ts(lang, "table.appr.allclear")
               : tf(lang, "table.appr.waiting", { n: count })}
@@ -202,7 +225,7 @@ export function ApprovalsBoard({
           renderItem={(a) => (
             <RequestCard
               request={a}
-              approvers={approvers}
+              approvers={roster}
               serverNow={serverNow}
               onResolved={refresh}
             />
@@ -220,7 +243,7 @@ function RequestCard({
   onResolved,
 }: {
   request: PendingApproval;
-  approvers: Approver[];
+  approvers: Approver[] | null;
   serverNow: string;
   onResolved: () => void | Promise<void>;
 }) {
@@ -286,30 +309,26 @@ function RequestCard({
           setMsg({ k: "pin.rateLimited" });
           break;
         case "already":
-          setMsg("Already resolved — refreshing.");
+          setMsg({ k: "table.appr.msg.already" });
           onResolved();
           break;
         case "stale":
-          setMsg("That item has since changed — refreshing.");
+          setMsg({ k: "table.appr.msg.stale" });
           onResolved();
           break;
         case "not_open":
-          setMsg(
-            "That table is no longer open — deny it (a settled refund is handled separately).",
-          );
+          setMsg({ k: "table.appr.msg.notOpen" });
           break;
         case "in_flight":
-          setMsg("That table is mid-payment — try again once they’ve finished.");
+          setMsg({ k: "table.appr.msg.inFlight" });
           break;
         case "outage":
           // W10b — nothing was recorded and the request is STILL PENDING; never imply the PIN or
           // the request was the problem.
-          setMsg(
-            "We can’t reach the ordering system — nothing was recorded. This request is still pending; try again in a moment.",
-          );
+          setMsg({ k: "table.appr.msg.outage" });
           break;
         default:
-          setMsg("Couldn’t resolve that just now — please try again.");
+          setMsg({ k: "table.appr.msg.failed" });
       }
     });
   }
@@ -442,16 +461,21 @@ function RequestCard({
               <Chrome lang={lang} k="table.appr.verb.cancel" echo="stack" />
             </button>
           </div>
+          {/* The card's live region exists only once a decision is open — it speaks about the
+              manager's own tap, never on load (the screen's one state region is the floor's). */}
+          <p
+            id={`appr-msg-${request.id}`}
+            role="status"
+            style={{ margin: "8px 0 0", minHeight: 16 }}
+          >
+            {shown && (
+              <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+                <MsgText lang={lang} msg={shown} />
+              </span>
+            )}
+          </p>
         </form>
       )}
-
-      <p id={`appr-msg-${request.id}`} role="status" style={{ margin: "8px 0 0", minHeight: 16 }}>
-        {shown && (
-          <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-            <MsgText lang={lang} msg={shown} />
-          </span>
-        )}
-      </p>
     </article>
   );
 }

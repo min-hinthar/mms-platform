@@ -56,9 +56,7 @@ export const STAFF = {
   "what.kitchen": { en: "the kitchen board", my: "မီးဖိုချောင် ဘုတ်" }, // glossary: မီးဖိုချောင်
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
-  "what.approvals": { en: "approvals", my: "ခွင့်ပြုချက်များ" },
   "what.feedback": { en: "feedback", my: "ဧည့်သည် မှတ်ချက်" },
-  "what.orders": { en: "orders", my: "အော်ဒါများ" }, // glossary: အော်ဒါ
   "what.team": { en: "the team page", my: "ဝန်ထမ်း စာမျက်နှာ" },
   "what.profile": { en: "your profile", my: "ကိုယ့်အချက်အလက်" },
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
@@ -448,6 +446,35 @@ export const STAFF = {
   "table.appr.verb.confirmDeny": { en: "Confirm deny", my: "ငြင်းပယ်ကြောင်း အတည်ပြု" },
   "table.appr.verb.cancel": { en: "Cancel", my: "မလုပ်တော့" },
   "table.appr.working": { en: "Working…", my: "လုပ်နေပါတယ်…" }, // as table.loss.working — 44 values use ပါတယ်, 3 used သည်
+  // A4·3 — the card's six server verdicts, keys rather than the English literals they were.
+  "table.appr.msg.already": {
+    en: "Already resolved — refreshing.",
+    my: "ဆုံးဖြတ်ပြီးသား — ပြန်ဖတ်နေပါတယ်။",
+  },
+  "table.appr.msg.stale": {
+    en: "That item has since changed — refreshing.",
+    my: "ဒီပစ္စည်း ပြောင်းသွားပြီ — ပြန်ဖတ်နေပါတယ်။",
+  },
+  "table.appr.msg.notOpen": {
+    en: "That table is no longer open — deny it (a settled refund is handled separately).",
+    my: "ဒီစားပွဲ ပိတ်သွားပြီ — ငြင်းပယ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
+  },
+  "table.appr.msg.inFlight": {
+    en: "That table is mid-payment — try again once they’ve finished.",
+    my: "ဒီစားပွဲ ငွေရှင်းနေဆဲ — ပြီးမှ ထပ်ကြိုးစားပါ။",
+  },
+  "table.appr.msg.outage": {
+    en: "We can’t reach the ordering system — nothing was recorded. This request is still pending; try again in a moment.",
+    my: "အော်ဒါစနစ်နဲ့ မဆက်နိုင်ပါ — ဘာမှ မှတ်တမ်း မတင်ရသေးပါ။ ဒီတောင်းဆိုချက် စောင့်ဆိုင်းဆဲ ရှိပါတယ်၊ ခဏနေ ထပ်ကြိုးစားပါ။",
+  }, // K15-HIGH — read mid-outage; must never imply the PIN or the request was the problem
+  "table.appr.msg.failed": {
+    en: "Couldn’t resolve that just now — please try again.",
+    my: "အခု မဆုံးဖြတ်နိုင်သေးပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "table.appr.refunds.outage": {
+    en: "The refunds ledger can’t load right now — anything already recorded is still there.",
+    my: "ပြန်အမ်းရန် စာရင်းကို အခု မဖတ်နိုင်သေးပါ — မှတ်ထားပြီးသားတွေ ရှိနေဆဲပါ။",
+  },
 
   // ═══ P2 PR B · browse ═══════════════════════════════════════════════════════════
   // ── the staff order screen: the page header (app/staff/table/[id]/add) ─────
@@ -737,9 +764,9 @@ export const STAFF = {
   "floor.nav.approvals": { en: "Approvals →", my: "ခွင့်ပြုချက်များ →" },
   "floor.nav.approvalsCount": { en: "Approvals ({n}) →", my: "ခွင့်ပြုချက်များ ({n}) →" },
   "floor.nav.feedback": { en: "Feedback →", my: "ဧည့်သည် မှတ်ချက် →" },
-  // အော်ဒါနဲ့ ပြန်အမ်းငွေ is the phrase `reg.day.refunded.*`/`reg.day.note` already point staff at
-  // ("check Orders & refunds for those") — the pill, the page title and the pointer are one name.
-  "floor.nav.orders": { en: "Orders & refunds →", my: "အော်ဒါနဲ့ ပြန်အမ်းငွေ →" },
+  // A4·3 — the zone's own heading (`floor.settled.head`) with an arrow: `reg.day.refunded.*` /
+  // `reg.day.note` point staff at "Settled today" — the tile, the heading and the pointer are one name.
+  "floor.nav.settled": { en: "Settled today →", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ →" },
   "floor.nav.menuPrices": { en: "Menu prices →", my: "မီနူး ဈေးနှုန်း →" },
   "floor.nav.menuAvailability": { en: "Menu availability →", my: "မီနူး ရနိုင်မှု →" },
   "floor.nav.tips": { en: "Tips today →", my: "ဒီနေ့ အပိုကြေး →" },
@@ -806,17 +833,126 @@ export const STAFF = {
     my: "ဒီဘုတ် ပြန်အသစ်မတက်မချင်း စားပွဲအသစ်တွေ ဒီမှာ ပေါ်မှာ မဟုတ်ပါ။ ဖွင့်ထားပြီးသားတွေ မပျောက်ပါ။",
   },
 
-  // ── /staff/orders — the manager refund surface ────────────────────────────
-  "floor.orders.title": { en: "Orders & refunds", my: "အော်ဒါနဲ့ ပြန်အမ်းငွေ" },
-  "floor.orders.sub": {
-    en: "Recent paid orders. Refunding a line returns its price + tax to the card and is logged with your name.",
-    my: "မကြာသေးမီက ငွေရှင်းပြီး အော်ဒါများ။ တစ်လိုင်းကို ပြန်အမ်းလိုက်ရင် အဲဒီဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပေးပြီး ဘယ်သူလုပ်တယ်ဆိုတာ မှတ်တမ်းတင်ပါတယ်။",
+  // ── Settled today — the manager's zone of the counter screen (A4·3 · M204) ──
+  // The list READS THE RECEIPT: every row label below is pinned to the artifact's own English in
+  // `lib/settled-view.test.ts`, so a reworded receipt reddens the pin instead of drifting from it.
+  "floor.settled.head": { en: "Settled today", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ" },
+  "floor.settled.sub": {
+    en: "Orders paid today, and earlier orders refunded here today, as the guest’s receipt shows them. Refunding a line returns its price + tax to the card and is logged with your name.",
+    my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများနဲ့ ဒီနေ့ ဒီမှာ ပြန်အမ်းလိုက်တဲ့ ရှေ့ရက် အော်ဒါများ — ဧည့်သည့် ပြေစာမှာ ပြတဲ့အတိုင်း။ တစ်လိုင်းကို ပြန်အမ်းလိုက်ရင် အဲဒီဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပေးပြီး ဘယ်သူလုပ်တယ်ဆိုတာ မှတ်တမ်းတင်ပါတယ်။",
   }, // K15-HIGH — the sentence that says a refund is logged to the person who taps it
-  "floor.orders.a11y.list": {
-    en: "Recent paid orders",
-    my: "မကြာသေးမီက ငွေရှင်းပြီး အော်ဒါများ",
+  // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
+  "floor.settled.count.one": { en: "{n} settled", my: "ရှင်းပြီး {n} ခု" },
+  "floor.settled.count.many": { en: "{n} settled", my: "ရှင်းပြီး {n} ခု" },
+  // The read is capped; a full page says so rather than passing part of the day off as the whole.
+  "floor.settled.full": {
+    en: "— the newest {n}; earlier ones are off this list",
+    my: "— နောက်ဆုံး {n} ခုသာ၊ အစောပိုင်းဟာတွေ ဒီစာရင်းမှာ မပါ",
   },
-  "floor.orders.a11y.lines": { en: "Order lines", my: "အော်ဒါ လိုင်းများ" },
+  "floor.settled.none": {
+    en: "Nothing settled yet today",
+    my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါ မရှိသေးပါ",
+  },
+  "floor.settled.none.hint": {
+    en: "Orders paid today — and earlier orders refunded here today — land in this list the moment they settle, newest first.",
+    my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါတွေနဲ့ ဒီနေ့ ဒီမှာ ပြန်အမ်းလိုက်တဲ့ ရှေ့ရက် အော်ဒါတွေ ရှင်းပြီးတာနဲ့ ဒီစာရင်းမှာ ရောက်လာပါမယ် — အသစ်က အရင်။",
+  },
+  "floor.settled.outage": {
+    en: "Today’s settled orders can’t load right now — the system is unreachable.",
+    my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါတွေကို အခု မဖတ်နိုင်သေးပါ — စနစ်နဲ့ မဆက်နိုင်ပါ။",
+  },
+  "floor.settled.stale": {
+    en: "Couldn’t refresh — showing the list as of {t}.",
+    my: "ပြန်မဖတ်နိုင်ပါ — {t} အချိန်က စာရင်းကို ပြထားပါတယ်။",
+  },
+  "floor.settled.verb.refresh": { en: "Refresh", my: "ပြန်ဖတ်" },
+  "floor.settled.a11y.list": { en: "Orders settled today", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါစာရင်း" },
+  "floor.settled.a11y.lines": { en: "Order lines", my: "အော်ဒါ လိုင်းများ" },
+  "floor.settled.a11y.rows": { en: "Receipt totals", my: "ပြေစာ စုစုပေါင်းများ" },
+  // The receipt's own identity line: its short code (an identifier — Latin), who it was for.
+  "floor.settled.code": { en: "Receipt {id}", my: "ပြေစာ {id}" },
+  "floor.settled.for": { en: "for {x}", my: "{x} အတွက်" },
+  "floor.settled.slot": { en: "Pickup at {t}", my: "{t} မှာ လာယူမယ်" },
+  // The receipt rows (`buildReceiptRows` · `buildRefundRows`) — EN pinned to the artifact's labels,
+  // except `row.net`: the artifact says "You paid" to the guest, and a manager is not the guest.
+  // The receipt's destination headings (`fulfillmentLabel`), only when an order spans two or more.
+  "floor.settled.group.dinein": { en: "At your table", my: "စားပွဲမှာ" },
+  "floor.settled.group.togo": { en: "To-go", my: "ပါဆယ်" }, // grounded: kiosk `toGo` (ပါဆယ်)
+  "floor.settled.group.grocery": { en: "Grocery", my: "ကုန်စုံ" },
+  "floor.settled.row.subtotal": { en: "Subtotal", my: "အခွန်မပါ စုစုပေါင်း" },
+  "floor.settled.row.discount": { en: "Discount", my: "လျှော့ငွေ" },
+  "floor.settled.row.service": { en: "Service charge (5%)", my: "ဝန်ဆောင်ခ (5%)" },
+  "floor.settled.row.tax": { en: "Tax", my: "အခွန်" },
+  "floor.settled.row.tip": { en: "Tip", my: "အပိုကြေး" },
+  "floor.settled.row.total": { en: "Total", my: "စုစုပေါင်း" },
+  "floor.settled.row.net": { en: "Guest paid", my: "ဧည့်သည် ပေးခဲ့တာ" },
+  "floor.settled.tender.card": { en: "Card", my: "ကတ်" },
+  // The settled-state line (`receiptStatusLabel`, pinned for the two states that carry a tender).
+  "floor.settled.status.paid": { en: "Paid in full · {x}", my: "အပြည့် ရှင်းပြီး · {x}" },
+  "floor.settled.status.partial": {
+    en: "Partly refunded · {x}",
+    my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး · {x}",
+  },
+  "floor.settled.status.full": { en: "Refunded in full", my: "အပြည့် ပြန်အမ်းပြီး" },
+  "floor.settled.chip.partial": { en: "Partly refunded", my: "တစ်စိတ်တစ်ပိုင်း ပြန်အမ်းပြီး" },
+  // M183 — how money goes back, from the order's own tender and PaymentIntent, never guessed.
+  "floor.settled.path.cash": {
+    en: "Cash order — refund from the drawer; there is no card to return it to.",
+    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပါ၊ ပြန်ထည့်ပေးစရာ ကတ် မရှိပါ။",
+  }, // K15-HIGH — a wrong word here sends a manager to a dashboard where no charge exists
+  "floor.settled.path.dashboard": {
+    en: "Paid by more than one card — refund each payer’s charge in {x}.",
+    my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီရဲ့ ငွေကို {x} မှာ ပြန်အမ်းပါ။",
+  }, // K15-HIGH — the instruction that gets a split-payer's money back
+  "floor.settled.path.exhausted": {
+    en: "Everything this order can give back has been refunded.",
+    my: "ဒီအော်ဒါက ပြန်အမ်းနိုင်သမျှ အားလုံး ပြန်အမ်းပြီးပါပြီ။",
+  },
+  "floor.settled.verb.refund": { en: "Refund", my: "ပြန်အမ်း" },
+  "floor.settled.confirmed": {
+    en: "Refunded {m} to the card.",
+    my: "{m} ကို ကတ်ထဲ ပြန်အမ်းလိုက်ပါပြီ။",
+  },
+
+  // ── the refund sheet (one paid line; reason + the manager's own PIN) ────────
+  "floor.refund.title": { en: "Refund {x}", my: "{x} ပြန်အမ်း" },
+  "floor.refund.amount": { en: "Refund {m}", my: "{m} ပြန်အမ်း" },
+  "floor.refund.note": {
+    en: "Price + tax, back to the card. Tips — and the service charge on older orders — aren’t included.",
+    my: "ဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပါမယ်။ အပိုကြေးနဲ့ အော်ဒါဟောင်းတွေရဲ့ ဝန်ဆောင်ခ မပါဝင်ပါ။",
+  }, // K15-HIGH — what a refund does and does not give back
+  "floor.refund.clamped": {
+    en: "This order has {m} left to give back, so this line refunds {m} — not its full price + tax.",
+    my: "ဒီအော်ဒါမှာ ပြန်အမ်းနိုင်တာ {m} ပဲ ကျန်လို့ ဒီလိုင်းကို {m} ပြန်အမ်းပါမယ် — ဈေးနှုန်းနဲ့ အခွန် အပြည့် မဟုတ်ပါ။",
+  }, // K15-HIGH — the clamp explained before the tap, in the figure the server will charge back
+  "floor.refund.reason": { en: "Reason", my: "အကြောင်းအရင်း" },
+  // The refund reasons `refundLineInput` accepts; `sold_out` and `other` reuse the loss sheet's words.
+  "floor.refund.reason.unhappy": { en: "Not happy with it", my: "မကျေနပ်လို့" },
+  "floor.refund.reason.wrongItem": { en: "Wrong item", my: "မှားပြီး ရောက်လာတာ" },
+  "floor.refund.reason.tooSlow": { en: "Took too long", my: "ကြာလွန်းလို့" },
+  "floor.refund.reason.duplicate": { en: "Duplicate charge", my: "နှစ်ခါ ကောက်မိတာ" },
+  "floor.refund.pin": { en: "Your manager PIN", my: "ကိုယ့် မန်နေဂျာ ပင်နံပါတ်" },
+  "floor.refund.working": { en: "Refunding…", my: "ပြန်အမ်းနေပါတယ်…" },
+  "floor.refund.err.notPaid": {
+    en: "That order isn’t in a refundable state.",
+    my: "ဒီအော်ဒါက ပြန်အမ်းလို့ရတဲ့ အခြေအနေ မဟုတ်ပါ။",
+  },
+  "floor.refund.err.split": {
+    en: "Paid by more than one card — refund each payer in {x}.",
+    my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီကို {x} မှာ ပြန်အမ်းပါ။",
+  },
+  "floor.refund.err.stripe": {
+    en: "The refund didn’t go through at the card processor — try again.",
+    my: "ကတ်ကုမ္ပဏီမှာ ပြန်အမ်းတာ မအောင်မြင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "floor.refund.err.notManager": {
+    en: "Manager access is required to refund.",
+    my: "ပြန်အမ်းဖို့ မန်နေဂျာ လုပ်ပိုင်ခွင့် လိုပါတယ်။",
+  },
+  "floor.refund.err.failed": {
+    en: "Couldn’t refund that line — try again.",
+    my: "ဒီလိုင်းကို ပြန်မအမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",
+  },
 
   // ═══ P2 PR B · lines ═══════════════════════════════════════════════════════════
   // ── the table drill-down: one cart line (StaffLineEditor) ──────────────────
@@ -1189,16 +1325,16 @@ export const STAFF = {
   "reg.day.orders.many": { en: "{n} orders", my: "အော်ဒါ {n} ခု" },
   "reg.day.tips": { en: "incl. {m} tips", my: "အပိုကြေး {m} ပါဝင်" },
   "reg.day.refunded.one": {
-    en: "{n} order paid today and since fully refunded ({m}) — not counted above. A refund of an earlier day’s order shows on Orders & refunds, not here.",
-    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါ ပြန်အမ်းတာကို ဒီမှာမဟုတ်ဘဲ အော်ဒါနဲ့ ပြန်အမ်းငွေ စာမျက်နှာမှာ ကြည့်ပါ။",
+    en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
+    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
   },
   "reg.day.refunded.many": {
-    en: "{n} orders paid today and since fully refunded ({m}) — not counted above. A refund of an earlier day’s order shows on Orders & refunds, not here.",
-    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါ ပြန်အမ်းတာကို ဒီမှာမဟုတ်ဘဲ အော်ဒါနဲ့ ပြန်အမ်းငွေ စာမျက်နှာမှာ ကြည့်ပါ။",
+    en: "{n} orders paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
+    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
   },
   "reg.day.note": {
-    en: "Since midnight (LA). Order totals by status — line-level refunds aren’t netted out; check Orders & refunds for those.",
-    my: "လော့စ်အိန်ဂျယ်လိစ် အချိန် သန်းခေါင်ကစပြီး။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အဲဒါတွေအတွက် အော်ဒါနဲ့ ပြန်အမ်းငွေ စာမျက်နှာကို ကြည့်ပါ။",
+    en: "Since midnight (LA). Order totals by status — line-level refunds aren’t netted out; Settled today, below, shows each one on its order.",
+    my: "လော့စ်အိန်ဂျယ်လိစ် အချိန် သန်းခေါင်ကစပြီး။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အောက်က ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ အော်ဒါတစ်ခုချင်းအလိုက် ပြပါတယ်။",
   },
   "reg.day.outage": {
     en: "Today’s takings can’t load right now — the system is unreachable.",
@@ -2064,6 +2200,7 @@ export type StaffKey = keyof typeof STAFF;
 export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = [
   ["floor.tables.count.one", "floor.tables.count.many"],
   ["floor.counter.count.one", "floor.counter.count.many"],
+  ["floor.settled.count.one", "floor.settled.count.many"],
   ["expo.count.one", "expo.count.many"],
   ["kds.open.one", "kds.open.many"],
   ["floor.card.item.one", "floor.card.item.many"],
@@ -2136,7 +2273,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "browse.price.verb.confirm",
   "entry.lock.forgot",
   "entry.login.denied",
-  "floor.orders.sub",
+  "floor.refund.clamped",
+  "floor.refund.note",
+  "floor.settled.path.cash",
+  "floor.settled.path.dashboard",
+  "floor.settled.sub",
   "floor.tabOverLimit",
   "help.how.counter.4",
   "help.how.kitchen.1",
@@ -2169,6 +2310,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "settle.reader.failedTitle",
   "table.appr.cooked",
   "table.appr.empty.outage",
+  "table.appr.msg.outage",
   "table.appr.refundsHint",
   "table.line.verb.voidComp",
   "table.loss.confirm.comp",

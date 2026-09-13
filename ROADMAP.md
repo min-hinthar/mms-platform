@@ -336,7 +336,8 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
         one Burmese name loader (F18 a), the wall's wait minutes + saturation refusal (K32 a).
   - [x] **A4·2 — Tables & settle** (2026-09-13): floor + register + expo on one screen; K30 (B); the
         two routes redirect; the counter's help sheet absorbs the takeaway board's.
-  - [ ] **A4·3 — Tables & settle, the manager rails**: approvals + settled today; M204 reads the receipt.
+  - [x] **A4·3 — Tables & settle, the manager rails** (2026-09-13): refunds needed · approvals ·
+        settled today reading the receipt (M204 · M183 · F18 b in part); the two routes redirect.
   - [ ] **A4·4 — Sign-in**: login · lock · profile · team as one screen with states.
   - [ ] **A4·5 — Menu + Tips**: glossary → Menu; feedback → Tips; the More grid → three tiles.
 - [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers

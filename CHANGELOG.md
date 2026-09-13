@@ -4,6 +4,71 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
+
+The third A4 slice. The manager's two pages — `/staff/approvals` and `/staff/orders` — become
+three zones of the counter's one screen, after the bags and around the takings:
+
+- **Refunds needed** — the W11/M43 strip, moved whole (`RefundsNeededStrip`); an unreadable
+  ledger prints one honest line instead of an empty strip.
+- **Approvals** — `ApprovalsBoard` as a zone. Its count/freeze line is plain text and each card's
+  live region exists only once a decision is open (the floor's region stays the screen's ONE
+  state region); the server's failed read starts it frozen with cause `outage`, never all-clear;
+  a failed roster read loads on the poll rather than offering "No managers available"; the card's
+  six server verdicts are dictionary keys.
+- **Settled today — the refund console READS THE RECEIPT (M204 · M183).** `getSettledToday`
+  (`refunds.ts`) reads the orders paid today — and the earlier orders refunded here today (the
+  ledger's rows since the floor name them) — under the ONE service-day rule (`dayStartIso` from
+  `pickup_config.tz` — the takings and the served rail's floor), with every column the guest's
+  receipt selects, the ledger's amounts, and the Burmese name loader (F18 (b)); the lines come
+  back in the receipt's own order. `SettledToday.tsx`
+  renders through `groupReceiptLines` / `buildReceiptRows` / `buildRefundRows` / `summarizeRefund`
+  / `lineRefundLabel`, every row word pinned to the artifact's own English in
+  `settled-view.test.ts` (the ONE exception, "Guest paid" for the guest's "You paid", asserted as
+  such). The pure rules live in `refund-console.ts`: `refundPathFor` (cash → the drawer, a
+  PaymentIntent → in-app, a card order with none → the processor's dashboard — the M183 fix,
+  replacing the `isSplit` that sent every cash order to a dashboard where no charge exists),
+  `lineRefundableCents` (moved), `remainingPoolCents` (the SQL's pool: total − service − tip,
+  minus every ledger row against the order, line-level and dashboard alike) and `offeredRefund`
+  (the line clamped to the pool, and whether the clamp bit). So the sheet shows the WHOLE line
+  (qty × dish, its Burmese, modifiers, the kitchen note), the figure the server will actually
+  charge back, and a clamp explained before the tap. Refund is offered only on the in-app path, a
+  paid order, a line not in the ledger, a non-zero offer; cash and split orders carry their path
+  note. A manual Refresh, not a third live subscription (two pollers on one screen stay measured);
+  a full page (50) says so instead of passing part of the day off as the whole.
+- **Navigation.** `/staff/approvals` and `/staff/orders` redirect to the zones (`?floor=1` plus
+  the zone's fragment; their loaders are gone); the bar's approvals circle scrolls to the zone;
+  the doors' More keeps two tiles pointing at the zones and the floor's More drops both.
+  `check-staff-lang` rule 4 reads **12/12** pages, 4 redirect-only exempt.
+
+**The blind adversarial pass on this slice returned REJECT with two CRITICALs, both real, both
+closed before the PR opened.** (1) The takings' pointer sent a manager to Settled today for an
+earlier day's order refunded today, and the list's `created_at` floor excluded exactly that order
+— money that left the account today was on neither surface. The list is now paid today OR
+refunded here today (the ledger's rows since the floor name the orders; a dashboard-issued refund
+writes no ledger row and is the one shape it cannot date — the copy says "refunded here"), pinned
+by a union test and a mutant on each arm, and the day-scope mutant's rationale — which had argued
+the inverse — is rewritten. (2) A refresh that answered `outage` REPLACED the good list with the
+outage line, confirmation included, on exactly the tap after a refund — `getSettledToday` returns
+its failures rather than throwing, so the `catch` the docblock relied on never ran. A failed
+re-read now keeps the last good snapshot and dates it; only a good answer replaces the list
+(pinned: outage → the order stays, the line says when; then a good answer clears it). Also from
+that pass: the jsdom suite's live-region assertion had matched the SHEET's modal status, not the
+zone's (it now cancels the sheet and finds the zone's, by its section); nothing drove a refresh
+(now two do); the embedded lines carried no order (now the receipt's `.order("id")`); and the two
+folded routes' fragments scroll without moving focus, so each zone's heading takes focus on
+arrival (WCAG 2.4.3).
+
+Guards: 8 new mutants (`refund-console/…` ×4 — the cash path, the pool's tip, the unclamped
+offer, the ignored discount; `refunds/…` ×4 — the day scope, the union arm's floor, the ledger's
+line flag, the ledger's pool), every one watched red by `verify:slice --only` — **665** across 119 modules; `refunds.ts`
+(ten money markers, no mutant until now) and `refund-console.ts` join the mutate set;
+`refunds.test.ts` is a mocked-db wiring suite, `SettledToday.test.tsx` a jsdom suite for the
+console's gating, names under `my`, the receipt rows and the no-unprompted-speech rule.
+New Burmese (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`,
+`floor.nav.settled`; `reg.day.note` / `reg.day.refunded.*` re-pointed at the zone) is a machine
+draft → K15.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

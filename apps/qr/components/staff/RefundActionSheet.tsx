@@ -1,44 +1,41 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
-import { refundLine, type StaffOrderLine } from "@/lib/refunds";
+import { refundLine, type SettledLine, type SettledOrder } from "@/lib/refunds";
+import { dollars } from "@/lib/receipt-view";
+import { REFUND_REASONS, REFUND_REASON_KEY, type RefundReason } from "@/lib/settled-view";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import { ts } from "@/lib/i18n/staff";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
-
-const REASONS: [value: string, label: string][] = [
-  ["unhappy", "Not happy with it"],
-  ["wrong_item", "Wrong item"],
-  // W23a — the reason the owner's question was really about. Before this, an out-of-stock refund
-  // landed in "other" and was invisible in the data, so nobody could say how often it happened. It
-  // is listed HIGH because if it is ever common it is the one refund reason with a cheap structural
-  // fix (86 the dish and the next order never happens).
-  ["sold_out", "We ran out"],
-  ["too_slow", "Took too long"],
-  ["duplicate", "Duplicate charge"],
-  ["other", "Other"],
-];
+import { Chrome } from "./Chrome";
+import { ExpoLineMy } from "./TicketText";
 
 /**
- * Refund step-up sheet (S4.3b) — money-OUT confirmation for ONE paid line. Reason (audit) + the manager's
- * own PIN (re-auth at action time; lockout-counted server-side). The amount shown is a display echo; the
- * server (mms_refund_authorize) re-derives the authoritative amount + PI. One live region for the error.
+ * Refund step-up sheet (S4.3b · A4·3) — money-OUT confirmation for ONE paid line. The WHOLE line
+ * (qty × the dish, its Burmese, its modifiers, the kitchen note) so a manager knows which line
+ * they are refunding; the figure the server will actually charge back (`offeredCents` — the
+ * discounted goods + the line's tax share, CLAMPED to what the order can still give back), and
+ * the clamp explained before the tap when it bit (M204). Reason (audit) + the manager's own PIN
+ * (re-auth at action time; lockout-counted server-side). The amount shown is a display echo; the
+ * server (`mms_refund_authorize`) re-derives the authoritative amount + PI. One live region for
+ * the error.
  */
 export function RefundActionSheet({
+  order,
   line,
-  orderLabel,
   onClose,
   onDone,
 }: {
-  line: StaffOrderLine;
-  orderLabel: string;
+  order: SettledOrder;
+  line: SettledLine;
   onClose: () => void;
   /** Called on success/no-op. The amount (cents) is passed on a real refund so the board can confirm the
-   *  ACTUAL figure (the over-refund cap may clamp it below the displayed estimate); omitted on a no-op. */
+   *  ACTUAL figure (the server's clamp is the authority); omitted on a no-op. */
   onDone: (refundedCents?: number) => void;
 }) {
-  const [reason, setReason] = useState<string>("unhappy");
+  const [reason, setReason] = useState<RefundReason>("unhappy");
   const [pin, setPin] = useState("");
   const [error, setError] = useState<StaffMsg | null>(null);
   const lang = useStaffLang();
@@ -46,9 +43,7 @@ export function RefundActionSheet({
   // and the same countdown: "wrong PIN — 2 tries left" is ONE sentence on every screen that says it.
   const { setLockLeft, lockCopy } = useLockout(lang);
   const [pending, startTransition] = useTransition();
-  // The server-derived refundable amount (discounted goods + the line's share of order tax) — computed in
-  // getStaffOrders to mirror mms_refund_authorize, so the figure shown IS what the server will refund.
-  const amount = line.refundableCents / 100;
+  const amount = dollars(line.offeredCents);
 
   const submit = () => {
     setError(null);
@@ -56,7 +51,7 @@ export function RefundActionSheet({
       try {
         const res = await refundLine({ orderItemId: line.id, reason, pin });
         if (res.ok) {
-          onDone(res.amountCents); // the SERVER-authorized amount (may be clamped below the estimate)
+          onDone(res.amountCents); // the SERVER-authorized amount (its clamp is the authority)
           return;
         }
         switch (res.reason) {
@@ -68,8 +63,8 @@ export function RefundActionSheet({
             setError({ k: "pin.noPin.profile" });
             break;
           case "already_refunded":
-            // It's already refunded — refresh the board (the line will show "Refunded") + close. No dead
-            // error text (the sheet unmounts on onDone, so a message here would never be seen).
+            // It's already refunded — refresh the board (the line will show its mark) + close. No
+            // dead error text (the sheet unmounts on onDone, so a message here would never be seen).
             onDone();
             break;
           case "fully_refunded":
@@ -78,26 +73,26 @@ export function RefundActionSheet({
             onDone();
             break;
           case "not_paid":
-            setError("That order isn’t in a refundable state.");
+            setError({ k: "floor.refund.err.notPaid" });
             break;
           case "split_unsupported":
-            setError("Split-tender orders refund via the Stripe dashboard.");
+            setError({ k: "floor.refund.err.split", vars: { x: ts(lang, "table.appr.stripe") } });
             break;
           case "stripe_error":
-            setError("The refund didn’t go through at the card processor — try again.");
+            setError({ k: "floor.refund.err.stripe" });
             break;
           case "not_manager":
-            setError("Manager access is required to refund.");
+            setError({ k: "floor.refund.err.notManager" });
             break;
           case "outage":
             // W10b — no money moved; the platform is unreachable, not a verdict about the manager.
             setError(STAFF_WRITE_OUTAGE);
             break;
           default:
-            setError("Couldn’t refund that line — try again.");
+            setError({ k: "floor.refund.err.failed" });
         }
       } catch {
-        setError("Couldn’t refund that line — try again.");
+        setError({ k: "floor.refund.err.failed" });
       }
     });
   };
@@ -105,82 +100,67 @@ export function RefundActionSheet({
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? error;
   return (
-    // W22c — the canonical `Sheet` migration this file's own `overlay` comment has been asking for
-    // since P1-5. The hand-roll carried FOUR real defects, and one migration closes all four:
+    // W22c — the canonical `Sheet`: Radix traps focus, binds Esc to the document, dismisses on a
+    // real outside pointer-down (not a text-selection drag released on the scrim), and lifts above
+    // the keyboard (`--kb-inset`) so the Refund button beneath the PIN field stays reachable.
     //
-    //   1. `aria-modal="true"` with NO focus trap. The attribute PROMISES assistive tech that the
-    //      rest of the page is inert; the rationale in the deleted comment ("a full focus trap is
-    //      overkill for a 4-control sheet") argued the trap was unnecessary while leaving the claim
-    //      that it existed. A screen-reader user could tab straight out into the board behind and be
-    //      told nothing had changed. Radix traps.
-    //   2. Escape was bound with `onKeyDown` on the overlay `<div>`, which is not focusable — so it
-    //      worked only while a control inside happened to have focus and the event bubbled. Given
-    //      defect 1, focus really could leave, and Esc died the moment it did. Radix binds Esc to
-    //      the document.
-    //   3. `onClick={onClose}` on the overlay plus `stopPropagation` on the card dismissed the sheet
-    //      on any click whose common ancestor was the overlay — including a text-selection DRAG that
-    //      started inside the PIN field and released on the scrim. A manager mid-PIN losing the
-    //      refund to a slipped finger. Radix's `onPointerDownOutside` is the correct shape and is
-    //      what the primitive uses.
-    //   4. No `--kb-inset`. The sheet is bottom-anchored, the PIN is a `type="password"` field and
-    //      the Refund button sits in the row BELOW it — so on a phone the keyboard covered the one
-    //      control the sheet exists to reach. The primitive publishes the VisualViewport inset and
-    //      `.mms-sheet` lifts above the keyboard.
-    //
-    // Swipe-to-close comes with it and is safe here: the gesture CANCELS, and a cancelled refund
-    // costs a re-open. Nothing destructive is one gesture away — the money still needs the PIN.
-    //
-    // ⚠️ BUT NOT WHILE THE REFUND IS IN FLIGHT. `Cancel` has always carried `disabled={pending}`,
-    // and the migration adds three exits that did not exist before — document-level Esc, the sticky
-    // ✕, and the handle drag — so without `!pending` they would contradict the intent that button
-    // already encodes. The cost is not a lost gesture: the caller unmounts this component on close,
-    // so a dismissal mid-flight drops the server's answer on the floor. `setError` would no-op on an
+    // ⚠️ NOT WHILE THE REFUND IS IN FLIGHT. The caller unmounts this component on close, so a
+    // dismissal mid-flight drops the server's answer on the floor: `setError` would no-op on an
     // unmounted tree and `onDone` would never run, leaving the board un-refreshed and the manager
     // with no confirmation and no error — a state indistinguishable from a refund that never
-    // happened, over money that may already have left the card.
+    // happened, over money that may already have left the card. `busy` refuses every exit.
     <Sheet
       open
       busy={pending}
       onOpenChange={(next) => !next && onClose()}
-      title={`Refund ${line.name}`}
+      title={<Chrome lang={lang} k="floor.refund.title" vars={{ x: line.name }} />}
     >
       <div style={body}>
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          {orderLabel} · {line.qty}× {line.name}
+        <p style={lineSummary}>
+          {order.tableNumber !== null ? (
+            <Chrome lang={lang} k="floor.table" vars={{ id: order.tableNumber }} />
+          ) : (
+            <Chrome lang={lang} k="floor.settled.code" vars={{ id: order.code }} />
+          )}
+          {" · "}
+          <span aria-hidden>{line.qty}×</span> {line.name}
+          {line.modifiers.length > 0 && (
+            <span style={{ color: "var(--t2)" }}> · {line.modifiers.join(", ")}</span>
+          )}
+          <ExpoLineMy line={line} />
+          {line.notes && <span style={noteStyle}>“{line.notes}”</span>}
         </p>
-        <p
-          style={{
-            margin: "8px 0 0",
-            fontWeight: 800,
-            fontSize: "var(--fs-h2)",
-            fontVariantNumeric: "tabular-nums",
-          }}
-        >
-          Refund ${amount.toFixed(2)}
+        <p style={amountLine}>
+          <Chrome lang={lang} k="floor.refund.amount" vars={{ m: amount }} />
         </p>
+        {line.offerClamped && (
+          <p style={{ margin: "4px 0 0", fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+            <Chrome lang={lang} k="floor.refund.clamped" vars={{ m: amount }} echo="stack" />
+          </p>
+        )}
         <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          Price + tax, back to the card. Tips — and the service charge on older orders — aren’t
-          included.
+          <Chrome lang={lang} k="floor.refund.note" echo="stack" />
         </p>
 
         <label style={lbl} htmlFor="refund-reason">
-          Reason
+          <Chrome lang={lang} k="floor.refund.reason" echo="stack" />
         </label>
         <select
           id="refund-reason"
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(e) => setReason(e.target.value as RefundReason)}
           style={field}
         >
-          {REASONS.map(([v, l]) => (
-            <option key={v} value={v}>
-              {l}
+          {/* An <option> can hold only text, so the mark rides the element itself (rule 5). */}
+          {REFUND_REASONS.map((r) => (
+            <option key={r} value={r} lang={lang}>
+              {ts(lang, REFUND_REASON_KEY[r])}
             </option>
           ))}
         </select>
 
         <label style={lbl} htmlFor="refund-pin">
-          Your manager PIN
+          <Chrome lang={lang} k="floor.refund.pin" echo="stack" />
         </label>
         <input
           id="refund-pin"
@@ -214,7 +194,7 @@ export function RefundActionSheet({
             disabled={pending}
             style={secondaryBtn}
           >
-            Cancel
+            <Chrome lang={lang} k="table.appr.verb.cancel" echo="stack" />
           </button>
           <button
             className="staff-btn"
@@ -223,7 +203,13 @@ export function RefundActionSheet({
             disabled={pending || pin.length < 4}
             style={primaryBtn}
           >
-            {pending ? "Refunding…" : `Refund $${amount.toFixed(2)}`}
+            {/* No aria-label, deliberately: the visible label SWAPS to "Refunding…" mid-submit,
+                and a fixed name would then no longer contain the visible text. */}
+            {pending ? (
+              <Chrome lang={lang} k="floor.refund.working" />
+            ) : (
+              <Chrome lang={lang} k="floor.refund.amount" vars={{ m: amount }} echo="stack" />
+            )}
           </button>
         </div>
       </div>
@@ -232,8 +218,16 @@ export function RefundActionSheet({
 }
 
 // The primitive owns the scrim, the fixed positioning, the z layer, the safe-area padding and the
-// dvh/keyboard discipline — all of which this file used to restate. What is left is the body inset.
+// dvh/keyboard discipline. What is left is the body inset.
 const body: CSSProperties = { padding: "0 18px 18px" };
+const lineSummary: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+const noteStyle: CSSProperties = { display: "block", fontStyle: "italic" };
+const amountLine: CSSProperties = {
+  margin: "8px 0 0",
+  fontWeight: 800,
+  fontSize: "var(--fs-h2)",
+  fontVariantNumeric: "tabular-nums",
+};
 const lbl: CSSProperties = {
   display: "block",
   margin: "14px 0 4px",

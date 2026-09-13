@@ -88,7 +88,7 @@ export async function requestApproval(raw: unknown): Promise<RequestApprovalResu
 
   await touchCart(cart.id, "requestApproval"); // surfaces the "approval requested" badge to peers/floor
   revalidatePath(`/staff/table/${sessionId}`);
-  revalidatePath("/staff/approvals");
+  revalidatePath("/staff");
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {
       try {
@@ -205,7 +205,7 @@ export async function resolveApproval(raw: unknown): Promise<ResolveApprovalResu
   if (status !== "ok") return { ok: false, reason: "error" };
 
   if (appr.cart_id) await touchCart(appr.cart_id, "resolveApproval"); // re-sync the diner cart / floor
-  revalidatePath("/staff/approvals");
+  revalidatePath("/staff");
   if (appr.session_id) revalidatePath(`/staff/table/${appr.session_id}`);
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {
@@ -268,7 +268,7 @@ export async function resolveRefundNeeded(id: string): Promise<void> {
   const { error } = await db.from("qr_refunds_needed").update({ resolved: true }).eq("id", id);
   if (error)
     throw new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
-  revalidatePath("/staff/approvals");
+  revalidatePath("/staff");
 }
 
 /** One unresolved row of the durable refunds ledger (W11/M43) — money taken with no order behind it. */
