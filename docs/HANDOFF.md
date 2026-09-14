@@ -5,7 +5,45 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-13 · A3 merged as `1058087` (#280); A4·1 is PR #281 — Codex rounds 1 and 2 fixed, the per-head round is the last gate; A4·2 and A4·3 are staged behind it; A4·4 is next)
+> ## ⏭️ NEXT SESSION — start here (2026-09-14 · A4·1 · A4·2 · A4·3 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352`); A4·4 is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open; A4·5 is next)
+>
+> **A4·4 — Sign-in** is the fourth of five A4 slices (`docs/A4_PLAN.md` § A4·4 has the shape):
+> `/staff/login` is ONE screen with states, picked by `lib/sign-in-state.ts` · `resolveSignInState`
+> (pure; six cases; two mutants) — the form (`StaffLogin`, as built), the lock (`/staff/lock`, as
+> built, its own URL because every console page redirects to it), **signed in** (`SignedInCard`:
+> who you are · your PIN · sign out last — the old `/staff/profile`, every word a key now, the
+> set/remove actions answering reason codes (`PinSetResult`), the two refusals the card can see
+> SAID with focus rather than greyed, one live region), and the **roster** as a manager zone
+> (`TeamManager` · `#team-h`, the old `/staff/team`; heading focus on arrival; a failed read is one
+> honest line, never the error boundary). An explicit `?next=` still wins over everything (the
+> pre-fold behaviour — pinned by a test AND a mutant), then the lock, then the card; `unavailable`
+> renders the outage shell where the old login rendered the form. `/staff/profile` and `/staff/team`
+> are redirect-only; the doors' More tiles re-point; rule 4 reads 10/10 + 6 exempt. `PinManager`
+> and `StaffSignOut` are deleted.
+>
+> ⚠️ **#283 (A4·3) merged on Min's explicit override.** Its head `ceaec54` never got a per-head
+> Codex review — Codex's quota was exhausted ("You have reached your Codex usage limits for code
+> reviews") — and Min said "Merge"; the override is recorded on the PR. There are NO round-5 rows:
+> if Codex reviews that content later, triage its findings against `main`, not against a PR.
+>
+> ### What is next (A4)
+>
+> 1. **A4·5 — Menu + Tips**: glossary → a Menu action; feedback → beneath Tips; the More grid →
+>    three tiles (Menu · Tips · Sign-in). `resolveStaffHome` unchanged.
+> 2. **Owner decisions still open:** K32 (b) — a table number on the wall is a spec reversal;
+>    K30 (A) — `kitchen_done_at` is a prod migration; K15 — every new Burmese string in A4·1
+>    (`kds.served.*`, `kds.a11y.served`, `kds.a11y.railView`, `board.card.*`), A4·2
+>    (`floor.zone.start`, `floor.counter.*`, `floor.rows.none`, `expo.kitchenDone`,
+>    `help.how.counter.1` + `.1.more`, `floor.tables.title` re-drafted), A4·3 (`floor.settled.*`,
+>    `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`, `floor.nav.settled`;
+>    `reg.day.note` + `reg.day.refunded.*` re-pointed) and A4·4 (`entry.me.head`, `entry.pin.*`,
+>    `floor.team.outage`) is a machine draft. **M218** (high — a cash refund is TOLD, never
+>    recorded; needs `mms_refund_cash_line` + a prod migration) and **M219** (page the today-ledger
+>    read) are A4·3's Codex leftovers.
+>
+> ---
+>
+> ## ⏭️ (2026-09-13 · A3 merged as `1058087` (#280); A4·1 was PR #281, A4·2 #282, A4·3 #283 — all merged; A4·4 is above)
 >
 > **A4·1 — Kitchen + the wall** is the first of five A4 slices; the map and the order are in
 > `docs/A4_PLAN.md` (read it before touching `/staff`). It lands: the KDS **served rail** (K31 —
@@ -392,7 +430,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **670 `verify:slice` mutants** · **119 target modules** (107 under `apps/qr/lib`, 3 API routes,
+> **672 `verify:slice` mutants** · **121 target modules** (108 under `apps/qr/lib`, 3 API routes,
 > 9 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all twelve fast-lane guards green.
@@ -862,7 +900,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (670 today)**, **1372 qr + 138 ui tests at the time (2521 + 142 today)**, 69 target modules at the time (107 under `apps/qr/lib` today, 120 in all), 97 local
+> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2537 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1754,7 +1792,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 670 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2521 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2537 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2476,7 +2514,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (670 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (672 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

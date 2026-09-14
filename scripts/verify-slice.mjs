@@ -3946,6 +3946,24 @@ const MUTANTS = [
     replace: "  const nowIso = new Date().toISOString();\n",
   },
   {
+    id: "sign-in-state/a-wrong-account-falls-through-the-denied-form",
+    file: "apps/qr/lib/sign-in-state.ts",
+    suite: "lib/sign-in-state.test.ts",
+    why: "A4·4 — the lock cookie is a DEVICE fact, set by whichever session locked the tablet; a real account with no staff row must meet the denied form (Sign out is its only way out) whatever the cookie or the URL says. Let it fall through and a wrong account on a locked tablet is sent to a PIN screen it can never unlock, or straight to the destination it was denied",
+    find: '  if (auth.kind === "not_staff") return { kind: "form", denied: true };\n',
+    replace:
+      '  if (auth.kind === "not_staff" && !input.locked) return { kind: "form", denied: true };\n',
+  },
+  {
+    id: "sign-in-state/the-lock-outranks-an-explicit-destination",
+    file: "apps/qr/lib/sign-in-state.ts",
+    suite: "lib/sign-in-state.test.ts",
+    why: "A4·4 — `?next=` is the sign-in's PURPOSE and the destination gates itself (the lock is a `/staff`-scoped cookie the kiosk and the wall never see); read the lock first, a bookmarked `/staff/login?next=/kiosk` on a locked counter tablet lands on the console's lock screen instead of the kiosk — the pre-fold behaviour the one-screen promised to keep, gone",
+    find: '  if (input.next !== null) return { kind: "redirect", to: input.next };\n  if (input.locked) return { kind: "redirect", to: LOCK_ROUTE };\n',
+    replace:
+      '  if (input.locked) return { kind: "redirect", to: LOCK_ROUTE };\n  if (input.next !== null) return { kind: "redirect", to: input.next };\n',
+  },
+  {
     id: "register-queue/settled-carts-return-to-the-counter",
     file: "apps/qr/lib/register-queue.ts",
     suite: "lib/register-queue.test.ts",

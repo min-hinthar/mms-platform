@@ -230,7 +230,7 @@ export async function provisionStaff(raw: unknown): Promise<StaffActionResult> {
       role: parsed.data.role,
     }),
   );
-  revalidatePath("/staff/team");
+  revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen
   return { ok: true };
 }
 
@@ -313,7 +313,7 @@ export async function setStaffActive(raw: unknown): Promise<StaffActionResult> {
     const to = target.email;
     after(() => sendStaffDeactivatedEmail({ to }));
   }
-  revalidatePath("/staff/team");
+  revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen
   return { ok: true };
 }
 
@@ -393,6 +393,6 @@ export async function setStaffRole(raw: unknown): Promise<StaffActionResult> {
     from_role: current,
     to_role: parsed.data.role,
   });
-  revalidatePath("/staff/team");
+  revalidatePath("/staff/login"); // A4·4 — the roster is a zone of the sign-in screen
   return { ok: true };
 }

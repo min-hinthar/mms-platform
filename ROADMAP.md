@@ -338,7 +338,8 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
         two routes redirect; the counter's help sheet absorbs the takeaway board's.
   - [x] **A4·3 — Tables & settle, the manager rails** (2026-09-13): refunds needed · approvals ·
         settled today reading the receipt (M204 · M183 · F18 b in part); the two routes redirect.
-  - [ ] **A4·4 — Sign-in**: login · lock · profile · team as one screen with states.
+  - [x] **A4·4 — Sign-in** (2026-09-14): login · lock · profile · team as one screen with states;
+        the two routes redirect; the profile converted to the dictionary (the K25 profile part).
   - [ ] **A4·5 — Menu + Tips**: glossary → Menu; feedback → Tips; the More grid → three tiles.
 - [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers
       inviting staff and assigning roles, and orders following a diner onto their account (#278, `b341ac9`).

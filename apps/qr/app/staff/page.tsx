@@ -121,12 +121,14 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       icon: "cat-dish",
     },
     { href: "/staff/tips", k: "floor.nav.tips", icon: "gift" },
-    { href: "/staff/profile", k: hasPin ? "floor.nav.pin" : "floor.nav.pinSet", icon: "lock" },
+    // A4·4 — the PIN and the roster live on the sign-in screen (`/staff/profile` and `/staff/team`
+    // are redirects); the roster is a zone, so its tile carries the zone's fragment.
+    { href: "/staff/login", k: hasPin ? "floor.nav.pin" : "floor.nav.pinSet", icon: "lock" },
     // A6 — MANAGER, matching the screen's own floor. Left at `owner`, the whole feature was
     // reachable only by typing the URL: the page, `listStaff` and all three actions admit a
     // manager, and the one link to them did not. Found by a blind audit of this diff.
     ...(roleAtLeast(caller.role, "manager")
-      ? ([{ href: "/staff/team", k: "floor.nav.team", icon: "people" }] as MoreTile[])
+      ? ([{ href: "/staff/login#team-h", k: "floor.nav.team", icon: "people" }] as MoreTile[])
       : []),
   ];
   // `floor.nav.approvalsCount` carries an `{n}` slot; MoreGrid renders keys without vars, so the
