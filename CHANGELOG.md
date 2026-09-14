@@ -79,6 +79,15 @@ dead). Left as designed, with the reason recorded above: the bare-`/staff/login`
 An open question the pass could not settle from the bundle — `staffHasPin` on a DB blip — is
 answered from source: it logs and returns `false` (the old profile page's behaviour, unchanged).
 
+**Codex round 1 on #284 (the draft head `bf44561`) — one P2, verified real, already closed on
+`5f10ba6`.** The finding is the blind pass's CRITICAL 1 word for word: the card's busy latch sat
+after the `await`, so a rejected Server Action (a lost connection, an uncaught server exception)
+left "Saving…" refusing every later tap until a reload. The fix commit had landed nine minutes
+before the round posted; the thread is answered and resolved against it. Codex's cloud task also
+drafted its own commit (`0201d5d`, wrapping `signOut` too) that never reached the repository —
+`signOut` keeps the shape `PinUnlock` and `StaffLogin` use, because supabase-js resolves its errors
+into `{ error }` rather than rejecting, and a bare `await` there is the sibling cards' contract.
+
 ### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
 
 The third A4 slice. The manager's two pages — `/staff/approvals` and `/staff/orders` — become
