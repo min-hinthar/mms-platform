@@ -2213,3 +2213,16 @@ never let a partially-applied script be re-run from the top without that guard �
 ## #112 — Proving a guard red-first on an UNCOMMITTED file: reverse the edit, never `git checkout` it (2026-09-13, A4·2)
 
 To watch `counter-boards.test.tsx` fail on the shape it was written against, the lane's channel name was `sed`-swapped back to the floor's, the suite run (red, the exact rejection), and the file "restored" with `git checkout -- <file>` — which restores the COMMITTED version, and the file carried six uncommitted edits from the same fix round. All six were silently gone; only the next typecheck/test would have said so, and only for the ones that break. The prescribed `git checkout -- .` is for a killed `verify:slice` run on a CLEAN tree (LEARNINGS #74); on a dirty tree it is a data-loss command. Red-first on a file you are mid-editing: apply the inverse `sed`, or commit (WIP) first and then checkout.
+
+## #113 — Two "use server" / PostgREST shapes that fail at TYPECHECK, not at runtime — and one that fails at RUNTIME only (2026-09-13, A4·3)
+
+- **A PostgREST select must be ONE string literal.** `const SELECT = "a,b," + "c(d,e)"` widens to
+  `string`, the type-level select parser gives up, and every row types as `GenericStringError` —
+  thirty errors that read like a schema problem and are a concatenation. Prettier leaves a long
+  literal alone; write the one line.
+- **A `"use server"` module may export only async functions.** A `const` cap or a pure helper
+  exported beside the actions is a build error (`SETTLED_CAP` and `settledClock` moved to
+  `settled-view.ts`); types are fine (erased). Import the helper INTO the action module instead.
+- **`getByText("x")` on `<span> · <Chrome/></span>` misses.** Under `en` `<Chrome>` returns a bare
+  text node, so the span's text is `" · x"`; the default matcher compares the whole element's
+  normalized text. Match the fragment with a regex, or query the element that carries only `x`.

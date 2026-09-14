@@ -3,150 +3,331 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { refundLineInput } from "@mms/db/schemas";
-import { AuthzError } from "./authz";
-import { getStaffAuth, requireStaff, roleAtLeast } from "./staff";
+import { getStaffAuth, roleAtLeast, staffGate } from "./staff";
 import { verifyStaffPin } from "./staff-pin";
 import { getStripe } from "./stripe";
 import { getPostHogClient } from "./posthog-server";
+import { STAFF_WRITE_OUTAGE } from "./staff-outage";
+import { readServiceDay } from "./service-day";
+import { queueEmptiness } from "./queue-window";
+import { loadLineNames } from "./line-names";
+import { catalogNameMy, pairModifiersMy } from "./ticket-names";
+import { summarizeRefund, type RefundSummary } from "./refund-view";
+import type { ReceiptBreakdownish } from "./receipt-view";
+import { SETTLED_CAP, settledClock, settledDate } from "./settled-view";
+import {
+  lineRefundableCents,
+  offeredRefund,
+  refundPathFor,
+  remainingPoolCents,
+  type RefundPath,
+} from "./refund-console";
 
 /**
  * Line-level refunds (S4.3b) — money-OUT, the captured-line counterpart to S2.3's open-cart void. The
- * manager-facing /staff/orders surface lists paid orders; a manager refunds a specific line. The amount +
- * PaymentIntent are SERVER-derived (mms_refund_authorize) — the client never sends a figure. The Stripe
- * refund is idempotency-keyed on the line (a double-submit returns the SAME refund — no double money out),
- * recorded in the mms_refunds ledger + mms_approvals audit, and charge.refunded reconciles the order status.
- * Every export re-checks requireStaff('manager') + a self-PIN step-up (the money-out re-auth at action time).
+ * manager's settled list (A4·3, a zone of the counter's one screen) shows today's paid orders AS THE
+ * GUEST'S RECEIPT SHOWS THEM; a manager refunds a specific line. The amount + PaymentIntent are
+ * SERVER-derived (mms_refund_authorize) — the client never sends a figure. The Stripe refund is
+ * idempotency-keyed on the line (a double-submit returns the SAME refund — no double money out),
+ * recorded in the mms_refunds ledger + mms_approvals audit, and charge.refunded reconciles the order
+ * status. The refund re-checks manager + a self-PIN step-up (the money-out re-auth at action time).
  */
 
-export type StaffOrderLine = {
+export type SettledLine = {
   id: string;
   name: string;
+  /** The live catalog's Burmese (F18 (b)), or null when it adds nothing to the English snapshot. */
+  nameMy: string | null;
   qty: number;
   unitPriceCents: number;
   taxCents: number;
+  modifiers: string[];
+  modifiersMy: (string | null)[];
+  notes: string | null;
   fulfillment: string;
+  /** What has already come back on THIS line (`qr_order_items.refunded_cents`) — the receipt's mark. */
+  refundedCents: number;
+  /** A ledger row exists for this line — the server would answer `already_refunded`. */
   refunded: boolean;
-  /** The server-derived refundable amount (cents) — discounted goods + the line's share of order tax. The
-   *  display echo of mms_refund_authorize so the sheet shows exactly what will be refunded (S4-audit P0-1/P1-1). */
-  refundableCents: number;
+  /** What the console OFFERS: the line's discounted goods + its tax share, clamped to what the order
+   *  can still give back — the display echo of `mms_refund_authorize`, clamp included, so the sheet
+   *  shows the figure the server will actually refund. */
+  offeredCents: number;
+  /** The clamp bit — the sheet says so before the tap (M204). */
+  offerClamped: boolean;
 };
 
-/**
- * The refundable amount for one paid line, in cents — MIRRORS mms_refund_authorize (the SQL is the
- * authority; this is the display echo, like lib/tax.ts mirrors mms_line_tax). Discounted goods (line gross
- * minus its pro-rata share of the order discount) + the line's share of the order's discounted tax (pro-rata
- * by taxable gross). Service/tip are order-level → excluded. Does NOT apply the over-refund cap — the display
- * shows the normal single-refund amount; the server clamps and returns the authoritative figure on submit.
- * KEEP IN LOCKSTEP with the SQL: any change to the refund formula must land in both.
- */
-function lineRefundableCents(
-  line: { unitPriceCents: number; qty: number; taxCents: number },
-  order: { subtotalCents: number; discountCents: number; taxCents: number },
-  taxableBaseCents: number,
-): number {
-  const lineGross = line.unitPriceCents * line.qty;
-  const lineDiscount =
-    order.subtotalCents > 0
-      ? Math.round((order.discountCents * lineGross) / order.subtotalCents)
-      : 0;
-  const goods = lineGross - lineDiscount;
-  const lineTax =
-    line.taxCents > 0 && taxableBaseCents > 0
-      ? Math.round((order.taxCents * lineGross) / taxableBaseCents)
-      : 0;
-  return goods + lineTax;
-}
-
-export type StaffOrder = {
+export type SettledOrder = {
   id: string;
+  /** The receipt's own short code — what the guest reads off their artifact. */
+  code: string;
   createdAt: string;
-  totalCents: number;
+  /** "12:41 PM" in the service zone — formatted here, where the zone is known. */
+  settledAt: string;
+  /** "Sep 12" — the calendar day it was PAID, only for an order from an earlier day the ledger
+   *  admitted (refunded here today); null for an order paid today. Codex round 1 on #283: a bare
+   *  clock under "Settled today" read as today's. */
+  settledOn: string | null;
+  /** "12:10 PM" — the LATEST refund on this order today, when the ledger admitted it; else null. */
+  refundedTodayAt: string | null;
   status: string; // 'paid' | 'refunded'
   tender: string;
-  /** Split-tender orders carry no PI on the order (the payer PIs live on qr_cart_shares) → per-line refund
-   *  isn't supported here yet; the UI disables it with a "refund via dashboard" note. */
-  isSplit: boolean;
-  label: string;
-  lines: StaffOrderLine[];
+  tableNumber: number | null;
+  customerName: string | null;
+  /** "12:30 PM" in the service zone, formatted on the server like the clock (Codex round 2 on #283:
+   *  the tablet's own zone re-formatted it, and a UTC server hydrated a different text); null when
+   *  the order has no slot. */
+  pickupSlotAt: string | null;
+  breakdown: ReceiptBreakdownish;
+  totalCents: number;
+  /** ONE verdict for the whole row (W23b): a partial refund leaves `status = 'paid'`. */
+  refund: RefundSummary;
+  /** How money goes back for this order (M183): cash from the drawer, the in-app line refund, or
+   *  the processor's dashboard for a split card order. */
+  refundPath: RefundPath;
+  /** What the order can still give back, after every ledger row — the pool the SQL clamps against. */
+  remainingCents: number;
+  lines: SettledLine[];
 };
 
+export type SettledToday =
+  | {
+      ok: true;
+      orders: SettledOrder[];
+      truncated: boolean;
+      sinceIso: string;
+      serverNow: string;
+      /** `serverNow` as a clock in the SERVICE zone ("12:00 PM") — the "as of" a failed refresh
+       *  dates the list by, formatted where the zone is known (Codex round 4 on #283). */
+      serverClock: string;
+    }
+  | { ok: false; reason: "outage" | "forbidden" };
+
+// ONE literal: PostgREST's type-level select parser needs a literal type, and a `+` of two literals
+// widens to `string` — every row then types as `GenericStringError`.
+const SETTLED_SELECT =
+  "id,created_at,status,tender,table_number,customer_name,pickup_slot,subtotal_cents,discount_cents,service_charge_cents,tax_cents,tip_cents,total_cents,refunded_cents,stripe_payment_intent_id,qr_order_items(id,name,qty,unit_price_cents,tax_cents,fulfillment,modifiers,modifier_option_ids,notes,refunded_cents,menu_item_id)";
+
 /**
- * Recent paid/refunded orders for the manager refund surface. Manager-gated; service-role read (the
- * cross-table order list is a manager tool, like the KDS). Bounded to the most recent 50. Each line is
- * flagged `refunded` (a mms_refunds row exists) so the UI disables an already-refunded line.
+ * Today's settled orders (paid or refunded), newest first, for the manager's zone of the counter
+ * screen. Manager-gated; service-role read (the cross-table order list is a manager tool, like the
+ * KDS). "Today" is the ONE service-day read (`readServiceDay` — `dayStartIso` from
+ * `pickup_config.tz`, the same floor the takings and the served rail use), so the three "today"
+ * zones on this screen agree about when it began.
+ *
+ * Every figure is the fulfillment-time snapshot the receipt renders (`breakdown`, `totalCents`, the
+ * lines' unit prices), never recomputed. The refund state is `summarizeRefund`, derived ONCE. The
+ * per-line offer mirrors `mms_refund_authorize` clamp included: the ledger (`mms_refunds`, every
+ * row against the order — line-level and dashboard alike, the sum the SQL clamps against) sets the
+ * remaining pool, and each line's figure is clamped to it.
+ *
+ * W10b — a failed read must not render as "nothing settled today" (false-empty), and a failed
+ * LEDGER read must not clear the `refunded` flags (re-offering a refund on an already-refunded
+ * line; the idempotency key is the backstop, not the UI). Both answer `outage`; the zone says so.
+ * The Burmese names are ADVISORY (`loadLineNames` logs by table and that half renders English).
  */
-export async function getStaffOrders(): Promise<StaffOrder[]> {
-  await requireStaff("manager");
+export async function getSettledToday(): Promise<SettledToday> {
+  const gate = await staffGate("manager");
+  if (!gate.ok) {
+    // staffGate collapses "not signed in / not manager" and outage into copy — for a read surface
+    // we only need the two-way split: an outage renders the zone's outage line, anything else
+    // simply hides the manager zone.
+    return { ok: false, reason: gate.error === STAFF_WRITE_OUTAGE ? "outage" : "forbidden" };
+  }
   const db = serviceClient();
-  // W10b — a failed read must not render as "no recent orders" (false-empty), and a failed REFUNDS
-  // read must not clear the `refunded` flags (re-offering a refund on an already-refunded line; the
-  // idempotency key is the backstop, not the UI). Throw to the caller's failure state instead.
-  const unavailable = () =>
-    new AuthzError("We can’t reach the ordering system right now", 503, "unavailable");
-  const { data: orders, error: ordersError } = await db
-    .from("qr_orders")
-    .select(
-      "id,created_at,subtotal_cents,discount_cents,tax_cents,service_charge_cents,tip_cents,total_cents,status,tender,stripe_payment_intent_id,session_id,qr_order_items(id,name,qty,unit_price_cents,tax_cents,fulfillment)",
-    )
-    .in("status", ["paid", "refunded"])
-    .order("created_at", { ascending: false })
-    .limit(50);
-  if (ordersError) throw unavailable();
-  if (!orders || orders.length === 0) return [];
+  const { nowIso, tz, sinceIso } = await readServiceDay(db, "refunds");
 
-  const orderIds = orders.map((o) => o.id);
-  const { data: refunds, error: refundsError } = await db
+  // "Settled today" is paid TODAY *or refunded here today* (blind pass on A4·3, CRITICAL 1): the
+  // takings send a manager here for an earlier day's order refunded today, and a `created_at`
+  // floor alone would hold it on neither surface. The ledger's rows since the floor name the
+  // orders whose money moved today, whatever day they were paid — the in-app line refunds this
+  // console makes and the webhook-recorded ones; a refund issued from the processor's dashboard
+  // writes no ledger row (W23b) and is the one shape this list cannot date. And WHEN it moved: the
+  // latest row per order is the instant such a row is ranked and dated by below.
+  const {
+    data: todayLedger,
+    error: todayLedgerError,
+    count: todayLedgerCount,
+  } = await db
     .from("mms_refunds")
-    .select("order_item_id")
+    .select("order_id,created_at", { count: "exact" })
+    .gte("created_at", sinceIso);
+  if (todayLedgerError) return { ok: false, reason: "outage" };
+  // PostgREST's max-rows cap is silent (Codex round 3 on #283): a ledger answer SHORT of its own
+  // count is a subset, and a ranking over a subset may miss the day's newest refunds — the list
+  // then cannot say it is the day (`truncated`), logged. The full fix is a deterministic page
+  // over the ledger, filed as M219; a day with more than a thousand refunds has not happened.
+  const ledgerTruncated =
+    typeof todayLedgerCount === "number" && todayLedgerCount > (todayLedger?.length ?? 0);
+  if (ledgerTruncated)
+    console.error("[refunds] today-ledger read truncated — the settled list is marked capped", {
+      count: todayLedgerCount,
+      rows: todayLedger?.length ?? 0,
+    });
+  const refundedTodayAt = new Map<string, string>();
+  for (const r of todayLedger ?? []) {
+    const prev = refundedTodayAt.get(r.order_id);
+    if (prev === undefined || Date.parse(r.created_at) > Date.parse(prev))
+      refundedTodayAt.set(r.order_id, r.created_at);
+  }
+  // Ranked by the LATEST refund and capped BEFORE the read (Codex round 2 on #283, P1): the union
+  // arm's own `.order("created_at")` under its `.limit` chose the fifty newest-CREATED of the
+  // ledger's orders, so with more than fifty refunded today the oldest order carrying today's
+  // latest refund was gone before the merge below could rank it. The ids the read is given are
+  // already the fifty that rank highest by the instant they settled today.
+  const refundedTodayIds = [...refundedTodayAt.entries()]
+    .sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]) || (a[0] < b[0] ? 1 : -1))
+    .slice(0, SETTLED_CAP)
+    .map(([id]) => id);
+  const unionOverflow = refundedTodayAt.size > SETTLED_CAP;
+
+  // TWO reads, never one `.or()` (Codex round 1 on #283, P1): a single read ranked by `created_at`
+  // and capped put an earlier day's order refunded today behind every order paid today, and on a
+  // day with fifty of those the cap dropped it — the takings had just sent the manager here to
+  // find it. Each arm is capped on its own; the merge ranks by the instant each row settled TODAY,
+  // so the two compete for the page fairly.
+  const settled = () =>
+    db.from("qr_orders").select(SETTLED_SELECT).in("status", ["paid", "refunded"]);
+  const paidQ = settled()
+    .gte("created_at", sinceIso)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false }) // a stable tiebreak under the cap
+    // The lines in the receipt's own order (`receipt-entry.ts` reads `.order("id")`), so this
+    // list and the guest's slip list the same order identically.
+    .order("id", { referencedTable: "qr_order_items", ascending: true })
+    .limit(SETTLED_CAP);
+  const unionQ = refundedTodayIds.length
+    ? settled()
+        .in("id", refundedTodayIds)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .order("id", { referencedTable: "qr_order_items", ascending: true })
+        .limit(SETTLED_CAP)
+    : null;
+  const [paidRes, unionRes] = await Promise.all([paidQ, unionQ]);
+  if (paidRes.error || unionRes?.error) return { ok: false, reason: "outage" };
+  const paidRows = paidRes.data ?? [];
+  const unionRows = unionRes?.data ?? [];
+  // The instant a row settled TODAY: its own time for an order paid today, the latest refund for
+  // one the ledger admitted. Newest first; the id a stable tiebreak.
+  const movedMs = (o: { id: string; created_at: string }) =>
+    Math.max(Date.parse(o.created_at), Date.parse(refundedTodayAt.get(o.id) ?? "") || 0);
+  const byId = new Map<string, (typeof paidRows)[number]>();
+  for (const o of [...paidRows, ...unionRows]) byId.set(o.id, o);
+  const rows = [...byId.values()]
+    .sort((a, b) => movedMs(b) - movedMs(a) || (a.id < b.id ? 1 : -1))
+    .slice(0, SETTLED_CAP);
+  // A FULL arm, or a merge past the cap, is a list that cannot say it is the whole day.
+  const truncated =
+    queueEmptiness(paidRows.length, SETTLED_CAP) === "cannot-say" ||
+    queueEmptiness(unionRows.length, SETTLED_CAP) === "cannot-say" ||
+    unionOverflow ||
+    ledgerTruncated ||
+    byId.size > SETTLED_CAP;
+  const serverClock = settledClock(nowIso, tz);
+  if (rows.length === 0)
+    return { ok: true, orders: [], truncated, sinceIso, serverNow: nowIso, serverClock };
+
+  const orderIds = rows.map((o) => o.id);
+  const { data: ledger, error: ledgerError } = await db
+    .from("mms_refunds")
+    .select("order_id,order_item_id,amount_cents")
     .in("order_id", orderIds);
-  if (refundsError) throw unavailable();
-  const refundedLines = new Set(
-    (refunds ?? []).map((r) => r.order_item_id).filter((x): x is string => !!x),
-  );
+  if (ledgerError) return { ok: false, reason: "outage" };
+  const refundedLines = new Set<string>();
+  const ledgerByOrder = new Map<string, number>();
+  for (const r of ledger ?? []) {
+    if (r.order_item_id) refundedLines.add(r.order_item_id);
+    ledgerByOrder.set(r.order_id, (ledgerByOrder.get(r.order_id) ?? 0) + r.amount_cents);
+  }
 
-  const sessionIds = [...new Set(orders.map((o) => o.session_id).filter((s): s is string => !!s))];
-  const { data: sessions, error: sessionsError } = sessionIds.length
-    ? await db.from("table_sessions").select("id,qr_code").in("id", sessionIds)
-    : { data: [] as { id: string; qr_code: string }[], error: null };
-  if (sessionsError) throw unavailable();
-  const labelBy = new Map((sessions ?? []).map((s) => [s.id, s.qr_code]));
+  const items = rows.flatMap((o) => o.qr_order_items ?? []);
+  const { nameMyByRef, optionNameMy } = await loadLineNames(db, items, { tag: "settled" });
 
-  return orders.map((o) => {
-    const items = o.qr_order_items ?? [];
-    // The taxable subtotal base for this order (taxable lines have a stored per-unit tax > 0) — the
-    // denominator for each line's pro-rata share of the order tax, matching mms_refund_authorize.
-    const taxableBaseCents = items.reduce(
-      (a, li) => a + (li.tax_cents > 0 ? li.unit_price_cents * li.qty : 0),
-      0,
-    );
-    return {
-      id: o.id,
-      createdAt: o.created_at,
-      totalCents: o.total_cents,
-      status: o.status,
-      tender: o.tender,
-      isSplit: o.stripe_payment_intent_id == null,
-      label: (o.session_id ? labelBy.get(o.session_id) : null) ?? "Order",
-      lines: items.map((li) => ({
-        id: li.id,
-        name: li.name,
-        qty: li.qty,
-        unitPriceCents: li.unit_price_cents,
-        taxCents: li.tax_cents,
-        fulfillment: li.fulfillment,
-        refunded: refundedLines.has(li.id),
-        refundableCents: lineRefundableCents(
-          { unitPriceCents: li.unit_price_cents, qty: li.qty, taxCents: li.tax_cents },
-          {
-            subtotalCents: o.subtotal_cents,
-            discountCents: o.discount_cents,
-            taxCents: o.tax_cents,
-          },
-          taxableBaseCents,
-        ),
-      })),
-    };
-  });
+  return {
+    ok: true,
+    truncated,
+    sinceIso,
+    serverNow: nowIso,
+    serverClock,
+    orders: rows.map((o) => {
+      const lines = o.qr_order_items ?? [];
+      // The taxable subtotal base for this order (taxable lines have a stored per-unit tax > 0) —
+      // the denominator for each line's pro-rata share of the order tax, matching the SQL.
+      const taxableBaseCents = lines.reduce(
+        (a, li) => a + (li.tax_cents > 0 ? li.unit_price_cents * li.qty : 0),
+        0,
+      );
+      const remainingCents = remainingPoolCents({
+        totalCents: o.total_cents,
+        serviceChargeCents: o.service_charge_cents,
+        tipCents: o.tip_cents,
+        ledgerRefundedCents: ledgerByOrder.get(o.id) ?? 0,
+      });
+      const movedAt = refundedTodayAt.get(o.id);
+      return {
+        id: o.id,
+        code: o.id.slice(-6).toUpperCase(),
+        createdAt: o.created_at,
+        settledAt: settledClock(o.created_at, tz),
+        settledOn:
+          Date.parse(o.created_at) < Date.parse(sinceIso) ? settledDate(o.created_at, tz) : null,
+        refundedTodayAt: movedAt === undefined ? null : settledClock(movedAt, tz),
+        status: o.status,
+        tender: o.tender,
+        tableNumber: o.table_number ?? null,
+        customerName: o.customer_name ?? null,
+        pickupSlotAt: o.pickup_slot ? settledClock(o.pickup_slot, tz) : null,
+        breakdown: {
+          subtotalCents: o.subtotal_cents,
+          discountCents: o.discount_cents,
+          serviceChargeCents: o.service_charge_cents,
+          taxCents: o.tax_cents,
+          tipCents: o.tip_cents,
+        },
+        totalCents: o.total_cents,
+        refund: summarizeRefund(o.total_cents, o.refunded_cents, o.status),
+        refundPath: refundPathFor({
+          tender: o.tender,
+          stripePaymentIntentId: o.stripe_payment_intent_id,
+        }),
+        remainingCents,
+        lines: lines.map((li) => {
+          const modifiers = Array.isArray(li.modifiers)
+            ? li.modifiers.filter((m): m is string => typeof m === "string")
+            : [];
+          const offer = offeredRefund(
+            lineRefundableCents(
+              { unitPriceCents: li.unit_price_cents, qty: li.qty, taxCents: li.tax_cents },
+              {
+                subtotalCents: o.subtotal_cents,
+                discountCents: o.discount_cents,
+                taxCents: o.tax_cents,
+              },
+              taxableBaseCents,
+            ),
+            remainingCents,
+          );
+          return {
+            id: li.id,
+            name: li.name,
+            nameMy: catalogNameMy(nameMyByRef.get(li.menu_item_id), li.name),
+            qty: li.qty,
+            unitPriceCents: li.unit_price_cents,
+            taxCents: li.tax_cents,
+            modifiers,
+            modifiersMy: pairModifiersMy(li.modifier_option_ids, modifiers, optionNameMy),
+            notes: typeof li.notes === "string" && li.notes.trim() !== "" ? li.notes : null,
+            fulfillment: li.fulfillment,
+            refundedCents: li.refunded_cents,
+            refunded: refundedLines.has(li.id),
+            offeredCents: offer.cents,
+            offerClamped: offer.clamped,
+          };
+        }),
+      };
+    }),
+  };
 }
 
 export type RefundResult =
@@ -264,7 +445,7 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
       },
     );
 
-  revalidatePath("/staff/orders");
+  revalidatePath("/staff");
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {

@@ -4,6 +4,146 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
+
+The third A4 slice. The manager's two pages — `/staff/approvals` and `/staff/orders` — become
+three zones of the counter's one screen, after the bags and around the takings:
+
+- **Refunds needed** — the W11/M43 strip, moved whole (`RefundsNeededStrip`); an unreadable
+  ledger prints one honest line instead of an empty strip.
+- **Approvals** — `ApprovalsBoard` as a zone. Its count/freeze line is plain text and each card's
+  live region exists only once a decision is open (the floor's region stays the screen's ONE
+  state region); the server's failed read starts it frozen with cause `outage`, never all-clear;
+  a failed roster read loads on the poll rather than offering "No managers available"; the card's
+  six server verdicts are dictionary keys.
+- **Settled today — the refund console READS THE RECEIPT (M204 · M183).** `getSettledToday`
+  (`refunds.ts`) reads the orders paid today — and the earlier orders refunded here today (the
+  ledger's rows since the floor name them) — under the ONE service-day rule (`dayStartIso` from
+  `pickup_config.tz` — the takings and the served rail's floor), with every column the guest's
+  receipt selects, the ledger's amounts, and the Burmese name loader (F18 (b)); the lines come
+  back in the receipt's own order. `SettledToday.tsx`
+  renders through `groupReceiptLines` / `buildReceiptRows` / `buildRefundRows` / `summarizeRefund`
+  / `lineRefundLabel`, every row word pinned to the artifact's own English in
+  `settled-view.test.ts` (the ONE exception, "Guest paid" for the guest's "You paid", asserted as
+  such). The pure rules live in `refund-console.ts`: `refundPathFor` (cash → the drawer, a
+  PaymentIntent → in-app, a card order with none → the processor's dashboard — the M183 fix,
+  replacing the `isSplit` that sent every cash order to a dashboard where no charge exists),
+  `lineRefundableCents` (moved), `remainingPoolCents` (the SQL's pool: total − service − tip,
+  minus every ledger row against the order, line-level and dashboard alike) and `offeredRefund`
+  (the line clamped to the pool, and whether the clamp bit). So the sheet shows the WHOLE line
+  (qty × dish, its Burmese, modifiers, the kitchen note), the figure the server will actually
+  charge back, and a clamp explained before the tap. Refund is offered only on the in-app path, a
+  paid order, a line not in the ledger, a non-zero offer; cash and split orders carry their path
+  note. A manual Refresh, not a third live subscription (two pollers on one screen stay measured);
+  a full page (50) says so instead of passing part of the day off as the whole.
+- **Navigation.** `/staff/approvals` and `/staff/orders` redirect to the zones (`?floor=1` plus
+  the zone's fragment; their loaders are gone); the bar's approvals circle scrolls to the zone;
+  the doors' More keeps two tiles pointing at the zones and the floor's More drops both.
+  `check-staff-lang` rule 4 reads **12/12** pages, 4 redirect-only exempt.
+
+**The blind adversarial pass on this slice returned REJECT with two CRITICALs, both real, both
+closed before the PR opened.** (1) The takings' pointer sent a manager to Settled today for an
+earlier day's order refunded today, and the list's `created_at` floor excluded exactly that order
+— money that left the account today was on neither surface. The list is now paid today OR
+refunded here today (the ledger's rows since the floor name the orders; a dashboard-issued refund
+writes no ledger row and is the one shape it cannot date — the copy says "refunded here"), pinned
+by a union test and a mutant on each arm, and the day-scope mutant's rationale — which had argued
+the inverse — is rewritten. (2) A refresh that answered `outage` REPLACED the good list with the
+outage line, confirmation included, on exactly the tap after a refund — `getSettledToday` returns
+its failures rather than throwing, so the `catch` the docblock relied on never ran. A failed
+re-read now keeps the last good snapshot and dates it; only a good answer replaces the list
+(pinned: outage → the order stays, the line says when; then a good answer clears it). Also from
+that pass: the jsdom suite's live-region assertion had matched the SHEET's modal status, not the
+zone's (it now cancels the sheet and finds the zone's, by its section); nothing drove a refresh
+(now two do); the embedded lines carried no order (now the receipt's `.order("id")`); and the two
+folded routes' fragments scroll without moving focus, so each zone's heading takes focus on
+arrival (WCAG 2.4.3).
+
+Guards: 8 new mutants (`refund-console/…` ×4 — the cash path, the pool's tip, the unclamped
+offer, the ignored discount; `refunds/…` ×4 — the day scope, the union arm's floor, the ledger's
+line flag, the ledger's pool), every one watched red by `verify:slice --only` — **665** across 119 modules; `refunds.ts`
+(ten money markers, no mutant until now) and `refund-console.ts` join the mutate set;
+`refunds.test.ts` is a mocked-db wiring suite, `SettledToday.test.tsx` a jsdom suite for the
+console's gating, names under `my`, the receipt rows and the no-unprompted-speech rule.
+New Burmese (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`,
+`floor.nav.settled`; `reg.day.note` / `reg.day.refunded.*` re-pointed at the zone) is a machine
+draft → K15.
+
+**Codex round 1 on #283 — three P1s and five P2s, every one verified real; seven fixed on the head,
+one filed.** P1: the settled list's union read ranked every row by `created_at` and capped at 50,
+so on a day with fifty paid orders an earlier day's order refunded today — the row the takings had
+just pointed the manager at — sat behind all of them and fell off the page. `getSettledToday` now
+makes TWO reads (the paid arm with its floor, the ledger's ids on their own, each capped) and merges
+them ranked by the instant each row settled TODAY: its own time for an order paid today, the
+latest refund for one the ledger admitted. P1: the approvals poll read the queue and the approver
+roster in one `Promise.all`, so a roster that kept failing rejected every poll and threw the queue's
+good answers away — new requests hidden behind the initial "all clear" for as long as the roster was
+down; the two arms are settled separately, each under its own timeout, and the roster's failure is
+logged while the queue lands. P1, filed: a cash refund is told, never recorded —
+`mms_refund_authorize` refuses an order with no PaymentIntent and nothing writes the ledger or
+`refunded_cents` for cash, so the receipt keeps saying "Paid in full" and the takings keep the money;
+the cash note now says exactly that in both tongues, and the recording flow (a SQL function beside
+the card authorizer, a prod migration) is **M218**. P2: a failed refresh dated the list by the
+failure, claiming an hours-old server render current through the present — it is dated by the
+snapshot's own `serverNow`, and only a good read moves it; a manual Refresh and a refund's own
+re-read could overlap and the OLDER answer put the Refund button back over a line the ledger already
+held — a read generation lets only the newest answer replace the list; an earlier day's order under
+"Settled today" showed a bare "11:41 AM" — it names the day it was paid (`settledDate`) and when
+today its money moved (`floor.settled.refundedAt`, a machine draft → K15); the bar's approvals
+circle scrolled to `#appr-h` through the router and left focus on itself — a native anchor now, and
+both zones take focus on `hashchange`; and "Today's takings" floored on hardcoded LA while "Settled
+today" beside it floored on `pickup_config.tz` — `lib/service-day.ts` · `readServiceDay` is the ONE
+floor read (the server's `mms_now` + the validated configured zone, every failure logged and
+coalesced) behind the takings, the tips and the settled list. Guards: `service-day.test.ts`,
+`ApprovalsBoard.test.tsx` and `SettledToday.race.test.tsx` are new, every case watched red first;
+four mutants added (`refunds/the-union-read-is-never-made`,
+`refunds/an-earlier-day-refund-is-ranked-by-its-order-time`, `service-day/…` ×2), one re-anchored
+on the paid arm (`refunds/the-settled-list-forgets-the-service-day`) and one retired with the
+`.or()` it guarded (`refunds/the-union-arm-drops-the-floor`) — **668** across 120 modules.
+
+**Codex round 2 on #283 — two P1s and two P2s, all verified real, all fixed on the head.** P1: the
+union arm still ran its own `.order("created_at")` under its `.limit`, so with more than fifty
+orders refunded today the read kept the fifty newest-CREATED and the oldest order carrying today's
+latest refund was gone before the merge could rank it — the ledger's ids are now ranked by their
+latest refund and capped BEFORE the read (mutant `refunds/the-refund-arm-is-capped-by-order-age`,
+watched red; a 51-refund case pins which id falls off). P1: the refunds-needed strip was a server
+component read once at render, so a charge the webhook recorded after load — a captured card
+arriving behind a cash settlement — stayed hidden on a tablet left on the one screen; the strip is
+a client component now and its rows ride `ApprovalsBoard`'s 5 s poll on their own settled promise
+(a failed read keeps the last good rows, a ledger that never loaded keeps its honest line), and a
+row leaves only once the server confirmed the resolve (`ApprovalsBoard.test.tsx`, three cases). P2:
+the pickup slot was re-formatted on the tablet with `toLocaleTimeString` — the wrong wall clock
+under a foreign zone, and a different text from a UTC server's render — it is `pickupSlotAt`, zoned
+on the server like the clock beside it. P2: the takings note said "Since midnight (LA)" over a floor
+that now reads the configured zone — zone-neutral in both tongues. **669** across 120 modules.
+
+**Codex round 3 on #283 — three P1s and one P2 on the polled ledger, all real, all fixed on sight
+(one small commit, per the two-rounds-then-merge rule).** The queue's rejection was raised BEFORE
+the roster's and the ledger's settled answers were applied, so an approvals-table outage threw
+away every good ledger read beside it — each feed is applied first, the throw comes last. A
+ledger read that failed AFTER a good one only logged, so an empty strip read as all-clear over a
+feed the board could not hear — `ledgerStale` and `table.appr.refunds.stale` ("couldn't refresh —
+showing the last good list; a newly stranded charge may be missing"), over the rows or alone,
+cleared by the next good read. A row marked refunded while a poll was already in flight came back
+on that poll's older answer (`refresh()` returns early under `inFlight`) — and a reappearing row
+prompts a duplicate dashboard refund — so the confirmed ids are pinned against any later answer
+that still lists them, forgotten once a fresh read no longer does. And the today-ledger read was
+unpaged under PostgREST's silent max-rows cap — it carries `count: "exact"` now and a short answer
+marks the list `truncated` (mutant `refunds/a-truncated-ledger-read-still-ranks`, watched red);
+the deterministic page is **M219** (low). `ApprovalsBoard.test.tsx` gains three cases, every one
+watched red first. **670** across 120 modules.
+
+**Codex round 4 on #283 — one P1 and one P2, both fixed on sight; the loop is called here.** The
+strip's "Mark refunded" was a client form action with no catch, so a server refusal after the
+manager had already issued the dashboard refund reached the route's error boundary and replaced
+the whole counter screen — it is caught in the strip now: the row stays (nothing was recorded) and a
+`role="status"` line mounted only after that tap says try again (`table.appr.msg.failed`). And the
+settled list's "as of" clock was formatted in the tablet's zone while every clock beside it was
+the service zone's — the snapshot carries `serverClock`, formatted on the server. Pinned in
+`ApprovalsBoard.test.tsx` and `SettledToday.test.tsx`, both watched red first. Four rounds
+(8 → 4 → 4 → 2), every finding real and each smaller than the last — the shape W22a/#194 named;
+anything the next per-head round raises goes to `docs/OPEN-ITEMS.md` and the PR merges.
+
 ### A4·2 — Tables & settle, as one screen: start · tables & counter orders · the to-go lane · today's takings (2026-09-13)
 
 The second A4 slice. What the counter person did across three pages — `/staff` (the floor),

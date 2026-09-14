@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-13 · A3 merged as `1058087` (#280); A4·1 is PR #281 — Codex rounds 1 and 2 fixed, the per-head round is the last gate; A4·2 is staged behind it, A4·3 behind that)
+> ## ⏭️ NEXT SESSION — start here (2026-09-13 · A3 merged as `1058087` (#280); A4·1 is PR #281 — Codex rounds 1 and 2 fixed, the per-head round is the last gate; A4·2 and A4·3 are staged behind it; A4·4 is next)
 >
 > **A4·1 — Kitchen + the wall** is the first of five A4 slices; the map and the order are in
 > `docs/A4_PLAN.md` (read it before touching `/staff`). It lands: the KDS **served rail** (K31 —
@@ -34,17 +34,29 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > cherry-picked onto the merged `main` in turn and every count RE-MEASURED (`check:docs` says;
 > never transcribed) before its push — the numbers here are this head's.
 >
+> **A4·3 — Tables & settle, the manager rails** is the third commit on `a4-local` (its own PR after
+> A4·2's): `/staff/approvals` and `/staff/orders` are three zones of the same screen — the refunds-
+> needed strip (moved whole), the approvals queue (plain count line, per-card live region only
+> once a decision is open, `initialOutage`, roster-on-poll), and **Settled today**, the refund
+> console READING THE RECEIPT (M204 · M183): `lib/refunds.ts` · `getSettledToday` (the service-day
+> rule, every receipt column, the ledger's amounts, the Burmese loader), `lib/refund-console.ts`
+> (`refundPathFor` · `lineRefundableCents` · `remainingPoolCents` · `offeredRefund` — the SQL's pool
+> and clamp mirrored so the sheet shows the figure the server will charge back), `lib/settled-view.ts`
+> (every row word pinned to the artifact's English). Eight mutants, all watched red; the two routes
+> redirect to the zones; rule 4 reads 12/12 + 4 exempt. Same cherry-pick + re-measure rule as the
+> two commits before it.
+>
 > ### What is next (A4)
 >
-> 1. **A4·3 — Tables & settle, the manager rails**: approvals and "settled today" with the refund
->    console reading the receipt (M204; `refunds.ts` has no mutant, land one), `/staff/approvals`
->    and `/staff/orders` redirect. Then A4·4 (Sign-in as one screen with three states), A4·5 (Menu
->    - Tips folds, the More grid → three tiles).
+> 1. **A4·4 — Sign-in**: login · lock · profile · team as one screen with three states. Then A4·5
+>    (Menu + Tips folds — glossary → Menu, feedback → Tips — and the More grid → three tiles).
 > 2. **Owner decisions still open:** K32 (b) — a table number on the wall is a spec reversal;
 >    K30 (A) — `kitchen_done_at` is a prod migration; K15 — every new Burmese string in A4·1
 >    (`kds.served.*` — `kds.served.moreUnknown` and `kds.served.voided` since the Codex rounds — `kds.a11y.served`, `kds.a11y.railView`, `board.card.*`) and A4·2
 >    (`floor.zone.start`, `floor.counter.*`, `floor.rows.none`, `expo.kitchenDone`,
->    `help.how.counter.1` + `.1.more`, `floor.tables.title` re-drafted) is a machine draft.
+>    `help.how.counter.1` + `.1.more`, `floor.tables.title` re-drafted) and A4·3
+>    (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`,
+>    `floor.nav.settled`; `reg.day.note` + `reg.day.refunded.*` re-pointed) is a machine draft.
 >
 > ---
 >
@@ -380,7 +392,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **657 `verify:slice` mutants** · **117 target modules** (104 under `apps/qr/lib`, 3 API routes,
+> **670 `verify:slice` mutants** · **119 target modules** (107 under `apps/qr/lib`, 3 API routes,
 > 9 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all twelve fast-lane guards green.
@@ -850,7 +862,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (657 today)**, **1372 qr + 138 ui tests at the time (2463 + 142 today)**, 69 target modules at the time (104 under `apps/qr/lib` today, 117 in all), 97 local
+> **334 mutants at the time (670 today)**, **1372 qr + 138 ui tests at the time (2521 + 142 today)**, 69 target modules at the time (107 under `apps/qr/lib` today, 120 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1742,7 +1754,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 657 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2463 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 670 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2521 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2464,7 +2476,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (657 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (670 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

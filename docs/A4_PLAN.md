@@ -95,3 +95,49 @@ for the to-go lane (the expo sheet's cards move, they are not rewritten).
 
 Not in A4·2: approvals and the refund console (A4·3), any change to the doors, any new Burmese
 beyond the one help card.
+
+## A4·3 — Tables & settle, the manager rails (scoped and built 2026-09-13)
+
+The same screen, three more zones for a manager, after the bags and around the takings:
+
+4. **Refunds needed** — the W11/M43 strip (money taken with no order behind it), moved from
+   `/staff/approvals` as `RefundsNeededStrip`. Renders nothing when the ledger is empty; an
+   UNREADABLE ledger prints one honest line (an empty strip must mean empty).
+5. **Approvals** — `ApprovalsBoard` as a zone (`.staff-zone`, its h2 the region's name), its
+   5 s poll kept. _As built:_ the count/freeze line is PLAIN text and each card's `role="status"`
+   exists only once a decision is open (the floor's region is the screen's one state region —
+   A4·2's rule); the server's failed read starts the zone frozen with cause `outage`
+   (`initialOutage`), never all-clear; a failed roster read loads on the poll (`approvers: null`)
+   instead of offering "No managers available"; the card's six server verdicts are dictionary keys.
+6. **Today's takings** — unchanged (`DayCash`), its pointer now naming the zone below.
+7. **Settled today** — `SettledToday`, the refund console READING THE RECEIPT (M204):
+   `getSettledToday` (`refunds.ts`) reads the orders paid today and the earlier orders refunded
+   here today (the ledger's rows since the floor name them — the blind pass's CRITICAL 1: the
+   takings' pointer had sent a manager here for exactly the order a `created_at` floor excluded)
+   under the ONE service-day rule, with every column the receipt selects, the ledger's amounts,
+   and the Burmese loader (F18 (b)); the list renders through `groupReceiptLines` / `buildReceiptRows` /
+   `buildRefundRows` / `summarizeRefund` / `lineRefundLabel`, every row word pinned to the
+   artifact's English in `settled-view.test.ts` (the ONE exception, "Guest paid" for the guest's
+   "You paid", is asserted as such). `refund-console.ts` holds the pure rules — `refundPathFor`
+   (M183: cash → the drawer, a PaymentIntent → in-app, else the dashboard), `lineRefundableCents`
+   (moved), `remainingPoolCents` (the SQL's pool: total − service − tip, minus every ledger row)
+   and `offeredRefund` (the line clamped to the pool, and whether the clamp bit) — so the sheet
+   shows the figure the server will charge back and explains a clamp before the tap. Refund is
+   offered only on the in-app path, a paid order, a line not in the ledger, a non-zero offer; the
+   cash and split orders carry their path note instead. A manual Refresh, not a third live
+   subscription — and a refresh that fails keeps the last good list and dates it (the pass's
+   CRITICAL 2: the read returns its failures, so the first draft installed an outage over the
+   confirmation); a full page (50) says so.
+
+`/staff/approvals` → `redirect("/staff?floor=1#appr-h")`, `/staff/orders` →
+`redirect("/staff?floor=1#settled-h")` (their loaders deleted); the bar's approvals circle scrolls
+to the zone; the doors' More keeps two tiles pointing at the zones and the floor drops both.
+`check-staff-lang` rule 4 reads 12/12 + 4 exempt. Eight mutants (`refund-console/…` ×4,
+`refunds/…` ×4), a mocked-db wiring suite for the read, a jsdom suite for the console's gating,
+names and refresh posture. New Burmese (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`,
+`table.appr.refunds.outage`, `floor.nav.settled`; `reg.day.note` / `reg.day.refunded.*`
+re-pointed) is a machine draft → K15.
+
+Not in A4·3: Burmese on the approvals cards (`mms_approvals.line_name` is a snapshot column —
+F18 (b) names the join), a live subscription for the settled list, any change to the doors or
+the help sheet (the manager rails are not on the counter person's six cards).

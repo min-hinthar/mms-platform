@@ -1,6 +1,5 @@
 import { type CSSProperties } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { Icon } from "@mms/ui";
@@ -9,12 +8,16 @@ import { staffHasPin } from "@/lib/staff-pin";
 import { getFloorView } from "@/lib/floor";
 import { getExpoQueue } from "@/lib/expo";
 import { getDayCashSummary } from "@/lib/register";
-import { countPendingApprovals } from "@/lib/approvals";
+import { countPendingApprovals, listPendingApprovals, listRefundsNeeded } from "@/lib/approvals";
+import { listApprovers } from "@/lib/voids";
+import { getSettledToday } from "@/lib/refunds";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { FloorBoard } from "@/components/staff/FloorBoard";
 import { ExpoBoard } from "@/components/staff/ExpoBoard";
 import { RegisterStart } from "@/components/staff/RegisterStart";
 import { DayCash } from "@/components/staff/DayCash";
+import { ApprovalsBoard } from "@/components/staff/ApprovalsBoard";
+import { SettledToday } from "@/components/staff/SettledToday";
 import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
@@ -60,11 +63,12 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  *
  *   doors  — no door yet, or `?doors=1` (the Screens chip), or an in-app arrival on a kitchen
  *            device: two big tiles, Kitchen and Counter, and the manager pages beneath as More.
- *   floor  — a counter device: the counter's one screen (A4·2), in the order the counter person
- *            works it — START an order (walk-up · phone · a table), the TABLES and the counter
- *            orders being built in one list, the TO-GO BAGS lane, TODAY'S TAKINGS (manager+) —
- *            then More. `/staff/register` and `/staff/expo` redirect here: the register is a zone
- *            and the bagger is the same person at this counter.
+ *   floor  — a counter device: the counter's one screen (A4·2 · A4·3), in the order the counter
+ *            person works it — START an order (walk-up · phone · a table), the TABLES and the
+ *            counter orders being built in one list, the TO-GO BAGS lane, then the manager rails
+ *            (manager+): REFUNDS NEEDED · APPROVALS · TODAY'S TAKINGS · SETTLED TODAY (the refund
+ *            console reading the receipt) — then More. `/staff/register`, `/staff/expo`,
+ *            `/staff/approvals` and `/staff/orders` redirect here: each is a zone of this screen.
  *   redirect → /staff/kitchen — a kitchen device on a COLD start (the app icon, a bookmark): Mom's
  *            tablet opens on her board with nothing to tap. Never on an in-app tap, so a tablet can
  *            always reach the doors (`isColdStart` reads the referer).
@@ -93,19 +97,21 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // The kitchen board is here as a PLAIN link for everyone (blind pass CRITICAL 3): the only other
   // way to the board was the Kitchen DOOR — which remembers itself, so a manager peeking at the
   // board re-doored the counter tablet as a kitchen one. A tile is a look; a door is a decision.
-  // A4·2: no Register and no Expo tile — both are zones of the floor view now.
+  // A4·2: no Register and no Expo tile — both are zones of the floor view now. A4·3: the two
+  // manager tiles point at their ZONES on the floor (the doors' More still needs a way there);
+  // the floor branch drops both, because that screen carries them.
   const more: MoreTile[] = [
     { href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" },
     { href: "/board", k: "floor.nav.board", icon: "tv" },
     ...(isManager
       ? ([
           {
-            href: "/staff/approvals",
+            href: APPROVALS_ZONE,
             k: pendingApprovals > 0 ? "floor.nav.approvalsCount" : "floor.nav.approvals",
             icon: "check",
           },
           { href: "/staff/feedback", k: "floor.nav.feedback", icon: "star" },
-          { href: "/staff/orders", k: "floor.nav.orders", icon: "receipt" },
+          { href: SETTLED_ZONE, k: "floor.nav.settled", icon: "receipt" },
         ] as MoreTile[])
       : []),
     { href: "/staff/glossary", k: "floor.nav.glossary", icon: "print" },
@@ -131,9 +137,12 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // Help): the row of tiles it used to sit in is gone, and a manager on this screen should see a
   // pending void or refund without scrolling to More. The circle is icon-only to the eye, the count
   // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the same dictionary key
-  // the More tile uses, so the two never say different things.
+  // the More tile uses, so the two never say different things. A4·3: it scrolls to the zone — a
+  // NATIVE anchor, not <Link>: a same-page fragment through the router changes the URL without a
+  // `hashchange`, and the zone's heading takes focus on that event (Codex round 1 on #283, P2 —
+  // the router scrolled and left focus on this circle).
   const approvalsChip = isManager ? (
-    <Link href="/staff/approvals" className="staff-circ staff-press staff-circ-count-host">
+    <a href="#appr-h" className="staff-circ staff-press staff-circ-count-host">
       <Icon name="check" size={20} />
       {pendingApprovals > 0 && (
         <span className="staff-circ-count" aria-hidden>
@@ -147,7 +156,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           vars={approvalsVars}
         />
       </span>
-    </Link>
+    </a>
   ) : undefined;
 
   // P7·1b — the bar names the page (Screens over the doors, Floor over the floor) and carries the
@@ -198,11 +207,24 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   // postures, each the one its zone takes on the client too: the FLOOR unreadable is the outage
   // shell (it is the screen); the LANE unreadable alone starts the lane frozen beside a live floor
   // (`initialOutage` — never an all-clear, never the whole screen gone over one lane); the
-  // TAKINGS unreadable is one honest line in the manager's zone (`DayCash`).
-  const [floor, expo, day] = await Promise.all([
+  // TAKINGS unreadable is one honest line in the manager's zone (`DayCash`). The manager rails
+  // (A4·3) read the same way — each zone fails alone and says so: the approvals queue starts
+  // frozen, the roster loads on its poll, the refunds ledger and the settled list each print one
+  // honest line. `allSettled`, because `listPendingApprovals`/`listApprovers`/`listRefundsNeeded`
+  // THROW on an unreadable table (a false "all clear" is worse), and one thrown read must not take
+  // the whole screen down for a server who cannot even see these zones.
+  const [floor, expo, day, rails] = await Promise.all([
     getFloorView(),
     getExpoQueue(),
     getDayCashSummary(),
+    isManager
+      ? Promise.allSettled([
+          listPendingApprovals(),
+          listApprovers(),
+          listRefundsNeeded(),
+          getSettledToday(),
+        ])
+      : Promise.resolve(null),
   ]);
   if (!floor.ok) {
     if (floor.reason === "outage") return <StaffOutageShell what="what.floor" />;
@@ -238,15 +260,34 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           {/* 3 · TO-GO BAGS — post-settlement work, its own list; the lane owns its heading. */}
           <ExpoBoard initial={lane} initialOutage={!expo.ok} />
 
-          {/* 4 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}
+          {/* 4 · THE MANAGER RAILS (A4·3) — money taken with no order behind it, then the open
+              void/comp requests. Each read fails alone: a rejected queue starts the zone frozen
+              (never all-clear), a rejected roster loads on the poll, a rejected ledger says so
+              until the poll reads it. The board renders the strip so BOTH ride its 5 s poll. */}
+          {rails && (
+            <ApprovalsBoard
+              initial={settledValue(rails[0], [])}
+              approvers={settledValue(rails[1], null)}
+              initialRefunds={settledValue(rails[2], null)}
+              initialOutage={rails[0].status === "rejected"}
+            />
+          )}
+
+          {/* 5 · TODAY'S TAKINGS — manager+ (the read hides itself otherwise). */}
           <DayCash lang={lang} day={day} />
 
+          {/* 6 · SETTLED TODAY — the refund console reading the receipt (M204); manager+. */}
+          {rails && (
+            <SettledToday initial={settledValue(rails[3], { ok: false, reason: "outage" })} />
+          )}
+
           <div style={{ marginTop: "var(--s6)" }}>
-            {/* The bar carries Approvals for a manager, so More drops exactly that. */}
+            {/* The bar carries Approvals for a manager and this screen carries both manager
+                zones, so More drops exactly those two tiles. */}
             <MoreGrid
               lang={lang}
               more={withApprovals(
-                more.filter((t) => t.href !== "/staff/approvals"),
+                more.filter((t) => t.href !== APPROVALS_ZONE && t.href !== SETTLED_ZONE),
                 approvalsVars,
               )}
             />
@@ -255,6 +296,16 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       </LiveConnectionProvider>
     </main>
   );
+}
+
+/** The two manager zones, as the doors' More tiles reach them (`?floor=1` wins over a remembered
+ *  kitchen door; the fragment lands on the zone's heading). The folded routes redirect here too. */
+const APPROVALS_ZONE = "/staff?floor=1#appr-h";
+const SETTLED_ZONE = "/staff?floor=1#settled-h";
+
+/** One `allSettled` slot → its value, or the zone's own posture for a rejected read. */
+function settledValue<T, F>(r: PromiseSettledResult<T>, fallback: F): T | F {
+  return r.status === "fulfilled" ? r.value : fallback;
 }
 
 /** Threads the approvals count into the one tile that carries an `{n}` slot. */

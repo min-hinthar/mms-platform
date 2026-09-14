@@ -251,7 +251,7 @@ export async function PilotNightSheet() {
           </p>
         ) : (
           <p className="pns-warn">
-            <Link href="/staff/approvals" className="pns-link">
+            <Link href="/staff?floor=1#appr-h" className="pns-link">
               <Chrome
                 lang={lang}
                 k="pilot.night.recovery.some"

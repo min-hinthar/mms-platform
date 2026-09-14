@@ -64,6 +64,9 @@ function chain(q: Q) {
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
+    // The service-day read (`readServiceDay`): the server's clock; `pickup_config` answers null
+    // through the chain below, so the floor is the default zone's.
+    rpc: () => Promise.resolve({ data: "2026-09-13T19:00:00.000Z", error: null }),
     from: (table: string) => ({
       select: (_cols: string) => chain(pushQ(table, "select")),
       insert: (payload: Record<string, unknown>) => chain(pushQ(table, "insert", payload)),
