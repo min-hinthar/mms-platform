@@ -84,8 +84,10 @@ export function resolveStaffHome(input: {
 
 /**
  * The console's FRONT DOORS: pages a tablet passes through on its way IN, not pages it browses
- * between. `PinUnlock` does `router.replace("/staff")` after the PIN; the login lands on `/staff`
- * by default (`safe-next.ts` `DEFAULT_NEXT`); the auth callback redirects there. All three are
+ * between. `PinUnlock` does `router.replace("/staff")` after the PIN; a sign-in lands on `/staff`
+ * by default (`safe-next.ts` `DEFAULT_NEXT` — the OTP path and the auth callback both redirect
+ * there; since A4·4 a bare `/staff/login` visited with a LIVE session shows the signed-in card,
+ * whose Screens circle leads to the doors). All three are
  * same-origin client navigations, and a locked or signed-out kitchen tablet begins every day with
  * one of them — so reading them as warm sent Mom to the doors on exactly the mornings the redirect
  * exists for (blind pass CRITICAL 4). The two pages match EXACTLY; the auth callback is a prefix

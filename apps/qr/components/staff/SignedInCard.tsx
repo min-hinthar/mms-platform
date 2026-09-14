@@ -77,8 +77,22 @@ export function SignedInCard({
       return;
     }
     setBusy(true);
-    const res = await setPin({ pin });
-    setBusy(false);
+    // ⚠️ THE BUSY LATCH CLEARS IN `finally`. A Server Action's promise REJECTS on a lost connection,
+    // a transport failure or an uncaught server exception — none of which produce an `{ ok: false }`
+    // to fall through to — so a clear placed after the `await` never ran, the submit stayed
+    // "Saving…" and refused every later tap until a reload (blind pass, CRITICAL 1; the same shape
+    // `TeamManager` fixed on #278). A rejection IS the outage sentence: nothing was checked, nothing
+    // saved, and the pair is kept for the retry.
+    let res: Awaited<ReturnType<typeof setPin>>;
+    try {
+      res = await setPin({ pin });
+    } catch (e) {
+      console.error("[sign-in] setPin rejected", e);
+      setMsg({ ok: false, m: { k: "entry.pin.err.outage" } });
+      return;
+    } finally {
+      setBusy(false);
+    }
     if (!res.ok) {
       if (res.reason === "auth") {
         router.refresh();
@@ -105,8 +119,16 @@ export function SignedInCard({
     if (removing) return;
     setRemoving(true);
     setMsg(null);
-    const res = await removePin();
-    setRemoving(false);
+    let res: Awaited<ReturnType<typeof removePin>>;
+    try {
+      res = await removePin();
+    } catch (e) {
+      console.error("[sign-in] removePin rejected", e);
+      setMsg({ ok: false, m: { k: "entry.pin.err.outage" } });
+      return;
+    } finally {
+      setRemoving(false);
+    }
     if (!res.ok) {
       if (res.reason === "auth") {
         router.refresh();
@@ -119,6 +141,10 @@ export function SignedInCard({
       return;
     }
     setMsg({ ok: true, m: { k: "entry.pin.removed" } });
+    // The Remove button UNMOUNTS on the re-render that follows (`hasPin` flips), taking focus to
+    // <body> with it (blind pass, CRITICAL 3). Move it to the PIN field first — the field persists
+    // across the refresh, and it is where the next thing to do lives.
+    pinRef.current?.focus();
     router.refresh();
   }
 

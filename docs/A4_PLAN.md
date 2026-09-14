@@ -175,7 +175,7 @@ member who tapped "Your PIN" that they had been logged out.
 `/staff/profile` → `redirect("/staff/login")`, `/staff/team` → `redirect("/staff/login#team-h")`;
 the doors' More tiles re-point; `revalidatePath` on the PIN and team actions names the new home.
 `check-staff-lang` rule 4 reads 10/10 + 6 exempt. `PinManager` and `StaffSignOut` are deleted, and
-two dead keys (`what.team`, `floor.team.backToFloor`) with them. New Burmese (`entry.me.head`,
+three dead keys (`what.team`, `what.profile`, `floor.team.backToFloor`) with them. New Burmese (`entry.me.head`,
 `entry.pin.*`, `floor.team.outage`) is a machine draft → K15.
 
 Not in A4·4: the roster form's own English (P2m — the heading, labels, options and tags stay as A6

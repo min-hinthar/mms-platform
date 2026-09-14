@@ -64,7 +64,7 @@ describe("SignedInCard", () => {
     expect(screen.getByRole("button", { name: "Remove PIN" })).toBeTruthy();
   });
 
-  it("the escape is the LAST control, and the view has exactly ONE polite live region", () => {
+  it("the escape is the LAST control, and the CARD has exactly ONE polite live region (a manager's roster zone below it carries its own)", () => {
     render(<SignedInCard lang="en" hasPin={true} {...ME} />);
     const buttons = screen.getAllByRole("button");
     expect(buttons[buttons.length - 1]!.textContent).toBe("Sign out");
@@ -165,6 +165,52 @@ describe("SignedInCard", () => {
     expect(
       screen.getByRole("button", { name: "Update PIN" }).getAttribute("aria-disabled"),
     ).toBeNull();
+  });
+
+  it("a REJECTED action (lost connection, uncaught server error) is the outage sentence, the pair is kept, and the button comes back", async () => {
+    // A Server Action's promise rejects on transport failure — no `{ ok: false }` to fall through
+    // to. The first draft left `busy` latched forever here (blind pass, CRITICAL 1).
+    setPin.mockRejectedValueOnce(new Error("fetch failed"));
+    render(<SignedInCard lang="en" hasPin={true} {...ME} />);
+    type(pinField(), "2468");
+    type(confirmField(), "2468");
+    submit();
+    await waitFor(() =>
+      expect(region().textContent).toBe(
+        "We can’t reach the sign-in service — that didn’t save. Try again in a moment.",
+      ),
+    );
+    const btn = screen.getByRole("button", { name: "Update PIN" });
+    expect(btn.getAttribute("aria-disabled")).toBeNull();
+    expect(pinField().value).toBe("2468");
+    expect(confirmField().value).toBe("2468");
+    // …and a second submit goes through: the latch was released.
+    submit();
+    await waitFor(() => expect(region().textContent).toBe("PIN updated."));
+    // The same for Remove.
+    removePin.mockRejectedValueOnce(new Error("fetch failed"));
+    fireEvent.click(screen.getByRole("button", { name: "Remove PIN" }));
+    await waitFor(() =>
+      expect(region().textContent).toBe(
+        "We can’t reach the sign-in service — that didn’t save. Try again in a moment.",
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: "Remove PIN" }).getAttribute("aria-disabled"),
+    ).toBeNull();
+  });
+
+  it("after a successful Remove the button unmounts, so focus is moved to the PIN field first (QA §A: focus moved on remove)", async () => {
+    const { rerender } = render(<SignedInCard lang="en" hasPin={true} {...ME} />);
+    const remove = screen.getByRole("button", { name: "Remove PIN" });
+    remove.focus();
+    fireEvent.click(remove);
+    await waitFor(() => expect(region().textContent).toBe("PIN removed."));
+    expect(document.activeElement).toBe(pinField());
+    // The server re-renders with hasPin=false (router.refresh) — the field keeps focus across it.
+    rerender(<SignedInCard lang="en" hasPin={false} {...ME} />);
+    expect(screen.queryByRole("button", { name: "Remove PIN" })).toBeNull();
+    expect(document.activeElement).toBe(pinField());
   });
 
   it("Remove PIN answers in the region either way and refreshes only on success", async () => {

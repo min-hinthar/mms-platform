@@ -68,7 +68,9 @@ export default async function StaffLoginPage({
 
   if (state.kind === "redirect") redirect(state.to);
   // W10b: keeps the URL and renders the shell — never a login redirect, never the form.
-  if (state.kind === "outage") return <StaffOutageShell what="what.profile" />;
+  // `what.console`, not "your profile": this arm is reached from every visit — a lobby iPad on its
+  // way to `?next=/kiosk` included — so the noun must be true for all of them (blind pass).
+  if (state.kind === "outage") return <StaffOutageShell what="what.console" />;
 
   // Next request-memoizes `cookies()`, so this costs one read even though the layout read it too.
   const lang = await readStaffLang();

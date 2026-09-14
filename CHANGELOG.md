@@ -47,8 +47,37 @@ lock cookie and whether the URL carried a `?next=` at all:
   Two mutants: `sign-in-state/a-wrong-account-falls-through-the-denied-form` and
   `sign-in-state/the-lock-outranks-an-explicit-destination`.
 
+- **A contract change, stated:** a bare `/staff/login` visited with a LIVE session used to bounce
+  to `/staff`; it now shows the signed-in card (the bar's Screens circle leads to the doors). Every
+  sign-in still lands on `/staff` by default — the OTP path and the auth callback redirect there,
+  and an explicit `?next=` still wins — so what changed is only where an already-signed-in person
+  lands from a bare bookmark, a used magic link, or a board's 401 bounce that the proxy refreshed
+  on the way. `staff-door.ts`'s front-door comment says so now.
+
 Not in A4·4: the roster form's own English (P2m), `RoleBadge`, any change to the lock screen, the
 More grid itself (A4·5). New Burmese is a machine draft → K15.
+
+**The blind adversarial pass on this slice returned REJECT with three CRITICALs, all real, all
+closed before the PR left draft.** (1) A REJECTED Server Action (a lost connection, an uncaught
+server exception — nothing produces an `{ ok: false }` to fall through to) left the card's busy
+latch set forever: "Saving…" refused every later tap until a reload, with nothing in the region.
+The two writes clear their latch in `finally` and a rejection renders the outage sentence with the
+pair kept — the shape `TeamManager` had already fixed one file over, which the card shipped
+without; pinned by a rejected-mock case for each write. (2) `floor.team.outage` promised "Your PIN
+and sign-out above still work" at the exact moment the fault that printed it — `listStaff` and
+`getStaffAuth` read the SAME `staff` table through the SAME client — makes `setPin` answer
+`outage`; the line now promises nothing about the card. (3) A successful Remove PIN unmounted the
+button that held focus (`hasPin` flips on the refresh), dropping focus to `<body>`; focus moves to
+the PIN field first, which persists across the refresh — pinned across a re-render. Also from that
+pass: the "one live region" claim was true of the CARD, not the manager's view (the roster zone and
+the bar's Lock carry their own; the test and the text now say card); `TeamManager`'s two moved
+behaviours had no suite (`TeamManager.test.tsx`: a `null` roster prints the line and withholds the
+form and the list; the heading takes focus on arrival at `#team-h` and on a same-page jump, and
+never without the fragment — both watched red by hand); the shell's noun on the `unavailable` arm
+is `what.console`, true for a lobby iPad on its way to the kiosk as well (`what.profile` retired as
+dead). Left as designed, with the reason recorded above: the bare-`/staff/login` contract change.
+An open question the pass could not settle from the bundle — `staffHasPin` on a DB blip — is
+answered from source: it logs and returns `false` (the old profile page's behaviour, unchanged).
 
 ### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
 

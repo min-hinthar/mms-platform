@@ -57,7 +57,6 @@ export const STAFF = {
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
   "what.feedback": { en: "feedback", my: "ဧည့်သည် မှတ်ချက်" },
-  "what.profile": { en: "your profile", my: "ကိုယ့်အချက်အလက်" },
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
   "what.lock": { en: "the lock screen", my: "သော့ခတ် စခရင်" },
   "what.queue": { en: "the queue", my: "အော်ဒါတန်း" },
@@ -1266,9 +1265,13 @@ export const STAFF = {
   "floor.team.a11y.roster": { en: "Staff", my: "ဝန်ထမ်း စာရင်း" },
   // A4·4 — the roster is a zone of the sign-in screen; a failed read prints this under the zone's
   // heading instead of throwing the whole screen (the person's own card is above it).
+  // ⚠️ It promises NOTHING about the card above it. The first draft said "Your PIN and sign-out
+  // above still work" — but `listStaff` and `getStaffAuth` read the SAME `staff` table through the
+  // SAME client, so the fault that prints this line is the fault that makes `setPin` answer
+  // `outage` (blind pass, CRITICAL). Copy promises only what the code keeps.
   "floor.team.outage": {
-    en: "We can’t reach the ordering system — the roster can’t load right now. Your PIN and sign-out above still work.",
-    my: "အော်ဒါ စနစ်နဲ့ ဆက်သွယ်မရလို့ ဝန်ထမ်း စာရင်းကို အခု မဖွင့်နိုင်သေးပါ။ အပေါ်က ပင်နံပါတ်နဲ့ အကောင့်ထွက်ခြင်းကတော့ အလုပ်လုပ်ပါသေးတယ်။",
+    en: "We can’t reach the ordering system — the roster can’t load right now. Try again in a moment.",
+    my: "အော်ဒါ စနစ်နဲ့ ဆက်သွယ်မရလို့ ဝန်ထမ်း စာရင်းကို အခု မဖွင့်နိုင်သေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
   },
   // The SUCCESS half of TeamManager's one live region. The failure half is <OutageText>; wrapping a
   // success literal in it would pass it through as English forever while looking converted.
