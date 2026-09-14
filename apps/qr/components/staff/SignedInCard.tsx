@@ -156,7 +156,21 @@ export function SignedInCard({
     if (signingOut) return;
     setSigningOut(true);
     setMsg(null);
-    const { error } = await browserClient().auth.signOut();
+    // The same latch shape as the two writes above, one control down (Codex round 2 on #284):
+    // supabase-js resolves an AUTH failure into `{ error }`, but the client itself can THROW (a
+    // navigator-lock timeout, a storage operation), and a throw skipped both the error branch and
+    // the navigation with `signingOut` still true. A throw is not evidence of transport, so it
+    // renders the generic sentence; the latch is released either way and only a clean sign-out
+    // leaves this page.
+    let error: unknown;
+    try {
+      ({ error } = await browserClient().auth.signOut());
+    } catch (e) {
+      console.error("[sign-in] signOut rejected", e);
+      setSigningOut(false);
+      setMsg({ ok: false, m: { k: "entry.err.signOut" } });
+      return;
+    }
     if (error) {
       setSigningOut(false);
       setMsg({

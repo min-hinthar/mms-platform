@@ -88,6 +88,16 @@ drafted its own commit (`0201d5d`, wrapping `signOut` too) that never reached th
 `signOut` keeps the shape `PinUnlock` and `StaffLogin` use, because supabase-js resolves its errors
 into `{ error }` rather than rejecting, and a bare `await` there is the sibling cards' contract.
 
+**Codex round 2 on #284 (`80d5179`) — one P2, verified plausible, fixed on sight.** The sign-out
+latch had the same shape one control down: `browserClient().auth.signOut()` resolves an auth
+failure into `{ error }`, but the client itself can THROW (a navigator-lock timeout, a storage
+operation), and a throw skipped both the error branch and the navigation with `signingOut` still
+true — Sign out refused every retry until a reload. Round 1's justification ("the sibling cards'
+contract") was true and beside the point: a contract two other cards also get wrong is not a
+defence. The latch clears in `finally` and a rejection renders `entry.err.signOut` (the generic
+sentence — a throw is not evidence of transport); pinned by a rejected-mock case. `PinUnlock` and
+`StaffLogin` carry the same bare `await` on their escapes and are not touched by this PR.
+
 ### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
 
 The third A4 slice. The manager's two pages — `/staff/approvals` and `/staff/orders` — become

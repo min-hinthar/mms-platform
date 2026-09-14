@@ -224,6 +224,23 @@ describe("SignedInCard", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("a REJECTED sign-out (the auth client throwing — a lock, storage) releases the latch and says so; the retry goes through", async () => {
+    // Codex round 2 on #284: `signOut` can REJECT rather than resolve `{ error }` — the same latch
+    // shape as the PIN writes, one control down.
+    signOut.mockRejectedValueOnce(new Error("Navigator lock timeout"));
+    render(<SignedInCard lang="en" hasPin={false} {...ME} />);
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() =>
+      expect(region().textContent).toBe("Couldn’t sign out just now — try again."),
+    );
+    expect(
+      screen.getByRole("button", { name: "Sign out" }).getAttribute("aria-disabled"),
+    ).toBeNull();
+    expect(replace).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff/login"));
+  });
+
   it("a FAILED sign-out stays put and says whose fault it is (transport → the service); a good one leaves", async () => {
     signOut.mockResolvedValueOnce({
       error: { name: "AuthRetryableFetchError", message: "fetch failed", status: 0 },
