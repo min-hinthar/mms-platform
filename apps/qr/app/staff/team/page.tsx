@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 /**
  * A4·4 — the roster is a manager zone of the sign-in screen (`/staff/login#team-h`; the zone's
  * heading takes focus on arrival). This route stays so a bookmark lands there instead of a 404;

@@ -15,7 +15,7 @@ import type { StaffLang } from "@/lib/staff-lang";
  * beneath (the only English in the bar); middle = the page's own control, if it has one (the KDS
  * stations); trailing = utilities, always in the same order, Lock LAST because it is the thing you do
  * on the way out. Sign out is not a bar button on any page — a mis-tap on it costs a login, a
- * mis-tap on Lock costs a PIN — it lives on the profile page.
+ * mis-tap on Lock costs a PIN — it ends the sign-in screen's signed-in card (A4·4).
  *
  * Help (the gold circle, P7·3) rides the `help` slot — BEFORE the language switch, after the page's
  * own utilities — on the three screens the parents run; a page that has no help door passes nothing
@@ -58,7 +58,7 @@ export function StaffBar({
   /** The page's name — a dictionary key rendered `echo="stack"`; or `titleNode` for a real name. */
   title?: StaffKey;
   titleVars?: Record<string, string | number>;
-  /** Replaces the dictionary title (the profile page shows the person's own name). */
+  /** Replaces the dictionary title (the signed-in state of `/staff/login` shows the person's own name). */
   titleNode?: ReactNode;
   /** The h1's id, for pages that `aria-labelledby` their region with it. */
   titleId?: string;

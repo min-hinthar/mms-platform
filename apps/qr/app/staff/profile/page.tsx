@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 
+export const dynamic = "force-dynamic";
+
 /**
  * A4·4 — the profile is the signed-in state of the sign-in screen (`/staff/login`: who you are ·
  * your PIN · sign out). This route stays so a tablet's bookmark lands there instead of a 404; its

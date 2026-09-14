@@ -1992,9 +1992,11 @@ export const STAFF = {
     en: "No PIN is set on this account. Sign out to continue.",
     my: "ဒီအကောင့်မှာ ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ဆက်လုပ်ဖို့ အကောင့် ထွက်ပါ။",
   },
+  // A4·4 — the profile page is gone; the PIN lives on the sign-in screen, reached from the doors'
+  // "Your PIN" tile (`floor.nav.pinSet` — the same words, so the sentence points at a real tile).
   "pin.noPin.profile": {
-    en: "You don’t have a PIN set. Set one in your profile first.",
-    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ အရင် သတ်မှတ်ပါ။",
+    en: "You don’t have a PIN set. Set one under “Set a tablet PIN” first.",
+    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ “တက်ဘလက် ပင်နံပါတ် သတ်မှတ်” အောက်မှာ အရင် သတ်မှတ်ပါ။",
   },
   "pin.noPin.manager": {
     en: "That manager hasn’t set a PIN yet.",
