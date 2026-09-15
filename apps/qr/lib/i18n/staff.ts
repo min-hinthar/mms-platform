@@ -57,8 +57,6 @@ export const STAFF = {
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
   "what.feedback": { en: "feedback", my: "ဧည့်သည် မှတ်ချက်" },
-  "what.team": { en: "the team page", my: "ဝန်ထမ်း စာမျက်နှာ" },
-  "what.profile": { en: "your profile", my: "ကိုယ့်အချက်အလက်" },
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
   "what.lock": { en: "the lock screen", my: "သော့ခတ် စခရင်" },
   "what.queue": { en: "the queue", my: "အော်ဒါတန်း" },
@@ -1251,7 +1249,7 @@ export const STAFF = {
     my: "ကိုယ့်စာကြောင်းကိုပဲ မြင်နေတာပါ။ မန်နေဂျာတွေက အဖွဲ့တစ်ခုလုံးကို မြင်ပါတယ်။",
   },
 
-  // ── the floor: the team roster (/staff/team) ──────────────────────────────
+  // ── the team roster — a manager zone of the sign-in screen since A4·4 (/staff/login#team-h) ──
   // `ownersOnly` is the non-owner DEAD END. Its language control is mounted there too: a person who
   // cannot read English must not land on that screen with no way to change the console's language.
   "floor.team.title": { en: "Team", my: "ဝန်ထမ်းများ" },
@@ -1264,8 +1262,17 @@ export const STAFF = {
     en: "Managing the team is limited to managers and the owner.",
     my: "ဝန်ထမ်း စီမံခန့်ခွဲမှုကို မန်နေဂျာနဲ့ ပိုင်ရှင်တွေသာ လုပ်နိုင်ပါတယ်။",
   },
-  "floor.team.backToFloor": { en: "← Back to the floor", my: "← ခန်းမကို ပြန်သွား" },
   "floor.team.a11y.roster": { en: "Staff", my: "ဝန်ထမ်း စာရင်း" },
+  // A4·4 — the roster is a zone of the sign-in screen; a failed read prints this under the zone's
+  // heading instead of throwing the whole screen (the person's own card is above it).
+  // ⚠️ It promises NOTHING about the card above it. The first draft said "Your PIN and sign-out
+  // above still work" — but `listStaff` and `getStaffAuth` read the SAME `staff` table through the
+  // SAME client, so the fault that prints this line is the fault that makes `setPin` answer
+  // `outage` (blind pass, CRITICAL). Copy promises only what the code keeps.
+  "floor.team.outage": {
+    en: "We can’t reach the ordering system — the roster can’t load right now. Try again in a moment.",
+    my: "အော်ဒါ စနစ်နဲ့ ဆက်သွယ်မရလို့ ဝန်ထမ်း စာရင်းကို အခု မဖွင့်နိုင်သေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
   // The SUCCESS half of TeamManager's one live region. The failure half is <OutageText>; wrapping a
   // success literal in it would pass it through as English forever while looking converted.
   "floor.team.added": {
@@ -1903,6 +1910,60 @@ export const STAFF = {
     my: "ပင်နံပါတ် မေ့သွားရင် — အကောင့် ထွက်ပါ",
   }, // K15-HIGH — the only way off a locked tablet without the PIN
 
+  // ═══ A4·4 · the signed-in state — the old /staff/profile, on the sign-in screen ══════════════
+  // Rendered by `SignedInCard`: who you are · your PIN · sign out, last. EN values are the profile
+  // page's shipped sentences verbatim (K25 named this the only console page with no Burmese below
+  // the bar); every MY value is a Claude-authored draft pending K15.
+  // {x} is the person's own name — Latin, so <Chrome> wraps it lang="en" inside the Burmese run.
+  "entry.me.head": { en: "Signed in as {x}", my: "{x} အဖြစ် ဝင်ထားပါတယ်" },
+  "entry.pin.head.set": { en: "Set a tablet PIN", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ်ပါ" },
+  "entry.pin.head.change": { en: "Change your PIN", my: "ကိုယ့် ပင်နံပါတ် ပြောင်းပါ" },
+  // {min} and {max} are COUNTS (digits), so they take the device's numerals — "၄–၈ လုံး".
+  "entry.pin.why": {
+    en: "A {min}–{max} digit PIN lets you lock and resume the floor tablet without signing in by email again. It’s yours alone — never share it.",
+    my: "{min}–{max} လုံး ပင်နံပါတ်နဲ့ အီးမေးလ် ပြန်မဝင်ဘဲ ခန်းမ တက်ဘလက်ကို လော့ခ်ချပြီး ပြန်ဖွင့်နိုင်ပါတယ်။ ကိုယ့်အတွက်သာ — ဘယ်သူ့ကိုမှ မပြောပါနဲ့။",
+  },
+  // The first-time field is labelled by `pin.label` ("PIN"); a rotation names the NEW one.
+  "entry.pin.new": { en: "New PIN", my: "ပင်နံပါတ် အသစ်" },
+  "entry.pin.confirm": { en: "Confirm PIN", my: "ပင်နံပါတ် ထပ်ရိုက်ပါ" },
+  "entry.pin.set": { en: "Set PIN", my: "ပင်နံပါတ် သတ်မှတ်" },
+  "entry.pin.update": { en: "Update PIN", my: "ပင်နံပါတ် ပြောင်း" },
+  "entry.pin.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" },
+  "entry.pin.remove": { en: "Remove PIN", my: "ပင်နံပါတ် ဖယ်ရှား" },
+  "entry.pin.removing": { en: "Removing…", my: "ဖယ်ရှားနေပါတယ်…" },
+  // The two refusals the card can explain BEFORE the server is asked (it has both fields); the
+  // three after are the action's own reason codes, every one a key so the region is never English
+  // under the Burmese switch (P2m's defect, on the last surface that had it).
+  "entry.pin.err.length": {
+    en: "PIN must be {min}–{max} digits.",
+    my: "ပင်နံပါတ်က {min}–{max} လုံး ဖြစ်ရပါမယ်။",
+  },
+  "entry.pin.err.mismatch": { en: "Those PINs don’t match.", my: "ပင်နံပါတ် နှစ်ခု မတူပါ။" },
+  "entry.pin.err.trivial": {
+    en: "Choose a less guessable PIN.",
+    my: "ခန့်မှန်းရ ပိုခက်တဲ့ ပင်နံပါတ် ရွေးပါ။",
+  },
+  // W10b — the PIN surface is NOT order flow: "keep it on paper" is nonsense advice for a PIN
+  // change, so it carries its own outage sentence (the old `PIN_OUTAGE`, verbatim).
+  "entry.pin.err.outage": {
+    en: "We can’t reach the sign-in service — that didn’t save. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ဆက်သွယ်မရလို့ မသိမ်းရသေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "entry.pin.err.save": {
+    en: "Couldn’t save your PIN. Try again.",
+    my: "ပင်နံပါတ် မသိမ်းနိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "entry.pin.err.remove": {
+    en: "Couldn’t remove your PIN. Try again.",
+    my: "ပင်နံပါတ် မဖယ်ရှားနိုင်ပါ။ ထပ်စမ်းပါ။",
+  },
+  "entry.pin.saved.set": {
+    en: "PIN set — you can now lock the tablet.",
+    my: "ပင်နံပါတ် သတ်မှတ်ပြီးပါပြီ — တက်ဘလက်ကို လော့ခ်ချနိုင်ပါပြီ။",
+  },
+  "entry.pin.saved.updated": { en: "PIN updated.", my: "ပင်နံပါတ် ပြောင်းပြီးပါပြီ။" },
+  "entry.pin.removed": { en: "PIN removed.", my: "ပင်နံပါတ် ဖယ်ရှားပြီးပါပြီ။" },
+
   // ═══ P7 · PR 2 · PIN — one vocabulary ════════════════════════════════════════
   // `pin.*` is read on THREE surfaces — the lock screen (your own PIN), the loss sheet and the
   // approvals queue (a manager's PIN) — so it is its own namespace rather than a copy under each,
@@ -1934,9 +1995,11 @@ export const STAFF = {
     en: "No PIN is set on this account. Sign out to continue.",
     my: "ဒီအကောင့်မှာ ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ဆက်လုပ်ဖို့ အကောင့် ထွက်ပါ။",
   },
+  // A4·4 — the profile page is gone; the PIN lives on the sign-in screen, reached from the doors'
+  // "Your PIN" tile (`floor.nav.pinSet` — the same words, so the sentence points at a real tile).
   "pin.noPin.profile": {
-    en: "You don’t have a PIN set. Set one in your profile first.",
-    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ ကိုယ့်အချက်အလက် စာမျက်နှာမှာ အရင် သတ်မှတ်ပါ။",
+    en: "You don’t have a PIN set. Set one under “Set a tablet PIN” first.",
+    my: "ပင်နံပါတ် မသတ်မှတ်ရသေးပါ။ “တက်ဘလက် ပင်နံပါတ် သတ်မှတ်” အောက်မှာ အရင် သတ်မှတ်ပါ။",
   },
   "pin.noPin.manager": {
     en: "That manager hasn’t set a PIN yet.",

@@ -10699,6 +10699,25 @@ html[data-fx="lite"] .mms-scrim {
 .entry-msg-warn {
   color: var(--warn);
 }
+/* A4·4 — the signed-in state of the same card: a second heading inside it (the PIN form's own),
+   the sentence beneath it, and the one destructive pill (Remove PIN) — outlined like the secondary,
+   spoken in the warning colour, never the accent. */
+.entry-h3 {
+  margin: var(--s5) 0 4px;
+  font-size: var(--fs-body);
+  font-weight: 700;
+  line-height: var(--lh-snug);
+}
+.entry-note {
+  margin: 0 0 var(--s4);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.entry-secondary-warn {
+  margin-top: var(--s3);
+  color: var(--warn);
+}
 
 /* ── P7·3 · the Help door ──────────────────────────────────────────────────────────────────────
    ONE gold circle in the bar (`.staff-circ-gold`, the slot before the language switch) on the

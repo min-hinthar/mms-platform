@@ -4,6 +4,100 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·4 — Sign-in, one screen with states: the form · the lock · signed in (your PIN · sign out) · the roster as a manager zone (2026-09-14)
+
+The fourth A4 slice. `/staff/login` is the Sign-in screen; `lib/sign-in-state.ts` ·
+`resolveSignInState` (pure, value-tested, two mutants) picks its state from the auth answer, the
+lock cookie and whether the URL carried a `?next=` at all:
+
+- **Signed out** — `StaffLogin` as built, under the bar's static people mark.
+- **Locked** — `/staff/lock` as built; it keeps its own URL because the lock is a device cookie
+  every console page redirects to, and its card already wore this screen's vocabulary.
+- **Signed in — `SignedInCard`.** Who you are (the name, the verified email), your PIN (set ·
+  rotate · remove), sign out LAST — the old `/staff/profile`, converted while it moved: K25 named it
+  the only console page with no Burmese below the bar, and every word is a dictionary key now
+  (`entry.me.head`, `entry.pin.*`). `setPin` / `removePin` answer REASON CODES (`PinSetResult`:
+  `invalid` · `trivial` · `outage` · `auth` · `save` — the Zod issue code, never its message) so no
+  refusal is English under the switch; the two refusals the card can see itself (a short PIN, a
+  mismatch) are SAID with focus moved to the field at fault, not greyed — the old form's own
+  messages sat behind a natively-disabled submit and were unreachable; ONE live region carries the
+  PIN outcome and the sign-out failure; nothing is natively `disabled`. The bar is the console's on
+  this state (the Screens circle, the name, the role, Lock when a PIN exists).
+- **The roster** — a manager zone beneath the card (`TeamManager` · `#team-h`, the old
+  `/staff/team`): the heading and sub moved into the component so the heading takes focus on
+  arrival and on a same-page jump (the A4·3 pattern), and the read is ADVISORY — a failed roster
+  read prints one honest line under the heading (`floor.team.outage`) instead of throwing the
+  person's own card away with it (the old page threw to the error boundary, which was its whole
+  page). A server sees no zone rather than a "managers only" dead end.
+- **The order of the staff arms is pinned**: an explicit `?next=` wins (a bookmarked
+  `/staff/login?next=/kiosk` stays idempotent — the destination gates itself, and the lock is a
+  `/staff`-scoped cookie the kiosk never sees), then the lock, then the signed-in state; only a
+  visit with NO destination lands on the card. `unavailable` renders the outage shell (W10b) where
+  the old login rendered the form — on this folded screen a form would tell a staff member who
+  tapped "Your PIN" that they had been logged out.
+- **Navigation.** `/staff/profile` → `/staff/login`, `/staff/team` → `/staff/login#team-h` (both
+  redirect-only, the shape rule 4 exempts); the doors' More tiles re-point; `revalidatePath` on
+  the PIN and team actions names the new home. `check-staff-lang` rule 4 reads **10/10** pages,
+  6 redirect-only exempt. `PinManager` and `StaffSignOut` are deleted; two dead keys
+  (`what.team`, `floor.team.backToFloor`) with them.
+- **Guards.** `sign-in-state.test.ts` (six cases, the arm order among them — a swapped order was
+  watched red before the mutant was written) and `SignedInCard.test.tsx` (ten: the name marked
+  `lang="en"` inside the Burmese, the escape last, one region, the two explained refusals with
+  focus, every reason code as a key, `aria-disabled` never `disabled`, the sign-out attribution).
+  Two mutants: `sign-in-state/a-wrong-account-falls-through-the-denied-form` and
+  `sign-in-state/the-lock-outranks-an-explicit-destination`.
+
+- **A contract change, stated:** a bare `/staff/login` visited with a LIVE session used to bounce
+  to `/staff`; it now shows the signed-in card (the bar's Screens circle leads to the doors). Every
+  sign-in still lands on `/staff` by default — the OTP path and the auth callback redirect there,
+  and an explicit `?next=` still wins — so what changed is only where an already-signed-in person
+  lands from a bare bookmark, a used magic link, or a board's 401 bounce that the proxy refreshed
+  on the way. `staff-door.ts`'s front-door comment says so now.
+
+Not in A4·4: the roster form's own English (P2m), `RoleBadge`, any change to the lock screen, the
+More grid itself (A4·5). New Burmese is a machine draft → K15.
+
+**The blind adversarial pass on this slice returned REJECT with three CRITICALs, all real, all
+closed before the PR left draft.** (1) A REJECTED Server Action (a lost connection, an uncaught
+server exception — nothing produces an `{ ok: false }` to fall through to) left the card's busy
+latch set forever: "Saving…" refused every later tap until a reload, with nothing in the region.
+The two writes clear their latch in `finally` and a rejection renders the outage sentence with the
+pair kept — the shape `TeamManager` had already fixed one file over, which the card shipped
+without; pinned by a rejected-mock case for each write. (2) `floor.team.outage` promised "Your PIN
+and sign-out above still work" at the exact moment the fault that printed it — `listStaff` and
+`getStaffAuth` read the SAME `staff` table through the SAME client — makes `setPin` answer
+`outage`; the line now promises nothing about the card. (3) A successful Remove PIN unmounted the
+button that held focus (`hasPin` flips on the refresh), dropping focus to `<body>`; focus moves to
+the PIN field first, which persists across the refresh — pinned across a re-render. Also from that
+pass: the "one live region" claim was true of the CARD, not the manager's view (the roster zone and
+the bar's Lock carry their own; the test and the text now say card); `TeamManager`'s two moved
+behaviours had no suite (`TeamManager.test.tsx`: a `null` roster prints the line and withholds the
+form and the list; the heading takes focus on arrival at `#team-h` and on a same-page jump, and
+never without the fragment — both watched red by hand); the shell's noun on the `unavailable` arm
+is `what.console`, true for a lobby iPad on its way to the kiosk as well (`what.profile` retired as
+dead). Left as designed, with the reason recorded above: the bare-`/staff/login` contract change.
+An open question the pass could not settle from the bundle — `staffHasPin` on a DB blip — is
+answered from source: it logs and returns `false` (the old profile page's behaviour, unchanged).
+
+**Codex round 1 on #284 (the draft head `bf44561`) — one P2, verified real, already closed on
+`5f10ba6`.** The finding is the blind pass's CRITICAL 1 word for word: the card's busy latch sat
+after the `await`, so a rejected Server Action (a lost connection, an uncaught server exception)
+left "Saving…" refusing every later tap until a reload. The fix commit had landed nine minutes
+before the round posted; the thread is answered and resolved against it. Codex's cloud task also
+drafted its own commit (`0201d5d`, wrapping `signOut` too) that never reached the repository —
+`signOut` keeps the shape `PinUnlock` and `StaffLogin` use, because supabase-js resolves its errors
+into `{ error }` rather than rejecting, and a bare `await` there is the sibling cards' contract.
+
+**Codex round 2 on #284 (`80d5179`) — one P2, verified plausible, fixed on sight.** The sign-out
+latch had the same shape one control down: `browserClient().auth.signOut()` resolves an auth
+failure into `{ error }`, but the client itself can THROW (a navigator-lock timeout, a storage
+operation), and a throw skipped both the error branch and the navigation with `signingOut` still
+true — Sign out refused every retry until a reload. Round 1's justification ("the sibling cards'
+contract") was true and beside the point: a contract two other cards also get wrong is not a
+defence. The latch clears in `finally` and a rejection renders `entry.err.signOut` (the generic
+sentence — a throw is not evidence of transport); pinned by a rejected-mock case. `PinUnlock` and
+`StaffLogin` carry the same bare `await` on their escapes and are not touched by this PR.
+
 ### A4·3 — Tables & settle, the manager rails: refunds needed · approvals · settled today reading the receipt (2026-09-13)
 
 The third A4 slice. The manager's two pages — `/staff/approvals` and `/staff/orders` — become

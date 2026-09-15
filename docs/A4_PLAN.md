@@ -36,8 +36,8 @@ thing being measured.
 | -------- | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | **A4·1** | Kitchen + wall  | ✅ The served rail (`lib/served-today.ts` + the rail's segmented view in `KdsBoard`), the ONE service-day rule (`lib/day-window.ts`, from `pickup_config.tz` — `laDayStartIso` is now that rule applied to LA), the ONE Burmese name loader (`lib/line-names.ts`, replacing the copies in kitchen · expo · `/api/board`), the wall's wait minutes off the DB clock and its saturation refusal (`/api/board` + `ReadyBoard`). | K31 · K32 (a) · F18 (a)   |
 | A4·2     | Tables & settle | ✅ Floor + register + expo on one screen; `/staff/register` and `/staff/expo` become redirects; K30 (B) "kitchen done" badge on the to-go lane; the approvals count in the bar.                                                                                                                                                                                                                                              | K30 (B) · M204 groundwork |
-| A4·3     | Tables & settle | The manager rails: approvals and "settled today" with the refund console reading the receipt (`receipt-view.ts` · `refund-view.ts`); `/staff/approvals` and `/staff/orders` redirect. ⚠️ `refunds.ts` has no mutant — this PR lands one.                                                                                                                                                                                     | M204 · M183 · F18 (b)     |
-| A4·4     | Sign-in         | login · lock · profile · team as one screen with states; `/staff/profile` and `/staff/team` redirect. The front-door rules of §17 (top-aligned card, the escape a quiet link, last) hold for every state.                                                                                                                                                                                                                    | —                         |
+| A4·3     | Tables & settle | ✅ The manager rails: approvals and "settled today" with the refund console reading the receipt (`receipt-view.ts` · `refund-view.ts`); `/staff/approvals` and `/staff/orders` redirect. ⚠️ `refunds.ts` has no mutant — this PR lands one.                                                                                                                                                                                  | M204 · M183 · F18 (b)     |
+| A4·4     | Sign-in         | ✅ login · lock · profile · team as one screen with states; `/staff/profile` and `/staff/team` redirect. The front-door rules of §17 (top-aligned card, the escape a quiet link, last) hold for every state.                                                                                                                                                                                                                 | —                         |
 | A4·5     | Menu + Tips     | Glossary → a Menu action; feedback → beneath Tips; the More grid → three tiles. `resolveStaffHome` unchanged.                                                                                                                                                                                                                                                                                                                | —                         |
 
 Owner decisions this plan does NOT make: **K32 (b)** (a table number on the wall is a SPEC reversal
@@ -141,3 +141,42 @@ re-pointed) is a machine draft → K15.
 Not in A4·3: Burmese on the approvals cards (`mms_approvals.line_name` is a snapshot column —
 F18 (b) names the join), a live subscription for the settled list, any change to the doors or
 the help sheet (the manager rails are not on the counter person's six cards).
+
+## A4·4 — Sign-in, one screen with states (scoped and built 2026-09-14)
+
+`/staff/login` is the Sign-in screen. `lib/sign-in-state.ts` · `resolveSignInState` — pure,
+value-tested, two mutants — picks its state from the auth answer, the lock cookie and whether the
+URL carried a `?next=` at all:
+
+1. **Signed out** — `StaffLogin` as built (email · code · Google), the bar's static people mark.
+2. **Locked** — `/staff/lock` as built. It keeps its own URL: the lock is a device cookie every
+   console page redirects to, and its card was already this screen's vocabulary (`.entry-*`).
+3. **Signed in** — `SignedInCard`: who you are (the name, the verified email), your PIN (set ·
+   rotate · remove), sign out LAST — the old `/staff/profile`, converted while it moved (K25 named
+   it the only console page with no Burmese below the bar). Every word is a key; `setPin` /
+   `removePin` answer REASON CODES (`invalid` · `trivial` · `outage` · `auth` · `save`) so no refusal
+   is English under the switch; the two refusals the card can see itself (a short PIN, a mismatch)
+   are SAID with focus on the field at fault rather than greyed — the old form's own messages were
+   unreachable behind its disabled button; ONE live region for the PIN outcome and the sign-out
+   failure. The bar is the console's here: the Screens circle, the name, the role, Lock when a PIN
+   exists.
+4. **The roster** — a manager zone beneath the card (`TeamManager` · `#team-h`, the old
+   `/staff/team`): its heading takes focus on arrival and on a same-page jump (the A4·3 pattern),
+   and a failed read prints one honest line under the heading instead of throwing the person's own
+   card away with it (the old page threw to the error boundary, which was its whole page).
+
+The ORDER of the staff arms is the pinned behaviour: an explicit `?next=` still wins (a bookmarked
+`/staff/login?next=/kiosk` on the lobby iPad stays idempotent; the destination gates itself, and
+the lock is a `/staff`-scoped cookie the kiosk never sees), then the lock, then the signed-in
+state — only a visit with NO destination lands on the card. `unavailable` renders the outage shell
+(W10b) where the old login rendered the form: on this folded screen a form would tell a staff
+member who tapped "Your PIN" that they had been logged out.
+
+`/staff/profile` → `redirect("/staff/login")`, `/staff/team` → `redirect("/staff/login#team-h")`;
+the doors' More tiles re-point; `revalidatePath` on the PIN and team actions names the new home.
+`check-staff-lang` rule 4 reads 10/10 + 6 exempt. `PinManager` and `StaffSignOut` are deleted, and
+three dead keys (`what.team`, `what.profile`, `floor.team.backToFloor`) with them. New Burmese (`entry.me.head`,
+`entry.pin.*`, `floor.team.outage`) is a machine draft → K15.
+
+Not in A4·4: the roster form's own English (P2m — the heading, labels, options and tags stay as A6
+built them), `RoleBadge`, any change to the lock screen, the More grid itself (A4·5).

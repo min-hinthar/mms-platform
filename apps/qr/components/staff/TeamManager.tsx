@@ -1,5 +1,5 @@
 "use client";
-import { useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { provisionStaff, setStaffActive, setStaffRole } from "@/lib/staff-actions";
 import type { StaffRow } from "@/lib/staff";
@@ -49,7 +49,8 @@ export function TeamManager({
   selfEmail,
   callerRole,
 }: {
-  initial: StaffRow[];
+  /** The roster, or `null` when its read failed — the zone then prints one honest line (A4·4). */
+  initial: StaffRow[] | null;
   selfUid: string;
   selfEmail: string | null;
   callerRole: StaffRole;
@@ -141,231 +142,270 @@ export function TeamManager({
     }
   }
 
-  return (
-    <div>
-      <form onSubmit={add} className="card" style={formCard} aria-labelledby="add-staff-h">
-        <h2 id="add-staff-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 var(--s4)" }}>
-          Add a staff member
-        </h2>
-        <div style={{ display: "grid", gap: "var(--s4)" }}>
-          <div>
-            <label htmlFor="ts-name" style={label}>
-              Name
-            </label>
-            <input
-              id="ts-name"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              autoComplete="name"
-              maxLength={80}
-              placeholder="Daw Hla"
-              style={input}
-            />
-          </div>
-          <div>
-            <label htmlFor="ts-email" style={label}>
-              Email (their sign-in)
-            </label>
-            <input
-              id="ts-email"
-              type="email"
-              inputMode="email"
-              autoCapitalize="none"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              autoComplete="off"
-              placeholder="hla@mandalaymorningstar.com"
-              style={input}
-            />
-          </div>
-          <div>
-            <label htmlFor="ts-role" style={label}>
-              Role
-            </label>
-            <select
-              id="ts-role"
-              value={role}
-              onChange={(e) => setRole(e.target.value as StaffRole)}
-              style={input}
-            >
-              {grantable
-                .slice()
-                .reverse()
-                .map((r) => (
-                  <option key={r} value={r}>
-                    {ROLE_LABEL[r]}
-                  </option>
-                ))}
-            </select>
-          </div>
-          <button
-            type="submit"
-            disabled={busy || name.trim().length < 1 || email.trim().length < 3}
-            style={primaryBtn}
-          >
-            {busy ? "Adding…" : "Add staff"}
-          </button>
-        </div>
-      </form>
+  // A4·4 — the roster is a ZONE of the sign-in screen and `/staff/team` redirects onto its
+  // fragment; a fragment scrolls but does not move focus (WCAG 2.4.3). Take it on arrival — and on
+  // a same-page jump (the doors' More tile from the signed-in state), which changes the hash with
+  // no mount. The A4·3 pattern (`ApprovalsBoard`, `SettledToday`), verbatim.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  useEffect(() => {
+    const take = () => {
+      if (window.location.hash === "#team-h") headingRef.current?.focus({ preventScroll: true });
+    };
+    take();
+    window.addEventListener("hashchange", take);
+    return () => window.removeEventListener("hashchange", take);
+  }, []);
 
-      {/* One live region for both add + toggle feedback (QA §A: a single region per view).
+  return (
+    <section className="staff-zone" aria-labelledby="team-h">
+      {/* echo={false}: this heading IS the zone's accessible name (aria-labelledby reads the
+          element's full text; an echo would name the region in both scripts at once). */}
+      <h2 id="team-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
+        <Chrome lang={lang} k="floor.team.title" />
+      </h2>
+      {initial === null ? (
+        // W10b — a failed read must not render as an EMPTY roster; nor may it take the sign-in
+        // screen's own card down with it (the old page threw to the error boundary, which was the
+        // whole page there). One line, and the form withheld: adding to a roster you cannot see
+        // is how a name gets entered twice.
+        <p style={zoneSub}>
+          <Chrome lang={lang} k="floor.team.outage" echo="stack" />
+        </p>
+      ) : (
+        <>
+          <p style={zoneSub}>
+            <Chrome lang={lang} k="floor.team.sub" echo="stack" />
+          </p>
+          <form onSubmit={add} className="card" style={formCard} aria-labelledby="add-staff-h">
+            <h2 id="add-staff-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 var(--s4)" }}>
+              Add a staff member
+            </h2>
+            <div style={{ display: "grid", gap: "var(--s4)" }}>
+              <div>
+                <label htmlFor="ts-name" style={label}>
+                  Name
+                </label>
+                <input
+                  id="ts-name"
+                  required
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoComplete="name"
+                  maxLength={80}
+                  placeholder="Daw Hla"
+                  style={input}
+                />
+              </div>
+              <div>
+                <label htmlFor="ts-email" style={label}>
+                  Email (their sign-in)
+                </label>
+                <input
+                  id="ts-email"
+                  type="email"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="off"
+                  placeholder="hla@mandalaymorningstar.com"
+                  style={input}
+                />
+              </div>
+              <div>
+                <label htmlFor="ts-role" style={label}>
+                  Role
+                </label>
+                <select
+                  id="ts-role"
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as StaffRole)}
+                  style={input}
+                >
+                  {grantable
+                    .slice()
+                    .reverse()
+                    .map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r]}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <button
+                type="submit"
+                disabled={busy || name.trim().length < 1 || email.trim().length < 3}
+                style={primaryBtn}
+              >
+                {busy ? "Adding…" : "Add staff"}
+              </button>
+            </div>
+          </form>
+
+          {/* One live region for both add + toggle feedback (QA §A: a single region per view).
           BRANCHED ON `msg.ok`, never wrapped wholesale: <OutageText> swaps the ONE server sentence
           that has an authored Burmese twin and passes everything else through verbatim, so handing
           it an authored success literal would ship English forever while looking converted.
           echo={false} on both arms — this is a live region (a bilingual announcement says
           everything twice) and its `minHeight: 20` is a measured height a stacked pair would break. */}
-      <p role="status" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
-        {msg &&
-          (msg.ok ? (
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--ok)" }}>
-              <Chrome lang={lang} k={msg.k} echo={false} />
-            </span>
-          ) : (
-            <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-              <OutageText lang={lang} error={msg.text} />
-            </span>
-          ))}
-      </p>
-
-      <ul role="list" aria-label={sx(lang, "floor.team.a11y.roster")} style={list}>
-        {initial.map((row) => {
-          // Match by uid OR email — a Google/magic-link session uid can differ from the uid stamped on
-          // the row, so email is the reliable "this is me" signal (mirrors the server self-guard).
-          const isSelf =
-            row.userId === selfUid ||
-            (!!row.email && !!selfEmail && row.email.toLowerCase() === selfEmail.toLowerCase());
-          // A6 — a row this caller cannot reach carries NO controls, rather than controls that
-          // answer "only the owner can": a manager sees the owner's row and their own as read-only.
-          // The same predicate the server refuses with, so the two cannot drift.
-          const reachable = !isSelf && canActOn(callerRole, row.role);
-          return (
-            <li
-              key={row.userId}
-              className="card"
-              style={{ ...rowCard, opacity: row.active ? 1 : 0.6 }}
-            >
-              <div style={{ minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <span
-                    id={`team-name-${row.userId}`}
-                    style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}
-                  >
-                    {row.displayName}
-                  </span>
-                  <RoleBadge role={row.role} />
-                  {isSelf && (
-                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>(you)</span>
-                  )}
-                  {!row.active && (
-                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>Inactive</span>
-                  )}
-                </div>
-                {row.email && (
-                  <div
-                    style={{
-                      fontSize: "var(--fs-sm)",
-                      color: "var(--t2)",
-                      marginTop: 2,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {row.email}
-                  </div>
-                )}
-              </div>
-              {!reachable ? (
-                <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }} aria-hidden>
-                  —
+          <p role="status" style={{ minHeight: 20, margin: "var(--s4) 0" }}>
+            {msg &&
+              (msg.ok ? (
+                <span style={{ fontSize: "var(--fs-sm)", color: "var(--ok)" }}>
+                  <Chrome lang={lang} k={msg.k} echo={false} />
                 </span>
               ) : (
-                <div style={rowControls}>
-                  {/* A6 — the role control. A <select> rather than a promote/demote pair because the
+                <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+                  <OutageText lang={lang} error={msg.text} />
+                </span>
+              ))}
+          </p>
+
+          <ul role="list" aria-label={sx(lang, "floor.team.a11y.roster")} style={list}>
+            {initial.map((row) => {
+              // Match by uid OR email — a Google/magic-link session uid can differ from the uid stamped on
+              // the row, so email is the reliable "this is me" signal (mirrors the server self-guard).
+              const isSelf =
+                row.userId === selfUid ||
+                (!!row.email && !!selfEmail && row.email.toLowerCase() === selfEmail.toLowerCase());
+              // A6 — a row this caller cannot reach carries NO controls, rather than controls that
+              // answer "only the owner can": a manager sees the owner's row and their own as read-only.
+              // The same predicate the server refuses with, so the two cannot drift.
+              const reachable = !isSelf && canActOn(callerRole, row.role);
+              return (
+                <li
+                  key={row.userId}
+                  className="card"
+                  style={{ ...rowCard, opacity: row.active ? 1 : 0.6 }}
+                >
+                  <div style={{ minWidth: 0 }}>
+                    <div
+                      style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}
+                    >
+                      <span
+                        id={`team-name-${row.userId}`}
+                        style={{ fontWeight: 600, fontSize: "var(--fs-body)" }}
+                      >
+                        {row.displayName}
+                      </span>
+                      <RoleBadge role={row.role} />
+                      {isSelf && (
+                        <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>(you)</span>
+                      )}
+                      {!row.active && (
+                        <span style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+                          Inactive
+                        </span>
+                      )}
+                    </div>
+                    {row.email && (
+                      <div
+                        style={{
+                          fontSize: "var(--fs-sm)",
+                          color: "var(--t2)",
+                          marginTop: 2,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {row.email}
+                      </div>
+                    )}
+                  </div>
+                  {!reachable ? (
+                    <span style={{ fontSize: "var(--fs-sm)", color: "var(--t3)" }} aria-hidden>
+                      —
+                    </span>
+                  ) : (
+                    <div style={rowControls}>
+                      {/* A6 — the role control. A <select> rather than a promote/demote pair because the
                       ladder has three rungs and a pair of verbs cannot express "server → owner" in
                       one move. CONTROLLED by the server's `row.role`: a refused change snaps back on
                       its own, so the console never displays a role nobody stored. The options are
                       capped at `grantable`, and `row.role` is always in it — `reachable` proved the
                       caller can act on it — so the current value is never missing from its own menu. */}
-                  <select
-                    value={row.role}
-                    onChange={(e) => changeRole(row, e.target.value as StaffRole)}
-                    disabled={rolePendingUid === row.userId}
-                    aria-busy={rolePendingUid === row.userId}
-                    // ⚠️ LABELLED BY THE MEMBER'S OWN VISIBLE NAME, not by an `aria-label`. Two
-                    // reasons, and the second is the one that matters. (a) Without the member, every
-                    // row's control announces the same bare word and a screen-reader user cannot
-                    // tell whose role they are changing. (b) `sx()` here was a REAL violation, not a
-                    // guard false-positive: rule 3 forbids the aria-only form on a control that has
-                    // visible text, because it bypasses the {visible, aria} pair — and a `<select>`
-                    // has visible text, its selected option. Pointing at text already on screen
-                    // gives a genuine label instead of a parallel one only some users hear, and the
-                    // role name stays the control's VALUE, which is what a listener needs anyway.
-                    aria-labelledby={`team-name-${row.userId}`}
-                    style={roleSelect}
-                  >
-                    {grantable.map((r) => (
-                      <option key={r} value={r}>
-                        {ROLE_LABEL[r]}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => toggleActive(row)}
-                    disabled={pendingUid === row.userId}
-                    aria-busy={pendingUid === row.userId}
-                    // Stable, member-specific name so two "Deactivate" buttons aren't identical to a
-                    // screen reader.
-                    //
-                    // ⚠️ THE PENDING STATE IS NOT FED INTO al(). The visible label collapses to "…"
-                    // mid-request; the NAME must not, or the control a screen-reader user just took
-                    // hold of renames itself under them and the row loses its only identifying word.
-                    // `al()` reads `row.active` alone, so the name is stable across the flip.
-                    //
-                    // A TERNARY OVER TWO WHOLE al() CALLS, not one call with a computed `verb:` — the
-                    // key has to stay a string literal or rule 3c cannot check that the button RENDERS
-                    // the same key it announces, which is the whole of WCAG 2.5.3 here.
-                    aria-label={
-                      row.active
-                        ? al(lang, {
-                            kind: "verb",
-                            echo: "inline",
-                            verb: "floor.verb.deactivate",
-                            subject: row.displayName,
-                          }).aria
-                        : al(lang, {
-                            kind: "verb",
-                            echo: "inline",
-                            verb: "floor.verb.reactivate",
-                            subject: row.displayName,
-                          }).aria
-                    }
-                    style={row.active ? deactivateBtn : reactivateBtn}
-                  >
-                    {/* The SAME keys the name is built from, so 2.5.3 containment holds by
+                      <select
+                        value={row.role}
+                        onChange={(e) => changeRole(row, e.target.value as StaffRole)}
+                        disabled={rolePendingUid === row.userId}
+                        aria-busy={rolePendingUid === row.userId}
+                        // ⚠️ LABELLED BY THE MEMBER'S OWN VISIBLE NAME, not by an `aria-label`. Two
+                        // reasons, and the second is the one that matters. (a) Without the member, every
+                        // row's control announces the same bare word and a screen-reader user cannot
+                        // tell whose role they are changing. (b) `sx()` here was a REAL violation, not a
+                        // guard false-positive: rule 3 forbids the aria-only form on a control that has
+                        // visible text, because it bypasses the {visible, aria} pair — and a `<select>`
+                        // has visible text, its selected option. Pointing at text already on screen
+                        // gives a genuine label instead of a parallel one only some users hear, and the
+                        // role name stays the control's VALUE, which is what a listener needs anyway.
+                        aria-labelledby={`team-name-${row.userId}`}
+                        style={roleSelect}
+                      >
+                        {grantable.map((r) => (
+                          <option key={r} value={r}>
+                            {ROLE_LABEL[r]}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => toggleActive(row)}
+                        disabled={pendingUid === row.userId}
+                        aria-busy={pendingUid === row.userId}
+                        // Stable, member-specific name so two "Deactivate" buttons aren't identical to a
+                        // screen reader.
+                        //
+                        // ⚠️ THE PENDING STATE IS NOT FED INTO al(). The visible label collapses to "…"
+                        // mid-request; the NAME must not, or the control a screen-reader user just took
+                        // hold of renames itself under them and the row loses its only identifying word.
+                        // `al()` reads `row.active` alone, so the name is stable across the flip.
+                        //
+                        // A TERNARY OVER TWO WHOLE al() CALLS, not one call with a computed `verb:` — the
+                        // key has to stay a string literal or rule 3c cannot check that the button RENDERS
+                        // the same key it announces, which is the whole of WCAG 2.5.3 here.
+                        aria-label={
+                          row.active
+                            ? al(lang, {
+                                kind: "verb",
+                                echo: "inline",
+                                verb: "floor.verb.deactivate",
+                                subject: row.displayName,
+                              }).aria
+                            : al(lang, {
+                                kind: "verb",
+                                echo: "inline",
+                                verb: "floor.verb.reactivate",
+                                subject: row.displayName,
+                              }).aria
+                        }
+                        style={row.active ? deactivateBtn : reactivateBtn}
+                      >
+                        {/* The SAME keys the name is built from, so 2.5.3 containment holds by
                       construction. echo="inline" rather than "stack": this is a 44px pill in a flex
                       row beside the member's name, and a stacked pair would push every row taller. */}
-                    {pendingUid === row.userId ? (
-                      "…"
-                    ) : row.active ? (
-                      <Chrome lang={lang} k="floor.verb.deactivate" echo="inline" />
-                    ) : (
-                      <Chrome lang={lang} k="floor.verb.reactivate" echo="inline" />
-                    )}
-                  </button>
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    </div>
+                        {pendingUid === row.userId ? (
+                          "…"
+                        ) : row.active ? (
+                          <Chrome lang={lang} k="floor.verb.deactivate" echo="inline" />
+                        ) : (
+                          <Chrome lang={lang} k="floor.verb.reactivate" echo="inline" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 
+const zoneSub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 };
 const formCard: CSSProperties = { padding: "var(--s5)" };
 const label: CSSProperties = {
   display: "block",

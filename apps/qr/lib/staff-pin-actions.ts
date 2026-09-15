@@ -17,39 +17,61 @@ import { LOCK_COOKIE } from "./staff-lock";
 export type PinActionResult = { ok: true } | { ok: false; error: string };
 
 /** W10b — the PIN/lock surfaces are NOT order flow: "keep it on paper" (the shared write-outage
- *  sentence) is nonsense advice for a PIN change or a device lock, so they carry their own. */
+ *  sentence) is nonsense advice for a device lock, so it carries its own. */
 const PIN_OUTAGE =
   "We can\u2019t reach the sign-in service \u2014 that didn\u2019t save. Try again in a moment.";
+
+/**
+ * A4·4 — the set/remove answers are REASON CODES, not sentences: the signed-in card renders each
+ * as a dictionary key, so a refusal is never English under the Burmese switch (P2m's defect, on the
+ * last surface that had it — the old `PinManager` showed `res.error` verbatim). The lock keeps the
+ * sentence shape above; `LockButton` still renders it (its only reader).
+ *
+ *   · `invalid`  — the format failed the server's own check (the field enforces 4–8 digits, so this
+ *                  is the edge path — a hand-built POST);
+ *   · `trivial`  — the guessability refine (0000, 1234, 9876 at any length);
+ *   · `outage`   — the gate could not verify the caller (W10b: nothing was checked, nothing saved);
+ *   · `auth`     — no staff session behind the POST (the card refreshes the page, which re-gates);
+ *   · `save`     — the write itself failed.
+ */
+export type PinSetResult =
+  | { ok: true }
+  | { ok: false; reason: "invalid" | "trivial" | "outage" | "auth" | "save" };
 
 /** Set or rotate the caller's own PIN. The caller is already authenticated in-session (S1.1a), so no
  *  old-PIN challenge is required to rotate — the lock affordance, not this form, is what protects a
  *  walked-away tablet. Format is gated by Zod here and the SQL CHECK as a backstop. */
-export async function setPin(raw: unknown): Promise<PinActionResult> {
-  const gate = await staffGate("server", PIN_OUTAGE);
-  if (!gate.ok) return { ok: false, error: gate.error };
-  const caller = gate.caller;
+export async function setPin(raw: unknown): Promise<PinSetResult> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "auth" };
+  const caller = auth.caller;
 
   const parsed = setStaffPinInput.safeParse(raw);
   if (!parsed.success) {
-    // Surface the first honest reason (format vs trivial-PIN) rather than a generic "invalid".
-    return { ok: false, error: parsed.error.issues[0]?.message ?? "Enter a 4–8 digit PIN." };
+    // Zod's issue CODE, never its message: the 4–8 digit regex fails as `invalid_string`, the
+    // guessability refine as `custom`. A refine still runs on a dirty string, so a value that fails
+    // both is reported as the format — the reason the person can act on first.
+    const invalid = parsed.error.issues.some((i) => i.code === "invalid_string");
+    return { ok: false, reason: invalid ? "invalid" : "trivial" };
   }
 
   const ok = await setStaffPin(caller.staffId, parsed.data.pin);
-  if (!ok) return { ok: false, error: "Couldn’t save your PIN. Try again." };
-  revalidatePath("/staff/profile");
+  if (!ok) return { ok: false, reason: "save" };
+  revalidatePath("/staff/login"); // A4·4 — the PIN form lives on the sign-in screen
   return { ok: true };
 }
 
 /** Remove the caller's own PIN (turn the fast-path off). */
-export async function removePin(): Promise<PinActionResult> {
-  const gate = await staffGate("server", PIN_OUTAGE);
-  if (!gate.ok) return { ok: false, error: gate.error };
-  const caller = gate.caller;
+export async function removePin(): Promise<PinSetResult> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "auth" };
+  const caller = auth.caller;
 
   const ok = await clearStaffPin(caller.staffId);
-  if (!ok) return { ok: false, error: "Couldn’t remove your PIN. Try again." };
-  revalidatePath("/staff/profile");
+  if (!ok) return { ok: false, reason: "save" };
+  revalidatePath("/staff/login");
   return { ok: true };
 }
 

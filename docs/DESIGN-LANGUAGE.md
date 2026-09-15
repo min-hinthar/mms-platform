@@ -620,7 +620,8 @@ built.
   (`{ kind: "back" }`, the arrow inside the dictionary label). Title = Burmese 30px with the English
   echo beneath, the ONLY English in the bar. Middle = the page's own control. Trailing = utilities in
   one order, the language switch then **Lock, last** — the thing you do on the way out. Sign out is
-  never a bar control (a mis-tap costs a login; Lock costs a PIN); it ends the profile page. Help
+  never a bar control (a mis-tap costs a login; Lock costs a PIN); it ends the sign-in screen's
+  signed-in card (A4·4 — the profile page folded into `/staff/login`). Help
   (the gold circle) takes the slot before the switch when PR 3 lands — not before, because a
   control that does nothing is forbidden by §16.
 - **The bar spans the viewport; the page's column sits beneath it.** `.staff-main` is the
