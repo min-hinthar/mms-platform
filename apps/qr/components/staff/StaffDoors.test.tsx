@@ -116,16 +116,18 @@ describe("StaffDoors", () => {
         lang="my"
         current={null}
         more={[
-          { href: "/board", k: "floor.nav.board", icon: "tv" },
-          { href: "/staff/glossary", k: "floor.nav.glossary", icon: "print" },
+          { href: "/staff/tips", k: "floor.nav.tips", icon: "gift" },
+          { href: "/staff/login", k: "floor.nav.pin", icon: "lock" },
         ]}
       />,
     );
     const list = screen.getByRole("list");
     expect(list.getAttribute("aria-label")).toBeNull(); // named by the visible "More" heading
-    expect(screen.getByRole("link", { name: /တီဗီ ဘုတ်/ }).getAttribute("href")).toBe("/board");
-    expect(screen.getByRole("link", { name: /စာလုံး စစ်ဆေးစာရွက်/ }).getAttribute("href")).toBe(
-      "/staff/glossary",
+    expect(screen.getByRole("link", { name: /ဒီနေ့ အပိုကြေး/ }).getAttribute("href")).toBe(
+      "/staff/tips",
+    );
+    expect(screen.getByRole("link", { name: /ကိုယ့် ပင်နံပါတ်/ }).getAttribute("href")).toBe(
+      "/staff/login",
     );
   });
 });
@@ -153,7 +155,7 @@ describe("the door-title CSS matches the DOM the doors render", () => {
   const selectors = [...css.matchAll(/([^{}]*\.staff-(?:door|row)-name[^{}]*)\{/g)]
     .map((m) => m[1]!.trim())
     .filter((s) => !s.startsWith("@"));
-  const oneTile = [{ href: "/board", k: "floor.nav.board", icon: "tv" } as const];
+  const oneTile = [{ href: "/staff/tips", k: "floor.nav.tips", icon: "gift" } as const];
   it("names at least the title, its Burmese, its echo, its sub-line and the row name", () => {
     expect(selectors.length).toBeGreaterThanOrEqual(5);
   });

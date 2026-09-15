@@ -4,6 +4,68 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### A4·5 — Menu + Tips: the word-check sheet as the Menu screen's action, guest feedback beneath the tips, the More list to three tiles (2026-09-15)
+
+The fifth and last A4 slice; `/staff` is five screens now — Kitchen · Counter & tables · Menu ·
+Tips · Sign-in — and the two doors (P7·1) in front of them.
+
+- **Menu** — `/staff/menu` as built (availability for a server, prices for a manager), plus the
+  printed word-check sheet as its one action: a print circle in the bar (`browse.price.wordCheck`,
+  the sheet's own title, named by sr-only text like the counter's approvals circle) that opens
+  `/staff/glossary`. The sheet itself is unchanged and keeps its route — it is a printable
+  document with its own layout — but it left the doors' More list.
+- **Tips** — `/staff/tips` as built, with the day's guest feedback beneath it for a manager: the
+  old `/staff/feedback` page is a zone of this screen (`#fb-h`, `.staff-zone`, its heading the
+  region's name), the pilot's nightly sheet above it behind its own gate, as it sat above the old
+  list. The feedback read is ADVISORY (the A4·3 posture): it is made only for a manager, a failed
+  table read prints the zone's own honest line (`floor.fb.unavailable`), and a thrown gate is
+  caught to the same line — never the tips above it taken down, never "No feedback yet" over a read
+  that did not happen. A server sees no zone; the screen simply ends.
+- **The More list is three tiles** — Menu · Tips · Sign-in — stated once in
+  `lib/staff-more.ts` · `moreTiles` for both surfaces that render it, and value-tested (five
+  cases: the two lists as whole values, the two labels role and PIN change, every tile a real
+  in-app link). The counter's screen keeps a fourth, FIRST: the kitchen board as a plain link,
+  because a manager peeking at the board must not walk through the Kitchen DOOR (a door remembers
+  itself — the P7 blind pass's CRITICAL 3). Every tile the grid carried for a manager alone
+  (approvals · settled today · feedback · the roster) is a zone of one of the five screens now,
+  reached through it. `MoreTile` lost its dead `vars` slot with the approvals tile.
+- **The wall's link moved to the Kitchen's bar** (`kds.nav.wall`, a TV circle → `/board`): it was
+  reachable in-app only from the doors' More since P7, and only by bookmark before that; A4·1
+  named the screen "Kitchen + the wall" for a reason.
+- **The counter screen is named like its door**: the bar reads `floor.door.counter` ("Counter &
+  tables") where it read `floor.eyebrow` ("Floor"), and the tab title says the same — the rename
+  A4·2 deferred here. `floor.eyebrow` is deleted with it; no new Burmese, the door's words.
+- **One zone-focus rule.** `components/staff/ZoneFocus.tsx` · `useZoneFocus(id)` is the A4·3
+  arrival-and-jump focus rule written once — it was three identical copies (`ApprovalsBoard`,
+  `SettledToday`, `TeamManager`) and the feedback zone needed a fourth for a heading rendered on the
+  SERVER, so the hook finds the heading by id and `<ZoneFocus>` is the hook as an element. The three
+  boards use it now; their own arrival tests still hold, and `ZoneFocus.test.tsx` (three cases)
+  pins the server-rendered shape and the two edges every copy had to get right.
+- **Navigation.** `/staff/feedback` → `/staff/tips#fb-h` (redirect-only, the shape rule 4
+  exempts); `check-staff-lang` rule 4 reads **9/9** pages, 7 redirect-only exempt, and its
+  "discovery is broken" floor moved from ten to nine in the same commit. Six dead keys deleted
+  (`what.feedback`, `floor.eyebrow`, `floor.nav.feedback`, `floor.nav.settled`, `floor.nav.team`,
+  `floor.nav.glossary`; `floor.nav.board` became `kds.nav.wall`); the two new keys carry the
+  Burmese the deleted ones did, verbatim — nothing new for K15.
+- **The approvals circle rides BOTH bars — the blind pass's CRITICAL, and the slice's own trap
+  sprung backwards.** Folding the counted More tile into the counter bar's circle made that circle
+  the ONLY pending-void signal there is, and it was still drawn for the floor view alone: a manager
+  on Mom's kitchen tablet (a warm `/staff`, or the Screens circle) saw no count at all, and the one
+  in-app route left to the queue was the Counter DOOR — which remembers itself and would re-door the
+  tablet, verbatim the trap `moreTiles` refuses for the board in the other direction. The circle is
+  now on the doors' bar too, pointing at `approvalsHref("doors")` — `/staff?floor=1#appr-h`, the URL
+  `resolveStaffHome` honours WITHOUT writing the cookie, so a look stays a look. Both manager zones
+  sit on the screen it opens.
+- **Guards, red-first.** `staff-more.test.ts` was watched red under four hand mutations (the kitchen
+  tile last instead of first; the manager's label for every role; the doors href collapsed to a bare
+  fragment; a slot-bearing label on a tile — `MoreGrid` fills no slots, so that one would print a
+  literal `{n}` at a staff member). `ZoneFocus.test.tsx` and `TeamManager.test.tsx` both went red
+  without the `hashchange` listener, and the lifetime case again when the cleanup detached a
+  look-alike closure instead of the listener it added. `resolveStaffHome` is untouched, as the plan
+  promised.
+
+Closes **A4**. Not in A4·5: the roster form's own English (P2m), `RoleBadge`, the lock screen.
+
 ### A4·4 — Sign-in, one screen with states: the form · the lock · signed in (your PIN · sign out) · the roster as a manager zone (2026-09-14)
 
 The fourth A4 slice. `/staff/login` is the Sign-in screen; `lib/sign-in-state.ts` ·

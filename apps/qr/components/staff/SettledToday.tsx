@@ -33,6 +33,7 @@ import { Chrome } from "./Chrome";
 import { RefundActionSheet } from "./RefundActionSheet";
 import { StaggerList } from "./StaggerList";
 import { useStaffLang } from "./StaffLangProvider";
+import { useZoneFocus } from "./ZoneFocus";
 import { ExpoLineMy } from "./TicketText";
 
 /**
@@ -101,19 +102,9 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     });
   }, []);
 
-  // The two folded routes redirect onto this zone's fragment; a fragment scrolls but does not
-  // move focus (WCAG 2.4.3 — a screen-reader user would land at the top of the page). Take it on
-  // arrival — and on a same-page jump (the doors' More tile), which changes the hash with no mount
-  // (Codex round 1 on #283).
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    const take = () => {
-      if (window.location.hash === "#settled-h") headingRef.current?.focus({ preventScroll: true });
-    };
-    take();
-    window.addEventListener("hashchange", take);
-    return () => window.removeEventListener("hashchange", take);
-  }, []);
+  // `/staff/orders` redirects onto this zone's fragment; the heading takes focus on arrival and on
+  // a same-page jump (`useZoneFocus`, the one copy of the A4·3 rule since A4·5).
+  useZoneFocus("settled-h");
 
   const toggle = (id: string) =>
     setOpen((prev) => {
@@ -148,7 +139,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
     <div style={headRow}>
       {/* echo={false}: this heading IS the section's accessible name (aria-labelledby reads the
           element's full text; an echo would name the region in both scripts at once). */}
-      <h2 id="settled-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
+      <h2 id="settled-h" tabIndex={-1} className="staff-zone-head">
         <Chrome lang={lang} k="floor.settled.head" />
       </h2>
       <button

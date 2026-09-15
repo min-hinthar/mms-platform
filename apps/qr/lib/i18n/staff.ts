@@ -56,7 +56,6 @@ export const STAFF = {
   "what.kitchen": { en: "the kitchen board", my: "မီးဖိုချောင် ဘုတ်" }, // glossary: မီးဖိုချောင်
   "what.menuPrices": { en: "menu prices", my: "မီနူး ဈေးနှုန်း" },
   "what.table": { en: "this table", my: "ဒီစားပွဲ" }, // glossary: စားပွဲ
-  "what.feedback": { en: "feedback", my: "ဧည့်သည် မှတ်ချက်" },
   "what.tips": { en: "today’s tips", my: "ဒီနေ့ အပိုကြေး" },
   "what.lock": { en: "the lock screen", my: "သော့ခတ် စခရင်" },
   "what.queue": { en: "the queue", my: "အော်ဒါတန်း" },
@@ -260,6 +259,10 @@ export const STAFF = {
   "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.a11y.railView": { en: "Rail view", my: "ဘေးဘား အမြင်" },
   "kds.a11y.volume": { en: "Chime volume", my: "အသံ အတိုးအကျယ်" },
+  // A4·5 — the wall's link is a circle in this bar, named by sr-only text like the counter's
+  // approvals circle (the glyph is a TV). It was the doors' `floor.nav.board` tile from P7 to
+  // A4·5, and reachable only by bookmark before that.
+  "kds.nav.wall": { en: "TV board", my: "တီဗီ ဘုတ်" },
   "kds.a11y.pager": { en: "Ticket pages", my: "အော်ဒါ စာမျက်နှာများ" },
   "kds.a11y.prevPage": { en: "Previous page", my: "ရှေ့ စာမျက်နှာ" },
   "kds.a11y.nextPage": { en: "Next page", my: "နောက် စာမျက်နှာ" },
@@ -277,7 +280,6 @@ export const STAFF = {
   // different wording, and one key would force them to move together.
   "floor.back": { en: "← Floor", my: "← ခန်းမ" },
   "floor.hi": { en: "Hi, {x}", my: "မင်္ဂလာပါ {x}" },
-  "floor.eyebrow": { en: "Floor", my: "ခန်းမ" },
   // A4·2 — the counter's one screen: the Start zone's visible heading (its region name is
   // `reg.a11y.start`, the same words), the channel chip on a counter order's card, and its status.
   "floor.zone.start": { en: "Start an order", my: "အော်ဒါ စဖွင့်" },
@@ -759,7 +761,7 @@ export const STAFF = {
   //
   // Vocabulary is reused, never re-invented: ကောင်တာ from `floor.counter.chip`, မီးဖိုချောင် from
   // `kds.title` (owner-verified W21), ထုတ်ပေးရေး from `kds.station.expo` where it still applies, ခွင့်ပြုချက်များ from
-  // `what.approvals`, ဧည့်သည် မှတ်ချက် from `what.feedback`, အပိုကြေး from `what.tips`, and
+  // `what.approvals`, ဧည့်သည် မှတ်ချက် from `floor.fb.title`, အပိုကြေး from `what.tips`, and
   // မီနူး ဈေးနှုန်း / မီနူး ရနိုင်မှု verbatim from `browse.price.title`/`titleAvail` — the pill and
   // the page it opens must not read as two different screens.
   "floor.nav.kitchen": { en: "Kitchen →", my: "မီးဖိုချောင် →" },
@@ -768,10 +770,8 @@ export const STAFF = {
   // reads "Approvals (1)" and "Approvals (3)" identically; the fork is has-a-count vs has-none.
   "floor.nav.approvals": { en: "Approvals →", my: "ခွင့်ပြုချက်များ →" },
   "floor.nav.approvalsCount": { en: "Approvals ({n}) →", my: "ခွင့်ပြုချက်များ ({n}) →" },
-  "floor.nav.feedback": { en: "Feedback →", my: "ဧည့်သည် မှတ်ချက် →" },
   // A4·3 — the zone's own heading (`floor.settled.head`) with an arrow: `reg.day.refunded.*` /
   // `reg.day.note` point staff at "Settled today" — the tile, the heading and the pointer are one name.
-  "floor.nav.settled": { en: "Settled today →", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ →" },
   "floor.nav.menuPrices": { en: "Menu prices →", my: "မီနူး ဈေးနှုန်း →" },
   "floor.nav.menuAvailability": { en: "Menu availability →", my: "မီနူး ရနိုင်မှု →" },
   "floor.nav.tips": { en: "Tips today →", my: "ဒီနေ့ အပိုကြေး →" },
@@ -779,7 +779,6 @@ export const STAFF = {
   // INTERPOLATED values; strings.test.ts pins that). Same word as `table.appr.confirm.*`.
   "floor.nav.pin": { en: "Your PIN →", my: "ကိုယ့် ပင်နံပါတ် →" },
   "floor.nav.pinSet": { en: "Set a tablet PIN →", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ် →" },
-  "floor.nav.team": { en: "Manage staff →", my: "ဝန်ထမ်း စီမံ →" },
   // ── P7 — the two DOORS `/staff` opens on, and the More grid beneath them ──────────────────────
   // The kitchen door's title is `kds.title` itself (မီးဖိုချောင်, owner-verified in W21): the wall,
   // the pass and the door must say ONE word for the kitchen, so no second key exists for it. The
@@ -800,10 +799,8 @@ export const STAFF = {
   "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
   // A4·2 — the one list holds tables AND counter orders; its name says so, like its heading.
   "floor.a11y.rows": { en: "Tables & counter orders", my: "စားပွဲများနဲ့ ကောင်တာ အော်ဒါများ" },
-  // Two surfaces that were reachable only by bookmark (the wall TV) or from the manager-only pilot
-  // sheet (the word-check sheet): Mom on the kitchen tablet could never reach the sheet at all.
-  "floor.nav.board": { en: "TV board →", my: "တီဗီ ဘုတ် →" },
-  "floor.nav.glossary": { en: "Word check →", my: "စာလုံး စစ်ဆေးစာရွက် →" },
+  // A4·5 — the wall and the word-check sheet left this grid: the wall is a circle in the kitchen's
+  // bar (`kds.nav.wall`), the sheet a print circle in the Menu screen's (`browse.price.wordCheck`).
 
   // ── the floor board: a region name with no visible label to pair with ─────
 
@@ -1141,6 +1138,9 @@ export const STAFF = {
   // a server on a page headed one thing whose only list announced the other. The literal had the
   // same defect; moving it into a key was the moment to split it.
   "browse.price.a11y.list": { en: "Menu prices", my: "မီနူး ဈေးနှုန်းများ" },
+  // A4·5 — the printed word-check sheet (`/staff/glossary`) is this screen's action, a print
+  // circle in the bar named by sr-only text; its words are `pilot.gloss.title`'s, the sheet's own.
+  "browse.price.wordCheck": { en: "Word check", my: "စာလုံး စစ်ဆေးစာရွက်" },
   "browse.price.a11y.listAvail": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
   // The price field's sr-only <label>. It carries the dish, so it is `tf()`/<Chrome>, never `sx()`.
   "browse.price.a11y.newPrice": {
@@ -1149,7 +1149,7 @@ export const STAFF = {
   },
 
   // ═══ P2 PR B · people ═══════════════════════════════════════════════════════════
-  // ── the floor: guest feedback triage (/staff/feedback) ────────────────────
+  // ── the floor: guest feedback triage (a zone of /staff/tips since A4·5) ──
   // The star name is aria-ONLY and takes TWO count slots, so it goes through `tf`, not `sx` —
   // `sx()` takes no vars. Both {n} and {total} are prose counts and become Burmese numerals.
   "floor.fb.title": { en: "Guest feedback", my: "ဧည့်သည် မှတ်ချက်" },
@@ -1669,7 +1669,7 @@ export const STAFF = {
   // ── P5 · the pilot loop: the printed word-check sheet and tonight's numbers ────────────────
   // Two surfaces, one namespace. `pilot.gloss.*` is the sheet Mom and Dad mark up over dessert —
   // the instrument that turns K15 from a blocker into pilot OUTPUT — and `pilot.night.*` is the
-  // read-only nightly sheet on /staff/feedback. Both are read by the two people whose language
+  // read-only nightly sheet beneath the tips on /staff/tips. Both are read by the two people whose language
   // this whole arc exists for, so both are Burmese-primary with the English echo beside.
   "pilot.gloss.title": { en: "Word check", my: "စာလုံး စစ်ဆေးစာရွက်" },
   // ⚠️ THE SCOPE IS IN THE SENTENCE, and it was not in the first draft. "Every Burmese word this

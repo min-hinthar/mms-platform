@@ -8,7 +8,8 @@ import { promoFigure } from "@/lib/pilot-night";
 import type { StaffLang } from "@/lib/staff-lang";
 
 /**
- * P5 — tonight's pilot sheet, on `/staff/feedback` (`docs/PILOT_PLAN.md` §3 P5).
+ * P5 — tonight's pilot sheet, beneath the tips on `/staff/tips` since A4·5 (built for
+ * `/staff/feedback`, `docs/PILOT_PLAN.md` §3 P5; that route redirects here now).
  *
  * The pilot's nightly ritual is: read the numbers, collect the marked-up word-check sheet, and
  * confirm nothing was charged that has no order behind it. Five of those numbers already existed
@@ -31,10 +32,10 @@ import type { StaffLang } from "@/lib/staff-lang";
  *   • A failed read is never a zero — `getPilotNight` collapses to `ok: false` and this renders the
  *     "can't read tonight" sentence instead of a confident, false quiet night.
  *
- * ⚠️ IT MUST NOT MOUNT `<StaffLangSwitch>`, directly or through anything it imports.
- * `app/staff/feedback/page.tsx` is on `check-staff-lang.mjs`'s SWITCH_TODO ratchet, whose self-check
- * fails a listed page that HAS a control — converting that page is P2 PR B's slice, not this one,
- * and a switch arriving here by a transitive import would redden their ratchet from our diff.
+ * ⚠️ IT MUST NOT MOUNT `<StaffLangSwitch>`, directly or through anything it imports. The page's
+ * bar carries the one control (`check-staff-lang.mjs` rule 4); a second reached through this sheet
+ * would be two writes racing for one cookie and two groups with one name, and rule 4 fails a page
+ * that reaches the switch through more than one module.
  */
 export async function PilotNightSheet() {
   const lang = await readStaffLang();

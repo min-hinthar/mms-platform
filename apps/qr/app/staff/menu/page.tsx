@@ -1,4 +1,6 @@
 import { type CSSProperties } from "react";
+import Link from "next/link";
+import { Icon } from "@mms/ui";
 import { publicClient } from "@mms/db/server";
 import { requireStaffPage } from "@/lib/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
@@ -32,6 +34,12 @@ export const dynamic = "force-dynamic";
  * `app/staff/layout.tsx`: the layout renders no chrome of its own, because a strip it added would be
  * silently subtracted from every measured surface beneath it. `check-staff-lang.mjs` rule 4 is what
  * holds this surface to the mount.
+ *
+ * A4·5 — this is the MENU screen, one of the five. The printed word-check sheet (`/staff/glossary`,
+ * P5 — a list of every staff word with its Burmese, and the dish names are checked on the ticket)
+ * is an ACTION of this screen now, a print circle in the bar, rather than a tile on the doors: it
+ * is the menu's paperwork. The sheet itself is unchanged, and stays its own route because it is a
+ * printable document with its own layout.
  */
 export default async function StaffMenuPrices() {
   const caller = await requireStaffPage();
@@ -72,6 +80,16 @@ export default async function StaffMenuPrices() {
       <StaffBar
         lang={lang}
         title={canEditPrice ? "browse.price.title" : "browse.price.titleAvail"}
+        // The word-check sheet, as a circle — named by sr-only text like the counter's approvals
+        // circle (the sheet's own title, no arrow), and a real link, so it opens with JavaScript off.
+        trailing={
+          <Link href="/staff/glossary" className="staff-circ staff-press">
+            <Icon name="print" size={20} />
+            <span className="sr-only">
+              <Chrome lang={lang} k="browse.price.wordCheck" />
+            </span>
+          </Link>
+        }
         lock={hasPin}
       />
       <div className="staff-col" style={wrap}>

@@ -38,7 +38,7 @@ thing being measured.
 | A4·2     | Tables & settle | ✅ Floor + register + expo on one screen; `/staff/register` and `/staff/expo` become redirects; K30 (B) "kitchen done" badge on the to-go lane; the approvals count in the bar.                                                                                                                                                                                                                                              | K30 (B) · M204 groundwork |
 | A4·3     | Tables & settle | ✅ The manager rails: approvals and "settled today" with the refund console reading the receipt (`receipt-view.ts` · `refund-view.ts`); `/staff/approvals` and `/staff/orders` redirect. ⚠️ `refunds.ts` has no mutant — this PR lands one.                                                                                                                                                                                  | M204 · M183 · F18 (b)     |
 | A4·4     | Sign-in         | ✅ login · lock · profile · team as one screen with states; `/staff/profile` and `/staff/team` redirect. The front-door rules of §17 (top-aligned card, the escape a quiet link, last) hold for every state.                                                                                                                                                                                                                 | —                         |
-| A4·5     | Menu + Tips     | Glossary → a Menu action; feedback → beneath Tips; the More grid → three tiles. `resolveStaffHome` unchanged.                                                                                                                                                                                                                                                                                                                | —                         |
+| A4·5     | Menu + Tips     | ✅ Glossary → a Menu action; feedback → beneath Tips; the More grid → three tiles. `resolveStaffHome` unchanged.                                                                                                                                                                                                                                                                                                             | —                         |
 
 Owner decisions this plan does NOT make: **K32 (b)** (a table number on the wall is a SPEC reversal
 of SPEC-KDS §6, pinned by `route.test.ts`'s whole-body property — needs Min's word); **K30 (A)**
@@ -180,3 +180,39 @@ three dead keys (`what.team`, `what.profile`, `floor.team.backToFloor`) with the
 
 Not in A4·4: the roster form's own English (P2m — the heading, labels, options and tags stay as A6
 built them), `RoleBadge`, any change to the lock screen, the More grid itself (A4·5).
+
+## A4·5 — Menu + Tips (scoped and built 2026-09-15)
+
+The last slice, and the smallest: two screens keep their bodies and each gains the one thing
+that belonged beside it, and the grid beneath the doors becomes the three tiles the map promised.
+
+- **Menu** — the price/availability screen as built. The word-check sheet is its ACTION, a print
+  circle in the bar (`browse.price.wordCheck`, the sheet's own title — named by sr-only text, the
+  counter's approvals-circle shape, because `sx()` on an element with a glyph child is what rule 3
+  refuses). The sheet keeps `/staff/glossary`: it is a printable document with its own layout, and
+  a route that renders is not a fold candidate — only its tile was.
+- **Tips** — the tips as built; beneath them, for a manager, the pilot's nightly sheet (its own
+  gate, as before) and the guest feedback ZONE (`#fb-h`) the old page was. The read is advisory:
+  made only for a manager, its failed table read is the zone's own line, a thrown gate is caught
+  to that line, and a server's screen simply ends after the tips.
+- **The More list** — `lib/staff-more.ts` · `moreTiles({ view, role, hasPin })`, the one statement
+  of it: Menu · Tips · Sign-in behind the doors; the same three on the counter's screen with the
+  kitchen board FIRST as a plain link (the P7 blind pass's CRITICAL 3 — a manager peeking at the
+  board must not re-door the tablet). Role changes a label, never a tile. The wall's link goes to
+  the Kitchen's bar (`kds.nav.wall`) — it had no other in-app home.
+- **The name.** The counter screen's bar and tab read `floor.door.counter` ("Counter & tables"),
+  the rename A4·2 deferred; `floor.eyebrow` is gone. No new Burmese anywhere in the slice: both
+  new keys carry the words of the keys they replace.
+- **One zone-focus rule** — `useZoneFocus` / `<ZoneFocus>`, replacing three copies and serving the
+  server-rendered feedback heading.
+
+`/staff/feedback` → `redirect("/staff/tips#fb-h")`; rule 4 reads 9/9 + 7 exempt and its page floor
+moves to nine in the same commit. `resolveStaffHome` is untouched.
+
+**The one thing the first pushed head got wrong**, found by the blind pass: folding the counted
+approvals tile into the counter bar's circle left the DOORS with no pending-void signal and no
+non-committing way to the queue — only the Counter door, which re-doors the tablet. The circle now
+rides both bars, and `approvalsHref` states where it points as a tested rule: the bare fragment on
+the counter's screen, `/staff?floor=1#appr-h` behind the doors.
+
+Not in A4·5: the roster form's English (P2m), `RoleBadge`, the lock screen. A4 is complete.

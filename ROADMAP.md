@@ -330,8 +330,8 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
       by subtraction) — shipped 2026-09-13: every freeze keyed on a per-request uuid, the same-owner
       re-acquire arm removed, the by-cart release deleted, extends scoped and reporting, the Terminal
       acting on a lost mutex, the share route extending before it mints.
-- [ ] **A4 — `/staff` to five screens** — Kitchen · Tables & settle · Menu · Tips · Sign-in. The map
-      and the order: `docs/A4_PLAN.md`.
+- [x] **A4 — `/staff` to five screens** — Kitchen · Counter & tables · Menu · Tips · Sign-in, done
+      in five slices (#281 · #282 · #283 · #284 · A4·5). The map and the order: `docs/A4_PLAN.md`.
   - [x] **A4·1 — Kitchen + the wall** (2026-09-13): the served rail (K31), one service-day rule,
         one Burmese name loader (F18 a), the wall's wait minutes + saturation refusal (K32 a).
   - [x] **A4·2 — Tables & settle** (2026-09-13): floor + register + expo on one screen; K30 (B); the
@@ -340,7 +340,9 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
         settled today reading the receipt (M204 · M183 · F18 b in part); the two routes redirect.
   - [x] **A4·4 — Sign-in** (2026-09-14): login · lock · profile · team as one screen with states;
         the two routes redirect; the profile converted to the dictionary (the K25 profile part).
-  - [ ] **A4·5 — Menu + Tips**: glossary → Menu; feedback → Tips; the More grid → three tiles.
+  - [x] **A4·5 — Menu + Tips** (2026-09-15): the word-check sheet as the Menu screen's action;
+        guest feedback beneath the tips; the More list → three tiles (`moreTiles`); the wall's link
+        on the kitchen's bar; the counter screen named like its door; one zone-focus rule.
 - [x] **A5 · A6 · A7 — the owner-reported defects** — the floor drill-down after a table pays, managers
       inviting staff and assigning roles, and orders following a diner onto their account (#278, `b341ac9`).
 - [x] **A7b — the Google sign-in dead end** — a returning customer's "Continue with Google" calls
