@@ -2226,3 +2226,7 @@ To watch `counter-boards.test.tsx` fail on the shape it was written against, the
 - **`getByText("x")` on `<span> · <Chrome/></span>` misses.** Under `en` `<Chrome>` returns a bare
   text node, so the span's text is `" · x"`; the default matcher compares the whole element's
   normalized text. Match the fragment with a regex, or query the element that carries only `x`.
+
+## #114 — A self-scheduled hourly re-check on a PARKED PR is a usage drain, not a wait (2026-09-15, A4·4, owner directive)
+
+#284 sat as a draft for a day and a half waiting on Min's merge go. A `send_later` loop re-armed itself every ~60 min "silently" — each firing was a full model turn (five `pull_request_read` calls, a re-arm) that found nothing, roughly thirty-six turns for zero information, and it ran the owner's plan usage down. Owner, 2026-09-15: "Stop! You are running down my usage with hourly check-ins! Never do that again." The rule: **a parked PR waits on EVENTS ONLY** — the PR subscription (`subscribe_pr_activity`) wakes the session on a comment, a review or a check, and the owner's go arrives as a message. Never `send_later` / cron a re-check on a PR that is merely waiting for a human, and never re-arm one that found nothing. The only self-wake that earns its turn is a single one-shot aimed at a specific in-flight signal the harness cannot deliver (a Codex round you just asked for, a CI run you kicked), and it is not re-armed. The harness's generic "schedule a self check-in roughly an hour out" guidance is overridden by this directive in this repo.
