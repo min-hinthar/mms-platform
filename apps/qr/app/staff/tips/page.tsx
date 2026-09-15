@@ -1,19 +1,26 @@
 import { type CSSProperties } from "react";
-import { requireStaffPage } from "@/lib/staff";
+import { requireStaffPage, roleAtLeast } from "@/lib/staff";
 import { getDayTips } from "@/lib/register";
+import { getStaffFeedback, type StaffFeedbackResult } from "@/lib/feedback";
+import { Card, Icon } from "@mms/ui";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
+import { PilotNightSheet } from "@/components/staff/PilotNightSheet";
+import { ZoneFocus } from "@/components/staff/ZoneFocus";
 import { staffHasPin } from "@/lib/staff-pin";
 import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
-import { plural } from "@/lib/i18n/fill";
+import { plural, tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
+import type { StaffLang } from "@/lib/staff-lang";
 
 export const metadata = { title: "Tips today — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
 
 /**
- * W17c-4 — tip transparency for the team.
+ * W17c-4 — tip transparency for the team; since A4·5 the TIPS screen, one of the five, with the
+ * day's guest feedback beneath it for a manager (the old `/staff/feedback`, which redirects here:
+ * the tips and the feedback are the same end-of-day read).
  *
  * Two buckets, never blended, because only some tips can be attributed to a person: `settled_by` is
  * stamped when a staff member took the money, and null when the guest paid on their own phone. This
@@ -24,22 +31,39 @@ export const dynamic = "force-dynamic";
  * A server sees their own line; a manager or owner sees everyone's. The role rule lives in
  * `getDayTips`, not here — this is a read of what colleagues earned.
  *
- * ⚠️ P2 — THE THREE <h2>s TAKE echo={false}, AND THAT IS NOT AN ECHO-POLICY LAPSE. Each one is the
+ * ⚠️ P2 — THE <h2>s TAKE echo={false}, AND THAT IS NOT AN ECHO-POLICY LAPSE. Each one is the
  * target of its section's `aria-labelledby`, and a computed accessible name is the element's FULL
  * text: with an echo, the section would be named "ဒီနေ့ အပိုကြေး အားလုံးAll tips today". The heading
  * is bilingual for the eye through the page's other chrome, never by concatenating two scripts into
  * one region name.
+ *
+ * A4·5 — the feedback zone is ADVISORY, like the roster on the sign-in screen: its read is made
+ * only for a manager (the read itself re-checks that floor — `getStaffFeedback` is public POST
+ * shape), and a failed read prints its own honest line (`floor.fb.unavailable`) beneath the zone's
+ * heading rather than taking the tips above it down. The pilot's nightly sheet (P5) sits above
+ * the zone as it sat above the old page's list, behind its own gate.
  */
 export default async function StaffTipsPage() {
   const caller = await requireStaffPage();
   // W10b: an unknowable gate keeps the URL and renders the outage shell — never a login redirect.
   if (!caller) return <StaffOutageShell what="what.tips" />;
   const hasPin = await staffHasPin(caller.staffId);
+  const isManager = roleAtLeast(caller.role, "manager");
 
   const res = await getDayTips();
   // A failed read must never render as "you were tipped nothing" — the worst false verdict on a
   // screen whose whole job is telling someone what they earned.
   if (!res.ok) return <StaffOutageShell what="what.tips" />;
+
+  // The feedback read, for a manager only, AFTER the tips gate held: `getStaffFeedback` answers an
+  // OUTCOME for a failed table read, and a thrown gate (an outage between the two reads) is caught
+  // to the same outcome — a zone's read must not take the screen down (the A4·3 posture).
+  const feedback: StaffFeedbackResult | null = isManager
+    ? await getStaffFeedback().catch((e: unknown) => {
+        console.error("[tips] feedback zone read threw", e);
+        return { ok: false } as const;
+      })
+    : null;
 
   const lang = await readStaffLang();
   const { report, names, scope } = res;
@@ -167,8 +191,144 @@ export default async function StaffTipsPage() {
             <Chrome lang={lang} k="floor.tips.selfNote" echo="stack" />
           </p>
         )}
+
+        {/* A4·5 — the manager's end-of-day read continues beneath the tips: tonight's pilot sheet
+          (P5, behind its own gate), then the guest feedback zone the old `/staff/feedback` page was.
+          A server sees neither — no "managers only" dead end, the screen simply ends. */}
+        {feedback !== null && (
+          <>
+            <div style={{ marginTop: "var(--s6)" }}>
+              <PilotNightSheet />
+            </div>
+            <FeedbackZone lang={lang} feedback={feedback} />
+          </>
+        )}
       </div>
     </main>
+  );
+}
+
+/**
+ * Manager+ feedback triage (M4 P4.3) — the staff side of the UNGATED review loop. Diners rate every
+ * order (ungated; the public-review link is offered to all on /track); here a manager sees recent
+ * feedback with LOW ratings (≤3) surfaced for recovery. Read-only (owner-read RLS backs the table);
+ * a server snapshot — low volume, no live poll needed. A zone of the Tips screen since A4·5.
+ */
+function FeedbackZone({ lang, feedback }: { lang: StaffLang; feedback: StaffFeedbackResult }) {
+  // P5 — the read reports its OUTCOME (lib/feedback.ts): a failed read must not render as "No
+  // feedback yet", least of all beside a pilot sheet that reads its own rating count from a query
+  // that fails loud. `rows` is only ever consulted when the read actually happened.
+  const rows = feedback.ok ? feedback.rows : [];
+  const lowCount = rows.filter((r) => r.rating <= 3).length;
+  return (
+    <section className="staff-zone" aria-labelledby="fb-h" style={{ marginTop: "var(--s6)" }}>
+      {/* echo={false}: this heading IS the zone's accessible name. `/staff/feedback` redirects onto
+          this fragment; the heading takes focus on arrival (`ZoneFocus`). */}
+      <h2 id="fb-h" tabIndex={-1} className="staff-zone-head">
+        <Chrome lang={lang} k="floor.fb.title" />
+      </h2>
+      <ZoneFocus id="fb-h" />
+      <p style={{ ...sub, marginTop: "var(--s3)" }}>
+        {/* P5 ∩ P2 — the FAILURE arm comes first and is its own sentence, never a fall-through to
+          `floor.fb.empty`: "No feedback yet" on a read that never happened is the exact fabricated
+          verdict M116/M119 were filed for. Bilingual like every other arm — a manager who reads
+          Burmese must not be the only one told nothing went wrong. */}
+        {!feedback.ok ? (
+          <Chrome lang={lang} k="floor.fb.unavailable" echo="stack" />
+        ) : rows.length === 0 ? (
+          <Chrome lang={lang} k="floor.fb.empty" echo="stack" />
+        ) : lowCount > 0 ? (
+          <Chrome
+            lang={lang}
+            k={plural(lowCount, "floor.fb.low.one", "floor.fb.low.many")}
+            vars={{ n: lowCount }}
+            echo="stack"
+          />
+        ) : (
+          <Chrome lang={lang} k="floor.fb.allGood" echo="stack" />
+        )}
+      </p>
+
+      {rows.length > 0 && (
+        <ul
+          role="list"
+          // QA §A: a `role="list"` with `list-style: none` needs a name. It has no visible label of
+          // its own, so the name is aria-only — `sx()`, never `al()`.
+          aria-label={sx(lang, "floor.fb.a11y.list")}
+          style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}
+        >
+          {rows.map((r) => {
+            const low = r.rating <= 3;
+            return (
+              <Card
+                as="li"
+                key={r.id}
+                style={{ ...rowCard, borderColor: low ? "var(--warn)" : "var(--bd)" }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 10,
+                  }}
+                >
+                  <span
+                    role="img"
+                    // Two runtime counts, so this is `tf` and not `sx` — `sx()` takes no vars. Both
+                    // ride count slots, so a Burmese console announces "ကြယ် ၅ ထဲမှ ၄ ကြယ်".
+                    aria-label={tf(lang, "floor.fb.a11y.stars", { n: r.rating, total: 5 })}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 2,
+                      color: low ? "var(--warn)" : "var(--ac)",
+                    }}
+                  >
+                    {Array.from({ length: 5 }, (_, i) => (
+                      <Icon
+                        key={i}
+                        name="star"
+                        size={15}
+                        fill={i < r.rating ? "currentColor" : "none"}
+                      />
+                    ))}
+                  </span>
+                  {/* A badge, not a control — echo={false}: two scripts cannot legibly stack in a chip. */}
+                  {low && (
+                    <span style={followChip}>
+                      <Chrome lang={lang} k="floor.fb.followUp" />
+                    </span>
+                  )}
+                  <span
+                    style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
+                  >
+                    {new Date(r.createdAt).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                {r.comment && (
+                  <p
+                    style={{
+                      margin: "6px 0 0",
+                      fontSize: "var(--fs-sm)",
+                      color: "var(--tx)",
+                      lineHeight: 1.5,
+                    }}
+                  >
+                    “{r.comment}”
+                  </p>
+                )}
+              </Card>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -195,3 +355,16 @@ const name: CSSProperties = { margin: 0, fontWeight: 700, fontSize: "var(--fs-bo
 const youTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: 600 };
 const amount: CSSProperties = { fontWeight: 800, fontSize: "var(--fs-body)" };
 const muted: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--fs-sm)" };
+const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+// Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
+const rowCard: CSSProperties = {
+  padding: "12px 14px",
+};
+const followChip: CSSProperties = {
+  fontSize: "var(--fs-xs)",
+  fontWeight: 800,
+  color: "var(--warn)",
+  border: "1px solid var(--warn)",
+  borderRadius: 999,
+  padding: "2px 8px",
+};

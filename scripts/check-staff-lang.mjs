@@ -1233,7 +1233,7 @@ function isRedirectOnlyPage(file, srcOverride) {
 const allStaffPages = walkFiles(join(APP, "staff")).filter((f) => f.endsWith("/page.tsx"));
 const redirectPages = allStaffPages.filter((f) => isRedirectOnlyPage(f));
 const staffPages = allStaffPages.filter((f) => !redirectPages.includes(f));
-if (staffPages.length < 10)
+if (staffPages.length < 9)
   failures.push(
     `rule 4 DID NOT RUN: found only ${staffPages.length} staff pages — the discovery is broken, not the codebase.`,
   );

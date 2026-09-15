@@ -23,6 +23,7 @@ import { RelativeTime } from "./RelativeTime";
 import { StaggerList } from "./StaggerList";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { useStaffLang } from "./StaffLangProvider";
+import { useZoneFocus } from "./ZoneFocus";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
@@ -216,17 +217,10 @@ export function ApprovalsBoard({
       headingRef.current?.focus({ preventScroll: true });
     hadRealFocus.current = document.activeElement !== document.body;
   }, [snap]);
-  // A4·3 — `/staff/approvals` redirects onto this zone's fragment; a fragment scrolls but does not
-  // move focus (WCAG 2.4.3). Take it on arrival — and on a same-page jump (the bar's approvals
-  // circle, the doors' More tile), which changes the hash with no mount (Codex round 1 on #283).
-  useEffect(() => {
-    const take = () => {
-      if (window.location.hash === "#appr-h") headingRef.current?.focus({ preventScroll: true });
-    };
-    take();
-    window.addEventListener("hashchange", take);
-    return () => window.removeEventListener("hashchange", take);
-  }, []);
+  // A4·3 — `/staff/approvals` redirects onto this zone's fragment and the bar's approvals circle
+  // jumps to it on the same page; the heading takes focus both ways (`useZoneFocus`, the one copy
+  // of the rule since A4·5). The catch-all above keeps its ref: it fires on a bump, not a hash.
+  useZoneFocus("appr-h");
 
   const count = snap.length;
 

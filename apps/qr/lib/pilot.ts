@@ -107,7 +107,7 @@ export type PilotNightResult =
   | { ok: true; night: PilotNight }
   | { ok: false; reason: "outage" | "forbidden" };
 
-/** The rating at or below which a review needs follow-up — the same floor `/staff/feedback` uses. */
+/** The rating at or below which a review needs follow-up — the same floor the guest-feedback zone of `/staff/tips` uses. */
 const LOW_RATING = 3;
 
 /** A head-count read's answer, or `null` when PostgREST did not actually count one. */

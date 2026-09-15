@@ -2,12 +2,12 @@
 import { useRouter } from "next/navigation";
 import { type MouseEvent, useRef, useState } from "react";
 import Link from "next/link";
-import { Icon, type IconName } from "@mms/ui";
+import { Icon } from "@mms/ui";
 import { setStaffDoor } from "@/lib/staff-door-actions";
 import { STAFF_DOOR_TARGET, type StaffDoor, parseStaffDoor } from "@/lib/staff-door";
 import { haptic } from "@/lib/haptics";
 import type { StaffLang } from "@/lib/staff-lang";
-import type { StaffKey } from "@/lib/i18n/staff";
+import type { MoreTile } from "@/lib/staff-more";
 import { sx } from "@/lib/staff-labels";
 import { Chrome } from "./Chrome";
 
@@ -33,14 +33,6 @@ import { Chrome } from "./Chrome";
  * The door this tablet walked through wears the lit-gold cap (`aria-current="true"`) and says so in
  * words: a gold border alone is a status nobody can name.
  */
-export type MoreTile = {
-  href: string;
-  k: StaffKey;
-  icon: IconName;
-  /** The one slot a tile label may carry (`floor.nav.approvalsCount`'s `{n}`). */
-  vars?: Record<string, string | number>;
-};
-
 export function StaffDoors({
   lang,
   current,
@@ -142,13 +134,14 @@ export function StaffDoors({
 }
 
 /**
- * The manager pages beneath the doors — Approvals, Feedback, Orders, Menu, Tips, PIN, Team — plus
- * the two surfaces that were reachable only by bookmark (the TV board) or from the manager-only
- * pilot sheet (the word-check sheet). P7·1b: INSET GROUPED ROWS (the iOS Settings idiom, Burmese
- * first) rather than a tile wall — a 62px row with a tinted glyph square, the name with its English
- * echo beneath, and a disclosure chevron; two columns on a tablet, one on a phone, hairlines drawn
- * once. Still one `role="list"` of real links, named by the visible "More" heading. Role gating
- * happens in the server page that builds `more`.
+ * The other screens beneath the doors — since A4·5 the three that are not a door (Menu · Tips ·
+ * Sign-in; `lib/staff-more.ts` states the list once, and the counter's screen adds the kitchen
+ * board first as a plain link). P7·1b: INSET GROUPED ROWS (the iOS Settings idiom, Burmese first)
+ * rather than a tile wall — a 62px row with a tinted glyph square, the name with its English echo
+ * beneath, and a disclosure chevron; two columns on a tablet, one on a phone, hairlines drawn once.
+ * Still one `role="list"` of real links, named by the visible "More" heading. A tile's label is a
+ * plain key: the one label that carried a count (approvals) moved to the bar's circle with A4·2 and
+ * left the grid with A4·5.
  */
 export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) {
   if (more.length === 0) return null;
@@ -165,7 +158,7 @@ export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) 
                 <Icon name={t.icon} size={22} />
               </span>
               <span className="staff-row-name">
-                <Chrome lang={lang} k={t.k} vars={t.vars} echo="stack" />
+                <Chrome lang={lang} k={t.k} echo="stack" />
               </span>
               <span className="staff-row-chev" aria-hidden>
                 <Icon name="chevron" size={18} />

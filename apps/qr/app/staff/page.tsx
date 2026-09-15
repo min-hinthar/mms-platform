@@ -21,7 +21,8 @@ import { SettledToday } from "@/components/staff/SettledToday";
 import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffDoors, MoreGrid, type MoreTile } from "@/components/staff/StaffDoors";
+import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
+import { moreTiles } from "@/lib/staff-more";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
 import { readStaffLang } from "@/lib/staff-lang-server";
@@ -48,10 +49,10 @@ async function staffHomeFor(searchParams: StaffHomeProps["searchParams"]) {
   return { door, home };
 }
 
-/** The tab reads what the page shows: the doors are "Screens", the counter home is "Floor". */
+/** The tab reads what the page shows: the doors are "Screens", the counter home is named like its door. */
 export async function generateMetadata({ searchParams }: StaffHomeProps): Promise<Metadata> {
   const { home } = await staffHomeFor(searchParams);
-  const what = "redirect" in home || home.view === "floor" ? "Floor" : "Screens";
+  const what = "redirect" in home || home.view === "floor" ? "Counter & tables" : "Screens";
   return { title: `${what} — Mandalay Morning Star` };
 }
 
@@ -62,7 +63,7 @@ export async function generateMetadata({ searchParams }: StaffHomeProps): Promis
  * P7 — `/staff` is THREE things, decided by `resolveStaffHome` from this device's remembered door:
  *
  *   doors  — no door yet, or `?doors=1` (the Screens chip), or an in-app arrival on a kitchen
- *            device: two big tiles, Kitchen and Counter, and the manager pages beneath as More.
+ *            device: two big tiles, Kitchen and Counter, and the three other screens beneath as More.
  *   floor  — a counter device: the counter's one screen (A4·2 · A4·3), in the order the counter
  *            person works it — START an order (walk-up · phone · a table), the TABLES and the
  *            counter orders being built in one list, the TO-GO BAGS lane, then the manager rails
@@ -91,55 +92,21 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
     isManager ? countPendingApprovals() : Promise.resolve(0),
   ]);
 
-  // The More grid — every page that is not a door, role-gated exactly as the old pill row was.
-  // Two of these were reachable from nowhere in-app before P7: the TV board (bookmark only) and the
-  // word-check sheet (only from the manager-only pilot sheet, so Mom could never print her own).
-  // The kitchen board is here as a PLAIN link for everyone (blind pass CRITICAL 3): the only other
-  // way to the board was the Kitchen DOOR — which remembers itself, so a manager peeking at the
-  // board re-doored the counter tablet as a kitchen one. A tile is a look; a door is a decision.
-  // A4·2: no Register and no Expo tile — both are zones of the floor view now. A4·3: the two
-  // manager tiles point at their ZONES on the floor (the doors' More still needs a way there);
-  // the floor branch drops both, because that screen carries them.
-  const more: MoreTile[] = [
-    { href: "/staff/kitchen", k: "floor.nav.kitchen", icon: "flame" },
-    { href: "/board", k: "floor.nav.board", icon: "tv" },
-    ...(isManager
-      ? ([
-          {
-            href: APPROVALS_ZONE,
-            k: pendingApprovals > 0 ? "floor.nav.approvalsCount" : "floor.nav.approvals",
-            icon: "check",
-          },
-          { href: "/staff/feedback", k: "floor.nav.feedback", icon: "star" },
-          { href: SETTLED_ZONE, k: "floor.nav.settled", icon: "receipt" },
-        ] as MoreTile[])
-      : []),
-    { href: "/staff/glossary", k: "floor.nav.glossary", icon: "print" },
-    {
-      href: "/staff/menu",
-      k: isManager ? "floor.nav.menuPrices" : "floor.nav.menuAvailability",
-      icon: "cat-dish",
-    },
-    { href: "/staff/tips", k: "floor.nav.tips", icon: "gift" },
-    // A4·4 — the PIN and the roster live on the sign-in screen (`/staff/profile` and `/staff/team`
-    // are redirects); the roster is a zone, so its tile carries the zone's fragment.
-    { href: "/staff/login", k: hasPin ? "floor.nav.pin" : "floor.nav.pinSet", icon: "lock" },
-    // A6 — MANAGER, matching the screen's own floor. Left at `owner`, the whole feature was
-    // reachable only by typing the URL: the page, `listStaff` and all three actions admit a
-    // manager, and the one link to them did not. Found by a blind audit of this diff.
-    ...(roleAtLeast(caller.role, "manager")
-      ? ([{ href: "/staff/login#team-h", k: "floor.nav.team", icon: "people" }] as MoreTile[])
-      : []),
-  ];
-  // `floor.nav.approvalsCount` carries an `{n}` slot; MoreGrid renders keys without vars, so the
-  // count rides a dedicated tile label built here. Kept as one key so the zero case has no "(0)".
+  // A4·5 — the More list is `moreTiles`, stated once for both branches: Menu · Tips · Sign-in
+  // behind the doors, and the same three on the counter's screen with the kitchen board FIRST as a
+  // plain link (a manager peeking at the board must not walk through the Kitchen DOOR — a door
+  // remembers itself; the P7 blind pass's CRITICAL 3). Every tile the grid used to carry for a
+  // manager alone — approvals, settled today, feedback, the roster — is a zone of one of the five
+  // screens now, reached through that screen; the bar's approvals circle below is the one that
+  // still needs a count.
+  const more = moreTiles({ view: home.view, role: caller.role, hasPin });
   const approvalsVars = pendingApprovals > 0 ? { n: pendingApprovals } : undefined;
 
   // A4·2 — the approvals count rides the counter's BAR (a manager's, in the trailing slot before
   // Help): the row of tiles it used to sit in is gone, and a manager on this screen should see a
   // pending void or refund without scrolling to More. The circle is icon-only to the eye, the count
-  // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the same dictionary key
-  // the More tile uses, so the two never say different things. A4·3: it scrolls to the zone — a
+  // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the dictionary key the
+  // More tile carried until A4·5 folded that tile into this circle. A4·3: it scrolls to the zone — a
   // NATIVE anchor, not <Link>: a same-page fragment through the router changes the URL without a
   // `hashchange`, and the zone's heading takes focus on that event (Codex round 1 on #283, P2 —
   // the router scrolled and left focus on this circle).
@@ -168,7 +135,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const header = (
     <StaffBar
       lang={lang}
-      title={home.view === "floor" ? "floor.eyebrow" : "shell.screens"}
+      title={home.view === "floor" ? "floor.door.counter" : "shell.screens"}
       leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
       after={<RoleBadge role={caller.role} />}
       trailing={home.view === "floor" ? approvalsChip : undefined}
@@ -191,14 +158,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
         {header}
         <div className="staff-col" style={wrapWide}>
           {greeting}
-          <StaffDoors
-            lang={lang}
-            current={door}
-            more={withApprovals(
-              more.filter((t) => t.href !== "/staff/kitchen"), // the Kitchen DOOR is above it
-              approvalsVars,
-            )}
-          />
+          <StaffDoors lang={lang} current={door} more={more} />
         </div>
       </main>
     );
@@ -284,15 +244,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           )}
 
           <div style={{ marginTop: "var(--s6)" }}>
-            {/* The bar carries Approvals for a manager and this screen carries both manager
-                zones, so More drops exactly those two tiles. */}
-            <MoreGrid
-              lang={lang}
-              more={withApprovals(
-                more.filter((t) => t.href !== APPROVALS_ZONE && t.href !== SETTLED_ZONE),
-                approvalsVars,
-              )}
-            />
+            <MoreGrid lang={lang} more={more} />
           </div>
         </div>
       </LiveConnectionProvider>
@@ -300,19 +252,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   );
 }
 
-/** The two manager zones, as the doors' More tiles reach them (`?floor=1` wins over a remembered
- *  kitchen door; the fragment lands on the zone's heading). The folded routes redirect here too. */
-const APPROVALS_ZONE = "/staff?floor=1#appr-h";
-const SETTLED_ZONE = "/staff?floor=1#settled-h";
-
 /** One `allSettled` slot → its value, or the zone's own posture for a rejected read. */
 function settledValue<T, F>(r: PromiseSettledResult<T>, fallback: F): T | F {
   return r.status === "fulfilled" ? r.value : fallback;
-}
-
-/** Threads the approvals count into the one tile that carries an `{n}` slot. */
-function withApprovals(more: MoreTile[], vars: { n: number } | undefined): MoreTile[] {
-  return vars ? more.map((t) => (t.k === "floor.nav.approvalsCount" ? { ...t, vars } : t)) : more;
 }
 
 const wrapWide: CSSProperties = { maxWidth: 1080 };

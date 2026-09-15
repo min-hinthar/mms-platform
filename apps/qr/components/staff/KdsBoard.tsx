@@ -23,6 +23,7 @@ import type {
   KitchenStation,
   KitchenTicket,
 } from "@/lib/kitchen-types";
+import Link from "next/link";
 import { EmptyState, Icon } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
@@ -479,6 +480,19 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         titleRef={headingRef}
         titleTabIndex={-1}
         lock={hasPin}
+        // A4·5 — the wall (`/board`, the TV the kitchen keeps an eye on) is the KITCHEN's, so its
+        // link rides this bar as a circle now that the doors' More is three tiles; it was the one
+        // surface reachable in-app only from that grid (before P7, only by bookmark). Named by
+        // sr-only text like the counter's approvals circle. Same tab, as the tile was: a tablet
+        // peeking at the wall comes back with the browser's own Back.
+        trailing={
+          <Link href="/board" className="staff-circ staff-press">
+            <Icon name="tv" size={20} />
+            <span className="sr-only">
+              <Chrome lang={lang} k="kds.nav.wall" />
+            </span>
+          </Link>
+        }
         middle={
           <div className="staff-seg" role="group" aria-label={sx(lang, "kds.a11y.stationFilter")}>
             {STATIONS.map((s) => (

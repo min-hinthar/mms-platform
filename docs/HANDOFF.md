@@ -5,7 +5,38 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-14 · A4·1 · A4·2 · A4·3 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352`); A4·4 is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open; A4·5 is next)
+> ## ⏭️ NEXT SESSION — start here (2026-09-15 · A4 COMPLETE: A4·1–A4·4 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352` · #284 `c0edc72`); A4·5 is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
+>
+> **A4·5 — Menu + Tips** is the last of the five A4 slices (`docs/A4_PLAN.md` § A4·5): the
+> word-check sheet is the Menu screen's print action (`browse.price.wordCheck`, a circle in the
+> bar → `/staff/glossary`, the sheet unchanged); guest feedback is a manager zone beneath the tips
+> (`/staff/feedback` → `/staff/tips#fb-h`; the read advisory, its failure the zone's own line); the
+> More list is THREE tiles — Menu · Tips · Sign-in — stated once in `lib/staff-more.ts` ·
+> `moreTiles` (the counter's screen keeps the kitchen board first as a plain link); the wall's
+> link is a TV circle on the kitchen's bar (`kds.nav.wall`); the counter screen is named like its
+> door (`floor.door.counter`, `floor.eyebrow` deleted); and the A4·3 zone-focus rule is ONE hook
+> (`components/staff/ZoneFocus.tsx` · `useZoneFocus` / `<ZoneFocus>`) instead of three copies.
+> Rule 4 reads 9/9 + 7 exempt. No new Burmese: both new keys carry the deleted keys' words.
+>
+> ⚠️ **A4·5's PR runs the ritual with NO timed self-check** (owner, 2026-09-15; LEARNINGS #114):
+> the PR subscription wakes the session on a comment, a review or a check, and the owner's go is a
+> message. A session that finds the PR parked leaves it parked.
+>
+> ### What is next
+>
+> 1. **A4 is done; `/staff` is five screens.** The open A-track rows are the owner's: **K32 (b)**
+>    (a table number on the wall is a spec reversal), **K30 (A)** (`kitchen_done_at`, a prod
+>    migration), **K15** (every machine-drafted Burmese string since P2 — the A4·1 · A4·2 · A4·3 ·
+>    A4·4 lists below still stand; A4·5 added none).
+> 2. **A4·3's Codex leftovers:** **M218** (high — a cash refund is TOLD, never recorded; needs
+>    `mms_refund_cash_line` + a prod migration) and **M219** (page the today-ledger read).
+> 3. **P2m** — the roster form's own English under the Burmese switch (`TeamManager`'s heading,
+>    labels, options, tags; `RoleBadge`), and `PinUnlock` / `StaffLogin`'s bare `await` on their
+>    sign-out escapes (the shape A4·4's Codex round 2 fixed on the signed-in card).
+>
+> ---
+>
+> ## ⏭️ (2026-09-14 · A4·1 · A4·2 · A4·3 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352`); A4·4 merged as `c0edc72` (#284); A4·5 is above)
 >
 > **A4·4 — Sign-in** is the fourth of five A4 slices (`docs/A4_PLAN.md` § A4·4 has the shape):
 > `/staff/login` is ONE screen with states, picked by `lib/sign-in-state.ts` · `resolveSignInState`
@@ -900,7 +931,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2544 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
+> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2552 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1792,7 +1823,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2544 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2552 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

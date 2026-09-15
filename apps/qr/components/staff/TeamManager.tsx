@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useState, type CSSProperties, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { provisionStaff, setStaffActive, setStaffRole } from "@/lib/staff-actions";
 import type { StaffRow } from "@/lib/staff";
@@ -9,6 +9,7 @@ import { canActOn, ROLE_ORDER, type StaffRole } from "@/lib/staff-roles";
 import { RoleBadge } from "./RoleBadge";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
+import { useZoneFocus } from "./ZoneFocus";
 import { al, sx } from "@/lib/staff-labels";
 // A rejected Server Action means the request never completed, which IS the outage sentence — and it
 // is the one string <OutageText> has an authored Burmese twin for, so a hand-written apology here
@@ -143,24 +144,15 @@ export function TeamManager({
   }
 
   // A4·4 — the roster is a ZONE of the sign-in screen and `/staff/team` redirects onto its
-  // fragment; a fragment scrolls but does not move focus (WCAG 2.4.3). Take it on arrival — and on
-  // a same-page jump (the doors' More tile from the signed-in state), which changes the hash with
-  // no mount. The A4·3 pattern (`ApprovalsBoard`, `SettledToday`), verbatim.
-  const headingRef = useRef<HTMLHeadingElement>(null);
-  useEffect(() => {
-    const take = () => {
-      if (window.location.hash === "#team-h") headingRef.current?.focus({ preventScroll: true });
-    };
-    take();
-    window.addEventListener("hashchange", take);
-    return () => window.removeEventListener("hashchange", take);
-  }, []);
+  // fragment; the heading takes focus on arrival and on a same-page jump (`useZoneFocus`, the one
+  // copy of the A4·3 rule since A4·5).
+  useZoneFocus("team-h");
 
   return (
     <section className="staff-zone" aria-labelledby="team-h">
       {/* echo={false}: this heading IS the zone's accessible name (aria-labelledby reads the
           element's full text; an echo would name the region in both scripts at once). */}
-      <h2 id="team-h" ref={headingRef} tabIndex={-1} className="staff-zone-head">
+      <h2 id="team-h" tabIndex={-1} className="staff-zone-head">
         <Chrome lang={lang} k="floor.team.title" />
       </h2>
       {initial === null ? (
