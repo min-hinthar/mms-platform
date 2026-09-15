@@ -58,6 +58,12 @@ export default async function StaffTipsPage() {
   // The feedback read, for a manager only, AFTER the tips gate held: `getStaffFeedback` answers an
   // OUTCOME for a failed table read, and a thrown gate (an outage between the two reads) is caught
   // to the same outcome — a zone's read must not take the screen down (the A4·3 posture).
+  //
+  // ⚠️ THE CATCH IS SAFE ONLY WHILE `getStaffFeedback` NAVIGATES FOR NOTHING. Next signals
+  // `redirect()` and `notFound()` by THROWING, so a blanket catch on a call that used either would
+  // swallow the navigation and print "Feedback unavailable" over it. It does not: its only throw is
+  // `requireStaff("manager")`'s `AuthzError` (`lib/staff.ts`), an ordinary error. If that function
+  // ever grows a redirect, this catch has to re-throw it rather than widen.
   const feedback: StaffFeedbackResult | null = isManager
     ? await getStaffFeedback().catch((e: unknown) => {
         console.error("[tips] feedback zone read threw", e);

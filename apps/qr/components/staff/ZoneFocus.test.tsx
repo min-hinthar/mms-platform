@@ -53,11 +53,22 @@ describe("ZoneFocus", () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("stops listening once its zone is gone", async () => {
+  it("holds its listener for as long as the zone is mounted, then detaches THAT one", () => {
+    // A bare "removeEventListener was called with 'hashchange' at some point" would also pass for a
+    // hook that attached and detached in the same breath, or that detached a fresh closure and left
+    // the real listener on the window for the page's life. Both are counted here.
+    const on = vi.spyOn(window, "addEventListener");
     const off = vi.spyOn(window, "removeEventListener");
+    const hash = (c: unknown[]) => String(c[0]) === "hashchange";
     const { unmount } = render(<Zone />);
+    const added = on.mock.calls.filter(hash);
+    expect(added).toHaveLength(1);
+    expect(off.mock.calls.filter(hash)).toHaveLength(0); // still listening while mounted
     unmount();
-    expect(off.mock.calls.some(([type]) => String(type) === "hashchange")).toBe(true);
+    const removed = off.mock.calls.filter(hash);
+    expect(removed).toHaveLength(1);
+    expect(removed[0]![1]).toBe(added[0]![1]); // the same handler, not a look-alike
+    on.mockRestore();
     off.mockRestore();
   });
 });

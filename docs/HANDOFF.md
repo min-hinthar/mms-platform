@@ -66,7 +66,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    (`kds.served.*`, `kds.a11y.served`, `kds.a11y.railView`, `board.card.*`), A4·2
 >    (`floor.zone.start`, `floor.counter.*`, `floor.rows.none`, `expo.kitchenDone`,
 >    `help.how.counter.1` + `.1.more`, `floor.tables.title` re-drafted), A4·3 (`floor.settled.*`,
->    `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`, `floor.nav.settled`;
+>    `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`;
 >    `reg.day.note` + `reg.day.refunded.*` re-pointed) and A4·4 (`entry.me.head`, `entry.pin.*`,
 >    `floor.team.outage`) is a machine draft. **M218** (high — a cash refund is TOLD, never
 >    recorded; needs `mms_refund_cash_line` + a prod migration) and **M219** (page the today-ledger
@@ -124,8 +124,8 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    (`kds.served.*` — `kds.served.moreUnknown` and `kds.served.voided` since the Codex rounds — `kds.a11y.served`, `kds.a11y.railView`, `board.card.*`) and A4·2
 >    (`floor.zone.start`, `floor.counter.*`, `floor.rows.none`, `expo.kitchenDone`,
 >    `help.how.counter.1` + `.1.more`, `floor.tables.title` re-drafted) and A4·3
->    (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`,
->    `floor.nav.settled`; `reg.day.note` + `reg.day.refunded.*` re-pointed) is a machine draft.
+>    (`floor.settled.*`, `floor.refund.*`, `table.appr.msg.*`, `table.appr.refunds.outage`;
+>    `reg.day.note` + `reg.day.refunded.*` re-pointed) is a machine draft.
 >
 > ---
 >
@@ -931,7 +931,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2552 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
+> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2556 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1823,7 +1823,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2552 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2556 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

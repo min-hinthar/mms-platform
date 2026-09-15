@@ -47,10 +47,22 @@ Tips · Sign-in — and the two doors (P7·1) in front of them.
   (`what.feedback`, `floor.eyebrow`, `floor.nav.feedback`, `floor.nav.settled`, `floor.nav.team`,
   `floor.nav.glossary`; `floor.nav.board` became `kds.nav.wall`); the two new keys carry the
   Burmese the deleted ones did, verbatim — nothing new for K15.
-- **Guards, red-first.** `staff-more.test.ts` was watched red under two hand mutations (the
-  kitchen tile last instead of first; the manager's label for every role); `ZoneFocus.test.tsx`
-  and `TeamManager.test.tsx` both went red without the `hashchange` listener. `resolveStaffHome`
-  is untouched, as the plan promised.
+- **The approvals circle rides BOTH bars — the blind pass's CRITICAL, and the slice's own trap
+  sprung backwards.** Folding the counted More tile into the counter bar's circle made that circle
+  the ONLY pending-void signal there is, and it was still drawn for the floor view alone: a manager
+  on Mom's kitchen tablet (a warm `/staff`, or the Screens circle) saw no count at all, and the one
+  in-app route left to the queue was the Counter DOOR — which remembers itself and would re-door the
+  tablet, verbatim the trap `moreTiles` refuses for the board in the other direction. The circle is
+  now on the doors' bar too, pointing at `approvalsHref("doors")` — `/staff?floor=1#appr-h`, the URL
+  `resolveStaffHome` honours WITHOUT writing the cookie, so a look stays a look. Both manager zones
+  sit on the screen it opens.
+- **Guards, red-first.** `staff-more.test.ts` was watched red under four hand mutations (the kitchen
+  tile last instead of first; the manager's label for every role; the doors href collapsed to a bare
+  fragment; a slot-bearing label on a tile — `MoreGrid` fills no slots, so that one would print a
+  literal `{n}` at a staff member). `ZoneFocus.test.tsx` and `TeamManager.test.tsx` both went red
+  without the `hashchange` listener, and the lifetime case again when the cleanup detached a
+  look-alike closure instead of the listener it added. `resolveStaffHome` is untouched, as the plan
+  promised.
 
 Closes **A4**. Not in A4·5: the roster form's own English (P2m), `RoleBadge`, the lock screen.
 

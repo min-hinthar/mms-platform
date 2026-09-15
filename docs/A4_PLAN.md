@@ -209,4 +209,10 @@ that belonged beside it, and the grid beneath the doors becomes the three tiles 
 `/staff/feedback` → `redirect("/staff/tips#fb-h")`; rule 4 reads 9/9 + 7 exempt and its page floor
 moves to nine in the same commit. `resolveStaffHome` is untouched.
 
+**The one thing the first pushed head got wrong**, found by the blind pass: folding the counted
+approvals tile into the counter bar's circle left the DOORS with no pending-void signal and no
+non-committing way to the queue — only the Counter door, which re-doors the tablet. The circle now
+rides both bars, and `approvalsHref` states where it points as a tested rule: the bare fragment on
+the counter's screen, `/staff?floor=1#appr-h` behind the doors.
+
 Not in A4·5: the roster form's English (P2m), `RoleBadge`, the lock screen. A4 is complete.

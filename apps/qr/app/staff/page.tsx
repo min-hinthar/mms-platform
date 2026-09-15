@@ -22,7 +22,7 @@ import { LiveConnectionProvider } from "@/components/staff/LiveConnection";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { Chrome } from "@/components/staff/Chrome";
 import { StaffDoors, MoreGrid } from "@/components/staff/StaffDoors";
-import { moreTiles } from "@/lib/staff-more";
+import { approvalsHref, moreTiles } from "@/lib/staff-more";
 import { StaffBar } from "@/components/staff/StaffBar";
 import { HelpButton } from "@/components/staff/HelpButton";
 import { readStaffLang } from "@/lib/staff-lang-server";
@@ -102,16 +102,23 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
   const more = moreTiles({ view: home.view, role: caller.role, hasPin });
   const approvalsVars = pendingApprovals > 0 ? { n: pendingApprovals } : undefined;
 
-  // A4·2 — the approvals count rides the counter's BAR (a manager's, in the trailing slot before
-  // Help): the row of tiles it used to sit in is gone, and a manager on this screen should see a
-  // pending void or refund without scrolling to More. The circle is icon-only to the eye, the count
-  // a small badge (Burmese numerals under my — it is a COUNT), and NAMED by the dictionary key the
-  // More tile carried until A4·5 folded that tile into this circle. A4·3: it scrolls to the zone — a
-  // NATIVE anchor, not <Link>: a same-page fragment through the router changes the URL without a
-  // `hashchange`, and the zone's heading takes focus on that event (Codex round 1 on #283, P2 —
-  // the router scrolled and left focus on this circle).
+  // A4·2 — the approvals count rides the BAR (a manager's, in the trailing slot before Help): the
+  // row of tiles it used to sit in is gone, and a manager should see a pending void or refund
+  // without scrolling to More. The circle is icon-only to the eye, the count a small badge (Burmese
+  // numerals under my — it is a COUNT), and NAMED by the dictionary key the More tile carried until
+  // A4·5 folded that tile into this circle. A4·3: it scrolls to the zone — a NATIVE anchor, not
+  // <Link>: a same-page fragment through the router changes the URL without a `hashchange`, and the
+  // zone's heading takes focus on that event (Codex round 1 on #283, P2 — the router scrolled and
+  // left focus on this circle).
+  //
+  // ⚠️ IT RIDES BOTH BRANCHES, and the first pushed A4·5 head is why that is written down. This
+  // circle became the ONLY pending-approvals signal the moment A4·5 folded the counted More tile
+  // into it — and it was still gated on `view === "floor"`, so a manager on a kitchen tablet (a warm
+  // `/staff`, or the Screens circle) saw NO count at all and had no way to the queue except the
+  // Counter DOOR, which re-doors the tablet. `approvalsHref` is the other half: the fragment here,
+  // the non-committing `?floor=1#appr-h` there (blind pass CRITICAL 1).
   const approvalsChip = isManager ? (
-    <a href="#appr-h" className="staff-circ staff-press staff-circ-count-host">
+    <a href={approvalsHref(home.view)} className="staff-circ staff-press staff-circ-count-host">
       <Icon name="check" size={20} />
       {pendingApprovals > 0 && (
         <span className="staff-circ-count" aria-hidden>
@@ -138,7 +145,7 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       title={home.view === "floor" ? "floor.door.counter" : "shell.screens"}
       leading={home.view === "floor" ? { kind: "screens" } : { kind: "here" }}
       after={<RoleBadge role={caller.role} />}
-      trailing={home.view === "floor" ? approvalsChip : undefined}
+      trailing={approvalsChip}
       // P7·3 — the Help door rides the counter's bar, not the doors': the doors explain themselves
       // (two named tiles), and a help circle beside a static mark would be a control that leads
       // somewhere from a screen that has nothing to explain.
