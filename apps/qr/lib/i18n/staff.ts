@@ -919,6 +919,13 @@ export const STAFF = {
     en: "Refunded {m} to the card.",
     my: "{m} ကို ကတ်ထဲ ပြန်အမ်းလိုက်ပါပြီ။",
   },
+  // M218 (Codex round 1, P1) — the same confirmation for the DRAWER. It is RECORDED, not returned:
+  // the app did not move this money, the manager's hand did, and a banner claiming otherwise could
+  // send them to the till a second time. Reuses မှတ်တမ်းတင် from `floor.settled.path.cash`.
+  "floor.settled.confirmed.cash": {
+    en: "Recorded {m} handed back from the drawer.",
+    my: "အံဆွဲကနေ ပြန်အမ်းလိုက်တဲ့ {m} ကို မှတ်တမ်းတင်ပြီးပါပြီ။",
+  },
 
   // ── the refund sheet (one paid line; reason + the manager's own PIN) ────────
   "floor.refund.title": { en: "Refund {x}", my: "{x} ပြန်အမ်း" },

@@ -257,7 +257,8 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     // answer came back short of its own count, marked the whole list `truncated` — honest, but not
     // the day. `readLedgerSince` pages until a short page instead, so a big ledger no longer costs
     // the list its claim to be today. The paging itself is falsified in `refund-ledger.test.ts`;
-    // what this pins is the WIRING: the settled read asks with a range, and does not cap.
+    // what this pins is the WIRING: the settled read goes through the paged reader — ordered on
+    // both keys and page-limited, never one unbounded ask — and does not cap.
     const OLD = "44444444-4444-4444-8444-444444444444";
     ledgerTodayRows = [{ order_id: OLD, created_at: "2026-09-13T18:50:00Z" }];
     unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z" })];
@@ -265,7 +266,13 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     if (!res.ok) throw new Error("expected ok");
     expect(res.truncated).toBe(false);
     const ledgerRead = recs.filter((r) => r.table === "mms_refunds")[0]!;
-    expect(ledgerRead.calls.some((c) => c[0] === "range")).toBe(true);
+    // The paged reader's fingerprint: BOTH order keys and a page limit. `created_at` alone orders
+    // tied rows differently across page boundaries, and no limit is the unpaged read this replaced.
+    const orderKeys = ledgerRead.calls
+      .filter((c) => c[0] === "order")
+      .map((c) => (c[1] as [string])[0]);
+    expect(orderKeys).toEqual(["created_at", "id"]);
+    expect(ledgerRead.calls.some((c) => c[0] === "limit")).toBe(true);
     expect(console.error).not.toHaveBeenCalled();
   });
 

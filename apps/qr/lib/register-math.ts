@@ -39,9 +39,14 @@ export type DaySummary = {
    *  them. Until M218 a cash refund could not be recorded at all, so this was structurally 0 and
    *  the drawer overstated itself by every hand-back of the day. */
   cashRefundedCents: number;
-  /** What should actually be IN the drawer: gross cash less what went back out. The one figure a
-   *  manager counts against, named here rather than subtracted at each surface — two screens doing
-   *  their own arithmetic is how a money value drifts. */
+  /** Today's NET cash movement: gross cash less what went back out. SIGNED, deliberately — refund
+   *  an earlier service day's cash order on a slow morning and the true movement is negative, which
+   *  is a fact about the till a manager needs. Flooring it at zero (the first draft did) would
+   *  overstate the reconciliation by the entire deficit and read as if nothing were missing.
+   *
+   *  It is NOT "what is physically in the drawer": that needs an opening float this app does not
+   *  carry. Named once here rather than subtracted at each surface — two screens doing their own
+   *  arithmetic is how a money value drifts. */
   cashNetCents: number;
 };
 
@@ -84,9 +89,11 @@ export function summarizeDay(rows: DayOrderRow[], cashRefundedCents = 0): DaySum
       s.cardCents += r.total_cents;
     }
   }
-  // Derived last, from the two figures above, so it can never disagree with them. Floored at zero:
-  // a drawer that reads negative is an over-refund already on the books, not a debt the till owes.
-  s.cashNetCents = Math.max(0, s.cashCents - s.cashRefundedCents);
+  // Derived last, from the two figures above, so it can never disagree with them. NOT floored:
+  // see the field's docblock — a negative day is a real shape (an earlier day's cash order refunded
+  // this morning), and clamping it to zero tells a manager the till balances when it is short by
+  // exactly the amount hidden (Codex round 1 on #286, P1).
+  s.cashNetCents = s.cashCents - s.cashRefundedCents;
   return s;
 }
 

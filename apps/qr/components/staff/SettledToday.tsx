@@ -15,6 +15,7 @@ import {
   type SettledOrder,
   type SettledToday as Snapshot,
 } from "@/lib/refunds";
+import type { RefundPath } from "@/lib/refund-console";
 import { buildReceiptRows, dollars, groupReceiptLines } from "@/lib/receipt-view";
 import { buildRefundRows, lineRefundLabel } from "@/lib/refund-view";
 import {
@@ -69,7 +70,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // The last refund's confirmation (the server-authorized amount — the clamp may have bitten). The
   // region exists only once a Refund has been opened, so it never announces on load.
   const [armed, setArmed] = useState(false);
-  const [confirmCents, setConfirmCents] = useState<number | null>(null);
+  // M218 (Codex round 1, P1) — the banner must name the instrument the money actually took. It said
+  // "to the card" unconditionally, which was true while only card lines could reach it and is false
+  // the moment a drawer hand-back is recordable. The PATH is captured with the amount, at the moment
+  // the sheet reports, rather than re-derived later from a list that has since refreshed.
+  const [confirmed, setConfirmed] = useState<{ cents: number; path: RefundPath } | null>(null);
   const [pending, startTransition] = useTransition();
 
   // Only the NEWEST read may replace the list (Codex round 1 on #283): a manual Refresh does not
@@ -201,8 +206,16 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
       </p>
       {armed && (
         <p role="status" style={confirmBanner}>
-          {confirmCents !== null && (
-            <Chrome lang={lang} k="floor.settled.confirmed" vars={{ m: dollars(confirmCents) }} />
+          {confirmed !== null && (
+            <Chrome
+              lang={lang}
+              k={
+                confirmed.path === "cash"
+                  ? "floor.settled.confirmed.cash"
+                  : "floor.settled.confirmed"
+              }
+              vars={{ m: dollars(confirmed.cents) }}
+            />
           )}
         </p>
       )}
@@ -241,7 +254,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
             const orderId = refunding.order.id;
             setRefunding(null);
             if (refundedCents != null) {
-              setConfirmCents(refundedCents);
+              setConfirmed({ cents: refundedCents, path: refunding.order.refundPath });
               refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
             }
             refresh();

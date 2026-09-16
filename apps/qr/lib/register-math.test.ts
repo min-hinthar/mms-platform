@@ -43,12 +43,14 @@ describe("summarizeDay — the Z-report buckets", () => {
     expect(s.cardCents).toBe(4200);
   });
 
-  it("M218: a drawer that gave back more than it took reads ZERO, never a debt", () => {
-    // An over-refund is already on the books (an order-level row, a hand-back against an earlier
-    // day). The till cannot hold negative money, and showing one would read as something owed.
+  it("M218: a day that gave back more cash than it took reads NEGATIVE, not zero", () => {
+    // Refund an earlier service day's cash order on a slow morning and the true movement is
+    // negative. The first draft floored this at 0 — which tells a manager the till balances while
+    // it is short by exactly the hidden amount (Codex round 1 on #286, P1). The figure is movement,
+    // not a physical count: a float would be needed for that, and this app does not carry one.
     const s = summarizeDay([{ tender: "cash", total_cents: 1000, status: "paid" }], 2500);
     expect(s.cashRefundedCents).toBe(2500);
-    expect(s.cashNetCents).toBe(0);
+    expect(s.cashNetCents).toBe(-1500);
   });
 
   it("M218: a caller that passes no refund figure gets today's honest zero", () => {

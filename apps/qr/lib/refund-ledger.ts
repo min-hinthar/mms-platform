@@ -32,19 +32,40 @@ const PAGE = 1000;
 
 type Db = ReturnType<typeof serviceClient>;
 
-/** Every ledger row since `sinceIso`, or `null` when the read failed — never a partial answer. */
+/**
+ * Every ledger row since `sinceIso`, or `null` when the read failed — never a partial answer.
+ *
+ * ⚠️ KEYSET, NOT OFFSET (Codex round 1 on #286, P2). The first draft asked for `.range(from, to)`
+ * pages. Each page is its own snapshot, so a refund committing between two of them — with a
+ * `created_at` that sorts BEFORE the current offset, which happens because `now()` is the
+ * transaction's START time and a transaction begun earlier can commit later — shifts every row one
+ * place along: a row already read comes back on the next page (the drawer counts it twice) and the
+ * row that took its place is never read at all (the day loses a refund). Seeking past the last row
+ * actually SEEN makes both impossible: the cursor is a position in the data, not in a result set.
+ *
+ * The seek is composite, `(created_at, id)`, because `created_at` is not unique — two refunds in
+ * the same instant would straddle the boundary and one would be dropped.
+ */
 export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerRow[] | null> {
   const rows: LedgerRow[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await db
+  let after: { createdAt: string; id: string } | null = null;
+  for (;;) {
+    let q = db
       .from("mms_refunds")
-      .select("order_id,order_item_id,amount_cents,tender,created_at")
-      .gte("created_at", sinceIso)
+      .select("id,order_id,order_item_id,amount_cents,tender,created_at")
+      .gte("created_at", sinceIso);
+    // Top-level filters AND together, so this NARROWS the window rather than widening it.
+    if (after)
+      q = q.or(
+        `created_at.gt."${after.createdAt}",and(created_at.eq."${after.createdAt}",id.gt."${after.id}")`,
+      );
+    const { data, error } = await q
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
-      .range(from, from + PAGE - 1);
+      .limit(PAGE);
     if (error) return null;
     const page = (data ?? []) as {
+      id: string;
       order_id: string;
       order_item_id: string | null;
       amount_cents: number;
@@ -62,6 +83,8 @@ export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerR
         createdAt: r.created_at,
       });
     if (page.length < PAGE) break;
+    const last = page[page.length - 1]!;
+    after = { createdAt: last.created_at, id: last.id };
   }
   return rows;
 }

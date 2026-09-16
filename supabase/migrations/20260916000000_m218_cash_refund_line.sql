@@ -168,6 +168,20 @@ begin
   select count(*) into v_already from public.mms_refunds where order_item_id = p_line_item;
   if v_already > 0 then return query select 'already_refunded'::text, 0; return; end if;
 
+  -- ⚠️ SERIALIZE ON THE ORDER BEFORE READING THE POOL (Codex round 1 on #286, P1).
+  -- `mms_refunds_one_per_line` only conflicts for the SAME line, so two managers refunding two
+  -- DIFFERENT lines of one cash order would each compute `mms_refund_line_amount` before either
+  -- insert became visible, and each would clamp against the same remaining pool. With a prior
+  -- order-level row already shrinking that pool — the dashboard shape case 7 builds — both are
+  -- clamped to the SAME remainder and both pay it out: the drawer gives back more than the order
+  -- collected for goods and tax. Taking the order row FOR UPDATE makes the second call wait for the
+  -- first to commit, so it reads a pool that already includes it.
+  --
+  -- The card path does not need this: its authorizer only READS, and Stripe's idempotency key plus
+  -- the per-line index carry it. Cash authorizes and pays in the same statement, so the lock is the
+  -- only thing between two hands in one till.
+  perform 1 from public.qr_orders where id = v_order for update;
+
   v_amt := public.mms_refund_line_amount(p_line_item);
   if v_amt <= 0 then return query select 'fully_refunded'::text, 0; return; end if;
 

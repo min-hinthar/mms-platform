@@ -2834,9 +2834,9 @@ const MUTANTS = [
     id: "register-math/drawer-net-ignores-what-went-back",
     file: "apps/qr/lib/register-math.ts",
     suite: "lib/register-math.test.ts",
-    why: "M218 — the net is what the manager counts the till against; leaving the hand-backs in it reports a drawer that has not been true since the first cash refund of the day",
-    find: "  s.cashNetCents = Math.max(0, s.cashCents - s.cashRefundedCents);",
-    replace: "  s.cashNetCents = s.cashCents;",
+    why: "M218 (Codex round 1 on #286, P1) — the net is SIGNED. Flooring it at zero hides a day that gave back more cash than it took (an earlier service day's order refunded this morning), reporting a till that balances while it is short by exactly the hidden amount",
+    find: "  s.cashNetCents = s.cashCents - s.cashRefundedCents;",
+    replace: "  s.cashNetCents = Math.max(0, s.cashCents - s.cashRefundedCents);",
   },
   {
     id: "refund-ledger/drawer-nets-card-refunds-too",
@@ -3936,6 +3936,14 @@ const MUTANTS = [
     why: "A4·3 Codex round 2 on #283 (P1) — the ids the union read is given are ranked by the LATEST refund and capped BEFORE the read; handed every id, the read's own `.order(\"created_at\")` under its `.limit` keeps the fifty newest-CREATED, and with more than fifty refunded today the oldest order carrying today's latest refund is gone before the merge can rank it",
     find: "  const refundedTodayIds = [...refundedTodayAt.entries()]\n    .sort((a, b) => Date.parse(b[1]) - Date.parse(a[1]) || (a[0] < b[0] ? 1 : -1))\n    .slice(0, SETTLED_CAP)\n    .map(([id]) => id);\n",
     replace: "  const refundedTodayIds = [...refundedTodayAt.entries()].map(([id]) => id);\n",
+  },
+  {
+    id: "refund-ledger/the-seek-forgets-the-tie",
+    file: "apps/qr/lib/refund-ledger.ts",
+    suite: "lib/refund-ledger.test.ts",
+    why: "M219 (Codex round 1 on #286, P2) — `created_at` is not unique, so a seek of `created_at > <last seen>` alone SKIPS the second of a pair that straddles a page boundary. The day silently loses a refund at every page edge: the settled list misdates an order and the drawer nets a subset of the hand-backs. Only the composite `(created_at, id)` seek carries the tied row over",
+    find: '`created_at.gt."${after.createdAt}",and(created_at.eq."${after.createdAt}",id.gt."${after.id}")`',
+    replace: '`created_at.gt."${after.createdAt}"`',
   },
   {
     id: "refund-ledger/stops-after-the-first-page",
