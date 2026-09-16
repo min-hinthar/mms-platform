@@ -133,7 +133,10 @@ function predicate(term: string): (r: Served) => boolean {
  * There is deliberately no `range` method: a regression to offset paging is a TypeError here, not a
  * silently-different answer.
  */
-function fakeDb(total: number, opts: { failOnPage?: number } = {}) {
+function fakeDb(
+  total: number,
+  opts: { failOnPage?: number; failWith?: { page: number; code: string } } = {},
+) {
   const all: Served[] = Array.from({ length: total }, (_, i) => ({
     id: `r${String(i).padStart(5, "0")}`,
     order_id: `o${i}`,
@@ -144,10 +147,19 @@ function fakeDb(total: number, opts: { failOnPage?: number } = {}) {
     created_at: new Date(Date.UTC(2026, 8, 16) + (i === 1000 ? 999 : i) * 1000).toISOString(),
   }));
   const seeks: string[] = [];
+  const selects: string[] = [];
+  // ⚠️ THE FAKE PROJECTS. A row carries `tender` in the fixture, so a fake that returned whole rows
+  // would hand it back even to the select that never asked — and the pre-migration case would pass
+  // without the fallback doing anything.
+  let cols: string[] = [];
   let cursor: ((r: Served) => boolean) | null = null;
   let asks = 0;
   const api = {
-    select: () => api,
+    select: (c: string) => {
+      selects.push(c);
+      cols = c.split(",");
+      return api;
+    },
     gte: () => api,
     or: (f: string) => {
       seeks.push(f);
@@ -158,10 +170,18 @@ function fakeDb(total: number, opts: { failOnPage?: number } = {}) {
     order: () => api,
     limit: (n: number) => {
       const seek = cursor;
-      const page = (seek === null ? all : all.filter(seek)).slice(0, n);
+      const page = (seek === null ? all : all.filter(seek))
+        .slice(0, n)
+        .map((r) => Object.fromEntries(cols.map((c) => [c, r[c]])) as Served);
       const failing = opts.failOnPage === asks;
+      const coded = opts.failWith?.page === asks ? opts.failWith.code : null;
       asks += 1;
       cursor = null;
+      if (coded !== null)
+        return Promise.resolve({
+          data: null,
+          error: { code: coded, message: `column mms_refunds.tender does not exist` },
+        });
       return Promise.resolve(
         failing
           ? { data: null, error: { message: "ledger unreadable" } }
@@ -169,7 +189,7 @@ function fakeDb(total: number, opts: { failOnPage?: number } = {}) {
       );
     },
   };
-  return { from: () => api, seeks, asks: () => asks };
+  return { from: () => api, seeks, selects, asks: () => asks };
 }
 
 describe("readLedgerSince — the read is COMPLETE or it is null", () => {
@@ -197,6 +217,33 @@ describe("readLedgerSince — the read is COMPLETE or it is null", () => {
     // the day". The drawer would net a subset of the hand-backs and call it the till.
     const db = fakeDb(1500, { failOnPage: 1 });
     expect(await readLedgerSince(db as never, "2026-09-16T00:00:00.000Z")).toBeNull();
+  });
+
+  it("the app-first window: an undefined `tender` re-asks WITHOUT it and reads the day as card", async () => {
+    // The app ships on merge and the migration is applied by hand afterwards. PostgREST rejects the
+    // whole query for one unknown column, so without this the settled list AND the drawer both read
+    // as an outage for the length of that window (Codex round 2 on #286, P1).
+    const db = fakeDb(3, { failWith: { page: 0, code: "42703" } });
+    const rows = await readLedgerSince(db as never, "2026-09-16T00:00:00.000Z");
+    expect(rows).not.toBeNull();
+    expect(rows!.length).toBe(3);
+    // Every row is a CARD refund — true by construction, since the column and the cash RPC land in
+    // the same migration, so nothing could have recorded a cash refund before it ran.
+    expect(cashRefundedCents(rows!)).toBe(0);
+    // It re-asked the SAME page one column short. Not a second window, not a skipped page.
+    expect(db.selects).toHaveLength(2);
+    expect(db.selects[0]).toContain("tender");
+    expect(db.selects[1]).not.toContain("tender");
+    expect(db.seeks).toHaveLength(0);
+  });
+
+  it("a REAL outage still answers null — a broken read must not degrade into a plausible subset", async () => {
+    // The narrow-ness of the fallback is the point: only 42703, only on the ask that named the new
+    // column. Any other failure is an outage and must say so.
+    const db = fakeDb(3, { failWith: { page: 0, code: "57014" } });
+    expect(await readLedgerSince(db as never, "2026-09-16T00:00:00.000Z")).toBeNull();
+    // It did NOT re-ask one column short.
+    expect(db.selects).toHaveLength(1);
   });
 
   it("an exactly-full single page still asks again — the cap and a real boundary look identical", async () => {

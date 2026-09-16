@@ -30,6 +30,23 @@ export type LedgerRow = {
 
 const PAGE = 1000;
 
+/**
+ * The ledger's columns, and the SAME LIST one column short.
+ *
+ * ⚠️ `tender` does not exist until M218's migration is applied, and this repo deploys the app FIRST
+ * (merge ships Vercel; the migration is applied by hand afterwards, because the QR prod history is
+ * divergent). PostgREST rejects the WHOLE query for one unknown column — 42703, HTTP 400, no rows —
+ * so in that window an unconditional `tender` select does not degrade, it FAILS, and both callers
+ * turn a failed read into `outage`: the settled list goes dark and the register's drawer with it.
+ * The `cash_not_ready` verdict written for exactly that window would then be unreachable, because
+ * nobody could see the Refund control to tap it (Codex round 2 on #286, P1).
+ */
+const LEDGER_COLS = "id,order_id,order_item_id,amount_cents,tender,created_at";
+const LEDGER_COLS_PRE_M218 = "id,order_id,order_item_id,amount_cents,created_at";
+
+/** Postgres SQLSTATE for an undefined column, which is what PostgREST hands back verbatim. */
+const UNDEFINED_COLUMN = "42703";
+
 type Db = ReturnType<typeof serviceClient>;
 
 /**
@@ -49,11 +66,9 @@ type Db = ReturnType<typeof serviceClient>;
 export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerRow[] | null> {
   const rows: LedgerRow[] = [];
   let after: { createdAt: string; id: string } | null = null;
+  let cols: typeof LEDGER_COLS | typeof LEDGER_COLS_PRE_M218 = LEDGER_COLS;
   for (;;) {
-    let q = db
-      .from("mms_refunds")
-      .select("id,order_id,order_item_id,amount_cents,tender,created_at")
-      .gte("created_at", sinceIso);
+    let q = db.from("mms_refunds").select(cols).gte("created_at", sinceIso);
     // Top-level filters AND together, so this NARROWS the window rather than widening it.
     if (after)
       q = q.or(
@@ -63,13 +78,32 @@ export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerR
       .order("created_at", { ascending: true })
       .order("id", { ascending: true })
       .limit(PAGE);
-    if (error) return null;
-    const page = (data ?? []) as {
+    if (error) {
+      // The app-first window, and ONLY that: one undefined column, on the one ask that names the
+      // new one. Drop `tender` and re-ask the SAME page — nothing is skipped, because `after` has
+      // not moved. Reading the pre-migration ledger as card-only is not a guess: the column and
+      // `mms_refund_cash_line` land in the same migration, so before it runs there is no way for a
+      // cash refund to have been recorded, and every existing row IS a card refund.
+      //
+      // Narrow deliberately. A real outage must still answer null — degrading a broken read into a
+      // plausible-looking subset is the defect this whole module exists to prevent.
+      if (cols === LEDGER_COLS && error.code === UNDEFINED_COLUMN) {
+        cols = LEDGER_COLS_PRE_M218;
+        continue;
+      }
+      return null;
+    }
+    // `as unknown as` and not a plain cast: supabase-js infers the row shape by PARSING the select
+    // string as a literal type, and `cols` is a variable (it has two possible values), so the
+    // inferred type is a `ParserError`, not a row. The shape below is the assertion — the same one
+    // the literal select would have produced, with `tender` optional for the pre-migration ask.
+    const page = (data ?? []) as unknown as {
       id: string;
       order_id: string;
       order_item_id: string | null;
       amount_cents: number;
-      tender: string | null;
+      /** Absent entirely on the pre-migration read above, hence the coalesce below. */
+      tender?: string | null;
       created_at: string;
     }[];
     for (const r of page)
@@ -77,8 +111,9 @@ export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerR
         orderId: r.order_id,
         orderItemId: r.order_item_id,
         amountCents: r.amount_cents,
-        // The column is `not null default 'card'`, so this coalesce is belt: a row read through an
-        // older generated type would otherwise net a cash refund into nothing.
+        // The column is `not null default 'card'`, so after the migration this coalesce is belt.
+        // Before it, it is load-bearing: the pre-M218 select does not ask for `tender` at all, and
+        // every row it returns is a card refund by construction.
         tender: r.tender ?? "card",
         createdAt: r.created_at,
       });

@@ -3938,6 +3938,22 @@ const MUTANTS = [
     replace: "  const refundedTodayIds = [...refundedTodayAt.entries()].map(([id]) => id);\n",
   },
   {
+    id: "refund-ledger/the-window-before-the-migration-goes-dark",
+    file: "apps/qr/lib/refund-ledger.ts",
+    suite: "lib/refund-ledger.test.ts",
+    why: "M218 (Codex round 2 on #286, P1) — `tender` does not exist until the migration is applied by hand, and the app ships on merge. PostgREST rejects the WHOLE query for one unknown column (42703, raised at parse time — measured), and both callers turn a failed ledger read into `outage`, so without the one-column-short retry the settled list AND the register's drawer go dark for the length of that window, taking the `cash_not_ready` verdict written for it out of reach",
+    find: "      if (cols === LEDGER_COLS && error.code === UNDEFINED_COLUMN) {",
+    replace: "      if (false) {",
+  },
+  {
+    id: "refund-ledger/an-outage-downgrades-into-a-plausible-subset",
+    file: "apps/qr/lib/refund-ledger.ts",
+    suite: "lib/refund-ledger.test.ts",
+    why: "M218 (Codex round 2 on #286, P1) — the fallback's NARROWNESS is the property. Retrying on any error, not just the undefined column, turns a broken read into a shorter successful-looking one: the drawer nets a subset of the day and calls it the till, which is the exact defect this module was written to make impossible",
+    find: "error.code === UNDEFINED_COLUMN",
+    replace: "true",
+  },
+  {
     id: "refund-ledger/the-seek-forgets-the-tie",
     file: "apps/qr/lib/refund-ledger.ts",
     suite: "lib/refund-ledger.test.ts",
