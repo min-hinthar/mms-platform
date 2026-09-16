@@ -2108,10 +2108,7 @@ export type Database = {
           reason: string
         }[]
       }
-      mms_refund_line_amount: {
-        Args: { p_line_item: string }
-        Returns: number
-      }
+      mms_refund_line_amount: { Args: { p_line_item: string }; Returns: number }
       mms_release_promo_grant: {
         Args: { p_attempt: string; p_cart_id: string }
         Returns: undefined
