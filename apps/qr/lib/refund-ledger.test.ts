@@ -114,8 +114,8 @@ describe("readLedgerSince — the read is COMPLETE or it is null", () => {
     const rows = await readLedgerSince(db as never, "2026-09-16T00:00:00.000Z");
     expect(rows).not.toBeNull();
     expect(rows!.length).toBe(1500);
-    // Two full asks and a third that ran short — a single-page read would have stopped at 1000 with
-    // nothing to say it was partial.
+    // Two asks: a full page, then a short one that ends it. A single-page read would have stopped
+    // at 1000 with nothing to say it was partial.
     expect(db.ranges.length).toBe(2);
     expect(db.ranges[0]).toEqual([0, 999]);
     expect(db.ranges[1]).toEqual([1000, 1999]);

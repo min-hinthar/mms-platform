@@ -2823,6 +2823,14 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "refund-view/cash-refund-told-to-wait-for-a-card",
+    file: "apps/qr/lib/refund-view.ts",
+    suite: "lib/refund-view.test.ts",
+    why: "M218 — the partial-refund note is the guest's answer to 'where did my money go'. Ignoring the tender tells someone who was handed cash from the till to wait for a card credit that will never arrive, on /track, on the durable receipt and in the email. The branch had never fired for cash before, because `refunded_cents` on a cash order was structurally 0",
+    find: '  return tender === "cash"',
+    replace: "  return false",
+  },
+  {
     id: "register-math/drawer-net-ignores-what-went-back",
     file: "apps/qr/lib/register-math.ts",
     suite: "lib/register-math.test.ts",

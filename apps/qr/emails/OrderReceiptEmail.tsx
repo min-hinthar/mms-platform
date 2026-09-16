@@ -13,7 +13,7 @@ import {
 import {
   buildRefundRows,
   lineRefundLabel,
-  PARTIAL_REFUND_NOTE,
+  partialRefundNote,
   receiptStatusLabel,
 } from "@/lib/refund-view";
 import { droppedLineLabel, droppedNoticeHeading, DROPPED_NOTICE_BODY } from "@/lib/dropped-view";
@@ -101,7 +101,9 @@ export function OrderReceiptEmail({
         <Text style={paid}>{receiptStatusLabel(entry.refund, entry.tender)}</Text>
       </Section>
 
-      {entry.refund.state === "partial" && <Text style={fine}>{PARTIAL_REFUND_NOTE}</Text>}
+      {entry.refund.state === "partial" && (
+        <Text style={fine}>{partialRefundNote(entry.tender)}</Text>
+      )}
 
       {/* W23d — the emailed copy carries the same disclosure as the durable page (registry M71).
           Email clients strip most of what a list is, so the lines ride one Text as a comma series

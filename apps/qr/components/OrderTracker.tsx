@@ -25,7 +25,7 @@ import {
 import {
   buildRefundRows,
   lineRefundLabel,
-  PARTIAL_REFUND_NOTE,
+  partialRefundNote,
   receiptStatusLabel,
 } from "@/lib/refund-view";
 import {
@@ -1377,7 +1377,7 @@ export function OrderTracker({
                         lineHeight: 1.5,
                       }}
                     >
-                      {PARTIAL_REFUND_NOTE}
+                      {partialRefundNote(order.tender)}
                     </p>
                   )}
                   {/* W23d — what the settlement removed between the tap and the charge (registry

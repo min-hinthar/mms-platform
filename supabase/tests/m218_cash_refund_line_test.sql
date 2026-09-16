@@ -24,6 +24,10 @@
 --   7. THE POOL CLAMP BINDS, and 8. AN EXHAUSTED POOL REFUSES. An order-level ledger row (the shape
 --      a processor-dashboard refund leaves) shrinks what the order can still give back; the cash
 --      path must respect it exactly as the card path does, or Σ refunds exceeds what was collected.
+--   9. THE FIXTURE SEPARATES THE TWO FORMULAS. Cases 1-2 use qty 1 with no discount, on which the
+--      pre-remediation formula gives the same cents as the correct one — so they cannot prove the
+--      extraction preserved the arithmetic. This order has qty 2, a discount, and a non-taxable
+--      second line; the old formula is computed from the row and asserted to DIFFER.
 --
 -- Run against any QR DB (rolls back — leaves NO data behind):
 --   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f supabase/tests/m218_cash_refund_line_test.sql
@@ -48,6 +52,10 @@ insert into public.table_sessions (id, qr_code, mode, status, host_seat) values
   ('00000000-0000-0000-0000-000000218002'::uuid, 'M218CARD', 'dinein', 'active',
    '00000000-0000-0000-0000-0000002180a0'::uuid),
   ('00000000-0000-0000-0000-000000218003'::uuid, 'M218CLMP', 'dinein', 'active',
+   '00000000-0000-0000-0000-0000002180a0'::uuid),
+  ('00000000-0000-0000-0000-000000218004'::uuid, 'M218PROR', 'dinein', 'active',
+   '00000000-0000-0000-0000-0000002180a0'::uuid),
+  ('00000000-0000-0000-0000-000000218005'::uuid, 'M218PROC', 'dinein', 'active',
    '00000000-0000-0000-0000-0000002180a0'::uuid);
 
 do $$
@@ -55,9 +63,10 @@ declare
   mgr   uuid := '00000000-0000-0000-0000-000000218a00';
   srv   uuid := '00000000-0000-0000-0000-000000218b00';
   dish  text := 'aaaaaaaa-0000-4000-8000-000000218d01';
-  cart_cash uuid; cart_card uuid; cart_clamp uuid;
-  ord_cash uuid; ord_card uuid; ord_clamp uuid;
-  line_cash uuid; line_card uuid; line_clamp uuid;
+  cart_cash uuid; cart_card uuid; cart_clamp uuid; cart_pro uuid; cart_proc uuid;
+  ord_cash uuid; ord_card uuid; ord_clamp uuid; ord_pro uuid; ord_proc uuid;
+  line_cash uuid; line_card uuid; line_clamp uuid; line_pro uuid; line_proc uuid;
+  v_old_formula integer; v_pro_amt integer; v_proc_amt integer;
   r record; a record;
   n integer; v_amt integer; v_card_amt integer;
   v_order_refunded integer; v_line_refunded integer;
@@ -181,6 +190,54 @@ begin
     format('8: an exhausted pool must refuse, got %s', a.reason);
   select count(*) into n from public.mms_refunds where order_item_id = line_clamp;
   assert n = 0, '8: and write nothing';
+
+  -- ══ 9. THE FIXTURE ABOVE CANNOT TELL THE TWO FORMULAS APART, AND THIS ONE CAN ════════════════
+  -- Cases 1-2 use qty 1, discount 0, one taxable line — on which the PRE-REMEDIATION formula that
+  -- S4's P0-1/P1-1 replaced (`unit_price_cents * qty + oi.tax_cents`, the per-unit tax added once)
+  -- gives the SAME cents as the correct one. So a transcription error in the arithmetic this
+  -- migration lifts into `mms_refund_line_amount` would pass them. This order exercises both terms
+  -- the simple one cannot: qty > 1 (so the tax share must SCALE) and a discount (so the pro-rata
+  -- must bite), plus a non-taxable second line (so the taxable base is not the subtotal).
+  --
+  -- Nothing here is transcribed: the old formula is COMPUTED from the row and asserted to differ.
+  cart_pro := gen_random_uuid();
+  insert into public.qr_carts (id, session_id) values (cart_pro, '00000000-0000-0000-0000-000000218004');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+    values (cart_pro, dish, 'Mohinga', 2, 1000, 90, 'dinein'),
+           (cart_pro, dish, 'Plain Rice', 1, 500, 0, 'dinein');
+  -- subtotal 2500, discount 500, tax 180 → total 2180
+  ord_pro := public.mms_fulfill_cash_order(cart_pro, mgr, 2500, 500, 0, 180, 0);
+  select id into line_pro from public.qr_order_items where order_id = ord_pro and qty = 2;
+
+  -- The identical order on CARD, so the two functions can be compared on money that separates them.
+  cart_proc := gen_random_uuid();
+  insert into public.qr_carts (id, session_id) values (cart_proc, '00000000-0000-0000-0000-000000218005');
+  insert into public.qr_cart_items (cart_id, menu_item_id, name, qty, unit_price_cents, tax_cents, fulfillment)
+    values (cart_proc, dish, 'Mohinga', 2, 1000, 90, 'dinein'),
+           (cart_proc, dish, 'Plain Rice', 1, 500, 0, 'dinein');
+  ord_proc := public.mms_fulfill_order(cart_proc, 'pi_m218_pro', 2180, 2500, 500, 0, 180, 0, mgr, 'card');
+  select id into line_proc from public.qr_order_items where order_id = ord_proc and qty = 2;
+
+  select * into r from public.mms_refund_authorize(line_proc, mgr);
+  assert r.reason = 'ok', format('9: the card line must authorize, got %s', r.reason);
+  v_proc_amt := r.amount_cents;
+
+  select * into a from public.mms_refund_cash_line(line_pro, mgr, 'test_prorata');
+  assert a.reason = 'ok', format('9: the cash line must refund, got %s', a.reason);
+  v_pro_amt := a.amount_cents;
+  assert v_pro_amt = v_proc_amt,
+    format('9: cash offered %s where the card path offered %s on identical money', v_pro_amt, v_proc_amt);
+
+  -- The formula the remediation REPLACED, computed from this line's own stored row.
+  select unit_price_cents * qty + tax_cents into v_old_formula
+    from public.qr_order_items where id = line_pro;
+  assert v_pro_amt <> v_old_formula,
+    format('9: this fixture cannot separate the formulas — both answer %s, so cases 1-2 prove nothing about the extraction', v_pro_amt);
+
+  -- And the projections carry exactly what was authorized, on a line whose qty is not 1.
+  select refunded_cents into v_line_refunded from public.qr_order_items where id = line_pro;
+  assert v_line_refunded = v_pro_amt,
+    format('9: the line must carry the movement, got %s want %s', v_line_refunded, v_pro_amt);
 
   raise notice 'm218_cash_refund_line_test: all cases passed';
 end $$;

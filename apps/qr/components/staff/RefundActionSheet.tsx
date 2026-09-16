@@ -84,6 +84,13 @@ export function RefundActionSheet({
           case "not_manager":
             setError({ k: "floor.refund.err.notManager" });
             break;
+          case "cash_not_ready":
+            // M218 — the database has no `mms_refund_cash_line` yet (the app deploys on merge; the
+            // migration is applied by hand afterwards). Unlike every other arm here, the money has
+            // ALREADY left the till — the manager opened the drawer before tapping — so this must
+            // not read as "try again". It says what is true: it was not recorded, write it down.
+            setError({ k: "floor.refund.err.cashNotReady" });
+            break;
           case "outage":
             // W10b — no money moved; the platform is unreachable, not a verdict about the manager.
             setError(STAFF_WRITE_OUTAGE);
@@ -138,8 +145,17 @@ export function RefundActionSheet({
             <Chrome lang={lang} k="floor.refund.clamped" vars={{ m: amount }} echo="stack" />
           </p>
         )}
+        {/* M218 — WHICH note depends on the tender, and it did not have to before: until
+            `mms_refund_cash_line` existed this sheet was unreachable on a cash order
+            (`canRefundHere` was `refundPath === "app"`), so "back to the card" was true of every
+            line that could open it. On a cash line it would now contradict the drawer instruction
+            the manager just read two lines above. */}
         <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          <Chrome lang={lang} k="floor.refund.note" echo="stack" />
+          <Chrome
+            lang={lang}
+            k={order.refundPath === "cash" ? "floor.refund.note.cash" : "floor.refund.note"}
+            echo="stack"
+          />
         </p>
 
         <label style={lbl} htmlFor="refund-reason">

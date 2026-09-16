@@ -155,5 +155,24 @@ export function lineRefundLabel(refundedCents: number): string | null {
  * every guest asks next, and promises no timing the code cannot keep — the bank's window is the
  * bank's, and inventing "3–5 days" here would be a fabricated fact on a money surface.
  */
-export const PARTIAL_REFUND_NOTE =
-  "The refunded amount goes back to the card you paid with. Your bank decides when it lands.";
+/**
+ * ⚠️ M218 — IT TAKES THE TENDER, and it is a function rather than a constant for that reason.
+ *
+ * This was `PARTIAL_REFUND_NOTE`, one string, rendered wherever `state === "partial"`. That was
+ * true for as long as a partial refund could only be a CARD refund: `refunded_cents` on a cash
+ * order was structurally 0, because nothing could write it. `mms_refund_cash_line` writes it now —
+ * so the old constant would have told a guest who was handed money from the till to wait for a
+ * card credit that is never coming, on /track, on the durable receipt and in the email.
+ *
+ * Making it a function of the tender is deliberate: the constant could be rendered by a caller
+ * that had not thought about tender, and every one of them HAD the tender in hand already (they
+ * pass it to `receiptStatusLabel` on the neighbouring line). Now a caller cannot fail to decide.
+ *
+ * Promises no timing the code cannot keep — the bank's window is the bank's, and a cash hand-back
+ * has already happened, so it is stated in the past tense.
+ */
+export function partialRefundNote(tender: string): string {
+  return tender === "cash"
+    ? "The refunded amount was handed back to you in cash."
+    : "The refunded amount goes back to the card you paid with. Your bank decides when it lands.";
+}

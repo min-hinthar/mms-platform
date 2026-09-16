@@ -327,6 +327,9 @@ export type RefundResult =
         | "already_refunded"
         | "fully_refunded"
         | "stripe_error"
+        // M218 — the database has no `mms_refund_cash_line` yet (the migration is applied by hand,
+        // after the deploy). Its own sentence, because the drawer is already open.
+        | "cash_not_ready"
         | "error"
         // W10b: platform unreachable — no money moved; not a verdict about the line or the manager.
         | "outage";
@@ -411,8 +414,15 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
     if (cashErr) {
       console.error("[refunds] mms_refund_cash_line failed", {
         orderItemId,
+        code: cashErr.code,
         message: cashErr.message,
       });
+      // ⚠️ THE MIGRATION SHIPS SEPARATELY, so this app can reach a database that has no
+      // `mms_refund_cash_line` (PostgREST answers PGRST202 for a function it cannot find). That is
+      // not "try again": the manager has ALREADY opened the drawer by the time they tap, so the
+      // honest verdict is that the money is out and nothing recorded it — write it down. A generic
+      // failure here would leave them believing a retry might work, and the takings quietly wrong.
+      if (cashErr.code === "PGRST202") return { ok: false, reason: "cash_not_ready" };
       return { ok: false, reason: "error" };
     }
     const cash = cashRows?.[0];

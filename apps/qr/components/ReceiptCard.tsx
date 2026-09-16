@@ -11,7 +11,7 @@ import {
 import {
   buildRefundRows,
   lineRefundLabel,
-  PARTIAL_REFUND_NOTE,
+  partialRefundNote,
   receiptStatusLabel,
 } from "@/lib/refund-view";
 import { droppedLineLabel, droppedNoticeHeading, DROPPED_NOTICE_BODY } from "@/lib/dropped-view";
@@ -148,7 +148,9 @@ export function ReceiptCard({ entry }: { entry: ReceiptEntry }) {
       </p>
       {/* Only the PARTIAL case: a full refund's status line already says the whole charge went
           back, and repeating it under a receipt whose every row is moot reads as an apology. */}
-      {entry.refund.state === "partial" && <p style={disclosure}>{PARTIAL_REFUND_NOTE}</p>}
+      {entry.refund.state === "partial" && (
+        <p style={disclosure}>{partialRefundNote(entry.tender)}</p>
+      )}
 
       {/* W23d — what the settlement removed between the tap and the charge (registry M71). The
           durable receipt is the copy a guest keeps and forwards to their bank, so an order whose

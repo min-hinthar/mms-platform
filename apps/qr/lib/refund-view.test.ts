@@ -6,6 +6,7 @@ import {
   refundChipLabel,
   refundSpokenClause,
   summarizeRefund,
+  partialRefundNote,
 } from "./refund-view";
 
 /**
@@ -171,5 +172,33 @@ describe("lineRefundLabel", () => {
     // line can come back for LESS than it cost. A strike-through would claim the whole dish
     // returned; the number never can.
     expect(lineRefundLabel(1400)).toBe("Refunded $14.00");
+  });
+});
+
+/**
+ * M218 — WHO the note is written for. `refunded_cents` on a cash order was structurally 0 until
+ * `mms_refund_cash_line` existed, so the single "back to the card" sentence had never once been
+ * rendered for cash. It would now be a lie told to a guest who watched money come out of a till.
+ */
+describe("partialRefundNote — the destination must match the tender", () => {
+  it("a CASH refund says the money was handed back, and never mentions a card", () => {
+    const note = partialRefundNote("cash");
+    expect(note).toMatch(/cash/i);
+    expect(note).not.toMatch(/card/i);
+    // No bank, no waiting: the hand-back already happened.
+    expect(note).not.toMatch(/bank/i);
+  });
+
+  it("a CARD refund keeps the processor sentence, bank timing included", () => {
+    const note = partialRefundNote("card");
+    expect(note).toMatch(/card/i);
+    expect(note).toMatch(/bank/i);
+  });
+
+  it("an unknown or terminal tender is treated as a card — the safe direction", () => {
+    // A card-present reader IS a card, and an unrecognised tender is far likelier to be some card
+    // rail than the till. Promising a cash hand-back that never happened is the worse error.
+    expect(partialRefundNote("terminal")).toBe(partialRefundNote("card"));
+    expect(partialRefundNote("something_new")).toBe(partialRefundNote("card"));
   });
 });

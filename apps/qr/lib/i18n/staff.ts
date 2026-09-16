@@ -927,6 +927,14 @@ export const STAFF = {
     en: "Price + tax, back to the card. Tips — and the service charge on older orders — aren’t included.",
     my: "ဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပါမယ်။ အပိုကြေးနဲ့ အော်ဒါဟောင်းတွေရဲ့ ဝန်ဆောင်ခ မပါဝင်ပါ။",
   }, // K15-HIGH — what a refund does and does not give back
+  // M218 — the same sentence for the DRAWER path. Same two exclusions, same shape; only the
+  // destination changes, because on a cash line the money leaves the till by hand and no card is
+  // involved. Reuses အပိုကြေး / ဝန်ဆောင်ခ / အခွန် from the card note verbatim; the one new idea is
+  // ငွေအံဆွဲကနေ, which `floor.settled.path.cash` already says on the screen behind this sheet.
+  "floor.refund.note.cash": {
+    en: "Price + tax, handed back from the drawer. Tips — and the service charge on older orders — aren’t included.",
+    my: "ဈေးနှုန်းနဲ့ အခွန်ကို ငွေအံဆွဲကနေ ပြန်အမ်းပါမယ်။ အပိုကြေးနဲ့ အော်ဒါဟောင်းတွေရဲ့ ဝန်ဆောင်ခ မပါဝင်ပါ။",
+  }, // K15-HIGH — what a CASH refund does and does not give back
   "floor.refund.clamped": {
     en: "This order has {m} left to give back, so this line refunds {m} — not its full price + tax.",
     my: "ဒီအော်ဒါမှာ ပြန်အမ်းနိုင်တာ {m} ပဲ ကျန်လို့ ဒီလိုင်းကို {m} ပြန်အမ်းပါမယ် — ဈေးနှုန်းနဲ့ အခွန် အပြည့် မဟုတ်ပါ။",
@@ -959,6 +967,13 @@ export const STAFF = {
     en: "Couldn’t refund that line — try again.",
     my: "ဒီလိုင်းကို ပြန်မအမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",
   },
+  // M218 — the ONE refund error where money has already moved. Every other arm here refused before
+  // anything left; this one is reached only when the drawer is open and the database cannot record
+  // it. So it does not say "try again" — it says the hand-back happened and is not on the books.
+  "floor.refund.err.cashNotReady": {
+    en: "Not recorded — this screen can’t record a cash refund yet. The money is out of the drawer; write it down and tell the owner.",
+    my: "မမှတ်တမ်းတင်ရသေးပါ — ငွေသား ပြန်အမ်းတာကို ဒီစခရင်က မမှတ်တမ်းတင်နိုင်သေးပါ။ ငွေက အံဆွဲထဲက ထွက်သွားပြီ — စာနဲ့ မှတ်ထားပြီး ပိုင်ရှင်ကို ပြောပါ။",
+  }, // K15-HIGH — the sentence that stands between a hand-back and an unrecorded loss
 
   // ═══ P2 PR B · lines ═══════════════════════════════════════════════════════════
   // ── the table drill-down: one cart line (StaffLineEditor) ──────────────────
@@ -2358,7 +2373,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "entry.lock.forgot",
   "entry.login.denied",
   "floor.refund.clamped",
+  "floor.refund.err.cashNotReady",
   "floor.refund.note",
+  "floor.refund.note.cash",
   "floor.settled.path.cash",
   "floor.settled.path.dashboard",
   "floor.settled.sub",

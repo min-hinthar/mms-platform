@@ -87,8 +87,20 @@ describe("SettledToday — the refund console, reading the receipt", () => {
   it("offers Refund on a line the order can still give back — card AND cash (M218), never dashboard", () => {
     const orders = [
       order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001"),
-      order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", { tender: "cash", refundPath: "cash" }),
-      order("cccccccc-cccc-4ccc-8ccc-cccccccc0003", { refundPath: "dashboard" }),
+      // ⚠️ DISTINCT LINE NAMES, and that is the whole point of this fixture. The accessible name is
+      // verb + line name, so with every order's line called "Mohinga" the assertion below could not
+      // tell WHICH two orders offered a Refund — inverting the gate to `!== "cash"` would swap the
+      // cash order for the dashboard one and still produce two identical labels (LEARNINGS #60: a
+      // count satisfied without the behaviour).
+      order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        tender: "cash",
+        refundPath: "cash",
+        lines: [line("b-l1", { name: "Nan Gyi Thoke" })],
+      }),
+      order("cccccccc-cccc-4ccc-8ccc-cccccccc0003", {
+        refundPath: "dashboard",
+        lines: [line("c-l1", { name: "Shan Noodle" })],
+      }),
       order("dddddddd-dddd-4ddd-8ddd-dddddddd0004", {
         status: "refunded",
         refund: { state: "full", refundedCents: 5000, netPaidCents: 0 },
@@ -106,8 +118,8 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     // write down money that already moved. C (dashboard — each payer's charge lives elsewhere),
     // D (refunded) and E (pool spent) still offer nothing.
     expect(refunds.map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Refund — Mohinga",
-      "Refund — Mohinga",
+      "Refund — Mohinga", // A, the card order
+      "Refund — Nan Gyi Thoke", // B, the CASH order — named, so the dashboard order cannot stand in
     ]);
     // The cash note STAYS: the app records the refund, it cannot open the drawer.
     expect(screen.getByText(STAFF["floor.settled.path.cash"].en)).toBeTruthy();
