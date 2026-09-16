@@ -84,7 +84,7 @@ function mount(initial: Snapshot, lang: "en" | "my" = "en") {
 }
 
 describe("SettledToday — the refund console, reading the receipt", () => {
-  it("offers Refund only on a line the order can still give back: in-app path · paid · not in the ledger · a non-zero offer", () => {
+  it("offers Refund on a line the order can still give back — card AND cash (M218), never dashboard", () => {
     const orders = [
       order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001"),
       order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", { tender: "cash", refundPath: "cash" }),
@@ -101,9 +101,15 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     mount(snapshot(orders));
     for (const b of screen.getAllByRole("button", { expanded: false })) fireEvent.click(b);
     const refunds = screen.getAllByRole("button", { name: /^Refund — / });
-    // Order A: line 1 only (line 2 is in the ledger). B (cash), C (dashboard), D (refunded) and
-    // E (pool spent) offer nothing.
-    expect(refunds.map((b) => b.getAttribute("aria-label"))).toEqual(["Refund — Mohinga"]);
+    // Order A: line 1 only (line 2 is in the ledger). B is CASH and now offers one too — M218 made
+    // the drawer hand-back recordable, so withholding the control would be the screen refusing to
+    // write down money that already moved. C (dashboard — each payer's charge lives elsewhere),
+    // D (refunded) and E (pool spent) still offer nothing.
+    expect(refunds.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Refund — Mohinga",
+      "Refund — Mohinga",
+    ]);
+    // The cash note STAYS: the app records the refund, it cannot open the drawer.
     expect(screen.getByText(STAFF["floor.settled.path.cash"].en)).toBeTruthy();
     expect(screen.getByText(/Paid by more than one card/)).toBeTruthy();
     expect(screen.getByText(STAFF["floor.settled.path.exhausted"].en)).toBeTruthy();

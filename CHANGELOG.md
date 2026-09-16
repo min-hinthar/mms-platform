@@ -4,6 +4,52 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M218 · M219 — a cash refund is RECORDED, and the ledger is read whole (2026-09-16)
+
+**The drawer paid out and every surface kept saying "Paid in full".** `mms_refund_authorize` answers
+`split_unsupported` for any order with no PaymentIntent, and `mms_fulfill_cash_order` never writes
+one — the column is absent from its INSERT — so a cash line could never be authorized, `refundLine`
+could never reach `mms_record_refund`, and nothing wrote `mms_refunds`, `qr_orders.refunded_cents`
+or `qr_order_items.refunded_cents` for cash. There is no processor webhook to reconcile it later
+either: cash has no processor. The settled list said so honestly; saying is not recording.
+
+- **`mms_refund_cash_line(p_line_item, p_initiator, p_reason)`** — ONE function where card is two.
+  The card path splits authorize → Stripe → record because a processor sits in the middle and the
+  ledger row is keyed on the refund id it returns. Cash has no middle, so splitting it would invent
+  a window where the drawer has paid out and nothing says so. It authorizes and records in one
+  transaction: the ledger row (tender `cash`, no processor id), both `refunded_cents` projections,
+  and the two-party audit row.
+- **The arithmetic is EXTRACTED, not copied.** The cash path needs the same per-line pro-rata and
+  the same pool clamp, and a second copy of a money formula is the drift the W17 rules were written
+  for. `mms_refund_line_amount` now holds it and BOTH callers read it; `mms_refund_authorize` is
+  re-created with its signature, its guard ORDER and every refusal string unchanged.
+- **Idempotence without a Stripe id.** `mms_record_refund` dedupes on `stripe_refund_id`; a cash row
+  has none, so this path leans on `mms_refunds_one_per_line` — the partial unique index that was
+  already there. The check refuses the second call; the index is the race backstop.
+- **A card order refuses the drawer path and a cash order still refuses the card path.** If a
+  processor can give the money back, a hand from the till is the wrong instrument and would refund
+  the guest twice. The two guards pull in opposite directions on purpose.
+- **The drawer nets it.** A line refund leaves the order `paid` at its full `total_cents`, so the
+  Z-report's cash figure was gross and overstated the till by every hand-back. `summarizeDay` gained
+  `cashRefundedCents` and `cashNetCents`, and the register's cash cell shows both once cash has
+  actually gone back.
+- **`refundLine` picks the instrument from the order's own facts** via `refundPathFor` — the pure
+  rule the console already rendered from — never from anything the client sent.
+- **M219 — the ledger read is PAGED** (`lib/refund-ledger.ts` · `readLedgerSince`, used by both the
+  settled list and the drawer). PostgREST caps a response at max-rows with `error` still null, so
+  the old single read could answer a silent subset and rank the day from it. It now pages until a
+  short page and answers `null` rather than a partial read; the settled list no longer marks itself
+  capped for a big ledger.
+- **Proved against a real database, red-first.** `supabase/tests/m218_cash_refund_line_test.sql`
+  (8 cases, registered in `ci.yml`) was run against a local Postgres 16 with all 101 migrations
+  applied — and watched RED under two mutations of the migration: dropping the order-level
+  projection, and dropping the `not_cash` guard (which let a CARD order refund from the drawer).
+  Three new `verify:slice` mutants cover the drawer net, the cash-only filter and the latest-refund
+  ranking; a fourth replaces the retired truncation mutant with the paging loop itself.
+
+Closes **M218** (high) and **M219**. ⚠️ The migration is NOT applied to production — that is Min's
+go, one file at a time via the Supabase MCP (the repo/prod histories are divergent).
+
 ### A4·5 — Menu + Tips: the word-check sheet as the Menu screen's action, guest feedback beneath the tips, the More list to three tiles (2026-09-15)
 
 The fifth and last A4 slice; `/staff` is five screens now — Kitchen · Counter & tables · Menu ·

@@ -536,7 +536,8 @@ export type Database = {
           order_id: string
           order_item_id: string | null
           reason_code: string
-          stripe_refund_id: string
+          stripe_refund_id: string | null
+          tender: string
         }
         Insert: {
           amount_cents: number
@@ -547,7 +548,8 @@ export type Database = {
           order_id: string
           order_item_id?: string | null
           reason_code: string
-          stripe_refund_id: string
+          stripe_refund_id?: string | null
+          tender?: string
         }
         Update: {
           amount_cents?: number
@@ -558,7 +560,8 @@ export type Database = {
           order_id?: string
           order_item_id?: string | null
           reason_code?: string
-          stripe_refund_id?: string
+          stripe_refund_id?: string | null
+          tender?: string
         }
         Relationships: [
           {
@@ -2097,6 +2100,17 @@ export type Database = {
           payment_intent: string
           reason: string
         }[]
+      }
+      mms_refund_cash_line: {
+        Args: { p_initiator: string; p_line_item: string; p_reason: string }
+        Returns: {
+          amount_cents: number
+          reason: string
+        }[]
+      }
+      mms_refund_line_amount: {
+        Args: { p_line_item: string }
+        Returns: number
       }
       mms_release_promo_grant: {
         Args: { p_attempt: string; p_cart_id: string }

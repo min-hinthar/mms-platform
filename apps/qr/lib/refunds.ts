@@ -15,6 +15,7 @@ import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { summarizeRefund, type RefundSummary } from "./refund-view";
 import type { ReceiptBreakdownish } from "./receipt-view";
 import { SETTLED_CAP, settledClock, settledDate } from "./settled-view";
+import { latestRefundByOrder, readLedgerSince } from "./refund-ledger";
 import {
   lineRefundableCents,
   offeredRefund,
@@ -144,32 +145,14 @@ export async function getSettledToday(): Promise<SettledToday> {
   // console makes and the webhook-recorded ones; a refund issued from the processor's dashboard
   // writes no ledger row (W23b) and is the one shape this list cannot date. And WHEN it moved: the
   // latest row per order is the instant such a row is ranked and dated by below.
-  const {
-    data: todayLedger,
-    error: todayLedgerError,
-    count: todayLedgerCount,
-  } = await db
-    .from("mms_refunds")
-    .select("order_id,created_at", { count: "exact" })
-    .gte("created_at", sinceIso);
-  if (todayLedgerError) return { ok: false, reason: "outage" };
-  // PostgREST's max-rows cap is silent (Codex round 3 on #283): a ledger answer SHORT of its own
-  // count is a subset, and a ranking over a subset may miss the day's newest refunds — the list
-  // then cannot say it is the day (`truncated`), logged. The full fix is a deterministic page
-  // over the ledger, filed as M219; a day with more than a thousand refunds has not happened.
-  const ledgerTruncated =
-    typeof todayLedgerCount === "number" && todayLedgerCount > (todayLedger?.length ?? 0);
-  if (ledgerTruncated)
-    console.error("[refunds] today-ledger read truncated — the settled list is marked capped", {
-      count: todayLedgerCount,
-      rows: todayLedger?.length ?? 0,
-    });
-  const refundedTodayAt = new Map<string, string>();
-  for (const r of todayLedger ?? []) {
-    const prev = refundedTodayAt.get(r.order_id);
-    if (prev === undefined || Date.parse(r.created_at) > Date.parse(prev))
-      refundedTodayAt.set(r.order_id, r.created_at);
-  }
+  // M219 — read the ledger COMPLETELY. PostgREST's max-rows cap is silent (`error` stays null), so
+  // the old single unpaged select could answer a SUBSET, and a ranking over a subset misses the
+  // day's newest refunds while the list still calls itself the day. `readLedgerSince` pages
+  // deterministically (created_at AND id, W21d) and answers null rather than a partial read, which
+  // is the one thing a money surface can act on honestly.
+  const todayLedger = await readLedgerSince(db, sinceIso);
+  if (todayLedger === null) return { ok: false, reason: "outage" };
+  const refundedTodayAt = latestRefundByOrder(todayLedger);
   // Ranked by the LATEST refund and capped BEFORE the read (Codex round 2 on #283, P1): the union
   // arm's own `.order("created_at")` under its `.limit` chose the fifty newest-CREATED of the
   // ledger's orders, so with more than fifty refunded today the oldest order carrying today's
@@ -222,7 +205,6 @@ export async function getSettledToday(): Promise<SettledToday> {
     queueEmptiness(paidRows.length, SETTLED_CAP) === "cannot-say" ||
     queueEmptiness(unionRows.length, SETTLED_CAP) === "cannot-say" ||
     unionOverflow ||
-    ledgerTruncated ||
     byId.size > SETTLED_CAP;
   const serverClock = settledClock(nowIso, tz);
   if (rows.length === 0)
@@ -351,11 +333,26 @@ export type RefundResult =
     };
 
 /**
- * Refund ONE paid line. Manager-gated + self-PIN step-up (money-out re-auth). mms_refund_authorize
- * server-derives the amount (goods + that line's tax) + the PI and validates paid/single-PI/not-already-
- * refunded; the Stripe refund is idempotency-keyed on the line (no double money out); mms_record_refund
- * writes the ledger + audit. A record failure AFTER a successful Stripe refund is logged, not surfaced —
- * the charge.refunded webhook reconciles the status regardless (the money already moved correctly).
+ * Refund ONE paid line. Manager-gated + self-PIN step-up (money-out re-auth).
+ *
+ * TWO paths, chosen from the order's own stored facts by `refundPathFor` — the same pure rule the
+ * console used to decide what to SHOW, so the sheet and the server can never disagree about which
+ * instrument gives the money back:
+ *
+ *   `app`  — a card order with a PaymentIntent. `mms_refund_authorize` server-derives the amount and
+ *            the PI (it writes nothing); the Stripe refund is idempotency-keyed on the line (no
+ *            double money out); `mms_record_refund` then writes the ledger + audit. A record failure
+ *            AFTER a successful Stripe refund is logged, not surfaced — the money moved correctly and
+ *            the charge.refunded webhook re-records it.
+ *   `cash`  — M218. No processor sits in the middle, so `mms_refund_cash_line` authorizes AND records
+ *            in ONE transaction: there is no window where the drawer has paid out and nothing says
+ *            so, and nothing to reconcile it later if there were. Before M218 this path did not
+ *            exist: the card authorizer answered `split_unsupported` for every cash order, and a
+ *            hand-back from the drawer left the receipt reading "Paid in full".
+ *   `dashboard` — a split-tender card order; the authorizer still answers `split_unsupported` and the
+ *            sheet sends the manager to the processor. Unchanged, and deliberately NOT short-circuited
+ *            here: the SQL is the authority, and it answers `not_paid` / `not_found` first when those
+ *            are true.
  */
 export async function refundLine(raw: unknown): Promise<RefundResult> {
   const staffAuth = await getStaffAuth();
@@ -380,6 +377,88 @@ export async function refundLine(raw: unknown): Promise<RefundResult> {
   if (v.status !== "ok") return { ok: false, reason: "error" };
 
   const db = serviceClient();
+
+  // WHICH INSTRUMENT. Read the order's own facts — never a path the client sent — and decide with
+  // `refundPathFor`, the rule the console already renders from. A failed read is an `error`, not a
+  // fall-through to the card path: falling through would tell a manager holding cash that the order
+  // is "split-tender", which is the exact false verdict M183 closed.
+  const { data: pathRow, error: pathErr } = await db
+    .from("qr_order_items")
+    .select("qr_orders(tender,stripe_payment_intent_id)")
+    .eq("id", orderItemId)
+    .maybeSingle<{
+      qr_orders: { tender: string; stripe_payment_intent_id: string | null } | null;
+    }>();
+  if (pathErr) {
+    console.error("[refunds] refund-path read failed", { orderItemId, message: pathErr.message });
+    return { ok: false, reason: "error" };
+  }
+  // No row is `not_found` — the same verdict the SQL would give, without paying for the rpc.
+  if (!pathRow?.qr_orders) return { ok: false, reason: "not_found" };
+  const path = refundPathFor({
+    tender: pathRow.qr_orders.tender,
+    stripePaymentIntentId: pathRow.qr_orders.stripe_payment_intent_id,
+  });
+
+  if (path === "cash") {
+    // M218 — one call authorizes and records. It re-checks the manager floor, the paid status, the
+    // tender AND that no PaymentIntent exists, so a stale read above cannot make it pay out.
+    const { data: cashRows, error: cashErr } = await db.rpc("mms_refund_cash_line", {
+      p_line_item: orderItemId,
+      p_initiator: caller.staffId,
+      p_reason: reason,
+    });
+    if (cashErr) {
+      console.error("[refunds] mms_refund_cash_line failed", {
+        orderItemId,
+        message: cashErr.message,
+      });
+      return { ok: false, reason: "error" };
+    }
+    const cash = cashRows?.[0];
+    if (!cash) return { ok: false, reason: "error" };
+    if (cash.reason !== "ok") {
+      // `not_cash` means this read and the database disagree about the order — it cannot happen from
+      // the branch above, so it is a defect rather than a verdict about the line, and the manager is
+      // told so plainly instead of being handed a reason the sheet has no sentence for.
+      if (cash.reason === "not_cash") {
+        console.error("[refunds] cash path refused a line the read called cash", { orderItemId });
+        return { ok: false, reason: "error" };
+      }
+      return {
+        ok: false,
+        reason: cash.reason as
+          | "not_manager"
+          | "not_found"
+          | "not_paid"
+          | "already_refunded"
+          | "fully_refunded",
+      };
+    }
+    revalidatePath("/staff");
+    if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
+      after(async () => {
+        try {
+          const ph = getPostHogClient();
+          ph.capture({
+            distinctId: `staff:${caller.staffId}`,
+            event: "line_refunded",
+            properties: {
+              role: caller.role,
+              reason,
+              amount_cents: cash.amount_cents,
+              tender: "cash",
+            },
+          });
+          await ph.flush();
+        } catch {
+          /* analytics best-effort — never fail an issued refund on a capture error */
+        }
+      });
+    }
+    return { ok: true, amountCents: cash.amount_cents };
+  }
+
   const { data: authRows, error: authErr } = await db.rpc("mms_refund_authorize", {
     p_line_item: orderItemId,
     p_initiator: caller.staffId,

@@ -903,9 +903,9 @@ export const STAFF = {
   // Honest about what the screen keeps (Codex round 1 on #283, P1 → M218): no flow records a cash
   // refund yet, so the sentence must not read as if handing the money back is logged anywhere.
   "floor.settled.path.cash": {
-    en: "Cash order — hand it back from the drawer. This screen can’t record a cash refund yet, so the receipt and the takings still show it as paid.",
-    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပါ။ ငွေသား ပြန်အမ်းတာကို ဒီစခရင်က မမှတ်တမ်းတင်နိုင်သေးလို့ ပြေစာနဲ့ ရငွေစာရင်းမှာ ပေးပြီးသားအဖြစ်ပဲ ပြနေပါမယ်။",
-  }, // K15-HIGH — a wrong word here sends a manager to a dashboard where no charge exists, or lets them believe the drawer's money out was recorded
+    en: "Cash order — hand it back from the drawer, then record it here. The receipt and the takings follow.",
+    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပြီး ဒီမှာ မှတ်တမ်းတင်ပါ။ ပြေစာနဲ့ ရငွေစာရင်းက လိုက်ပါလာပါမယ်။",
+  }, // K15-HIGH — M218 re-drafted this: it used to say the screen COULD NOT record a cash refund, which was true and is now false. Every word is reused from that sentence; the order of the clauses is the change. A wrong word here lets a manager believe the drawer's money out was recorded when it was not, or the reverse
   "floor.settled.path.dashboard": {
     en: "Paid by more than one card — refund each payer’s charge in {x}.",
     my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီရဲ့ ငွေကို {x} မှာ ပြန်အမ်းပါ။",
@@ -1342,6 +1342,14 @@ export const STAFF = {
   "reg.day.orders.one": { en: "{n} order", my: "အော်ဒါ {n} ခု" },
   "reg.day.orders.many": { en: "{n} orders", my: "အော်ဒါ {n} ခု" },
   "reg.day.tips": { en: "incl. {m} tips", my: "အပိုကြေး {m} ပါဝင်" },
+  // M218 — the two figures the drawer needs now that a cash refund can be RECORDED: what went back
+  // out of the till today, and what should be in it after that. Both ride the cash cell beside the
+  // tip breakdown, and both carry `{m}` — a preformatted AMOUNT, so its numerals stay Latin (the
+  // dictionary's money rule) while the words around them follow the device language. The Burmese
+  // reuses ပြန်အမ်း (`floor.settled.verb.refund`) and အံဆွဲ (`floor.settled.path.cash`) — the words
+  // the same manager already reads one screen away.
+  "reg.day.handedBack": { en: "{m} handed back", my: "{m} ပြန်အမ်းပြီး" },
+  "reg.day.inDrawer": { en: "{m} in drawer", my: "အံဆွဲထဲ {m}" },
   "reg.day.refunded.one": {
     en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
     my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",

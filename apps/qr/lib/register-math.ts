@@ -33,11 +33,21 @@ export type DaySummary = {
    *  of it belongs to the team. Reported apart because "count the drawer" and "what were we
    *  tipped" are different questions asked by different people. */
   cashTipCents: number;
+  /** M218 — cash handed BACK from the drawer today (the `tender = 'cash'` ledger rows). It is not a
+   *  bucket and it is not inside `cashCents`: a line refund leaves `status = 'paid'` and
+   *  `total_cents` untouched, so the takings above stay GROSS and this is what left the till after
+   *  them. Until M218 a cash refund could not be recorded at all, so this was structurally 0 and
+   *  the drawer overstated itself by every hand-back of the day. */
+  cashRefundedCents: number;
+  /** What should actually be IN the drawer: gross cash less what went back out. The one figure a
+   *  manager counts against, named here rather than subtracted at each surface — two screens doing
+   *  their own arithmetic is how a money value drifts. */
+  cashNetCents: number;
 };
 
 /** Bucket a day's orders by tender. Only status='paid' rows count toward a tender bucket — a
  *  refunded order's money is NOT in the drawer, and silently folding it in overstates the day. */
-export function summarizeDay(rows: DayOrderRow[]): DaySummary {
+export function summarizeDay(rows: DayOrderRow[], cashRefundedCents = 0): DaySummary {
   const s: DaySummary = {
     cashCount: 0,
     cashCents: 0,
@@ -48,6 +58,10 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
     refundedCount: 0,
     refundedCents: 0,
     cashTipCents: 0,
+    // Defaulted so a caller that has not widened its read gets today's honest 0 rather than NaN —
+    // the same posture `tip_cents` takes on the row type above.
+    cashRefundedCents: Math.max(0, cashRefundedCents),
+    cashNetCents: 0,
   };
   for (const r of rows) {
     if (r.status === "refunded") {
@@ -70,6 +84,9 @@ export function summarizeDay(rows: DayOrderRow[]): DaySummary {
       s.cardCents += r.total_cents;
     }
   }
+  // Derived last, from the two figures above, so it can never disagree with them. Floored at zero:
+  // a drawer that reads negative is an over-refund already on the books, not a debt the till owes.
+  s.cashNetCents = Math.max(0, s.cashCents - s.cashRefundedCents);
   return s;
 }
 

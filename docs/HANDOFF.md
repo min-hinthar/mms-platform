@@ -5,7 +5,33 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-15 · A4 COMPLETE: A4·1–A4·4 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352` · #284 `c0edc72`); A4·5 is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
+> ## ⏭️ NEXT SESSION — start here (2026-09-16 · A4 COMPLETE and MERGED through #285 `9d484db`; the refund-ledger slice (M218 · M219) is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
+>
+> **M218 — a cash refund is RECORDED now.** It could not be: `mms_refund_authorize` refuses any
+> order with no PaymentIntent and `mms_fulfill_cash_order` never writes one, so the drawer paid out
+> while the receipt, the line and the day's takings all still read as paid in full.
+> `mms_refund_cash_line` authorizes AND records in one transaction (cash has no processor in the
+> middle, so a split would invent a window where money has moved and nothing says so), the drawer
+> nets what went back (`cashRefundedCents` · `cashNetCents`), and the settled sheet offers Refund on
+> the cash path. **M219** rides with it: `readLedgerSince` pages the ledger for both readers.
+>
+> ⚠️ **THE MIGRATION IS NOT ON PROD.** `20260916000000_m218_cash_refund_line.sql` ships in the repo
+> only. Applying it is Min's go, one file at a time via the Supabase MCP — the repo and prod
+> histories are divergent (see CLAUDE.md). Until it is applied, the cash Refund control is live in
+> code against a database that has no `mms_refund_cash_line`, so the rpc answers a missing-function
+> error and `refundLine` returns `error`. **Apply before the next service that uses it.**
+>
+> 🔬 **A local Postgres proved it.** Not a Supabase stack — a plain `initdb` cluster (run as an
+> unprivileged user; postgres refuses root) with the Supabase roles and an `auth.users` stub, then
+> all 101 migrations applied in order, 98 of them clean. The SQL test passed there, and was watched
+> RED under two mutations of the migration: dropping the order-level `refunded_cents` bump, and
+> dropping the `not_cash` guard — the second let a CARD order refund from the drawer while its
+> Stripe charge stayed refundable. That harness is worth rebuilding when a migration needs proof and
+> Docker is unavailable.
+>
+> ---
+>
+> ## ⏭️ (2026-09-15 · A4 COMPLETE: A4·1–A4·4 MERGED (#281 `236b206` · #282 `5e06782` · #283 `bf55352` · #284 `c0edc72`); A4·5 is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
 >
 > **A4·5 — Menu + Tips** is the last of the five A4 slices (`docs/A4_PLAN.md` § A4·5): the
 > word-check sheet is the Menu screen's print action (`browse.price.wordCheck`, a circle in the
@@ -461,7 +487,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **672 `verify:slice` mutants** · **121 target modules** (108 under `apps/qr/lib`, 3 API routes,
+> **675 `verify:slice` mutants** · **121 target modules** (109 under `apps/qr/lib`, 3 API routes,
 > 9 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all twelve fast-lane guards green.
@@ -931,7 +957,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (672 today)**, **1372 qr + 138 ui tests at the time (2556 + 142 today)**, 69 target modules at the time (108 under `apps/qr/lib` today, 121 in all), 97 local
+> **334 mutants at the time (675 today)**, **1372 qr + 138 ui tests at the time (2567 + 142 today)**, 69 target modules at the time (109 under `apps/qr/lib` today, 122 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1823,7 +1849,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 672 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2556 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 675 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2567 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2545,7 +2571,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (672 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (675 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

@@ -271,7 +271,11 @@ function OrderCard({
   const groups = groupReceiptLines(o.lines);
   const rows = [...buildReceiptRows(o.breakdown, o.totalCents), ...buildRefundRows(o.refund)];
   // The path note (M183): from the order's own tender and PaymentIntent, never guessed from one.
-  const canRefundHere = o.refundPath === "app" && o.status === "paid";
+  // M218 — CASH refunds here too, now that `mms_refund_cash_line` records them. Only `dashboard`
+  // (split-tender: each payer's charge lives on its own share) is still refunded elsewhere. The
+  // note below stays for cash because the money moves by HAND — the app records it, it cannot
+  // open the drawer.
+  const canRefundHere = o.refundPath !== "dashboard" && o.status === "paid";
   const exhausted = canRefundHere && o.remainingCents === 0 && o.lines.some((l) => !l.refunded);
 
   return (

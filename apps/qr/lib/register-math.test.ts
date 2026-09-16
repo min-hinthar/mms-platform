@@ -20,7 +20,41 @@ describe("summarizeDay — the Z-report buckets", () => {
       refundedCount: 1,
       refundedCents: 990,
       cashTipCents: 0,
+      // M218 — no cash went back today, so the drawer's net IS its gross.
+      cashRefundedCents: 0,
+      cashNetCents: 3800,
     });
+  });
+
+  it("M218: cash handed back comes OFF the drawer, and never off the other tenders", () => {
+    // A line refund leaves the order `paid` at its full `total_cents`, so `cashCents` stays GROSS
+    // and this is what actually left the till. The card bucket must not move: a card refund goes
+    // back through the processor and never opens the drawer.
+    const s = summarizeDay(
+      [
+        { tender: "cash", total_cents: 2500, status: "paid" },
+        { tender: "card", total_cents: 4200, status: "paid" },
+      ],
+      700,
+    );
+    expect(s.cashCents).toBe(2500); // gross, unmoved
+    expect(s.cashRefundedCents).toBe(700);
+    expect(s.cashNetCents).toBe(1800);
+    expect(s.cardCents).toBe(4200);
+  });
+
+  it("M218: a drawer that gave back more than it took reads ZERO, never a debt", () => {
+    // An over-refund is already on the books (an order-level row, a hand-back against an earlier
+    // day). The till cannot hold negative money, and showing one would read as something owed.
+    const s = summarizeDay([{ tender: "cash", total_cents: 1000, status: "paid" }], 2500);
+    expect(s.cashRefundedCents).toBe(2500);
+    expect(s.cashNetCents).toBe(0);
+  });
+
+  it("M218: a caller that passes no refund figure gets today's honest zero", () => {
+    const s = summarizeDay([{ tender: "cash", total_cents: 1000, status: "paid" }]);
+    expect(s.cashRefundedCents).toBe(0);
+    expect(s.cashNetCents).toBe(1000);
   });
 
   it("W17c-2: a cash tip is INSIDE the drawer figure, and also reported on its own", () => {

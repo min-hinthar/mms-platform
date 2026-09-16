@@ -5,6 +5,7 @@ import { openRegisterInput, setCartNameInput } from "@mms/db/schemas";
 import { roleAtLeast, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { generateJoinCode } from "./session-code";
 import { summarizeDay, type DaySummary } from "./register-math";
+import { cashRefundedCents, readLedgerSince } from "./refund-ledger";
 import { readServiceDay } from "./service-day";
 import { scopeToSelf, summarizeTips, type TipOrderRow, type TipReport } from "./tip-report";
 import { REG_PREFIX } from "./register-queue";
@@ -246,7 +247,14 @@ export async function getDayCashSummary(): Promise<DayCashResult> {
     rows.push(...(data ?? []));
     if ((data ?? []).length < PAGE) break;
   }
-  return { ok: true, summary: summarizeDay(rows), sinceIso };
+  // M218 — what the till PAID OUT today. A line refund leaves the order `paid` with its
+  // `total_cents` untouched, so the buckets above are gross and the drawer would overstate itself by
+  // every hand-back without this. Read through the one paged ledger reader (M219), and a FAILED
+  // ledger read is an outage for the whole summary rather than a silent 0: "nothing went back" is
+  // exactly the false-empty this surface exists to prevent.
+  const ledger = await readLedgerSince(db, sinceIso);
+  if (ledger === null) return { ok: false, reason: "outage" };
+  return { ok: true, summary: summarizeDay(rows, cashRefundedCents(ledger)), sinceIso };
 }
 
 /**
