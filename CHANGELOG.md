@@ -34,21 +34,33 @@ have reached it.
   module; (b) `some()` over the statement list is not liveness — `if (irrelevant) return;` before
   the call left it a top-level statement while whole classes of event skipped the refresh, so every
   statement before the call must now be exit-free (`return`/`throw`, not descending into nested
-  functions, whose returns exit THEM). Watched RED under **twelve** evasions and the walk floor,
-  with three controls held GREEN so the tightening does not refuse valid code: an aliased coalescer
-  import, a non-exiting `if` before the call, and a nested arrow's own `return`.
+  functions, whose returns exit THEM). ⚠️ **A blind adversarial pass then found four more, all in
+  the guard:** whole-file `declarations()` was LAST-WINS, so two same-named bindings in one file let
+  the correct one launder the defective one (the repo's own **uniqueness ≠ liveness** rule, broken
+  by the guard written to enforce it) — bindings now resolve LEXICALLY from the call site; the
+  coalescer's ARGUMENT was never read, so `useCoalescedRefresh(() => {})` passed while nothing could
+  re-read — it must be a named binding; `void schedule()` was REFUSED, which is this repo's
+  fire-and-forget idiom and literally the line this slice replaced — `void`/`await`/`as`,
+  `React.useCallback` and a hoisted `function` handler are all accepted now; and "repo-wide" was
+  `apps/qr` only — the window scan covers `packages/` and `scripts/` too, and the docblock no longer
+  claims it can see a bare `150` literal, which it cannot. Every file is parsed ONCE (679 files,
+  ~1.7 s). **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor, and the
+  list is kept in the guard's own docblock rather than in prose.
 - **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the
   SAME delay whether or not the anchor reset, so the first draft scored green against its own
   mutation and only an idle gap between bursts tells them apart.
-- **M217 closed as NOT A DEFECT, with the shape recorded.** The row said `mms_merge_table_orders`
-  "loops over EVERY `qr_cart_items` row of the source with no state predicate", so a `served` line
-  could fold into a `fired` one and the kitchen would re-cook eaten food. It cites
-  `20260623030000_s3_secure_merge_guard.sql` — **eight migrations out of date**; ELEVEN files
-  redefine that one function, and the S6 same-kitchen-state rule (`and t.state = r.state`) has been
-  in it since `20260822000000`. Verified on PROD via `pg_get_functiondef`, not inferred from the
-  repo. The finding was real work done against a database nobody has run since June.
+- **M217 closed as NOT A DEFECT — and the first draft of that closure got the mechanism wrong too,
+  so these numbers are measured.** The row said `mms_merge_table_orders` "loops over EVERY
+  `qr_cart_items` row of the source with no state predicate", so a `served` line could fold into a
+  `fired` one and the kitchen would re-cook eaten food. **14** migration files redefine that one
+  function (a bare `grep -l` returns 15 — `20260823000000_m100_mode_authority.sql` mentions it
+  without redefining it). The S6 same-kitchen-state fold was **not** added by `m98`, whose own
+  comment says it added the PRICE match; its real history is **add → drop → restore** — introduced
+  `20260622090000`, absent from the next three definers _including the one this row cites_, restored
+  `20260702000000`, carried ever since. So the reviewer described a real defect in a real file; only
+  the LAST definer answers the question. Verified on PROD via `pg_get_functiondef`.
 
 ### M218 · M219 — a cash refund is RECORDED, and the ledger is read whole (2026-09-16)
 

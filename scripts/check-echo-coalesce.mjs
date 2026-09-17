@@ -47,6 +47,35 @@
  *      passed while whole classes of event skipped the refresh. Reachability is now asserted: every
  *      statement BEFORE the call must be exit-free (no `return`/`throw` in its subtree, not
  *      descending into nested functions, whose returns exit THEM rather than the callback).
+ *
+ * ## Four more the blind adversarial pass on #287 found, after those two were fixed
+ *
+ *   3. **Whole-file `declarations()` was LAST-WINS, so one correct binding laundered every
+ *      same-named wrong one.** Two components in one file, each with its own `const onEcho`: the
+ *      later (correct) one overwrote the earlier (defective) one in the map, the defective call site
+ *      hit `names.has(arg.text)` and was waved through, and `MIN_CALL_SITES` was still satisfied.
+ *      That is the repo's own **uniqueness ≠ liveness** rule broken by the guard written to enforce
+ *      it. Bindings now resolve LEXICALLY from the call site outward.
+ *   4. **The coalescer's ARGUMENT was never read**, so `useCoalescedRefresh(() => {})` passed while
+ *      no re-read could ever happen. It must now be a named binding.
+ *   5. **`void schedule();` was refused** — a `VoidExpression`, not a `CallExpression`. That is this
+ *      repo's standard fire-and-forget idiom and was literally the line this slice replaced, so the
+ *      guard refused the shape it is most likely to meet. `void`/`await` are unwrapped now, and
+ *      `React.useCallback`, a hoisted `function` declaration and an `as` cast are all accepted.
+ *   6. **"repo-wide" was `apps/qr` only.** The window scan now covers `packages/` and `scripts/`
+ *      too. ⚠️ It matches the two NAMES; it cannot see `const ECHO_WINDOW_MS = 150` or a bare
+ *      `setTimeout(fn, 150)`, and this docblock no longer claims otherwise.
+ *
+ * ## The evasions this guard has been watched RED against (keep this list with the code)
+ *
+ * The per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out call ·
+ * the provider's handler no longer scheduling · the provider scheduling behind a condition · a
+ * second `ECHO_COALESCE_MS` declaration · the module renaming a constant · `useCartRealtime as
+ * useRealtime` · `import * as rt` → `rt.useCartRealtime` · a deep relative import · an early
+ * `return` before the call · a `throw` before the call · two same-named bindings in one file, one
+ * correct · `useCoalescedRefresh(() => {})` · the walk floor.
+ * Controls held GREEN: an aliased coalescer import · a non-exiting `if` before the call · a nested
+ * arrow's own `return` · `void schedule()` · `React.useCallback` · a hoisted `function` handler.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -56,6 +85,8 @@ import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP = "apps/qr";
+/** The window constants must be unique across everything that could hold a second copy. */
+const WINDOW_SCAN_ROOTS = [APP, "packages", "scripts"];
 const MODULE_FILE = `${APP}/lib/echo-refresh.ts`;
 /** Module paths WITHOUT extension, as `resolveSpec` returns them. */
 const COALESCER_MODULE = `${APP}/lib/echo-refresh`;
@@ -70,12 +101,12 @@ const problems = [];
 const fail = (m) => problems.push(m);
 
 /** Every source file under apps/qr — RECURSIVELY (readdirSync is not). */
-function sources(dir, out = []) {
+function sources(dir, out = [], ext = /\.tsx?$/) {
   for (const entry of readdirSync(path.join(ROOT, dir))) {
     if (entry === "node_modules" || entry === ".next") continue;
     const rel = `${dir}/${entry}`;
-    if (statSync(path.join(ROOT, rel)).isDirectory()) sources(rel, out);
-    else if (/\.tsx?$/.test(entry)) out.push(rel);
+    if (statSync(path.join(ROOT, rel)).isDirectory()) sources(rel, out, ext);
+    else if (ext.test(entry)) out.push(rel);
   }
   return out;
 }
@@ -148,22 +179,56 @@ function isCallToBinding(node, binding, exported) {
 const isCallTo = (node, name) =>
   ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name;
 
-/** Top-level `const x = …` initializers in a file, by name. */
-function declarations(src) {
-  const byName = new Map();
-  walk(src, (n) => {
-    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer)
-      byName.set(n.name.text, n.initializer);
-  });
-  return byName;
+/**
+ * The initializer bound to `name` as seen FROM `node`, resolved LEXICALLY: walk outward and take the
+ * first enclosing scope that declares it. A whole-file map is last-wins, which lets one correct
+ * binding launder every same-named wrong one in the same file (blind pass on #287) — the repo's own
+ * "uniqueness ≠ liveness" rule, broken by the guard written to enforce it.
+ *
+ * Returns `{ kind: "value", init }` for `const x = …`, `{ kind: "function", fn }` for a hoisted
+ * `function x(){}`, or `null`.
+ */
+function resolveBinding(node, name) {
+  for (let scope = node.parent; scope; scope = scope.parent) {
+    const statements = ts.isSourceFile(scope)
+      ? scope.statements
+      : ts.isBlock(scope) || ts.isModuleBlock(scope)
+        ? scope.statements
+        : null;
+    if (!statements) continue;
+    for (const st of statements) {
+      if (ts.isVariableStatement(st)) {
+        for (const d of st.declarationList.declarations) {
+          if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
+            return { kind: "value", init: d.initializer };
+        }
+      }
+      if (ts.isFunctionDeclaration(st) && st.name?.text === name)
+        return { kind: "function", fn: st };
+    }
+  }
+  return null;
 }
 
-/** Names bound in this file to a `useCoalescedRefresh(...)` call, however that hook was imported. */
-function coalescerBindings(decls, coalescer) {
-  const names = new Set();
-  for (const [name, init] of decls)
-    if (isCallToBinding(init, coalescer, COALESCER)) names.add(name);
-  return names;
+/** Strip the wrappers that do not change what is called: `void f()`, `await f()`, `f() as T`. */
+function unwrap(e) {
+  let out = e;
+  for (;;) {
+    if (ts.isVoidExpression(out) || ts.isAwaitExpression(out)) out = out.expression;
+    else if (ts.isAsExpression(out) || ts.isParenthesizedExpression(out)) out = out.expression;
+    else if (ts.isNonNullExpression(out)) out = out.expression;
+    else return out;
+  }
+}
+
+/** `useCallback(...)` or `React.useCallback(...)`. */
+function isUseCallback(e) {
+  if (!ts.isCallExpression(e)) return false;
+  const c = e.expression;
+  return (
+    (ts.isIdentifier(c) && c.text === "useCallback") ||
+    (ts.isPropertyAccessExpression(c) && c.name.text === "useCallback")
+  );
 }
 
 /**
@@ -206,10 +271,19 @@ function exitsCallback(node) {
  * i.e. no statement before it can `return` or `throw` out of the callback.
  */
 function callsDirectly(fn, names) {
-  if (!fn || (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn))) return false;
+  if (
+    !fn ||
+    (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn) && !ts.isFunctionDeclaration(fn))
+  )
+    return false;
   const body = fn.body;
-  const isSchedule = (e) =>
-    ts.isCallExpression(e) && ts.isIdentifier(e.expression) && names.has(e.expression.text);
+  if (!body) return false;
+  // `void schedule()` is this repo's fire-and-forget idiom — and was literally the line this slice
+  // replaced — so refusing it would refuse the shape the guard is most likely to meet.
+  const isSchedule = (e) => {
+    const c = unwrap(e);
+    return ts.isCallExpression(c) && ts.isIdentifier(c.expression) && names.has(c.expression.text);
+  };
   // A concise arrow body IS the whole behaviour, so a bare `() => schedule()` qualifies.
   if (!ts.isBlock(body)) return isSchedule(body);
   for (const st of body.statements) {
@@ -220,12 +294,32 @@ function callsDirectly(fn, names) {
   return false;
 }
 
+/**
+ * Is this initializer a `useCoalescedRefresh(<named binding>)` call?
+ *
+ * ⚠️ THE ARGUMENT CHECK IS THE POINT (blind pass on #287). Without it
+ * `useCoalescedRefresh(() => {})` satisfied every other rule while no re-read could ever happen,
+ * and the script still printed "all coalesced". Requiring a NAMED binding is the cheap sound bar;
+ * proving the callee actually re-reads the cart would need a type checker.
+ */
+function isCoalescerCall(init, coalescer) {
+  if (!init) return false;
+  const call = unwrap(init);
+  if (!isCallToBinding(call, coalescer, COALESCER)) return false;
+  const arg = call.arguments[0];
+  return !!arg && ts.isIdentifier(arg);
+}
+
+// ── every file is parsed ONCE, and both sections read that one AST ──────────────────────────────
+const windowFiles = [...new Set(WINDOW_SCAN_ROOTS.flatMap((d) => sources(d, [], /\.(tsx?|mjs)$/)))];
+const parsed = new Map(windowFiles.map((rel) => [rel, parse(rel)]));
+
 // ── 1. every call site routes through the shared coalescer ──────────────────────────────────────
-const files = sources(APP);
 let callSites = 0;
 
-for (const rel of files) {
-  const src = parse(rel);
+for (const rel of windowFiles) {
+  if (!rel.startsWith(`${APP}/`)) continue;
+  const src = parsed.get(rel);
   const hook = importedAs(src, rel, REALTIME_MODULE, HOOK);
   if (hook.names.size === 0 && hook.namespaces.size === 0) continue;
 
@@ -236,9 +330,13 @@ for (const rel of files) {
   if (calls.length === 0) continue;
   callSites += calls.length;
 
-  const decls = declarations(src);
   const coalescer = importedAs(src, rel, COALESCER_MODULE, COALESCER);
-  const names = coalescerBindings(decls, coalescer);
+
+  /** Is `name`, as seen FROM `from`, bound to a `useCoalescedRefresh(<named binding>)` call? */
+  const isScheduler = (from, name) => {
+    const b = resolveBinding(from, name);
+    return b?.kind === "value" && isCoalescerCall(b.init, coalescer);
+  };
 
   for (const call of calls) {
     const where = `${rel}:${src.getLineAndCharacterOfPosition(call.getStart()).line + 1}`;
@@ -247,23 +345,35 @@ for (const rel of files) {
       fail(`${where}: ${HOOK} called with no onChange argument.`);
       continue;
     }
-    if (names.size === 0) {
+    if (coalescer.names.size === 0 && coalescer.namespaces.size === 0) {
       fail(
-        `${where}: ${HOOK} consumer has no \`${COALESCER}(…)\` binding imported from ` +
-          `${MODULE_FILE} — every echo must be coalesced (M193), and a same-named local helper ` +
-          `does not count.`,
+        `${where}: ${HOOK} consumer does not import \`${COALESCER}\` from ${MODULE_FILE} — ` +
+          `every echo must be coalesced (M193), and a same-named local helper does not count.`,
       );
       continue;
     }
+
+    // Scheduler names as seen FROM THIS CALL SITE, resolved lexically — never a whole-file map.
+    // Last-wins lets one correct binding launder a same-named defective one elsewhere in the file
+    // (blind pass on #287), which is the repo's own "uniqueness ≠ liveness" rule broken by the
+    // guard written to enforce it.
+    const names = new Set();
+    walk(src, (n) => {
+      if (ts.isIdentifier(n) && !names.has(n.text) && isScheduler(call, n.text)) names.add(n.text);
+    });
+
     if (ts.isIdentifier(arg)) {
-      if (names.has(arg.text)) continue; // the coalescer, passed straight through
-      const init = decls.get(arg.text);
-      if (init && isCallTo(init, "useCallback") && callsDirectly(init.arguments[0], names))
-        continue;
+      if (isScheduler(arg, arg.text)) continue; // the coalescer, passed straight through
+      const b = resolveBinding(arg, arg.text);
+      if (b?.kind === "function" && callsDirectly(b.fn, names)) continue;
+      if (b?.kind === "value") {
+        const init = unwrap(b.init);
+        if (isUseCallback(init) && callsDirectly(init.arguments[0], names)) continue;
+      }
       fail(
         `${where}: onChange \`${arg.text}\` does not schedule through ${COALESCER}. ` +
-          `Its declaration must be \`${COALESCER}(refresh)\`, or a \`useCallback\` whose body calls ` +
-          `such a binding as a top-level statement reached before any \`return\`/\`throw\`.`,
+          `Its declaration must be \`${COALESCER}(refresh)\` (a NAMED argument), or a callback whose ` +
+          `body calls such a binding as a top-level statement reached before any \`return\`/\`throw\`.`,
       );
       continue;
     }
@@ -285,8 +395,7 @@ if (callSites < MIN_CALL_SITES)
 // ── 2. the window is declared exactly once ──────────────────────────────────────────────────────
 for (const constName of WINDOW_CONSTS) {
   const sites = [];
-  for (const rel of files) {
-    const src = parse(rel);
+  for (const [rel, src] of parsed) {
     walk(src, (n) => {
       if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.name.text === constName)
         sites.push(`${rel}:${src.getLineAndCharacterOfPosition(n.getStart()).line + 1}`);
@@ -307,4 +416,7 @@ if (problems.length) {
   );
   process.exit(1);
 }
-console.log(`✓ check:echo-coalesce — ${callSites} ${HOOK} call sites, all coalesced; one window`);
+console.log(
+  `✓ check:echo-coalesce — ${callSites} ${HOOK} call sites, all coalesced; one window across ` +
+    `${parsed.size} files in ${WINDOW_SCAN_ROOTS.join(", ")}`,
+);

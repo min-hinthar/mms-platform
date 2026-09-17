@@ -808,6 +808,14 @@ const MUTANTS = [
     replace: "  const me = session ? { seat: session.seat, name } : null;",
   },
   {
+    id: "perf/echo-window-allows-a-negative-delay",
+    file: "apps/qr/lib/echo-refresh.ts",
+    suite: "lib/echo-refresh.test.tsx",
+    why: "The CLAMP, isolated \u2014 the other two arithmetic mutants replace the WHOLE return expression, so neither of them falsifies the floor on its own, and the docblock calls it load-bearing (blind adversarial pass on #287). Past the deadline the inner term goes negative; the runtime happens to clamp a negative `setTimeout` delay to 0, so the behaviour survives by luck rather than by the rule, and a reader who deletes `Math.max` sees nothing change. The intent has to be readable HERE, not inferred from what a browser does",
+    find: "  return Math.max(0, Math.min(ECHO_COALESCE_MS, ECHO_MAX_WAIT_MS - waitedMs));",
+    replace: "  return Math.min(ECHO_COALESCE_MS, ECHO_MAX_WAIT_MS - waitedMs);",
+  },
+  {
     id: "perf/echo-window-is-a-pure-debounce",
     file: "apps/qr/lib/echo-refresh.ts",
     suite: "lib/echo-refresh.test.tsx",

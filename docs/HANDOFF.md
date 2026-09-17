@@ -23,14 +23,33 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > statement REACHED on every invocation, so `if (false) schedule();`, a commented-out call and an
 > early `return`/`throw` before it all fail. Both hook names are resolved from the IMPORT (alias and
 > `import * as ns`), and the specifier resolves as a PATH, so no spelling of the import escapes it.
-> It also counts the two window constants repo-wide. Watched RED under twelve evasions and the walk
-> floor, with three controls held GREEN.
+> It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
+> the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE (679 files, ~1.7 s).
+> **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor; the list lives in
+> the guard's docblock, not in prose.
 >
-> ⚠️ **Codex round 1 found two holes, both in the GUARD and neither in the code it guards** — the
-> name-only call-site match (defeated by `import { useCartRealtime as useRealtime }`, with the floor
-> still satisfied by the two unaliased sites) and `some()` over the statement list, which is not
-> reachability. Both were the guard asserting a property its matcher could not establish, which is
-> the shape CLAUDE.md warns about under "guards get audited harder than the code they guard".
+> ⚠️ **SIX holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
+> round 1 (the name-only call-site match, defeated by an import alias while the floor stayed
+> satisfied; and `some()` over the statement list, which is not reachability) and four by the blind
+> adversarial pass (whole-file last-wins bindings laundering a same-named defective one; the
+> coalescer's argument never read, so a no-op passed; `void schedule()` refused, which is the repo's
+> own idiom; and "repo-wide" meaning `apps/qr` only). Every one was the guard asserting a property
+> its matcher could not establish. That is the shape CLAUDE.md warns about under "guards get audited
+> harder than the code they guard", and it is now three PRs running.
+>
+> ⚠️ **The blind pass also falsified my own LEARNINGS #116 — all three of its numbers.** The entry
+> preaching "measure, never transcribe" had transcribed a count (eleven, really 14), a mechanism
+> (the first `grep -l` hit) and a date (`m98` added the S6 fold; it did not). Corrected from
+> measurement, and the corrected history is a better lesson: the fold was added, DROPPED by the next
+> three definers, and restored — so the file M217 cites is one in which the defect was genuinely
+> live.
+>
+> **Two /cart defects the pass surfaced are filed, not fixed here: M224** (a refused cart write is
+> swallowed in a comment-only `catch`, so a tap in the pre-lock window snaps back silently — the
+> coalescer widens that window by ≤150 ms typical, ≤600 ms in a burst) and **M225** (`Checkout`'s
+> `refresh` has no `view-seq` ticket, so a late older read can clobber a fresher one). Both predate
+> this PR; the docblock that claimed ticketing as the safety argument for BOTH screens now says
+> which screen it is true of.
 >
 > **M217 is closed as NOT A DEFECT — the row was written against a superseded migration.** It cites
 > `20260623030000_s3_secure_merge_guard.sql`, eight migrations out of date; ELEVEN files redefine
@@ -560,7 +579,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **687 `verify:slice` mutants** · **125 target modules** (110 under `apps/qr/lib`, 3 API routes,
+> **688 `verify:slice` mutants** · **125 target modules** (110 under `apps/qr/lib`, 3 API routes,
 > 11 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
@@ -1030,7 +1049,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (687 today)**, **1372 qr + 138 ui tests at the time (2588 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 125 in all), 97 local
+> **334 mutants at the time (688 today)**, **1372 qr + 138 ui tests at the time (2588 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 125 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1922,7 +1941,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 687 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2588 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 688 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2588 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2644,7 +2663,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (687 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (688 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

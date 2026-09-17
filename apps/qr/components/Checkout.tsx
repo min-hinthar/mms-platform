@@ -538,6 +538,15 @@ export function Checkout({
   // mounted here and never covered it — hence one shared hook rather than a second copy of the
   // window. The read is DELAYED (≤600 ms), never dropped: it is the self-heal `useCartRealtime`
   // fires on every (re)subscribe, and the path a peer's lock/settle flip arrives on.
+  //
+  // ⚠️ AND THE DELAY IS NOT FREE HERE, SAID PLAINLY (blind adversarial pass on #287). `locked` is
+  // written ONLY by `refresh()`, and every edit control gates on `editsFrozen` ← `rawFreeze` ←
+  // `locked`. So postponing this read postpones the moment the controls go dead after a peer takes
+  // the lock — and `changeQty`'s `catch` below says NOTHING, so a tap in that window flips
+  // optimistically and snaps back in silence. The window is PRE-EXISTING (realtime delivery plus a
+  // ~7-round-trip `getCartView`); this widens it by `ECHO_COALESCE_MS`, or to `ECHO_MAX_WAIT_MS`
+  // inside a burst. The fix is to EXPLAIN the refusal here the way /menu does, not to shorten the
+  // window: filed as OPEN-ITEMS M224, with the unticketed-read half as M225.
   const scheduleEchoRefresh = useCoalescedRefresh(refresh);
   useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);

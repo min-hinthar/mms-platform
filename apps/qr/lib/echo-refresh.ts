@@ -64,8 +64,21 @@ export function echoDelayMs(waitedMs: number): number {
  * not noise. When a mutation's own view comes back unreadable — the "written, unreadable" case
  * `viewAfterWrite` exists for — this refresh is what heals the screen; and T14's stale-freeze
  * correction rides the `qr_carts` UPDATE specifically. Dropping either would trade a latency win for
- * a stuck screen. Safe because `readView` is TICKETED on the /menu side: a coalesced read that lands
- * after a fresher one is discarded by its sequence number rather than overwriting it.
+ * a stuck screen.
+ *
+ * ⚠️ TWO PRECONDITIONS THAT HOLD ON /menu AND NOT ON /cart — stated because the first draft of this
+ * docblock offered the first of them as the safety argument for BOTH callers (blind adversarial pass
+ * on #287):
+ *
+ *   • `TableCartProvider`'s `readView` is TICKETED (`issueRead`/`acceptView`, `lib/view-seq.ts`), so
+ *     a coalesced read landing after a fresher one is discarded by sequence number. `Checkout`'s
+ *     `refresh` has no ticket, and postponing the second of two in-flight reads strictly widens the
+ *     age gap between them — filed as OPEN-ITEMS **M225**.
+ *   • `TableCartProvider` EXPLAINS a refused write (`explainCaught` → `classifyRefusedWrite`).
+ *     `Checkout.changeQty` swallows it in a comment-only `catch`, so a tap in the window before the
+ *     lock lands snaps back saying nothing — OPEN-ITEMS **M224**. That window is pre-existing
+ *     (realtime delivery plus a ~7-round-trip read); coalescing widens it by up to
+ *     `ECHO_COALESCE_MS`, or to the deadline under a sustained burst.
  *
  * ⚠️ CLEANUP IS KEYED ON `refresh`, NOT `[]` (Codex round 2 on #275, P2). An empty dep list only
  * clears on UNMOUNT, so a pending echo outlived a cart change: the /menu subtree stays mounted when
