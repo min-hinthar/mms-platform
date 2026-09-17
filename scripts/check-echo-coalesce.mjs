@@ -165,6 +165,24 @@
  *      commit message argued that fixing one spelling and stopping is this repo's recurring mistake,
  *      and then did it one frame out. `loose` now rides `resolveFunction` and `reachesReader` too.
  *
+ * ## What this guard does NOT prove — read this before trusting it (OPEN-ITEMS M226)
+ *
+ * Seven fix rounds closed every evasion that was reported; round 8 found four more and they are
+ * FILED, not fixed, under the round-3 rule. All four sit in the SCRUTINY path and all four are
+ * verified: a mutable alias ASSIGNED the reader after its declaration (d), the reader held in a
+ * local object property (e), an alias chain crossing a shadowing scope defeating the text-keyed
+ * cycle guard (f), and the reader passed BY NAME to an eager callback API such as
+ * `queueMicrotask(refresh)` (g) — though `queueMicrotask(() => void refresh())` IS caught, because
+ * the arrow's body is walked.
+ *
+ * So state the guarantee honestly: this catches the REGRESSION (a new consumer wired the obvious
+ * way, a handler that stops scheduling, a second window constant), not a deliberate evasion. The
+ * remaining shapes need invocation tracking, assignment tracking or a type checker; two of the
+ * suggested remedies are themselves a name-keyed matcher, which is what LEARNINGS #60 forbids, and
+ * "treat every unresolved mutable callee as a reader" would flag unrelated `let` callbacks — a
+ * guard that cries wolf gets ignored (LEARNINGS #92). If that pass is ever wanted it belongs in a
+ * slower job, not a step that runs 679 files in ~1.7 s.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
  *
  * 0 unexpected, re-proved on every round. ⚠️ THERE IS NO TOTAL WRITTEN HERE ANY MORE: this list is

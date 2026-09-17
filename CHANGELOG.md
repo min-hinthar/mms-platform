@@ -87,8 +87,18 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   short:** `directReaderCalls` reaches the reader by a second route (`resolveFunction`, whose
   `const`-only rule came from finding #19), so `let refreshNow = refresh` beside the schedule still
   passed at "3 call sites, all coalesced" while every event read immediately — `loose` now rides
-  `resolveFunction` and `reachesReader` too, and the credit direction is untouched. 28 findings
-  across two reviewers and seven rounds: **24 in this guard, three in my own prose about it, one in the product module** — none in
+  `resolveFunction` and `reachesReader` too, and the credit direction is untouched. **Round 8 found
+  four more and they are FILED, not fixed — M226(d)–(g), under the round-3 rule after seven fix
+  rounds on one guard.** All four verified against the guard before filing (each printed "3 call
+  sites, all coalesced" while every event read immediately): a mutable alias ASSIGNED the reader
+  after its declaration, the reader held in a local object property, an alias chain crossing a
+  shadowing scope defeating the text-keyed cycle guard, and the reader passed by name to
+  `queueMicrotask` — though the same call with an inline arrow IS caught. None is a defect in
+  shipped behaviour; each needs an author to write the evasion deliberately, while the realistic
+  regression has been caught since round 1. Two of the suggested remedies are a name-keyed matcher
+  or a rule that would flag every unrelated `let` callback, which is how a guard earns being
+  ignored — so the docblock now states what this guard does NOT prove instead. 32 findings
+  across two reviewers and eight rounds: **28 in this guard, three in my own prose about it, one in the product module** — none in
   the shipped wiring beside them.
 - **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
