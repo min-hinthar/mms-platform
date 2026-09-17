@@ -210,6 +210,27 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     expect(screen.getByRole("status").textContent).toBe("");
   });
 
+  it("the cash instruction takes focus even when the post-write refresh FAILS — the refund recorded either way", async () => {
+    // ⚠️ THE REFRESH DIES HERE, and the refund still succeeded. `refresh()` calls `setSnap` only on
+    // a good answer — an outage keeps the last good list and sets `stale` — so keying this focus to
+    // `snap` made the instruction depend on a read landing (Codex round 4 on #286, P1). The money is
+    // recorded; the manager has to be told to hand it over whatever the next read does.
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = { ok: false, reason: "outage" };
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("$11.05");
+    expect(banner.textContent).toContain("hand back");
+    // The instruction has focus, so it is in view and announced — not sitting above a fold the
+    // manager never scrolls back to.
+    expect(document.activeElement).toBe(banner);
+  });
+
   it("opening a new Refund clears the previous instruction before the manager can act on it", async () => {
     const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
     refreshAnswer = snapshot([cash]);

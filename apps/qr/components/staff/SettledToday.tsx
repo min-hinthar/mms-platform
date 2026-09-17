@@ -133,17 +133,33 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   const refocusOrderId = useRef<string | null>(null);
   const refocusBanner = useRef(false);
   const bannerRef = useRef<HTMLParagraphElement | null>(null);
+
+  // ⚠️ THE CASH BANNER'S FOCUS IS KEYED TO `confirmed`, NOT `snap` (Codex round 4 on #286, P1).
+  // It was `[snap]`, and that made the instruction depend on a read succeeding: `refresh()` calls
+  // `setSnap` ONLY on a good answer — an outage deliberately keeps the last good list and sets
+  // `stale` instead — so a refund that RECORDED, followed by a failed refresh, left `snap`
+  // identical, this effect never rerunning, and `refocusBanner` pending forever. The money was
+  // out of the books' reach and the manager was never told to hand it over.
+  //
+  // `confirmed` is set synchronously in `onDone` BEFORE `refresh()` is called, so it changes
+  // whether or not the read that follows ever lands. The banner also does not depend on the list:
+  // it renders from `confirmed` alone, above the orders, so there is nothing to wait for.
   useEffect(() => {
-    if (refocusBanner.current) {
-      refocusBanner.current = false;
-      refocusOrderId.current = null;
-      bannerRef.current?.focus();
-      // Optional call: `scrollIntoView` is not implemented in every DOM this renders under (jsdom
-      // has no layout), and a missing scroll must never throw out of an effect that has just moved
-      // focus onto a money instruction. Focus alone already brings it into view in a real browser.
-      bannerRef.current?.scrollIntoView?.({ block: "center" });
-      return;
-    }
+    if (!refocusBanner.current) return;
+    refocusBanner.current = false;
+    refocusOrderId.current = null;
+    bannerRef.current?.focus();
+    // Optional call: `scrollIntoView` is not implemented in every DOM this renders under (jsdom
+    // has no layout), and a missing scroll must never throw out of an effect that has just moved
+    // focus onto a money instruction. Focus alone already brings it into view in a real browser.
+    bannerRef.current?.scrollIntoView?.({ block: "center" });
+  }, [confirmed]);
+
+  // The CARD path's handoff still waits for the list, and correctly: the refreshed list is what
+  // swaps the Refund button for the refunded mark and drops focus to <body>, so there is nothing
+  // to re-home until it lands. On a failed refresh the button is still there and the sheet's own
+  // focus restore is adequate — no instruction is stranded, because the card banner only reports.
+  useEffect(() => {
     const id = refocusOrderId.current;
     if (!id) return;
     refocusOrderId.current = null;

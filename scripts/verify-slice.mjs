@@ -3938,6 +3938,14 @@ const MUTANTS = [
     replace: "  const refundedTodayIds = [...refundedTodayAt.entries()].map(([id]) => id);\n",
   },
   {
+    id: "settled/the-hand-back-order-waits-on-a-read-that-can-fail",
+    file: "apps/qr/components/staff/SettledToday.tsx",
+    suite: "components/staff/SettledToday.test.tsx",
+    why: "M218 (Codex round 4 on #286, P1) — the cash banner is an INSTRUCTION carrying the only copy of the server-clamped amount, and keying its focus to `snap` makes it wait on a read succeeding. `refresh()` calls `setSnap` ONLY on a good answer (an outage keeps the last good list and sets `stale`), so a refund that RECORDED followed by a failed refresh leaves the effect never rerunning and the instruction never focused — money out of the books' reach with nobody told to hand it over. `confirmed` is set synchronously before `refresh()`, so it changes whether or not the read lands",
+    find: "  }, [confirmed]);",
+    replace: "  }, [snap]);",
+  },
+  {
     id: "settled/a-no-op-re-issues-the-last-instruction",
     file: "apps/qr/components/staff/SettledToday.tsx",
     suite: "components/staff/SettledToday.test.tsx",
