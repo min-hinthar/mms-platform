@@ -43,9 +43,18 @@ have reached it.
   fire-and-forget idiom and literally the line this slice replaced — `void`/`await`/`as`,
   `React.useCallback` and a hoisted `function` handler are all accepted now; and "repo-wide" was
   `apps/qr` only — the window scan covers `packages/` and `scripts/` too, and the docblock no longer
-  claims it can see a bare `150` literal, which it cannot. Every file is parsed ONCE (679 files,
-  ~1.7 s). **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor, and the
-  list is kept in the guard's own docblock rather than in prose.
+  claims it can see a bare `150` literal, which it cannot. ⚠️ **Codex round 2 then found four MORE,
+  the same shape a third time:** the binding's MUTABILITY was ignored (`let schedule =
+useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver reading only the
+  initializer approves it — `const` required now); `callsDirectly` RETURNED at the scheduling
+  statement, so `{ schedule(); void refresh(); }` passed while every row event still started its own
+  read; `useCallback` was matched by PROPERTY NAME, so any object with that key was accepted while
+  the raw reader was handed on; and a NAMED argument was taken as sufficient, so
+  `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. The
+  argument must now REACH `getCartView` transitively — one hop is not enough, since `Checkout.refresh`
+  calls the reader itself while `TableCartProvider.refresh` goes through `readView`. Every file is
+  parsed ONCE (679 files, ~1.7 s). **17 red-first cases: 9 controls GREEN and every evasion RED**,
+  plus the walk floor, and the list is kept in the guard's own docblock rather than in prose.
 - **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the

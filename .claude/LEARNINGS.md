@@ -2257,7 +2257,7 @@ The tell is grammatical. When a finding names a mechanism (`useCartRealtime` cal
 
 And the durable form of the fix is not "fix the second one too" — it is a guard over the set, because the set grows. `scripts/check-echo-coalesce.mjs` parses every `useCartRealtime` call site and requires the scheduling call to be a direct, unconditional statement of its `onChange` body. That holds for the third consumer nobody has written yet, which neither a test nor a second fix does.
 
-## #118 — SIX ways a PARSED guard still fails to establish its property (2026-09-17, #287: two Codex findings + four from the blind pass, zero in the product code)
+## #118 — TEN ways a PARSED guard still fails to establish its property (2026-09-17, #287: six Codex findings across two rounds + four from the blind pass — twelve in total, ZERO in the product code)
 
 `check-echo-coalesce.mjs` was written to the #60 rules — it parses, it resolves declarations, it refuses conditionals — and two independent reviewers found **six** holes in it and **none** in the code it guards. Every one was the guard asserting something its matcher could not establish. They generalise, so they are worth listing as a checklist to run against the next guard:
 
@@ -2267,5 +2267,12 @@ And the durable form of the fix is not "fix the second one too" — it is a guar
 4. **A whole-file `name → declaration` map is LAST-WINS, which launders duplicates.** Two components in one file, each with `const onEcho`: the later correct one overwrote the earlier defective one, the defective call site matched by name and was waved through. This is the repo's own **uniqueness ≠ liveness** rule, broken by the guard written to enforce it. Resolve bindings LEXICALLY from the call site outward.
 5. **Checking that the right function is CALLED says nothing about what it is called WITH.** `useCoalescedRefresh(() => {})` passed every structural rule while no work could ever happen. If you cannot prove the argument semantically, at least require a named binding rather than an inline literal.
 6. **Every tightening needs a GREEN control, or you trade a false negative for a false positive.** This guard refused `void schedule()` — the repo's own fire-and-forget idiom, and literally the line the slice replaced — plus `React.useCallback`, a hoisted `function` handler and an `as` cast. A guard that refuses correct code gets disabled, which is worse than one hole.
+
+Codex round 2 then found four more in the tightened version, which is the strongest evidence for the list itself:
+
+7. **A binding's MUTABILITY is part of its value.** `let x = good(); x = bad();` typechecks whenever the types are compatible, and a resolver that reads only the INITIALIZER approves it. Require `const`, or reject later assignment.
+8. **Returning at the first match stops you seeing what else the callback does.** `{ schedule(); void refresh(); }` satisfied "it schedules" while every event still started its own read — the defect, with the fix added beside it. Scan the WHOLE body and reject the other paths to the same work.
+9. **A hook matched by PROPERTY NAME is the name mistake in a third costume.** `helpers.useCallback(…)` on any object with that key was accepted while the value handed on was the raw reader. Resolve `useCallback` to React's export, bare or qualified.
+10. **"It takes a named binding" says nothing about what the binding DOES.** `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. If the property is "this wraps the real reader", walk to the reader — transitively, because one hop is not enough when one caller reaches it directly and another goes through a helper.
 
 Two meta-rules fall out. **Keep the red-first list WITH the guard**, in its docblock: "watched red under twelve evasions" in a PR description is prose the next reader treats as coverage, and four of this guard's six holes were not in that twelve. And **state the scope you actually check**: this one claimed "repo-wide" while scanning `apps/qr` only, and claimed to prevent "a second copy of `150`/`600`" while matching two identifier NAMES — it cannot see `const ECHO_WINDOW_MS = 150`, and now says so.

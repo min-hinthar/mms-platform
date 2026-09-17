@@ -66,16 +66,38 @@
  *      too. ⚠️ It matches the two NAMES; it cannot see `const ECHO_WINDOW_MS = 150` or a bare
  *      `setTimeout(fn, 150)`, and this docblock no longer claims otherwise.
  *
- * ## The evasions this guard has been watched RED against (keep this list with the code)
+ * ## Four more from Codex round 2, all the same shape again
  *
- * The per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out call ·
- * the provider's handler no longer scheduling · the provider scheduling behind a condition · a
- * second `ECHO_COALESCE_MS` declaration · the module renaming a constant · `useCartRealtime as
+ *   7. **The binding's MUTABILITY was ignored.** `let schedule = useCoalescedRefresh(refresh);
+ *      schedule = refresh;` typechecks — the reader is assignable to the void-returning callback —
+ *      and a resolver reading only the INITIALIZER approves it. `const` is now required.
+ *   8. **`callsDirectly` returned at the scheduling statement**, so
+ *      `{ scheduleEchoRefresh(); void refresh(); }` passed while every row event still started its
+ *      own read, with the coalesced one merely added beside it. The whole callback is scanned now,
+ *      and any other path to the reader fails.
+ *   9. **`useCallback` was matched by PROPERTY NAME**, so `helpers.useCallback(…)` on any object
+ *      with that key was accepted while the value actually passed on was the raw reader. It resolves
+ *      to REACT's export now, bare or qualified — the hook-by-name mistake in a third costume.
+ *  10. **A NAMED argument was taken as sufficient**, so `useCoalescedRefresh(noop)` reported a
+ *      coalesced consumer whose events invoked nothing. The argument must now REACH `getCartView`,
+ *      transitively through local bindings — one hop is not enough, because `Checkout.refresh` calls
+ *      the reader itself while `TableCartProvider.refresh` goes through `readView`.
+ *
+ * ## The cases this guard has been watched against (keep this list WITH the code)
+ *
+ * RED — the per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out
+ * call · the provider's handler no longer scheduling · the provider scheduling behind a condition ·
+ * a second `ECHO_COALESCE_MS` declaration · the module renaming a constant · `useCartRealtime as
  * useRealtime` · `import * as rt` → `rt.useCartRealtime` · a deep relative import · an early
  * `return` before the call · a `throw` before the call · two same-named bindings in one file, one
- * correct · `useCoalescedRefresh(() => {})` · the walk floor.
- * Controls held GREEN: an aliased coalescer import · a non-exiting `if` before the call · a nested
- * arrow's own `return` · `void schedule()` · `React.useCallback` · a hoisted `function` handler.
+ * correct · `useCoalescedRefresh(() => {})` · a `let` scheduler reassigned to the raw reader · a
+ * handler that schedules AND reads directly · a look-alike `helpers.useCallback` · a coalescer
+ * wrapping a named no-op · the walk floor.
+ *
+ * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
+ * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
+ * `React.useCallback` · a hoisted `function` handler · the reader reached through one local hop ·
+ * a handler doing non-reader work beside scheduling.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -91,6 +113,9 @@ const MODULE_FILE = `${APP}/lib/echo-refresh.ts`;
 /** Module paths WITHOUT extension, as `resolveSpec` returns them. */
 const COALESCER_MODULE = `${APP}/lib/echo-refresh`;
 const REALTIME_MODULE = `${APP}/lib/realtime`;
+const CART_MODULE = `${APP}/lib/cart`;
+/** The ONE server-authoritative cart read. A coalescer that does not reach this refreshes nothing. */
+const READER = "getCartView";
 const HOOK = "useCartRealtime";
 const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
@@ -146,12 +171,14 @@ function resolveSpec(fromRel, spec) {
  * Every way this file can name `exported` from `moduleRel`: the local names of its named imports
  * (alias included) and, for `import * as ns`, the namespaces through which `ns.exported` reaches it.
  */
-function importedAs(src, rel, moduleRel, exported) {
+function importedAs(src, matches, exported) {
   const names = new Set();
   const namespaces = new Set();
   walk(src, (n) => {
     if (!ts.isImportDeclaration(n) || !ts.isStringLiteral(n.moduleSpecifier)) return;
-    if (resolveSpec(rel, n.moduleSpecifier.text) !== moduleRel) return;
+    if (!matches(n.moduleSpecifier.text)) return;
+    // `import React from "react"` binds the namespace object too, so `React.useCallback` resolves.
+    if (n.importClause?.name) namespaces.add(n.importClause.name.text);
     const bindings = n.importClause?.namedBindings;
     if (bindings && ts.isNamespaceImport(bindings)) namespaces.add(bindings.name.text);
     if (bindings && ts.isNamedImports(bindings)) {
@@ -162,6 +189,10 @@ function importedAs(src, rel, moduleRel, exported) {
   });
   return { names, namespaces };
 }
+
+/** `importedAs` for a module identified by PATH (`@/…` or any relative depth). */
+const importedFrom = (src, rel, moduleRel, exported) =>
+  importedAs(src, (t) => resolveSpec(rel, t) === moduleRel, exported);
 
 /** Is `node` a call to one of `binding.names`, or to `ns.<exported>` for one of its namespaces? */
 function isCallToBinding(node, binding, exported) {
@@ -198,9 +229,10 @@ function resolveBinding(node, name) {
     if (!statements) continue;
     for (const st of statements) {
       if (ts.isVariableStatement(st)) {
+        const isConst = !!(st.declarationList.flags & ts.NodeFlags.Const);
         for (const d of st.declarationList.declarations) {
           if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
-            return { kind: "value", init: d.initializer };
+            return { kind: "value", init: d.initializer, isConst };
         }
       }
       if (ts.isFunctionDeclaration(st) && st.name?.text === name)
@@ -221,15 +253,14 @@ function unwrap(e) {
   }
 }
 
-/** `useCallback(...)` or `React.useCallback(...)`. */
-function isUseCallback(e) {
-  if (!ts.isCallExpression(e)) return false;
-  const c = e.expression;
-  return (
-    (ts.isIdentifier(c) && c.text === "useCallback") ||
-    (ts.isPropertyAccessExpression(c) && c.name.text === "useCallback")
-  );
-}
+/**
+ * `useCallback(...)` resolved to REACT's export — bare or qualified.
+ *
+ * ⚠️ Matching the property NAME alone accepted `helpers.useCallback(() => schedule())` from any
+ * object that happens to have that key, while the value actually handed to `useCartRealtime` was the
+ * raw reader (Codex round 2 on #287). Same class as matching the hook by name.
+ */
+const isUseCallback = (e, react) => isCallToBinding(e, react, "useCallback");
 
 /**
  * Can this statement transfer control OUT of the callback it sits in? `return` and `throw` only —
@@ -264,6 +295,65 @@ function exitsCallback(node) {
     visit(c);
   });
   return found;
+}
+
+/** The function a name is bound to, as seen from `from`: a declaration, an arrow, or a useCallback. */
+function resolveFunction(from, name, react) {
+  const b = resolveBinding(from, name);
+  if (!b) return null;
+  if (b.kind === "function") return b.fn;
+  const init = unwrap(b.init);
+  if (isUseCallback(init, react)) {
+    const fn = init.arguments[0];
+    return fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ? fn : null;
+  }
+  return ts.isArrowFunction(init) || ts.isFunctionExpression(init) ? init : null;
+}
+
+/**
+ * Does this function reach the ONE server-authoritative cart read, directly or through local
+ * bindings in the same file?
+ *
+ * ⚠️ WITHOUT THIS THE GUARD PROVED NOTHING ABOUT THE WORK (Codex round 2 on #287): requiring the
+ * coalescer's argument to be a NAMED binding admitted `const noop = () => {}` just as happily as
+ * `refresh`, so the script reported a coalesced consumer whose realtime events — the subscribe
+ * self-heal included — invoked nothing at all. One hop is not enough either: `Checkout.refresh`
+ * calls `getCartView` itself, while `TableCartProvider.refresh` reaches it through `readView`. So
+ * the walk follows local function bindings transitively, guarded by a visited set.
+ */
+function reachesReader(fn, ctx, seen = new Set()) {
+  if (!fn || !fn.body || seen.has(fn.pos)) return false;
+  seen.add(fn.pos);
+  let found = false;
+  walk(fn.body, (n) => {
+    if (found || !ts.isCallExpression(n)) return;
+    if (isCallToBinding(n, ctx.reader, READER)) {
+      found = true;
+      return;
+    }
+    if (!ts.isIdentifier(n.expression)) return;
+    const next = resolveFunction(n, n.expression.text, ctx.react);
+    if (next && reachesReader(next, ctx, seen)) found = true;
+  });
+  return found;
+}
+
+/** Every call in this callback that reaches the reader WITHOUT going through the coalescer. */
+function directReaderCalls(fn, ctx) {
+  const hits = [];
+  if (!fn?.body) return hits;
+  walk(fn.body, (n) => {
+    if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
+    const name = n.expression.text;
+    if (ctx.schedulerNames.has(name)) return; // that is the coalesced path
+    if (isCallToBinding(n, ctx.reader, READER)) {
+      hits.push(name);
+      return;
+    }
+    const target = resolveFunction(n, name, ctx.react);
+    if (target && reachesReader(target, ctx)) hits.push(name);
+  });
+  return hits;
 }
 
 /**
@@ -302,12 +392,18 @@ function callsDirectly(fn, names) {
  * and the script still printed "all coalesced". Requiring a NAMED binding is the cheap sound bar;
  * proving the callee actually re-reads the cart would need a type checker.
  */
-function isCoalescerCall(init, coalescer) {
-  if (!init) return false;
-  const call = unwrap(init);
-  if (!isCallToBinding(call, coalescer, COALESCER)) return false;
+function isCoalescerCall(binding, ctx) {
+  if (!binding || binding.kind !== "value") return false;
+  // ⚠️ `const`, not `let` (Codex round 2 on #287). `let schedule = useCoalescedRefresh(refresh);
+  // schedule = refresh;` typechecks — the reader is assignable to the void-returning callback — and a
+  // resolver that reads only the INITIALIZER approves it while every event reads immediately again.
+  if (!binding.isConst) return false;
+  const call = unwrap(binding.init);
+  if (!isCallToBinding(call, ctx.coalescer, COALESCER)) return false;
   const arg = call.arguments[0];
-  return !!arg && ts.isIdentifier(arg);
+  if (!arg || !ts.isIdentifier(arg)) return false;
+  // …and the thing it wraps must actually re-read the cart.
+  return reachesReader(resolveFunction(arg, arg.text, ctx.react), ctx);
 }
 
 // ── every file is parsed ONCE, and both sections read that one AST ──────────────────────────────
@@ -320,7 +416,7 @@ let callSites = 0;
 for (const rel of windowFiles) {
   if (!rel.startsWith(`${APP}/`)) continue;
   const src = parsed.get(rel);
-  const hook = importedAs(src, rel, REALTIME_MODULE, HOOK);
+  const hook = importedFrom(src, rel, REALTIME_MODULE, HOOK);
   if (hook.names.size === 0 && hook.namespaces.size === 0) continue;
 
   const calls = [];
@@ -330,13 +426,16 @@ for (const rel of windowFiles) {
   if (calls.length === 0) continue;
   callSites += calls.length;
 
-  const coalescer = importedAs(src, rel, COALESCER_MODULE, COALESCER);
-
-  /** Is `name`, as seen FROM `from`, bound to a `useCoalescedRefresh(<named binding>)` call? */
-  const isScheduler = (from, name) => {
-    const b = resolveBinding(from, name);
-    return b?.kind === "value" && isCoalescerCall(b.init, coalescer);
+  const ctx = {
+    coalescer: importedFrom(src, rel, COALESCER_MODULE, COALESCER),
+    reader: importedFrom(src, rel, CART_MODULE, READER),
+    react: importedAs(src, (t) => t === "react", "useCallback"),
+    schedulerNames: new Set(),
   };
+  const coalescer = ctx.coalescer;
+
+  /** Is `name`, as seen FROM `from`, a `const` bound to `useCoalescedRefresh(<the cart reader>)`? */
+  const isScheduler = (from, name) => isCoalescerCall(resolveBinding(from, name), ctx);
 
   for (const call of calls) {
     const where = `${rel}:${src.getLineAndCharacterOfPosition(call.getStart()).line + 1}`;
@@ -361,15 +460,32 @@ for (const rel of windowFiles) {
     walk(src, (n) => {
       if (ts.isIdentifier(n) && !names.has(n.text) && isScheduler(call, n.text)) names.add(n.text);
     });
+    ctx.schedulerNames = names;
+
+    /**
+     * The handler schedules AND is free of any other path to the reader.
+     *
+     * ⚠️ The second half is Codex round 2 on #287: `callsDirectly` returns at the scheduling
+     * statement, so `{ scheduleEchoRefresh(); void refresh(); }` passed while every row event still
+     * started its own `getCartView` chain — the defect, with a coalesced read added beside it.
+     */
+    const handlerOk = (fn) => {
+      if (!callsDirectly(fn, names)) return false;
+      const direct = directReaderCalls(fn, ctx);
+      if (direct.length === 0) return true;
+      fail(
+        `${where}: onChange schedules through ${COALESCER} but ALSO calls ` +
+          `\`${[...new Set(direct)].join("`, `")}\`, which reaches \`${READER}\` directly — so every ` +
+          `row event still starts its own read and the coalesced one is added beside it (M193).`,
+      );
+      return "reported";
+    };
 
     if (ts.isIdentifier(arg)) {
       if (isScheduler(arg, arg.text)) continue; // the coalescer, passed straight through
-      const b = resolveBinding(arg, arg.text);
-      if (b?.kind === "function" && callsDirectly(b.fn, names)) continue;
-      if (b?.kind === "value") {
-        const init = unwrap(b.init);
-        if (isUseCallback(init) && callsDirectly(init.arguments[0], names)) continue;
-      }
+      const fn = resolveFunction(arg, arg.text, ctx.react);
+      const verdict = fn && handlerOk(fn);
+      if (verdict === true || verdict === "reported") continue;
       fail(
         `${where}: onChange \`${arg.text}\` does not schedule through ${COALESCER}. ` +
           `Its declaration must be \`${COALESCER}(refresh)\` (a NAMED argument), or a callback whose ` +
@@ -377,7 +493,8 @@ for (const rel of windowFiles) {
       );
       continue;
     }
-    if (callsDirectly(arg, names)) continue;
+    const verdict = handlerOk(arg);
+    if (verdict === true || verdict === "reported") continue;
     fail(
       `${where}: onChange is an inline callback that does not call a ${COALESCER} binding as a ` +
         `top-level statement reached before any \`return\`/\`throw\` — an event that skips the ` +

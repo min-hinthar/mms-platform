@@ -26,16 +26,22 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
 > the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE (679 files, ~1.7 s).
 > **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor; the list lives in
-> the guard's docblock, not in prose.
+> the guard's docblock, not in prose — **17 cases after Codex round 2**, whose four further findings
+> were a mutable `let` scheduler reassigned to the raw reader, a handler that schedules AND reads
+> directly, `useCallback` matched by property name, and a coalescer wrapping a named no-op.
 >
-> ⚠️ **SIX holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
+> ⚠️ **TWELVE holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
 > round 1 (the name-only call-site match, defeated by an import alias while the floor stayed
 > satisfied; and `some()` over the statement list, which is not reachability) and four by the blind
 > adversarial pass (whole-file last-wins bindings laundering a same-named defective one; the
 > coalescer's argument never read, so a no-op passed; `void schedule()` refused, which is the repo's
-> own idiom; and "repo-wide" meaning `apps/qr` only). Every one was the guard asserting a property
-> its matcher could not establish. That is the shape CLAUDE.md warns about under "guards get audited
-> harder than the code they guard", and it is now three PRs running.
+> own idiom; and "repo-wide" meaning `apps/qr` only), then FOUR more by Codex round 2 (mutability
+> ignored; `callsDirectly` returning at the scheduling statement so a handler could schedule AND read
+> directly; `useCallback` matched by property name; and a named argument taken as sufficient, so a
+> coalescer wrapping a no-op passed). Every one was the guard asserting a property its matcher could
+> not establish. That is the shape CLAUDE.md warns about under "guards get audited harder than the
+> code they guard", and it is now three PRs running. The pattern across all twelve: **a matcher keyed
+> on a NAME, a POSITION, or an INITIALIZER proves nothing about the value that actually ships.**
 >
 > ⚠️ **The blind pass also falsified my own LEARNINGS #116 — all three of its numbers.** The entry
 > preaching "measure, never transcribe" had transcribed a count (eleven, really 14), a mechanism
