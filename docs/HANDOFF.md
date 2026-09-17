@@ -26,11 +26,11 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
 > the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE (679 files, ~1.7 s).
 > **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor; the list lives in
-> the guard's docblock, not in prose — **23 cases after Codex round 3**, whose four further findings
+> the guard's docblock, not in prose — **28 cases after Codex round 4**, whose four further findings
 > were a mutable `let` scheduler reassigned to the raw reader, a handler that schedules AND reads
 > directly, `useCallback` matched by property name, and a coalescer wrapping a named no-op.
 >
-> ⚠️ **SIXTEEN holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
+> ⚠️ **NINETEEN holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
 > round 1 (the name-only call-site match, defeated by an import alias while the floor stayed
 > satisfied; and `some()` over the statement list, which is not reachability) and four by the blind
 > adversarial pass (whole-file last-wins bindings laundering a same-named defective one; the

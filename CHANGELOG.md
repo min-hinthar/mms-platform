@@ -62,10 +62,15 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   than fixed (**M226**, under the round-3 rule): a reader inside a never-invoked nested helper needs
   invocation tracking, and a preceding call typed `never` needs the TYPE CHECKER, which this guard
   deliberately does not load. **23 red-first cases: 10 controls GREEN and every evasion RED**, plus
-  the walk floor, and the list is kept in the guard's own docblock rather than in prose. Sixteen
-  findings across two reviewers and three rounds — **all sixteen in this guard, none in the product
-  code beside it.**
-- **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
+  the walk floor, and the list is kept in the guard's own docblock rather than in prose. **Round 4
+  added three more:** a PARAMETER shadowing the imported coalescer (`resolveBinding` scanned only
+  statements, so a same-named prop took the import over for a whole component body — destructured
+  parameters too); an immutable identifier ALIAS of the reader (`const refreshNow = refresh`) that
+  `resolveFunction` could not follow, so a handler calling it beside the schedule read per event
+  unflagged; and a changelog number of my own contradicting the measured total. **28 red-first
+  cases, 0 unexpected.** Nineteen findings across two reviewers and four rounds — **all nineteen in
+  this guard, none in the product code beside it.**
+- **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the
   SAME delay whether or not the anchor reset, so the first draft scored green against its own

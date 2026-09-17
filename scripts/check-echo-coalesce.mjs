@@ -104,9 +104,24 @@
  * deliberately does not load — it runs in the fast lane in ~1.7 s over 679 files. Both are
  * adversarial-only shapes; neither arises from an ordinary refactor.
  *
+ * ## Three more from Codex round 4
+ *
+ *  15. **Parameters are bindings.** `resolveBinding` scanned only source/block statements, so a
+ *      component taking a same-named PARAMETER shadowed the import for its whole body — in a file
+ *      that otherwise imports it for real — and `shadowed()` said no. Destructured parameters bind
+ *      just as hard, so both forms are checked.
+ *  16. **An immutable ALIAS is still the function.** `const refreshNow = refresh;` binds an
+ *      identifier, not a function literal, so `resolveFunction` returned null and a handler calling
+ *      `refreshNow()` beside the schedule read on every event with nothing flagged. `const` chains
+ *      are followed now; a `let` is not, because finding #7 is that a `let` can be reassigned.
+ *  17. **A changelog number that contradicts the measured one** (P3) — the entry said "four new
+ *      mutants, 683 → 687" after a fifth was added and every other file had been refreshed to 688.
+ *      The "never transcribe a number" rule applies to prose about the guard as much as to the
+ *      guard, and `check:docs` cannot see a total inside a sentence.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
  *
- * 23 cases, 0 unexpected, re-proved on every round.
+ * 28 cases, 0 unexpected, re-proved on every round.
  *
  * RED — the per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out
  * call · the provider's handler no longer scheduling · the provider scheduling behind a condition ·
@@ -117,13 +132,15 @@
  * handler that schedules AND reads directly · a look-alike `helpers.useCallback` · a coalescer
  * wrapping a named no-op · a handler shadowing the scheduler name with the raw reader · a
  * namespace-qualified `getCartView` beside the schedule · a locally-shadowed `useCoalescedRefresh` ·
- * a generator handler · the walk floor.
+ * a generator handler · a PARAMETER shadowing the imported coalescer (named and destructured) · an
+ * identifier alias of the reader called beside the schedule · the walk floor.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
  * `React.useCallback` · a hoisted `function` handler · the reader reached through one local hop ·
  * a handler doing non-reader work beside scheduling · a namespace-imported reader, correctly
- * coalesced.
+ * coalesced · a coalescer wrapping an immutable alias of the reader · an unrelated parameter whose
+ * name collides with nothing.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -254,6 +271,21 @@ const isCallTo = (node, name) =>
  */
 function resolveBinding(node, name) {
   for (let scope = node.parent; scope; scope = scope.parent) {
+    // ⚠️ PARAMETERS ARE BINDINGS TOO (Codex round 4 on #287). A component taking a same-named
+    // parameter shadows the import for its whole body, in a file that otherwise imports it for real
+    // — so a statements-only walk reported "not shadowed" and credited the call to the import.
+    // Destructured parameters (`{ refresh }`) bind just as hard as named ones.
+    const params = ts.isFunctionLike(scope) ? (scope.parameters ?? []) : [];
+    for (const prm of params) {
+      if (ts.isIdentifier(prm.name)) {
+        if (prm.name.text === name) return { kind: "param" };
+      } else if (ts.isObjectBindingPattern(prm.name) || ts.isArrayBindingPattern(prm.name)) {
+        for (const el of prm.name.elements) {
+          if (ts.isBindingElement(el) && ts.isIdentifier(el.name) && el.name.text === name)
+            return { kind: "param" };
+        }
+      }
+    }
     const statements = ts.isSourceFile(scope)
       ? scope.statements
       : ts.isBlock(scope) || ts.isModuleBlock(scope)
@@ -331,12 +363,20 @@ function exitsCallback(node) {
 }
 
 /** The function a name is bound to, as seen from `from`: a declaration, an arrow, or a useCallback. */
-function resolveFunction(from, name, react) {
+function resolveFunction(from, name, react, seen = new Set()) {
+  if (seen.has(name)) return null;
+  seen.add(name);
   const b = resolveBinding(from, name);
-  if (!b) return null;
+  if (!b || b.kind === "param") return null;
   // A generator's body does NOT run on call — invoking it only builds an iterator (Codex round 3).
   if (b.kind === "function") return b.fn.asteriskToken ? null : b.fn;
   const init = unwrap(b.init);
+  // ⚠️ FOLLOW AN IMMUTABLE ALIAS (Codex round 4 on #287). `const refreshNow = refresh;` bound an
+  // IDENTIFIER, not a function literal, so this returned null and `directReaderCalls` concluded the
+  // handler had no path to the reader — while `refreshNow()` beside the schedule read on every
+  // event. Only `const` chains are followed: a `let` can be reassigned, which is finding #7's rule.
+  if (ts.isIdentifier(init))
+    return b.isConst ? resolveFunction(init, init.text, react, seen) : null;
   const eager = (fn) =>
     fn && (ts.isArrowFunction(fn) || (ts.isFunctionExpression(fn) && !fn.asteriskToken))
       ? fn
