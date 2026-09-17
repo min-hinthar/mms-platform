@@ -17,17 +17,36 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ⚠️ **THE MIGRATION IS NOT ON PROD.** `20260916000000_m218_cash_refund_line.sql` ships in the repo
 > only. Applying it is Min's go, one file at a time via the Supabase MCP — the repo and prod
-> histories are divergent (see CLAUDE.md). Until it is applied, the cash Refund control is live in
-> code against a database that has no `mms_refund_cash_line`, so the rpc answers a missing-function
-> error and `refundLine` returns `error`. **Apply before the next service that uses it.**
+> histories are divergent (see CLAUDE.md). **Apply before the next service that uses it.**
 >
-> 🔬 **A local Postgres proved it.** Not a Supabase stack — a plain `initdb` cluster (run as an
-> unprivileged user; postgres refuses root) with the Supabase roles and an `auth.users` stub, then
-> all 101 migrations applied in order, 98 of them clean. The SQL test passed there, and was watched
-> RED under two mutations of the migration: dropping the order-level `refunded_cents` bump, and
-> dropping the `not_cash` guard — the second let a CARD order refund from the drawer while its
-> Stripe charge stayed refundable. That harness is worth rebuilding when a migration needs proof and
-> Docker is unavailable.
+> **The window between merge-deploy and that apply is now SURVIVABLE, and it was not.** Two things
+> had to be true for it (both Codex findings, both fixed on this branch):
+>
+> 1. `readLedgerSince` selects `tender`, which does not exist yet — and PostgREST rejects the WHOLE
+>    query for one unknown column (**42703**, raised at parse time; measured, not assumed). Both
+>    callers read a failed ledger as `outage`, so the settled list AND the register's drawer would
+>    have been BLANK for the whole window. It now re-asks the same page one column short on 42703
+>    alone and reads every row as card — true by construction, since the column and
+>    `mms_refund_cash_line` land in the same migration.
+> 2. `refundLine` detects PostgREST's `PGRST202` (function not found) and returns `cash_not_ready`,
+>    whose copy says don't hand anything back and tell the owner. It self-heals on apply.
+>
+> **The cash flow RECORDS FIRST, then hands back** — the reverse of what the first draft said. On a
+> stale board the RPC can answer `already_refunded`/`fully_refunded`, the sheet closes, and a
+> hand-back that happened first would exist nowhere. Recording first leaves the money in the till and
+> a row to reconcile, and it is the only order in which the manager can hand back the RIGHT number
+> (the server clamps to the remaining pool). ⚠️ If that instruction is ever reordered, the two
+> silently-closing arms in `RefundActionSheet` have to start surfacing — the comment there says so.
+>
+> 🔬 **A local Postgres proved it — three times.** Not a Supabase stack: a plain `initdb` cluster
+> (run as an unprivileged user; postgres refuses root) with the Supabase roles and an `auth.users`
+> stub, then all 101 migrations applied in order, 98 of them clean. The SQL test passed there and was
+> watched RED under three mutations of the migration — dropping the order-level `refunded_cents`
+> bump, dropping the `not_cash` guard (which let a CARD order refund from the drawer while its Stripe
+> charge stayed refundable), and restoring the pre-remediation formula. The same cluster then settled
+> a concurrency question by experiment rather than argument: **two live sessions refunding two lines
+> of one 105¢-pool order paid out 210 without a `for update` on the order row, and 105 with it.**
+> That harness is worth rebuilding whenever a migration needs proof and Docker is unavailable.
 >
 > ---
 >

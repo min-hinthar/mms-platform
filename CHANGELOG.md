@@ -35,17 +35,43 @@ either: cash has no processor. The settled list said so honestly; saying is not 
   actually gone back.
 - **`refundLine` picks the instrument from the order's own facts** via `refundPathFor` — the pure
   rule the console already rendered from — never from anything the client sent.
-- **M219 — the ledger read is PAGED** (`lib/refund-ledger.ts` · `readLedgerSince`, used by both the
-  settled list and the drawer). PostgREST caps a response at max-rows with `error` still null, so
-  the old single read could answer a silent subset and rank the day from it. It now pages until a
-  short page and answers `null` rather than a partial read; the settled list no longer marks itself
-  capped for a big ledger.
+- **M219 — the ledger read is PAGED BY KEYSET** (`lib/refund-ledger.ts` · `readLedgerSince`, used by
+  both the settled list and the drawer). PostgREST caps a response at max-rows with `error` still
+  null, so the old single read could answer a silent subset and rank the day from it. It now pages
+  until a short page and answers `null` rather than a partial read; the settled list no longer marks
+  itself capped for a big ledger. The cursor SEEKS past the last row seen, on the composite
+  `(created_at, id)` — not an offset. An offset page shifts when a refund commits between two of
+  them, and it can: `now()` is the transaction's START time, so a transaction begun earlier commits
+  later with an earlier sort key. One row would be read twice and one never read. `created_at` alone
+  is not enough either — it is not unique, and a seek on it drops the second of a tied pair at every
+  page edge.
+- **The app-first deploy window stays lit.** `tender` does not exist until the migration is applied
+  by hand, and the app ships on merge. PostgREST rejects the WHOLE query for one unknown column
+  (42703, raised at parse time), and both callers read a failed ledger as `outage` — so an
+  unconditional select would have blanked the settled list AND the drawer for the length of that
+  window, taking `cash_not_ready` out of reach with them. On 42703 alone the read re-asks the same
+  page one column short and reads every row as card, which is true by construction: the column and
+  `mms_refund_cash_line` land in the same migration.
+- **The manager RECORDS first, then hands back.** `floor.settled.path.cash` used to say "hand it
+  back from the drawer, then record it here" — and on a stale board the RPC then answers
+  `already_refunded`/`fully_refunded`, the sheet closes, and the payout exists nowhere. Recording
+  first inverts the failure: the money stays in the till and the books carry a row to reconcile. It
+  is also the only order in which the manager can hand back the RIGHT number, since the server
+  clamps to the remaining pool and the authoritative amount does not exist until the record does.
+  Four sentences move with it in both languages, including `cash_not_ready`, which can now say
+  "don't hand anything back" instead of documenting a loss.
 - **Proved against a real database, red-first.** `supabase/tests/m218_cash_refund_line_test.sql`
-  (8 cases, registered in `ci.yml`) was run against a local Postgres 16 with all 101 migrations
-  applied — and watched RED under two mutations of the migration: dropping the order-level
-  projection, and dropping the `not_cash` guard (which let a CARD order refund from the drawer).
-  Three new `verify:slice` mutants cover the drawer net, the cash-only filter and the latest-refund
-  ranking; a fourth replaces the retired truncation mutant with the paging loop itself.
+  (9 cases, registered in `ci.yml`) was run against a local Postgres 16 with all 101 migrations
+  applied — and watched RED under three mutations of the migration: dropping the order-level
+  projection, dropping the `not_cash` guard (which let a CARD order refund from the drawer), and
+  restoring the pre-remediation formula (case 9's fixture separates the two). The cross-line lock
+  was proved the same way, with two concurrent sessions: without `for update` they paid **210
+  against a 105 pool**; with it, **105**, the second answering `fully_refunded`.
+- **Eight new `verify:slice` mutants, one retired** — 672 → 679. They cover the drawer net (signed,
+  not floored), the cash-only filter, the latest-refund ranking, the tender-aware guest note, the
+  paging loop, the composite seek's tie-break, the pre-migration fallback and that fallback's
+  narrowness. `refunds/a-truncated-ledger-read-still-ranks` retires with the truncation flag it
+  described.
 
 Closes **M218** (high) and **M219**. ⚠️ The migration is NOT applied to production — that is Min's
 go, one file at a time via the Supabase MCP (the repo/prod histories are divergent).
