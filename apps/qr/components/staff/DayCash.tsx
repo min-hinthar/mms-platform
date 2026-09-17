@@ -76,10 +76,16 @@ export function DayCash({ lang, day }: { lang: StaffLang; day: DayCashResult }) 
                   echo="inline"
                 />
                 {" · "}
+                {/* ⚠️ THE SIGN PICKS THE SENTENCE (Codex round 3 on #286, P2). `cashNetCents` is
+                    signed, so a day whose hand-backs exceed its cash sales — this morning's refund
+                    of an earlier service day — renders NEGATIVE. "-$15.00 in drawer" is not a till
+                    a manager can count to; it is an impossible reconciliation target. Below zero
+                    the figure is a SHORTFALL and says so, in the positive magnitude someone can
+                    actually match against the day. */}
                 <Chrome
                   lang={lang}
-                  k="reg.day.inDrawer"
-                  vars={{ m: fmt(s.cashNetCents) }}
+                  k={s.cashNetCents < 0 ? "reg.day.short" : "reg.day.inDrawer"}
+                  vars={{ m: fmt(Math.abs(s.cashNetCents)) }}
                   echo="inline"
                 />
               </span>

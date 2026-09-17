@@ -67,11 +67,22 @@ either: cash has no processor. The settled list said so honestly; saying is not 
   restoring the pre-remediation formula (case 9's fixture separates the two). The cross-line lock
   was proved the same way, with two concurrent sessions: without `for update` they paid **210
   against a 105 pool**; with it, **105**, the second answering `fully_refunded`.
-- **Eight new `verify:slice` mutants, one retired** — 672 → 679. They cover the drawer net (signed,
-  not floored), the cash-only filter, the latest-refund ranking, the tender-aware guest note, the
-  paging loop, the composite seek's tie-break, the pre-migration fallback and that fallback's
-  narrowness. `refunds/a-truncated-ledger-read-still-ranks` retires with the truncation flag it
-  described.
+- **The cash banner is an IMPERATIVE, so the state around it is money logic.** Under record-first the
+  banner asks for a hand-back rather than reporting one, and it carries the only copy of the
+  server-clamped figure — so on the cash path it takes focus and the viewport instead of the order
+  header, which can sit far below the fold, and it is CLEARED on every new attempt and on every
+  no-op. A `fully_refunded` answer that left the previous "now hand back $11.05" standing would have
+  a manager pay the earlier refund twice.
+- **A short drawer says so.** `cashNetCents` is signed, and rendered through "in drawer" a negative
+  read "-$15.00 in drawer" — not a figure anyone can count a till to. Below zero the cell now says
+  the drawer is SHORT, in the positive magnitude a manager can match against the day.
+- **Eleven new `verify:slice` mutants, one retired** — 672 → 682, and two components join the
+  mutate set (`staff/SettledToday.tsx`, `staff/DayCash.tsx`; the enumeration in `CLAUDE.md` names
+  them, not just the total). They cover the drawer net (signed, not floored) and its sentence, the
+  cash-only filter, the latest-refund ranking, the tender-aware guest note, the paging loop, the
+  composite seek's tie-break, the pre-migration fallback and its narrowness and its confinement to
+  the first page, and the two ways a stale cash instruction re-issues itself.
+  `refunds/a-truncated-ledger-read-still-ranks` retires with the truncation flag it described.
 
 Closes **M218** (high) and **M219**. ⚠️ The migration is NOT applied to production — that is Min's
 go, one file at a time via the Supabase MCP (the repo/prod histories are divergent).

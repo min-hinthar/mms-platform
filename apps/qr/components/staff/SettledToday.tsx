@@ -123,8 +123,27 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // opened it — but a successful refund's refresh then swaps that button for the refunded mark,
   // dropping focus to <body>. Stash the order id on success and, once the refreshed list lands, move
   // focus to that order's disclosure header (stable across the swap).
+  //
+  // ⚠️ THE CASH PATH GOES TO THE BANNER INSTEAD, and that is a money rule, not a focus preference
+  // (Codex round 3 on #286, P1). Under record-first the banner no longer CONFIRMS a hand-back — it
+  // ASKS for one, and it carries the only copy of the server-clamped figure. It renders above the
+  // whole list, so refocusing a row that can sit far below the fold leaves a manager who has already
+  // been charged looking at a screen that never told them to open the drawer. Focus plus a scroll
+  // puts the instruction in front of whoever must act on it, sighted or not.
   const refocusOrderId = useRef<string | null>(null);
+  const refocusBanner = useRef(false);
+  const bannerRef = useRef<HTMLParagraphElement | null>(null);
   useEffect(() => {
+    if (refocusBanner.current) {
+      refocusBanner.current = false;
+      refocusOrderId.current = null;
+      bannerRef.current?.focus();
+      // Optional call: `scrollIntoView` is not implemented in every DOM this renders under (jsdom
+      // has no layout), and a missing scroll must never throw out of an effect that has just moved
+      // focus onto a money instruction. Focus alone already brings it into view in a real browser.
+      bannerRef.current?.scrollIntoView?.({ block: "center" });
+      return;
+    }
     const id = refocusOrderId.current;
     if (!id) return;
     refocusOrderId.current = null;
@@ -205,7 +224,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
         )}
       </p>
       {armed && (
-        <p role="status" style={confirmBanner}>
+        <p role="status" ref={bannerRef} tabIndex={-1} style={confirmBanner}>
           {confirmed !== null && (
             <Chrome
               lang={lang}
@@ -238,6 +257,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
               onToggle={() => toggle(o.id)}
               onRefund={(line) => {
                 setArmed(true);
+                // ⚠️ CLEARED ON EVERY ATTEMPT (Codex round 3 on #286, P1). The cash banner is an
+                // imperative carrying an amount; a stale one standing over a new attempt is an
+                // instruction to pay a figure this tap has nothing to do with.
+                setConfirmed(null);
                 setRefunding({ order: o, line });
               }}
             />
@@ -252,10 +275,17 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
           onClose={() => setRefunding(null)}
           onDone={(refundedCents?: number) => {
             const orderId = refunding.order.id;
+            const path = refunding.order.refundPath;
             setRefunding(null);
-            if (refundedCents != null) {
-              setConfirmed({ cents: refundedCents, path: refunding.order.refundPath });
-              refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
+            if (refundedCents == null) {
+              // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the
+              // previous confirmation standing would re-issue its imperative over an attempt that
+              // moved no money, and a manager following it pays the earlier refund twice.
+              setConfirmed(null);
+            } else {
+              setConfirmed({ cents: refundedCents, path });
+              if (path === "cash") refocusBanner.current = true;
+              else refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
             }
             refresh();
           }}

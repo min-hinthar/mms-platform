@@ -1374,6 +1374,11 @@ export const STAFF = {
   // the same manager already reads one screen away.
   "reg.day.handedBack": { en: "{m} handed back", my: "{m} ပြန်အမ်းပြီး" },
   "reg.day.inDrawer": { en: "{m} in drawer", my: "အံဆွဲထဲ {m}" },
+  // M218 (Codex round 3, P2) — the OTHER side of the signed net. `inDrawer` with a negative figure
+  // reads "-$15.00 in drawer", which is not a number anyone can count a till to. Below zero the day
+  // gave back more cash than it took, so the drawer is SHORT by the positive magnitude. Reuses
+  // အံဆွဲ from `reg.day.inDrawer` and လိုနေ (short/lacking) as the one new idea.
+  "reg.day.short": { en: "{m} short in drawer", my: "အံဆွဲထဲ {m} လိုနေ" },
   "reg.day.refunded.one": {
     en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
     my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",

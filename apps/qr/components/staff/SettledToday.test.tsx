@@ -13,15 +13,21 @@ import { STAFF } from "@/lib/i18n/staff";
  * `refund-console.test.ts` / `refunds.test.ts`; the row words in `settled-view.test.ts`.
  */
 let refreshAnswer: unknown = { ok: false, reason: "outage" };
+// Mutable so a test can make ONE refund succeed and the next one no-op — which is the whole subject
+// of the two cash-banner cases below.
+let refundAnswer: unknown = { ok: false, reason: "error" };
 vi.mock("@/lib/refunds", () => ({
   getSettledToday: () => Promise.resolve(refreshAnswer),
-  refundLine: () => Promise.resolve({ ok: false, reason: "error" }),
+  refundLine: () => Promise.resolve(refundAnswer),
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { SettledToday } = await import("./SettledToday");
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  refundAnswer = { ok: false, reason: "error" };
+});
 
 const line = (id: string, over: Partial<SettledOrder["lines"][number]> = {}) => ({
   id,
@@ -164,6 +170,66 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     expect(screen.getByText(/\$18\.00 refunded/)).toBeTruthy();
     // The collapsed chip said so too, before the tap.
     expect(screen.getByText("Partly refunded")).toBeTruthy();
+  });
+
+  /**
+   * M218 (Codex round 3 on #286, P1) — the cash banner is an IMPERATIVE, and the two cases below are
+   * the ways a stale one gets a guest paid twice or not at all.
+   *
+   * Under record-first the banner no longer reports a hand-back that happened; it asks for one, and
+   * it carries the only copy of the server-clamped figure. Every state transition that leaves the
+   * old text standing is therefore a money defect, not a cosmetic one.
+   */
+  const openAndRefund = async (name = "Refund — Mohinga") => {
+    fireEvent.click(screen.getByRole("button", { name }));
+    const submit = screen.getByRole("button", { name: /^Refund \$/ });
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+  };
+
+  it("a NO-OP clears the cash instruction — it never re-issues the last one's amount", async () => {
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("$11.05");
+    expect(banner.textContent).toContain("hand back");
+
+    // A second attempt the server refuses: already refunded, nothing recorded, no amount returned.
+    // The card stays expanded across the refresh, so the Refund control is already in reach — which
+    // is precisely the stale board this case is about.
+    refundAnswer = { ok: false, reason: "already_refunded" };
+    await openAndRefund();
+    // ⚠️ The old imperative must be GONE. Left standing it reads "now hand back $11.05" over an
+    // attempt that moved no money, and a manager following it pays the first refund twice.
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("opening a new Refund clears the previous instruction before the manager can act on it", async () => {
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+    expect(screen.getByRole("status").textContent).toContain("$11.05");
+
+    // Opening the next sheet clears it, and BACKING OUT is what makes that visible: the manager
+    // changed their mind, and must not be left standing in front of the previous line's imperative.
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+    // ⚠️ The assertion waits for the sheet to GO. While it is open the dialog `aria-hidden`s the
+    // page behind it, so the banner is out of the a11y tree entirely and a query here reads the
+    // sheet's own empty error region instead — passing however the banner behaves. The first draft
+    // of this case did exactly that, and the mutation that deletes the clear SURVIVED it.
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("never speaks unprompted: no live region until a Refund is opened; counts and the cap are plain text", () => {

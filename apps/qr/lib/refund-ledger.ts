@@ -58,10 +58,22 @@ type Db = ReturnType<typeof serviceClient>;
  * transaction's START time and a transaction begun earlier can commit later — shifts every row one
  * place along: a row already read comes back on the next page (the drawer counts it twice) and the
  * row that took its place is never read at all (the day loses a refund). Seeking past the last row
- * actually SEEN makes both impossible: the cursor is a position in the data, not in a result set.
+ * actually SEEN removes the DOUBLE-COUNT outright, because the cursor is a position in the data
+ * rather than in a result set, and a row can never be handed back twice.
  *
  * The seek is composite, `(created_at, id)`, because `created_at` is not unique — two refunds in
  * the same instant would straddle the boundary and one would be dropped.
+ *
+ * ⚠️ IT DOES NOT MAKE THE READ ATOMIC, and an earlier draft of this comment claimed it did
+ * (corrected, Codex round 3 on #286, P2). The same late-commit still hides a row from the OTHER
+ * direction: a transaction that began before page 1 and commits after it carries a `created_at` at
+ * or below the cursor, and every later page filters on `> cursor`, so that row is never returned by
+ * this read at all. Keyset changed WHICH failure survives, not that none does — it traded a
+ * double-count for a silent omission, which is the better trade on a drawer total but is not the
+ * complete-read guarantee the name suggests. Closing it needs the paging to happen inside ONE
+ * database snapshot, i.e. a `SECURITY DEFINER` function that returns the day in a single statement —
+ * a prod migration, filed as OPEN-ITEMS M222. Until then this read is complete as of its FIRST
+ * page's snapshot, and a refund that commits late lands in the next render's read.
  */
 export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerRow[] | null> {
   const rows: LedgerRow[] = [];
@@ -87,7 +99,14 @@ export async function readLedgerSince(db: Db, sinceIso: string): Promise<LedgerR
       //
       // Narrow deliberately. A real outage must still answer null — degrading a broken read into a
       // plausible-looking subset is the defect this whole module exists to prevent.
-      if (cols === LEDGER_COLS && error.code === UNDEFINED_COLUMN) {
+      // ⚠️ FIRST PAGE ONLY (Codex round 3 on #286, P2). A 42703 on a LATER page means the schema
+      // changed underneath a read already in flight — the migration landing mid-page. Downgrading
+      // there would read the rest of the day one column short while `mms_refund_cash_line` has
+      // already started writing cash rows, and every one of them would coerce to `card`: real
+      // drawer payouts missing from the drawer's own total. `after === null` confines the downgrade
+      // to the ask that could only ever have been pre-migration, and a crossing is an outage —
+      // which the next read, probing the full shape again, resolves on its own.
+      if (after === null && cols === LEDGER_COLS && error.code === UNDEFINED_COLUMN) {
         cols = LEDGER_COLS_PRE_M218;
         continue;
       }
