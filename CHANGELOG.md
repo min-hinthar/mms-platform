@@ -84,8 +84,13 @@ either: cash has no processor. The settled list said so honestly; saying is not 
   the first page, and the two ways a stale cash instruction re-issues itself.
   `refunds/a-truncated-ledger-read-still-ranks` retires with the truncation flag it described.
 
-Closes **M218** (high) and **M219**. ⚠️ The migration is NOT applied to production — that is Min's
-go, one file at a time via the Supabase MCP (the repo/prod histories are divergent).
+Closes **M218** (high) and **M219**. ✅ **The migration IS on production** (2026-09-17, Min's go) —
+applied via the Supabase MCP as `20260917014029 m218_cash_refund_line`, BEFORE the merge, so the
+app-first window never opens (the 42703 fallback stays as insurance for the deploy lag). Every
+object verified after the apply rather than inferred from its success. A pre-apply adversarial audit
+over five lenses returned four clean and three refuted findings; the two worth keeping as
+defence-in-depth are **M223**, for a follow-up migration — a migration file is a historical record
+once it lands, so it is not edited after the fact.
 
 ### A4·5 — Menu + Tips: the word-check sheet as the Menu screen's action, guest feedback beneath the tips, the More list to three tiles (2026-09-15)
 

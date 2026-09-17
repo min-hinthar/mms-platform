@@ -15,9 +15,19 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > nets what went back (`cashRefundedCents` · `cashNetCents`), and the settled sheet offers Refund on
 > the cash path. **M219** rides with it: `readLedgerSince` pages the ledger for both readers.
 >
-> ⚠️ **THE MIGRATION IS NOT ON PROD.** `20260916000000_m218_cash_refund_line.sql` ships in the repo
-> only. Applying it is Min's go, one file at a time via the Supabase MCP — the repo and prod
-> histories are divergent (see CLAUDE.md). **Apply before the next service that uses it.**
+> ✅ **THE MIGRATION IS ON PROD (2026-09-17, Min's go).** `20260916000000_m218_cash_refund_line.sql`
+> applied via the Supabase MCP and recorded as `20260917014029 m218_cash_refund_line` — the usual
+> M125 stamp divergence from the repo filename. Applied BEFORE the merge deliberately: the deploy
+> follows the merge, so migrating first removes the app-first window entirely instead of leaning on
+> the 42703 fallback to survive it (the fallback stays as insurance for the deploy lag).
+>
+> **Verified after apply, object by object, not inferred from a green apply:** `stripe_refund_id`
+> nullable YES · `tender` text NOT NULL default `'card'::text` · `mms_refunds_tender_chk` present
+> **on `mms_refunds`** (conrelid-scoped read, not a bare conname match) · all three functions at
+> their exact signatures · all four SECURITY DEFINER with `search_path=""`, executable by
+> `service_role` and **denied to `anon` and `authenticated`** · a zero-write behavioural probe
+> (`not_manager` from both authorizers, `0` from `mms_refund_line_amount`) with the ledger still at
+> 0 rows afterwards. Pre-apply the ledger had **0 rows**, so the `tender` backfill was vacuous.
 >
 > **The window between merge-deploy and that apply is now SURVIVABLE, and it was not.** Two things
 > had to be true for it (both Codex findings, both fixed on this branch):
