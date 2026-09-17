@@ -62,6 +62,14 @@ export function RefundActionSheet({
           case "pin_no_pin":
             setError({ k: "pin.noPin.profile" });
             break;
+          // ⚠️ THESE TWO CLOSE SILENTLY, AND THAT IS SAFE ONLY BECAUSE THE CASH FLOW RECORDS FIRST
+          // (Codex round 2 on #286, P1). Both mean a stale board: another manager refunded this line,
+          // or exhausted the order, between the page load and this tap. While `floor.settled.path.cash`
+          // read "hand it back from the drawer, THEN record it here", that sequence put money in a
+          // guest's hand and then closed this sheet without a word — an unrecorded payout. It now
+          // says record first, so when either verdict lands the drawer has not been opened and there
+          // is nothing to reconcile. If that instruction is ever reordered, these two arms have to
+          // surface instead of closing.
           case "already_refunded":
             // It's already refunded — refresh the board (the line will show its mark) + close. No
             // dead error text (the sheet unmounts on onDone, so a message here would never be seen).
@@ -83,6 +91,14 @@ export function RefundActionSheet({
             break;
           case "not_manager":
             setError({ k: "floor.refund.err.notManager" });
+            break;
+          case "cash_not_ready":
+            // M218 — the database has no `mms_refund_cash_line` yet (the app deploys on merge; the
+            // migration is applied by hand afterwards). Under record-first (Codex round 2, P1) the
+            // drawer is still shut when this renders, so the copy STOPS the hand-back rather than
+            // documenting one that already happened. It is not "try again" either: the verdict is
+            // about the database's shape, and it heals when the migration lands, not on a retry.
+            setError({ k: "floor.refund.err.cashNotReady" });
             break;
           case "outage":
             // W10b — no money moved; the platform is unreachable, not a verdict about the manager.
@@ -138,8 +154,17 @@ export function RefundActionSheet({
             <Chrome lang={lang} k="floor.refund.clamped" vars={{ m: amount }} echo="stack" />
           </p>
         )}
+        {/* M218 — WHICH note depends on the tender, and it did not have to before: until
+            `mms_refund_cash_line` existed this sheet was unreachable on a cash order
+            (`canRefundHere` was `refundPath === "app"`), so "back to the card" was true of every
+            line that could open it. On a cash line it would now contradict the drawer instruction
+            the manager just read two lines above. */}
         <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-          <Chrome lang={lang} k="floor.refund.note" echo="stack" />
+          <Chrome
+            lang={lang}
+            k={order.refundPath === "cash" ? "floor.refund.note.cash" : "floor.refund.note"}
+            echo="stack"
+          />
         </p>
 
         <label style={lbl} htmlFor="refund-reason">

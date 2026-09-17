@@ -903,9 +903,9 @@ export const STAFF = {
   // Honest about what the screen keeps (Codex round 1 on #283, P1 → M218): no flow records a cash
   // refund yet, so the sentence must not read as if handing the money back is logged anywhere.
   "floor.settled.path.cash": {
-    en: "Cash order — hand it back from the drawer. This screen can’t record a cash refund yet, so the receipt and the takings still show it as paid.",
-    my: "ငွေသား အော်ဒါ — ငွေအံဆွဲကနေ ပြန်အမ်းပါ။ ငွေသား ပြန်အမ်းတာကို ဒီစခရင်က မမှတ်တမ်းတင်နိုင်သေးလို့ ပြေစာနဲ့ ရငွေစာရင်းမှာ ပေးပြီးသားအဖြစ်ပဲ ပြနေပါမယ်။",
-  }, // K15-HIGH — a wrong word here sends a manager to a dashboard where no charge exists, or lets them believe the drawer's money out was recorded
+    en: "Cash order — record it here first, then hand back the amount this screen confirms. The receipt and the takings follow.",
+    my: "ငွေသား အော်ဒါ — ဒီမှာ အရင် မှတ်တမ်းတင်ပြီးမှ ဒီစခရင် အတည်ပြုတဲ့ ပမာဏကို ငွေအံဆွဲကနေ ပြန်အမ်းပါ။ ပြေစာနဲ့ ရငွေစာရင်းက လိုက်ပါလာပါမယ်။",
+  }, // K15-HIGH — ⚠️ THE CLAUSE ORDER IS THE SAFETY PROPERTY (Codex round 2 on #286, P1). This said "hand it back from the drawer, THEN record it here", and that ordering hands a guest money before anything has authorized it: on a stale board the RPC answers `already_refunded` or `fully_refunded`, the sheet closes, and the payout exists nowhere. Recording first inverts the failure — the money stays in the till and the books carry a row to reconcile, instead of the money leaving with no trace. It is also the only order in which the manager can hand back the RIGHT number: the server clamps to the order's remaining pool, so the authoritative amount does not exist until the record does
   "floor.settled.path.dashboard": {
     en: "Paid by more than one card — refund each payer’s charge in {x}.",
     my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီရဲ့ ငွေကို {x} မှာ ပြန်အမ်းပါ။",
@@ -919,6 +919,15 @@ export const STAFF = {
     en: "Refunded {m} to the card.",
     my: "{m} ကို ကတ်ထဲ ပြန်အမ်းလိုက်ပါပြီ။",
   },
+  // M218 (Codex round 1, P1) — the DRAWER's confirmation, and under record-first (round 2, P1) it is
+  // also the INSTRUCTION: the amount here is the server's, after its clamp, so this banner is the
+  // first place the right figure exists. Past tense would be a claim about a hand-back that has not
+  // happened yet — and the manager, reading it, would not make it. Reuses မှတ်တမ်းတင် and အံဆွဲ from
+  // `floor.settled.path.cash`.
+  "floor.settled.confirmed.cash": {
+    en: "Recorded — now hand back {m} from the drawer.",
+    my: "မှတ်တမ်းတင်ပြီးပါပြီ — အခု အံဆွဲကနေ {m} ပြန်အမ်းပါ။",
+  },
 
   // ── the refund sheet (one paid line; reason + the manager's own PIN) ────────
   "floor.refund.title": { en: "Refund {x}", my: "{x} ပြန်အမ်း" },
@@ -927,6 +936,14 @@ export const STAFF = {
     en: "Price + tax, back to the card. Tips — and the service charge on older orders — aren’t included.",
     my: "ဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပါမယ်။ အပိုကြေးနဲ့ အော်ဒါဟောင်းတွေရဲ့ ဝန်ဆောင်ခ မပါဝင်ပါ။",
   }, // K15-HIGH — what a refund does and does not give back
+  // M218 — the same sentence for the DRAWER path. Same two exclusions, same shape; only the
+  // destination changes, because on a cash line the money leaves the till by hand and no card is
+  // involved. Reuses အပိုကြေး / ဝန်ဆောင်ခ / အခွန် from the card note verbatim; the one new idea is
+  // ငွေအံဆွဲကနေ, which `floor.settled.path.cash` already says on the screen behind this sheet.
+  "floor.refund.note.cash": {
+    en: "Price + tax, to hand back from the drawer once this is recorded. Tips — and the service charge on older orders — aren’t included.",
+    my: "ဈေးနှုန်းနဲ့ အခွန်ကို မှတ်တမ်းတင်ပြီးမှ ငွေအံဆွဲကနေ ပြန်အမ်းရပါမယ်။ အပိုကြေးနဲ့ အော်ဒါဟောင်းတွေရဲ့ ဝန်ဆောင်ခ မပါဝင်ပါ။",
+  }, // K15-HIGH — what a CASH refund does and does not give back, in the record-first order the screen behind it states
   "floor.refund.clamped": {
     en: "This order has {m} left to give back, so this line refunds {m} — not its full price + tax.",
     my: "ဒီအော်ဒါမှာ ပြန်အမ်းနိုင်တာ {m} ပဲ ကျန်လို့ ဒီလိုင်းကို {m} ပြန်အမ်းပါမယ် — ဈေးနှုန်းနဲ့ အခွန် အပြည့် မဟုတ်ပါ။",
@@ -959,6 +976,13 @@ export const STAFF = {
     en: "Couldn’t refund that line — try again.",
     my: "ဒီလိုင်းကို ပြန်မအမ်းနိုင်ပါ — ထပ်ကြိုးစားပါ။",
   },
+  // M218 — the ONE refund error where money has already moved. Every other arm here refused before
+  // anything left; this one is reached only when the drawer is open and the database cannot record
+  // it. So it does not say "try again" — it says the hand-back happened and is not on the books.
+  "floor.refund.err.cashNotReady": {
+    en: "Not recorded — this screen can’t record a cash refund yet. Don’t hand anything back; tell the owner.",
+    my: "မမှတ်တမ်းတင်ရသေးပါ — ငွေသား ပြန်အမ်းတာကို ဒီစခရင်က မမှတ်တမ်းတင်နိုင်သေးပါ။ ဘာမှ ပြန်မအမ်းပါနဲ့ — ပိုင်ရှင်ကို ပြောပါ။",
+  }, // K15-HIGH — the sentence that stands between a hand-back and an unrecorded loss. Under record-first it can PREVENT the loss rather than document it: nothing has left the till when this renders, so it says don't start
 
   // ═══ P2 PR B · lines ═══════════════════════════════════════════════════════════
   // ── the table drill-down: one cart line (StaffLineEditor) ──────────────────
@@ -1342,6 +1366,19 @@ export const STAFF = {
   "reg.day.orders.one": { en: "{n} order", my: "အော်ဒါ {n} ခု" },
   "reg.day.orders.many": { en: "{n} orders", my: "အော်ဒါ {n} ခု" },
   "reg.day.tips": { en: "incl. {m} tips", my: "အပိုကြေး {m} ပါဝင်" },
+  // M218 — the two figures the drawer needs now that a cash refund can be RECORDED: what went back
+  // out of the till today, and what should be in it after that. Both ride the cash cell beside the
+  // tip breakdown, and both carry `{m}` — a preformatted AMOUNT, so its numerals stay Latin (the
+  // dictionary's money rule) while the words around them follow the device language. The Burmese
+  // reuses ပြန်အမ်း (`floor.settled.verb.refund`) and အံဆွဲ (`floor.settled.path.cash`) — the words
+  // the same manager already reads one screen away.
+  "reg.day.handedBack": { en: "{m} handed back", my: "{m} ပြန်အမ်းပြီး" },
+  "reg.day.inDrawer": { en: "{m} in drawer", my: "အံဆွဲထဲ {m}" },
+  // M218 (Codex round 3, P2) — the OTHER side of the signed net. `inDrawer` with a negative figure
+  // reads "-$15.00 in drawer", which is not a number anyone can count a till to. Below zero the day
+  // gave back more cash than it took, so the drawer is SHORT by the positive magnitude. Reuses
+  // အံဆွဲ from `reg.day.inDrawer` and လိုနေ (short/lacking) as the one new idea.
+  "reg.day.short": { en: "{m} short in drawer", my: "အံဆွဲထဲ {m} လိုနေ" },
   "reg.day.refunded.one": {
     en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
     my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
@@ -2350,7 +2387,9 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "entry.lock.forgot",
   "entry.login.denied",
   "floor.refund.clamped",
+  "floor.refund.err.cashNotReady",
   "floor.refund.note",
+  "floor.refund.note.cash",
   "floor.settled.path.cash",
   "floor.settled.path.dashboard",
   "floor.settled.sub",

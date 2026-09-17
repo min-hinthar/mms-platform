@@ -61,6 +61,35 @@ export function DayCash({ lang, day }: { lang: StaffLang; day: DayCashResult }) 
                 />
               </span>
             )}
+            {/* M218 — what went back OUT of the drawer, and what should therefore be IN it. The big
+                figure above stays GROSS (a line refund leaves the order `paid` at its full
+                `total_cents`), so without this line a manager counts the till against a number that
+                has not been true since the first hand-back of the day. Shown only once cash has
+                actually gone back, so a day with no refunds reads exactly as it did before. */}
+            {s.cashRefundedCents > 0 && (
+              <span style={dayCount}>
+                {" · "}
+                <Chrome
+                  lang={lang}
+                  k="reg.day.handedBack"
+                  vars={{ m: fmt(s.cashRefundedCents) }}
+                  echo="inline"
+                />
+                {" · "}
+                {/* ⚠️ THE SIGN PICKS THE SENTENCE (Codex round 3 on #286, P2). `cashNetCents` is
+                    signed, so a day whose hand-backs exceed its cash sales — this morning's refund
+                    of an earlier service day — renders NEGATIVE. "-$15.00 in drawer" is not a till
+                    a manager can count to; it is an impossible reconciliation target. Below zero
+                    the figure is a SHORTFALL and says so, in the positive magnitude someone can
+                    actually match against the day. */}
+                <Chrome
+                  lang={lang}
+                  k={s.cashNetCents < 0 ? "reg.day.short" : "reg.day.inDrawer"}
+                  vars={{ m: fmt(Math.abs(s.cashNetCents)) }}
+                  echo="inline"
+                />
+              </span>
+            )}
           </dd>
         </div>
         {/* W6c: the counter reader's takings — its own column so the register can reconcile the

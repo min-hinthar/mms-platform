@@ -4,6 +4,94 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M218 · M219 — a cash refund is RECORDED, and the ledger is read whole (2026-09-16)
+
+**The drawer paid out and every surface kept saying "Paid in full".** `mms_refund_authorize` answers
+`split_unsupported` for any order with no PaymentIntent, and `mms_fulfill_cash_order` never writes
+one — the column is absent from its INSERT — so a cash line could never be authorized, `refundLine`
+could never reach `mms_record_refund`, and nothing wrote `mms_refunds`, `qr_orders.refunded_cents`
+or `qr_order_items.refunded_cents` for cash. There is no processor webhook to reconcile it later
+either: cash has no processor. The settled list said so honestly; saying is not recording.
+
+- **`mms_refund_cash_line(p_line_item, p_initiator, p_reason)`** — ONE function where card is two.
+  The card path splits authorize → Stripe → record because a processor sits in the middle and the
+  ledger row is keyed on the refund id it returns. Cash has no middle, so splitting it would invent
+  a window where the drawer has paid out and nothing says so. It authorizes and records in one
+  transaction: the ledger row (tender `cash`, no processor id), both `refunded_cents` projections,
+  and the two-party audit row.
+- **The arithmetic is EXTRACTED, not copied.** The cash path needs the same per-line pro-rata and
+  the same pool clamp, and a second copy of a money formula is the drift the W17 rules were written
+  for. `mms_refund_line_amount` now holds it and BOTH callers read it; `mms_refund_authorize` is
+  re-created with its signature, its guard ORDER and every refusal string unchanged.
+- **Idempotence without a Stripe id.** `mms_record_refund` dedupes on `stripe_refund_id`; a cash row
+  has none, so this path leans on `mms_refunds_one_per_line` — the partial unique index that was
+  already there. The check refuses the second call; the index is the race backstop.
+- **A card order refuses the drawer path and a cash order still refuses the card path.** If a
+  processor can give the money back, a hand from the till is the wrong instrument and would refund
+  the guest twice. The two guards pull in opposite directions on purpose.
+- **The drawer nets it.** A line refund leaves the order `paid` at its full `total_cents`, so the
+  Z-report's cash figure was gross and overstated the till by every hand-back. `summarizeDay` gained
+  `cashRefundedCents` and `cashNetCents`, and the register's cash cell shows both once cash has
+  actually gone back.
+- **`refundLine` picks the instrument from the order's own facts** via `refundPathFor` — the pure
+  rule the console already rendered from — never from anything the client sent.
+- **M219 — the ledger read is PAGED BY KEYSET** (`lib/refund-ledger.ts` · `readLedgerSince`, used by
+  both the settled list and the drawer). PostgREST caps a response at max-rows with `error` still
+  null, so the old single read could answer a silent subset and rank the day from it. It now pages
+  until a short page and answers `null` rather than a partial read; the settled list no longer marks
+  itself capped for a big ledger. The cursor SEEKS past the last row seen, on the composite
+  `(created_at, id)` — not an offset. An offset page shifts when a refund commits between two of
+  them, and it can: `now()` is the transaction's START time, so a transaction begun earlier commits
+  later with an earlier sort key. One row would be read twice and one never read. `created_at` alone
+  is not enough either — it is not unique, and a seek on it drops the second of a tied pair at every
+  page edge.
+- **The app-first deploy window stays lit.** `tender` does not exist until the migration is applied
+  by hand, and the app ships on merge. PostgREST rejects the WHOLE query for one unknown column
+  (42703, raised at parse time), and both callers read a failed ledger as `outage` — so an
+  unconditional select would have blanked the settled list AND the drawer for the length of that
+  window, taking `cash_not_ready` out of reach with them. On 42703 alone the read re-asks the same
+  page one column short and reads every row as card, which is true by construction: the column and
+  `mms_refund_cash_line` land in the same migration.
+- **The manager RECORDS first, then hands back.** `floor.settled.path.cash` used to say "hand it
+  back from the drawer, then record it here" — and on a stale board the RPC then answers
+  `already_refunded`/`fully_refunded`, the sheet closes, and the payout exists nowhere. Recording
+  first inverts the failure: the money stays in the till and the books carry a row to reconcile. It
+  is also the only order in which the manager can hand back the RIGHT number, since the server
+  clamps to the remaining pool and the authoritative amount does not exist until the record does.
+  Four sentences move with it in both languages, including `cash_not_ready`, which can now say
+  "don't hand anything back" instead of documenting a loss.
+- **Proved against a real database, red-first.** `supabase/tests/m218_cash_refund_line_test.sql`
+  (9 cases, registered in `ci.yml`) was run against a local Postgres 16 with all 101 migrations
+  applied — and watched RED under three mutations of the migration: dropping the order-level
+  projection, dropping the `not_cash` guard (which let a CARD order refund from the drawer), and
+  restoring the pre-remediation formula (case 9's fixture separates the two). The cross-line lock
+  was proved the same way, with two concurrent sessions: without `for update` they paid **210
+  against a 105 pool**; with it, **105**, the second answering `fully_refunded`.
+- **The cash banner is an IMPERATIVE, so the state around it is money logic.** Under record-first the
+  banner asks for a hand-back rather than reporting one, and it carries the only copy of the
+  server-clamped figure — so on the cash path it takes focus and the viewport instead of the order
+  header, which can sit far below the fold, and it is CLEARED on every new attempt and on every
+  no-op. A `fully_refunded` answer that left the previous "now hand back $11.05" standing would have
+  a manager pay the earlier refund twice.
+- **A short drawer says so.** `cashNetCents` is signed, and rendered through "in drawer" a negative
+  read "-$15.00 in drawer" — not a figure anyone can count a till to. Below zero the cell now says
+  the drawer is SHORT, in the positive magnitude a manager can match against the day.
+- **Eleven new `verify:slice` mutants, one retired** — 672 → 682, and two components join the
+  mutate set (`staff/SettledToday.tsx`, `staff/DayCash.tsx`; the enumeration in `CLAUDE.md` names
+  them, not just the total). They cover the drawer net (signed, not floored) and its sentence, the
+  cash-only filter, the latest-refund ranking, the tender-aware guest note, the paging loop, the
+  composite seek's tie-break, the pre-migration fallback and its narrowness and its confinement to
+  the first page, and the two ways a stale cash instruction re-issues itself.
+  `refunds/a-truncated-ledger-read-still-ranks` retires with the truncation flag it described.
+
+Closes **M218** (high) and **M219**. ✅ **The migration IS on production** (2026-09-17, Min's go) —
+applied via the Supabase MCP as `20260917014029 m218_cash_refund_line`, BEFORE the merge, so the
+app-first window never opens (the 42703 fallback stays as insurance for the deploy lag). Every
+object verified after the apply rather than inferred from its success. A pre-apply adversarial audit
+over five lenses returned four clean and three refuted findings; the two worth keeping as
+defence-in-depth are **M223**, for a follow-up migration — a migration file is a historical record
+once it lands, so it is not edited after the fact.
+
 ### A4·5 — Menu + Tips: the word-check sheet as the Menu screen's action, guest feedback beneath the tips, the More list to three tiles (2026-09-15)
 
 The fifth and last A4 slice; `/staff` is five screens now — Kitchen · Counter & tables · Menu ·

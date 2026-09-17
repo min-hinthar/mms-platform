@@ -48,8 +48,6 @@ let unionOrderRows: Row[] = [];
 let ledgerRows: Row[] = [];
 /** The ledger rows SINCE the floor — the today-ledger read (a `gte` on `mms_refunds`) answers these. */
 let ledgerTodayRows: Row[] = [];
-/** The `count: "exact"` that read carries — above the rows means PostgREST truncated it. */
-let ledgerTodayCount: number | null = null;
 let failTable: string | null = null;
 
 function tableApi(name: string) {
@@ -63,6 +61,10 @@ function tableApi(name: string) {
     in: (...a: unknown[]) => (r.calls.push(["in", a]), api),
     order: (...a: unknown[]) => (r.calls.push(["order", a]), api),
     limit: (...a: unknown[]) => (r.calls.push(["limit", a]), api),
+    // M219 — the today-ledger read is PAGED now (`readLedgerSince`). The stub answers the first
+    // page in full and every later page empty, which is what a short page looks like and is what
+    // ends the loop.
+    range: (...a: unknown[]) => (r.calls.push(["range", a]), api),
     maybeSingle: () => Promise.resolve({ data: { tz: "America/Los_Angeles" }, error: null }),
     then(resolve: (v: { data: unknown; error: unknown; count?: number | null }) => unknown) {
       const answer = (): { data: unknown; error: unknown; count?: number | null } => {
@@ -76,8 +78,13 @@ function tableApi(name: string) {
           };
         if (name === "mms_refunds") {
           const today = r.calls.some((c) => c[0] === "gte");
-          const data = today ? ledgerTodayRows : ledgerRows;
-          return { data, error: null, count: today ? (ledgerTodayCount ?? data.length) : null };
+          if (today) {
+            const range = r.calls.find((c) => c[0] === "range");
+            const from = range ? ((range[1] as unknown[])[0] as number) : 0;
+            // Page 0 carries every fixture row; page 1 is empty and stops the loop.
+            return { data: from === 0 ? ledgerTodayRows : [], error: null, count: null };
+          }
+          return { data: ledgerRows, error: null, count: null };
         }
         return { data: [], error: null };
       };
@@ -146,7 +153,6 @@ beforeEach(() => {
   unionOrderRows = [];
   ledgerRows = [];
   ledgerTodayRows = [];
-  ledgerTodayCount = null;
   vi.spyOn(console, "error").mockImplementation(() => {});
 });
 afterEach(() => vi.restoreAllMocks());
@@ -246,18 +252,28 @@ describe("getSettledToday — today's settled orders, as the receipt shows them"
     expect(res.truncated).toBe(true);
   });
 
-  it("a today-ledger read that came back SHORT of its own count marks the list truncated — a ranking over a partial ledger cannot say it is the day (Codex round 3 on #283)", async () => {
+  it("M219: the ledger is read by PAGES, and a complete one no longer caps the list", async () => {
+    // This replaces the truncation case. The old read asked once with `count: "exact"` and, when the
+    // answer came back short of its own count, marked the whole list `truncated` — honest, but not
+    // the day. `readLedgerSince` pages until a short page instead, so a big ledger no longer costs
+    // the list its claim to be today. The paging itself is falsified in `refund-ledger.test.ts`;
+    // what this pins is the WIRING: the settled read goes through the paged reader — ordered on
+    // both keys and page-limited, never one unbounded ask — and does not cap.
     const OLD = "44444444-4444-4444-8444-444444444444";
     ledgerTodayRows = [{ order_id: OLD, created_at: "2026-09-13T18:50:00Z" }];
-    ledgerTodayCount = 1200; // PostgREST's max-rows cap answered a subset, silently
     unionOrderRows = [order(OLD, { created_at: "2026-09-12T19:41:00Z" })];
     const res = await getSettledToday();
     if (!res.ok) throw new Error("expected ok");
-    expect(res.truncated).toBe(true);
-    expect(console.error).toHaveBeenCalledWith(expect.stringContaining("truncated"), {
-      count: 1200,
-      rows: 1,
-    });
+    expect(res.truncated).toBe(false);
+    const ledgerRead = recs.filter((r) => r.table === "mms_refunds")[0]!;
+    // The paged reader's fingerprint: BOTH order keys and a page limit. `created_at` alone orders
+    // tied rows differently across page boundaries, and no limit is the unpaged read this replaced.
+    const orderKeys = ledgerRead.calls
+      .filter((c) => c[0] === "order")
+      .map((c) => (c[1] as [string])[0]);
+    expect(orderKeys).toEqual(["created_at", "id"]);
+    expect(ledgerRead.calls.some((c) => c[0] === "limit")).toBe(true);
+    expect(console.error).not.toHaveBeenCalled();
   });
 
   it("a failed today-ledger read answers `outage` — the union is not silently narrowed to the paid arm", async () => {

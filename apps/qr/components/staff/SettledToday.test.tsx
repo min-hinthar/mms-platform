@@ -13,15 +13,21 @@ import { STAFF } from "@/lib/i18n/staff";
  * `refund-console.test.ts` / `refunds.test.ts`; the row words in `settled-view.test.ts`.
  */
 let refreshAnswer: unknown = { ok: false, reason: "outage" };
+// Mutable so a test can make ONE refund succeed and the next one no-op — which is the whole subject
+// of the two cash-banner cases below.
+let refundAnswer: unknown = { ok: false, reason: "error" };
 vi.mock("@/lib/refunds", () => ({
   getSettledToday: () => Promise.resolve(refreshAnswer),
-  refundLine: () => Promise.resolve({ ok: false, reason: "error" }),
+  refundLine: () => Promise.resolve(refundAnswer),
 }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { SettledToday } = await import("./SettledToday");
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  refundAnswer = { ok: false, reason: "error" };
+});
 
 const line = (id: string, over: Partial<SettledOrder["lines"][number]> = {}) => ({
   id,
@@ -84,11 +90,23 @@ function mount(initial: Snapshot, lang: "en" | "my" = "en") {
 }
 
 describe("SettledToday — the refund console, reading the receipt", () => {
-  it("offers Refund only on a line the order can still give back: in-app path · paid · not in the ledger · a non-zero offer", () => {
+  it("offers Refund on a line the order can still give back — card AND cash (M218), never dashboard", () => {
     const orders = [
       order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001"),
-      order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", { tender: "cash", refundPath: "cash" }),
-      order("cccccccc-cccc-4ccc-8ccc-cccccccc0003", { refundPath: "dashboard" }),
+      // ⚠️ DISTINCT LINE NAMES, and that is the whole point of this fixture. The accessible name is
+      // verb + line name, so with every order's line called "Mohinga" the assertion below could not
+      // tell WHICH two orders offered a Refund — inverting the gate to `!== "cash"` would swap the
+      // cash order for the dashboard one and still produce two identical labels (LEARNINGS #60: a
+      // count satisfied without the behaviour).
+      order("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbb0002", {
+        tender: "cash",
+        refundPath: "cash",
+        lines: [line("b-l1", { name: "Nan Gyi Thoke" })],
+      }),
+      order("cccccccc-cccc-4ccc-8ccc-cccccccc0003", {
+        refundPath: "dashboard",
+        lines: [line("c-l1", { name: "Shan Noodle" })],
+      }),
       order("dddddddd-dddd-4ddd-8ddd-dddddddd0004", {
         status: "refunded",
         refund: { state: "full", refundedCents: 5000, netPaidCents: 0 },
@@ -101,9 +119,15 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     mount(snapshot(orders));
     for (const b of screen.getAllByRole("button", { expanded: false })) fireEvent.click(b);
     const refunds = screen.getAllByRole("button", { name: /^Refund — / });
-    // Order A: line 1 only (line 2 is in the ledger). B (cash), C (dashboard), D (refunded) and
-    // E (pool spent) offer nothing.
-    expect(refunds.map((b) => b.getAttribute("aria-label"))).toEqual(["Refund — Mohinga"]);
+    // Order A: line 1 only (line 2 is in the ledger). B is CASH and now offers one too — M218 made
+    // the drawer hand-back recordable, so withholding the control would be the screen refusing to
+    // write down money that already moved. C (dashboard — each payer's charge lives elsewhere),
+    // D (refunded) and E (pool spent) still offer nothing.
+    expect(refunds.map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Refund — Mohinga", // A, the card order
+      "Refund — Nan Gyi Thoke", // B, the CASH order — named, so the dashboard order cannot stand in
+    ]);
+    // The cash note STAYS: the app records the refund, it cannot open the drawer.
     expect(screen.getByText(STAFF["floor.settled.path.cash"].en)).toBeTruthy();
     expect(screen.getByText(/Paid by more than one card/)).toBeTruthy();
     expect(screen.getByText(STAFF["floor.settled.path.exhausted"].en)).toBeTruthy();
@@ -146,6 +170,87 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     expect(screen.getByText(/\$18\.00 refunded/)).toBeTruthy();
     // The collapsed chip said so too, before the tap.
     expect(screen.getByText("Partly refunded")).toBeTruthy();
+  });
+
+  /**
+   * M218 (Codex round 3 on #286, P1) — the cash banner is an IMPERATIVE, and the two cases below are
+   * the ways a stale one gets a guest paid twice or not at all.
+   *
+   * Under record-first the banner no longer reports a hand-back that happened; it asks for one, and
+   * it carries the only copy of the server-clamped figure. Every state transition that leaves the
+   * old text standing is therefore a money defect, not a cosmetic one.
+   */
+  const openAndRefund = async (name = "Refund — Mohinga") => {
+    fireEvent.click(screen.getByRole("button", { name }));
+    const submit = screen.getByRole("button", { name: /^Refund \$/ });
+    fireEvent.change(screen.getByLabelText(/PIN/), { target: { value: "1234" } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+  };
+
+  it("a NO-OP clears the cash instruction — it never re-issues the last one's amount", async () => {
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("$11.05");
+    expect(banner.textContent).toContain("hand back");
+
+    // A second attempt the server refuses: already refunded, nothing recorded, no amount returned.
+    // The card stays expanded across the refresh, so the Refund control is already in reach — which
+    // is precisely the stale board this case is about.
+    refundAnswer = { ok: false, reason: "already_refunded" };
+    await openAndRefund();
+    // ⚠️ The old imperative must be GONE. Left standing it reads "now hand back $11.05" over an
+    // attempt that moved no money, and a manager following it pays the first refund twice.
+    expect(screen.getByRole("status").textContent).toBe("");
+  });
+
+  it("the cash instruction takes focus even when the post-write refresh FAILS — the refund recorded either way", async () => {
+    // ⚠️ THE REFRESH DIES HERE, and the refund still succeeded. `refresh()` calls `setSnap` only on
+    // a good answer — an outage keeps the last good list and sets `stale` — so keying this focus to
+    // `snap` made the instruction depend on a read landing (Codex round 4 on #286, P1). The money is
+    // recorded; the manager has to be told to hand it over whatever the next read does.
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = { ok: false, reason: "outage" };
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+
+    const banner = screen.getByRole("status");
+    expect(banner.textContent).toContain("$11.05");
+    expect(banner.textContent).toContain("hand back");
+    // The instruction has focus, so it is in view and announced — not sitting above a fold the
+    // manager never scrolls back to.
+    expect(document.activeElement).toBe(banner);
+  });
+
+  it("opening a new Refund clears the previous instruction before the manager can act on it", async () => {
+    const cash = order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001", { refundPath: "cash" });
+    refreshAnswer = snapshot([cash]);
+    mount(snapshot([cash]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+
+    refundAnswer = { ok: true, amountCents: 1105 };
+    await openAndRefund();
+    expect(screen.getByRole("status").textContent).toContain("$11.05");
+
+    // Opening the next sheet clears it, and BACKING OUT is what makes that visible: the manager
+    // changed their mind, and must not be left standing in front of the previous line's imperative.
+    fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    await waitFor(() => expect(screen.queryByLabelText(/PIN/)).toBeNull());
+    // ⚠️ The assertion waits for the sheet to GO. While it is open the dialog `aria-hidden`s the
+    // page behind it, so the banner is out of the a11y tree entirely and a query here reads the
+    // sheet's own empty error region instead — passing however the banner behaves. The first draft
+    // of this case did exactly that, and the mutation that deletes the clear SURVIVED it.
+    expect(screen.getByRole("status").textContent).toBe("");
   });
 
   it("never speaks unprompted: no live region until a Refund is opened; counts and the cap are plain text", () => {

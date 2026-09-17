@@ -15,6 +15,7 @@ import {
   type SettledOrder,
   type SettledToday as Snapshot,
 } from "@/lib/refunds";
+import type { RefundPath } from "@/lib/refund-console";
 import { buildReceiptRows, dollars, groupReceiptLines } from "@/lib/receipt-view";
 import { buildRefundRows, lineRefundLabel } from "@/lib/refund-view";
 import {
@@ -69,7 +70,11 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // The last refund's confirmation (the server-authorized amount — the clamp may have bitten). The
   // region exists only once a Refund has been opened, so it never announces on load.
   const [armed, setArmed] = useState(false);
-  const [confirmCents, setConfirmCents] = useState<number | null>(null);
+  // M218 (Codex round 1, P1) — the banner must name the instrument the money actually took. It said
+  // "to the card" unconditionally, which was true while only card lines could reach it and is false
+  // the moment a drawer hand-back is recordable. The PATH is captured with the amount, at the moment
+  // the sheet reports, rather than re-derived later from a list that has since refreshed.
+  const [confirmed, setConfirmed] = useState<{ cents: number; path: RefundPath } | null>(null);
   const [pending, startTransition] = useTransition();
 
   // Only the NEWEST read may replace the list (Codex round 1 on #283): a manual Refresh does not
@@ -118,7 +123,42 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   // opened it — but a successful refund's refresh then swaps that button for the refunded mark,
   // dropping focus to <body>. Stash the order id on success and, once the refreshed list lands, move
   // focus to that order's disclosure header (stable across the swap).
+  //
+  // ⚠️ THE CASH PATH GOES TO THE BANNER INSTEAD, and that is a money rule, not a focus preference
+  // (Codex round 3 on #286, P1). Under record-first the banner no longer CONFIRMS a hand-back — it
+  // ASKS for one, and it carries the only copy of the server-clamped figure. It renders above the
+  // whole list, so refocusing a row that can sit far below the fold leaves a manager who has already
+  // been charged looking at a screen that never told them to open the drawer. Focus plus a scroll
+  // puts the instruction in front of whoever must act on it, sighted or not.
   const refocusOrderId = useRef<string | null>(null);
+  const refocusBanner = useRef(false);
+  const bannerRef = useRef<HTMLParagraphElement | null>(null);
+
+  // ⚠️ THE CASH BANNER'S FOCUS IS KEYED TO `confirmed`, NOT `snap` (Codex round 4 on #286, P1).
+  // It was `[snap]`, and that made the instruction depend on a read succeeding: `refresh()` calls
+  // `setSnap` ONLY on a good answer — an outage deliberately keeps the last good list and sets
+  // `stale` instead — so a refund that RECORDED, followed by a failed refresh, left `snap`
+  // identical, this effect never rerunning, and `refocusBanner` pending forever. The money was
+  // out of the books' reach and the manager was never told to hand it over.
+  //
+  // `confirmed` is set synchronously in `onDone` BEFORE `refresh()` is called, so it changes
+  // whether or not the read that follows ever lands. The banner also does not depend on the list:
+  // it renders from `confirmed` alone, above the orders, so there is nothing to wait for.
+  useEffect(() => {
+    if (!refocusBanner.current) return;
+    refocusBanner.current = false;
+    refocusOrderId.current = null;
+    bannerRef.current?.focus();
+    // Optional call: `scrollIntoView` is not implemented in every DOM this renders under (jsdom
+    // has no layout), and a missing scroll must never throw out of an effect that has just moved
+    // focus onto a money instruction. Focus alone already brings it into view in a real browser.
+    bannerRef.current?.scrollIntoView?.({ block: "center" });
+  }, [confirmed]);
+
+  // The CARD path's handoff still waits for the list, and correctly: the refreshed list is what
+  // swaps the Refund button for the refunded mark and drops focus to <body>, so there is nothing
+  // to re-home until it lands. On a failed refresh the button is still there and the sheet's own
+  // focus restore is adequate — no instruction is stranded, because the card banner only reports.
   useEffect(() => {
     const id = refocusOrderId.current;
     if (!id) return;
@@ -200,9 +240,17 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
         )}
       </p>
       {armed && (
-        <p role="status" style={confirmBanner}>
-          {confirmCents !== null && (
-            <Chrome lang={lang} k="floor.settled.confirmed" vars={{ m: dollars(confirmCents) }} />
+        <p role="status" ref={bannerRef} tabIndex={-1} style={confirmBanner}>
+          {confirmed !== null && (
+            <Chrome
+              lang={lang}
+              k={
+                confirmed.path === "cash"
+                  ? "floor.settled.confirmed.cash"
+                  : "floor.settled.confirmed"
+              }
+              vars={{ m: dollars(confirmed.cents) }}
+            />
           )}
         </p>
       )}
@@ -225,6 +273,10 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
               onToggle={() => toggle(o.id)}
               onRefund={(line) => {
                 setArmed(true);
+                // ⚠️ CLEARED ON EVERY ATTEMPT (Codex round 3 on #286, P1). The cash banner is an
+                // imperative carrying an amount; a stale one standing over a new attempt is an
+                // instruction to pay a figure this tap has nothing to do with.
+                setConfirmed(null);
                 setRefunding({ order: o, line });
               }}
             />
@@ -239,10 +291,17 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
           onClose={() => setRefunding(null)}
           onDone={(refundedCents?: number) => {
             const orderId = refunding.order.id;
+            const path = refunding.order.refundPath;
             setRefunding(null);
-            if (refundedCents != null) {
-              setConfirmCents(refundedCents);
-              refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
+            if (refundedCents == null) {
+              // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the
+              // previous confirmation standing would re-issue its imperative over an attempt that
+              // moved no money, and a manager following it pays the earlier refund twice.
+              setConfirmed(null);
+            } else {
+              setConfirmed({ cents: refundedCents, path });
+              if (path === "cash") refocusBanner.current = true;
+              else refocusOrderId.current = orderId; // hand focus to the order header once the refresh lands
             }
             refresh();
           }}
@@ -271,7 +330,11 @@ function OrderCard({
   const groups = groupReceiptLines(o.lines);
   const rows = [...buildReceiptRows(o.breakdown, o.totalCents), ...buildRefundRows(o.refund)];
   // The path note (M183): from the order's own tender and PaymentIntent, never guessed from one.
-  const canRefundHere = o.refundPath === "app" && o.status === "paid";
+  // M218 — CASH refunds here too, now that `mms_refund_cash_line` records them. Only `dashboard`
+  // (split-tender: each payer's charge lives on its own share) is still refunded elsewhere. The
+  // note below stays for cash because the money moves by HAND — the app records it, it cannot
+  // open the drawer.
+  const canRefundHere = o.refundPath !== "dashboard" && o.status === "paid";
   const exhausted = canRefundHere && o.remainingCents === 0 && o.lines.some((l) => !l.refunded);
 
   return (

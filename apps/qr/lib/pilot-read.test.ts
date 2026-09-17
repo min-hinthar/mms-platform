@@ -156,6 +156,10 @@ const SUMMARY: DaySummary = {
   refundedCount: 1,
   refundedCents: 1200,
   cashTipCents: 500,
+  // M218 — a cash refund recorded today, and the drawer figure after it. The pilot sheet quotes the
+  // register rather than re-deriving, so the fixture carries the same shape the register now hands it.
+  cashRefundedCents: 700,
+  cashNetCents: 3500,
 };
 let cash: { ok: true; summary: DaySummary; sinceIso: string } | { ok: false; reason: string };
 vi.mock("./register", () => ({
