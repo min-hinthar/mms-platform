@@ -26,7 +26,17 @@ have reached it.
   declaration, and requires the scheduling call to be a DIRECT, UNCONDITIONAL statement — so
   `if (false) schedule();`, a commented-out call and a conditional one all fail, which a substring
   matcher accepts. It also counts the two window constants repo-wide: exactly one declaration each.
-  Watched RED under seven separate evasions, including the shipped defect restored verbatim.
+  ⚠️ **Codex round 1 found two holes in this guard and none in the code it guards**, both the guard
+  claiming a property it had not established: (a) the call sites were matched by NAME, so
+  `import { useCartRealtime as useRealtime }` in a new consumer was invisible while the two
+  unaliased sites kept the floor satisfied — both hook names now resolve from the import (alias and
+  `import * as ns` included) and the specifier resolves as a PATH, so any relative depth is the same
+  module; (b) `some()` over the statement list is not liveness — `if (irrelevant) return;` before
+  the call left it a top-level statement while whole classes of event skipped the refresh, so every
+  statement before the call must now be exit-free (`return`/`throw`, not descending into nested
+  functions, whose returns exit THEM). Watched RED under **twelve** evasions and the walk floor,
+  with three controls held GREEN so the tightening does not refuse valid code: an aliased coalescer
+  import, a non-exiting `if` before the call, and a nested arrow's own `return`.
 - **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the

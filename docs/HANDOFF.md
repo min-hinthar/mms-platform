@@ -19,10 +19,18 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > quiet period and the deadline are falsifiable by a VALUE) and the timer (`useCoalescedRefresh`).
 > Both screens call it. **`pnpm check:echo-coalesce`** is the durable half: it parses every
 > `useCartRealtime` call site under `apps/qr` — derived from the AST, never a maintained list —
-> resolves each `onChange` to its declaration, and requires the scheduling call to be a DIRECT,
-> UNCONDITIONAL statement, so `if (false) schedule();` and a commented-out call both fail. It also
-> counts the two window constants repo-wide (exactly one declaration each). It was watched RED under
-> seven evasions, the floor included.
+> resolves each `onChange` to its declaration, and requires the scheduling call to be a top-level
+> statement REACHED on every invocation, so `if (false) schedule();`, a commented-out call and an
+> early `return`/`throw` before it all fail. Both hook names are resolved from the IMPORT (alias and
+> `import * as ns`), and the specifier resolves as a PATH, so no spelling of the import escapes it.
+> It also counts the two window constants repo-wide. Watched RED under twelve evasions and the walk
+> floor, with three controls held GREEN.
+>
+> ⚠️ **Codex round 1 found two holes, both in the GUARD and neither in the code it guards** — the
+> name-only call-site match (defeated by `import { useCartRealtime as useRealtime }`, with the floor
+> still satisfied by the two unaliased sites) and `some()` over the statement list, which is not
+> reachability. Both were the guard asserting a property its matcher could not establish, which is
+> the shape CLAUDE.md warns about under "guards get audited harder than the code they guard".
 >
 > **M217 is closed as NOT A DEFECT — the row was written against a superseded migration.** It cites
 > `20260623030000_s3_secure_merge_guard.sql`, eight migrations out of date; ELEVEN files redefine
