@@ -83,7 +83,30 @@
  *      transitively through local bindings — one hop is not enough, because `Checkout.refresh` calls
  *      the reader itself while `TableCartProvider.refresh` goes through `readView`.
  *
+ * ## Four more from Codex round 3 — and two it cannot close
+ *
+ *  11. **A NAME SET is not a binding.** Scheduler names collected at the `useCartRealtime` call site
+ *      exempted every call sharing one, so a handler could shadow it (`const schedule = refresh;`
+ *      inside the callback) and the raw reader was waved through as the coalesced path. Every
+ *      candidate call now resolves at its OWN lexical position; the set is gone.
+ *  12. **The identifier filter ran BEFORE the imported-binding check** in `directReaderCalls`, so a
+ *      namespace-qualified `cart.getCartView(id)` beside the schedule was discarded unexamined.
+ *  13. **An import can be SHADOWED.** A local `const useCoalescedRefresh = (fn) => fn` made the
+ *      "coalescer" an identity function while a name-only check still credited the import.
+ *  14. **A generator is not eager.** `function* onChange() { schedule(); }` typechecks where a void
+ *      callback is expected; calling it only builds an iterator, so the body never runs while the
+ *      statement scan happily finds the call.
+ *
+ * ⚠️ TWO ARE FILED, NOT FIXED — **OPEN-ITEMS M226**, under the round-3 rule. `reachesReader` walks
+ * the whole subtree, so a reader inside a never-invoked nested helper still counts; and
+ * `exitsCallback` matches literal `return`/`throw`, so a preceding call typed `never` (or an
+ * infinite loop) reads as exit-free. The second needs the TYPE CHECKER, which this guard
+ * deliberately does not load — it runs in the fast lane in ~1.7 s over 679 files. Both are
+ * adversarial-only shapes; neither arises from an ordinary refactor.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
+ *
+ * 23 cases, 0 unexpected, re-proved on every round.
  *
  * RED — the per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out
  * call · the provider's handler no longer scheduling · the provider scheduling behind a condition ·
@@ -92,12 +115,15 @@
  * `return` before the call · a `throw` before the call · two same-named bindings in one file, one
  * correct · `useCoalescedRefresh(() => {})` · a `let` scheduler reassigned to the raw reader · a
  * handler that schedules AND reads directly · a look-alike `helpers.useCallback` · a coalescer
- * wrapping a named no-op · the walk floor.
+ * wrapping a named no-op · a handler shadowing the scheduler name with the raw reader · a
+ * namespace-qualified `getCartView` beside the schedule · a locally-shadowed `useCoalescedRefresh` ·
+ * a generator handler · the walk floor.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
  * `React.useCallback` · a hoisted `function` handler · the reader reached through one local hop ·
- * a handler doing non-reader work beside scheduling.
+ * a handler doing non-reader work beside scheduling · a namespace-imported reader, correctly
+ * coalesced.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -198,11 +224,18 @@ const importedFrom = (src, rel, moduleRel, exported) =>
 function isCallToBinding(node, binding, exported) {
   if (!ts.isCallExpression(node)) return false;
   const callee = node.expression;
-  if (ts.isIdentifier(callee)) return binding.names.has(callee.text);
+  // ⚠️ AN IMPORT CAN BE SHADOWED (Codex round 3 on #287). `const useCoalescedRefresh = (fn) => fn`
+  // inside a component makes `useCoalescedRefresh(refresh)` an identity function — the raw reader,
+  // called per event — while a name-only check still attributes it to the import. `resolveBinding`
+  // finds local `const`/`function` declarations and never the import itself, so a hit here means the
+  // name has been taken over locally.
+  const shadowed = (name) => resolveBinding(node, name) !== null;
+  if (ts.isIdentifier(callee)) return binding.names.has(callee.text) && !shadowed(callee.text);
   return (
     ts.isPropertyAccessExpression(callee) &&
     ts.isIdentifier(callee.expression) &&
     binding.namespaces.has(callee.expression.text) &&
+    !shadowed(callee.expression.text) &&
     callee.name.text === exported
   );
 }
@@ -301,13 +334,15 @@ function exitsCallback(node) {
 function resolveFunction(from, name, react) {
   const b = resolveBinding(from, name);
   if (!b) return null;
-  if (b.kind === "function") return b.fn;
+  // A generator's body does NOT run on call — invoking it only builds an iterator (Codex round 3).
+  if (b.kind === "function") return b.fn.asteriskToken ? null : b.fn;
   const init = unwrap(b.init);
-  if (isUseCallback(init, react)) {
-    const fn = init.arguments[0];
-    return fn && (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) ? fn : null;
-  }
-  return ts.isArrowFunction(init) || ts.isFunctionExpression(init) ? init : null;
+  const eager = (fn) =>
+    fn && (ts.isArrowFunction(fn) || (ts.isFunctionExpression(fn) && !fn.asteriskToken))
+      ? fn
+      : null;
+  if (isUseCallback(init, react)) return eager(init.arguments[0]);
+  return eager(init);
 }
 
 /**
@@ -343,15 +378,18 @@ function directReaderCalls(fn, ctx) {
   const hits = [];
   if (!fn?.body) return hits;
   walk(fn.body, (n) => {
-    if (!ts.isCallExpression(n) || !ts.isIdentifier(n.expression)) return;
-    const name = n.expression.text;
-    if (ctx.schedulerNames.has(name)) return; // that is the coalesced path
+    if (!ts.isCallExpression(n)) return;
+    if (ctx.isSchedulerCall(n)) return; // that is the coalesced path
+    // ⚠️ THE IMPORTED-BINDING CHECK COMES FIRST (Codex round 3 on #287). Filtering to identifier
+    // callees before this discarded `cart.getCartView(id)` — a namespace import — so a handler could
+    // schedule AND read immediately through the qualified form.
     if (isCallToBinding(n, ctx.reader, READER)) {
-      hits.push(name);
+      hits.push(n.expression.getText());
       return;
     }
-    const target = resolveFunction(n, name, ctx.react);
-    if (target && reachesReader(target, ctx)) hits.push(name);
+    if (!ts.isIdentifier(n.expression)) return;
+    const target = resolveFunction(n, n.expression.text, ctx.react);
+    if (target && reachesReader(target, ctx)) hits.push(n.expression.text);
   });
   return hits;
 }
@@ -360,19 +398,23 @@ function directReaderCalls(fn, ctx) {
  * A function body that calls one of `names` as a top-level statement REACHED ON EVERY INVOCATION —
  * i.e. no statement before it can `return` or `throw` out of the callback.
  */
-function callsDirectly(fn, names) {
+function callsDirectly(fn, ctx) {
   if (
     !fn ||
     (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn) && !ts.isFunctionDeclaration(fn))
   )
     return false;
+  // ⚠️ A GENERATOR IS NOT EAGER (Codex round 3 on #287). `function* onChange() { schedule(); }`
+  // typechecks where a void callback is expected — calling it only builds an iterator, so the body
+  // never runs and nothing is ever scheduled, while the statement scan below finds the call.
+  if (fn.asteriskToken) return false;
   const body = fn.body;
   if (!body) return false;
   // `void schedule()` is this repo's fire-and-forget idiom — and was literally the line this slice
   // replaced — so refusing it would refuse the shape the guard is most likely to meet.
   const isSchedule = (e) => {
     const c = unwrap(e);
-    return ts.isCallExpression(c) && ts.isIdentifier(c.expression) && names.has(c.expression.text);
+    return ts.isCallExpression(c) && ctx.isSchedulerCall(c);
   };
   // A concise arrow body IS the whole behaviour, so a bare `() => schedule()` qualifies.
   if (!ts.isBlock(body)) return isSchedule(body);
@@ -430,12 +472,22 @@ for (const rel of windowFiles) {
     coalescer: importedFrom(src, rel, COALESCER_MODULE, COALESCER),
     reader: importedFrom(src, rel, CART_MODULE, READER),
     react: importedAs(src, (t) => t === "react", "useCallback"),
-    schedulerNames: new Set(),
   };
   const coalescer = ctx.coalescer;
 
   /** Is `name`, as seen FROM `from`, a `const` bound to `useCoalescedRefresh(<the cart reader>)`? */
   const isScheduler = (from, name) => isCoalescerCall(resolveBinding(from, name), ctx);
+
+  /**
+   * Is THIS call expression a call to a scheduler, resolved at its OWN lexical position?
+   *
+   * ⚠️ A NAME SET IS NOT A BINDING (Codex round 3 on #287). Collecting scheduler NAMES at the
+   * `useCartRealtime` call site and then exempting every call sharing one of those names let a
+   * handler shadow it — `const schedule = refresh;` inside the callback — and the raw reader was
+   * waved through as the coalesced path. Resolving per call node removes the set entirely.
+   */
+  ctx.isSchedulerCall = (n) =>
+    ts.isCallExpression(n) && ts.isIdentifier(n.expression) && isScheduler(n, n.expression.text);
 
   for (const call of calls) {
     const where = `${rel}:${src.getLineAndCharacterOfPosition(call.getStart()).line + 1}`;
@@ -456,12 +508,6 @@ for (const rel of windowFiles) {
     // Last-wins lets one correct binding launder a same-named defective one elsewhere in the file
     // (blind pass on #287), which is the repo's own "uniqueness ≠ liveness" rule broken by the
     // guard written to enforce it.
-    const names = new Set();
-    walk(src, (n) => {
-      if (ts.isIdentifier(n) && !names.has(n.text) && isScheduler(call, n.text)) names.add(n.text);
-    });
-    ctx.schedulerNames = names;
-
     /**
      * The handler schedules AND is free of any other path to the reader.
      *
@@ -470,7 +516,7 @@ for (const rel of windowFiles) {
      * started its own `getCartView` chain — the defect, with a coalesced read added beside it.
      */
     const handlerOk = (fn) => {
-      if (!callsDirectly(fn, names)) return false;
+      if (!callsDirectly(fn, ctx)) return false;
       const direct = directReaderCalls(fn, ctx);
       if (direct.length === 0) return true;
       fail(

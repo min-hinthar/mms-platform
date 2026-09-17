@@ -53,8 +53,18 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. The
   argument must now REACH `getCartView` transitively — one hop is not enough, since `Checkout.refresh`
   calls the reader itself while `TableCartProvider.refresh` goes through `readView`. Every file is
-  parsed ONCE (679 files, ~1.7 s). **17 red-first cases: 9 controls GREEN and every evasion RED**,
-  plus the walk floor, and the list is kept in the guard's own docblock rather than in prose.
+  parsed ONCE (679 files, ~1.7 s). ⚠️ **Codex round 3 found four MORE — a handler shadowing the
+  scheduler NAME with the raw reader (a name set is not a binding, so every candidate call now
+  resolves at its own lexical position and the set is gone); a namespace-qualified
+  `cart.getCartView(id)` beside the schedule, discarded because the identifier filter ran before the
+  imported-binding check; a locally-shadowed `useCoalescedRefresh` credited to the import; and a
+  GENERATOR handler, whose body never runs when it is called.** Two of round 3's six are filed rather
+  than fixed (**M226**, under the round-3 rule): a reader inside a never-invoked nested helper needs
+  invocation tracking, and a preceding call typed `never` needs the TYPE CHECKER, which this guard
+  deliberately does not load. **23 red-first cases: 10 controls GREEN and every evasion RED**, plus
+  the walk floor, and the list is kept in the guard's own docblock rather than in prose. Sixteen
+  findings across two reviewers and three rounds — **all sixteen in this guard, none in the product
+  code beside it.**
 - **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the
