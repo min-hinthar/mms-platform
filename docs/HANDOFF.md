@@ -24,7 +24,12 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > early `return`/`throw` before it all fail. Both hook names are resolved from the IMPORT (alias and
 > `import * as ns`), and the specifier resolves as a PATH, so no spelling of the import escapes it.
 > It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
-> the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE (679 files, ~1.7 s).
+> the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE, in ~1.7 s. ⚠️ **Do
+> not quote a file COUNT for it anywhere** — run the check and read its own line. Until round 9 the
+> scan included `apps/qr/next-env.d.ts`, which `next build` GENERATES and `.gitignore` hides, so the
+> total was 679 on a developed tree and 678 in a fresh checkout and in CI's fast lane (which runs
+> before the build). A number that depends on whether the reader has run a build is not a fact about
+> the repo. `.d.ts` is excluded now — a declaration file can hold neither a call site nor a value.
 > The red-first case list lives in the guard's docblock, and **the guard COUNTS it and prints the
 > total** — do not transcribe a number for it here or anywhere else, run the check and read the line
 > (`node scripts/check-echo-coalesce.mjs`). Three copies of that total existed across this PR's prose
@@ -48,7 +53,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > namespace-qualified reader the identifier filter discarded, a shadowed import, and a generator
 > whose body never runs) and two the guard cannot close without a type checker — filed as **M226**
 > under the round-3 rule rather than fixed, because both are adversarial-only and the fast lane is
-> ~1.7 s over 679 files. Rounds 4–6 kept finding the same shape: a PARAMETER and then a DESTRUCTURED
+> ~1.7 s over the whole app. Rounds 4–6 kept finding the same shape: a PARAMETER and then a DESTRUCTURED
 > local shadowing the coalescer, an immutable alias of the reader, an unmemoized reader defeating the
 > hook's own cleanup contract, a parenthesized callee, and finally — round 6 — **an alias of the HOOK
 > itself, which did not defeat a check but removed a whole consumer from the guard's REACH**: the

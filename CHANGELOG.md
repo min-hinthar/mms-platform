@@ -53,7 +53,7 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. The
   argument must now REACH `getCartView` transitively — one hop is not enough, since `Checkout.refresh`
   calls the reader itself while `TableCartProvider.refresh` goes through `readView`. Every file is
-  parsed ONCE (679 files, ~1.7 s). ⚠️ **Codex round 3 found four MORE — a handler shadowing the
+  parsed ONCE, in ~1.7 s. ⚠️ **Codex round 3 found four MORE — a handler shadowing the
   scheduler NAME with the raw reader (a name set is not a binding, so every candidate call now
   resolves at its own lexical position and the set is gone); a namespace-qualified
   `cart.getCartView(id)` beside the schedule, discarded because the identifier filter ran before the
@@ -97,8 +97,13 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   shipped behaviour; each needs an author to write the evasion deliberately, while the realistic
   regression has been caught since round 1. Two of the suggested remedies are a name-keyed matcher
   or a rule that would flag every unrelated `let` callback, which is how a guard earns being
-  ignored — so the docblock now states what this guard does NOT prove instead. 32 findings
-  across two reviewers and eight rounds: **28 in this guard, three in my own prose about it, one in the product module** — none in
+  ignored — so the docblock now states what this guard does NOT prove instead. **Round 9 added a
+  barrel RE-EXPORT of the hook (M226(h), verified) and caught a file COUNT that was never a fact
+  about the repo:** the scan included `apps/qr/next-env.d.ts`, which `next build` generates and
+  `.gitignore` hides, so it read 679 on a developed tree and 678 in a fresh checkout — and in CI's
+  own fast lane, which runs before the build. `.d.ts` is excluded now (a declaration file holds
+  neither a call site nor a value), the scan is deterministic, and the prose stopped quoting a
+  total. 35 findings across two reviewers and nine rounds: **30 in this guard, four in my own prose about it, one in the product module** — none in
   the shipped wiring beside them.
 - **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
