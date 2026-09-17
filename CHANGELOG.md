@@ -4,6 +4,42 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M193 (the other half) · M217 — one coalescer for both screens, and a row that was closed against a superseded migration (2026-09-17)
+
+**#275 closed M193 where the defect was FOUND and left it shipping one route away.** The coalescer
+landed in `TableCartProvider`; `useCartRealtime`'s other consumer — `Checkout.tsx`, the /cart
+pre-payment screen — still passed an arrow that ignored its `CartChange` and ran a full
+`getCartView` per row event. One cart mutation writes to BOTH watched tables (the `qr_cart_items`
+row and `touchCart`'s `qr_carts` UPDATE), so every tap at the table echoed back at least twice, and
+each echo is ~7 sequential DB round trips competing with create-intent. /cart is a separate route
+with a separate tree, so the provider's coalescer was never mounted there and no /menu test could
+have reached it.
+
+- **`apps/qr/lib/echo-refresh.ts` — the window, the arithmetic and the timer, once.** `echoDelayMs`
+  is a pure function of how long the pending burst has already waited, so the quiet period
+  (`ECHO_COALESCE_MS`) and the deadline (`ECHO_MAX_WAIT_MS`) are falsifiable by a VALUE rather than
+  by a render; `useCoalescedRefresh` is the thin hook both screens call. The second copy of `150`
+  and `600` in a component is exactly how two screens drift apart, which is what happened here.
+- **`pnpm check:echo-coalesce` — a guard over a SET, not a test of one screen.** The rule is "every
+  `useCartRealtime` consumer coalesces", and the set grows; the guard derives its call sites from
+  the AST of every file under `apps/qr` (never a maintained list), resolves each `onChange` to its
+  declaration, and requires the scheduling call to be a DIRECT, UNCONDITIONAL statement — so
+  `if (false) schedule();`, a commented-out call and a conditional one all fail, which a substring
+  matcher accepts. It also counts the two window constants repo-wide: exactly one declaration each.
+  Watched RED under seven separate evasions, including the shipped defect restored verbatim.
+- **Four new `verify:slice` mutants — 683 → 687** (`apps/qr/lib/echo-refresh.ts` joins the mutate
+  set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
+  guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the
+  SAME delay whether or not the anchor reset, so the first draft scored green against its own
+  mutation and only an idle gap between bursts tells them apart.
+- **M217 closed as NOT A DEFECT, with the shape recorded.** The row said `mms_merge_table_orders`
+  "loops over EVERY `qr_cart_items` row of the source with no state predicate", so a `served` line
+  could fold into a `fired` one and the kitchen would re-cook eaten food. It cites
+  `20260623030000_s3_secure_merge_guard.sql` — **eight migrations out of date**; ELEVEN files
+  redefine that one function, and the S6 same-kitchen-state rule (`and t.state = r.state`) has been
+  in it since `20260822000000`. Verified on PROD via `pg_get_functiondef`, not inferred from the
+  repo. The finding was real work done against a database nobody has run since June.
+
 ### M218 · M219 — a cash refund is RECORDED, and the ledger is read whole (2026-09-16)
 
 **The drawer paid out and every surface kept saying "Paid in full".** `mms_refund_authorize` answers

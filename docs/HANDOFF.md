@@ -5,6 +5,42 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-17 · M218 · M219 MERGED as `062b6be` (#286) with the migration live on prod; the coalescer slice (M193's other half · M217) is built and gated on `claude/qr-app-backlog-cj2t0m`)
+>
+> **M193 was closed for eight days with half of it still shipping, and that is the reusable part.**
+> #275 built the echo coalescer in `TableCartProvider` and closed the row. `useCartRealtime` has
+> TWO consumers; the other one — `Checkout.tsx`, the /cart pre-payment screen — still passed an
+> arrow that ignored its `CartChange` and ran a full `getCartView` per row event, which is the row's
+> text verbatim. /cart is a separate route with a separate tree, so the provider's coalescer was
+> never mounted there and no test of the provider could have gone red for it.
+>
+> **The fix is one module, not a second copy.** `apps/qr/lib/echo-refresh.ts` owns the window
+> (`ECHO_COALESCE_MS` 150 / `ECHO_MAX_WAIT_MS` 600), the arithmetic (`echoDelayMs`, pure, so the
+> quiet period and the deadline are falsifiable by a VALUE) and the timer (`useCoalescedRefresh`).
+> Both screens call it. **`pnpm check:echo-coalesce`** is the durable half: it parses every
+> `useCartRealtime` call site under `apps/qr` — derived from the AST, never a maintained list —
+> resolves each `onChange` to its declaration, and requires the scheduling call to be a DIRECT,
+> UNCONDITIONAL statement, so `if (false) schedule();` and a commented-out call both fail. It also
+> counts the two window constants repo-wide (exactly one declaration each). It was watched RED under
+> seven evasions, the floor included.
+>
+> **M217 is closed as NOT A DEFECT — the row was written against a superseded migration.** It cites
+> `20260623030000_s3_secure_merge_guard.sql`, eight migrations out of date; ELEVEN files redefine
+> `mms_merge_table_orders`, and the S6 same-kitchen-state fold (`and t.state = r.state`) has been in
+> it since `20260822000000`. Confirmed on PROD with `pg_get_functiondef`, not inferred from the repo.
+> I nearly shipped the same mistake one step further — a full replacement function plus a nine-case
+> SQL test written against that superseded body, which would have reverted five migrations' worth of
+> guards in one commit. Both files were deleted before they were committed. **LEARNINGS #116** is the
+> rule: `tail -1` the definers, then read prod.
+>
+> **What this says about the rest of the high band.** Two of the rows I sampled this session were
+> closed or filed against something that had already changed. When a finding names a MECHANISM
+> rather than a place, the subject is the mechanism's consumer set — grep it, count the non-test
+> consumers, fix or account for each, and prefer a guard over the set to a second point fix
+> (LEARNINGS #117).
+>
+> ---
+>
 > ## ⏭️ NEXT SESSION — start here (2026-09-16 · A4 COMPLETE and MERGED through #285 `9d484db`; the refund-ledger slice (M218 · M219) is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
 >
 > **M218 — a cash refund is RECORDED now.** It could not be: `mms_refund_authorize` refuses any
@@ -516,10 +552,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **683 `verify:slice` mutants** · **124 target modules** (109 under `apps/qr/lib`, 3 API routes,
+> **687 `verify:slice` mutants** · **125 target modules** (110 under `apps/qr/lib`, 3 API routes,
 > 11 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
-> `check:docs` clean · all twelve fast-lane guards green.
+> `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
 > `99+3+8+1` is 111. A blind pass caught it; `check:docs` structurally cannot, because its rules cover
@@ -986,7 +1022,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (683 today)**, **1372 qr + 138 ui tests at the time (2578 + 142 today)**, 69 target modules at the time (109 under `apps/qr/lib` today, 124 in all), 97 local
+> **334 mutants at the time (687 today)**, **1372 qr + 138 ui tests at the time (2588 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 125 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1878,7 +1914,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 683 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2578 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 687 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2588 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2600,7 +2636,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (683 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (687 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

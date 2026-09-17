@@ -54,6 +54,7 @@ import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
 import { useAnonSession } from "@/lib/useAnonSession";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { useCartRealtime } from "@/lib/realtime";
+import { useCoalescedRefresh } from "@/lib/echo-refresh";
 import { PaymentSection } from "./PaymentSection";
 import { SplitSection } from "./SplitSection";
 import { SettlementBoard } from "./SettlementBoard";
@@ -529,9 +530,16 @@ export function Checkout({
   // WalletChip renders nothing for an anonymous diner). Balance is server-derived; a fetch failure
   // just hides the chip.
   const rewardsBadge = useRewardsBadge();
-  useCartRealtime(cartId, anon?.accessToken ?? "", () => {
-    void refresh();
-  });
+  // ⚠️ COALESCED, and until now it was not — M193's row was closed by #275 with this half of it
+  // untouched. One cart mutation writes to BOTH watched tables (the `qr_cart_items` row and
+  // `touchCart`'s `qr_carts` UPDATE), so every tap at the table echoed back here at least twice and
+  // each echo ran its own `getCartView`: ~7 sequential DB round trips, on the PRE-PAYMENT screen,
+  // competing with create-intent. /cart is its own route, so `TableCartProvider`'s coalescer is not
+  // mounted here and never covered it — hence one shared hook rather than a second copy of the
+  // window. The read is DELAYED (≤600 ms), never dropped: it is the self-heal `useCartRealtime`
+  // fires on every (re)subscribe, and the path a peer's lock/settle flip arrives on.
+  const scheduleEchoRefresh = useCoalescedRefresh(refresh);
+  useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);
 
   // Derived VIEW: settle (split freeze) / pay (Stripe step) / review. Drives BOTH the keyed step wrapper
