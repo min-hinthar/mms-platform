@@ -83,8 +83,12 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   round 4, and `docs/HANDOFF.md` still repeating the merge-function history the blind pass had
   refuted. **The red-first case list is no longer counted by hand — the guard reads its own docblock
   and prints the total (52 today), with a floor beside `MIN_CALL_SITES`**, because three
-  transcriptions of that number existed and two were wrong. 27 findings across two reviewers and six
-  rounds: **23 in this guard, three in my own prose about it, one in the product module** — none in
+  transcriptions of that number existed and two were wrong. **Round 7 found the same fix one function
+  short:** `directReaderCalls` reaches the reader by a second route (`resolveFunction`, whose
+  `const`-only rule came from finding #19), so `let refreshNow = refresh` beside the schedule still
+  passed at "3 call sites, all coalesced" while every event read immediately — `loose` now rides
+  `resolveFunction` and `reachesReader` too, and the credit direction is untouched. 28 findings
+  across two reviewers and seven rounds: **24 in this guard, three in my own prose about it, one in the product module** — none in
   the shipped wiring beside them.
 - **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now

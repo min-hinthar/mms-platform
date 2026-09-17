@@ -153,6 +153,18 @@
  *      useCartRealtime` just as invisible, which is this repo's own recurring mistake — a hole
  *      closed for the one shape that was named.
  *
+ * ## Round 7: the same fix, one function short
+ *
+ *  23. **`loose` was threaded through `isCallToBinding` and stopped there.** `directReaderCalls`
+ *      reaches the reader by a SECOND route — `resolveFunction`, whose own `const`-only rule came
+ *      from finding #19 — so `const refresh = useCallback(…); let refreshNow = refresh;` with
+ *      `schedule(); void refreshNow();` in the handler still passed: measured at "3 call sites, all
+ *      coalesced" while every event read immediately. Finding #19 is about the CREDIT direction (a
+ *      `let` reader reassigned to a no-op must not be credited) and stays exactly as it was; this is
+ *      the scrutiny direction, where the same mutability must mean "assume it reads". Round 6's own
+ *      commit message argued that fixing one spelling and stopping is this repo's recurring mistake,
+ *      and then did it one frame out. `loose` now rides `resolveFunction` and `reachesReader` too.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
  *
  * 0 unexpected, re-proved on every round. ⚠️ THERE IS NO TOTAL WRITTEN HERE ANY MORE: this list is
@@ -176,8 +188,8 @@
  * reader reassigned to a no-op · a destructured local shadowing the coalescer · a parenthesized
  * raw-reader call · an immutable alias of the HOOK at an uncoalesced site · a two-hop alias chain of
  * the hook · a `let` alias of the hook · a `let` alias of the READER called beside the schedule · a
- * `let` alias of the coalescer · two cases cut from this very list · its heading renamed · the
- * walk floor.
+ * `let` alias of the coalescer · a `let` alias of a `useCallback` reader called beside the schedule ·
+ * two cases cut from this very list · its heading renamed · the walk floor.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
@@ -211,7 +223,7 @@ const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
 /** The consumers that exist today. A walk that finds fewer than this has broken, not improved. */
 const MIN_CALL_SITES = 2;
 /** Same idiom for the docblock's case list: MEASURED at the round that set it, never counted by eye. */
-const MIN_PINNED_CASES = 52;
+const MIN_PINNED_CASES = 53;
 const CASES_HEADING = "## The cases this guard has been watched against";
 
 const problems = [];
@@ -476,7 +488,7 @@ function exitsCallback(node) {
 }
 
 /** The function a name is bound to, as seen from `from`: a declaration, an arrow, or a useCallback. */
-function resolveFunction(from, name, react, seen = new Set()) {
+function resolveFunction(from, name, react, loose = false, seen = new Set()) {
   if (seen.has(name)) return null;
   seen.add(name);
   const b = resolveBinding(from, name);
@@ -486,13 +498,21 @@ function resolveFunction(from, name, react, seen = new Set()) {
   // ⚠️ MUTABILITY APPLIES TO THE READER TOO (Codex round 5 on #287). `let refresh = () =>
   // getCartView(id); refresh = () => {};` declares a reader and ships a no-op; round 2 caught this
   // for the SCHEDULER binding and the same check was simply missing here.
-  if (!b.isConst) return null;
+  //
+  // ⚠️ — AND IT REVERSES IN THE SCRUTINY DIRECTION (Codex round 7 on #287). Round 6 threaded `loose`
+  // through `isCallToBinding` and STOPPED THERE, one function short: `directReaderCalls` also reaches
+  // the reader through THIS resolver, so `let refreshNow = refresh;` beside the schedule was still
+  // waved through — measured, the guard printed "3 call sites, all coalesced" while every event read
+  // immediately. The same fix left half-applied is the mistake the round-6 commit message warned
+  // about, one frame out. `loose` here means the same thing it means there: a mutable alias CANNOT
+  // be credited as a reader, and must not be assumed innocent when we are looking for one.
+  if (!b.isConst && !loose) return null;
   const init = unwrap(b.init);
   // ⚠️ FOLLOW AN IMMUTABLE ALIAS (Codex round 4 on #287). `const refreshNow = refresh;` bound an
   // IDENTIFIER, not a function literal, so this returned null and `directReaderCalls` concluded the
   // handler had no path to the reader — while `refreshNow()` beside the schedule read on every
   // event. Only `const` chains are followed: a `let` can be reassigned, which is finding #7's rule.
-  if (ts.isIdentifier(init)) return resolveFunction(init, init.text, react, seen);
+  if (ts.isIdentifier(init)) return resolveFunction(init, init.text, react, loose, seen);
   const eager = (fn) =>
     fn && (ts.isArrowFunction(fn) || (ts.isFunctionExpression(fn) && !fn.asteriskToken))
       ? fn
@@ -512,20 +532,20 @@ function resolveFunction(from, name, react, seen = new Set()) {
  * calls `getCartView` itself, while `TableCartProvider.refresh` reaches it through `readView`. So
  * the walk follows local function bindings transitively, guarded by a visited set.
  */
-function reachesReader(fn, ctx, seen = new Set()) {
+function reachesReader(fn, ctx, loose = false, seen = new Set()) {
   if (!fn || !fn.body || seen.has(fn.pos)) return false;
   seen.add(fn.pos);
   let found = false;
   walk(fn.body, (n) => {
     if (found || !ts.isCallExpression(n)) return;
-    if (isCallToBinding(n, ctx.reader, READER)) {
+    if (isCallToBinding(n, ctx.reader, READER, loose)) {
       found = true;
       return;
     }
     const id = calleeIdent(n);
     if (!id) return;
-    const next = resolveFunction(n, id.text, ctx.react);
-    if (next && reachesReader(next, ctx, seen)) found = true;
+    const next = resolveFunction(n, id.text, ctx.react, loose);
+    if (next && reachesReader(next, ctx, loose, seen)) found = true;
   });
   return found;
 }
@@ -546,8 +566,9 @@ function directReaderCalls(fn, ctx) {
     }
     const id = calleeIdent(n);
     if (!id) return;
-    const target = resolveFunction(n, id.text, ctx.react);
-    if (target && reachesReader(target, ctx)) hits.push(id.text);
+    // Scrutiny, so `loose`: a mutable alias of the reader is a read until proven otherwise.
+    const target = resolveFunction(n, id.text, ctx.react, true);
+    if (target && reachesReader(target, ctx, true)) hits.push(id.text);
   });
   return hits;
 }
