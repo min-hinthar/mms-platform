@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { acceptView, issueRead, readReachedServer, type ViewSeq } from "./view-seq";
+import {
+  acceptView,
+  confirmedWrite,
+  issueRead,
+  readReachedServer,
+  readTicketed,
+  type ViewSeq,
+} from "./view-seq";
 
 /**
  * T21(b) partial — the read-ordering ticket, in the terms the defect is stated in: two views in
@@ -130,5 +137,178 @@ describe("ReadOutcome — the two questions a read answers, named apart (T26)", 
     // reachable. Narrowing this to `applied` kills the chain on a still-frozen cart whose unchanged
     // axes never re-run the effect — the permanent dead menu T20 exists to fix.
     expect(readReachedServer("overtaken")).toBe(true);
+  });
+});
+
+/**
+ * M225 — `readTicketed`, in the terms /cart's defect is stated in.
+ *
+ * Every case is two reads in flight resolving in the WRONG order, because issue order and arrival
+ * order disagreeing is the whole subject. A deferred promise, never a timer: the point is which
+ * resolution wins, not how long it waited.
+ */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("readTicketed — the older answer never overwrites the newer one", () => {
+  it("applies a read nothing overtook", async () => {
+    const s = seq();
+    const applied: string[] = [];
+    const outcome = await readTicketed(
+      s,
+      () => Promise.resolve("only"),
+      (v) => applied.push(v),
+    );
+    expect(outcome).toBe("applied");
+    expect(applied).toEqual(["only"]);
+  });
+
+  it("REFUSES an older read that resolves LAST, and writes nothing", async () => {
+    // The /cart defect verbatim: `refresh` fired twice (a mutation's own await overlapping a
+    // coalesced echo), the older one came back second, and its eight setters re-asserted a stale
+    // `locked: false` over the corrected `true`. /cart has no scheduled freeze re-check to heal it.
+    const s = seq();
+    const applied: string[] = [];
+    const older = deferred<string>();
+    const newer = deferred<string>();
+
+    const first = readTicketed(
+      s,
+      () => older.promise,
+      (v) => applied.push(v),
+    );
+    const second = readTicketed(
+      s,
+      () => newer.promise,
+      (v) => applied.push(v),
+    );
+
+    newer.resolve("newer");
+    expect(await second).toBe("applied");
+    older.resolve("older");
+    expect(await first).toBe("overtaken");
+
+    // The older view never reached the screen — not "reached it and was corrected".
+    expect(applied).toEqual(["newer"]);
+  });
+
+  it("mints the ticket BEFORE the await, so issue order decides and not arrival order", async () => {
+    // Minting after the await would hand the LATER-ARRIVING read the higher ticket, which is
+    // arrival order wearing a ticket's clothes — and the older read would win exactly as before.
+    const s = seq();
+    const older = deferred<string>();
+    const first = readTicketed(
+      s,
+      () => older.promise,
+      () => {},
+    );
+    // The ticket exists already, with nothing resolved and nothing applied.
+    expect(s.issued).toBe(1);
+    expect(s.applied).toBe(0);
+    older.resolve("older");
+    await first;
+  });
+
+  it("a FAILED read leaves the watermark alone, so it cannot suppress an earlier success", async () => {
+    // Codex round 2 on #249 found this in the first draft of this module: a newer read that FAILED
+    // invalidated an older read that had SUCCEEDED, and the successful observation was discarded.
+    const s = seq();
+    const applied: string[] = [];
+    const slow = deferred<string>();
+    const doomed = deferred<string>();
+
+    const first = readTicketed(
+      s,
+      () => slow.promise,
+      (v) => applied.push(v),
+    );
+    const second = readTicketed(
+      s,
+      () => doomed.promise,
+      (v) => applied.push(v),
+    );
+
+    doomed.reject(new Error("503"));
+    expect(await second).toBe("failed");
+    slow.resolve("slow-but-good");
+    // The failure reserved nothing, so the earlier read still lands.
+    expect(await first).toBe("applied");
+    expect(applied).toEqual(["slow-but-good"]);
+  });
+
+  it("does not apply the view when the read throws", async () => {
+    const s = seq();
+    const applied: string[] = [];
+    const outcome = await readTicketed(
+      s,
+      () => Promise.reject(new Error("offline")),
+      (v: string) => applied.push(v),
+    );
+    expect(outcome).toBe("failed");
+    expect(applied).toEqual([]);
+  });
+
+  it("an OVERTAKEN read still reports as having reached the server", async () => {
+    // The contract /cart's two recovery controls rest on: "Check again" must not say "couldn't
+    // check just now" about a read that did reach the server and merely lost the screen.
+    const s = seq();
+    const older = deferred<string>();
+    const first = readTicketed(
+      s,
+      () => older.promise,
+      () => {},
+    );
+    await readTicketed(
+      s,
+      () => Promise.resolve("newer"),
+      () => {},
+    );
+    older.resolve("older");
+    expect(readReachedServer(await first)).toBe(true);
+  });
+});
+
+describe("confirmedWrite — a confirmed server value outranks every read in flight", () => {
+  it("refuses a read issued BEFORE the confirmed write", async () => {
+    // /cart's counter-ask: `askCounter` awaits `requestCounterPay` and writes the returned
+    // `counterRequestedAt` straight to state. A read issued before that tap carries a lower ticket
+    // and would otherwise land afterwards with its own pre-ask value — the diner's tap undone by an
+    // older answer to a question nobody re-asked.
+    const s = seq();
+    const applied: string[] = [];
+    const inFlight = deferred<string>();
+    const read = readTicketed(
+      s,
+      () => inFlight.promise,
+      (v) => applied.push(v),
+    );
+
+    confirmedWrite(s); // the counter-ask lands
+    inFlight.resolve("pre-ask view");
+
+    expect(await read).toBe("overtaken");
+    expect(applied).toEqual([]);
+  });
+
+  it("leaves a read issued AFTER the confirmed write free to apply", async () => {
+    // The ordering must not become a latch: the re-read that follows the tap carries a higher
+    // ticket and is exactly the read that should win.
+    const s = seq();
+    const applied: string[] = [];
+    confirmedWrite(s);
+    const outcome = await readTicketed(
+      s,
+      () => Promise.resolve("post-ask view"),
+      (v) => applied.push(v),
+    );
+    expect(outcome).toBe("applied");
+    expect(applied).toEqual(["post-ask view"]);
   });
 });

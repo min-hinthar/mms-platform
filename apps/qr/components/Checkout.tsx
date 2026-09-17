@@ -67,6 +67,13 @@ import { PaperAmbient } from "./PaperAmbient";
 import { WalletChip } from "./WalletChip";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import {
+  confirmedWrite,
+  newViewSeq,
+  readReachedServer,
+  readTicketed,
+  type ViewSeq,
+} from "@/lib/view-seq";
+import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
   unsentFoodQty,
@@ -397,6 +404,16 @@ export function Checkout({
   // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
   const journey = useJourneyRouter();
   const journeyRef = useRef(journey);
+  /**
+   * M225 — /cart's read-ordering ticket, the one `TableCartProvider` has had since T21(b).
+   *
+   * A REF, not state: `refresh`'s dep array must stay `[cartId, isDineIn]` or the identity changes
+   * every render, and `useCoalescedRefresh` keys its cleanup on that identity — a new one per render
+   * discards the pending read with nothing armed in its place (`echo-refresh.ts`, and
+   * `check:echo-coalesce` finding #18 enforces it). Per-instance by construction: `view-seq.ts` holds
+   * no module state, so /cart and /menu get their own counters and a remount gets a fresh one.
+   */
+  const viewSeqRef = useRef<ViewSeq>(newViewSeq());
   const stepRef = useRef<"review" | "pay">("review");
   // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
   // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
@@ -442,29 +459,58 @@ export function Checkout({
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
   // stable cartId prop) so the realtime + visibility subscriptions below register once.
+  /**
+   * ⚠️ TICKETED SINCE M225, and the ticket is what makes the coalescer safe here.
+   *
+   * This was a bare `await getCartView(cartId)` followed by nine setters, so two reads in flight
+   * applied in ARRIVAL order: a mutation's own `await refresh()` overlapping a coalesced echo, and
+   * whichever came back LAST won. An older one re-asserting `locked: false` over a corrected `true`
+   * re-opens the steppers on a cart a peer is checking out, and /cart has no scheduled freeze
+   * re-check to heal it (`freezeRecheckDelayMs` is the provider's alone) — only the visibility
+   * backstop below, which never fires for a tab that stays open, which is the /cart case.
+   *
+   * The ordering lives in `readTicketed` rather than inline here for the reason `lock-ttl.ts` and
+   * `view-seq.ts` give: a rule that sits in a component sits outside every guard this repo has —
+   * `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set — so a reverted gate
+   * here would go red nowhere. There it is falsified by two promises resolving out of order.
+   *
+   * ⚠️ THE RETURN VALUE STILL MEANS "DID WE HEAR BACK", NOT "DID WE WIN THE SCREEN" (`recheckLock`
+   * and the reopen path both read it that way, and say so in their own comments). An OVERTAKEN read
+   * reached the server; reporting it as a failure would light "Couldn't check just now" over a read
+   * that did check — a fabricated diagnosis, the class M116/T14 exist to remove. `readReachedServer`
+   * is that predicate and is mutant-pinned.
+   *
+   * ⚠️ AND THE FAILURE ARM IS NOW THE READ'S ALONE. It used to be any throw inside the try — a
+   * setter, the slot normalizer — which would have run the settle-probe below for something that was
+   * never a read failure. `readTicketed` catches the read and nothing else, so the probe now fires on
+   * exactly the condition its comment describes.
+   */
   const refresh = useCallback(async () => {
-    try {
-      const v = await getCartView(cartId);
-      setItems(v.items);
-      setTotals(v.totals);
-      // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
-      // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
-      // and relit ASAP over a still-scheduled cart, with no way to clear it).
-      setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
-      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
-      // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
-      // this reset a stale "back" from the diner's last local flip would slide the settle board
-      // (and its return) in from the left. Idempotent while settling holds (React bails on same).
-      if (v.settling) setStepDir("forward");
-      // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
-      // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
-      setLocked(v.locked);
-      setLockedBy(v.lockedBy);
-      setMySeat(v.mySeat);
-      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
-      setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-      return true;
-    } catch {
+    const outcome = await readTicketed(
+      viewSeqRef.current,
+      () => getCartView(cartId),
+      (v) => {
+        setItems(v.items);
+        setTotals(v.totals);
+        // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
+        // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
+        // and relit ASAP over a still-scheduled cart, with no way to clear it).
+        setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
+        setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+        // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
+        // this reset a stale "back" from the diner's last local flip would slide the settle board
+        // (and its return) in from the left. Idempotent while settling holds (React bails on same).
+        if (v.settling) setStepDir("forward");
+        // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
+        // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
+        setLocked(v.locked);
+        setLockedBy(v.lockedBy);
+        setMySeat(v.mySeat);
+        setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+        setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+      },
+    );
+    if (outcome === "failed") {
       // A1 — on a DINE-IN table one cause of this failure is the register settling the cart
       // (`assertCartMember` answers `cart_closed` forever after). Ask the one question that
       // separates that from a blip, once per failure, and leave the screen only on a positive
@@ -503,8 +549,8 @@ export function Checkout({
       // #246). Every existing caller ignores the value and is unaffected — but a caller whose whole
       // job is to re-read on demand ("Check again") must be able to tell "the server says still
       // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
-      return false;
     }
+    return readReachedServer(outcome);
   }, [cartId, isDineIn]);
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
@@ -930,6 +976,12 @@ export function Checkout({
         setPayError(r.error);
         return;
       }
+      // ⚠️ M225 — INVALIDATE EVERY READ IN FLIGHT BEFORE WRITING A CONFIRMED VALUE. The ticket
+      // orders reads against each other; a read issued before this tap carries a lower ticket, and
+      // without this it would land afterwards and write its own (pre-ask) `counterRequestedAt` over
+      // the one the server just confirmed — the diner's tap undone by an older answer to a question
+      // nobody re-asked. The re-read below is issued after, so it still wins normally.
+      confirmedWrite(viewSeqRef.current);
       setCounterAt(r.counterRequestedAt);
       setStatus("We’ll settle up at the counter — show them this screen whenever you’re ready.");
       void refresh();
@@ -954,6 +1006,9 @@ export function Checkout({
         setPayError(r.error);
         return;
       }
+      // M225 — same rule as `askCounter`: the server has confirmed the withdrawal, so the optimistic
+      // `null` above is now a CONFIRMED value and an older read must not restore the stale ask.
+      confirmedWrite(viewSeqRef.current);
       setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
       void refresh();
     } catch {

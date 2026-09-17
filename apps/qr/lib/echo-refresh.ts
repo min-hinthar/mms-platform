@@ -98,7 +98,19 @@ export function echoDelayMs(waitedMs: number): number {
 export function useCoalescedRefresh(refresh: () => unknown): () => void {
   /** Trailing window that collapses one tap's several realtime echoes into a single re-read. */
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** When the pending burst's FIRST event arrived — the anchor the max-wait is measured from. */
+  /**
+   * When the pending burst's FIRST event arrived — the anchor the max-wait is measured from.
+   *
+   * ⚠️ MONOTONIC, NOT WALL-CLOCK (M226(c)). `Date.now()` can move BACKWARD — an NTP correction, a
+   * manual set — and this is an ELAPSED DURATION, which is the one thing a wall clock cannot
+   * measure. A backward jump mid-burst makes `waitedMs` negative, so `ECHO_MAX_WAIT_MS - waitedMs`
+   * exceeds the quiet period and `Math.min` picks the quiet period on EVERY event: the deadline
+   * stops binding and a stream of events under 150 ms apart re-arms the timer forever. That starves
+   * the recovery read — the exact failure `ECHO_MAX_WAIT_MS` exists to prevent, restored by a clock
+   * that went backwards. `performance.now()` is monotonic by specification and is what an elapsed
+   * duration is measured with. Both ends must read the SAME clock or the subtraction is meaningless,
+   * which is why the mutant pins them as a pair.
+   */
   const since = useRef<number | null>(null);
 
   useEffect(
@@ -111,8 +123,8 @@ export function useCoalescedRefresh(refresh: () => unknown): () => void {
   );
 
   return useCallback(() => {
-    if (since.current === null) since.current = Date.now();
-    const delay = echoDelayMs(Date.now() - since.current);
+    if (since.current === null) since.current = performance.now();
+    const delay = echoDelayMs(performance.now() - since.current);
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       timer.current = null;

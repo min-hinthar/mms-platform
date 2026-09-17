@@ -135,10 +135,17 @@
  *      `ts.isIdentifier(n.expression)` tests; unwrapping in one of them was not enough, so the
  *      callee now resolves through a single `calleeIdent` helper used everywhere.
  *
- * ⚠️ A FIFTH IS FILED — **OPEN-ITEMS M226(c)**, and it is the PRODUCT module rather than the guard:
- * the burst deadline is measured with `Date.now()`, so a backward wall-clock jump mid-burst starves
- * the recovery read. `performance.now()` is the right clock; it needs its own mutant and a fake-timer
- * re-check, which is a slice rather than a line.
+ * ✅ A FIFTH WAS FILED AND IS NOW CLOSED — **OPEN-ITEMS M226(c)**, the PRODUCT module rather than
+ * the guard: the burst deadline was measured with `Date.now()`, so a backward wall-clock jump
+ * mid-burst starved the recovery read. `useCoalescedRefresh` reads `performance.now()` at both ends
+ * now, with a fixture that JUMPS the system clock (`vi.setSystemTime` moves `Date.now()` and leaves
+ * `performance.now()` alone — measured, not assumed) and two mutants: the shipped bug, and the
+ * half-applied fix that mixes the two clocks.
+ *
+ * ⚠️ This paragraph is prose about live state inside a .mjs file, and `check:docs` scans only
+ * tracked .md — so nothing mechanical would have caught it staying stale. It was found by a blind
+ * falsification pass, not by the lane. If the next edit here changes what the module does, change
+ * this with it.
  *
  * ## Round 6: one more, and it is finding #16 on the OTHER side
  *

@@ -4,6 +4,46 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M225 · M226(c) — /cart's read path gets the ordering /menu has had since T21(b), and the burst deadline stops trusting the wall clock (2026-09-17)
+
+**Both rows were filed BY #287, against the screen it had just touched.** The coalescer it shipped
+made each of them matter more: postponing a read widens the gap between two reads in flight, and the
+deadline that bounds the postponement was measured with a clock that can move backwards.
+
+- **M225 — `Checkout.refresh` was UNTICKETED.** A bare `await getCartView(cartId)` followed by nine
+  setters, so two reads in flight applied in ARRIVAL order — a mutation's own `await refresh()`
+  overlapping a coalesced echo, whichever came back last winning. An older one re-asserting
+  `locked: false` over a corrected `true` re-opens the steppers on a cart a peer is checking out, and
+  /cart has no scheduled freeze re-check to heal it (`freezeRecheckDelayMs` is the provider's alone)
+  — only the visibility backstop, which never fires for a tab that stays open, which is the /cart case.
+- **The ordering went into `lib/`, not into the component, and the reason is mechanical.**
+  `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set, so a gate reverted there
+  would go red nowhere. `readTicketed` in `apps/qr/lib/view-seq.ts` owns the four steps
+  (mint-before-await · await · `acceptView` · apply) and is falsified by two promises resolving out
+  of order. Eight new cases, four new mutants, each watched red before it was written down.
+- **⚠️ The return value still means "did we hear back", NOT "did we win the screen".** `recheckLock`
+  and the reopen path both read it that way and say so in their own comments. An OVERTAKEN read
+  reached the server; collapsing that to `applied` would light "Couldn't check just now" over a read
+  that did check — trading the silent failure Codex round 5 on #246 removed for a fabricated one, the
+  M116/T14 class. `readReachedServer` is that predicate and was already mutant-pinned.
+- **The row's other half, found while fixing it.** `askCounter`/`withdrawCounter` write a
+  server-CONFIRMED `counterRequestedAt` OUTSIDE any read, so a read issued before the tap lands after
+  it and reverts the diner's own confirmed value. `confirmedWrite` names the mutation's-own-view arm
+  for the case where the value arrives without a view, and invalidates reads in flight at both sites.
+- **M226(c) — the burst deadline rode `Date.now()`.** An elapsed duration measured on a wall clock:
+  a backward jump makes `waitedMs` negative, `ECHO_MAX_WAIT_MS - waitedMs` then exceeds the quiet
+  period, and `Math.min` picks the quiet period on EVERY event — the deadline stops binding and a
+  stream under 150 ms apart re-arms forever, starving the recovery read `ECHO_MAX_WAIT_MS` exists to
+  protect. Both ends read `performance.now()` now. **The fixture discriminates because the two clocks
+  move independently under fake timers — measured, not assumed: `vi.setSystemTime(t - 5000)` moves
+  `Date.now()` by -5000 and `performance.now()` by 0.** Reverting the module turns exactly one test
+  red, and both half-applied fixes turn two red.
+- **A stale claim nothing mechanical would have caught.** `scripts/check-echo-coalesce.mjs` carried a
+  paragraph saying M226(c) was still open and "a slice rather than a line". `check:docs` scans only
+  tracked `.md`, so that prose could have rotted indefinitely inside the guard that owns the module.
+  A blind falsification pass found it; the paragraph is now past tense and says why it was missable.
+- **688 → 694 mutants; 125 target modules unchanged** (both files were already in the set).
+
 ### M193 (the other half) · M217 — one coalescer for both screens, and a row that was closed against a superseded migration (2026-09-17)
 
 **#275 closed M193 where the defect was FOUND and left it shipping one route away.** The coalescer
