@@ -88,6 +88,12 @@ export function echoDelayMs(waitedMs: number): number {
  * cart's items, totals and freeze over another's. A caller's `refresh` closes over its cart id, so
  * re-running this on its identity is exactly "the cart or its reader changed". The burst ANCHOR is
  * reset with the timer, or the next cart would inherit a deadline measured from the old one's.
+ *
+ * ⚠️ THE PRICE OF THAT, AND THE CALLER'S OBLIGATION: `refresh` MUST BE STABLE — a `useCallback`, or
+ * a module-level binding. An unmemoized reader gets a new identity every render, so any render
+ * between the last event and the timer firing clears the pending read and arms no replacement, and
+ * the cart misses that change until the next event or interaction (Codex round 5 on #287).
+ * `check:echo-coalesce` enforces this, so it is a mechanical requirement rather than a comment.
  */
 export function useCoalescedRefresh(refresh: () => unknown): () => void {
   /** Trailing window that collapses one tap's several realtime echoes into a single re-read. */

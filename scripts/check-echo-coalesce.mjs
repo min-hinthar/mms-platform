@@ -119,9 +119,30 @@
  *      The "never transcribe a number" rule applies to prose about the guard as much as to the
  *      guard, and `check:docs` cannot see a total inside a sentence.
  *
+ * ## Five more from Codex round 5 — four fixed, one filed
+ *
+ *  18. **The hook's CONTRACT, now mechanical.** `useCoalescedRefresh` keys its cleanup on the
+ *      reader's identity (deliberately — see its docblock), so an UNMEMOIZED reader gets a new
+ *      identity every render and any render between the last event and the timer firing discards the
+ *      pending read with no replacement armed. `isStableReader` requires a `useCallback` result, a
+ *      module-scope binding, or an immutable alias of one.
+ *  19. **Mutability applies to the READER too.** `let refresh = () => getCartView(id); refresh = ()
+ *      => {};` declared a reader and shipped a no-op — round 2 caught this for the SCHEDULER binding
+ *      and the same check was simply missing on the other side.
+ *  20. **A destructured LOCAL shadows as hard as a parameter.** `const { useCoalescedRefresh } =
+ *      helpers;` was invisible, one line below the parameter fix that had just closed the same gap.
+ *  21. **A parenthesized callee is the same call.** `(refresh)()` escaped THREE separate
+ *      `ts.isIdentifier(n.expression)` tests; unwrapping in one of them was not enough, so the
+ *      callee now resolves through a single `calleeIdent` helper used everywhere.
+ *
+ * ⚠️ A FIFTH IS FILED — **OPEN-ITEMS M226(c)**, and it is the PRODUCT module rather than the guard:
+ * the burst deadline is measured with `Date.now()`, so a backward wall-clock jump mid-burst starves
+ * the recovery read. `performance.now()` is the right clock; it needs its own mutant and a fake-timer
+ * re-check, which is a slice rather than a line.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
  *
- * 28 cases, 0 unexpected, re-proved on every round.
+ * 33 cases, 0 unexpected, re-proved on every round.
  *
  * RED — the per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out
  * call · the provider's handler no longer scheduling · the provider scheduling behind a condition ·
@@ -133,14 +154,17 @@
  * wrapping a named no-op · a handler shadowing the scheduler name with the raw reader · a
  * namespace-qualified `getCartView` beside the schedule · a locally-shadowed `useCoalescedRefresh` ·
  * a generator handler · a PARAMETER shadowing the imported coalescer (named and destructured) · an
- * identifier alias of the reader called beside the schedule · the walk floor.
+ * identifier alias of the reader called beside the schedule · an UNMEMOIZED reader · a mutable
+ * reader reassigned to a no-op · a destructured local shadowing the coalescer · a parenthesized
+ * raw-reader call · the walk floor.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
  * `React.useCallback` · a hoisted `function` handler · the reader reached through one local hop ·
  * a handler doing non-reader work beside scheduling · a namespace-imported reader, correctly
  * coalesced · a coalescer wrapping an immutable alias of the reader · an unrelated parameter whose
- * name collides with nothing.
+ * name collides with nothing · a module-scope reader · an immutable ALIAS of a stable reader ·
+ * an unrelated destructured local.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -240,7 +264,8 @@ const importedFrom = (src, rel, moduleRel, exported) =>
 /** Is `node` a call to one of `binding.names`, or to `ns.<exported>` for one of its namespaces? */
 function isCallToBinding(node, binding, exported) {
   if (!ts.isCallExpression(node)) return false;
-  const callee = node.expression;
+  // `(refresh)()` — a parenthesized callee is the same call (Codex round 5 on #287).
+  const callee = unwrap(node.expression);
   // ⚠️ AN IMPORT CAN BE SHADOWED (Codex round 3 on #287). `const useCoalescedRefresh = (fn) => fn`
   // inside a component makes `useCoalescedRefresh(refresh)` an identity function — the raw reader,
   // called per event — while a name-only check still attributes it to the import. `resolveBinding`
@@ -261,6 +286,21 @@ const isCallTo = (node, name) =>
   ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name;
 
 /**
+ * The plain identifier a call's callee resolves to, or null.
+ *
+ * ⚠️ ONE HELPER, USED EVERYWHERE A CALLEE IS INSPECTED (Codex round 5 on #287). Unwrapping the
+ * callee in `isCallToBinding` alone was not enough: `void (refresh)()` still escaped, because the
+ * TRANSITIVE branch and the scheduler test each re-tested `ts.isIdentifier(n.expression)` on the raw
+ * node and bailed on the parenthesis. A wrapper that is invisible to one reader and not another is
+ * how a fix looks complete and is not.
+ */
+function calleeIdent(n) {
+  if (!ts.isCallExpression(n)) return null;
+  const c = unwrap(n.expression);
+  return ts.isIdentifier(c) ? c : null;
+}
+
+/**
  * The initializer bound to `name` as seen FROM `node`, resolved LEXICALLY: walk outward and take the
  * first enclosing scope that declares it. A whole-file map is last-wins, which lets one correct
  * binding launder every same-named wrong one in the same file (blind pass on #287) — the repo's own
@@ -269,6 +309,15 @@ const isCallTo = (node, name) =>
  * Returns `{ kind: "value", init }` for `const x = …`, `{ kind: "function", fn }` for a hoisted
  * `function x(){}`, or `null`.
  */
+/** Does a declaration name — an identifier or any nested binding pattern — bind `name`? */
+function bindsName(nameNode, name) {
+  if (!nameNode) return false;
+  if (ts.isIdentifier(nameNode)) return nameNode.text === name;
+  if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode))
+    return nameNode.elements.some((el) => ts.isBindingElement(el) && bindsName(el.name, name));
+  return false;
+}
+
 function resolveBinding(node, name) {
   for (let scope = node.parent; scope; scope = scope.parent) {
     // ⚠️ PARAMETERS ARE BINDINGS TOO (Codex round 4 on #287). A component taking a same-named
@@ -276,16 +325,7 @@ function resolveBinding(node, name) {
     // — so a statements-only walk reported "not shadowed" and credited the call to the import.
     // Destructured parameters (`{ refresh }`) bind just as hard as named ones.
     const params = ts.isFunctionLike(scope) ? (scope.parameters ?? []) : [];
-    for (const prm of params) {
-      if (ts.isIdentifier(prm.name)) {
-        if (prm.name.text === name) return { kind: "param" };
-      } else if (ts.isObjectBindingPattern(prm.name) || ts.isArrayBindingPattern(prm.name)) {
-        for (const el of prm.name.elements) {
-          if (ts.isBindingElement(el) && ts.isIdentifier(el.name) && el.name.text === name)
-            return { kind: "param" };
-        }
-      }
-    }
+    for (const prm of params) if (bindsName(prm.name, name)) return { kind: "param" };
     const statements = ts.isSourceFile(scope)
       ? scope.statements
       : ts.isBlock(scope) || ts.isModuleBlock(scope)
@@ -295,13 +335,18 @@ function resolveBinding(node, name) {
     for (const st of statements) {
       if (ts.isVariableStatement(st)) {
         const isConst = !!(st.declarationList.flags & ts.NodeFlags.Const);
+        const atModuleScope = ts.isSourceFile(scope);
         for (const d of st.declarationList.declarations) {
           if (ts.isIdentifier(d.name) && d.name.text === name && d.initializer)
-            return { kind: "value", init: d.initializer, isConst };
+            return { kind: "value", init: d.initializer, isConst, atModuleScope };
+          // ⚠️ A DESTRUCTURED LOCAL SHADOWS JUST AS HARD (Codex round 5 on #287). `const {
+          // useCoalescedRefresh } = helpers;` was invisible because only identifier declaration
+          // names were examined — the same gap the parameter fix had just closed one line above.
+          if (!ts.isIdentifier(d.name) && bindsName(d.name, name)) return { kind: "destructured" };
         }
       }
       if (ts.isFunctionDeclaration(st) && st.name?.text === name)
-        return { kind: "function", fn: st };
+        return { kind: "function", fn: st, atModuleScope: ts.isSourceFile(scope) };
     }
   }
   return null;
@@ -367,16 +412,19 @@ function resolveFunction(from, name, react, seen = new Set()) {
   if (seen.has(name)) return null;
   seen.add(name);
   const b = resolveBinding(from, name);
-  if (!b || b.kind === "param") return null;
+  if (!b || b.kind === "param" || b.kind === "destructured") return null;
   // A generator's body does NOT run on call — invoking it only builds an iterator (Codex round 3).
   if (b.kind === "function") return b.fn.asteriskToken ? null : b.fn;
+  // ⚠️ MUTABILITY APPLIES TO THE READER TOO (Codex round 5 on #287). `let refresh = () =>
+  // getCartView(id); refresh = () => {};` declares a reader and ships a no-op; round 2 caught this
+  // for the SCHEDULER binding and the same check was simply missing here.
+  if (!b.isConst) return null;
   const init = unwrap(b.init);
   // ⚠️ FOLLOW AN IMMUTABLE ALIAS (Codex round 4 on #287). `const refreshNow = refresh;` bound an
   // IDENTIFIER, not a function literal, so this returned null and `directReaderCalls` concluded the
   // handler had no path to the reader — while `refreshNow()` beside the schedule read on every
   // event. Only `const` chains are followed: a `let` can be reassigned, which is finding #7's rule.
-  if (ts.isIdentifier(init))
-    return b.isConst ? resolveFunction(init, init.text, react, seen) : null;
+  if (ts.isIdentifier(init)) return resolveFunction(init, init.text, react, seen);
   const eager = (fn) =>
     fn && (ts.isArrowFunction(fn) || (ts.isFunctionExpression(fn) && !fn.asteriskToken))
       ? fn
@@ -406,8 +454,9 @@ function reachesReader(fn, ctx, seen = new Set()) {
       found = true;
       return;
     }
-    if (!ts.isIdentifier(n.expression)) return;
-    const next = resolveFunction(n, n.expression.text, ctx.react);
+    const id = calleeIdent(n);
+    if (!id) return;
+    const next = resolveFunction(n, id.text, ctx.react);
     if (next && reachesReader(next, ctx, seen)) found = true;
   });
   return found;
@@ -427,9 +476,10 @@ function directReaderCalls(fn, ctx) {
       hits.push(n.expression.getText());
       return;
     }
-    if (!ts.isIdentifier(n.expression)) return;
-    const target = resolveFunction(n, n.expression.text, ctx.react);
-    if (target && reachesReader(target, ctx)) hits.push(n.expression.text);
+    const id = calleeIdent(n);
+    if (!id) return;
+    const target = resolveFunction(n, id.text, ctx.react);
+    if (target && reachesReader(target, ctx)) hits.push(id.text);
   });
   return hits;
 }
@@ -452,10 +502,7 @@ function callsDirectly(fn, ctx) {
   if (!body) return false;
   // `void schedule()` is this repo's fire-and-forget idiom — and was literally the line this slice
   // replaced — so refusing it would refuse the shape the guard is most likely to meet.
-  const isSchedule = (e) => {
-    const c = unwrap(e);
-    return ts.isCallExpression(c) && ctx.isSchedulerCall(c);
-  };
+  const isSchedule = (e) => ctx.isSchedulerCall(unwrap(e));
   // A concise arrow body IS the whole behaviour, so a bare `() => schedule()` qualifies.
   if (!ts.isBlock(body)) return isSchedule(body);
   for (const st of body.statements) {
@@ -474,6 +521,31 @@ function callsDirectly(fn, ctx) {
  * and the script still printed "all coalesced". Requiring a NAMED binding is the cheap sound bar;
  * proving the callee actually re-reads the cart would need a type checker.
  */
+/**
+ * Is this reader STABLE across renders — a `useCallback` result, or declared at module scope?
+ *
+ * ⚠️ THIS IS THE HOOK'S CONTRACT, NOT A STYLE RULE (Codex round 5 on #287). `useCoalescedRefresh`
+ * keys its cleanup on the reader's identity, deliberately: an unmount-only cleanup let a pending
+ * echo outlive a cart change and paint one cart over another (Codex round 2 on #275). The cost of
+ * that correctness is that an UNMEMOIZED reader gets a new identity on every render, so any render
+ * between the last event and the timer firing clears the pending read and arms no replacement — the
+ * cart then misses that change until the next event or interaction. Both consumers today pass a
+ * `useCallback`; this makes the requirement mechanical instead of a comment nobody reads.
+ */
+function isStableReader(from, name, ctx, seen = new Set()) {
+  if (seen.has(name)) return false;
+  seen.add(name);
+  const b = resolveBinding(from, name);
+  if (!b) return false;
+  if (b.atModuleScope) return true; // a module-level binding has one identity for the process
+  if (b.kind !== "value" || !b.isConst) return false;
+  const init = unwrap(b.init);
+  // An immutable ALIAS of a stable reader is itself stable — caught by this rule's own GREEN
+  // control, which is why every tightening gets one.
+  if (ts.isIdentifier(init)) return isStableReader(init, init.text, ctx, seen);
+  return isUseCallback(init, ctx.react);
+}
+
 function isCoalescerCall(binding, ctx) {
   if (!binding || binding.kind !== "value") return false;
   // ⚠️ `const`, not `let` (Codex round 2 on #287). `let schedule = useCoalescedRefresh(refresh);
@@ -484,8 +556,10 @@ function isCoalescerCall(binding, ctx) {
   if (!isCallToBinding(call, ctx.coalescer, COALESCER)) return false;
   const arg = call.arguments[0];
   if (!arg || !ts.isIdentifier(arg)) return false;
-  // …and the thing it wraps must actually re-read the cart.
-  return reachesReader(resolveFunction(arg, arg.text, ctx.react), ctx);
+  // …the thing it wraps must actually re-read the cart…
+  if (!reachesReader(resolveFunction(arg, arg.text, ctx.react), ctx)) return false;
+  // …and it must be STABLE, or the cleanup keyed on its identity discards pending reads.
+  return isStableReader(arg, arg.text, ctx);
 }
 
 // ── every file is parsed ONCE, and both sections read that one AST ──────────────────────────────
@@ -526,8 +600,10 @@ for (const rel of windowFiles) {
    * handler shadow it — `const schedule = refresh;` inside the callback — and the raw reader was
    * waved through as the coalesced path. Resolving per call node removes the set entirely.
    */
-  ctx.isSchedulerCall = (n) =>
-    ts.isCallExpression(n) && ts.isIdentifier(n.expression) && isScheduler(n, n.expression.text);
+  ctx.isSchedulerCall = (n) => {
+    const id = calleeIdent(n);
+    return !!id && isScheduler(n, id.text);
+  };
 
   for (const call of calls) {
     const where = `${rel}:${src.getLineAndCharacterOfPosition(call.getStart()).line + 1}`;
