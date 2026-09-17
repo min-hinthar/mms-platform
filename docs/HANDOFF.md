@@ -25,12 +25,14 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > `import * as ns`), and the specifier resolves as a PATH, so no spelling of the import escapes it.
 > It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
 > the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE (679 files, ~1.7 s).
-> **15 red-first cases: 9 evasions RED, 6 controls GREEN**, plus the walk floor; the list lives in
-> the guard's docblock, not in prose — **28 cases after Codex round 4**, whose four further findings
-> were a mutable `let` scheduler reassigned to the raw reader, a handler that schedules AND reads
-> directly, `useCallback` matched by property name, and a coalescer wrapping a named no-op.
+> The red-first case list lives in the guard's docblock, and **the guard COUNTS it and prints the
+> total** — do not transcribe a number for it here or anywhere else, run the check and read the line
+> (`node scripts/check-echo-coalesce.mjs`). Three copies of that total existed across this PR's prose
+> and two were stale, which is why there is now a floor beside `MIN_CALL_SITES` instead.
 >
-> ⚠️ **NINETEEN holes were found in the GUARD and ZERO in the product code it guards** — two by Codex
+> ⚠️ **Across six rounds and two reviewers, all but one finding landed in the GUARD or in my own
+> prose about it — none in the shipped wiring beside them** (the exception is M226(c), the burst
+> deadline's wall clock, which is in the product module). Two came from Codex
 > round 1 (the name-only call-site match, defeated by an import alias while the floor stayed
 > satisfied; and `some()` over the statement list, which is not reachability) and four by the blind
 > adversarial pass (whole-file last-wins bindings laundering a same-named defective one; the
@@ -40,12 +42,20 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > directly; `useCallback` matched by property name; and a named argument taken as sufficient, so a
 > coalescer wrapping a no-op passed). Every one was the guard asserting a property its matcher could
 > not establish. That is the shape CLAUDE.md warns about under "guards get audited harder than the
-> code they guard", and it is now three PRs running. The pattern across all twelve: **a matcher keyed
-> on a NAME, a POSITION, or an INITIALIZER proves nothing about the value that actually ships.**
-> Round 3 added four more of exactly that shape (a shadowed scheduler name, a namespace-qualified
-> reader the identifier filter discarded, a shadowed import, and a generator whose body never runs)
-> and two the guard cannot close without a type checker — filed as **M226** under the round-3 rule
-> rather than fixed, because both are adversarial-only and the fast lane is ~1.7 s over 679 files.
+> code they guard", and it is now three PRs running. The pattern that ties every one of them
+> together: **a matcher keyed on a NAME, a POSITION, or an INITIALIZER proves nothing about the value
+> that actually ships.** Round 3 added four more of exactly that shape (a shadowed scheduler name, a
+> namespace-qualified reader the identifier filter discarded, a shadowed import, and a generator
+> whose body never runs) and two the guard cannot close without a type checker — filed as **M226**
+> under the round-3 rule rather than fixed, because both are adversarial-only and the fast lane is
+> ~1.7 s over 679 files. Rounds 4–6 kept finding the same shape: a PARAMETER and then a DESTRUCTURED
+> local shadowing the coalescer, an immutable alias of the reader, an unmemoized reader defeating the
+> hook's own cleanup contract, a parenthesized callee, and finally — round 6 — **an alias of the HOOK
+> itself, which did not defeat a check but removed a whole consumer from the guard's REACH**: the
+> pre-fix script printed "2 call sites, all coalesced" with an uncoalesced third one sitting on disk.
+> Closing only the `const` spelling that was reported would have left `let useRealtime =
+useCartRealtime` equally invisible, so the fix resolves alias chains in one helper and passes its
+> `loose` flag exactly where a hit WIDENS scrutiny — never where one grants credit.
 >
 > ⚠️ **The blind pass also falsified my own LEARNINGS #116 — all three of its numbers.** The entry
 > preaching "measure, never transcribe" had transcribed a count (eleven, really 14), a mechanism
@@ -62,13 +72,23 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > which screen it is true of.
 >
 > **M217 is closed as NOT A DEFECT — the row was written against a superseded migration.** It cites
-> `20260623030000_s3_secure_merge_guard.sql`, eight migrations out of date; ELEVEN files redefine
-> `mms_merge_table_orders`, and the S6 same-kitchen-state fold (`and t.state = r.state`) has been in
-> it since `20260822000000`. Confirmed on PROD with `pg_get_functiondef`, not inferred from the repo.
-> I nearly shipped the same mistake one step further — a full replacement function plus a nine-case
-> SQL test written against that superseded body, which would have reverted five migrations' worth of
-> guards in one commit. Both files were deleted before they were committed. **LEARNINGS #116** is the
-> rule: `tail -1` the definers, then read prod.
+> `20260623030000_s3_secure_merge_guard.sql`, the SEVENTH of **14** files that redefine
+> `mms_merge_table_orders` — seven definers out of date. The S6 same-kitchen-state fold
+> (`and t.state = r.state`) has an add/drop/restore history, not a single arrival:
+> `20260622090000_s2_audit_fixes.sql` introduced it, **the next three definers dropped it —
+> including the one M217 cites** — and `20260702000000_merge_void_guard_restore.sql` restored it,
+> since when every definer has carried it. So the migration the row names is genuinely one in which
+> the defect was live; it is the FUNCTION that has moved on. Confirmed on PROD with
+> `pg_get_functiondef`, not inferred from the repo. I nearly shipped the same mistake one step
+> further — a full replacement function plus a nine-case SQL test written against that superseded
+> body, which would have reverted five migrations' worth of guards in one commit. Both files were
+> deleted before they were committed. **LEARNINGS #116** is the rule: `tail -1` the definers, then
+> read prod — and that entry's first draft transcribed all three of these numbers WRONG (eleven
+> definers, the wrong first hit, the wrong restoring migration), which is why they are measured here:
+>
+> ```bash
+> grep -rlE 'function[[:space:]]+(public\.)?mms_merge_table_orders' supabase/migrations/*.sql | sort
+> ```
 >
 > **What this says about the rest of the high band.** Two of the rows I sampled this session were
 > closed or filed against something that had already changed. When a finding names a MECHANISM

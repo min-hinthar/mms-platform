@@ -67,9 +67,25 @@ useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver rea
   statements, so a same-named prop took the import over for a whole component body — destructured
   parameters too); an immutable identifier ALIAS of the reader (`const refreshNow = refresh`) that
   `resolveFunction` could not follow, so a handler calling it beside the schedule read per event
-  unflagged; and a changelog number of my own contradicting the measured total. **28 red-first
-  cases, 0 unexpected.** Nineteen findings across two reviewers and four rounds — **all nineteen in
-  this guard, none in the product code beside it.**
+  unflagged; and a changelog number of my own contradicting the measured total. **Round 5 added
+  five:** the hook's stability CONTRACT made mechanical (`useCoalescedRefresh` keys its cleanup on
+  the reader's identity, so an UNMEMOIZED reader silently drops the pending read — `isStableReader`
+  now requires a `useCallback` result, a module-scope binding, or an immutable alias of one); a
+  MUTABLE reader (`let refresh = …; refresh = () => {}`), which round 2 had closed for the scheduler
+  and not for the other side; a destructured local shadowing the coalescer; a parenthesized
+  `(refresh)()` escaping three separate identifier tests; and, filed rather than fixed as
+  **M226(c)**, the burst deadline's use of the wall clock. **Round 6 added three, one of them the
+  same hole on the opposite side:** `const useRealtime = useCartRealtime` put a whole consumer out
+  of the guard's REACH — never collected, never examined, while the two real sites kept the floor
+  satisfied — and closing only that `const` spelling would have left `let useRealtime` just as
+  invisible, so aliases resolve through one helper whose `loose` flag is passed exactly where a hit
+  WIDENS scrutiny and never where one grants credit. The other two were prose: this entry stale at
+  round 4, and `docs/HANDOFF.md` still repeating the merge-function history the blind pass had
+  refuted. **The red-first case list is no longer counted by hand — the guard reads its own docblock
+  and prints the total (52 today), with a floor beside `MIN_CALL_SITES`**, because three
+  transcriptions of that number existed and two were wrong. 27 findings across two reviewers and six
+  rounds: **23 in this guard, three in my own prose about it, one in the product module** — none in
+  the shipped wiring beside them.
 - **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
   set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
   guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the

@@ -140,9 +140,27 @@
  * the recovery read. `performance.now()` is the right clock; it needs its own mutant and a fake-timer
  * re-check, which is a slice rather than a line.
  *
+ * ## Round 6: one more, and it is finding #16 on the OTHER side
+ *
+ *  22. **An ALIAS of the HOOK put a whole consumer out of REACH.** `const useRealtime =
+ *      useCartRealtime;` — `hook.names` holds import-declared spellings only, so that call site was
+ *      never COLLECTED, the walk never looked at its handler, and the two real sites kept
+ *      `MIN_CALL_SITES` satisfied: green while a third consumer re-read per event. MEASURED, not
+ *      argued — the pre-fix script printed "2 call sites, all coalesced" with the uncoalesced third
+ *      one on disk. Round 4 closed exactly this for the READER (#16) and the hook side was missed.
+ *      Aliases now resolve through `aliasesImported`, and its `loose` flag is the part worth
+ *      reading: closing only the `const` spelling Codex reported would have left `let useRealtime =
+ *      useCartRealtime` just as invisible, which is this repo's own recurring mistake — a hole
+ *      closed for the one shape that was named.
+ *
  * ## The cases this guard has been watched against (keep this list WITH the code)
  *
- * 33 cases, 0 unexpected, re-proved on every round.
+ * 0 unexpected, re-proved on every round. ⚠️ THERE IS NO TOTAL WRITTEN HERE ANY MORE: this list is
+ * COUNTED at run time and printed in the success line, because a total that has to be
+ * hand-incremented every round is a defect generator. Codex round 6 found the CHANGELOG's copy of
+ * it stale (round 4 had found the mutant total stale the same way) — and counting the list as it
+ * then stood returned 43 against a docblock that said 33. Three transcriptions of one number, two
+ * of them wrong, in the file whose subject is "never transcribe a number".
  *
  * RED — the per-event arrow restored verbatim · a dead `if (false) schedule()` · a commented-out
  * call · the provider's handler no longer scheduling · the provider scheduling behind a condition ·
@@ -156,7 +174,10 @@
  * a generator handler · a PARAMETER shadowing the imported coalescer (named and destructured) · an
  * identifier alias of the reader called beside the schedule · an UNMEMOIZED reader · a mutable
  * reader reassigned to a no-op · a destructured local shadowing the coalescer · a parenthesized
- * raw-reader call · the walk floor.
+ * raw-reader call · an immutable alias of the HOOK at an uncoalesced site · a two-hop alias chain of
+ * the hook · a `let` alias of the hook · a `let` alias of the READER called beside the schedule · a
+ * `let` alias of the coalescer · two cases cut from this very list · its heading renamed · the
+ * walk floor.
  *
  * GREEN — these must keep passing, or the guard gets disabled: an aliased coalescer import · a
  * non-exiting `if` before the call · a nested arrow's own `return` · `void schedule()` ·
@@ -164,7 +185,8 @@
  * a handler doing non-reader work beside scheduling · a namespace-imported reader, correctly
  * coalesced · a coalescer wrapping an immutable alias of the reader · an unrelated parameter whose
  * name collides with nothing · a module-scope reader · an immutable ALIAS of a stable reader ·
- * an unrelated destructured local.
+ * an unrelated destructured local · an immutable alias of the hook, correctly coalesced · an
+ * immutable alias of the COALESCER, used correctly.
  */
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -188,6 +210,9 @@ const COALESCER = "useCoalescedRefresh";
 const WINDOW_CONSTS = ["ECHO_COALESCE_MS", "ECHO_MAX_WAIT_MS"];
 /** The consumers that exist today. A walk that finds fewer than this has broken, not improved. */
 const MIN_CALL_SITES = 2;
+/** Same idiom for the docblock's case list: MEASURED at the round that set it, never counted by eye. */
+const MIN_PINNED_CASES = 52;
+const CASES_HEADING = "## The cases this guard has been watched against";
 
 const problems = [];
 const fail = (m) => problems.push(m);
@@ -261,23 +286,66 @@ function importedAs(src, matches, exported) {
 const importedFrom = (src, rel, moduleRel, exported) =>
   importedAs(src, (t) => resolveSpec(rel, t) === moduleRel, exported);
 
-/** Is `node` a call to one of `binding.names`, or to `ns.<exported>` for one of its namespaces? */
-function isCallToBinding(node, binding, exported) {
+/**
+ * Does `name`, read FROM `node`, denote one of `names` — directly, or through a chain of immutable
+ * aliases?
+ *
+ * ⚠️ AN IMPORT CAN BE SHADOWED (Codex round 3 on #287). `const useCoalescedRefresh = (fn) => fn`
+ * inside a component makes `useCoalescedRefresh(refresh)` an identity function — the raw reader,
+ * called per event — while a name-only check still attributes it to the import. A local binding
+ * whose initializer is anything but a bare identifier is exactly that takeover, and fails here.
+ *
+ * ⚠️ AND AN ALIAS OF AN IMPORT IS STILL THE IMPORT (Codex round 6 on #287). `const useRealtime =
+ * useCartRealtime;` put a whole consumer out of the guard's REACH, not merely past one check:
+ * `names` holds import-declared spellings only, so that call site was never COLLECTED, and the two
+ * real ones kept `MIN_CALL_SITES` satisfied — green over a consumer re-reading per event. Round 4
+ * closed exactly this for the reader (finding #16) and the hook side was simply missed. Each hop
+ * re-resolves from the DECLARATION, because that is the scope the alias was written in, and `const`
+ * is required WHERE A HIT GRANTS CREDIT, for finding #7's reason: a `let` can be reassigned after
+ * the alias is taken.
+ *
+ * ⚠️ WHICH IS WHY `loose` EXISTS, AND IT IS NOT A RELAXATION. The two directions have OPPOSITE
+ * safe answers for a mutable alias. Asking "is this DEFINITELY the coalescer?" (credit) must say no
+ * — a `let` can be reassigned to a no-op. Asking "could this be the hook, or a read beside the
+ * schedule?" (scrutiny) must say YES for the same reason: refusing there does not refuse the
+ * consumer, it makes the consumer INVISIBLE, which is how the `const` alias above escaped. So
+ * `loose` is passed exactly where a hit WIDENS scrutiny — the call-site walk and `directReaderCalls`
+ * — and never where one grants credit. Fixing the `const` shape alone and stopping would be this
+ * repo's own recurring mistake: a hole closed for the one spelling that was reported.
+ */
+function aliasesImported(node, name, names, loose) {
+  const seen = new Set();
+  let current = name;
+  let from = node;
+  for (;;) {
+    if (seen.has(current)) return false; // `const a = a;` parses — and resolves to nothing
+    seen.add(current);
+    const local = resolveBinding(from, current);
+    if (local === null) return names.has(current); // nothing local binds it → the import itself
+    if (local.kind !== "value") return false; // a param, a destructured local, a hoisted function
+    if (!local.isConst && !loose) return false; // a `let` can be reassigned — never credit it
+    const init = unwrap(local.init);
+    if (!ts.isIdentifier(init)) return false; // an arrow, a call, a member — a real takeover
+    current = init.text;
+    from = local.init;
+  }
+}
+
+/**
+ * Is `node` a call to one of `binding.names`, or to `ns.<exported>` for one of its namespaces?
+ *
+ * `loose` follows mutable aliases too — pass it only where a hit widens scrutiny, never where one
+ * grants credit. See `aliasesImported`.
+ */
+function isCallToBinding(node, binding, exported, loose = false) {
   if (!ts.isCallExpression(node)) return false;
   // `(refresh)()` — a parenthesized callee is the same call (Codex round 5 on #287).
   const callee = unwrap(node.expression);
-  // ⚠️ AN IMPORT CAN BE SHADOWED (Codex round 3 on #287). `const useCoalescedRefresh = (fn) => fn`
-  // inside a component makes `useCoalescedRefresh(refresh)` an identity function — the raw reader,
-  // called per event — while a name-only check still attributes it to the import. `resolveBinding`
-  // finds local `const`/`function` declarations and never the import itself, so a hit here means the
-  // name has been taken over locally.
-  const shadowed = (name) => resolveBinding(node, name) !== null;
-  if (ts.isIdentifier(callee)) return binding.names.has(callee.text) && !shadowed(callee.text);
+  if (ts.isIdentifier(callee)) return aliasesImported(node, callee.text, binding.names, loose);
   return (
     ts.isPropertyAccessExpression(callee) &&
     ts.isIdentifier(callee.expression) &&
-    binding.namespaces.has(callee.expression.text) &&
-    !shadowed(callee.expression.text) &&
+    aliasesImported(node, callee.expression.text, binding.namespaces, loose) &&
     callee.name.text === exported
   );
 }
@@ -472,7 +540,7 @@ function directReaderCalls(fn, ctx) {
     // ⚠️ THE IMPORTED-BINDING CHECK COMES FIRST (Codex round 3 on #287). Filtering to identifier
     // callees before this discarded `cart.getCartView(id)` — a namespace import — so a handler could
     // schedule AND read immediately through the qualified form.
-    if (isCallToBinding(n, ctx.reader, READER)) {
+    if (isCallToBinding(n, ctx.reader, READER, true)) {
       hits.push(n.expression.getText());
       return;
     }
@@ -577,7 +645,7 @@ for (const rel of windowFiles) {
 
   const calls = [];
   walk(src, (n) => {
-    if (isCallToBinding(n, hook, HOOK)) calls.push(n);
+    if (isCallToBinding(n, hook, HOOK, true)) calls.push(n);
   });
   if (calls.length === 0) continue;
   callSites += calls.length;
@@ -687,6 +755,35 @@ for (const constName of WINDOW_CONSTS) {
     );
 }
 
+/**
+ * The cases pinned in THIS FILE's own docblock, counted from the source rather than read off a
+ * sentence. A shrunk list is a regression — the same reason `MIN_CALL_SITES` exists — and a heading
+ * that no longer parses fails loudly instead of silently reporting zero.
+ */
+function pinnedCases() {
+  const doc = readFileSync(fileURLToPath(import.meta.url), "utf8")
+    .split(CASES_HEADING)[1]
+    ?.split("*/")[0];
+  if (!doc) return null;
+  const red = doc.split("RED —")[1]?.split("GREEN —")[0];
+  const green = doc.split("GREEN —")[1];
+  if (!red || !green) return null;
+  // "a · b · c" — n separators, n+1 items.
+  return red.split("·").length + green.split("·").length;
+}
+
+const cases = pinnedCases();
+if (cases === null)
+  fail(
+    `the docblock's case list could not be parsed — "${CASES_HEADING}" with a RED and a GREEN run ` +
+      `must stay in this file; the cases ARE the proof that this guard can fail.`,
+  );
+else if (cases < MIN_PINNED_CASES)
+  fail(
+    `the docblock pins ${cases} watched cases, fewer than the ${MIN_PINNED_CASES} this guard has ` +
+      `been proved against. A case list that shrinks is a regression, not a tidy-up.`,
+  );
+
 if (problems.length) {
   console.error("✗ check:echo-coalesce\n");
   for (const p of problems) console.error(`  • ${p}`);
@@ -697,5 +794,5 @@ if (problems.length) {
 }
 console.log(
   `✓ check:echo-coalesce — ${callSites} ${HOOK} call sites, all coalesced; one window across ` +
-    `${parsed.size} files in ${WINDOW_SCAN_ROOTS.join(", ")}`,
+    `${parsed.size} files in ${WINDOW_SCAN_ROOTS.join(", ")}; ${cases} watched cases pinned`,
 );
