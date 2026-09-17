@@ -4,6 +4,123 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M193 (the other half) · M217 — one coalescer for both screens, and a row that was closed against a superseded migration (2026-09-17)
+
+**#275 closed M193 where the defect was FOUND and left it shipping one route away.** The coalescer
+landed in `TableCartProvider`; `useCartRealtime`'s other consumer — `Checkout.tsx`, the /cart
+pre-payment screen — still passed an arrow that ignored its `CartChange` and ran a full
+`getCartView` per row event. One cart mutation writes to BOTH watched tables (the `qr_cart_items`
+row and `touchCart`'s `qr_carts` UPDATE), so every tap at the table echoed back at least twice, and
+each echo is ~7 sequential DB round trips competing with create-intent. /cart is a separate route
+with a separate tree, so the provider's coalescer was never mounted there and no /menu test could
+have reached it.
+
+- **`apps/qr/lib/echo-refresh.ts` — the window, the arithmetic and the timer, once.** `echoDelayMs`
+  is a pure function of how long the pending burst has already waited, so the quiet period
+  (`ECHO_COALESCE_MS`) and the deadline (`ECHO_MAX_WAIT_MS`) are falsifiable by a VALUE rather than
+  by a render; `useCoalescedRefresh` is the thin hook both screens call. The second copy of `150`
+  and `600` in a component is exactly how two screens drift apart, which is what happened here.
+- **`pnpm check:echo-coalesce` — a guard over a SET, not a test of one screen.** The rule is "every
+  `useCartRealtime` consumer coalesces", and the set grows; the guard derives its call sites from
+  the AST of every file under `apps/qr` (never a maintained list), resolves each `onChange` to its
+  declaration, and requires the scheduling call to be a DIRECT, UNCONDITIONAL statement — so
+  `if (false) schedule();`, a commented-out call and a conditional one all fail, which a substring
+  matcher accepts. It also counts the two window constants repo-wide: exactly one declaration each.
+  ⚠️ **Codex round 1 found two holes in this guard and none in the code it guards**, both the guard
+  claiming a property it had not established: (a) the call sites were matched by NAME, so
+  `import { useCartRealtime as useRealtime }` in a new consumer was invisible while the two
+  unaliased sites kept the floor satisfied — both hook names now resolve from the import (alias and
+  `import * as ns` included) and the specifier resolves as a PATH, so any relative depth is the same
+  module; (b) `some()` over the statement list is not liveness — `if (irrelevant) return;` before
+  the call left it a top-level statement while whole classes of event skipped the refresh, so every
+  statement before the call must now be exit-free (`return`/`throw`, not descending into nested
+  functions, whose returns exit THEM). ⚠️ **A blind adversarial pass then found four more, all in
+  the guard:** whole-file `declarations()` was LAST-WINS, so two same-named bindings in one file let
+  the correct one launder the defective one (the repo's own **uniqueness ≠ liveness** rule, broken
+  by the guard written to enforce it) — bindings now resolve LEXICALLY from the call site; the
+  coalescer's ARGUMENT was never read, so `useCoalescedRefresh(() => {})` passed while nothing could
+  re-read — it must be a named binding; `void schedule()` was REFUSED, which is this repo's
+  fire-and-forget idiom and literally the line this slice replaced — `void`/`await`/`as`,
+  `React.useCallback` and a hoisted `function` handler are all accepted now; and "repo-wide" was
+  `apps/qr` only — the window scan covers `packages/` and `scripts/` too, and the docblock no longer
+  claims it can see a bare `150` literal, which it cannot. ⚠️ **Codex round 2 then found four MORE,
+  the same shape a third time:** the binding's MUTABILITY was ignored (`let schedule =
+useCoalescedRefresh(refresh); schedule = refresh;` typechecks and a resolver reading only the
+  initializer approves it — `const` required now); `callsDirectly` RETURNED at the scheduling
+  statement, so `{ schedule(); void refresh(); }` passed while every row event still started its own
+  read; `useCallback` was matched by PROPERTY NAME, so any object with that key was accepted while
+  the raw reader was handed on; and a NAMED argument was taken as sufficient, so
+  `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. The
+  argument must now REACH `getCartView` transitively — one hop is not enough, since `Checkout.refresh`
+  calls the reader itself while `TableCartProvider.refresh` goes through `readView`. Every file is
+  parsed ONCE, in ~1.7 s. ⚠️ **Codex round 3 found four MORE — a handler shadowing the
+  scheduler NAME with the raw reader (a name set is not a binding, so every candidate call now
+  resolves at its own lexical position and the set is gone); a namespace-qualified
+  `cart.getCartView(id)` beside the schedule, discarded because the identifier filter ran before the
+  imported-binding check; a locally-shadowed `useCoalescedRefresh` credited to the import; and a
+  GENERATOR handler, whose body never runs when it is called.** Two of round 3's six are filed rather
+  than fixed (**M226**, under the round-3 rule): a reader inside a never-invoked nested helper needs
+  invocation tracking, and a preceding call typed `never` needs the TYPE CHECKER, which this guard
+  deliberately does not load. **23 red-first cases: 10 controls GREEN and every evasion RED**, plus
+  the walk floor, and the list is kept in the guard's own docblock rather than in prose. **Round 4
+  added three more:** a PARAMETER shadowing the imported coalescer (`resolveBinding` scanned only
+  statements, so a same-named prop took the import over for a whole component body — destructured
+  parameters too); an immutable identifier ALIAS of the reader (`const refreshNow = refresh`) that
+  `resolveFunction` could not follow, so a handler calling it beside the schedule read per event
+  unflagged; and a changelog number of my own contradicting the measured total. **Round 5 added
+  five:** the hook's stability CONTRACT made mechanical (`useCoalescedRefresh` keys its cleanup on
+  the reader's identity, so an UNMEMOIZED reader silently drops the pending read — `isStableReader`
+  now requires a `useCallback` result, a module-scope binding, or an immutable alias of one); a
+  MUTABLE reader (`let refresh = …; refresh = () => {}`), which round 2 had closed for the scheduler
+  and not for the other side; a destructured local shadowing the coalescer; a parenthesized
+  `(refresh)()` escaping three separate identifier tests; and, filed rather than fixed as
+  **M226(c)**, the burst deadline's use of the wall clock. **Round 6 added three, one of them the
+  same hole on the opposite side:** `const useRealtime = useCartRealtime` put a whole consumer out
+  of the guard's REACH — never collected, never examined, while the two real sites kept the floor
+  satisfied — and closing only that `const` spelling would have left `let useRealtime` just as
+  invisible, so aliases resolve through one helper whose `loose` flag is passed exactly where a hit
+  WIDENS scrutiny and never where one grants credit. The other two were prose: this entry stale at
+  round 4, and `docs/HANDOFF.md` still repeating the merge-function history the blind pass had
+  refuted. **The red-first case list is no longer counted by hand — the guard reads its own docblock
+  and prints the total (52 today), with a floor beside `MIN_CALL_SITES`**, because three
+  transcriptions of that number existed and two were wrong. **Round 7 found the same fix one function
+  short:** `directReaderCalls` reaches the reader by a second route (`resolveFunction`, whose
+  `const`-only rule came from finding #19), so `let refreshNow = refresh` beside the schedule still
+  passed at "3 call sites, all coalesced" while every event read immediately — `loose` now rides
+  `resolveFunction` and `reachesReader` too, and the credit direction is untouched. **Round 8 found
+  four more and they are FILED, not fixed — M226(d)–(g), under the round-3 rule after seven fix
+  rounds on one guard.** All four verified against the guard before filing (each printed "3 call
+  sites, all coalesced" while every event read immediately): a mutable alias ASSIGNED the reader
+  after its declaration, the reader held in a local object property, an alias chain crossing a
+  shadowing scope defeating the text-keyed cycle guard, and the reader passed by name to
+  `queueMicrotask` — though the same call with an inline arrow IS caught. None is a defect in
+  shipped behaviour; each needs an author to write the evasion deliberately, while the realistic
+  regression has been caught since round 1. Two of the suggested remedies are a name-keyed matcher
+  or a rule that would flag every unrelated `let` callback, which is how a guard earns being
+  ignored — so the docblock now states what this guard does NOT prove instead. **Round 9 added a
+  barrel RE-EXPORT of the hook (M226(h), verified) and caught a file COUNT that was never a fact
+  about the repo:** the scan included `apps/qr/next-env.d.ts`, which `next build` generates and
+  `.gitignore` hides, so it read 679 on a developed tree and 678 in a fresh checkout — and in CI's
+  own fast lane, which runs before the build. `.d.ts` is excluded now (a declaration file holds
+  neither a call site nor a value), the scan is deterministic, and the prose stopped quoting a
+  total. 35 findings across two reviewers and nine rounds: **30 in this guard, four in my own prose about it, one in the product module** — none in
+  the shipped wiring beside them.
+- **Five new `verify:slice` mutants — 683 → 688** (`apps/qr/lib/echo-refresh.ts` joins the mutate
+  set, 124 → 125 target modules), and the /menu call-site mutant is re-anchored to the wiring it now
+  guards. The "fresh deadline" test needed a separating fixture: two bursts a tick apart give the
+  SAME delay whether or not the anchor reset, so the first draft scored green against its own
+  mutation and only an idle gap between bursts tells them apart.
+- **M217 closed as NOT A DEFECT — and the first draft of that closure got the mechanism wrong too,
+  so these numbers are measured.** The row said `mms_merge_table_orders` "loops over EVERY
+  `qr_cart_items` row of the source with no state predicate", so a `served` line could fold into a
+  `fired` one and the kitchen would re-cook eaten food. **14** migration files redefine that one
+  function (a bare `grep -l` returns 15 — `20260823000000_m100_mode_authority.sql` mentions it
+  without redefining it). The S6 same-kitchen-state fold was **not** added by `m98`, whose own
+  comment says it added the PRICE match; its real history is **add → drop → restore** — introduced
+  `20260622090000`, absent from the next three definers _including the one this row cites_, restored
+  `20260702000000`, carried ever since. So the reviewer described a real defect in a real file; only
+  the LAST definer answers the question. Verified on PROD via `pg_get_functiondef`.
+
 ### M218 · M219 — a cash refund is RECORDED, and the ledger is read whole (2026-09-16)
 
 **The drawer paid out and every surface kept saying "Paid in full".** `mms_refund_authorize` answers

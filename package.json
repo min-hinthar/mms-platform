@@ -29,6 +29,7 @@
     "check:freeze-parity": "node scripts/check-freeze-parity.mjs",
     "check:child-freeze": "node scripts/check-child-freeze.mjs",
     "check:types-sorted": "node scripts/check-generated-types-sorted.mjs",
+    "check:echo-coalesce": "node scripts/check-echo-coalesce.mjs",
     "check:mutant-anchors": "node scripts/check-mutant-anchors.mjs"
   },
   "devDependencies": {

@@ -76,6 +76,13 @@ jobs:
       # check:freeze-parity blind to pickup.ts, OPEN-ITEMS T13), so a new lock-bearing module and a
       # new component that fires one both join it automatically.
       - run: pnpm check:child-freeze
+      # M193 — every `useCartRealtime` consumer coalesces its echoes, and the window is declared
+      # once. The row was closed by #275 with `Checkout.tsx` still re-reading per event, on the
+      # PRE-PAYMENT screen, because /cart is a different route and no /menu test can reach it. The
+      # rule is about a SET that grows, so the call sites are DERIVED from the AST and the scheduling
+      # call must be a direct, unconditional statement — a dead `if (false) schedule()` and a
+      # commented-out one both fail, which a substring matcher would have accepted.
+      - run: pnpm check:echo-coalesce
       # `verify:slice` already reports a STALE mutant — but only at the END of a full run, ~20
       # minutes in, after every other mutation has been applied and its suite re-run. This asks the
       # same question in about a second, reading no test and running no build. A stale anchor is not

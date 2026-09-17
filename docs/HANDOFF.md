@@ -5,6 +5,104 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-17 · M218 · M219 MERGED as `062b6be` (#286) with the migration live on prod; the coalescer slice (M193's other half · M217) is built and gated on `claude/qr-app-backlog-cj2t0m`)
+>
+> **M193 was closed for eight days with half of it still shipping, and that is the reusable part.**
+> #275 built the echo coalescer in `TableCartProvider` and closed the row. `useCartRealtime` has
+> TWO consumers; the other one — `Checkout.tsx`, the /cart pre-payment screen — still passed an
+> arrow that ignored its `CartChange` and ran a full `getCartView` per row event, which is the row's
+> text verbatim. /cart is a separate route with a separate tree, so the provider's coalescer was
+> never mounted there and no test of the provider could have gone red for it.
+>
+> **The fix is one module, not a second copy.** `apps/qr/lib/echo-refresh.ts` owns the window
+> (`ECHO_COALESCE_MS` 150 / `ECHO_MAX_WAIT_MS` 600), the arithmetic (`echoDelayMs`, pure, so the
+> quiet period and the deadline are falsifiable by a VALUE) and the timer (`useCoalescedRefresh`).
+> Both screens call it. **`pnpm check:echo-coalesce`** is the durable half: it parses every
+> `useCartRealtime` call site under `apps/qr` — derived from the AST, never a maintained list —
+> resolves each `onChange` to its declaration, and requires the scheduling call to be a top-level
+> statement REACHED on every invocation, so `if (false) schedule();`, a commented-out call and an
+> early `return`/`throw` before it all fail. Both hook names are resolved from the IMPORT (alias and
+> `import * as ns`), and the specifier resolves as a PATH, so no spelling of the import escapes it.
+> It also counts the two window constants across `apps/qr`, `packages/` and `scripts/` — it matches
+> the two NAMES, and cannot see a bare `150` literal. Every file is parsed ONCE, in ~1.7 s. ⚠️ **Do
+> not quote a file COUNT for it anywhere** — run the check and read its own line. Until round 9 the
+> scan included `apps/qr/next-env.d.ts`, which `next build` GENERATES and `.gitignore` hides, so the
+> total was 679 on a developed tree and 678 in a fresh checkout and in CI's fast lane (which runs
+> before the build). A number that depends on whether the reader has run a build is not a fact about
+> the repo. `.d.ts` is excluded now — a declaration file can hold neither a call site nor a value.
+> The red-first case list lives in the guard's docblock, and **the guard COUNTS it and prints the
+> total** — do not transcribe a number for it here or anywhere else, run the check and read the line
+> (`node scripts/check-echo-coalesce.mjs`). Three copies of that total existed across this PR's prose
+> and two were stale, which is why there is now a floor beside `MIN_CALL_SITES` instead.
+>
+> ⚠️ **Across six rounds and two reviewers, all but one finding landed in the GUARD or in my own
+> prose about it — none in the shipped wiring beside them** (the exception is M226(c), the burst
+> deadline's wall clock, which is in the product module). Two came from Codex
+> round 1 (the name-only call-site match, defeated by an import alias while the floor stayed
+> satisfied; and `some()` over the statement list, which is not reachability) and four by the blind
+> adversarial pass (whole-file last-wins bindings laundering a same-named defective one; the
+> coalescer's argument never read, so a no-op passed; `void schedule()` refused, which is the repo's
+> own idiom; and "repo-wide" meaning `apps/qr` only), then FOUR more by Codex round 2 (mutability
+> ignored; `callsDirectly` returning at the scheduling statement so a handler could schedule AND read
+> directly; `useCallback` matched by property name; and a named argument taken as sufficient, so a
+> coalescer wrapping a no-op passed). Every one was the guard asserting a property its matcher could
+> not establish. That is the shape CLAUDE.md warns about under "guards get audited harder than the
+> code they guard", and it is now three PRs running. The pattern that ties every one of them
+> together: **a matcher keyed on a NAME, a POSITION, or an INITIALIZER proves nothing about the value
+> that actually ships.** Round 3 added four more of exactly that shape (a shadowed scheduler name, a
+> namespace-qualified reader the identifier filter discarded, a shadowed import, and a generator
+> whose body never runs) and two the guard cannot close without a type checker — filed as **M226**
+> under the round-3 rule rather than fixed, because both are adversarial-only and the fast lane is
+> ~1.7 s over the whole app. Rounds 4–6 kept finding the same shape: a PARAMETER and then a DESTRUCTURED
+> local shadowing the coalescer, an immutable alias of the reader, an unmemoized reader defeating the
+> hook's own cleanup contract, a parenthesized callee, and finally — round 6 — **an alias of the HOOK
+> itself, which did not defeat a check but removed a whole consumer from the guard's REACH**: the
+> pre-fix script printed "2 call sites, all coalesced" with an uncoalesced third one sitting on disk.
+> Closing only the `const` spelling that was reported would have left `let useRealtime =
+useCartRealtime` equally invisible, so the fix resolves alias chains in one helper and passes its
+> `loose` flag exactly where a hit WIDENS scrutiny — never where one grants credit.
+>
+> ⚠️ **The blind pass also falsified my own LEARNINGS #116 — all three of its numbers.** The entry
+> preaching "measure, never transcribe" had transcribed a count (eleven, really 14), a mechanism
+> (the first `grep -l` hit) and a date (`m98` added the S6 fold; it did not). Corrected from
+> measurement, and the corrected history is a better lesson: the fold was added, DROPPED by the next
+> three definers, and restored — so the file M217 cites is one in which the defect was genuinely
+> live.
+>
+> **Two /cart defects the pass surfaced are filed, not fixed here: M224** (a refused cart write is
+> swallowed in a comment-only `catch`, so a tap in the pre-lock window snaps back silently — the
+> coalescer widens that window by ≤150 ms typical, ≤600 ms in a burst) and **M225** (`Checkout`'s
+> `refresh` has no `view-seq` ticket, so a late older read can clobber a fresher one). Both predate
+> this PR; the docblock that claimed ticketing as the safety argument for BOTH screens now says
+> which screen it is true of.
+>
+> **M217 is closed as NOT A DEFECT — the row was written against a superseded migration.** It cites
+> `20260623030000_s3_secure_merge_guard.sql`, the SEVENTH of **14** files that redefine
+> `mms_merge_table_orders` — seven definers out of date. The S6 same-kitchen-state fold
+> (`and t.state = r.state`) has an add/drop/restore history, not a single arrival:
+> `20260622090000_s2_audit_fixes.sql` introduced it, **the next three definers dropped it —
+> including the one M217 cites** — and `20260702000000_merge_void_guard_restore.sql` restored it,
+> since when every definer has carried it. So the migration the row names is genuinely one in which
+> the defect was live; it is the FUNCTION that has moved on. Confirmed on PROD with
+> `pg_get_functiondef`, not inferred from the repo. I nearly shipped the same mistake one step
+> further — a full replacement function plus a nine-case SQL test written against that superseded
+> body, which would have reverted five migrations' worth of guards in one commit. Both files were
+> deleted before they were committed. **LEARNINGS #116** is the rule: `tail -1` the definers, then
+> read prod — and that entry's first draft transcribed all three of these numbers WRONG (eleven
+> definers, the wrong first hit, the wrong restoring migration), which is why they are measured here:
+>
+> ```bash
+> grep -rlE 'function[[:space:]]+(public\.)?mms_merge_table_orders' supabase/migrations/*.sql | sort
+> ```
+>
+> **What this says about the rest of the high band.** Two of the rows I sampled this session were
+> closed or filed against something that had already changed. When a finding names a MECHANISM
+> rather than a place, the subject is the mechanism's consumer set — grep it, count the non-test
+> consumers, fix or account for each, and prefer a guard over the set to a second point fix
+> (LEARNINGS #117).
+>
+> ---
+>
 > ## ⏭️ NEXT SESSION — start here (2026-09-16 · A4 COMPLETE and MERGED through #285 `9d484db`; the refund-ledger slice (M218 · M219) is built and gated on `claude/qr-app-backlog-cj2t0m`, its PR open)
 >
 > **M218 — a cash refund is RECORDED now.** It could not be: `mms_refund_authorize` refuses any
@@ -516,10 +614,10 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >
 > ### Gate + prod state on `main`, measured 2026-09-06
 >
-> **683 `verify:slice` mutants** · **124 target modules** (109 under `apps/qr/lib`, 3 API routes,
+> **688 `verify:slice` mutants** · **125 target modules** (110 under `apps/qr/lib`, 3 API routes,
 > 11 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
-> `check:docs` clean · all twelve fast-lane guards green.
+> `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
 > `99+3+8+1` is 111. A blind pass caught it; `check:docs` structurally cannot, because its rules cover
@@ -986,7 +1084,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (683 today)**, **1372 qr + 138 ui tests at the time (2578 + 142 today)**, 69 target modules at the time (109 under `apps/qr/lib` today, 124 in all), 97 local
+> **334 mutants at the time (688 today)**, **1372 qr + 138 ui tests at the time (2588 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 125 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -1878,7 +1976,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 683 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2578 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 688 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2588 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2600,7 +2698,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (683 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (688 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
