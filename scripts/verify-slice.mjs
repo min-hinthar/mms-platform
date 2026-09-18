@@ -796,6 +796,32 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "m230/toggle-drops-its-refusal",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: 'M224\'s silence on the pill beside the stepper. The result of `setLineFulfillment` was DROPPED entirely \u2014 the whole return value, not just a field \u2014 so a `busy` refusal in the same peer-lock window re-grouped the line optimistically, snapped it back, and said nothing. The control being "draft-only" is a statement about the RENDER gate, and that gate reads `lineState` from the last view',
+    find: '        refused = !r.ok && r.reason === "busy";\n      } catch {\n        // Authz / rate-limit / transport.',
+    replace:
+      "        refused = false;\n      } catch {\n        // Authz / rate-limit / transport.",
+  },
+  {
+    id: "m230/toggle-fabricates-a-diagnosis",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: 'The NARROWING is the rule, not the diagnosis. `busy` is the server\'s own "locked || settling", so a re-read classifies a freeze it actually asserted; `not_yours` is an ownership fact the re-read never establishes, and `error` / an RPC-named code carry no freeze at all. Widen the predicate and a line the kitchen fired mid-tap is explained as a LOCK \u2014 the M116/T14 fabricated diagnosis, on the screen that just removed it',
+    find: '        refused = !r.ok && r.reason === "busy";\n      } catch {\n        // Authz / rate-limit / transport.',
+    replace:
+      "        refused = !r.ok;\n      } catch {\n        // Authz / rate-limit / transport.",
+  },
+  {
+    id: "m230/make-now-drops-its-refusal",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: 'The same drop on "Send to kitchen now". Its comment claimed a refusal "just no-ops back to server truth on refresh \u2014 the control is draft-only, so no error UI is needed"; that is true of the render gate and false of the window, which is exactly the reasoning M224 was filed against',
+    find: '        const r = await makeItNow(id);\n        refused = !r.ok && r.reason === "busy";',
+    replace: "        const r = await makeItNow(id);\n        refused = !r.ok && false;",
+  },
+  {
     id: "t33/lock-banner-forgets-whose-lock-it-is",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",

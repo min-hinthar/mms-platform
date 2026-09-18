@@ -620,6 +620,34 @@ export function Checkout({
     });
   }, []);
 
+  /**
+   * Say a refusal out loud, once, in the review step's single live region — and record that it was
+   * said. THE ONE PLACE all three edit controls publish through (M224 + M230): a second copy of
+   * these three statements is the drift shape W17 named, and the order between them is load-bearing.
+   */
+  const announceRefusal = useCallback(
+    (refusal: PublishableRefusal) => {
+      // The region renders `payError ?? status`, so a stale pay error would swallow this entirely —
+      // and while the cart is frozen the diner cannot clear it by retrying the thing that set it.
+      setPayError(null);
+      setStatus(refusedWriteNotice(refusal));
+      // ⚠️ AFTER the sentence, never before: the latch is the claim that this diner HAS been told,
+      // and that is only true once the text is in the slot.
+      latchExplained(refusal);
+    },
+    [latchExplained],
+  );
+
+  /**
+   * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit
+   * controls share. Returns nothing: a read that never reached the server is not publishable (T30)
+   * and the optimistic value has already reverted, which is the honest floor.
+   */
+  const explainAndAnnounce = useCallback(async () => {
+    const refusal = await explainRefusal();
+    if (refusal) announceRefusal(refusal);
+  }, [explainRefusal, announceRefusal]);
+
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
   // stable cartId prop) so the realtime + visibility subscriptions below register once.
@@ -1162,25 +1190,20 @@ export function Checkout({
         await refresh();
         return;
       }
-      // M224 — the refusal gets a SENTENCE. `explainRefusal` re-reads (applying the view, so the
-      // list beside the sentence is the same server truth) and classifies; a read that never reached
-      // the server returns null and is not publishable (T30), which is honest: the optimistic number
-      // has already reverted to the last confirmed view and we have nothing to add.
-      const refusal = await explainRefusal();
-      if (!refusal) return;
-      // The region renders `payError ?? status`, so a stale pay error would swallow this entirely —
-      // and the diner cannot clear it by retrying while the cart is frozen.
-      setPayError(null);
-      setStatus(refusedWriteNotice(refusal));
-      // ⚠️ AFTER the sentence, never before: the latch is the claim that this diner HAS been told,
-      // and it is only true once the text is in the slot.
-      latchExplained(refusal);
+      // M224 — the refusal gets a SENTENCE, from the re-read that also re-syncs the list beside it.
+      await explainAndAnnounce();
     });
   }
 
   // S4: re-route a food line for-here↔to-go. The server recomputes the line's tax (cold food flips
-  // taxability); refresh() re-syncs the grouped basket + the breakdown. A refused toggle (busy/fired)
-  // just no-ops back to server truth on refresh — no client error needed (the control is draft-only).
+  // taxability); refresh() re-syncs the grouped basket + the breakdown.
+  //
+  // ⚠️ THE COMMENT HERE USED TO SAY "a refused toggle (busy/fired) just no-ops back to server truth
+  // on refresh — no client error needed (the control is draft-only)", AND THAT WAS THE M224 SILENCE
+  // under a different name (M230). The control being draft-only is a statement about the RENDER
+  // gate, and the render gate reads `i.lineState` from the last view: a `busy` refusal is the exact
+  // peer-lock window M224 exists for, so the pill flips optimistically, snaps back, and says
+  // nothing. `busy` is now diagnosed and spoken like every other refused edit on this screen.
   // When the cart spans 2+ destinations the line's <li> moves to another <section> on re-route, so the
   // clicked button unmounts and focus would drop to <body> (WCAG 2.4.3). Re-focus the now-pressed button
   // for that line after the re-render — its accessible name + aria-pressed announces the new destination.
@@ -1206,10 +1229,27 @@ export function Checkout({
       // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
       refocusToggle.current = { id, ful };
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
+      let refused = false;
       try {
-        await setLineFulfillment(id, ful);
+        // ⚠️ THE RESULT IS READ. It was dropped entirely, which is why a refusal was invisible.
+        const r = await setLineFulfillment(id, ful);
+        // ⚠️ ONLY `busy` IS DIAGNOSED, and the narrowing is the point (the blind pass on this slice
+        // caught the wider version). `busy` is the server's own "locked || settling", so a re-read
+        // classifies a freeze the server actually asserted — and answers `unknown` if it has since
+        // lifted, which is honest. The other three would be FABRICATED: `not_yours` is an ownership
+        // fact this re-read never establishes, and `error` / an RPC-named code carry no freeze at
+        // all, so routing them here would name a lock as the reason a fired line could not be
+        // re-routed — the M116/T14 class, on the screen that just removed it. They stay silent for
+        // now and are filed as **M230**, which needs a refusal ARM they do not have yet.
+        refused = !r.ok && r.reason === "busy";
       } catch {
-        /* transient/redacted — refresh re-syncs */
+        // Authz / rate-limit / transport. Same standing as `changeQty`'s throw: the write did not
+        // land, and the re-read is what decides whether we can name a reason for it.
+        refused = true;
+      }
+      if (refused) {
+        await explainAndAnnounce();
+        return;
       }
       await refresh();
     });
@@ -1217,15 +1257,21 @@ export function Checkout({
 
   // S4.2 "Make it now": fire a to-go line to the kitchen early (instead of waiting for checkout). The
   // server recomputes nothing about money — it only flips the line to 'fired'; refresh() re-syncs so the
-  // line shows its state chip (the toggle + this button drop away once fired). A refused fire (busy/raced)
-  // just no-ops back to server truth on refresh — the control is draft-only, so no error UI is needed.
+  // line shows its state chip (the toggle + this button drop away once fired). Refusals are handled
+  // exactly as on the toggle beside it — see its comment for why only `busy` may be diagnosed (M230).
   function makeNow(id: string) {
     startCartTransition(async () => {
       applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
+      let refused = false;
       try {
-        await makeItNow(id);
+        const r = await makeItNow(id);
+        refused = !r.ok && r.reason === "busy";
       } catch {
-        /* transient/redacted — refresh re-syncs */
+        refused = true;
+      }
+      if (refused) {
+        await explainAndAnnounce();
+        return;
       }
       await refresh();
     });

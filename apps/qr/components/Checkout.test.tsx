@@ -35,6 +35,8 @@ import type { getCartView } from "@/lib/cart";
 const h = vi.hoisted(() => ({
   getCartView: vi.fn(),
   setQty: vi.fn(),
+  setLineFulfillment: vi.fn(),
+  makeItNow: vi.fn(),
   releasePayLock: vi.fn(),
   push: vi.fn(),
 }));
@@ -42,9 +44,9 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/cart", () => ({
   applyPromo: vi.fn(),
   getCartView: h.getCartView,
-  makeItNow: vi.fn(),
+  makeItNow: h.makeItNow,
   releasePayLock: h.releasePayLock,
-  setLineFulfillment: vi.fn(),
+  setLineFulfillment: h.setLineFulfillment,
   setQty: h.setQty,
 }));
 vi.mock("@/lib/counter-pay", () => ({
@@ -177,10 +179,32 @@ async function addOne() {
   });
 }
 
+/**
+ * A dine-in table of two, which is what makes the for-here/to-go pills and "Make it now" render at
+ * all (`isDineIn && fulfillment !== "grocery" && lineState === "draft" && canEdit`).
+ */
+const DINE_IN = {
+  mode: "dinein",
+  myRole: "host",
+  mySeat: MY_SEAT,
+  members: [
+    { seat: MY_SEAT, name: "Me" },
+    { seat: PEER_SEAT, name: "Tin" },
+  ],
+} as unknown as Parameters<typeof Checkout>[0]["splitContext"];
+
+async function press(name: string | RegExp) {
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name }));
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   h.getCartView.mockResolvedValue(view());
   h.setQty.mockResolvedValue(view());
+  h.setLineFulfillment.mockResolvedValue({ ok: true });
+  h.makeItNow.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => cleanup());
@@ -309,5 +333,48 @@ describe("T33 on /cart — the banner must not overwrite the refusal", () => {
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     await syncFromServer();
     await waitFor(() => expect(regionText()).toContain("checking out"));
+  });
+});
+
+describe("M230's half — the two pills beside the stepper share the same window", () => {
+  it("speaks when the for-here/to-go toggle is refused BUSY", async () => {
+    // Identical exposure to `changeQty`: the render gate reads `lineState` from the last view, so a
+    // peer taking the pay lock leaves the pill live, the flip is optimistic, and the server answers
+    // `busy`. Dropping that result — which is what shipped — re-groups the line and snaps it back
+    // with nothing said.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "busy" });
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    mount({ splitContext: DINE_IN });
+    await press("To go");
+    await waitFor(() =>
+      expect(regionText()).toContain(
+        "That didn’t go through — the order’s locked while someone checks out",
+      ),
+    );
+  });
+
+  it("stays silent on a refusal the re-read cannot honestly diagnose", async () => {
+    // `not_yours` is an OWNERSHIP fact — the kitchen fired the line between this phone's read and
+    // the tap. A re-read establishes nothing about it, so naming a lock here would be the M116/T14
+    // fabrication on the screen that just removed it. Silence until M230 gives it a real arm.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    mount({ splitContext: DINE_IN });
+    await press("To go");
+    await act(async () => {});
+    expect(regionText()).not.toContain("didn’t go through");
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it('speaks when "Send to kitchen now" is refused BUSY', async () => {
+    h.makeItNow.mockResolvedValueOnce({ ok: false, reason: "busy" });
+    h.getCartView.mockResolvedValue(view({ settling: true }));
+    mount({ splitContext: DINE_IN, initialItems: [{ ...ITEM, fulfillment: "togo" }] });
+    await press(/Send to kitchen now/i);
+    await waitFor(() =>
+      expect(regionText()).toContain(
+        "That didn’t go through — the order’s locked while your table pays",
+      ),
+    );
   });
 });
