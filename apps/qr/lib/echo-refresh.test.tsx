@@ -124,7 +124,10 @@ describe("useCoalescedRefresh — one read per burst, and never none", () => {
       });
     }
 
-    expect(refresh).toHaveBeenCalled();
+    // The COUNT, not merely "called" (blind adversarial pass on #288): under the shipped code the
+    // deadline binds exactly once across this stream, and asserting only `toHaveBeenCalled` left the
+    // mixed-clock direction — which fires one read per event — to be caught by a neighbour.
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("starts a FRESH deadline once a burst has drained", () => {

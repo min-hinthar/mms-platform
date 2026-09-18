@@ -612,7 +612,13 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > cross-references repointed; OPEN-ITEMS unioned by row id at each step (20 → 31 → 3 rows) with the
 > union asserted equal each time; every count re-measured and pasted rather than transcribed.
 >
-> ### Gate + prod state on `main`, measured 2026-09-06
+> ### Gate + prod state on `main` — the mutant and module counts are LIVE, the rest is 2026-09-06
+>
+> ⚠️ The heading used to say "measured 2026-09-06" over a line `check:docs` keeps CURRENT. Both
+> cannot be true, and the guard wins: its rule for this line reads the bare total, so writing
+> "688 that day (694 today)" here reddens step one of the fast lane. The date qualifies the test
+> counts below, which carry their own "as measured that day"; the mutant and module counts are
+> today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **694 `verify:slice` mutants** · **125 target modules** (110 under `apps/qr/lib`, 3 API routes,
 > 11 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·

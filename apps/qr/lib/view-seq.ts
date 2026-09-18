@@ -55,7 +55,16 @@
  * That is a limitation this ticket does not remove, not a regression it introduces: before it,
  * ordering was by ARRIVAL, which is equally unrelated to server read order. What bounds the cost is
  * T20's scheduled re-read, which arms on exactly this state and re-arms on every successful read —
- * so the residual is one TTL of staleness, not a permanent freeze. Ordering on server truth needs
+ * so the residual is one TTL of staleness, not a permanent freeze.
+ *
+ * ⚠️ THAT BOUND IS A PROPERTY OF THE CALLER, NOT OF THIS MODULE, and adding a second caller is what
+ * made the difference matter (Codex round 1 and the blind pass on #288, independently). When M225
+ * ticketed `/cart`, this paragraph still read as though the T20 re-read came with the ticket. It did
+ * not: `freezeRecheckDelayMs` was the provider's alone, a lock expiry emits no realtime event, and
+ * `/cart`'s visibility backstop never fires for a tab that stays open — which is the `/cart` case.
+ * So for one release the inversion above had NOTHING to heal it there, and in that interleaving the
+ * ticket was worse than the arrival order it replaced. `Checkout.tsx` arms the same re-check now.
+ * A THIRD caller must bring one too, or inherit an unbounded freeze. Ordering on server truth needs
  * the view to CARRY it (an observation stamp, or the `locked_at`/`settle_at` of T23); that is a
  * shape change, and it is filed rather than approximated here.
  *
@@ -161,7 +170,7 @@ export function readReachedServer(o: ReadOutcome): boolean {
  *
  * ⚠️ M225 — THE ORDERING LIVES HERE SO IT CAN BE FALSIFIED BY A VALUE. `TableCartProvider` hand-wires
  * the same four steps across three call sites (mint, await, gate, apply), and `Checkout` had none of
- * them: `/cart`'s `refresh` was a bare `await getCartView(cartId)` followed by eight setters, so two
+ * them: `/cart`'s `refresh` was a bare `await getCartView(cartId)` followed by ten setters, so two
  * reads in flight applied in ARRIVAL order and an older one could re-assert `locked: false` over a
  * corrected `true`. `/cart` has no scheduled freeze re-check to heal that (`freezeRecheckDelayMs`
  * is the provider's alone), so the stale unfreeze stands until a peer's next row event.

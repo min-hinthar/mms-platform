@@ -172,7 +172,7 @@ describe("readTicketed — the older answer never overwrites the newer one", () 
 
   it("REFUSES an older read that resolves LAST, and writes nothing", async () => {
     // The /cart defect verbatim: `refresh` fired twice (a mutation's own await overlapping a
-    // coalesced echo), the older one came back second, and its eight setters re-asserted a stale
+    // coalesced echo), the older one came back second, and its ten setters re-asserted a stale
     // `locked: false` over the corrected `true`. /cart has no scheduled freeze re-check to heal it.
     const s = seq();
     const applied: string[] = [];
@@ -271,7 +271,13 @@ describe("readTicketed — the older answer never overwrites the newer one", () 
       () => {},
     );
     older.resolve("older");
-    expect(readReachedServer(await first)).toBe(true);
+    // ⚠️ ASSERT THE OUTCOME TOO (blind adversarial pass on #288). `readReachedServer` is true for
+    // BOTH `applied` and `overtaken`, so the predicate alone stays green under a mutation that makes
+    // every view apply — it pins the contract but discriminates nothing about the refusal. The state
+    // has to be named for this case to be about what it claims.
+    const outcome = await first;
+    expect(outcome).toBe("overtaken");
+    expect(readReachedServer(outcome)).toBe(true);
   });
 });
 
