@@ -73,6 +73,22 @@ deadline that bounds the postponement was measured with a clock that can move ba
   `readReachedServer`, true for two of three outcomes, so it stayed green under the gate-removed
   mutant; the clock case asserted `toHaveBeenCalled` where the count is exactly 1. Both were watched
   red under the mutations they now catch.
+- **Three review rounds on one area, and the third found a regression the second had introduced.**
+  Round 2: `confirmedWrite` advances the watermark WITHOUT a view, so a freeze re-check could lose an
+  expiry observation to a counter tap — closed by re-issuing once. Round 3: that unconditional
+  re-issue could itself FAIL and overwrite an `"overtaken"` that a complete view had already
+  established, reporting "Couldn't check just now" over a fresh unlocked screen — the same fabricated
+  diagnosis reached from the other side. A retry that does not come back now leaves the established
+  outcome standing, on both the scheduled chain and the manual control.
+- **The root cause is filed, not patched a fourth time (M228).** `"overtaken"` conflates "a real view
+  beat you" with "a field-only barrier beat you", and those need opposite responses. The fix is a
+  second watermark in `ViewSeq` that only `acceptView` moves — ~15 lines plus a suite — and it is a
+  concurrency primitive that has now produced a new finding on each successive patch under review
+  pressure. It gets its own slice, red-first, with the interleavings as fixtures. ⚠️ A third round-3
+  finding is neither new nor this PR's: the chain not restarting after a failed read on a still-frozen
+  cart is a PRE-EXISTING T20 property — the provider's effect has the identical re-arm and deps, so
+  /menu has carried it since T20 and /cart inherited it by porting. Fixing one screen only is what
+  M193 cost a release to undo.
 - **688 → 694 mutants; 125 target modules unchanged** (both files were already in the set).
   ⚠️ **The /cart WIRING remains unguarded and M225's closure says so — filed as M227.** `Checkout.tsx`
   has no suite and is not in the mutate set, so deleting either `confirmedWrite` call site leaves all

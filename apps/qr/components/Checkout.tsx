@@ -919,7 +919,12 @@ export function Checkout({
           // An overtaken read LOST its observation, and the thing that overtook it may have been a
           // field-only barrier carrying no axes at all (see above). Re-read once so the state this
           // chain re-arms from came from a view.
-          const settled = outcome === "overtaken" ? await refresh() : outcome;
+          // ⚠️ A FAILED RETRY MUST NOT ERASE WHAT THE FIRST READ ESTABLISHED (Codex round 3 on #288).
+          // `"overtaken"` already proves the cart is reachable; if the re-issue then fails we have
+          // learned nothing NEW, so keeping `"failed"` would stop a chain the first read had earned
+          // the right to continue. Only a retry that came back replaces the outcome.
+          const retry = outcome === "overtaken" ? await refresh() : outcome;
+          const settled = retry === "failed" ? outcome : retry;
           if (!cancelled && readReachedServer(settled)) arm();
         });
       }, delay);
@@ -1258,8 +1263,17 @@ export function Checkout({
       // back, leaves the frozen screen exactly as it was" failure this control exists to remove —
       // the comment above is about the silent-failure half of it. One retry is enough: it carries a
       // ticket above everything already in flight, so nothing can overtake it in turn.
+      // ⚠️ AND THE RETRY MUST NOT MANUFACTURE A FAILURE (Codex round 3 on #288 — a regression the
+      // round-2 patch introduced). `"overtaken"` can mean an ordinary concurrent `refresh` applied a
+      // COMPLETE view that already cleared the lock; if this unconditional re-issue then fails,
+      // replacing the outcome would light "Couldn't check just now" over an already-refreshed,
+      // unlocked screen — the same fabricated diagnosis, arrived at from the other side. A retry
+      // that does not come back leaves the established outcome standing.
       let outcome = await refresh();
-      if (outcome === "overtaken") outcome = await refresh();
+      if (outcome === "overtaken") {
+        const retry = await refresh();
+        if (retry !== "failed") outcome = retry;
+      }
       if (!readReachedServer(outcome))
         setPayError(
           "Couldn’t check just now — try again in a moment. The lock also clears on its own.",
