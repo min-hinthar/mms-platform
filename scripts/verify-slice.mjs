@@ -774,7 +774,7 @@ const MUTANTS = [
     id: "t33/cart-banner-overwrites-the-refusal",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
-    why: "T33 ported to /cart, and the collision is WORSE here than on /menu: the re-read that diagnoses the refusal is the read that flips `locked`, and React batches the refusal's `setStatus` with that flip into ONE commit, so this effect is the strictly later writer on every refusal. Unconsulted, the region ends up holding the generic banner \u2014 a strictly less informative sentence about the same fact, with the diner never learning their tap was refused",
+    why: "T33 ported to /cart, and the collision is WORSE here than on /menu: the re-read that diagnoses the refusal is the read that flips `locked`, so this effect runs on the refusal's own view. (WHY it wins the slot is not established by anything here — this mutant proves only that it does.) Unconsulted, the region ends up holding the generic banner \u2014 a strictly less informative sentence about the same fact, with the diner never learning their tap was refused",
     find: "    const suppressed = freezeBannerSuppressed({",
     replace: "    const suppressed =\n      false &&\n      freezeBannerSuppressed({",
   },

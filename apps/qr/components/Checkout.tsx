@@ -516,6 +516,13 @@ export function Checkout({
     // ⚠️ THE REF IS WRITTEN FIRST, and synchronously. Everything below is a React setter whose
     // effect is a later render; the latch in `explainRefusal` runs before any of them land, so the
     // ref is the only honest answer to "what does the screen now say" at that moment.
+    //
+    // ⚠️ AND THAT MAKES THIS FUNCTION A LATCH-CURRENCY WRITER, which its name does not say (the
+    // blind pass on this PR). `freezeFactsRef` is the SOLE input to `latchExplained`'s currency
+    // check, so any future path that applies a view between a refusal's publish and its latch would
+    // silently decide whether the banner is suppressed. Today there are two callers and both are
+    // correct; a third has to know that applying a view is also an answer to "has the diner been
+    // told", and nothing but this paragraph records it.
     freezeFactsRef.current = {
       locked: v.locked,
       lockedBy: v.lockedBy,
@@ -1029,11 +1036,17 @@ export function Checkout({
     }
     // T33 — STAY SILENT WHEN A REFUSAL HAS ALREADY EXPLAINED THIS FREEZE, in more detail, to this
     // diner. `freezeBannerSuppressed` owns the rule (`live-region.ts`); this file supplies the two
-    // facts. The collision it removes is not theoretical here and it is worse than on /menu: the
-    // re-read that diagnoses a refused edit is the same read that flips `locked`, and React batches
-    // the refusal's `setStatus` with that flip into ONE commit — so this effect is the strictly
-    // later writer on every refusal, replacing a sentence that names the verdict (and, through
-    // `refusedWriteNotice`, the hedge the cause earns) with one that names only the state.
+    // facts. The collision it removes is not theoretical: the re-read that diagnoses a refused edit
+    // is the same read that flips `locked`, so this effect runs on the refusal's own view and
+    // replaces a sentence naming the verdict (and, through `refusedWriteNotice`, the hedge the cause
+    // earns) with one naming only the state.
+    //
+    // ⚠️ THAT IS AN OBSERVED OUTCOME, NOT A SCHEDULING CLAIM, and an earlier draft of this comment
+    // overstepped (the blind pass on this PR). It asserted React batches the refusal's `setStatus`
+    // with the lock flip into ONE commit "so this effect is the strictly later writer" — which the
+    // red mutant is equally consistent with a deferred passive effect landing after both microtasks.
+    // The mutant proves the suppression is load-bearing; nothing here proves WHY, so it no longer
+    // says. Mechanisms invented to explain a true result are what the next reader trusts.
     //
     // ⚠️ ASKED WITH THE RENDERED BINDINGS — `announced` and `noticeFreeze`, not the raw freeze —
     // because the suppression is a question about the very sentence that would otherwise take the

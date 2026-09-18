@@ -38,10 +38,30 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   `locked || settling` — while `not_yours`, `error` and RPC-named codes stay silent rather than be
   explained as a lock they never asserted (the M116/T14 fabrication); those are **M230**.
 - **M227 — the wiring had nowhere to be guarded, and now it does.** `apps/qr/components/Checkout.test.tsx`
-  is this component's first suite (12 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
-  with 9 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
+  is this component's first suite (25 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
+  with 20 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
   READ that does not exist — the component seeds every axis from props — so every server-driven flip
   in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 126 target modules.
+- **⚠️ The first draft was REJECTED by both reviewers on the same defect, and that is the reusable
+  part.** Codex round 1 and the blind adversarial pass independently found that the new refusal path
+  dropped `refresh()` — and with it the `outcome === "failed"` arm that is the only thing which gets
+  a diner off a cart the register has already settled. A closed cart makes the write AND the
+  diagnosis read throw (`assertCartMember` answers `cart_closed` forever; `setLineFulfillment` and
+  `makeItNow` have no `cart_closed` reason, so a closed cart is a throw there too), so the more
+  precise path was strictly worse than the catch-all it replaced. `onReadFailed` is extracted and
+  runs on both read paths. **When you replace a catch-all with something more precise, enumerate
+  what the catch-all was also doing.**
+- **Two claims retracted in the code, not just corrected.** "Every throw in `setQty` precedes the
+  RPC" is false — `if (!affected) throw` sits after it and discards the RPC's own `{ error }`, and a
+  Server Action response can be lost post-commit — so each control now passes a `landed` predicate
+  and silence wins the tie. And a comment asserting React's batching as the reason the banner wins
+  the slot was a mechanism invented to explain a true observation; the mutant proves the suppression
+  is load-bearing, nothing proves why, so it no longer says.
+- **Also closed from round 1:** an overtaken diagnosis no longer publishes a freeze the screen has
+  moved past · the publish is deferred one frame so the destination region is mounted and empty
+  first · `payError` is cleared only for a FREEZE · a shown refusal is retired by a later accepted
+  edit · a suppression LIFTING counts as an edge, so settling ending with the pay lock still held
+  stops leaving the region saying the table is paying.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).
