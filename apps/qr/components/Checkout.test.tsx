@@ -323,14 +323,28 @@ describe("M224 — a refused cart edit says why", () => {
     // publishing in that same commit puts the text on screen and says nothing to a screen reader.
     // Collapse the frame into the effect body and this first assertion goes red while every
     // final-text assertion in the file stays green, which is exactly the blind spot.
-    h.setQty.mockRejectedValueOnce(new Error("locked"));
-    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
-    mount();
-    await addOne();
-    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
-    expect(regionText()).not.toContain("That didn’t go through");
-    await settle();
-    expect(regionText()).toContain("That didn’t go through");
+    //
+    // ⚠️ FAKE TIMERS, because the intermediate state is a RACE against a real frame. The first draft
+    // used the real clock and passed alone, then failed inside `turbo lint typecheck build test`
+    // where the concurrent build slows the loop enough for the frame to fire inside `act`. A guard
+    // whose verdict depends on machine load is not a guard.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("locked"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+      expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
+      expect(regionText()).not.toContain("That didn’t go through");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      expect(regionText()).toContain("That didn’t go through");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays silent when the write is ACCEPTED", async () => {
