@@ -782,3 +782,106 @@ describe("Codex round 2 — a refusal that is no longer true of anything on scre
     expect(regionText()).not.toContain("your table pays");
   });
 });
+
+describe("Codex round 3 — an OLDER edit's success cannot retire a NEWER refusal", () => {
+  /**
+   * A second line, because the bug lives exactly where `qtyChain` does not reach.
+   *
+   * ⚠️ ONE LINE CANNOT EXPRESS IT. `qtyChain` chains a line's writes, so a second tap on the SAME
+   * line resolves strictly after the first — an older success can never land after a newer refusal
+   * there. Two lines have two chains, so the responses may answer in either order, which is the
+   * whole of round 3's finding.
+   */
+  const LINE_B = "line-ohnno";
+  const ITEM_B: CartItem = {
+    ...ITEM,
+    id: LINE_B,
+    menuItemId: "menu-ohnno",
+    name: "Ohn No Khao Swè",
+  };
+  const bothLines = (over: Partial<View> = {}) => view({ items: [ITEM, ITEM_B], ...over });
+
+  // No freeze in any of these: the point is the ORDERING, and a lock would drag T33 in beside it.
+
+  it("keeps a shown refusal when an edit tapped EARLIER answers late", async () => {
+    h.getCartView.mockResolvedValue(bothLines());
+    const slowA = deferred<View>();
+    h.setQty.mockReturnValueOnce(slowA.promise); // tap A: accepted by the server, answered late
+    mount({ initialItems: [ITEM, ITEM_B] });
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {}); // A is in flight
+
+    h.setQty.mockRejectedValueOnce(new Error("rate limited")); // tap B, later and refused
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }));
+    });
+    await settle();
+    expect(regionText()).toContain("couldn’t confirm"); // B's refusal is on screen
+
+    await act(async () => {
+      slowA.resolve(bothLines());
+    });
+    await settle();
+    // A was tapped BEFORE B. Its success says nothing about B's refusal, which is still true of the
+    // cart the diner is looking at — and no edge exists that would ever put the sentence back.
+    expect(regionText()).toContain("couldn’t confirm");
+  });
+
+  it("keeps a refusal still being DIAGNOSED when an earlier edit answers first", async () => {
+    h.getCartView.mockResolvedValue(bothLines());
+    const slowA = deferred<View>();
+    const slowDiagnosis = deferred<View>();
+    h.setQty.mockReturnValueOnce(slowA.promise);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {});
+
+    h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+    h.getCartView.mockReturnValueOnce(slowDiagnosis.promise);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }));
+    });
+
+    await act(async () => {
+      slowA.resolve(bothLines()); // the EARLIER tap lands while the later one is still diagnosing
+    });
+    await act(async () => {
+      slowDiagnosis.resolve(bothLines());
+    });
+    await settle();
+    // The in-flight side of the same finding: sampling the watermark for ANY change drops this,
+    // because something did land — it just landed from a tap older than this one.
+    expect(regionText()).toContain("couldn’t confirm");
+  });
+
+  it("does not count a toggle the server REJECTED as an accepted edit", async () => {
+    h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("couldn’t confirm");
+
+    // `not_yours` is undiagnosable, so the toggle stays silent (M230) — but silent is not accepted.
+    h.setLineFulfillment.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    await press("To go");
+    await settle();
+    expect(regionText()).toContain("couldn’t confirm");
+  });
+
+  it("does not count a make-now the server REJECTED as an accepted edit", async () => {
+    // The pill's twin, and it needs its own case: `makeNow` carries the same two flags, and a
+    // mutation that deletes only ITS guard leaves every toggle case green.
+    const TOGO: CartItem = { ...ITEM, fulfillment: "togo" };
+    h.getCartView.mockResolvedValue(view({ items: [TOGO] }));
+    h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+    mount({ splitContext: DINE_IN, initialItems: [TOGO] });
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("couldn’t confirm");
+
+    h.makeItNow.mockResolvedValueOnce({ ok: false, reason: "not_yours" });
+    await press(/Send to kitchen now/i);
+    await settle();
+    expect(regionText()).toContain("couldn’t confirm");
+  });
+});

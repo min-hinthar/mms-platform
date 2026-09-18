@@ -842,18 +842,26 @@ export function Checkout({
    */
   const shownRefusalRef = useRef<string | null>(null);
   /**
-   * How many of this diner's edits the SERVER has accepted. A diagnosis reads it on the way in and
-   * again on the way out; a change means a later edit of theirs has landed since.
+   * Which of this diner's gestures each side of the supersession is talking about.
    *
-   * ⚠️ IT EXISTS BECAUSE THE WRITES ARE SERIALIZED AND THE DIAGNOSES ARE NOT (Codex round 2 P2).
-   * `qtyChain` orders the writes for one line, so two fast taps commit in tap order — but the
-   * REFUSAL path of the first tap is a fresh round trip that runs beside the second tap's success.
-   * Clearing only an already-DISPLAYED refusal cannot reach it: at the moment the accepted write
-   * clears, the older diagnosis has published nothing yet, so there is nothing to clear, and it
-   * lands afterwards with "We couldn't confirm that" over a cart the diner just edited twice.
+   * ⚠️ THE ORDER THAT MATTERS IS THE ORDER THE DINER TAPPED IN, NOT THE ORDER THE SERVER ANSWERED
+   * (Codex round 3 P2). Round 2 counted ACCEPTANCES, so the generation advanced when a success
+   * RESOLVED — and only `qtyChain` serializes anything, per line. A write on line A that commits
+   * BEFORE a peer takes the lock but answers late therefore arrived, by that counter, "after" a
+   * line-B tap the lock had already refused: it retired a refusal that was still true of the cart on
+   * screen, and an unchanged lock raises no edge to put the sentence back. So each gesture takes an
+   * id AT TAP TIME and the comparison is between ids: only a genuinely NEWER gesture's success
+   * supersedes an older gesture's refusal.
+   *
+   * The three refs are one fact each: `gestureSeq` hands out the ids, `lastAcceptedGesture` is the
+   * newest gesture the server has accepted, and `refusalGesture` is the gesture that owns whatever
+   * refusal is currently shown or parked (null when none is).
    */
-  const acceptedEdits = useRef(0);
+  const gestureSeq = useRef(0);
+  const lastAcceptedGesture = useRef(0);
+  const refusalGesture = useRef<number | null>(null);
   const clearShownRefusal = useCallback(() => {
+    refusalGesture.current = null;
     setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
     const shown = shownRefusalRef.current;
     if (shown === null) return;
@@ -862,16 +870,25 @@ export function Checkout({
   }, []);
 
   /**
-   * An edit of this diner's was ACCEPTED — retire every refusal older than it.
+   * An edit of this diner's was ACCEPTED — retire a refusal only if this gesture is newer than it.
    *
    * THE ONE PLACE the three edit controls call on success, so "a later success supersedes an earlier
-   * refusal" is decided once. Only an accepted write bumps the generation: a refusal supersedes
-   * nothing, and counting one would let two refused taps silence each other.
+   * refusal" is decided once. Only an accepted write moves the watermark: a refusal supersedes
+   * nothing, and counting one would let two refused taps silence each other. `Math.max` because the
+   * responses can land out of tap order — an older success must never drag the watermark backwards
+   * over a newer one that already resolved.
    */
-  const supersedeRefusals = useCallback(() => {
-    acceptedEdits.current += 1;
-    clearShownRefusal();
-  }, [clearShownRefusal]);
+  const supersedeRefusals = useCallback(
+    (gesture: number) => {
+      lastAcceptedGesture.current = Math.max(lastAcceptedGesture.current, gesture);
+      const refused = refusalGesture.current;
+      // A refusal from a LATER tap outlives this success: the diner tapped B after A, B was refused,
+      // and A's delayed "ok" says nothing about B's.
+      if (refused !== null && refused > gesture) return;
+      clearShownRefusal();
+    },
+    [clearShownRefusal],
+  );
 
   /**
    * Publish the parked refusal — one commit after the view that produced it, by construction.
@@ -921,15 +938,19 @@ export function Checkout({
     v.items.find((i) => i.id === id);
 
   const explainAndAnnounce = useCallback(
-    async (landed: (v: Awaited<ReturnType<typeof getCartView>>) => boolean) => {
-      // ⚠️ THE GENERATION IS READ BEFORE THE ROUND TRIP AND CHECKED AFTER IT (Codex round 2 P2).
-      // `qtyChain` orders the WRITES; it does not order this diagnosis against a later tap's
-      // success, which is a separate round trip running beside it. A refusal that a newer accepted
+    async (gesture: number, landed: (v: Awaited<ReturnType<typeof getCartView>>) => boolean) => {
+      // ⚠️ THE TEST IS "HAS A NEWER TAP LANDED", NOT "HAS ANYTHING LANDED" (Codex rounds 2 + 3).
+      // `qtyChain` orders the WRITES for one line; it does not order this diagnosis against another
+      // tap's success, which is a separate round trip running beside it. A refusal a NEWER accepted
       // edit has already superseded is no longer true of anything on screen, so it is dropped rather
-      // than published — and dropped SILENTLY, because the diner has just seen their edit work.
-      const gen = acceptedEdits.current;
+      // than published — and dropped SILENTLY, because the diner has just seen that later edit work.
+      // An OLDER gesture resolving late is not that: its success predates this refusal and cannot
+      // speak for it, which is why the watermark is compared rather than sampled for any change.
       const refusal = await explainRefusal(landed);
-      if (refusal && acceptedEdits.current === gen) announceRefusal(refusal);
+      if (!refusal) return;
+      if (lastAcceptedGesture.current > gesture) return;
+      refusalGesture.current = gesture;
+      announceRefusal(refusal);
     },
     [explainRefusal, announceRefusal],
   );
@@ -1360,6 +1381,9 @@ export function Checkout({
   }, [refresh]);
 
   function changeQty(id: string, qty: number) {
+    // The gesture's id is taken HERE, at tap time — not when its response resolves. See
+    // `supersedeRefusals` for why the difference decides whether a valid refusal survives.
+    const gesture = (gestureSeq.current += 1);
     // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
     // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
     const prev = qtyChain.current.get(id) ?? Promise.resolve(true);
@@ -1386,13 +1410,15 @@ export function Checkout({
       applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
       const accepted = await write; // this write + all prior for the line, in order → truth below
       if (accepted) {
-        supersedeRefusals();
+        supersedeRefusals(gesture);
         await refresh();
         return;
       }
       // M224 — the refusal gets a SENTENCE, from the re-read that also re-syncs the list beside it.
       // A qty of 0 is a REMOVAL, so its landing is the line's absence, not a quantity of zero.
-      await explainAndAnnounce((v) => (qty <= 0 ? !lineIn(v, id) : lineIn(v, id)?.qty === qty));
+      await explainAndAnnounce(gesture, (v) =>
+        qty <= 0 ? !lineIn(v, id) : lineIn(v, id)?.qty === qty,
+      );
     });
   }
 
@@ -1423,6 +1449,7 @@ export function Checkout({
     // a no-op on every other render (viewItems is a fresh array each render).
   }, [viewItems]);
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
+    const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
     startCartTransition(async () => {
       // Set the refocus target in the SAME commit as the optimistic re-group: applyOptimistic moves the
       // line's <li> to another destination <section>, unmounting the tapped button (focus → body). The
@@ -1430,6 +1457,12 @@ export function Checkout({
       // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
       refocusToggle.current = { id, ful };
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
+      // ⚠️ TWO FLAGS, NOT ONE (Codex round 3 P2). `accepted` is the server saying yes; `refused` is
+      // the narrower question of whether we may NAME a reason. A `{ ok: false }` the re-read cannot
+      // explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent (M230),
+      // and it must NOT count as an accepted edit, or a rejected toggle would retire a refusal the
+      // diner is still looking at and move the watermark past a diagnosis still in flight.
+      let accepted = false;
       let refused = false;
       try {
         // ⚠️ THE RESULT IS READ. It was dropped entirely, which is why a refusal was invisible.
@@ -1442,6 +1475,7 @@ export function Checkout({
         // all, so routing them here would name a lock as the reason a fired line could not be
         // re-routed — the M116/T14 class, on the screen that just removed it. They stay silent for
         // now and are filed as **M230**, which needs a refusal ARM they do not have yet.
+        accepted = r.ok;
         refused = !r.ok && r.reason === "busy";
       } catch {
         // Authz / rate-limit / transport. Same standing as `changeQty`'s throw: the write did not
@@ -1449,10 +1483,12 @@ export function Checkout({
         refused = true;
       }
       if (refused) {
-        await explainAndAnnounce((v) => lineIn(v, id)?.fulfillment === ful);
+        await explainAndAnnounce(gesture, (v) => lineIn(v, id)?.fulfillment === ful);
         return;
       }
-      supersedeRefusals();
+      if (accepted) supersedeRefusals(gesture);
+      // The re-sync runs either way: an undiagnosable refusal still has an optimistic pill on screen
+      // that server truth has to snap back.
       await refresh();
     });
   }
@@ -1462,21 +1498,25 @@ export function Checkout({
   // line shows its state chip (the toggle + this button drop away once fired). Refusals are handled
   // exactly as on the toggle beside it — see its comment for why only `busy` may be diagnosed (M230).
   function makeNow(id: string) {
+    const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
     startCartTransition(async () => {
       applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
+      // `accepted` and `refused` are separate for the same reason as the toggle above.
+      let accepted = false;
       let refused = false;
       try {
         const r = await makeItNow(id);
+        accepted = r.ok;
         refused = !r.ok && r.reason === "busy";
       } catch {
         refused = true;
       }
       if (refused) {
         // A fired line is no longer `draft` — that, not a flag of our own, is the landing.
-        await explainAndAnnounce((v) => (lineIn(v, id)?.lineState ?? "draft") !== "draft");
+        await explainAndAnnounce(gesture, (v) => (lineIn(v, id)?.lineState ?? "draft") !== "draft");
         return;
       }
-      supersedeRefusals();
+      if (accepted) supersedeRefusals(gesture);
       await refresh();
     });
   }

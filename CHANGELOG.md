@@ -72,6 +72,20 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   (3) A SETTLING refusal with no pay lock behind it was left standing when the split was called off,
   because the lock edge only fires on `announced` — the mirror of round 1's fix, which covered only
   the case where a lock outlives the settlement.
+- **Codex round 3 found two more, and both were the SAME mistake about time: an event was dated by
+  when the server ANSWERED rather than when the diner TAPPED.** (1) Round 2's generation counted
+  acceptances, so it advanced when a success RESOLVED — and only `qtyChain` serializes anything, per
+  line. A write on line A that commits BEFORE a peer takes the lock but answers late therefore
+  arrived "after" a line-B tap the lock had already refused, and retired a sentence still true of the
+  cart on screen, with no edge that would ever put it back. Each gesture now takes an id AT TAP TIME
+  and the two sides compare ids: `lastAcceptedGesture` is the newest gesture the server accepted,
+  `refusalGesture` owns whatever refusal is shown or parked, and only a genuinely NEWER gesture
+  supersedes an older refusal. (2) `toggleFulfillment` and `makeNow` folded "the server said yes"
+  into "we may name a reason": a `{ ok: false, reason: "not_yours" | "error" | … }` left `refused`
+  false, so it fell through to the success arm and counted as an accepted edit — clearing a refusal
+  the diner was still reading and dragging the watermark past a diagnosis still in flight. The two
+  facts are now two flags; a rejection we cannot diagnose stays silent (M230) without ever claiming
+  acceptance, and the re-sync still runs so the optimistic pill snaps back.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).
