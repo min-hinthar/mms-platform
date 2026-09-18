@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
+import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 
 /**
  * M227 — the WIRING of /cart's refusal explanation, which until this file nothing could see.
@@ -32,12 +33,24 @@ import type { getCartView } from "@/lib/cart";
  * through the review step's ONE live region (`role="status"`) — never by reaching into an internal.
  */
 
+/** A promise a case can hold open, so two reads are genuinely in flight at once. */
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
 const h = vi.hoisted(() => ({
   getCartView: vi.fn(),
   setQty: vi.fn(),
   setLineFulfillment: vi.fn(),
   makeItNow: vi.fn(),
   releasePayLock: vi.fn(),
+  counterPayOutcome: vi.fn(),
+  requestCounterPay: vi.fn(),
+  withdrawCounterPay: vi.fn(),
   push: vi.fn(),
 }));
 
@@ -50,9 +63,9 @@ vi.mock("@/lib/cart", () => ({
   setQty: h.setQty,
 }));
 vi.mock("@/lib/counter-pay", () => ({
-  counterPayOutcome: vi.fn(async () => ({ kind: "open" })),
-  requestCounterPay: vi.fn(),
-  withdrawCounterPay: vi.fn(),
+  counterPayOutcome: h.counterPayOutcome,
+  requestCounterPay: h.requestCounterPay,
+  withdrawCounterPay: h.withdrawCounterPay,
 }));
 vi.mock("@/lib/realtime", () => ({ useCartRealtime: () => {} }));
 // `@mms/ui` stays REAL except for ONE export: `NumberFlow` re-exports `@number-flow/react`, which
@@ -71,11 +84,9 @@ vi.mock("./nav/TransitionNav", () => ({
   TransitionLink: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   useJourneyRouter: () => ({ push: h.push, replace: h.push, back: h.push }),
 }));
-vi.mock("./PayAtCounter", () => ({
-  CounterSettledCard: () => null,
-  PayAtCounterButton: () => null,
-  PayAtCounterCard: () => null,
-}));
+// ⚠️ `./PayAtCounter` IS LEFT REAL, unlike the other children. `askCounter`/`withdrawCounter` are
+// the two `confirmedWrite` call sites M227 named, and a stub would guard a button this screen might
+// no longer be wiring. The module is pure presentation (two buttons and a card).
 vi.mock("./PaymentSection", () => ({ PaymentSection: () => null }));
 vi.mock("./SplitSection", () => ({ SplitSection: () => null }));
 vi.mock("./SettlementBoard", () => ({ SettlementBoard: () => null }));
@@ -130,13 +141,15 @@ function view(over: Partial<View> = {}): View {
     pickupSlot: null,
     fireAt: null,
     settling: false,
+    settleBy: null,
     locked: false,
     lockedBy: null,
     mySeat: MY_SEAT,
     tabType: "none",
     counterRequestedAt: null,
+    tableNumber: 7,
     ...over,
-  } as View;
+  } satisfies View;
 }
 
 /** The review step's single live region, as a screen reader would read it. */
@@ -172,6 +185,21 @@ async function syncFromServer() {
   });
 }
 
+/**
+ * Let the round trip AND the frame the refusal is published on both land.
+ *
+ * ⚠️ THE FRAME IS NOT CEREMONY. `announceRefusal` parks the refusal and an effect publishes it from
+ * a `requestAnimationFrame`, so that the region the view change mounts is on screen and EMPTY before
+ * its text changes — a polite region announces a change to an existing node, not content that was
+ * there when the node appeared. `act()` flushes effects but not the frame, so a test that stops at
+ * `act` sees the parked state, which is exactly what the mounted-then-filled case below asserts.
+ */
+async function settle() {
+  await act(async () => {
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+  });
+}
+
 /** Press the stepper's "+" for the one line, and let the chained write + diagnosis settle. */
 async function addOne() {
   await act(async () => {
@@ -193,6 +221,14 @@ const DINE_IN = {
   ],
 } as unknown as Parameters<typeof Checkout>[0]["splitContext"];
 
+/** A pickup session: no staging, so the line cards and the pay furniture are on screen together. */
+const PICKUP = {
+  mode: "pickup",
+  myRole: "host",
+  mySeat: MY_SEAT,
+  members: [{ seat: MY_SEAT, name: "Me" }],
+} as unknown as Parameters<typeof Checkout>[0]["splitContext"];
+
 async function press(name: string | RegExp) {
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name }));
@@ -205,6 +241,9 @@ beforeEach(() => {
   h.setQty.mockResolvedValue(view());
   h.setLineFulfillment.mockResolvedValue({ ok: true });
   h.makeItNow.mockResolvedValue({ ok: true });
+  h.counterPayOutcome.mockResolvedValue({ kind: "open" });
+  h.requestCounterPay.mockResolvedValue({ ok: true, at: "2026-09-18T06:00:00.000Z" });
+  h.withdrawCounterPay.mockResolvedValue({ ok: true });
 });
 
 afterEach(() => cleanup());
@@ -256,15 +295,33 @@ describe("M224 — a refused cart edit says why", () => {
     h.getCartView.mockRejectedValue(new Error("offline"));
     mount();
     await addOne();
-    await act(async () => {});
+    await settle();
     expect(regionText()).not.toContain("didn’t go through");
     expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("waits for the region to be on screen and EMPTY before it speaks", async () => {
+    // The deferral, made falsifiable. A polite region announces a CHANGE to a node that already
+    // exists; content present when the node mounts is not announced. The view that diagnoses the
+    // refusal can REPLACE the region's subtree — a refused removal of the last unit renders the
+    // empty-cart return, and a settling refusal swaps the review region for the settlement one — so
+    // publishing in that same commit puts the text on screen and says nothing to a screen reader.
+    // Collapse the frame into the effect body and this first assertion goes red while every
+    // final-text assertion in the file stays green, which is exactly the blind spot.
+    h.setQty.mockRejectedValueOnce(new Error("locked"));
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    mount();
+    await addOne();
+    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
+    expect(regionText()).not.toContain("That didn’t go through");
+    await settle();
+    expect(regionText()).toContain("That didn’t go through");
   });
 
   it("stays silent when the write is ACCEPTED", async () => {
     mount();
     await addOne();
-    await act(async () => {});
+    await settle();
     expect(regionText()).not.toContain("didn’t go through");
     expect(regionText()).not.toContain("couldn’t confirm");
     expect(h.setQty).toHaveBeenCalledWith(LINE, 2);
@@ -282,7 +339,7 @@ describe("T33 on /cart — the banner must not overwrite the refusal", () => {
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount();
     await addOne();
-    await act(async () => {});
+    await settle();
     expect(regionText()).toContain("That didn’t go through");
   });
 
@@ -307,7 +364,7 @@ describe("T33 on /cart — the banner must not overwrite the refusal", () => {
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: MY_SEAT }));
     mount();
     await addOne();
-    await act(async () => {});
+    await settle();
     expect(regionText()).toContain(
       "That didn’t go through — the order’s locked while you check out",
     );
@@ -323,7 +380,7 @@ describe("T33 on /cart — the banner must not overwrite the refusal", () => {
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount();
     await addOne();
-    await act(async () => {});
+    await settle();
     expect(regionText()).toContain("That didn’t go through");
 
     h.getCartView.mockResolvedValue(view());
@@ -361,7 +418,7 @@ describe("M230's half — the two pills beside the stepper share the same window
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     mount({ splitContext: DINE_IN });
     await press("To go");
-    await act(async () => {});
+    await settle();
     expect(regionText()).not.toContain("didn’t go through");
     expect(regionText()).not.toContain("couldn’t confirm");
   });
@@ -376,5 +433,206 @@ describe("M230's half — the two pills beside the stepper share the same window
         "That didn’t go through — the order’s locked while your table pays",
       ),
     );
+  });
+});
+
+describe("what a REFUSAL still owes beyond the sentence", () => {
+  it("runs the settle probe when the diagnosis read cannot see the cart either", async () => {
+    // The CRITICAL both reviewers found independently. A cart the register has settled makes the
+    // write AND the re-read throw — `assertCartMember` answers `cart_closed` forever after — so the
+    // first draft's refusal path returned null and did nothing, stranding the diner on an editable
+    // bill for an order that is already paid. Every one of these taps used to end in `refresh()`,
+    // whose failed arm asks the one question that separates a settled cart from a blip.
+    h.setQty.mockRejectedValueOnce(new Error("Cart is no longer open"));
+    h.getCartView.mockRejectedValue(new Error("cart_closed"));
+    h.counterPayOutcome.mockResolvedValue({ kind: "paid", orderId: "order-1", tender: "counter" });
+    mount({ splitContext: DINE_IN });
+    await addOne();
+    await settle();
+    expect(h.counterPayOutcome).toHaveBeenCalledWith({ cartId: CART });
+    await waitFor(() =>
+      expect(h.push).toHaveBeenCalledWith(`/track?cart=${encodeURIComponent(CART)}&paid=1`),
+    );
+  });
+
+  it("says nothing when the re-read shows the write actually LANDED", async () => {
+    // A rejected Server Action never proved the mutation failed: `setQty`'s `if (!affected) throw`
+    // sits after the RPC and discards its `{ error }`, and a response can be lost after the
+    // statement committed. Announcing "That didn't go through" over a change the diner can see in
+    // the list is the one direction they cannot recover from, so the re-read decides and silence
+    // wins the tie — even though this view also carries a lock that would otherwise be named.
+    h.setQty.mockRejectedValueOnce(new Error("lost response"));
+    h.getCartView.mockResolvedValue(
+      view({ items: [{ ...ITEM, qty: 2 }], locked: true, lockedBy: PEER_SEAT }),
+    );
+    mount();
+    await addOne();
+    await settle();
+    expect(regionText()).not.toContain("didn’t go through");
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("does not publish a freeze the screen has already moved past", async () => {
+    // A ticketed read can come back, diagnose perfectly, and still LOSE the screen. /menu publishes
+    // the observed classification anyway and is right to — its sentence is a 2600 ms toast. Here it
+    // is persistent text beside live controls, so an overtaken "someone is checking out" would sit
+    // under an unlocked cart with no release edge left to retire it. The refused read is held open
+    // while a later visibility read applies an unlocked view and wins.
+    const held = deferred<View>();
+    h.setQty.mockRejectedValueOnce(new Error("locked"));
+    h.getCartView.mockReturnValueOnce(held.promise);
+    mount();
+    // ⚠️ FIRED OUTSIDE `act`, deliberately: `addOne` awaits its own act, and the diagnosis read is
+    // pinned open here, so wrapping it would leave a dangling act that corrupts the NEXT case.
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {}); // the write rejects; the diagnosis read is now in flight and held
+    h.getCartView.mockResolvedValue(view()); // the newer read: unlocked
+    await syncFromServer(); // it is issued later, so it wins the ticket and takes the screen
+    await act(async () => {
+      held.resolve(view({ locked: true, lockedBy: PEER_SEAT })); // the older one lands last
+    });
+    await settle();
+    expect(regionText()).not.toContain("locked while someone checks out");
+  });
+
+  it("retires a shown refusal once a later edit of the diner's is accepted", async () => {
+    h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+    mount();
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("We couldn’t confirm that");
+    await addOne();
+    await settle();
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("re-reads the cart after an ACCEPTED write", async () => {
+    // The re-sync that replaces the optimistic number with server truth. Nothing else pinned it, so
+    // deleting `await refresh()` from the accepted branch was a silent regression.
+    mount();
+    await addOne();
+    await settle();
+    expect(h.getCartView).toHaveBeenCalledWith(CART);
+  });
+
+  it("leaves a live pay error standing rather than swapping it for a hedge", async () => {
+    // `payError` wins the slot by design (`payError ?? status`). Clearing it unconditionally traded
+    // "Couldn't start checkout" — actionable, about money — for "We couldn't confirm that — the
+    // order below is up to date", on a screen whose checkout is broken. A FREEZE supersedes it (the
+    // diner cannot retry the payment while frozen); an `unknown` hedge has no such claim.
+    //
+    // A PICKUP session is what makes both surfaces coexist: dine-in STAGES the cart, so its steppers
+    // and its Pay CTA live in different moments and never see each other's state.
+    mount({ splitContext: PICKUP });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Pay/ }));
+    });
+    await waitFor(() => expect(regionText()).toContain("Add a first name for pickup"));
+
+    h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("Add a first name for pickup");
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+});
+
+describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see before", () => {
+  /** A dine-in table whose only line has already gone to the kitchen: the Bill moment, no steppers. */
+  const FIRED = [{ ...ITEM, lineState: "fired" as const }];
+  const billView = (over: Partial<View> = {}) => view({ items: FIRED, ...over });
+
+  it("keeps a confirmed counter-ask when an OLDER read lands after it", async () => {
+    // `confirmedWrite` is the barrier. `askCounter` writes a server-CONFIRMED `counterRequestedAt`
+    // outside any read, so a read ISSUED BEFORE the tap and resolving after it re-asserts null and
+    // the counter card vanishes under the diner while the register is expecting them. Delete the
+    // barrier and this case goes red; nothing else in the repo could see it.
+    const stale = deferred<View>();
+    h.getCartView.mockReturnValueOnce(stale.promise);
+    h.setQty.mockResolvedValue(billView());
+    mount({ splitContext: DINE_IN, initialItems: FIRED });
+    await syncFromServer(); // issues the read that will land LATE, still carrying no counter ask
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
+    });
+    await waitFor(() => expect(screen.getByText(/Settle up at the counter/i)).toBeTruthy());
+    h.getCartView.mockResolvedValue(billView());
+    await act(async () => {
+      stale.resolve(billView({ counterRequestedAt: null }));
+    });
+    await settle();
+    expect(screen.queryByText(/Settle up at the counter/i)).toBeTruthy();
+  });
+
+  it("withdrawing the ask is barriered the same way", async () => {
+    const stale = deferred<View>();
+    mount({
+      splitContext: DINE_IN,
+      initialItems: FIRED,
+      initialCounterRequestedAt: "2026-09-18T06:00:00.000Z",
+    });
+    h.getCartView.mockReturnValueOnce(stale.promise);
+    await syncFromServer();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /Pay on your phone/i }));
+    });
+    await waitFor(() => expect(screen.queryByText(/Settle up at the counter/i)).toBeNull());
+    h.getCartView.mockResolvedValue(billView());
+    await act(async () => {
+      stale.resolve(billView({ counterRequestedAt: "2026-09-18T06:00:00.000Z" }));
+    });
+    await settle();
+    expect(screen.queryByText(/Settle up at the counter/i)).toBeNull();
+  });
+
+  it('"Check again" does not claim a failure when its read was merely OVERTAKEN', async () => {
+    // `readReachedServer`, not `=== "applied"`. An overtaken read REACHED the server, so collapsing
+    // the two lights "Couldn't check just now" over a read that did check — the fabricated diagnosis
+    // of the M116/T14 class. `recheckLock` also re-issues once on an overtake, so the fixture holds
+    // the first read open, lets a visibility read win, and then resolves it.
+    const held = deferred<View>();
+    h.getCartView.mockReturnValueOnce(held.promise);
+    mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await act(async () => {});
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    await syncFromServer(); // issued later, so it wins the ticket
+    await act(async () => {
+      held.resolve(view({ locked: true, lockedBy: PEER_SEAT }));
+    });
+    await settle();
+    expect(regionText()).not.toContain("Couldn’t check just now");
+  });
+
+  it('"Check again" DOES say so when the read never reached the server', async () => {
+    h.getCartView.mockRejectedValue(new Error("offline"));
+    mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    });
+    await waitFor(() => expect(regionText()).toContain("Couldn’t check just now"));
+  });
+
+  it("re-reads on a schedule while the cart is frozen, and keeps re-arming", async () => {
+    // T20's scheduled freeze re-check, ported to /cart with the ticket because a lock EXPIRES by the
+    // passage of time with no row write — no realtime event, and the visibility backstop never fires
+    // for a tab that stays open, which is the /cart case. Without it the ticket's own T24 cost has
+    // nothing to heal it.
+    vi.useFakeTimers();
+    try {
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
+      expect(h.getCartView).not.toHaveBeenCalled();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(freezeRecheckDelayMs({ locked: true, settling: false })!);
+      });
+      expect(h.getCartView).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(freezeRecheckDelayMs({ locked: true, settling: false })!);
+      });
+      expect(h.getCartView).toHaveBeenCalledTimes(2); // re-armed, because the read came back
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
