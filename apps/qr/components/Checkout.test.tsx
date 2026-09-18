@@ -965,6 +965,13 @@ describe("Codex round 5 — the parked sentence is re-derived, not re-validated"
       });
 
       expect(regionText()).not.toContain("while you check out");
+      // AND THE BANNER THE DINER IS NOW OWED STILL SPEAKS — carried by T33's suppression-LIFT edge,
+      // not by anything this round added. Worth pinning because a dropped publish leaves
+      // `explainedFreezeRef` latched on the freeze it never spoke, and the only reason that does not
+      // silence the peer banner is that the lift edge treats the attribution change as an edge.
+      // MEASURED, not assumed: clearing the latch on the drop path was tried and its mutant
+      // SURVIVED against this case, so the latch retirement is unfalsifiable here and was reverted.
+      expect(regionText()).toContain("checking out");
     } finally {
       vi.useRealTimers();
     }
