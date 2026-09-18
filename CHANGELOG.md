@@ -62,6 +62,16 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   first · `payError` is cleared only for a FREEZE · a shown refusal is retired by a later accepted
   edit · a suppression LIFTING counts as an edge, so settling ending with the pay lock still held
   stops leaving the region saying the table is paying.
+- **Codex round 2 found three more of the same shape, and the shape is worth naming: a refusal that
+  is no longer true of anything on screen.** (1) `qtyChain` orders the WRITES for one line, not the
+  refused tap's DIAGNOSIS — a separate round trip — so an accepted later tap now supersedes an older
+  diagnosis via a generation checked across the round trip, and a refusal already PARKED for
+  publication is dropped too. (2) The empty-cart branch is a different `<main>` that rendered
+  `status` nowhere, so a refusal diagnosed against a zero-item view (a tablemate removes the only
+  line while this diner increments it) was invisible and unannounced; it has a live region now.
+  (3) A SETTLING refusal with no pay lock behind it was left standing when the split was called off,
+  because the lock edge only fires on `announced` — the mirror of round 1's fix, which covered only
+  the case where a lock outlives the settlement.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).

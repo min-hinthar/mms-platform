@@ -857,7 +857,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "A refusal that a LATER accepted edit has demonstrably superseded is the one thing in this slot that is no longer true \u2014 an `unknown` hedge in particular would sit under a cart the diner has since edited twice. It clears only the refusal it published, never the slot, because `status` also carries the promo result and the freeze banner",
-    find: "      const accepted = await write; // this write + all prior for the line, in order \u2192 truth below\n      if (accepted) {\n        clearShownRefusal();",
+    find: "      const accepted = await write; // this write + all prior for the line, in order \u2192 truth below\n      if (accepted) {\n        supersedeRefusals();",
     replace:
       "      const accepted = await write; // this write + all prior for the line, in order \u2192 truth below\n      if (accepted) {",
   },
@@ -866,8 +866,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The re-sync that replaces the optimistic number with server truth and re-derives the totals. Nothing pinned it before the blind pass on this PR said so, so deleting it was a silent regression with every mutant green",
-    find: "      if (accepted) {\n        clearShownRefusal();\n        await refresh();",
-    replace: "      if (accepted) {\n        clearShownRefusal();",
+    find: "      if (accepted) {\n        supersedeRefusals();\n        await refresh();",
+    replace: "      if (accepted) {\n        supersedeRefusals();",
   },
   {
     id: "t33/cart-suppression-lift-is-not-an-edge",
@@ -908,6 +908,32 @@ const MUTANTS = [
     why: "M227's fourth named fact, and the reason the ticket was safe to add at all: a lock EXPIRES by the passage of time with no row write, so no realtime event corrects a cached `true`, and the visibility backstop never fires for a tab that stays open \u2014 which IS the /cart case. Stop re-arming and the T24 ordering cost has nothing left to heal it",
     find: "          if (!cancelled && readReachedServer(settled)) arm();",
     replace: "          if (!cancelled && readReachedServer(settled)) return;",
+  },
+  {
+    id: "m224/superseded-diagnosis-publishes-anyway",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 P2. `qtyChain` orders the WRITES for one line; it does not order a refused tap's DIAGNOSIS \u2014 a separate round trip \u2014 against the next tap's success. Clearing only an already-DISPLAYED refusal cannot reach it, because at the moment the accepted write clears, the older diagnosis has published nothing yet. Drop the generation check and it lands afterwards with \u201cWe couldn\u2019t confirm that\u201d over a cart the diner has just edited twice",
+    find: "      const refusal = await explainRefusal(landed);\n      if (refusal && acceptedEdits.current === gen) announceRefusal(refusal);",
+    replace:
+      "      const refusal = await explainRefusal(landed);\n      if (refusal) announceRefusal(refusal);",
+  },
+  {
+    id: "m224/an-accepted-edit-leaves-a-parked-refusal",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The other half of the same finding: a refusal already PARKED for publication is superseded by an accepted edit too, not only one already on screen. Without this line the frame fires after the success and speaks a refusal about a write two taps old",
+    find: "    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one",
+    replace: "",
+  },
+  {
+    id: "m224/settle-release-leaves-its-refusal-standing",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 2 P2, and the mirror of round 1's fix. That one handled settling ending with the pay lock still HELD, where the lock banner takes the slot. When nothing outlives it, `announced` is false before and after, so the lock edge never fires and \u201cthe order\u2019s locked while your table pays\u201d is left standing on a review view the diner can now edit",
+    find: "    if (announcedRef.current) return;\n    const frame = requestAnimationFrame(clearShownRefusal);",
+    replace:
+      "    if (announcedRef.current) return;\n    const frame = requestAnimationFrame(() => {});",
   },
   {
     id: "t33/lock-banner-forgets-whose-lock-it-is",

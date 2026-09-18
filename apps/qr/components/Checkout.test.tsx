@@ -699,3 +699,86 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     }
   });
 });
+
+describe("Codex round 2 — a refusal that is no longer true of anything on screen", () => {
+  it("drops a diagnosis a LATER accepted edit has already superseded", async () => {
+    // `qtyChain` orders the WRITES for one line; it does not order the refused tap's DIAGNOSIS —
+    // a separate round trip — against the next tap's success. So the first tap can still be
+    // diagnosing while the second commits, and clearing only an already-DISPLAYED refusal reaches
+    // nothing: at that moment the older diagnosis has published nothing yet.
+    const slowDiagnosis = deferred<View>();
+    h.setQty.mockRejectedValueOnce(new Error("locked"));
+    h.getCartView.mockReturnValueOnce(slowDiagnosis.promise);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {}); // tap A refused; its diagnosis is in flight and held
+    await addOne(); // tap B lands — the server accepted it
+    await act(async () => {
+      slowDiagnosis.resolve(view({ locked: true, lockedBy: PEER_SEAT })); // A's diagnosis, too late
+    });
+    await settle();
+    expect(regionText()).not.toContain("didn’t go through");
+    expect(regionText()).not.toContain("couldn’t confirm");
+  });
+
+  it("drops a refusal already PARKED when an accepted edit lands before its frame", async () => {
+    // The other half, and it needs the clock held to reach. The generation check runs BEFORE
+    // `announceRefusal`, so it cannot help once the refusal is parked: the diagnosis won its
+    // generation fairly, and only THEN did the next tap succeed. Between the park and the frame,
+    // `clearShownRefusal` has nothing displayed to clear — so it must drop the parked publish too,
+    // or the frame fires and speaks about a write two taps old.
+    vi.useFakeTimers();
+    try {
+      // ⚠️ AN `unknown` REFUSAL, deliberately: a FROZEN one applies a locked view, which natively
+      // disables the stepper, and the second tap this case depends on would never fire.
+      h.setQty.mockRejectedValueOnce(new Error("rate limited"));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+      expect(regionText()).not.toContain("couldn’t confirm"); // parked, frame not yet fired
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      expect(regionText()).not.toContain("didn’t go through");
+      expect(regionText()).not.toContain("couldn’t confirm");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("speaks into the EMPTY-cart view, which had no live region at all", async () => {
+    // A tablemate removes the only line while this diner increments it. The write is refused, the
+    // diagnosis applies a zero-item view, and the landing check cannot suppress the sentence — the
+    // requested quantity is positive and the line is gone. The publish then lands in the empty-cart
+    // `<main>`, a different branch from the review step's, where `status` was rendered nowhere.
+    h.setQty.mockRejectedValueOnce(new Error("gone"));
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    mount();
+    await addOne();
+    await settle();
+    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
+    expect(regionText()).toContain("We couldn’t confirm that");
+  });
+
+  it("retires a SETTLING refusal when the split is called off and no lock remains", async () => {
+    // The mirror of the round-1 fix. That one handled settling ending with the pay lock still held,
+    // where the lock banner takes over. Here nothing outlives it: `announced` is false before and
+    // after, so the lock-edge effect never fires and the sentence "the order's locked while your
+    // table pays" was left standing on a review view the diner can now edit.
+    h.setQty.mockRejectedValueOnce(new Error("settling"));
+    h.getCartView.mockResolvedValue(view({ settling: true }));
+    mount();
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("the order’s locked while your table pays");
+
+    h.getCartView.mockResolvedValue(view()); // split called off; no lock
+    await syncFromServer();
+    await settle();
+    expect(regionText()).not.toContain("your table pays");
+  });
+});

@@ -841,12 +841,37 @@ export function Checkout({
    * that") would otherwise sit under a cart the diner has just edited twice.
    */
   const shownRefusalRef = useRef<string | null>(null);
+  /**
+   * How many of this diner's edits the SERVER has accepted. A diagnosis reads it on the way in and
+   * again on the way out; a change means a later edit of theirs has landed since.
+   *
+   * ⚠️ IT EXISTS BECAUSE THE WRITES ARE SERIALIZED AND THE DIAGNOSES ARE NOT (Codex round 2 P2).
+   * `qtyChain` orders the writes for one line, so two fast taps commit in tap order — but the
+   * REFUSAL path of the first tap is a fresh round trip that runs beside the second tap's success.
+   * Clearing only an already-DISPLAYED refusal cannot reach it: at the moment the accepted write
+   * clears, the older diagnosis has published nothing yet, so there is nothing to clear, and it
+   * lands afterwards with "We couldn't confirm that" over a cart the diner just edited twice.
+   */
+  const acceptedEdits = useRef(0);
   const clearShownRefusal = useCallback(() => {
+    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
     const shown = shownRefusalRef.current;
     if (shown === null) return;
     shownRefusalRef.current = null;
     setStatus((cur) => (cur === shown ? null : cur));
   }, []);
+
+  /**
+   * An edit of this diner's was ACCEPTED — retire every refusal older than it.
+   *
+   * THE ONE PLACE the three edit controls call on success, so "a later success supersedes an earlier
+   * refusal" is decided once. Only an accepted write bumps the generation: a refusal supersedes
+   * nothing, and counting one would let two refused taps silence each other.
+   */
+  const supersedeRefusals = useCallback(() => {
+    acceptedEdits.current += 1;
+    clearShownRefusal();
+  }, [clearShownRefusal]);
 
   /**
    * Publish the parked refusal — one commit after the view that produced it, by construction.
@@ -897,8 +922,14 @@ export function Checkout({
 
   const explainAndAnnounce = useCallback(
     async (landed: (v: Awaited<ReturnType<typeof getCartView>>) => boolean) => {
+      // ⚠️ THE GENERATION IS READ BEFORE THE ROUND TRIP AND CHECKED AFTER IT (Codex round 2 P2).
+      // `qtyChain` orders the WRITES; it does not order this diagnosis against a later tap's
+      // success, which is a separate round trip running beside it. A refusal that a newer accepted
+      // edit has already superseded is no longer true of anything on screen, so it is dropped rather
+      // than published — and dropped SILENTLY, because the diner has just seen their edit work.
+      const gen = acceptedEdits.current;
       const refusal = await explainRefusal(landed);
-      if (refusal) announceRefusal(refusal);
+      if (refusal && acceptedEdits.current === gen) announceRefusal(refusal);
     },
     [explainRefusal, announceRefusal],
   );
@@ -1009,6 +1040,10 @@ export function Checkout({
   const announced = freezeMessage !== null;
   const prevAnnouncedLock = useRef<boolean | null>(null);
   const prevSuppressed = useRef(false);
+  /** Written by the lock-edge effect below; read by the settle-release clear, which must not re-run
+   *  when only the sentence changes. A ref because the React Compiler lint forbids writing one
+   *  during RENDER — this one is written from an effect, which is the sanctioned place. */
+  const announcedRef = useRef(false);
   useEffect(() => {
     // ⚠️ DO NOT CONSUME THE EDGE WHILE THE REGION IS UNMOUNTED (Codex round 7 on #246). This status
     // feeds the REVIEW step's single live region; the pay step renders its own inside
@@ -1021,6 +1056,7 @@ export function Checkout({
     // control is read-only — which is the exact gap J4's residual exists to close.
     //
     // Returning BEFORE the ref is written preserves the edge for the remount.
+    announcedRef.current = announced;
     if (onPay) return;
     const prev = prevAnnouncedLock.current;
     prevAnnouncedLock.current = announced;
@@ -1106,7 +1142,17 @@ export function Checkout({
     // second place that composes the same banner — and the rule that was actually wrong lives up
     // there: `prev === announced` treats "the sentence is unchanged" as "there is nothing new to
     // say", which is false the moment a suppression lifts while the freeze it hid still holds.
-  }, [locked, settling]);
+    //
+    // ⚠️ BUT WHEN NO LOCK OUTLIVES IT, NOTHING SPEAKS AT ALL (Codex round 2 P2) — and the sentence
+    // left standing says the table is still paying, on a review view the diner can now edit. That
+    // edge effect only fires on `announced`, which is false before and after a settle-only release.
+    // The refusal is simply no longer true, so it is retired. Through a frame for the same two
+    // reasons the publish is: a synchronous `setState` here is a cascading render the React Compiler
+    // lint rejects, and the retraction belongs in a later commit than the view that caused it.
+    if (announcedRef.current) return;
+    const frame = requestAnimationFrame(clearShownRefusal);
+    return () => cancelAnimationFrame(frame);
+  }, [locked, settling, clearShownRefusal]);
   // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
   // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
   // edit the cart out from under a live intent.
@@ -1340,7 +1386,7 @@ export function Checkout({
       applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
       const accepted = await write; // this write + all prior for the line, in order → truth below
       if (accepted) {
-        clearShownRefusal();
+        supersedeRefusals();
         await refresh();
         return;
       }
@@ -1406,7 +1452,7 @@ export function Checkout({
         await explainAndAnnounce((v) => lineIn(v, id)?.fulfillment === ful);
         return;
       }
-      clearShownRefusal();
+      supersedeRefusals();
       await refresh();
     });
   }
@@ -1430,7 +1476,7 @@ export function Checkout({
         await explainAndAnnounce((v) => (lineIn(v, id)?.lineState ?? "draft") !== "draft");
         return;
       }
-      clearShownRefusal();
+      supersedeRefusals();
       await refresh();
     });
   }
@@ -1889,6 +1935,25 @@ export function Checkout({
             </Link>
           }
         />
+        {/* ⚠️ THE EMPTY CART NEEDS THE LIVE REGION TOO (Codex round 2 P2), and it had none. A diner
+            can increment the only line while a tablemate removes it: the write is refused, the
+            diagnosis applies a ZERO-ITEM view, and the landing check cannot suppress the sentence
+            (the requested quantity is positive and the line is gone). The publish then lands in THIS
+            branch — a different `<main>` from the review step's — where `status` was rendered
+            nowhere, so the refusal was invisible and unannounced. The frame deferral fixed the
+            "mounted, but a new node" half; this is the "no node at all" half. */}
+        <p
+          role="status"
+          aria-atomic="true"
+          style={{
+            minHeight: 16,
+            margin: "12px 0 0",
+            fontSize: "var(--fs-sm)",
+            color: payError ? "var(--warn)" : "var(--t2)",
+          }}
+        >
+          {payError ?? status}
+        </p>
       </main>
     );
   }
