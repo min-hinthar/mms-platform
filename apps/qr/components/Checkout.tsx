@@ -884,8 +884,20 @@ export function Checkout({
    * for a tab that stays open, which is the /cart case. The residual was "until the diner taps
    * Check again".
    *
-   * ⚠️ RE-ARM ON `readReachedServer`, NEVER ON "did my read win" — the boolean `refresh` already
-   * returns. A read that came back proves the cart is reachable even when a concurrent read beat it
+   * ⚠️ AND A FIELD-ONLY BARRIER MUST NOT COUNT AS AN OBSERVATION (Codex round 2 on #288). This is the
+   * one asymmetry `confirmedWrite` introduces that the provider does not have: its no-ticket arm
+   * always applies a real VIEW, so a watermark advance there always carries fresh axes. A confirmed
+   * COUNTER write carries none — it confirms `counterRequestedAt` and nothing else. So a re-check
+   * read that observed the freeze EXPIRED can be refused by a counter tap landing beside it, its
+   * observation discarded, and a re-arm on "reached the server" alone would then wait another full
+   * TTL from a frozen state nothing re-measured. `askCounter` is reachable in exactly that window:
+   * `freezeBlocksPayment` is `freeze === "peer"`, so the counter controls stay live through a `self`
+   * or `held` freeze, which is when `locked` is true and this effect is armed. The counter action's
+   * own trailing read is fire-and-forget and swallows failure by design, so it cannot be relied on
+   * to supply the axes either. Re-issuing ONCE closes it: the retry carries a ticket above
+   * everything in flight, so only a fresh tap can overtake it — and that tap re-reads too.
+   *
+   * ⚠️ RE-ARM ON `readReachedServer`, NEVER ON "did my read win" — the outcome `refresh` returns. A read that came back proves the cart is reachable even when a concurrent read beat it
    * to the screen, and a cart still frozen on a fresh successful read is a lock that was
    * RE-ACQUIRED: a new observation, which earns a new window. Narrowing this to "applied" kills the
    * chain on exactly the frozen cart it exists for, whose unchanged axes never re-run this effect.
@@ -899,11 +911,16 @@ export function Checkout({
     let timer: ReturnType<typeof setTimeout> | undefined;
     const arm = () => {
       timer = setTimeout(() => {
-        void refresh().then((outcome) => {
+        void refresh().then(async (outcome) => {
           // Checked AFTER the await too: the effect can be torn down while the read is in flight
           // (an unmount, or the axes flipping), and a chain re-arming from a resolved promise would
           // outlive its own cleanup.
-          if (!cancelled && readReachedServer(outcome)) arm();
+          if (cancelled) return;
+          // An overtaken read LOST its observation, and the thing that overtook it may have been a
+          // field-only barrier carrying no axes at all (see above). Re-read once so the state this
+          // chain re-arms from came from a view.
+          const settled = outcome === "overtaken" ? await refresh() : outcome;
+          if (!cancelled && readReachedServer(settled)) arm();
         });
       }, delay);
     };
