@@ -103,6 +103,25 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   asked at publish rather than cancelled from the release edge, because a cancel scheduled from that
   edge is another frame queued BEHIND this one (the retraction would land as an empty region) and
   covers only that one edge.
+- **Codex round 5 found four, and the loop stopped converging — two fixed, two filed, on a line that
+  is about DIRECTION of failure, not severity.** Rounds 3, 4 and 5 each found defects in the
+  previous round's fix (2 -> 2 -> 4), which is the signature of a review loop that will not
+  terminate on its own. Fixed, because they publish a NEW false sentence: round 4's publish-time
+  check asked a BOOLEAN ("is something still locked?") and then published the payload parked at read
+  time, so a lock whose ATTRIBUTION moved self->peer inside the gap printed "while you check out"
+  beside a tablemate's lock, and settlement beginning while the lock held printed the narrower lock
+  clause on a settlement screen; and the `unknown` arm published unconditionally under a comment
+  claiming "no later view can falsify" a hedge — untrue, since a view showing the requested value
+  falsifies it exactly. The frame now RE-DERIVES the refusal from the current screen and compares
+  the SENTENCE (`refusedWriteNotice(fresh) !== notice` -> drop), plus re-tests the parked landing
+  predicate. That is one-directional by construction: re-deriving can only turn a publish into a
+  silence, never into a claim we never diagnosed — which is also why it is a comparison rather than
+  "publish whatever the current facts say", because the latter would let a freeze that arrived AFTER
+  our read be named as the reason our write failed (the M116/T14 fabrication).
+  **Filed as M231** (low), because both fail SAFE — a stale-but-once-true sentence or silence, never
+  a new false claim: the settle-release cleanup is unscoped (a newer refusal parked in the gap is
+  cancelled with the old one), and a confirmed landing stays silent without advancing the
+  supersession watermark.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).

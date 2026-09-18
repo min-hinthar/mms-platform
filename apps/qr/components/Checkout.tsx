@@ -818,7 +818,18 @@ export function Checkout({
   const scheduleEchoRefresh = useCoalescedRefresh(refresh);
   useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);
-  const [pendingRefusal, setPendingRefusal] = useState<PublishableRefusal | null>(null);
+  /**
+   * A refusal waiting for its frame — WITH the landing predicate that produced it (Codex round 5).
+   *
+   * ⚠️ THE PREDICATE IS PARKED BECAUSE THE VERDICT IS RE-DERIVED, NOT RE-VALIDATED. Round 4 asked a
+   * boolean ("is something still locked?") and then published the refusal parked at read time, so a
+   * lock whose ATTRIBUTION moved self→peer inside the gap printed "while you check out" beside a
+   * peer's lock, and an `unknown` hedge published over a view that had since confirmed the write.
+   */
+  const [pendingRefusal, setPendingRefusal] = useState<{
+    refusal: PublishableRefusal;
+    landed: (items: CartItem[]) => boolean;
+  } | null>(null);
 
   /**
    * Say a refusal out loud, once, and record that it was said — THE ONE PLACE all three edit
@@ -840,8 +851,8 @@ export function Checkout({
    * mounts empty, then its text changes.
    */
   const announceRefusal = useCallback(
-    (refusal: PublishableRefusal) => {
-      setPendingRefusal(refusal);
+    (refusal: PublishableRefusal, landed: (items: CartItem[]) => boolean) => {
+      setPendingRefusal({ refusal, landed });
       // ⚠️ THE LATCH IS NOT DEFERRED WITH IT. It answers "has this diner been told", and the
       // question the banner asks a beat later is about THIS commit's freeze — deferring the latch
       // would let the banner run first and take the slot, which is the collision T33 exists for.
@@ -940,21 +951,33 @@ export function Checkout({
       // — it also covers only that one edge, while this covers every path that lifts a freeze.
       // `freezeFactsRef` is the winning view's own answer, written synchronously by
       // `applyCartView`, which is the same source the classification and the T33 latch both read.
+      // ⚠️ THE SENTENCE IS RE-DERIVED FROM THE CURRENT SCREEN AND COMPARED (Codex round 5 P2 ×2).
+      // Round 4 asked a BOOLEAN — "is something still locked?" — and then published the payload
+      // parked at read time. Two ways that speaks a falsehood: a lock whose ATTRIBUTION moved
+      // self→peer inside the gap still satisfies `f.locked`, so the old "while you check out"
+      // prints beside a peer's lock; and settlement beginning while the lock is held prints the
+      // narrower lock clause on a settlement screen. The `unknown` arm was worse — it published
+      // unconditionally, under a comment of mine claiming "no later view can falsify" a hedge,
+      // which is simply untrue: a view that shows the requested value falsifies it exactly.
+      //
+      // ⚠️ THE TEST IS ON THE SENTENCE, NOT THE SHAPE, because the sentence is all a diner ever
+      // sees — and it is one-directional BY CONSTRUCTION: re-deriving can only turn a publish into
+      // a silence, never into a claim we did not diagnose. That is the safe direction this whole
+      // file argues for, and it is why this is a comparison rather than "publish whatever the
+      // current facts say" — the latter would let a freeze that arrived AFTER our read be named as
+      // the reason our write failed, which is the M116/T14 fabrication.
       const f = freezeFactsRef.current;
-      const stillTrue =
-        pendingRefusal.cause === "frozen"
-          ? f.locked
-          : pendingRefusal.cause === "settling"
-            ? f.settling
-            : // `unknown` names no freeze — it is a hedge about OUR write ("we couldn't confirm
-              // that"), which no later view can falsify. It publishes unconditionally.
-              true;
-      if (!stillTrue) {
+      const notice = refusedWriteNotice(pendingRefusal.refusal);
+      const fresh = classifyRefusedWrite({
+        ok: true,
+        freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
+        settling: f.settling,
+      });
+      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {
         setPendingRefusal(null);
         return;
       }
-      if (pendingRefusal.cause !== "unknown") setPayError(null);
-      const notice = refusedWriteNotice(pendingRefusal);
+      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);
       shownRefusalRef.current = notice;
       setStatus(notice);
       setPendingRefusal(null);
@@ -993,7 +1016,7 @@ export function Checkout({
       if (!refusal) return;
       if (lastAcceptedGesture.current > gesture) return;
       refusalGesture.current = gesture;
-      announceRefusal(refusal);
+      announceRefusal(refusal, landed);
     },
     [explainRefusal, announceRefusal],
   );

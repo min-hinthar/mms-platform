@@ -941,3 +941,58 @@ describe("Codex round 4 — a refusal must not contradict the view that WON", ()
     }
   });
 });
+
+describe("Codex round 5 — the parked sentence is re-derived, not re-validated", () => {
+  it("drops a SELF-lock refusal when the lock has become a PEER's before its frame", async () => {
+    // Round 4 asked a boolean — "is something still locked?" — and then published the payload
+    // parked at read time. A lock whose ATTRIBUTION moved inside the gap still satisfies that, so
+    // the two-tab diner's "while you check out" printed beside a tablemate's lock.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("locked"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: MY_SEAT }));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+
+      expect(regionText()).not.toContain("while you check out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("drops an unknown hedge when a later view CONFIRMS the write before its frame", async () => {
+    // The `unknown` arm published unconditionally, under a comment claiming no later view could
+    // falsify a hedge. A view showing the requested value falsifies it exactly — "We couldn't
+    // confirm that" beside the quantity the diner asked for, now on screen.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("response lost"));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, qty: 2 }] })); // it DID land
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+
+      expect(regionText()).not.toContain("couldn’t confirm");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

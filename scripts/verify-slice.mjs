@@ -850,7 +850,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The region renders `payError ?? status`, so clearing it unconditionally traded \u201cCouldn\u2019t start checkout\u201d \u2014 actionable, about money \u2014 for \u201cWe couldn\u2019t confirm that \u2014 the order below is up to date\u201d, on a screen whose checkout is broken. A FREEZE supersedes a pay error (the diner cannot retry the payment while frozen, which is the lock edge\u2019s own stated reasoning); an `unknown` hedge has no such claim",
-    find: '      if (pendingRefusal.cause !== "unknown") setPayError(null);',
+    find: '      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);',
     replace: "      setPayError(null);",
   },
   {
@@ -926,6 +926,23 @@ const MUTANTS = [
     replace: "      if (lastAcceptedGesture.current > 0) return;",
   },
   {
+    id: "m224/parked-sentence-is-not-re-derived",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 5 P2, and the mutation IS the evasion that looks right. Comparing CAUSES passes every shape test and still ships the bug: attribution lives inside the freeze, not the cause, so a lock that moved self\u2192peer inside the park\u2192publish gap is still `frozen` and still prints \u201cwhile you check out\u201d beside a tablemate\u2019s lock. The comparison has to be on the SENTENCE, which is the only thing a diner sees",
+    find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {",
+    replace:
+      "      if (pendingRefusal.landed(f.items) || fresh.cause !== pendingRefusal.refusal.cause) {",
+  },
+  {
+    id: "m224/parked-hedge-ignores-a-confirming-view",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 5 P2, the other half. Round 4 published the `unknown` hedge unconditionally under a comment claiming no later view could falsify it \u2014 untrue: a view that shows the requested value falsifies it exactly, and \u201cWe couldn\u2019t confirm that\u201d then prints beside the quantity the diner asked for. Drop the landing re-test and the park\u2192publish gap is unguarded again",
+    find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {",
+    replace: "      if (refusedWriteNotice(fresh) !== notice) {",
+  },
+  {
     id: "m224/landing-asks-the-view-that-lost",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
@@ -938,8 +955,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "Codex round 4 P2. Parking and publishing are two moments, and a BACKGROUNDED TAB throttles frames far enough apart for the peer to finish \u2014 so the release edge writes \u201cyou can edit again\u201d and a callback still holding the old verdict overwrites it with \u201cthe order\u2019s locked\u201d beside controls that are live. The guard keeps its SHAPE under this mutation and loses its EFFECT, which is the evasion to falsify: dropping the `return` clears the park and publishes anyway",
-    find: "      if (!stillTrue) {\n        setPendingRefusal(null);\n        return;\n      }",
-    replace: "      if (!stillTrue) {\n        setPendingRefusal(null);\n      }",
+    find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {\n        setPendingRefusal(null);\n        return;\n      }",
+    replace: "",
   },
   {
     id: "m224/an-older-success-retires-a-newer-refusal",
