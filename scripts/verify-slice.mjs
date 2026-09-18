@@ -826,7 +826,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "A rejected Server Action never proved the mutation failed \u2014 `setQty`'s `if (!affected) throw` sits AFTER the RPC and discards its `{ error }`, and a response can be lost once the statement has committed. Drop the landing check and a write the diner can SEE in the list is announced as \"That didn't go through\", which is the direction they cannot recover from. The comparison is forgeable only the SAFE way (a peer writing the same value buys silence), which is why it may decide this and never the sentence",
-    find: "      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;",
+    find: "      if (landed(seen.view.items)) return null;",
     replace: "",
   },
   {
@@ -842,8 +842,9 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The a11y half, and the one a DOM-text assertion cannot see. The view that diagnoses the refusal can REPLACE the live region's subtree \u2014 a refused removal of the last unit renders the empty-cart return, a settling refusal swaps the review region for the settlement one \u2014 and a polite region announces a CHANGE to an existing node, never content that was present when the node mounted. Publishing in that commit puts the text on screen and says nothing to a screen reader",
-    find: "    const frame = requestAnimationFrame(() => {",
-    replace: "    const frame = ((cb) => (cb(), 0))(() => {",
+    find: '    // "this is deliberately a later commit" rather than suppressing the rule that noticed.\n    const frame = requestAnimationFrame(() => {',
+    replace:
+      '    // "this is deliberately a later commit" rather than suppressing the rule that noticed.\n    const frame = ((cb) => (cb(), 0))(() => {',
   },
   {
     id: "m224/an-unknown-refusal-erases-the-pay-error",
@@ -934,13 +935,28 @@ const MUTANTS = [
     replace: "",
   },
   {
+    id: "m224/republish-speaks-a-stale-freeze",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 7 P2. The republish keys on the DROP, not on the freeze \u2014 deliberately, so ordinary transitions stay the edge effect's \u2014 but that exclusion means a value closed over at schedule time survives the whole gap. Release the lock between the drop frame and the republish frame and a stale \u201csomeone is checking out\u201d lands over the edge effect's correct \u201cyou can edit again\u201d, beside live controls. The ref is the freeze as it is NOW",
+    find: "      const msg = freezeMessageRef.current;",
+    replace: "      const msg = freezeMessage;",
+  },
+  {
     id: "m224/republish-invents-a-release",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
-    why: "The republish owes a banner only when something is FROZEN. Fall through to the edge effect's other branch and a drop on an unfrozen cart announces \u201cThe order\u2019s unlocked \u2014 you can edit again\u201d for a release that never happened \u2014 the M116/T14 fabrication class, reached from the opposite direction",
-    find: "    if (freezeMessage === null) return;\n    // Through a frame for the same two reasons every other announcement on this screen is: a\n    // synchronous `setState` in an effect body is a cascading render the React Compiler lint\n    // rejects, and the region has to be on screen before its text changes.\n    const frame = requestAnimationFrame(() => setStatus(freezeMessage));",
-    replace:
-      '    const frame = requestAnimationFrame(() =>\n      setStatus(freezeMessage ?? "The order\u2019s unlocked \u2014 you can edit again."),\n    );',
+    why: "The republish owes a banner only when something is FROZEN at FIRE time. Drop the guard and the callback writes whatever `freezeMessageRef` holds \u2014 including NULL on a cart whose freeze ended inside the gap, blanking the region over the edge effect\u2019s correct sentence. The guard is what makes the drop defer to the edge effect instead of fighting it",
+    find: "      if (msg === null) return;",
+    replace: "",
+  },
+  {
+    id: "m224/republish-leaves-the-pay-error-masking",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 7 P2. Every affected region renders `payError ?? status`, and the ordinary lock-edge announcement clears the error before writing. The republish did not, so a failed checkout kept masking the lock explanation beside dead controls \u2014 the diner sees a stale pay error and no reason the cart is inert",
+    find: "      setPayError(null);\n      setStatus(msg);",
+    replace: "      setStatus(msg);",
   },
   {
     id: "m224/parked-sentence-is-not-re-derived",
@@ -958,14 +974,6 @@ const MUTANTS = [
     why: "Codex round 5 P2, the other half. Round 4 published the `unknown` hedge unconditionally under a comment claiming no later view could falsify it \u2014 untrue: a view that shows the requested value falsifies it exactly, and \u201cWe couldn\u2019t confirm that\u201d then prints beside the quantity the diner asked for. Drop the landing re-test and the park\u2192publish gap is unguarded again",
     find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {",
     replace: "      if (refusedWriteNotice(fresh) !== notice) {",
-  },
-  {
-    id: "m224/landing-asks-the-view-that-lost",
-    file: "apps/qr/components/Checkout.tsx",
-    suite: "components/Checkout.test.tsx",
-    why: "Codex round 4 P2, and the asymmetry it names was WRITTEN IN by round 1's fix. The freeze classification moved to `freezeFactsRef` so an overtaken read could not narrate a freeze the screen had moved past; the LANDING check was left reading its own, losing, view. A write whose response was lost but which committed then gets \u201cWe couldn\u2019t confirm that\u201d printed beside the very quantity the winning view just put on screen. The union is deliberate \u2014 a BARRIER can overtake this read without applying any view, so the winner alone can be the OLDER basket",
-    find: "      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;",
-    replace: "      if (landed(seen.view.items)) return null;",
   },
   {
     id: "m224/a-parked-refusal-outlives-its-freeze",

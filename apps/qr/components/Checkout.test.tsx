@@ -1072,3 +1072,152 @@ describe("Codex round 6 — a refusal that is never spoken must not silence the 
     }
   });
 });
+
+describe("the read-time landing check earns its keep — a landed write never suppresses at all", () => {
+  /**
+   * ⚠️ THESE MEASURE THE FRAME, NOT THE FINAL TEXT, and that is the whole point.
+   *
+   * Round 6's republish speaks the banner on every dropped publication, so asserting the END state
+   * cannot tell the two layers apart — which is exactly why three mutants here SURVIVED. The
+   * difference the diner actually experiences is WHEN: with the read-time check a landed write
+   * never parks, never latches and never suppresses, so the lock-edge effect speaks in that same
+   * commit; without it the sentence is suppressed, dropped, and only republished two frames later.
+   * `settle()` is deliberately NOT called before the assertion.
+   */
+  it("speaks the lock immediately when the diagnosis read shows the write LANDED", async () => {
+    h.setQty.mockRejectedValueOnce(new Error("response lost"));
+    h.getCartView.mockResolvedValue(
+      view({ locked: true, lockedBy: PEER_SEAT, items: [{ ...ITEM, qty: 2 }] }),
+    );
+    mount();
+    await addOne();
+    expect(regionText()).toContain("checking out"); // no frame advanced
+  });
+
+  it("speaks it immediately when only the WINNING view shows the write landed", async () => {
+    const slowDiagnosis = deferred<View>();
+    h.setQty.mockRejectedValueOnce(new Error("response lost"));
+    h.getCartView.mockReturnValueOnce(slowDiagnosis.promise);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {});
+
+    h.getCartView.mockResolvedValue(
+      view({ locked: true, lockedBy: PEER_SEAT, items: [{ ...ITEM, qty: 2 }] }),
+    );
+    await syncFromServer(); // overtakes the diagnosis and puts the landed qty on screen
+
+    await act(async () => {
+      slowDiagnosis.resolve(view()); // the loser: unfrozen, qty 1
+    });
+    await settle();
+    // ⚠️ THE NEGATIVE IS THE LOAD-BEARING ONE. The banner is already on screen from when the
+    // winning view applied, so asserting it alone passes either way. What the read-time union
+    // prevents is the losing view's "not landed" reading PARKING a refusal that then overwrites
+    // that banner — announcing a write the diner can see in the list as having failed.
+    expect(regionText()).toContain("checking out");
+    expect(regionText()).not.toContain("didn’t go through");
+  });
+
+  it("names the freeze the SCREEN shows, not the one its own read saw", async () => {
+    // Not landed, so classification is reached. The losing view says SETTLING; the winning view
+    // says LOCKED. Classifying from the loser parks a settle sentence the publish frame then
+    // re-derives as a lock, mismatches, and DROPS — so the refusal is never spoken at all.
+    const slowDiagnosis = deferred<View>();
+    h.setQty.mockRejectedValueOnce(new Error("frozen"));
+    h.getCartView.mockReturnValueOnce(slowDiagnosis.promise);
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {});
+
+    h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+    await syncFromServer();
+
+    await act(async () => {
+      slowDiagnosis.resolve(view({ settling: true })); // the loser named a DIFFERENT freeze
+    });
+    await settle();
+    expect(regionText()).toContain("That didn’t go through");
+  });
+});
+
+describe("Codex round 7 — the republished banner must actually be visible", () => {
+  it("clears a live pay error so the lock explanation is not masked", async () => {
+    // ⚠️ THE PAY ERROR IS DRIVEN THROUGH A REAL PATH, not seeded — `askCounter`'s catch is the one
+    // this suite can reach. The region renders `payError ?? status`, and the ordinary lock-edge
+    // announcement clears the error before writing; the republish did not, so a failed counter ask
+    // kept masking the lock explanation beside dead controls.
+    vi.useFakeTimers();
+    try {
+      // The one `payError` this suite can drive from the REVIEW step, reused verbatim from the
+      // "leaves a live pay error standing" case above: pickup's missing-name validation.
+      mount({ splitContext: PICKUP });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /^Pay/ }));
+      });
+      expect(regionText()).toContain("Add a first name for pickup");
+
+      h.setQty.mockRejectedValueOnce(new Error("response lost"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      h.getCartView.mockResolvedValue(
+        view({ locked: true, lockedBy: PEER_SEAT, items: [{ ...ITEM, qty: 2 }] }),
+      );
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the parked frame DROPS the refusal
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the republish frame
+      });
+
+      expect(regionText()).toContain("checking out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("speaks the freeze as it is at FIRE time, not as it was when scheduled", async () => {
+    // The republish keys on the drop, not on the freeze — so nothing re-runs it when the sentence
+    // changes, and a value closed over at schedule time survives the whole gap. Release the lock
+    // between the drop frame and the republish frame and a stale "someone is checking out" lands
+    // straight over the edge effect's correct "you can edit again", beside live controls.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("response lost"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      h.getCartView.mockResolvedValue(
+        view({ locked: true, lockedBy: PEER_SEAT, items: [{ ...ITEM, qty: 2 }] }),
+      );
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // drops the refusal and SCHEDULES the republish
+      });
+
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, qty: 2 }] })); // the peer finished
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the republish frame fires on a cart that is FREE
+      });
+
+      expect(regionText()).toContain("you can edit again");
+      expect(regionText()).not.toContain("checking out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

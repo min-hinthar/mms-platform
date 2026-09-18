@@ -139,6 +139,24 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   reverted twice, because its mutant survived both times: the republish speaks regardless, so no
   fixture separates them. Filed as **M232** with the instruction to find the case first. Shipping it
   anyway would be the third confident comment in this file for a defect nobody had demonstrated.
+- **Codex round 7 — two P2s in round 6's republish effect, both fixed, and the review loop closed by
+  answering the question underneath it rather than patching once more.** (1) The republish keyed on
+  the drop and excluded `freezeMessage` from its deps — deliberately, so ordinary freeze transitions
+  stay the edge effect's — but that exclusion meant the callback carried the sentence from SCHEDULE
+  time, so a lock released inside the gap published the stale one over the edge effect's correct
+  replacement. It now reads `freezeMessageRef` at FIRE time and defers to the edge effect when the
+  freeze has ended. (2) Every affected region renders `payError ?? status`, and the ordinary lock-edge
+  announcement clears the error first; the republish did not, so a failed checkout kept masking the
+  lock explanation beside dead controls. One line, mirroring its neighbour.
+- **The three surviving mutants are resolved — two by fixtures, one by deleting dead code.** They
+  survived because round 6's republish speaks on every dropped publication, so asserting the END
+  state could not tell the read-time and publish-time layers apart. The difference a diner actually
+  experiences is WHEN: a landed write never parks, never latches and never suppresses, so the lock
+  lands in that same commit instead of two frames later. Three cases now measure the FRAME rather
+  than the final text, and two of the three mutants go red against them. The third does not, and the
+  measurement says why: round 5's publish-time landing re-test already covers the winning view, so
+  round 4's extra disjunct was **provably dead** — deleting it turns no case red. It is gone, and its
+  mutant retired with the rule it guarded rather than left decorative.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).

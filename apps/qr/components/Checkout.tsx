@@ -744,19 +744,19 @@ export function Checkout({
       // the only thing that can tell, so it is asked FIRST and silence wins the tie. The comparison
       // is forgeable in the SAFE direction only (a peer writing the same value makes us stay quiet),
       // which is why it may decide this and not the sentence.
-      // ⚠️ ASKED OF BOTH VIEWS, AND EITHER ONE SEEING THE CHANGE WINS (Codex round 4 P2). The
-      // classification below moved to `freezeFactsRef` in round 1 precisely because an overtaken
-      // read must not narrate a freeze the screen moved past — but the LANDING check was left
-      // reading its own, possibly losing, view. That asymmetry publishes "that didn't go through"
-      // beside the very quantity the winning view put on screen.
+      // ⚠️ THIS ASKS OUR OWN READ ONLY, AND THE WINNING VIEW IS ASKED AT PUBLISH TIME INSTEAD.
+      // Round 4 found the landing check reading its own, possibly LOSING, view while the winner
+      // already showed the change, and my fix was to ask both here. Round 5 then added the
+      // publish-time re-test against `freezeFactsRef.current.items` — the winner — for the
+      // park→publish gap, and that SUBSUMES the extra disjunct: measured, deleting it turns no case
+      // red, because a park it would have prevented is dropped at publish anyway.
       //
-      // ⚠️ THE UNION, not a swap to the winner alone, and the direction is the reason. A BARRIER
-      // (`confirmedWrite`) can overtake this read without applying any view, so `freezeFactsRef`
-      // may hold an OLDER basket than the one we just read — reading the winner alone would then
-      // announce a refusal over a change our own read proved had landed. Announcing a failure that
-      // did land is the error a diner cannot recover from; staying quiet about one that did not is
-      // recoverable by the re-read beside it. So any evidence of landing buys silence.
-      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;
+      // So what remains here is the cheap, honest half: our own read already proves it landed, so
+      // do not park (and do not latch) at all. Announcing a failure that DID land is the error a
+      // diner cannot recover from; staying quiet about one that did not is recovered by the re-read
+      // beside it. Any evidence of landing buys silence — the winner's evidence just arrives one
+      // step later now, rather than being asked for twice.
+      if (landed(seen.view.items)) return null;
       // ⚠️ CLASSIFIED FROM WHAT THE SCREEN SHOWS, NOT FROM THE VIEW WE READ (Codex round 1 P2).
       // A ticketed read can come back, diagnose perfectly, and still LOSE the screen to a view
       // issued after it. /menu publishes the observed classification anyway, and is right to: its
@@ -1238,18 +1238,35 @@ export function Checkout({
    * a drop while nothing is frozen owes no banner, and writing the unlocked sentence there would
    * invent a release that never happened.
    */
+  const freezeMessageRef = useRef(freezeMessage);
+  useEffect(() => {
+    freezeMessageRef.current = freezeMessage;
+  }, [freezeMessage]);
   useEffect(() => {
     if (freezeRepublish === 0) return; // mount, not a drop
-    if (freezeMessage === null) return;
     // Through a frame for the same two reasons every other announcement on this screen is: a
     // synchronous `setState` in an effect body is a cascading render the React Compiler lint
     // rejects, and the region has to be on screen before its text changes.
-    const frame = requestAnimationFrame(() => setStatus(freezeMessage));
+    const frame = requestAnimationFrame(() => {
+      // ⚠️ THE PAY ERROR GOES FIRST, exactly as the lock-edge announcement above does it (Codex
+      // round 7 P2). Every affected region renders `payError ?? status`, so writing only `status`
+      // leaves a failed checkout masking the lock explanation beside dead controls. A freeze
+      // supersedes a pay error for the same reason stated there: the diner cannot retry the payment
+      // while the cart is frozen.
+      // ⚠️ READ AT FIRE TIME, NEVER CLOSED OVER (Codex round 7 P2). This effect keys on the DROP,
+      // not on the freeze — re-running it whenever the sentence changed would let it overwrite the
+      // region on ordinary transitions the edge effect above owns. But that same exclusion meant
+      // the callback carried the sentence from SCHEDULE time, so a lock released or handed to
+      // another diner inside the gap — wide, in a throttled background tab — published the stale
+      // one straight over the edge effect's correct replacement. The ref is the freeze as it is NOW.
+      const msg = freezeMessageRef.current;
+      // The freeze ended inside the gap: the edge effect owns that sentence and has already
+      // written it. A drop owes nothing here, and writing the unlocked line would invent a release.
+      if (msg === null) return;
+      setPayError(null);
+      setStatus(msg);
+    });
     return () => cancelAnimationFrame(frame);
-    // `freezeMessage` is deliberately NOT a dep: this effect answers a DROP, and re-running it when
-    // the sentence changes would let it overwrite the region on an ordinary freeze transition the
-    // edge effect above already owns.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [freezeRepublish]);
 
   /**
