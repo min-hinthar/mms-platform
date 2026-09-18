@@ -152,6 +152,18 @@ function view(over: Partial<View> = {}): View {
   } satisfies View;
 }
 
+/**
+ * How many "pay at the counter" CARDS are on screen — the ask, rendered.
+ *
+ * ⚠️ A COUNT OF THE LANDMARK, not a text probe. `queryByText(/Settle up at the counter/i)` reported
+ * the card present on a DOM whose `textContent` did not contain that string, so it could not tell
+ * the barrier's two behaviours apart and the mutant SURVIVED against it. The card is the only
+ * `aria-labelledby="counter-h"` region on this screen, so counting it answers exactly the question.
+ */
+function counterCards(): number {
+  return document.querySelectorAll('[aria-labelledby="counter-h"]').length;
+}
+
 /** The review step's single live region, as a screen reader would read it. */
 function regionText(): string {
   const regions = screen.getAllByRole("status");
@@ -242,7 +254,10 @@ beforeEach(() => {
   h.setLineFulfillment.mockResolvedValue({ ok: true });
   h.makeItNow.mockResolvedValue({ ok: true });
   h.counterPayOutcome.mockResolvedValue({ kind: "open" });
-  h.requestCounterPay.mockResolvedValue({ ok: true, at: "2026-09-18T06:00:00.000Z" });
+  h.requestCounterPay.mockResolvedValue({
+    ok: true,
+    counterRequestedAt: "2026-09-18T06:00:00.000Z",
+  });
   h.withdrawCounterPay.mockResolvedValue({ ok: true });
 });
 
@@ -578,12 +593,12 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
     });
-    await waitFor(() => expect(screen.getByText(/Settle up at the counter/i)).toBeTruthy());
+    await waitFor(() => expect(counterCards()).toBe(1));
     await act(async () => {
       stale.resolve(billView({ counterRequestedAt: null })); // the pre-ask read, alone in flight
     });
     await settle();
-    expect(screen.queryByText(/Settle up at the counter/i)).toBeTruthy();
+    expect(counterCards()).toBe(1);
     await act(async () => {
       afterAsk.resolve(billView({ counterRequestedAt: "2026-09-18T06:00:00.000Z" }));
     });
@@ -602,12 +617,12 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay on your phone/i }));
     });
-    await waitFor(() => expect(screen.queryByText(/Settle up at the counter/i)).toBeNull());
+    await waitFor(() => expect(counterCards()).toBe(0));
     await act(async () => {
       stale.resolve(billView({ counterRequestedAt: "2026-09-18T06:00:00.000Z" }));
     });
     await settle();
-    expect(screen.queryByText(/Settle up at the counter/i)).toBeNull();
+    expect(counterCards()).toBe(0);
     await act(async () => {
       afterWithdraw.resolve(billView());
     });
