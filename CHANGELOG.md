@@ -4,6 +4,97 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M225 · M226(c) — /cart's read path gets the ordering /menu has had since T21(b), and the burst deadline stops trusting the wall clock (2026-09-17)
+
+**Both rows were filed BY #287, against the screen it had just touched.** The coalescer it shipped
+made each of them matter more: postponing a read widens the gap between two reads in flight, and the
+deadline that bounds the postponement was measured with a clock that can move backwards.
+
+- **M225 — `Checkout.refresh` was UNTICKETED.** A bare `await getCartView(cartId)` followed by ten
+  setters, so two reads in flight applied in ARRIVAL order — a mutation's own `await refresh()`
+  overlapping a coalesced echo, whichever came back last winning. An older one re-asserting
+  `locked: false` over a corrected `true` re-opens the steppers on a cart a peer is checking out, and
+  /cart has no scheduled freeze re-check to heal it (`freezeRecheckDelayMs` is the provider's alone)
+  — only the visibility backstop, which never fires for a tab that stays open, which is the /cart case.
+- **The ordering went into `lib/`, not into the component, and the reason is mechanical.**
+  `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set, so a gate reverted there
+  would go red nowhere. `readTicketed` in `apps/qr/lib/view-seq.ts` owns the four steps
+  (mint-before-await · await · `acceptView` · apply) and is falsified by two promises resolving out
+  of order. Eight new cases, four new mutants, each watched red before it was written down.
+- **⚠️ The return value still means "did we hear back", NOT "did we win the screen".** `recheckLock`
+  and the reopen path both read it that way and say so in their own comments. An OVERTAKEN read
+  reached the server; collapsing that to `applied` would light "Couldn't check just now" over a read
+  that did check — trading the silent failure Codex round 5 on #246 removed for a fabricated one, the
+  M116/T14 class. `readReachedServer` is that predicate and was already mutant-pinned.
+- **The row's other half, found while fixing it.** `askCounter`/`withdrawCounter` write a
+  server-CONFIRMED `counterRequestedAt` OUTSIDE any read, so a read issued before the tap lands after
+  it and reverts the diner's own confirmed value. `confirmedWrite` names the mutation's-own-view arm
+  for the case where the value arrives without a view, and invalidates reads in flight at both sites.
+- **M226(c) — the burst deadline rode `Date.now()`.** An elapsed duration measured on a wall clock:
+  a backward jump makes `waitedMs` negative, `ECHO_MAX_WAIT_MS - waitedMs` then exceeds the quiet
+  period, and `Math.min` picks the quiet period on EVERY event — the deadline stops binding and a
+  stream under 150 ms apart re-arms forever, starving the recovery read `ECHO_MAX_WAIT_MS` exists to
+  protect. Both ends read `performance.now()` now. **The fixture discriminates because the two clocks
+  move independently under fake timers — measured, not assumed: `vi.setSystemTime(t - 5000)` moves
+  `Date.now()` by -5000 and `performance.now()` by 0.** Reverting the module turns exactly one test
+  red, and both half-applied fixes turn two red.
+- **A stale claim nothing mechanical would have caught.** `scripts/check-echo-coalesce.mjs` carried a
+  paragraph saying M226(c) was still open and "a slice rather than a line". `check:docs` scans only
+  tracked `.md`, so that prose could have rotted indefinitely inside the guard that owns the module.
+  A blind falsification pass found it; the paragraph is now past tense and says why it was missable.
+- **The ticket alone was not enough, and two independent reviewers found the same thing.** Ordering by
+  ISSUANCE has a known cost at the lock's TTL boundary — T24 — because `assertCartMember` evaluates
+  the TTL on the server clock, once per request: an EARLIER-ticketed read can reach the server AFTER
+  expiry and see `locked: false` while a later-ticketed one saw `true` and applied first. The gate
+  then refuses the fresher observation. `view-seq.ts` bounds that with "T20's scheduled re-read" —
+  true of the provider, and FALSE of /cart, which had none. For one revision this slice turned a
+  documented, bounded limitation into an unbounded freeze on the screen it had just ticketed.
+  **T20's freeze re-check is ported to /cart with the ticket**, re-arming on `readReachedServer` so a
+  cart still frozen on a fresh read earns a new window.
+- **`refresh` returns the OUTCOME, not a boolean**, because two callers needed two questions and a
+  boolean gave them one. "Check again" asks _is the screen the answer to MY tap_ — and a read that
+  reached the server but applied nothing answered yes, so the tap went silent on a frozen cart the
+  server had released: verbatim the failure that control's own comment says it exists to remove. It
+  re-issues once on `overtaken` now; the reopen path keeps `readReachedServer`, which is the question
+  it actually has.
+- **A real defect in the first draft of `confirmedWrite`'s wiring.** `withdrawCounter` put the barrier
+  AFTER the round trip while its optimistic `setCounterAt(null)` ran before it, so a read landing
+  mid-await wrote the pre-withdraw ask back and the barrier fired too late with nothing re-asserting
+  `null` — the screen flipping back to "We'll settle up at the counter" on a cart with no ask.
+  Barrier first, then re-assert, exactly as `askCounter` does.
+- **Two claims of my own that were false, and one number that was wrong three ways.** A comment said
+  `check:echo-coalesce` finding #18 enforces `refresh`'s DEP ARRAY; it enforces the call shape —
+  `isStableReader` ends in `isUseCallback` and nothing in that guard reads `arguments[1]`. The ref's
+  stated rationale was a non-sequitur (a state-held object is referentially stable too; the real
+  reason is that the counter is mutated in place). And the setter block was called "nine" here and
+  "eight" in `view-seq.ts` when it is **ten**, measured — the same finding-#17 shape this repo filed
+  two PRs ago.
+- **Two new tests did not discriminate and now do.** The overtaken case asserted only
+  `readReachedServer`, true for two of three outcomes, so it stayed green under the gate-removed
+  mutant; the clock case asserted `toHaveBeenCalled` where the count is exactly 1. Both were watched
+  red under the mutations they now catch.
+- **Three review rounds on one area, and the third found a regression the second had introduced.**
+  Round 2: `confirmedWrite` advances the watermark WITHOUT a view, so a freeze re-check could lose an
+  expiry observation to a counter tap — closed by re-issuing once. Round 3: that unconditional
+  re-issue could itself FAIL and overwrite an `"overtaken"` that a complete view had already
+  established, reporting "Couldn't check just now" over a fresh unlocked screen — the same fabricated
+  diagnosis reached from the other side. A retry that does not come back now leaves the established
+  outcome standing, on both the scheduled chain and the manual control.
+- **The root cause is filed, not patched a fourth time (M228).** `"overtaken"` conflates "a real view
+  beat you" with "a field-only barrier beat you", and those need opposite responses. The fix is a
+  second watermark in `ViewSeq` that only `acceptView` moves — ~15 lines plus a suite — and it is a
+  concurrency primitive that has now produced a new finding on each successive patch under review
+  pressure. It gets its own slice, red-first, with the interleavings as fixtures. ⚠️ A third round-3
+  finding is neither new nor this PR's: the chain not restarting after a failed read on a still-frozen
+  cart is a PRE-EXISTING T20 property — the provider's effect has the identical re-arm and deps, so
+  /menu has carried it since T20 and /cart inherited it by porting. Fixing one screen only is what
+  M193 cost a release to undo.
+- **688 → 694 mutants; 125 target modules unchanged** (both files were already in the set).
+  ⚠️ **The /cart WIRING remains unguarded and M225's closure says so — filed as M227.** `Checkout.tsx`
+  has no suite and is not in the mutate set, so deleting either `confirmedWrite` call site leaves all
+  694 mutants and every guard green. The RULE is guarded in `lib/`; keeping the wiring needs the
+  first-ever component suite for a 2700-line screen, which is its own slice.
+
 ### M193 (the other half) · M217 — one coalescer for both screens, and a row that was closed against a superseded migration (2026-09-17)
 
 **#275 closed M193 where the defect was FOUND and left it shipping one route away.** The coalescer

@@ -90,6 +90,46 @@ describe("useCoalescedRefresh — one read per burst, and never none", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
+  it("survives the device clock jumping BACKWARD mid-burst", () => {
+    // M226(c). The deadline is an ELAPSED DURATION, and a wall clock cannot measure one: an NTP
+    // correction or a manual set moves `Date.now()` backward, `waitedMs` goes negative, and
+    // `ECHO_MAX_WAIT_MS - waitedMs` then exceeds the quiet period — so `Math.min` picks the quiet
+    // period on EVERY event, the deadline stops binding, and a stream of events under 150 ms apart
+    // re-arms the timer forever. That starves the recovery read, which is the exact failure
+    // ECHO_MAX_WAIT_MS exists to prevent, restored by a clock that went backwards.
+    //
+    // ⚠️ THE JUMP IS WHAT MAKES THIS TEST DISCRIMINATE, and it only does so because the two clocks
+    // move independently under fake timers — MEASURED, not assumed: `vi.setSystemTime(t - 5000)`
+    // moves `Date.now()` by -5000 and `performance.now()` by 0. So this case is green on
+    // `performance.now()` and red on `Date.now()`, which is the whole point of it.
+    const refresh = vi.fn();
+    const { result } = renderHook(() => useCoalescedRefresh(refresh));
+
+    // The burst opens, anchoring the deadline.
+    act(() => {
+      result.current();
+      vi.advanceTimersByTime(100);
+    });
+
+    // The device clock lurches back an hour, mid-burst.
+    act(() => {
+      vi.setSystemTime(new Date(Date.now() - 3_600_000));
+    });
+
+    // The stream continues, every gap under the quiet period. The deadline must still bind.
+    for (let i = 0; i < ECHO_MAX_WAIT_MS / 100; i += 1) {
+      act(() => {
+        result.current();
+        vi.advanceTimersByTime(100);
+      });
+    }
+
+    // The COUNT, not merely "called" (blind adversarial pass on #288): under the shipped code the
+    // deadline binds exactly once across this stream, and asserting only `toHaveBeenCalled` left the
+    // mixed-clock direction — which fires one read per event — to be caught by a neighbour.
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("starts a FRESH deadline once a burst has drained", () => {
     // The anchor reset inside the timer, and it needed a SEPARATING fixture: two bursts a tick apart
     // give the same delay whether or not the anchor survived, so the first draft of this test scored

@@ -65,7 +65,15 @@ import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
 import { PaperAmbient } from "./PaperAmbient";
 import { WalletChip } from "./WalletChip";
+import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
+import {
+  confirmedWrite,
+  newViewSeq,
+  readReachedServer,
+  readTicketed,
+  type ViewSeq,
+} from "@/lib/view-seq";
 import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
@@ -397,6 +405,23 @@ export function Checkout({
   // realtime + visibility subscriptions below on every paint (blind audit on this diff, perf).
   const journey = useJourneyRouter();
   const journeyRef = useRef(journey);
+  /**
+   * M225 — /cart's read-ordering ticket, the one `TableCartProvider` has had since T21(b).
+   *
+   * A REF because the counter is MUTATED IN PLACE — `issueRead`/`acceptView` write to it, and doing
+   * that to a `useState` object is a React violation that would not re-render anyway. (An earlier
+   * draft justified it by `refresh`'s dep array; that was a non-sequitur — a state-held object is
+   * referentially stable too.)
+   *
+   * ⚠️ WHAT DOES DEPEND ON THE DEPS, AND WHAT DOES NOT ENFORCE IT. `refresh`'s identity must stay
+   * stable — `useCoalescedRefresh` keys its cleanup on it, so a new one per render discards the
+   * pending read with nothing armed in its place. `check:echo-coalesce` finding #18 does NOT enforce
+   * that: `isStableReader` ends in `isUseCallback(init, ctx.react)`, which matches the CALL SHAPE,
+   * and nothing in that guard reads `arguments[1]`. Adding a per-render value to this dep array
+   * would keep the guard green while re-breaking the coalescer. Keep it `[cartId, isDineIn]`. Per-instance by construction: `view-seq.ts` holds
+   * no module state, so /cart and /menu get their own counters and a remount gets a fresh one.
+   */
+  const viewSeqRef = useRef<ViewSeq>(newViewSeq());
   const stepRef = useRef<"review" | "pay">("review");
   // Written in an effect, never during render (the React Compiler's ref rule; `pnpm lint` errors
   // on a render-time `ref.current =`). Both are read only inside `refresh`'s async catch, which
@@ -442,29 +467,68 @@ export function Checkout({
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
   // stable cartId prop) so the realtime + visibility subscriptions below register once.
+  /**
+   * ⚠️ TICKETED SINCE M225, and the ticket is what makes the coalescer safe here.
+   *
+   * This was a bare `await getCartView(cartId)` followed by ten setters, so two reads in flight
+   * applied in ARRIVAL order: a mutation's own `await refresh()` overlapping a coalesced echo, and
+   * whichever came back LAST won. An older one re-asserting `locked: false` over a corrected `true`
+   * re-opens the steppers on a cart a peer is checking out.
+   *
+   * ⚠️ AND THE TICKET ALONE WAS NOT ENOUGH HERE (Codex round 1 on #288). Ordering by ISSUANCE has a
+   * known cost at the TTL boundary — T24, in `view-seq.ts` — and that docblock bounds it with
+   * "T20's scheduled re-read", which /cart did not have: a lock expiry emits no realtime event and
+   * the visibility backstop never fires for a tab that stays open, which is the /cart case. So the
+   * freeze re-check below was ported with the ticket, not after it. Read them as one change.
+   *
+   * The ordering lives in `readTicketed` rather than inline here for the reason `lock-ttl.ts` and
+   * `view-seq.ts` give: a rule that sits in a component sits outside every guard this repo has —
+   * `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set — so a reverted gate
+   * here would go red nowhere. There it is falsified by two promises resolving out of order.
+   *
+   * ⚠️ IT RETURNS THE OUTCOME, NOT A BOOLEAN, because two callers need two different questions and a
+   * boolean silently gave them the same one (blind adversarial pass on #288, HIGH-1).
+   *
+   * "Did we hear back" is `readReachedServer`, and it is TRUE for an overtaken read: collapsing that
+   * to `applied` lights "Couldn't check just now" over a read that did check — a fabricated
+   * diagnosis of the M116/T14 class, mutant-pinned. But `recheckLock` asks something narrower — *is
+   * the screen now the answer to MY tap* — and a boolean meaning "reached" answered yes for a read
+   * that applied nothing. Combined with the T24 inversion below, the diner could tap "Check again"
+   * on a frozen cart the server had already released and get silence: verbatim the failure that
+   * control's own comment says it exists to remove. So the outcome is returned, and each caller
+   * reads the question it actually has.
+   *
+   * ⚠️ AND THE FAILURE ARM IS NOW THE READ'S ALONE. It used to be any throw inside the try — a
+   * setter, the slot normalizer — which would have run the settle-probe below for something that was
+   * never a read failure. `readTicketed` catches the read and nothing else, so the probe now fires on
+   * exactly the condition its comment describes.
+   */
   const refresh = useCallback(async () => {
-    try {
-      const v = await getCartView(cartId);
-      setItems(v.items);
-      setTotals(v.totals);
-      // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
-      // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
-      // and relit ASAP over a still-scheduled cart, with no way to clear it).
-      setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
-      setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
-      // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
-      // this reset a stale "back" from the diner's last local flip would slide the settle board
-      // (and its return) in from the left. Idempotent while settling holds (React bails on same).
-      if (v.settling) setStepDir("forward");
-      // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
-      // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
-      setLocked(v.locked);
-      setLockedBy(v.lockedBy);
-      setMySeat(v.mySeat);
-      setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
-      setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-      return true;
-    } catch {
+    const outcome = await readTicketed(
+      viewSeqRef.current,
+      () => getCartView(cartId),
+      (v) => {
+        setItems(v.items);
+        setTotals(v.totals);
+        // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
+        // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
+        // and relit ASAP over a still-scheduled cart, with no way to clear it).
+        setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
+        setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+        // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
+        // this reset a stale "back" from the diner's last local flip would slide the settle board
+        // (and its return) in from the left. Idempotent while settling holds (React bails on same).
+        if (v.settling) setStepDir("forward");
+        // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
+        // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
+        setLocked(v.locked);
+        setLockedBy(v.lockedBy);
+        setMySeat(v.mySeat);
+        setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+        setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+      },
+    );
+    if (outcome === "failed") {
       // A1 — on a DINE-IN table one cause of this failure is the register settling the cart
       // (`assertCartMember` answers `cart_closed` forever after). Ask the one question that
       // separates that from a blip, once per failure, and leave the screen only on a positive
@@ -503,8 +567,8 @@ export function Checkout({
       // #246). Every existing caller ignores the value and is unaffected — but a caller whose whole
       // job is to re-read on demand ("Check again") must be able to tell "the server says still
       // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
-      return false;
     }
+    return outcome;
   }, [cartId, isDineIn]);
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
@@ -799,6 +863,79 @@ export function Checkout({
     else mounted.current = true;
   }, [viewKey]);
 
+  /**
+   * T20's scheduled freeze re-check, ported to /cart (Codex round 1 on #288).
+   *
+   * ⚠️ M225's TICKET MADE THIS NECESSARY, and the finding is the sharpest kind: correct about a
+   * mechanism `view-seq.ts` already documents, aimed at the caller that had no protection from it.
+   *
+   * T24: the ticket orders views by CLIENT ISSUANCE, which is not the order the SERVER read them in.
+   * `assertCartMember` evaluates the TTL on the server clock, once per request, so around an expiry
+   * boundary an EARLIER-ticketed read can reach the server AFTER expiry and observe `locked: false`
+   * while a LATER-ticketed one reached it before and observed `locked: true`. The watermark then
+   * refuses the fresher observation because its ticket is lower — and arrival order, which is what
+   * /cart had before M225, would have applied it. In that one interleaving the ticket is a
+   * regression, not merely a limitation it declines to remove.
+   *
+   * `view-seq.ts` says what bounds that cost: "T20's scheduled re-read, which arms on exactly this
+   * state and re-arms on every successful read — so the residual is one TTL of staleness, not a
+   * permanent freeze." That sentence was true of the provider and FALSE here until this effect
+   * existed: a lock expiry emits no realtime event, and the visibility backstop below never fires
+   * for a tab that stays open, which is the /cart case. The residual was "until the diner taps
+   * Check again".
+   *
+   * ⚠️ AND A FIELD-ONLY BARRIER MUST NOT COUNT AS AN OBSERVATION (Codex round 2 on #288). This is the
+   * one asymmetry `confirmedWrite` introduces that the provider does not have: its no-ticket arm
+   * always applies a real VIEW, so a watermark advance there always carries fresh axes. A confirmed
+   * COUNTER write carries none — it confirms `counterRequestedAt` and nothing else. So a re-check
+   * read that observed the freeze EXPIRED can be refused by a counter tap landing beside it, its
+   * observation discarded, and a re-arm on "reached the server" alone would then wait another full
+   * TTL from a frozen state nothing re-measured. `askCounter` is reachable in exactly that window:
+   * `freezeBlocksPayment` is `freeze === "peer"`, so the counter controls stay live through a `self`
+   * or `held` freeze, which is when `locked` is true and this effect is armed. The counter action's
+   * own trailing read is fire-and-forget and swallows failure by design, so it cannot be relied on
+   * to supply the axes either. Re-issuing ONCE closes it: the retry carries a ticket above
+   * everything in flight, so only a fresh tap can overtake it — and that tap re-reads too.
+   *
+   * ⚠️ RE-ARM ON `readReachedServer`, NEVER ON "did my read win" — the outcome `refresh` returns. A read that came back proves the cart is reachable even when a concurrent read beat it
+   * to the screen, and a cart still frozen on a fresh successful read is a lock that was
+   * RE-ACQUIRED: a new observation, which earns a new window. Narrowing this to "applied" kills the
+   * chain on exactly the frozen cart it exists for, whose unchanged axes never re-run this effect.
+   * That is the permanent dead surface T20 was written to fix, and the reason `refresh`'s return
+   * value had to keep meaning "did we hear back".
+   */
+  useEffect(() => {
+    const delay = freezeRecheckDelayMs({ locked, settling });
+    if (delay === null) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const arm = () => {
+      timer = setTimeout(() => {
+        void refresh().then(async (outcome) => {
+          // Checked AFTER the await too: the effect can be torn down while the read is in flight
+          // (an unmount, or the axes flipping), and a chain re-arming from a resolved promise would
+          // outlive its own cleanup.
+          if (cancelled) return;
+          // An overtaken read LOST its observation, and the thing that overtook it may have been a
+          // field-only barrier carrying no axes at all (see above). Re-read once so the state this
+          // chain re-arms from came from a view.
+          // ⚠️ A FAILED RETRY MUST NOT ERASE WHAT THE FIRST READ ESTABLISHED (Codex round 3 on #288).
+          // `"overtaken"` already proves the cart is reachable; if the re-issue then fails we have
+          // learned nothing NEW, so keeping `"failed"` would stop a chain the first read had earned
+          // the right to continue. Only a retry that came back replaces the outcome.
+          const retry = outcome === "overtaken" ? await refresh() : outcome;
+          const settled = retry === "failed" ? outcome : retry;
+          if (!cancelled && readReachedServer(settled)) arm();
+        });
+      }, delay);
+    };
+    arm();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [locked, settling, refresh]);
+
   // J3 freshness backstop (mirrors TableCartProvider's): the review-step timeline must never narrate
   // a stale kitchen state as current — realtime here is dine-in-gated (a pickup cart has none) and a
   // backgrounded phone misses the flips anyway — so re-sync the server view whenever the tab returns
@@ -930,6 +1067,12 @@ export function Checkout({
         setPayError(r.error);
         return;
       }
+      // ⚠️ M225 — INVALIDATE EVERY READ IN FLIGHT BEFORE WRITING A CONFIRMED VALUE. The ticket
+      // orders reads against each other; a read issued before this tap carries a lower ticket, and
+      // without this it would land afterwards and write its own (pre-ask) `counterRequestedAt` over
+      // the one the server just confirmed — the diner's tap undone by an older answer to a question
+      // nobody re-asked. The re-read below is issued after, so it still wins normally.
+      confirmedWrite(viewSeqRef.current);
       setCounterAt(r.counterRequestedAt);
       setStatus("We’ll settle up at the counter — show them this screen whenever you’re ready.");
       void refresh();
@@ -954,6 +1097,16 @@ export function Checkout({
         setPayError(r.error);
         return;
       }
+      // ⚠️ M225, AND THE BARRIER MUST BE FOLLOWED BY A RE-ASSERT (blind adversarial pass on #288,
+      // MEDIUM-5). `askCounter` writes its confirmed value AFTER the barrier, so it is safe by
+      // construction. Here the optimistic `setCounterAt(null)` happened BEFORE the round trip, so a
+      // read landing during the await still carried a ticket above the watermark, applied, and wrote
+      // the pre-withdraw `counterRequestedAt` back — after which `confirmedWrite` fired too late and
+      // nothing restored `null`. The screen flipped back to "We'll settle up at the counter" on a
+      // cart with no ask. Barrier first, then re-assert the confirmed value, exactly as `askCounter`
+      // does.
+      confirmedWrite(viewSeqRef.current);
+      setCounterAt(null);
       setStatus("Back to paying here — pick a tip and tap Pay when you’re ready.");
       void refresh();
     } catch {
@@ -1103,7 +1256,25 @@ export function Checkout({
       // cannot tell the expected post-payment 403 from a transient error), so awaiting it and saying
       // nothing made this escape the very thing it was added to remove: a control that accepts a tap,
       // changes to "Checking…" and back, and leaves the frozen screen exactly as it was.
-      if (!(await refresh()))
+      // ⚠️ RE-ISSUE ONCE ON "overtaken" (blind adversarial pass on #288, HIGH-1). A read that lost
+      // the screen to a higher ticket is not an answer to THIS tap, and around the TTL boundary it
+      // may have been the FRESHER observation (T24 in `view-seq.ts`: issuance order is not server
+      // observation order). Reporting it as success is the "accepts a tap, changes to Checking… and
+      // back, leaves the frozen screen exactly as it was" failure this control exists to remove —
+      // the comment above is about the silent-failure half of it. One retry is enough: it carries a
+      // ticket above everything already in flight, so nothing can overtake it in turn.
+      // ⚠️ AND THE RETRY MUST NOT MANUFACTURE A FAILURE (Codex round 3 on #288 — a regression the
+      // round-2 patch introduced). `"overtaken"` can mean an ordinary concurrent `refresh` applied a
+      // COMPLETE view that already cleared the lock; if this unconditional re-issue then fails,
+      // replacing the outcome would light "Couldn't check just now" over an already-refreshed,
+      // unlocked screen — the same fabricated diagnosis, arrived at from the other side. A retry
+      // that does not come back leaves the established outcome standing.
+      let outcome = await refresh();
+      if (outcome === "overtaken") {
+        const retry = await refresh();
+        if (retry !== "failed") outcome = retry;
+      }
+      if (!readReachedServer(outcome))
         setPayError(
           "Couldn’t check just now — try again in a moment. The lock also clears on its own.",
         );
@@ -1185,7 +1356,11 @@ export function Checkout({
     // Always re-read. A release that reported success can still have been re-taken by a concurrent
     // create-intent, and the server's answer is the only one that counts — and if we never heard
     // back, say so rather than leaving the unchanged screen to imply the lock is still real.
-    if (!(await refresh()))
+    // `readReachedServer`, not `=== "applied"`: an overtaken read reached the server, and the view
+    // that beat it is at least as fresh as ours would have been. No retry here — unlike
+    // `recheckLock` this is not answering a tap that asked "is it still locked?", it is re-syncing
+    // after our own write, and the trailing read is a backstop rather than the verdict.
+    if (!readReachedServer(await refresh()))
       setPayError((prev) => prev ?? "Couldn’t re-check the order — try again in a moment.");
   }
 

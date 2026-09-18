@@ -55,7 +55,16 @@
  * That is a limitation this ticket does not remove, not a regression it introduces: before it,
  * ordering was by ARRIVAL, which is equally unrelated to server read order. What bounds the cost is
  * T20's scheduled re-read, which arms on exactly this state and re-arms on every successful read —
- * so the residual is one TTL of staleness, not a permanent freeze. Ordering on server truth needs
+ * so the residual is one TTL of staleness, not a permanent freeze.
+ *
+ * ⚠️ THAT BOUND IS A PROPERTY OF THE CALLER, NOT OF THIS MODULE, and adding a second caller is what
+ * made the difference matter (Codex round 1 and the blind pass on #288, independently). When M225
+ * ticketed `/cart`, this paragraph still read as though the T20 re-read came with the ticket. It did
+ * not: `freezeRecheckDelayMs` was the provider's alone, a lock expiry emits no realtime event, and
+ * `/cart`'s visibility backstop never fires for a tab that stays open — which is the `/cart` case.
+ * So for one release the inversion above had NOTHING to heal it there, and in that interleaving the
+ * ticket was worse than the arrival order it replaced. `Checkout.tsx` arms the same re-check now.
+ * A THIRD caller must bring one too, or inherit an unbounded freeze. Ordering on server truth needs
  * the view to CARRY it (an observation stamp, or the `locked_at`/`settle_at` of T23); that is a
  * shape change, and it is filed rather than approximated here.
  *
@@ -98,6 +107,25 @@ export function acceptView(s: ViewSeq, seq?: number): boolean {
 }
 
 /**
+ * A confirmed SERVER value was written outside any read — invalidate every read in flight.
+ *
+ * ⚠️ M225. `acceptView(s)` with no ticket already means "this did not come from a ticketed read, and
+ * it outranks everything issued so far" — but its callers to date all had a VIEW to apply, so the
+ * name reads as being about views. `/cart`'s counter-ask has no view: `askCounter` awaits
+ * `requestCounterPay`, writes the returned `counterRequestedAt` straight to state, and only then
+ * re-reads. A read issued BEFORE that tap is still in flight, carries a lower ticket, and would
+ * otherwise land afterwards and write its own (pre-ask) `counterRequestedAt` over the confirmed one
+ * — the diner's own tap undone by an older answer to a question nobody re-asked.
+ *
+ * The ticket orders reads against each other; this is what extends that ordering to a write whose
+ * value the server has already confirmed. Same rule as the mutation's-own-view arm, named for the
+ * case where the value arrives without a view.
+ */
+export function confirmedWrite(s: ViewSeq): void {
+  acceptView(s);
+}
+
+/**
  * T26 — what a ticketed read ESTABLISHED, because "the response came back" and "this view is on
  * screen" are different facts and two callers need different ones.
  *
@@ -135,6 +163,53 @@ export type ReadOutcome =
  */
 export function readReachedServer(o: ReadOutcome): boolean {
   return o !== "failed";
+}
+
+/**
+ * Run a read under a ticket and report which of the three things happened.
+ *
+ * ⚠️ M225 — THE ORDERING LIVES HERE SO IT CAN BE FALSIFIED BY A VALUE. `TableCartProvider` hand-wires
+ * the same four steps across three call sites (mint, await, gate, apply), and `Checkout` had none of
+ * them: `/cart`'s `refresh` was a bare `await getCartView(cartId)` followed by ten setters, so two
+ * reads in flight applied in ARRIVAL order and an older one could re-assert `locked: false` over a
+ * corrected `true`. `/cart` has no scheduled freeze re-check to heal that (`freezeRecheckDelayMs`
+ * is the provider's alone), so the stale unfreeze stands until a peer's next row event.
+ *
+ * Hand-wiring it a fourth time would put the rule in a component, outside every guard this repo has
+ * — and `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set, so a reverted gate
+ * there goes red nowhere. A function is falsified by two promises resolving out of order.
+ *
+ * ## The three steps, and why each is where it is
+ *
+ *   • `issueRead` runs BEFORE the await, so the ticket records ISSUE order — the order the answers
+ *     describe. Minting after the await would record arrival order and guard nothing.
+ *   • A throw returns `"failed"` WITHOUT touching the watermark. A read that never came back has
+ *     learned nothing, and moving `applied` for it would let a failure suppress an earlier success —
+ *     the exact flaw Codex round 2 on #249 found in this module's first draft.
+ *   • `apply` runs only after `acceptView` says yes, so a refused view writes NOTHING. Gating the
+ *     setters individually is how a view splits in half across two reads.
+ *
+ * ⚠️ THE CALLER STILL OWNS THE RETURN CONTRACT. `readReachedServer` is the predicate for "did we hear
+ * back" and it is TRUE for `"overtaken"`: a read that lost the screen still reached the server.
+ * Collapsing that to `=== "applied"` makes a recovery control ("Check again") report "couldn't check
+ * just now" over a read that did check — a fabricated diagnosis, which is the class M116/T14 exist to
+ * remove, and it is pinned by the `read/reaching-the-server-narrows-to-ours` mutant.
+ */
+export async function readTicketed<T>(
+  s: ViewSeq,
+  read: () => Promise<T>,
+  apply: (view: T) => void,
+): Promise<ReadOutcome> {
+  const seq = issueRead(s);
+  let view: T;
+  try {
+    view = await read();
+  } catch {
+    return "failed";
+  }
+  if (!acceptView(s, seq)) return "overtaken";
+  apply(view);
+  return "applied";
 }
 
 /**
