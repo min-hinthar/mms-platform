@@ -841,17 +841,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "The a11y half, and the one a DOM-text assertion cannot see. The view that diagnoses the refusal can REPLACE the live region's subtree \u2014 a refused removal of the last unit renders the empty-cart return, a settling refusal swaps the review region for the settlement one \u2014 and a polite region announces a CHANGE to an existing node, never content that was present when the node mounted. Publishing in that commit puts the text on screen and says nothing to a screen reader",
-    find: '    const frame = requestAnimationFrame(() => {\n      if (pendingRefusal.cause !== "unknown") setPayError(null);',
-    replace:
-      '    const frame = 0;\n    {\n      if (pendingRefusal.cause !== "unknown") setPayError(null);',
-  },
-  {
-    id: "m224/an-unknown-refusal-erases-the-pay-error",
-    file: "apps/qr/components/Checkout.tsx",
-    suite: "components/Checkout.test.tsx",
-    why: 'The region renders `payError ?? status`, so clearing it unconditionally traded "Couldn\'t start checkout" \u2014 actionable, about money \u2014 for "We couldn\'t confirm that \u2014 the order below is up to date", on a screen whose checkout is broken. A FREEZE supersedes a pay error (the diner cannot retry the payment while frozen, which is the lock edge\'s own stated reasoning); an `unknown` hedge has no such claim',
-    find: '      if (pendingRefusal.cause !== "unknown") setPayError(null);',
-    replace: "      setPayError(null);",
+    find: "    const frame = requestAnimationFrame(() => {",
+    replace: "    const frame = ((cb) => (cb(), 0))(() => {",
   },
   {
     id: "m224/a-superseded-refusal-outlives-its-cart",

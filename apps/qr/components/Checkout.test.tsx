@@ -370,6 +370,25 @@ describe("T33 on /cart — the banner must not overwrite the refusal", () => {
     );
   });
 
+  it("names the lock that OUTLIVES a settlement the refusal explained", async () => {
+    // `classifyRefusedWrite` tests settling first, so a cart under BOTH freezes gets the settle
+    // explanation — which outranks and silences the lock banner. Call the split off with the pay
+    // lock still held and `announced` never changes (the lock notice existed throughout), so an
+    // edge test that asks only `prev === announced` leaves the region asserting the table is still
+    // paying. A suppression LIFTING is an edge too; the freeze that ended and the freeze that
+    // remains are different facts.
+    h.setQty.mockRejectedValueOnce(new Error("frozen"));
+    h.getCartView.mockResolvedValue(view({ settling: true, locked: true, lockedBy: PEER_SEAT }));
+    mount();
+    await addOne();
+    await settle();
+    expect(regionText()).toContain("the order’s locked while your table pays");
+
+    h.getCartView.mockResolvedValue(view({ settling: false, locked: true, lockedBy: PEER_SEAT }));
+    await syncFromServer();
+    await waitFor(() => expect(regionText()).toContain("checking out"));
+  });
+
   it("speaks again when the lock is RELEASED and re-taken with no write in between", async () => {
     // T33's staleness bound, and the only shape that reaches it. `explanationHolds` cannot catch
     // this one: at the publish moment and at each banner moment the lock is genuinely true, so
@@ -547,42 +566,51 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     // outside any read, so a read ISSUED BEFORE the tap and resolving after it re-asserts null and
     // the counter card vanishes under the diner while the register is expecting them. Delete the
     // barrier and this case goes red; nothing else in the repo could see it.
+    // ⚠️ THE ASK'S OWN `refresh()` IS HELD OPEN TOO, and that is what makes this fixture
+    // discriminating. Let it land first and ordinary ticket ordering already rejects the older read,
+    // so the barrier would be redundant and its mutant would SURVIVE — which is exactly what the
+    // first draft of this case measured.
     const stale = deferred<View>();
-    h.getCartView.mockReturnValueOnce(stale.promise);
-    h.setQty.mockResolvedValue(billView());
+    const afterAsk = deferred<View>();
+    h.getCartView.mockReturnValueOnce(stale.promise).mockReturnValueOnce(afterAsk.promise);
     mount({ splitContext: DINE_IN, initialItems: FIRED });
     await syncFromServer(); // issues the read that will land LATE, still carrying no counter ask
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay at the counter/i }));
     });
     await waitFor(() => expect(screen.getByText(/Settle up at the counter/i)).toBeTruthy());
-    h.getCartView.mockResolvedValue(billView());
     await act(async () => {
-      stale.resolve(billView({ counterRequestedAt: null }));
+      stale.resolve(billView({ counterRequestedAt: null })); // the pre-ask read, alone in flight
     });
     await settle();
     expect(screen.queryByText(/Settle up at the counter/i)).toBeTruthy();
+    await act(async () => {
+      afterAsk.resolve(billView({ counterRequestedAt: "2026-09-18T06:00:00.000Z" }));
+    });
   });
 
   it("withdrawing the ask is barriered the same way", async () => {
     const stale = deferred<View>();
+    const afterWithdraw = deferred<View>();
     mount({
       splitContext: DINE_IN,
       initialItems: FIRED,
       initialCounterRequestedAt: "2026-09-18T06:00:00.000Z",
     });
-    h.getCartView.mockReturnValueOnce(stale.promise);
+    h.getCartView.mockReturnValueOnce(stale.promise).mockReturnValueOnce(afterWithdraw.promise);
     await syncFromServer();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Pay on your phone/i }));
     });
     await waitFor(() => expect(screen.queryByText(/Settle up at the counter/i)).toBeNull());
-    h.getCartView.mockResolvedValue(billView());
     await act(async () => {
       stale.resolve(billView({ counterRequestedAt: "2026-09-18T06:00:00.000Z" }));
     });
     await settle();
     expect(screen.queryByText(/Settle up at the counter/i)).toBeNull();
+    await act(async () => {
+      afterWithdraw.resolve(billView());
+    });
   });
 
   it('"Check again" does not claim a failure when its read was merely OVERTAKEN', async () => {
@@ -590,6 +618,11 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     // the two lights "Couldn't check just now" over a read that did check — the fabricated diagnosis
     // of the M116/T14 class. `recheckLock` also re-issues once on an overtake, so the fixture holds
     // the first read open, lets a visibility read win, and then resolves it.
+    // ⚠️ THE RE-ISSUE MUST ALSO FAIL TO LAND, or the outcome is rescued to `applied` and BOTH the
+    // real predicate and its mutant stay quiet — a degenerate fixture, which is what the first draft
+    // of this case was. `recheckLock` re-issues once on an overtake and refuses to let a FAILED
+    // retry downgrade what the first read established, so the outcome that reaches the report is
+    // still `overtaken`: reached the server, did not win the screen.
     const held = deferred<View>();
     h.getCartView.mockReturnValueOnce(held.promise);
     mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
@@ -597,6 +630,7 @@ describe("M227 — the READ-ORDERING wiring M225 closed, which nothing could see
     await act(async () => {});
     h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
     await syncFromServer(); // issued later, so it wins the ticket
+    h.getCartView.mockRejectedValue(new Error("the re-issue never comes back"));
     await act(async () => {
       held.resolve(view({ locked: true, lockedBy: PEER_SEAT }));
     });
