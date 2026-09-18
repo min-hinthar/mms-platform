@@ -4,6 +4,48 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M224 · M227 — a refused /cart edit now says why, and `Checkout.tsx` gets its first suite (2026-09-18)
+
+**M224 was filed by #287's blind pass against the screen it had just touched, and closing it needed
+T33 ported with it.** The two are one change: the read that DIAGNOSES a refusal is the read that
+flips `locked`, so shipping the sentence without the arbitration would have shipped it invisible.
+
+- **M224 — `changeQty` wrapped `setQty` in a comment-only `catch { }`.** Every edit control gates on
+  `editsFrozen` ← `locked`, which is written ONLY by a read, so between a peer taking the pay lock
+  and this phone's next read the stepper is live: the optimistic flip bumps the number, the server
+  refuses on bare `locked`, and the number snaps back with no lockbar and no sentence — on the one
+  screen where the diner is about to pay. /menu has not had this exposure since T21.
+- **`explainRefusal` is /cart's `explainCaught`:** one ticketed re-read, applied through the new
+  shared `applyCartView` (so the sentence and the list beside it are the same server truth) and
+  classified by `classifyRefusedWrite`. A read that never reached the server returns `null` and is
+  never spoken — T30's rule, carried here by the `PublishableRefusal` return type.
+- **⚠️ No landing check, and that is MEASURED rather than assumed.** Every `throw` in `setQty`
+  precedes the RPC, and `viewAfterWrite` catches its own read failure and answers `null` instead of
+  throwing — so a throw here proves the write did not land. `addItem` on /menu returns a view it may
+  fail to read AFTER committing, which is why that seam needs one and this one does not. A throw
+  added below the RPC in `cart.ts` would owe one, and the catch arm says so.
+- **T33 ported, because the collision is worse here than on /menu.** React batches the refusal's
+  `setStatus` with the lock flip into ONE commit, so the lock-edge effect is the strictly later
+  writer on every refusal — it would replace a sentence naming the verdict with one naming only the
+  state. `freezeBannerSuppressed` is now asked with the RENDERED bindings (`announced` /
+  `noticeFreeze`, never the raw freeze, which is deliberately null during our own create-intent), and
+  an axis-scoped release-edge clear retires an explanation whose freeze has ended — the one staleness
+  a currency check cannot catch, because at every moment it looks at, the lock is genuinely true.
+- **The two pills beside the stepper had the same silence (M230's first half).** `toggleFulfillment`
+  and `makeNow` dropped their whole `{ ok, reason }`, on comments claiming a refusal "just no-ops
+  back to server truth on refresh — the control is draft-only". Draft-only describes the render gate,
+  which reads `lineState` from the last view. Only `busy` is diagnosed — it is the server's own
+  `locked || settling` — while `not_yours`, `error` and RPC-named codes stay silent rather than be
+  explained as a lock they never asserted (the M116/T14 fabrication); those are **M230**.
+- **M227 — the wiring had nowhere to be guarded, and now it does.** `apps/qr/components/Checkout.test.tsx`
+  is this component's first suite (12 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
+  with 9 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
+  READ that does not exist — the component seeds every axis from props — so every server-driven flip
+  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 126 target modules.
+- **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
+  six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
+  reasons that need an arm `RefusedWrite` does not have yet).
+
 ### M225 · M226(c) — /cart's read path gets the ordering /menu has had since T21(b), and the burst deadline stops trusting the wall clock (2026-09-17)
 
 **Both rows were filed BY #287, against the screen it had just touched.** The coalescer it shipped

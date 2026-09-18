@@ -5,7 +5,51 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-17 · M218 · M219 MERGED as `062b6be` (#286) with the migration live on prod; the coalescer slice (M193's other half · M217) is built and gated on `claude/qr-app-backlog-cj2t0m`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-18 · M225 · M226(c) MERGED as `e798475` (#288); the /cart refusal slice (M224 · M227 · half of M230) is built and gated on `claude/qr-app-backlog-cj2t0m`)
+>
+> **`Checkout.tsx` has a suite now. That is the durable half of this slice, and it took two closed
+> rows to earn it.** #288 closed M225 by putting the ordering rule in `lib/` — correct, and its own
+> docblock said why: "`Checkout.tsx` has no suite and is not in the `verify:slice` mutate set, so a
+> reverted gate here would go red nowhere." M227 was that sentence turned into a backlog row. It is
+> closed: `apps/qr/components/Checkout.test.tsx` is 12 cases, `Checkout.tsx` carries 9 mutants, and
+> the file's own docblock now says the impossibility claim has expired.
+>
+> **M224 was the defect, and it could not be fixed alone.** `changeQty` swallowed `setQty`'s throw in
+> a comment-only `catch { }`; the fix is `explainRefusal` (one ticketed re-read, applied and
+> classified — /cart's `explainCaught`). But the read that DIAGNOSES the refusal is the read that
+> flips `locked`, and React batches the refusal's `setStatus` with that flip into ONE commit — so the
+> lock-edge effect is the strictly later writer on **every** refusal. Shipping the sentence without
+> T33 would have shipped it invisible, and the suite would have been green either way had it asserted
+> only "a sentence was produced". It asserts what the region HOLDS.
+>
+> **Three things measured rather than argued, each of which changed the design:**
+>
+> 1. **There is no mount-time read on /cart.** Every axis is seeded from PROPS; `refresh()` runs only
+>    from a handler, the J3 visibility backstop, the T20 timer or a realtime echo. A re-render with a
+>    different `initialLocked` changes nothing. M227's own filed plan rested on that read and three of
+>    its proposed cases were unbuildable. Every server-driven flip in the suite rides the visibility
+>    path instead — no timer, no channel, synchronous.
+> 2. **A throw from `setQty` proves the write did NOT land.** Every `throw` in it precedes the RPC,
+>    and `viewAfterWrite` catches its own read failure and returns `null` rather than throwing. That
+>    is why /cart needs no landing check where the /menu seam does — and why the catch arm carries a
+>    warning to re-check if `cart.ts` ever grows a throw below the RPC.
+> 3. **`setLineFulfillment`/`makeItNow` have FOUR refusal reasons, not one.** Only `busy` may be
+>    diagnosed by a re-read; it is the server's own `locked \|\| settling`. `not_yours`, `error` and
+>    the RPC-named string carry no freeze, so explaining them as a lock would be the M116/T14
+>    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
+>    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
+>
+> **Gate today:** 703 `verify:slice` mutants · 126 target modules (110 `apps/qr/lib`, 3 API routes,
+> **12** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
+>
+> **Filed by this slice:** **M229** (`check-money-coverage`'s `MONEY_PATHS` excludes
+> `apps/qr/components/`; six component files carry a money marker with no mutant — measured, and
+> re-measure before acting, the number is a property of the marker list) · **M230** (above).
+> **Still open from #288:** **M228** (`"overtaken"` conflates a view overtake with a field-only
+> barrier — a lib-level shape change that earns its own red-first slice, and is easier now the suite
+> exists).
+
+> ## ⏭️ (2026-09-17 · M218 · M219 MERGED as `062b6be` (#286) with the migration live on prod; the coalescer slice (M193's other half · M217) is built and gated on `claude/qr-app-backlog-cj2t0m`)
 >
 > **M193 was closed for eight days with half of it still shipping, and that is the reusable part.**
 > #275 built the echo coalescer in `TableCartProvider` and closed the row. `useCartRealtime` has

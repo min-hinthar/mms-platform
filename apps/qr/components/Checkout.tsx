@@ -620,34 +620,6 @@ export function Checkout({
     });
   }, []);
 
-  /**
-   * Say a refusal out loud, once, in the review step's single live region — and record that it was
-   * said. THE ONE PLACE all three edit controls publish through (M224 + M230): a second copy of
-   * these three statements is the drift shape W17 named, and the order between them is load-bearing.
-   */
-  const announceRefusal = useCallback(
-    (refusal: PublishableRefusal) => {
-      // The region renders `payError ?? status`, so a stale pay error would swallow this entirely —
-      // and while the cart is frozen the diner cannot clear it by retrying the thing that set it.
-      setPayError(null);
-      setStatus(refusedWriteNotice(refusal));
-      // ⚠️ AFTER the sentence, never before: the latch is the claim that this diner HAS been told,
-      // and that is only true once the text is in the slot.
-      latchExplained(refusal);
-    },
-    [latchExplained],
-  );
-
-  /**
-   * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit
-   * controls share. Returns nothing: a read that never reached the server is not publishable (T30)
-   * and the optimistic value has already reverted, which is the honest floor.
-   */
-  const explainAndAnnounce = useCallback(async () => {
-    const refusal = await explainRefusal();
-    if (refusal) announceRefusal(refusal);
-  }, [explainRefusal, announceRefusal]);
-
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
   // stable cartId prop) so the realtime + visibility subscriptions below register once.
@@ -781,6 +753,37 @@ export function Checkout({
   const scheduleEchoRefresh = useCoalescedRefresh(refresh);
   useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);
+
+  /**
+   * Say a refusal out loud, once, in the review step's single live region — and record that it was
+   * said. THE ONE PLACE all three edit controls publish through (M224 + M230). It sits HERE, below
+   * `payError`, because it writes it — declaring it beside `latchExplained` reads more naturally and
+   * is a lint error (`Cannot access variable before it is declared`), which is the honest complaint:
+   * a callback closing over a `useState` setter declared later would not see a redeclared one: a second copy of
+   * these three statements is the drift shape W17 named, and the order between them is load-bearing.
+   */
+  const announceRefusal = useCallback(
+    (refusal: PublishableRefusal) => {
+      // The region renders `payError ?? status`, so a stale pay error would swallow this entirely —
+      // and while the cart is frozen the diner cannot clear it by retrying the thing that set it.
+      setPayError(null);
+      setStatus(refusedWriteNotice(refusal));
+      // ⚠️ AFTER the sentence, never before: the latch is the claim that this diner HAS been told,
+      // and that is only true once the text is in the slot.
+      latchExplained(refusal);
+    },
+    [latchExplained],
+  );
+
+  /**
+   * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit
+   * controls share. Returns nothing: a read that never reached the server is not publishable (T30)
+   * and the optimistic value has already reverted, which is the honest floor.
+   */
+  const explainAndAnnounce = useCallback(async () => {
+    const refusal = await explainRefusal();
+    if (refusal) announceRefusal(refusal);
+  }, [explainRefusal, announceRefusal]);
 
   // Derived VIEW: settle (split freeze) / pay (Stripe step) / review. Drives BOTH the keyed step wrapper
   // and the focus-move effect below — so a REALTIME `settling` flip (a peer opening a split changes the
