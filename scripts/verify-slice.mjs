@@ -845,6 +845,14 @@ const MUTANTS = [
     replace: "    const frame = ((cb) => (cb(), 0))(() => {",
   },
   {
+    id: "m224/an-unknown-refusal-erases-the-pay-error",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The region renders `payError ?? status`, so clearing it unconditionally traded \u201cCouldn\u2019t start checkout\u201d \u2014 actionable, about money \u2014 for \u201cWe couldn\u2019t confirm that \u2014 the order below is up to date\u201d, on a screen whose checkout is broken. A FREEZE supersedes a pay error (the diner cannot retry the payment while frozen, which is the lock edge\u2019s own stated reasoning); an `unknown` hedge has no such claim",
+    find: '      if (pendingRefusal.cause !== "unknown") setPayError(null);',
+    replace: "      setPayError(null);",
+  },
+  {
     id: "m224/a-superseded-refusal-outlives-its-cart",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
