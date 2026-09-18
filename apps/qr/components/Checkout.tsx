@@ -27,13 +27,22 @@ import {
 import { attemptReleaseBody, readPayAttempt, type PayAttempt } from "@/lib/pay-attempt";
 import {
   type CartFreeze,
+  type PublishableRefusal,
   cartFreeze,
+  classifyRefusedWrite,
   freezeBlocksEdits,
   freezeBlocksPayment,
   freezeNotice,
+  refusedWriteNotice,
   reopenFailureNotice,
   visibleFreeze,
 } from "@/lib/cart-freeze";
+import {
+  type ExplainedFreeze,
+  explainedByRefusal,
+  explanationHolds,
+  freezeBannerSuppressed,
+} from "@/lib/live-region";
 import type { SplitContext } from "@/lib/split";
 import { canMutateLine } from "@/lib/permissions";
 import {
@@ -271,6 +280,37 @@ export function Checkout({
   // defeated by a second read. Declared beside the lock state because `refresh()` writes it.
   const [mySeat, setMySeat] = useState<string | null>(initialMySeat);
   const [lockedBy, setLockedBy] = useState<string | null>(initialLockedBy);
+  /**
+   * M224 — the freeze facts as the LAST APPLIED VIEW stated them, written synchronously beside the
+   * setters above.
+   *
+   * ⚠️ IT IS NOT A CACHE OF THE STATE, and that is the whole point. A refusal is latched in the same
+   * async continuation that applied the view which diagnosed it, and React state is not readable
+   * there — `locked` in that closure is the value from the render that STARTED the write, which for
+   * every refusal this file can publish is the stale one (the write was refused precisely because
+   * the freeze arrived after that render). `TableCartProvider`'s `freezeRef`/`settlingRef` exist for
+   * the same reason and are written the same way; this is that pair, as one object so the three lock
+   * facts `cartFreeze` needs cannot be updated apart.
+   */
+  const freezeFactsRef = useRef({
+    locked: initialLocked,
+    lockedBy: initialLockedBy,
+    mySeat: initialMySeat,
+    settling: initialSettling,
+    // Seeded from the same prop `items` is, so a diagnosis that runs before this screen's FIRST
+    // read still compares against what is actually rendered rather than an empty basket.
+    items: initialItems,
+  });
+  /**
+   * T33 on /cart — the freeze a refusal has already explained to this diner, or null.
+   *
+   * The collision is verbatim the one `live-region.ts` was written for, on the other screen: the
+   * re-read that DIAGNOSES a refused edit is the same read that flips `locked`, so the lock-edge
+   * effect below fires in the very commit the refusal sentence lands in and overwrites a sentence
+   * naming the verdict with the generic banner naming only the state. Here the two writes even batch
+   * into one render, so the banner is strictly the later writer every time.
+   */
+  const explainedFreezeRef = useRef<ExplainedFreeze>(null);
   // Dine-in group → show per-line owner + split; solo/duo stays the plain cart.
   const isGroup =
     !!splitContext && splitContext.mode === "dinein" && splitContext.members.length > 1;
@@ -286,7 +326,10 @@ export function Checkout({
   // Per-line promise chain: serialize a line's absolute-qty writes so rapid taps commit in ORDER (last
   // value wins) and can't interleave into a stale displayed count — the optimistic overlay keeps each tap
   // instant meanwhile. Keyed by cart-item id; a stale entry just resolves and is harmless.
-  const qtyChain = useRef<Map<string, Promise<void>>>(new Map());
+  // ⚠️ IT CARRIES `boolean`, NOT `void` (M224): the chain is the only place that knows whether THIS
+  // line's write threw, and the refusal sentence is decided one `await` later in the transition.
+  // `true` = the server accepted it; `false` = it refused, and something has to say so.
+  const qtyChain = useRef<Map<string, Promise<boolean>>>(new Map());
   const [tipRate, setTipRate] = useState(0);
   // W2d — custom tip: an open flag + the raw dollar string the diner types. The tip stays a RATE under
   // the hood (customCents / netCents) so the server path is identical to the presets — server-confirmed,
@@ -464,6 +507,76 @@ export function Checkout({
   const [payRequest, setPayRequest] = useState<{ freezeAtStart: CartFreeze } | null>(null);
   const loadingPay = payRequest !== null;
 
+  /**
+   * Fold ONE server view into the screen — the ten setters, plus the ref the refusal latch reads.
+   *
+   * ⚠️ IT IS ONE FUNCTION BECAUSE IT IS ONE FACT (M224). `refresh` and `explainRefusal` both apply a
+   * view, and a second copy of this block is the drift shape W17 named: a field added to the re-sync
+   * and not to the diagnosis leaves the sentence describing a cart the list beside it no longer
+   * shows. `explainCaught` and `readView` share `applyView` on /menu for exactly this reason.
+   */
+  const applyCartView = useCallback((v: Awaited<ReturnType<typeof getCartView>>) => {
+    // ⚠️ THE REF IS WRITTEN FIRST, and synchronously. Everything below is a React setter whose
+    // effect is a later render; the latch in `explainRefusal` runs before any of them land, so the
+    // ref is the only honest answer to "what does the screen now say" at that moment.
+    //
+    // ⚠️ AND THAT MAKES THIS FUNCTION A LATCH-CURRENCY WRITER, which its name does not say (the
+    // blind pass on this PR). `freezeFactsRef` is the SOLE input to `latchExplained`'s currency
+    // check, so any future path that applies a view between a refusal's publish and its latch would
+    // silently decide whether the banner is suppressed. Today there are two callers and both are
+    // correct; a third has to know that applying a view is also an answer to "has the diner been
+    // told", and nothing but this paragraph records it.
+    freezeFactsRef.current = {
+      locked: v.locked,
+      lockedBy: v.lockedBy,
+      mySeat: v.mySeat,
+      settling: v.settling,
+      // ⚠️ THE ITEMS RIDE ALONG because the LANDING check needs the same source the freeze check
+      // does (Codex round 4 P2). `setItems` below is a later render; this ref is the only
+      // synchronous answer to "what does the screen show" at the moment a diagnosis asks.
+      items: v.items,
+    };
+    setItems(v.items);
+    setTotals(v.totals);
+    // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
+    // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
+    // and relit ASAP over a still-scheduled cart, with no way to clear it).
+    setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
+    setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
+    // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
+    // this reset a stale "back" from the diner's last local flip would slide the settle board
+    // (and its return) in from the left. Idempotent while settling holds (React bails on same).
+    if (v.settling) setStepDir("forward");
+    // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
+    // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
+    setLocked(v.locked);
+    setLockedBy(v.lockedBy);
+    setMySeat(v.mySeat);
+    setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
+    setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
+  }, []);
+
+  /**
+   * Latch WHICH freeze a published refusal explained, so the banner for that same freeze stays
+   * silent instead of overwriting it in the very next commit (T33, `live-region.ts`).
+   *
+   * ⚠️ CURRENCY IS ASKED HERE, AGAINST WHAT THE APPLIED VIEW SAYS — never carried in from the read.
+   * `explainRefusal` classifies from the view it made even when that view lost the screen,
+   * deliberately; a latch is the different claim that the diner can SEE this freeze, so it needs the
+   * different source. `freezeFactsRef` is written synchronously by `applyCartView` from the very
+   * view it applies, which is the only moment that answers it.
+   */
+  const latchExplained = useCallback((refusal: PublishableRefusal) => {
+    const f = freezeFactsRef.current;
+    explainedFreezeRef.current = explanationHolds(explainedByRefusal(refusal), {
+      locked: f.locked,
+      settling: f.settling,
+      // Through `cartFreeze`, the same function that gave the refusal its attribution inside
+      // `classifyRefusedWrite` — so the latch and the sentence fork on ONE fact.
+      lockedByYou: cartFreeze(f) === "self",
+    });
+  }, []);
+
   // Re-sync the server-authoritative view (items / totals / settling / tabType — never pay-step state,
   // so a mid-payment refetch can't disturb the mounted Stripe Element). Stable (useCallback on the
   // stable cartId prop) so the realtime + visibility subscriptions below register once.
@@ -481,10 +594,12 @@ export function Checkout({
    * the visibility backstop never fires for a tab that stays open, which is the /cart case. So the
    * freeze re-check below was ported with the ticket, not after it. Read them as one change.
    *
-   * The ordering lives in `readTicketed` rather than inline here for the reason `lock-ttl.ts` and
-   * `view-seq.ts` give: a rule that sits in a component sits outside every guard this repo has —
-   * `Checkout.tsx` has no suite and is not in the `verify:slice` mutate set — so a reverted gate
-   * here would go red nowhere. There it is falsified by two promises resolving out of order.
+   * The ordering lives in `readTicketed` rather than inline here because a RULE is falsified more
+   * finely in a pure module than in a render: there two promises resolving out of order is the whole
+   * fixture. ⚠️ The reason this paragraph USED to give — "`Checkout.tsx` has no suite and is not in
+   * the `verify:slice` mutate set" — stopped being true with M224, which gave this file both. The
+   * preference stands; the impossibility claim does not, and leaving it would teach the next reader
+   * that a wiring fact here still has nowhere to be guarded.
    *
    * ⚠️ IT RETURNS THE OUTCOME, NOT A BOOLEAN, because two callers need two different questions and a
    * boolean silently gave them the same one (blind adversarial pass on #288, HIGH-1).
@@ -503,73 +618,162 @@ export function Checkout({
    * never a read failure. `readTicketed` catches the read and nothing else, so the probe now fires on
    * exactly the condition its comment describes.
    */
+  /**
+   * What a FAILED read owes the diner — extracted so no read path can lose it.
+   *
+   * ⚠️ IT IS A SEPARATE FUNCTION BECAUSE M224's FIRST DRAFT LOST IT, and both reviewers caught the
+   * same hole independently (Codex round 1 P2 · the blind pass, CRITICAL). `explainRefusal` read the
+   * cart without this arm, and a closed cart makes BOTH the write and the diagnosis read throw:
+   * `assertCartMember` answers `cart_closed` forever after (`authz.ts`), `setLineFulfillment` and
+   * `makeItNow` have no `cart_closed` REASON so a closed cart is a throw there too, and
+   * `getCartView` hits the same gate. So every edit gesture on a cart the register had already
+   * settled went: write throws → diagnosis read throws → `null` → silence, with the diner left on an
+   * editable bill for a paid order and no way off it. The recovery used to ride every one of those
+   * taps because they all ended in `refresh()`.
+   */
+  const onReadFailed = useCallback(() => {
+    // A1 — on a DINE-IN table one cause of this failure is the register settling the cart
+    // (`assertCartMember` answers `cart_closed` forever after). Ask the one question that
+    // separates that from a blip, once per failure, and leave the screen only on a positive
+    // answer: `paid` with an order this seat may see goes to the receipt; `paid` without one
+    // gets the settled close; anything else keeps the last good bill (the swallow below).
+    // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
+    // and the Payment Element's return_url is the right exit for the payer, not a close card.
+    if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
+      settleCheckRef.current = true;
+      void counterPayOutcome({ cartId })
+        .then((o) => {
+          if (o.kind !== "paid") return;
+          if (o.orderId) {
+            journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
+            return;
+          }
+          // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
+          // says "paid on a phone at your table" — never "at the counter"; an unknown tender
+          // (the order row not yet readable) keeps the last good bill rather than guessing.
+          if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
+        })
+        .catch(() => {
+          /* unknowable — the bill stays as it was, which is the honest floor */
+        })
+        .finally(() => {
+          settleCheckRef.current = false;
+        });
+    }
+    // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
+    // diner is being redirected to /track). We can't discriminate it from a transient error
+    // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
+    // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
+    // self-heals on the next interaction (every mutation re-fetches).
+    //
+    // ⚠️ The swallow stays; what changes is that `refresh` now RETURNS the outcome (Codex round 5
+    // on #246). Every existing caller ignores the value and is unaffected — but a caller whose
+    // whole job is to re-read on demand ("Check again") must be able to tell "the server says
+    // still locked" from "we never heard back", or it silently repeats the defect it was added to
+    // fix.
+  }, [cartId, isDineIn]);
+
   const refresh = useCallback(async () => {
     const outcome = await readTicketed(
       viewSeqRef.current,
       () => getCartView(cartId),
-      (v) => {
-        setItems(v.items);
-        setTotals(v.totals);
-        // W19 — the pickup choice re-reads with the cart (the bug: refresh() synced everything BUT
-        // the slot, so a pay-step round-trip remounted PickupWhenChoice from the stale server prop
-        // and relit ASAP over a still-scheduled cart, with no way to clear it).
-        setPickupSlot(normalizePickupSlot(v.pickupSlot, v.fireAt));
-        setSettling(v.settling); // a peer (host) opening/canceling a split flips the whole table here
-        // W13 review — a peer-driven settle flip is a LATERAL cut, not a back-navigation: without
-        // this reset a stale "back" from the diner's last local flip would slide the settle board
-        // (and its return) in from the left. Idempotent while settling holds (React bails on same).
-        if (v.settling) setStepDir("forward");
-        // W9b — the lock moves with the same refresh. This is still NOT pay-step state: it never touches
-        // clientSecret/payTotals/step, so the mounted Stripe Element is untouched by a lock flip.
-        setLocked(v.locked);
-        setLockedBy(v.lockedBy);
-        setMySeat(v.mySeat);
-        setTabType(v.tabType); // a server (or a peer) opening the tab reflects here too
-        setCounterAt(v.counterRequestedAt); // A1 — a tablemate's ask (or withdrawal) lands live
-      },
+      applyCartView,
     );
-    if (outcome === "failed") {
-      // A1 — on a DINE-IN table one cause of this failure is the register settling the cart
-      // (`assertCartMember` answers `cart_closed` forever after). Ask the one question that
-      // separates that from a blip, once per failure, and leave the screen only on a positive
-      // answer: `paid` with an order this seat may see goes to the receipt; `paid` without one
-      // gets the settled close; anything else keeps the last good bill (the swallow below).
-      // Not while THIS phone is on the pay step: its own webhook can land before Stripe's redirect,
-      // and the Payment Element's return_url is the right exit for the payer, not a close card.
-      if (isDineIn && stepRef.current !== "pay" && !settleCheckRef.current) {
-        settleCheckRef.current = true;
-        void counterPayOutcome({ cartId })
-          .then((o) => {
-            if (o.kind !== "paid") return;
-            if (o.orderId) {
-              journeyRef.current.push(`/track?cart=${encodeURIComponent(cartId)}&paid=1`);
-              return;
-            }
-            // No order this seat may see. A COUNTER settle says so honestly; a tablemate's CARD
-            // says "paid on a phone at your table" — never "at the counter"; an unknown tender
-            // (the order row not yet readable) keeps the last good bill rather than guessing.
-            if (o.tender === "counter" || o.tender === "card") setSettledClose(o.tender);
-          })
-          .catch(() => {
-            /* unknowable — the bill stays as it was, which is the honest floor */
-          })
-          .finally(() => {
-            settleCheckRef.current = false;
-          });
-      }
-      // Swallow: the EXPECTED failure here is the post-payment 403 (the cart flipped to paid → the
-      // diner is being redirected to /track). We can't discriminate it from a transient error
-      // client-side — Server Action errors are redacted in prod, so no `.status` survives — and
-      // surfacing an error on the expected post-pay 403 would be a false alarm. A transient failure
-      // self-heals on the next interaction (every mutation re-fetches).
-      //
-      // ⚠️ The swallow stays; what changes is that it now RETURNS the outcome (Codex round 5 on
-      // #246). Every existing caller ignores the value and is unaffected — but a caller whose whole
-      // job is to re-read on demand ("Check again") must be able to tell "the server says still
-      // locked" from "we never heard back", or it silently repeats the defect it was added to fix.
-    }
+    if (outcome === "failed") onReadFailed();
     return outcome;
-  }, [cartId, isDineIn]);
+  }, [cartId, applyCartView, onReadFailed]);
+
+  /**
+   * M224 — DIAGNOSE a refused cart write from ONE ticketed re-read, and say what it found.
+   *
+   * ## The defect this closes
+   *
+   * `changeQty` wrapped `setQty` in `try { … } catch { }` with a comment-only body, and every edit
+   * control gates on `editsFrozen` ← `locked`, which is written ONLY by a read. Between a peer taking
+   * the pay lock and this phone's next read the stepper is live: the optimistic flip bumps the
+   * number, the server refuses on bare `locked`, and the number snaps back with no lockbar and no
+   * sentence — verbatim "the silent no-op this whole slice exists to retire" that the `editsFrozen`
+   * comment above names, on the one screen where the diner is about to pay. /menu has not had this
+   * exposure since T21: `TableCartProvider` catches the refusal, runs `explainCaught`, and speaks.
+   *
+   * ## Why it re-reads instead of gating harder
+   *
+   * The same reason `explainCaught` gives, and it is not a preference: `assertCartMember` computes
+   * the lock as `locked_at > now - CART_LOCK_TTL_MS`, so a lock EXPIRES by the passage of time with
+   * no row write — no realtime event, nothing to correct a cached `true`. A client-side gate that
+   * refused the write would remove the one thing that heals it. The server decides; a refusal is
+   * explained afterwards, from a read.
+   *
+   * ## What it returns, and the one arm it refuses to name
+   *
+   * `null` means the re-read itself never reached the server. That establishes nothing a diner may
+   * be told — T30's rule, and the `PublishableRefusal` return type is what makes speaking it a
+   * compile error rather than a judgement call. The optimistic number has already reverted to the
+   * last confirmed view by then, which is the honest floor.
+   *
+   * The read is TICKETED like `refresh`'s, so a view issued after it still wins the screen. The
+   * sentence is unaffected: the classification is read off the view this call OBSERVED, and being
+   * overtaken means the list beside the sentence is newer than the sentence, never older.
+   */
+  const explainRefusal = useCallback(
+    async (landed: (items: CartItem[]) => boolean) => {
+      // ⚠️ A HOLDER, NOT A BARE `let`. TypeScript narrows a `let` that is only assigned inside a
+      // callback back to `null` after the await — it cannot see that the thunk ran — and the honest
+      // answer to that is a property store, not a cast that would also hide a real mistake here.
+      const seen: { view: Awaited<ReturnType<typeof getCartView>> | null } = { view: null };
+      await readTicketed(
+        viewSeqRef.current,
+        async () => {
+          const v = await getCartView(cartId);
+          seen.view = v;
+          return v;
+        },
+        applyCartView,
+      );
+      // ⚠️ THE FAILED READ STILL OWES THE RECOVERY. A closed cart throws from the write AND from
+      // this read, so without this line every edit gesture on a settled cart ended in silence with
+      // the diner stranded on an editable bill (Codex round 1 P2 · blind pass CRITICAL).
+      if (!seen.view) {
+        onReadFailed();
+        return null; // unreachable — establishes nothing a diner may be told (T30)
+      }
+      // ⚠️ A THROWN WRITE DOES NOT PROVE THE WRITE FAILED (Codex round 1 P2), and the first draft of
+      // this file claimed it did. `setQty`'s `if (!affected) throw` sits AFTER the RPC and discards
+      // the RPC's own `{ error }`, and a Server Action's response can be lost after the statement
+      // committed — so a throw is "we did not hear yes", never "it did not happen". The re-read is
+      // the only thing that can tell, so it is asked FIRST and silence wins the tie. The comparison
+      // is forgeable in the SAFE direction only (a peer writing the same value makes us stay quiet),
+      // which is why it may decide this and not the sentence.
+      // ⚠️ THIS ASKS OUR OWN READ ONLY, AND THE WINNING VIEW IS ASKED AT PUBLISH TIME INSTEAD.
+      // Round 4 found the landing check reading its own, possibly LOSING, view while the winner
+      // already showed the change, and my fix was to ask both here. Round 5 then added the
+      // publish-time re-test against `freezeFactsRef.current.items` — the winner — for the
+      // park→publish gap, and that SUBSUMES the extra disjunct: measured, deleting it turns no case
+      // red, because a park it would have prevented is dropped at publish anyway.
+      //
+      // So what remains here is the cheap, honest half: our own read already proves it landed, so
+      // do not park (and do not latch) at all. Announcing a failure that DID land is the error a
+      // diner cannot recover from; staying quiet about one that did not is recovered by the re-read
+      // beside it. Any evidence of landing buys silence — the winner's evidence just arrives one
+      // step later now, rather than being asked for twice.
+      if (landed(seen.view.items)) return null;
+      // ⚠️ CLASSIFIED FROM WHAT THE SCREEN SHOWS, NOT FROM THE VIEW WE READ (Codex round 1 P2).
+      // A ticketed read can come back, diagnose perfectly, and still LOSE the screen to a view
+      // issued after it. /menu publishes the observed classification anyway, and is right to: its
+      // sentence is a 2600 ms toast. Here it is persistent text beside live controls, so an
+      // overtaken "the order's locked while someone checks out" would sit under an unlocked cart
+      // with no release edge left to retire it. `freezeFactsRef` is whichever view WON, written
+      // synchronously by `applyCartView` — the same source `latchExplained` asks, for the same
+      // reason.
+      const f = freezeFactsRef.current;
+      return classifyRefusedWrite({
+        ok: true,
+        freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
+        settling: f.settling,
+      });
+    },
+    [cartId, applyCartView, onReadFailed],
+  );
 
   // Live cart sync: a peer's add/qty/assignment (P3.2) OR a server opening/securing the tab or
   // editing the order (S1.3/S3.1) re-fetches the server-authoritative view here, so the cart +
@@ -614,6 +818,238 @@ export function Checkout({
   const scheduleEchoRefresh = useCoalescedRefresh(refresh);
   useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);
+  /**
+   * A refusal waiting for its frame — WITH the landing predicate that produced it (Codex round 5).
+   *
+   * ⚠️ THE PREDICATE IS PARKED BECAUSE THE VERDICT IS RE-DERIVED, NOT RE-VALIDATED. Round 4 asked a
+   * boolean ("is something still locked?") and then published the refusal parked at read time, so a
+   * lock whose ATTRIBUTION moved self→peer inside the gap printed "while you check out" beside a
+   * peer's lock, and an `unknown` hedge published over a view that had since confirmed the write.
+   */
+  /** Bumped when a parked refusal is DROPPED, so the banner it suppressed can be spoken. */
+  const [freezeRepublish, setFreezeRepublish] = useState(0);
+  const [pendingRefusal, setPendingRefusal] = useState<{
+    refusal: PublishableRefusal;
+    landed: (items: CartItem[]) => boolean;
+  } | null>(null);
+
+  /**
+   * Say a refusal out loud, once, and record that it was said — THE ONE PLACE all three edit
+   * controls publish through (M224 + M230), so the clear-then-speak-then-latch order exists once.
+   *
+   * It is declared here, below `payError`, because it writes it; beside `latchExplained` would read
+   * better and `@typescript-eslint/no-use-before-define` rejects it. (The RUNTIME would be fine — a
+   * closure sees a later `const` at call time — so this is a lint boundary, not a TDZ hazard, and an
+   * earlier draft of this comment claimed otherwise.)
+   *
+   * ⚠️ IT DOES NOT WRITE `status` DIRECTLY, and the deferral is the whole point (Codex round 1 P2 ·
+   * the blind pass). The view that DIAGNOSED the refusal is applied in the same commit the sentence
+   * would land in, and that view can replace the live region's subtree: a refused removal of the
+   * last unit renders the empty-cart return, and a `settling` refusal swaps the review region for
+   * the settlement one. A polite region announces a CHANGE to a node that already exists — content
+   * present when the node mounts is not announced — so writing in that commit puts the text on
+   * screen and says nothing to a screen reader, which the DOM-text tests cannot tell apart. Parking
+   * it in state and publishing from an effect guarantees a second commit: the destination region
+   * mounts empty, then its text changes.
+   */
+  const announceRefusal = useCallback(
+    (refusal: PublishableRefusal, landed: (items: CartItem[]) => boolean) => {
+      setPendingRefusal({ refusal, landed });
+      // ⚠️ THE LATCH IS NOT DEFERRED WITH IT. It answers "has this diner been told", and the
+      // question the banner asks a beat later is about THIS commit's freeze — deferring the latch
+      // would let the banner run first and take the slot, which is the collision T33 exists for.
+      latchExplained(refusal);
+    },
+    [latchExplained],
+  );
+
+  /**
+   * Retire a refusal the diner has already been shown, once a later edit of theirs is ACCEPTED.
+   *
+   * ⚠️ IT CLEARS ONLY A REFUSAL, never the slot (Codex round 1 P2). `status` also carries the promo
+   * result and the freeze banner, so a blind `setStatus(null)` on every successful edit would wipe
+   * "Promo applied." A refusal that has been superseded by a demonstrably successful write is the
+   * one thing here that is no longer true — an `unknown` hedge in particular ("We couldn't confirm
+   * that") would otherwise sit under a cart the diner has just edited twice.
+   */
+  const shownRefusalRef = useRef<string | null>(null);
+  /**
+   * Which of this diner's gestures each side of the supersession is talking about.
+   *
+   * ⚠️ THE ORDER THAT MATTERS IS THE ORDER THE DINER TAPPED IN, NOT THE ORDER THE SERVER ANSWERED
+   * (Codex round 3 P2). Round 2 counted ACCEPTANCES, so the generation advanced when a success
+   * RESOLVED — and only `qtyChain` serializes anything, per line. A write on line A that commits
+   * BEFORE a peer takes the lock but answers late therefore arrived, by that counter, "after" a
+   * line-B tap the lock had already refused: it retired a refusal that was still true of the cart on
+   * screen, and an unchanged lock raises no edge to put the sentence back. So each gesture takes an
+   * id AT TAP TIME and the comparison is between ids: only a genuinely NEWER gesture's success
+   * supersedes an older gesture's refusal.
+   *
+   * The three refs are one fact each: `gestureSeq` hands out the ids, `lastAcceptedGesture` is the
+   * newest gesture the server has accepted, and `refusalGesture` is the gesture that owns whatever
+   * refusal is currently shown or parked (null when none is).
+   */
+  const gestureSeq = useRef(0);
+  const lastAcceptedGesture = useRef(0);
+  const refusalGesture = useRef<number | null>(null);
+  const clearShownRefusal = useCallback(() => {
+    refusalGesture.current = null;
+    setPendingRefusal(null); // a parked publish is superseded too, not just a landed one
+    const shown = shownRefusalRef.current;
+    if (shown === null) return;
+    shownRefusalRef.current = null;
+    setStatus((cur) => (cur === shown ? null : cur));
+  }, []);
+
+  /**
+   * An edit of this diner's was ACCEPTED — retire a refusal only if this gesture is newer than it.
+   *
+   * THE ONE PLACE the three edit controls call on success, so "a later success supersedes an earlier
+   * refusal" is decided once. Only an accepted write moves the watermark: a refusal supersedes
+   * nothing, and counting one would let two refused taps silence each other. `Math.max` because the
+   * responses can land out of tap order — an older success must never drag the watermark backwards
+   * over a newer one that already resolved.
+   */
+  const supersedeRefusals = useCallback(
+    (gesture: number) => {
+      lastAcceptedGesture.current = Math.max(lastAcceptedGesture.current, gesture);
+      const refused = refusalGesture.current;
+      // A refusal from a LATER tap outlives this success: the diner tapped B after A, B was refused,
+      // and A's delayed "ok" says nothing about B's.
+      if (refused !== null && refused > gesture) return;
+      clearShownRefusal();
+    },
+    [clearShownRefusal],
+  );
+
+  /**
+   * Publish the parked refusal — one commit after the view that produced it, by construction.
+   *
+   * ⚠️ `payError` IS CLEARED ONLY FOR A FREEZE (the blind pass on this PR). The region renders
+   * `payError ?? status`, so a live pay error would swallow the sentence — but "Couldn't start
+   * checkout" is actionable and about money, and an `unknown` refusal's hedge ("We couldn't confirm
+   * that — the order below is up to date") is neither. Clearing unconditionally swapped a broken
+   * checkout for a reassurance, reachable on a rate-limited tap after a failed create-intent. A
+   * FROZEN or SETTLING refusal does supersede it: the diner cannot retry the payment while the cart
+   * is frozen, which is the same reasoning the lock-edge effect already states.
+   */
+  useEffect(() => {
+    if (pendingRefusal === null) return;
+    // ⚠️ THROUGH A FRAME, not straight from the effect body — and the two reasons agree. The
+    // announcement needs the destination region to be MOUNTED and empty first, which is one commit
+    // away; and a synchronous `setState` in an effect body is a cascading render, which the React
+    // Compiler lint rejects on sight. Subscribing to a platform callback is the shape that says
+    // "this is deliberately a later commit" rather than suppressing the rule that noticed.
+    const frame = requestAnimationFrame(() => {
+      // ⚠️ THE FREEZE IS RE-ASKED AT PUBLISH TIME, NOT TRUSTED FROM PARK TIME (Codex round 4 P2).
+      // The park and this callback are two different moments, and a BACKGROUNDED TAB throttles
+      // frames to seconds or minutes apart — long enough for the peer to finish and the lock to
+      // lift. The release edge then writes "The order's unlocked — you can edit again." and this
+      // callback, still armed, overwrote it with "the order's locked" beside live controls.
+      //
+      // ⚠️ IT IS ASKED HERE RATHER THAN CANCELLED FROM THE RELEASE EDGE, and the difference is
+      // correctness, not taste. A cancel scheduled from that edge is ANOTHER frame, queued after
+      // this one, so this callback still speaks first and the retraction lands as an empty region
+      // — it also covers only that one edge, while this covers every path that lifts a freeze.
+      // `freezeFactsRef` is the winning view's own answer, written synchronously by
+      // `applyCartView`, which is the same source the classification and the T33 latch both read.
+      // ⚠️ THE SENTENCE IS RE-DERIVED FROM THE CURRENT SCREEN AND COMPARED (Codex round 5 P2 ×2).
+      // Round 4 asked a BOOLEAN — "is something still locked?" — and then published the payload
+      // parked at read time. Two ways that speaks a falsehood: a lock whose ATTRIBUTION moved
+      // self→peer inside the gap still satisfies `f.locked`, so the old "while you check out"
+      // prints beside a peer's lock; and settlement beginning while the lock is held prints the
+      // narrower lock clause on a settlement screen. The `unknown` arm was worse — it published
+      // unconditionally, under a comment of mine claiming "no later view can falsify" a hedge,
+      // which is simply untrue: a view that shows the requested value falsifies it exactly.
+      //
+      // ⚠️ THE TEST IS ON THE SENTENCE, NOT THE SHAPE, because the sentence is all a diner ever
+      // sees — and it is one-directional BY CONSTRUCTION: re-deriving can only turn a publish into
+      // a silence, never into a claim we did not diagnose. That is the safe direction this whole
+      // file argues for, and it is why this is a comparison rather than "publish whatever the
+      // current facts say" — the latter would let a freeze that arrived AFTER our read be named as
+      // the reason our write failed, which is the M116/T14 fabrication.
+      const f = freezeFactsRef.current;
+      const notice = refusedWriteNotice(pendingRefusal.refusal);
+      const fresh = classifyRefusedWrite({
+        ok: true,
+        freeze: { locked: f.locked, lockedBy: f.lockedBy, mySeat: f.mySeat },
+        settling: f.settling,
+      });
+      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {
+        // ⚠️ THE LATCH GOES WITH IT (Codex round 6 P2). `announceRefusal` latches at PARK time —
+        // deliberately, because T33 needs it before the banner runs — so making the publish
+        // conditional without retiring the latch leaves `explainedFreezeRef` asserting "this diner
+        // has been told about freeze X" when we have just decided NOT to tell them. The banner they
+        // are owed is then suppressed by an explanation nobody ever spoke.
+        //
+        // ⚠️ AND THE PATH THAT REACHES IT IS NARROWER THAN IT LOOKS, which is why my first attempt
+        // at this line was reverted as unfalsifiable. When the freeze CHANGES (a lock moving
+        // self→peer), T33's suppression-LIFT edge already treats that as an edge and the banner
+        // speaks regardless — so that fixture cannot separate the two. It takes a freeze that never
+        // changes: the same lock held throughout while a later view CONFIRMS the write, so the
+        // publish is dropped for landing rather than for a changed sentence and no edge of any kind
+        // fires. The region is then empty beside dead controls. Measured, not argued: the case
+        // above fails with `expected '' to contain 'checking out'` without this line.
+        // ⚠️ THE DROP HAS TO ASK FOR THE BANNER IT SUPPRESSED (Codex round 6 P2). `announceRefusal`
+        // latched at PARK time, which suppressed the lock-entry banner; the lock-edge effect has
+        // ALREADY run and keys on `announced`, so when the freeze does not change — the same lock
+        // held throughout while a later view confirms the write — nothing re-fires and the region is
+        // left EMPTY beside dead controls. The republish lives beside `freezeMessage` (declared far
+        // below this effect), the one binding that composes the sentence; asking for it rather than
+        // recomposing it here is the "name it ONCE" rule.
+        //
+        // ⚠️ RETIRING `explainedFreezeRef` HERE WAS TRIED TWICE AND IS NOT SHIPPED, both times
+        // because its mutant SURVIVED. It reads like the obvious other half, and it is exactly the
+        // kind of line this file has twice shipped behind a confident comment for a defect nobody
+        // had demonstrated. If a stale latch turns out to suppress a LATER banner, that needs its
+        // own case first — filed as M232 rather than guessed at here.
+        setFreezeRepublish((n) => n + 1);
+        setPendingRefusal(null);
+        return;
+      }
+      if (pendingRefusal.refusal.cause !== "unknown") setPayError(null);
+      shownRefusalRef.current = notice;
+      setStatus(notice);
+      setPendingRefusal(null);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [pendingRefusal]);
+
+  /**
+   * Diagnose a refused edit and announce it — the whole of M224's fix, as one call the three edit
+   * controls share. `landed` is how this gesture recognises its own change in the re-read, because a
+   * thrown write never proved it failed; returning nothing is the honest floor when we cannot see
+   * the cart at all (T30).
+   */
+  /**
+   * How a gesture recognises ITS OWN change in the re-read.
+   *
+   * ⚠️ THE COMPARISON IS FORGEABLE, IN THE SAFE DIRECTION ONLY, and that is why it may decide
+   * silence and never the sentence: a tablemate writing the same value inside our round trip makes
+   * this answer "landed" for a write that was refused, so we say nothing about a refusal that
+   * happened. The other way round — announcing "that didn't go through" over a change that DID land
+   * — is the one a diner cannot recover from, and it is the one a thrown Server Action cannot rule
+   * out on its own. `refusedWriteNotice`'s own docblock files the source-level fix as T41.
+   */
+  const lineIn = (items: CartItem[], id: string) => items.find((i) => i.id === id);
+
+  const explainAndAnnounce = useCallback(
+    async (gesture: number, landed: (items: CartItem[]) => boolean) => {
+      // ⚠️ THE TEST IS "HAS A NEWER TAP LANDED", NOT "HAS ANYTHING LANDED" (Codex rounds 2 + 3).
+      // `qtyChain` orders the WRITES for one line; it does not order this diagnosis against another
+      // tap's success, which is a separate round trip running beside it. A refusal a NEWER accepted
+      // edit has already superseded is no longer true of anything on screen, so it is dropped rather
+      // than published — and dropped SILENTLY, because the diner has just seen that later edit work.
+      // An OLDER gesture resolving late is not that: its success predates this refusal and cannot
+      // speak for it, which is why the watermark is compared rather than sampled for any change.
+      const refusal = await explainRefusal(landed);
+      if (!refusal) return;
+      if (lastAcceptedGesture.current > gesture) return;
+      refusalGesture.current = gesture;
+      announceRefusal(refusal, landed);
+    },
+    [explainRefusal, announceRefusal],
+  );
 
   // Derived VIEW: settle (split freeze) / pay (Stripe step) / review. Drives BOTH the keyed step wrapper
   // and the focus-move effect below — so a REALTIME `settling` flip (a peer opening a split changes the
@@ -720,6 +1156,11 @@ export function Checkout({
   // stays silent for the one window we have chosen not to narrate (the CTA's `aria-busy` carries it).
   const announced = freezeMessage !== null;
   const prevAnnouncedLock = useRef<boolean | null>(null);
+  const prevSuppressed = useRef(false);
+  /** Written by the lock-edge effect below; read by the settle-release clear, which must not re-run
+   *  when only the sentence changes. A ref because the React Compiler lint forbids writing one
+   *  during RENDER — this one is written from an effect, which is the sanctioned place. */
+  const announcedRef = useRef(false);
   useEffect(() => {
     // ⚠️ DO NOT CONSUME THE EDGE WHILE THE REGION IS UNMOUNTED (Codex round 7 on #246). This status
     // feeds the REVIEW step's single live region; the pay step renders its own inside
@@ -732,16 +1173,143 @@ export function Checkout({
     // control is read-only — which is the exact gap J4's residual exists to close.
     //
     // Returning BEFORE the ref is written preserves the edge for the remount.
+    announcedRef.current = announced;
     if (onPay) return;
     const prev = prevAnnouncedLock.current;
     prevAnnouncedLock.current = announced;
-    if (prev === null || prev === announced) return; // seed on first run; only edges announce
+    if (prev === null) {
+      // Seed both trackers on the first run, or the very next render reads an invented edge.
+      prevSuppressed.current = freezeBannerSuppressed({
+        axis: "locked",
+        entering: announced,
+        explained: explainedFreezeRef.current,
+        current: { locked: announced, settling, lockedByYou: noticeFreeze === "self" },
+      });
+      return;
+    }
+    // T33 — STAY SILENT WHEN A REFUSAL HAS ALREADY EXPLAINED THIS FREEZE, in more detail, to this
+    // diner. `freezeBannerSuppressed` owns the rule (`live-region.ts`); this file supplies the two
+    // facts. The collision it removes is not theoretical: the re-read that diagnoses a refused edit
+    // is the same read that flips `locked`, so this effect runs on the refusal's own view and
+    // replaces a sentence naming the verdict (and, through `refusedWriteNotice`, the hedge the cause
+    // earns) with one naming only the state.
+    //
+    // ⚠️ THAT IS AN OBSERVED OUTCOME, NOT A SCHEDULING CLAIM, and an earlier draft of this comment
+    // overstepped (the blind pass on this PR). It asserted React batches the refusal's `setStatus`
+    // with the lock flip into ONE commit "so this effect is the strictly later writer" — which the
+    // red mutant is equally consistent with a deferred passive effect landing after both microtasks.
+    // The mutant proves the suppression is load-bearing; nothing here proves WHY, so it no longer
+    // says. Mechanisms invented to explain a true result are what the next reader trusts.
+    //
+    // ⚠️ ASKED WITH THE RENDERED BINDINGS — `announced` and `noticeFreeze`, not the raw freeze —
+    // because the suppression is a question about the very sentence that would otherwise take the
+    // slot, and that sentence is composed from `freezeMessage`. During our own create-intent the
+    // notice is deliberately null while the raw lock is `self`; asking with the raw value would
+    // suppress on a banner this screen has chosen not to show.
+    const suppressed = freezeBannerSuppressed({
+      axis: "locked",
+      entering: announced,
+      explained: explainedFreezeRef.current,
+      current: { locked: announced, settling, lockedByYou: noticeFreeze === "self" },
+    });
+    const wasSuppressed = prevSuppressed.current;
+    prevSuppressed.current = suppressed;
+    // ⚠️ A SUPPRESSION LIFTING IS AN EDGE TOO (Codex round 1 P2). `classifyRefusedWrite` tests
+    // settling first, so a cart under BOTH freezes gets the settle explanation, which outranks and
+    // silences this banner. Call the split off with the pay lock still held and `announced` never
+    // changes — the lock notice existed throughout — so the old `prev === announced` return left the
+    // region asserting the table is still paying. The freeze that ENDED and the freeze that REMAINS
+    // are different facts, and only this effect composes the sentence for the second one.
+    if (prev === announced && !(wasSuppressed && !suppressed && announced)) return;
+    if (suppressed) return;
     // The region renders `payError ?? status`, so a stale error would swallow this announcement
     // entirely — and while locked the diner cannot retry the action that produced it, so it would
     // never clear on its own. A lock transition supersedes it.
     setPayError(null);
     setStatus(freezeMessage ?? "The order’s unlocked — you can edit again.");
-  }, [announced, freezeMessage, onPay]);
+  }, [announced, freezeMessage, onPay, settling, noticeFreeze]);
+
+  /**
+   * Speak the freeze banner a DROPPED refusal had already suppressed (Codex round 6 P2).
+   *
+   * ⚠️ IT KEYS ON THE COUNTER, NOT ON THE FREEZE, because the freeze is precisely what did NOT
+   * change: the same lock is held before and after, so the edge effect above sees `prev ===
+   * announced` and returns. Only the drop itself is news. The guard is `freezeMessage !== null` —
+   * a drop while nothing is frozen owes no banner, and writing the unlocked sentence there would
+   * invent a release that never happened.
+   */
+  const freezeMessageRef = useRef(freezeMessage);
+  useEffect(() => {
+    freezeMessageRef.current = freezeMessage;
+  }, [freezeMessage]);
+  useEffect(() => {
+    if (freezeRepublish === 0) return; // mount, not a drop
+    // Through a frame for the same two reasons every other announcement on this screen is: a
+    // synchronous `setState` in an effect body is a cascading render the React Compiler lint
+    // rejects, and the region has to be on screen before its text changes.
+    const frame = requestAnimationFrame(() => {
+      // ⚠️ THE PAY ERROR GOES FIRST, exactly as the lock-edge announcement above does it (Codex
+      // round 7 P2). Every affected region renders `payError ?? status`, so writing only `status`
+      // leaves a failed checkout masking the lock explanation beside dead controls. A freeze
+      // supersedes a pay error for the same reason stated there: the diner cannot retry the payment
+      // while the cart is frozen.
+      // ⚠️ READ AT FIRE TIME, NEVER CLOSED OVER (Codex round 7 P2). This effect keys on the DROP,
+      // not on the freeze — re-running it whenever the sentence changed would let it overwrite the
+      // region on ordinary transitions the edge effect above owns. But that same exclusion meant
+      // the callback carried the sentence from SCHEDULE time, so a lock released or handed to
+      // another diner inside the gap — wide, in a throttled background tab — published the stale
+      // one straight over the edge effect's correct replacement. The ref is the freeze as it is NOW.
+      const msg = freezeMessageRef.current;
+      // The freeze ended inside the gap: the edge effect owns that sentence and has already
+      // written it. A drop owes nothing here, and writing the unlocked line would invent a release.
+      if (msg === null) return;
+      setPayError(null);
+      setStatus(msg);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [freezeRepublish]);
+
+  /**
+   * T33's STALENESS BOUND — retire an explanation when the freeze it named ENDS, scoped to that axis.
+   *
+   * Without it a peer who releases and re-locks with no write in between leaves a stale "locked"
+   * silencing a banner about a freeze nobody explained: `explanationHolds` cannot catch that, because
+   * at both the publish and the banner moment the lock is genuinely true. `live-region.ts` states
+   * this as the caller's remaining obligation, in the same breath as saying the per-WRITE clear is
+   * NOT one.
+   *
+   * ⚠️ SCOPED PER AXIS, and BOTH axes are cleared here even though /cart announces only the lock. A
+   * refusal classified `settling` outranks the lock banner (`freezeBannerSuppressed` compares by
+   * width, not equality), so a settle explanation left behind would go on silencing lock banners
+   * after the split was called off — the axis this screen has no edge for is exactly the one that
+   * could never retire itself. It reads the RAW flags, not `announced`: a freeze suppressed for the
+   * pay request has not ended.
+   */
+  useEffect(() => {
+    const held = explainedFreezeRef.current;
+    if (!held) return;
+    if (held.axis === "locked" && !locked) {
+      explainedFreezeRef.current = null;
+      return;
+    }
+    if (held.axis !== "settling" || settling) return;
+    explainedFreezeRef.current = null;
+    // ⚠️ THE LOCK THAT OUTLIVED IT IS ANNOUNCED BY THE EDGE EFFECT ABOVE, NOT HERE (Codex round 1
+    // P2, and the shape of the fix is the finding's other half). Speaking from this effect means a
+    // second place that composes the same banner — and the rule that was actually wrong lives up
+    // there: `prev === announced` treats "the sentence is unchanged" as "there is nothing new to
+    // say", which is false the moment a suppression lifts while the freeze it hid still holds.
+    //
+    // ⚠️ BUT WHEN NO LOCK OUTLIVES IT, NOTHING SPEAKS AT ALL (Codex round 2 P2) — and the sentence
+    // left standing says the table is still paying, on a review view the diner can now edit. That
+    // edge effect only fires on `announced`, which is false before and after a settle-only release.
+    // The refusal is simply no longer true, so it is retired. Through a frame for the same two
+    // reasons the publish is: a synchronous `setState` here is a cascading render the React Compiler
+    // lint rejects, and the retraction belongs in a later commit than the view that caused it.
+    if (announcedRef.current) return;
+    const frame = requestAnimationFrame(clearShownRefusal);
+    return () => cancelAnimationFrame(frame);
+  }, [locked, settling, clearShownRefusal]);
   // W9b — true while a PaymentIntent confirm is in flight (lifted out of PayForm). The pay step's
   // back control freezes on it: releasing the pay-window lock mid-authorization would let the table
   // edit the cart out from under a live intent.
@@ -949,27 +1517,56 @@ export function Checkout({
   }, [refresh]);
 
   function changeQty(id: string, qty: number) {
+    // The gesture's id is taken HERE, at tap time — not when its response resolves. See
+    // `supersedeRefusals` for why the difference decides whether a valid refusal survives.
+    const gesture = (gestureSeq.current += 1);
     // Chain this line's write after any in-flight one so absolute setQty(N) calls commit in tap order
     // (the last value wins) — concurrent writes could otherwise interleave and leave a stale count.
-    const prev = qtyChain.current.get(id) ?? Promise.resolve();
+    const prev = qtyChain.current.get(id) ?? Promise.resolve(true);
     const write = prev.then(async () => {
       try {
         await setQtyAction(id, qty);
+        return true;
       } catch {
-        // Locked or no-longer-open — refresh() below re-syncs the UI to server truth.
+        // ⚠️ A THROW HERE PROVES THE WRITE DID NOT LAND, and that is MEASURED in `cart.ts`, not
+        // assumed — which is why /cart needs no landing check where `explainCaught`'s callers do.
+        // Every `throw` in `setQty` sits above the RPC (`setQtyInput.parse`, `assertCartItemMember`,
+        // `assertMutationRate`, the `locked`/`settling` guards, `canMutateLine`, and `!affected`);
+        // the only statements after the commit log a failed `updated_at` touch and return
+        // `viewAfterWrite`, which catches its own read failure and answers `null` rather than
+        // throwing. `addItem` on /menu returns a view it may fail to read AFTER committing, which is
+        // the difference. ⚠️ RE-CHECK THIS IF `cart.ts` GROWS A THROW BELOW THE RPC — a landing
+        // check would then be owed here, and its absence would announce a refusal over a change
+        // that landed.
+        return false;
       }
     });
     qtyChain.current.set(id, write);
     startCartTransition(async () => {
       applyOptimistic({ kind: "qty", id, qty }); // instant — the stepper + per-line price react at once
-      await write; // this write + all prior for the line, in order → the final refresh reads the true qty
-      await refresh();
+      const accepted = await write; // this write + all prior for the line, in order → truth below
+      if (accepted) {
+        supersedeRefusals(gesture);
+        await refresh();
+        return;
+      }
+      // M224 — the refusal gets a SENTENCE, from the re-read that also re-syncs the list beside it.
+      // A qty of 0 is a REMOVAL, so its landing is the line's absence, not a quantity of zero.
+      await explainAndAnnounce(gesture, (seen) =>
+        qty <= 0 ? !lineIn(seen, id) : lineIn(seen, id)?.qty === qty,
+      );
     });
   }
 
   // S4: re-route a food line for-here↔to-go. The server recomputes the line's tax (cold food flips
-  // taxability); refresh() re-syncs the grouped basket + the breakdown. A refused toggle (busy/fired)
-  // just no-ops back to server truth on refresh — no client error needed (the control is draft-only).
+  // taxability); refresh() re-syncs the grouped basket + the breakdown.
+  //
+  // ⚠️ THE COMMENT HERE USED TO SAY "a refused toggle (busy/fired) just no-ops back to server truth
+  // on refresh — no client error needed (the control is draft-only)", AND THAT WAS THE M224 SILENCE
+  // under a different name (M230). The control being draft-only is a statement about the RENDER
+  // gate, and the render gate reads `i.lineState` from the last view: a `busy` refusal is the exact
+  // peer-lock window M224 exists for, so the pill flips optimistically, snaps back, and says
+  // nothing. `busy` is now diagnosed and spoken like every other refused edit on this screen.
   // When the cart spans 2+ destinations the line's <li> moves to another <section> on re-route, so the
   // clicked button unmounts and focus would drop to <body> (WCAG 2.4.3). Re-focus the now-pressed button
   // for that line after the re-render — its accessible name + aria-pressed announces the new destination.
@@ -988,6 +1585,7 @@ export function Checkout({
     // a no-op on every other render (viewItems is a fresh array each render).
   }, [viewItems]);
   function toggleFulfillment(id: string, ful: "dinein" | "togo") {
+    const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
     startCartTransition(async () => {
       // Set the refocus target in the SAME commit as the optimistic re-group: applyOptimistic moves the
       // line's <li> to another destination <section>, unmounting the tapped button (focus → body). The
@@ -995,27 +1593,69 @@ export function Checkout({
       // the instant re-group opens (the old post-await set left focus on <body> for a full round-trip).
       refocusToggle.current = { id, ful };
       applyOptimistic({ kind: "fulfillment", id, ful }); // instant — the line re-groups + the pill flips
+      // ⚠️ TWO FLAGS, NOT ONE (Codex round 3 P2). `accepted` is the server saying yes; `refused` is
+      // the narrower question of whether we may NAME a reason. A `{ ok: false }` the re-read cannot
+      // explain — `not_yours`, `error`, an RPC-named code — is neither: it must stay silent (M230),
+      // and it must NOT count as an accepted edit, or a rejected toggle would retire a refusal the
+      // diner is still looking at and move the watermark past a diagnosis still in flight.
+      let accepted = false;
+      let refused = false;
       try {
-        await setLineFulfillment(id, ful);
+        // ⚠️ THE RESULT IS READ. It was dropped entirely, which is why a refusal was invisible.
+        const r = await setLineFulfillment(id, ful);
+        // ⚠️ ONLY `busy` IS DIAGNOSED, and the narrowing is the point (the blind pass on this slice
+        // caught the wider version). `busy` is the server's own "locked || settling", so a re-read
+        // classifies a freeze the server actually asserted — and answers `unknown` if it has since
+        // lifted, which is honest. The other three would be FABRICATED: `not_yours` is an ownership
+        // fact this re-read never establishes, and `error` / an RPC-named code carry no freeze at
+        // all, so routing them here would name a lock as the reason a fired line could not be
+        // re-routed — the M116/T14 class, on the screen that just removed it. They stay silent for
+        // now and are filed as **M230**, which needs a refusal ARM they do not have yet.
+        accepted = r.ok;
+        refused = !r.ok && r.reason === "busy";
       } catch {
-        /* transient/redacted — refresh re-syncs */
+        // Authz / rate-limit / transport. Same standing as `changeQty`'s throw: the write did not
+        // land, and the re-read is what decides whether we can name a reason for it.
+        refused = true;
       }
+      if (refused) {
+        await explainAndAnnounce(gesture, (seen) => lineIn(seen, id)?.fulfillment === ful);
+        return;
+      }
+      if (accepted) supersedeRefusals(gesture);
+      // The re-sync runs either way: an undiagnosable refusal still has an optimistic pill on screen
+      // that server truth has to snap back.
       await refresh();
     });
   }
 
   // S4.2 "Make it now": fire a to-go line to the kitchen early (instead of waiting for checkout). The
   // server recomputes nothing about money — it only flips the line to 'fired'; refresh() re-syncs so the
-  // line shows its state chip (the toggle + this button drop away once fired). A refused fire (busy/raced)
-  // just no-ops back to server truth on refresh — the control is draft-only, so no error UI is needed.
+  // line shows its state chip (the toggle + this button drop away once fired). Refusals are handled
+  // exactly as on the toggle beside it — see its comment for why only `busy` may be diagnosed (M230).
   function makeNow(id: string) {
+    const gesture = (gestureSeq.current += 1); // tap time — see `supersedeRefusals`
     startCartTransition(async () => {
       applyOptimistic({ kind: "makeNow", id }); // instant — the stepper swaps to its "on the way" chip
+      // `accepted` and `refused` are separate for the same reason as the toggle above.
+      let accepted = false;
+      let refused = false;
       try {
-        await makeItNow(id);
+        const r = await makeItNow(id);
+        accepted = r.ok;
+        refused = !r.ok && r.reason === "busy";
       } catch {
-        /* transient/redacted — refresh re-syncs */
+        refused = true;
       }
+      if (refused) {
+        // A fired line is no longer `draft` — that, not a flag of our own, is the landing.
+        await explainAndAnnounce(
+          gesture,
+          (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
+        );
+        return;
+      }
+      if (accepted) supersedeRefusals(gesture);
       await refresh();
     });
   }
@@ -1474,6 +2114,25 @@ export function Checkout({
             </Link>
           }
         />
+        {/* ⚠️ THE EMPTY CART NEEDS THE LIVE REGION TOO (Codex round 2 P2), and it had none. A diner
+            can increment the only line while a tablemate removes it: the write is refused, the
+            diagnosis applies a ZERO-ITEM view, and the landing check cannot suppress the sentence
+            (the requested quantity is positive and the line is gone). The publish then lands in THIS
+            branch — a different `<main>` from the review step's — where `status` was rendered
+            nowhere, so the refusal was invisible and unannounced. The frame deferral fixed the
+            "mounted, but a new node" half; this is the "no node at all" half. */}
+        <p
+          role="status"
+          aria-atomic="true"
+          style={{
+            minHeight: 16,
+            margin: "12px 0 0",
+            fontSize: "var(--fs-sm)",
+            color: payError ? "var(--warn)" : "var(--t2)",
+          }}
+        >
+          {payError ?? status}
+        </p>
       </main>
     );
   }

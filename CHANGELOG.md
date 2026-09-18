@@ -4,6 +4,163 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M224 · M227 — a refused /cart edit now says why, and `Checkout.tsx` gets its first suite (2026-09-18)
+
+**M224 was filed by #287's blind pass against the screen it had just touched, and closing it needed
+T33 ported with it.** The two are one change: the read that DIAGNOSES a refusal is the read that
+flips `locked`, so shipping the sentence without the arbitration would have shipped it invisible.
+
+- **M224 — `changeQty` wrapped `setQty` in a comment-only `catch { }`.** Every edit control gates on
+  `editsFrozen` ← `locked`, which is written ONLY by a read, so between a peer taking the pay lock
+  and this phone's next read the stepper is live: the optimistic flip bumps the number, the server
+  refuses on bare `locked`, and the number snaps back with no lockbar and no sentence — on the one
+  screen where the diner is about to pay. /menu has not had this exposure since T21.
+- **`explainRefusal` is /cart's `explainCaught`:** one ticketed re-read, applied through the new
+  shared `applyCartView` (so the sentence and the list beside it are the same server truth) and
+  classified by `classifyRefusedWrite`. A read that never reached the server returns `null` and is
+  never spoken — T30's rule, carried here by the `PublishableRefusal` return type.
+- **⚠️ No landing check, and that is MEASURED rather than assumed.** Every `throw` in `setQty`
+  precedes the RPC, and `viewAfterWrite` catches its own read failure and answers `null` instead of
+  throwing — so a throw here proves the write did not land. `addItem` on /menu returns a view it may
+  fail to read AFTER committing, which is why that seam needs one and this one does not. A throw
+  added below the RPC in `cart.ts` would owe one, and the catch arm says so.
+- **T33 ported, because the collision is worse here than on /menu.** React batches the refusal's
+  `setStatus` with the lock flip into ONE commit, so the lock-edge effect is the strictly later
+  writer on every refusal — it would replace a sentence naming the verdict with one naming only the
+  state. `freezeBannerSuppressed` is now asked with the RENDERED bindings (`announced` /
+  `noticeFreeze`, never the raw freeze, which is deliberately null during our own create-intent), and
+  an axis-scoped release-edge clear retires an explanation whose freeze has ended — the one staleness
+  a currency check cannot catch, because at every moment it looks at, the lock is genuinely true.
+- **The two pills beside the stepper had the same silence (M230's first half).** `toggleFulfillment`
+  and `makeNow` dropped their whole `{ ok, reason }`, on comments claiming a refusal "just no-ops
+  back to server truth on refresh — the control is draft-only". Draft-only describes the render gate,
+  which reads `lineState` from the last view. Only `busy` is diagnosed — it is the server's own
+  `locked || settling` — while `not_yours`, `error` and RPC-named codes stay silent rather than be
+  explained as a lock they never asserted (the M116/T14 fabrication); those are **M230**.
+- **M227 — the wiring had nowhere to be guarded, and now it does.** `apps/qr/components/Checkout.test.tsx`
+  is this component's first suite (25 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
+  with 20 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
+  READ that does not exist — the component seeds every axis from props — so every server-driven flip
+  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 126 target modules.
+- **⚠️ The first draft was REJECTED by both reviewers on the same defect, and that is the reusable
+  part.** Codex round 1 and the blind adversarial pass independently found that the new refusal path
+  dropped `refresh()` — and with it the `outcome === "failed"` arm that is the only thing which gets
+  a diner off a cart the register has already settled. A closed cart makes the write AND the
+  diagnosis read throw (`assertCartMember` answers `cart_closed` forever; `setLineFulfillment` and
+  `makeItNow` have no `cart_closed` reason, so a closed cart is a throw there too), so the more
+  precise path was strictly worse than the catch-all it replaced. `onReadFailed` is extracted and
+  runs on both read paths. **When you replace a catch-all with something more precise, enumerate
+  what the catch-all was also doing.**
+- **Two claims retracted in the code, not just corrected.** "Every throw in `setQty` precedes the
+  RPC" is false — `if (!affected) throw` sits after it and discards the RPC's own `{ error }`, and a
+  Server Action response can be lost post-commit — so each control now passes a `landed` predicate
+  and silence wins the tie. And a comment asserting React's batching as the reason the banner wins
+  the slot was a mechanism invented to explain a true observation; the mutant proves the suppression
+  is load-bearing, nothing proves why, so it no longer says.
+- **Also closed from round 1:** an overtaken diagnosis no longer publishes a freeze the screen has
+  moved past · the publish is deferred one frame so the destination region is mounted and empty
+  first · `payError` is cleared only for a FREEZE · a shown refusal is retired by a later accepted
+  edit · a suppression LIFTING counts as an edge, so settling ending with the pay lock still held
+  stops leaving the region saying the table is paying.
+- **Codex round 2 found three more of the same shape, and the shape is worth naming: a refusal that
+  is no longer true of anything on screen.** (1) `qtyChain` orders the WRITES for one line, not the
+  refused tap's DIAGNOSIS — a separate round trip — so an accepted later tap now supersedes an older
+  diagnosis via a generation checked across the round trip, and a refusal already PARKED for
+  publication is dropped too. (2) The empty-cart branch is a different `<main>` that rendered
+  `status` nowhere, so a refusal diagnosed against a zero-item view (a tablemate removes the only
+  line while this diner increments it) was invisible and unannounced; it has a live region now.
+  (3) A SETTLING refusal with no pay lock behind it was left standing when the split was called off,
+  because the lock edge only fires on `announced` — the mirror of round 1's fix, which covered only
+  the case where a lock outlives the settlement.
+- **Codex round 3 found two more, and both were the SAME mistake about time: an event was dated by
+  when the server ANSWERED rather than when the diner TAPPED.** (1) Round 2's generation counted
+  acceptances, so it advanced when a success RESOLVED — and only `qtyChain` serializes anything, per
+  line. A write on line A that commits BEFORE a peer takes the lock but answers late therefore
+  arrived "after" a line-B tap the lock had already refused, and retired a sentence still true of the
+  cart on screen, with no edge that would ever put it back. Each gesture now takes an id AT TAP TIME
+  and the two sides compare ids: `lastAcceptedGesture` is the newest gesture the server accepted,
+  `refusalGesture` owns whatever refusal is shown or parked, and only a genuinely NEWER gesture
+  supersedes an older refusal. (2) `toggleFulfillment` and `makeNow` folded "the server said yes"
+  into "we may name a reason": a `{ ok: false, reason: "not_yours" | "error" | … }` left `refused`
+  false, so it fell through to the success arm and counted as an accepted edit — clearing a refusal
+  the diner was still reading and dragging the watermark past a diagnosis still in flight. The two
+  facts are now two flags; a rejection we cannot diagnose stays silent (M230) without ever claiming
+  acceptance, and the re-sync still runs so the optimistic pill snaps back.
+- **Codex round 4 found two more, and both were the same shape one level up: a sentence that
+  contradicts the view actually on screen.** (1) Round 1 moved the FREEZE classification onto
+  `freezeFactsRef` so an overtaken read could not narrate a freeze the screen had moved past — and
+  left the LANDING check reading its own, losing, view. A write whose response was lost but which
+  committed then got "We couldn't confirm that" printed beside the very quantity the winning view
+  had just put on screen. `freezeFactsRef` now carries the winning view's items too, and the landing
+  check asks BOTH views: any evidence the change landed buys silence. The union is deliberate — a
+  BARRIER (`confirmedWrite`) can overtake a read without applying any view, so the winner alone can
+  be the OLDER basket, and announcing a failure that did land is the error a diner cannot recover
+  from. (2) A parked refusal trusted its verdict from PARK time. Parking and publishing are two
+  moments and a backgrounded tab throttles frames far enough apart for the peer to finish, so the
+  release edge wrote "The order's unlocked — you can edit again" and the still-armed callback
+  overwrote it with "the order's locked" beside live controls. The publish frame now re-asks
+  `freezeFactsRef` whether the freeze it names still holds and drops the publication if it lifted —
+  asked at publish rather than cancelled from the release edge, because a cancel scheduled from that
+  edge is another frame queued BEHIND this one (the retraction would land as an empty region) and
+  covers only that one edge.
+- **Codex round 5 found four, and the loop stopped converging — two fixed, two filed, on a line that
+  is about DIRECTION of failure, not severity.** Rounds 3, 4 and 5 each found defects in the
+  previous round's fix (2 -> 2 -> 4), which is the signature of a review loop that will not
+  terminate on its own. Fixed, because they publish a NEW false sentence: round 4's publish-time
+  check asked a BOOLEAN ("is something still locked?") and then published the payload parked at read
+  time, so a lock whose ATTRIBUTION moved self->peer inside the gap printed "while you check out"
+  beside a tablemate's lock, and settlement beginning while the lock held printed the narrower lock
+  clause on a settlement screen; and the `unknown` arm published unconditionally under a comment
+  claiming "no later view can falsify" a hedge — untrue, since a view showing the requested value
+  falsifies it exactly. The frame now RE-DERIVES the refusal from the current screen and compares
+  the SENTENCE (`refusedWriteNotice(fresh) !== notice` -> drop), plus re-tests the parked landing
+  predicate. That is one-directional by construction: re-deriving can only turn a publish into a
+  silence, never into a claim we never diagnosed — which is also why it is a comparison rather than
+  "publish whatever the current facts say", because the latter would let a freeze that arrived AFTER
+  our read be named as the reason our write failed (the M116/T14 fabrication).
+  **Filed as M231** (low), because both fail SAFE — a stale-but-once-true sentence or silence, never
+  a new false claim: the settle-release cleanup is unscoped (a newer refusal parked in the gap is
+  cancelled with the old one), and a confirmed landing stays silent without advancing the
+  supersession watermark.
+- **Codex round 6 found one, and it is the defect I had already tried to fix and wrongly reverted.**
+  A refusal that is PARKED latches `explainedFreezeRef` — deliberately, because T33 needs the latch
+  before the banner runs — so once round 5 made the publish conditional, a DROPPED refusal left the
+  lock-entry banner suppressed by an explanation nobody ever spoke. I had written this fix an hour
+  earlier, could not make its mutant fail, and reverted it as unfalsifiable. That was the right
+  call on the evidence and the wrong conclusion: my fixture tested ATTRIBUTION DRIFT (a lock moving
+  self→peer), where T33's suppression-LIFT edge treats the change as an edge and the banner speaks
+  anyway. Codex named the path that separates — the freeze NEVER CHANGES: the same lock held
+  throughout while a later view confirms the write, so the publish is dropped for landing rather
+  than for a changed sentence and no edge of any kind fires. Measured: the region is EMPTY beside
+  dead controls (`expected '' to contain 'checking out'`). The drop now asks for the banner it
+  suppressed via `setFreezeRepublish`, answered beside `freezeMessage` — the one binding that
+  composes the sentence — rather than recomposing it at the drop site.
+  ⚠️ **Retiring the latch itself is STILL not shipped, and that is on purpose.** Written twice,
+  reverted twice, because its mutant survived both times: the republish speaks regardless, so no
+  fixture separates them. Filed as **M232** with the instruction to find the case first. Shipping it
+  anyway would be the third confident comment in this file for a defect nobody had demonstrated.
+- **Codex round 7 — two P2s in round 6's republish effect, both fixed, and the review loop closed by
+  answering the question underneath it rather than patching once more.** (1) The republish keyed on
+  the drop and excluded `freezeMessage` from its deps — deliberately, so ordinary freeze transitions
+  stay the edge effect's — but that exclusion meant the callback carried the sentence from SCHEDULE
+  time, so a lock released inside the gap published the stale one over the edge effect's correct
+  replacement. It now reads `freezeMessageRef` at FIRE time and defers to the edge effect when the
+  freeze has ended. (2) Every affected region renders `payError ?? status`, and the ordinary lock-edge
+  announcement clears the error first; the republish did not, so a failed checkout kept masking the
+  lock explanation beside dead controls. One line, mirroring its neighbour.
+- **The three surviving mutants are resolved — two by fixtures, one by deleting dead code.** They
+  survived because round 6's republish speaks on every dropped publication, so asserting the END
+  state could not tell the read-time and publish-time layers apart. The difference a diner actually
+  experiences is WHEN: a landed write never parks, never latches and never suppresses, so the lock
+  lands in that same commit instead of two frames later. Three cases now measure the FRAME rather
+  than the final text, and two of the three mutants go red against them. The third does not, and the
+  measurement says why: round 5's publish-time landing re-test already covers the winning view, so
+  round 4's extra disjunct was **provably dead** — deleting it turns no case red. It is gone, and its
+  mutant retired with the rule it guarded rather than left decorative.
+- **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
+  six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
+  reasons that need an arm `RefusedWrite` does not have yet).
+
 ### M225 · M226(c) — /cart's read path gets the ordering /menu has had since T21(b), and the burst deadline stops trusting the wall clock (2026-09-17)
 
 **Both rows were filed BY #287, against the screen it had just touched.** The coalescer it shipped
