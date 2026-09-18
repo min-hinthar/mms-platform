@@ -86,6 +86,23 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   the diner was still reading and dragging the watermark past a diagnosis still in flight. The two
   facts are now two flags; a rejection we cannot diagnose stays silent (M230) without ever claiming
   acceptance, and the re-sync still runs so the optimistic pill snaps back.
+- **Codex round 4 found two more, and both were the same shape one level up: a sentence that
+  contradicts the view actually on screen.** (1) Round 1 moved the FREEZE classification onto
+  `freezeFactsRef` so an overtaken read could not narrate a freeze the screen had moved past — and
+  left the LANDING check reading its own, losing, view. A write whose response was lost but which
+  committed then got "We couldn't confirm that" printed beside the very quantity the winning view
+  had just put on screen. `freezeFactsRef` now carries the winning view's items too, and the landing
+  check asks BOTH views: any evidence the change landed buys silence. The union is deliberate — a
+  BARRIER (`confirmedWrite`) can overtake a read without applying any view, so the winner alone can
+  be the OLDER basket, and announcing a failure that did land is the error a diner cannot recover
+  from. (2) A parked refusal trusted its verdict from PARK time. Parking and publishing are two
+  moments and a backgrounded tab throttles frames far enough apart for the peer to finish, so the
+  release edge wrote "The order's unlocked — you can edit again" and the still-armed callback
+  overwrote it with "the order's locked" beside live controls. The publish frame now re-asks
+  `freezeFactsRef` whether the freeze it names still holds and drops the publication if it lifted —
+  asked at publish rather than cancelled from the release edge, because a cancel scheduled from that
+  edge is another frame queued BEHIND this one (the retraction would land as an empty region) and
+  covers only that one edge.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).

@@ -297,6 +297,9 @@ export function Checkout({
     lockedBy: initialLockedBy,
     mySeat: initialMySeat,
     settling: initialSettling,
+    // Seeded from the same prop `items` is, so a diagnosis that runs before this screen's FIRST
+    // read still compares against what is actually rendered rather than an empty basket.
+    items: initialItems,
   });
   /**
    * T33 on /cart — the freeze a refusal has already explained to this diner, or null.
@@ -528,6 +531,10 @@ export function Checkout({
       lockedBy: v.lockedBy,
       mySeat: v.mySeat,
       settling: v.settling,
+      // ⚠️ THE ITEMS RIDE ALONG because the LANDING check needs the same source the freeze check
+      // does (Codex round 4 P2). `setItems` below is a later render; this ref is the only
+      // synchronous answer to "what does the screen show" at the moment a diagnosis asks.
+      items: v.items,
     };
     setItems(v.items);
     setTotals(v.totals);
@@ -709,7 +716,7 @@ export function Checkout({
    * overtaken means the list beside the sentence is newer than the sentence, never older.
    */
   const explainRefusal = useCallback(
-    async (landed: (v: Awaited<ReturnType<typeof getCartView>>) => boolean) => {
+    async (landed: (items: CartItem[]) => boolean) => {
       // ⚠️ A HOLDER, NOT A BARE `let`. TypeScript narrows a `let` that is only assigned inside a
       // callback back to `null` after the await — it cannot see that the thunk ran — and the honest
       // answer to that is a property store, not a cast that would also hide a real mistake here.
@@ -737,7 +744,19 @@ export function Checkout({
       // the only thing that can tell, so it is asked FIRST and silence wins the tie. The comparison
       // is forgeable in the SAFE direction only (a peer writing the same value makes us stay quiet),
       // which is why it may decide this and not the sentence.
-      if (landed(seen.view)) return null;
+      // ⚠️ ASKED OF BOTH VIEWS, AND EITHER ONE SEEING THE CHANGE WINS (Codex round 4 P2). The
+      // classification below moved to `freezeFactsRef` in round 1 precisely because an overtaken
+      // read must not narrate a freeze the screen moved past — but the LANDING check was left
+      // reading its own, possibly losing, view. That asymmetry publishes "that didn't go through"
+      // beside the very quantity the winning view put on screen.
+      //
+      // ⚠️ THE UNION, not a swap to the winner alone, and the direction is the reason. A BARRIER
+      // (`confirmedWrite`) can overtake this read without applying any view, so `freezeFactsRef`
+      // may hold an OLDER basket than the one we just read — reading the winner alone would then
+      // announce a refusal over a change our own read proved had landed. Announcing a failure that
+      // did land is the error a diner cannot recover from; staying quiet about one that did not is
+      // recoverable by the re-read beside it. So any evidence of landing buys silence.
+      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;
       // ⚠️ CLASSIFIED FROM WHAT THE SCREEN SHOWS, NOT FROM THE VIEW WE READ (Codex round 1 P2).
       // A ticketed read can come back, diagnose perfectly, and still LOSE the screen to a view
       // issued after it. /menu publishes the observed classification anyway, and is right to: its
@@ -909,6 +928,31 @@ export function Checkout({
     // Compiler lint rejects on sight. Subscribing to a platform callback is the shape that says
     // "this is deliberately a later commit" rather than suppressing the rule that noticed.
     const frame = requestAnimationFrame(() => {
+      // ⚠️ THE FREEZE IS RE-ASKED AT PUBLISH TIME, NOT TRUSTED FROM PARK TIME (Codex round 4 P2).
+      // The park and this callback are two different moments, and a BACKGROUNDED TAB throttles
+      // frames to seconds or minutes apart — long enough for the peer to finish and the lock to
+      // lift. The release edge then writes "The order's unlocked — you can edit again." and this
+      // callback, still armed, overwrote it with "the order's locked" beside live controls.
+      //
+      // ⚠️ IT IS ASKED HERE RATHER THAN CANCELLED FROM THE RELEASE EDGE, and the difference is
+      // correctness, not taste. A cancel scheduled from that edge is ANOTHER frame, queued after
+      // this one, so this callback still speaks first and the retraction lands as an empty region
+      // — it also covers only that one edge, while this covers every path that lifts a freeze.
+      // `freezeFactsRef` is the winning view's own answer, written synchronously by
+      // `applyCartView`, which is the same source the classification and the T33 latch both read.
+      const f = freezeFactsRef.current;
+      const stillTrue =
+        pendingRefusal.cause === "frozen"
+          ? f.locked
+          : pendingRefusal.cause === "settling"
+            ? f.settling
+            : // `unknown` names no freeze — it is a hedge about OUR write ("we couldn't confirm
+              // that"), which no later view can falsify. It publishes unconditionally.
+              true;
+      if (!stillTrue) {
+        setPendingRefusal(null);
+        return;
+      }
       if (pendingRefusal.cause !== "unknown") setPayError(null);
       const notice = refusedWriteNotice(pendingRefusal);
       shownRefusalRef.current = notice;
@@ -934,11 +978,10 @@ export function Checkout({
    * — is the one a diner cannot recover from, and it is the one a thrown Server Action cannot rule
    * out on its own. `refusedWriteNotice`'s own docblock files the source-level fix as T41.
    */
-  const lineIn = (v: Awaited<ReturnType<typeof getCartView>>, id: string) =>
-    v.items.find((i) => i.id === id);
+  const lineIn = (items: CartItem[], id: string) => items.find((i) => i.id === id);
 
   const explainAndAnnounce = useCallback(
-    async (gesture: number, landed: (v: Awaited<ReturnType<typeof getCartView>>) => boolean) => {
+    async (gesture: number, landed: (items: CartItem[]) => boolean) => {
       // ⚠️ THE TEST IS "HAS A NEWER TAP LANDED", NOT "HAS ANYTHING LANDED" (Codex rounds 2 + 3).
       // `qtyChain` orders the WRITES for one line; it does not order this diagnosis against another
       // tap's success, which is a separate round trip running beside it. A refusal a NEWER accepted
@@ -1416,8 +1459,8 @@ export function Checkout({
       }
       // M224 — the refusal gets a SENTENCE, from the re-read that also re-syncs the list beside it.
       // A qty of 0 is a REMOVAL, so its landing is the line's absence, not a quantity of zero.
-      await explainAndAnnounce(gesture, (v) =>
-        qty <= 0 ? !lineIn(v, id) : lineIn(v, id)?.qty === qty,
+      await explainAndAnnounce(gesture, (seen) =>
+        qty <= 0 ? !lineIn(seen, id) : lineIn(seen, id)?.qty === qty,
       );
     });
   }
@@ -1483,7 +1526,7 @@ export function Checkout({
         refused = true;
       }
       if (refused) {
-        await explainAndAnnounce(gesture, (v) => lineIn(v, id)?.fulfillment === ful);
+        await explainAndAnnounce(gesture, (seen) => lineIn(seen, id)?.fulfillment === ful);
         return;
       }
       if (accepted) supersedeRefusals(gesture);
@@ -1513,7 +1556,10 @@ export function Checkout({
       }
       if (refused) {
         // A fired line is no longer `draft` — that, not a flag of our own, is the landing.
-        await explainAndAnnounce(gesture, (v) => (lineIn(v, id)?.lineState ?? "draft") !== "draft");
+        await explainAndAnnounce(
+          gesture,
+          (seen) => (lineIn(seen, id)?.lineState ?? "draft") !== "draft",
+        );
         return;
       }
       if (accepted) supersedeRefusals(gesture);

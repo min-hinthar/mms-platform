@@ -885,3 +885,59 @@ describe("Codex round 3 — an OLDER edit's success cannot retire a NEWER refusa
     expect(regionText()).toContain("couldn’t confirm");
   });
 });
+
+describe("Codex round 4 — a refusal must not contradict the view that WON", () => {
+  it("stays silent when the winning view shows the change its own read missed", async () => {
+    // The landing check and the freeze check were reading DIFFERENT views. Round 1 moved the
+    // classification onto `freezeFactsRef` so an overtaken read could not narrate a freeze the
+    // screen had moved past — and left the landing check on the read's own, losing, view. A write
+    // whose response was lost but which COMMITTED then gets "We couldn't confirm that" printed
+    // beside the very quantity the winning view just put on screen.
+    const slowDiagnosis = deferred<View>();
+    h.setQty.mockRejectedValueOnce(new Error("response lost"));
+    h.getCartView.mockReturnValueOnce(slowDiagnosis.promise); // the diagnosis read, held open
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+    await act(async () => {}); // the write threw; its diagnosis is in flight
+
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, qty: 2 }] })); // it DID land
+    await syncFromServer(); // a newer read overtakes the diagnosis and puts qty 2 on screen
+
+    await act(async () => {
+      slowDiagnosis.resolve(view()); // the loser, still showing qty 1
+    });
+    await settle();
+    expect(regionText()).not.toContain("couldn’t confirm");
+    expect(regionText()).not.toContain("didn’t go through");
+  });
+
+  it("drops a parked lock refusal when the lock lifts before its frame fires", async () => {
+    // ⚠️ THE CLOCK IS HELD because the gap is the bug. Parking and publishing are two moments, and
+    // a BACKGROUNDED tab throttles frames far apart — long enough for the peer to finish. The
+    // release edge writes "you can edit again", and a callback still holding the old verdict
+    // overwrites it with "the order's locked" beside controls that are live again.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("locked"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT }));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+      expect(regionText()).not.toContain("didn’t go through"); // parked; the frame has not fired
+
+      h.getCartView.mockResolvedValue(view()); // the peer finished and the lock lifted
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // now the parked frame fires
+      });
+
+      expect(regionText()).toContain("you can edit again");
+      expect(regionText()).not.toContain("didn’t go through");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

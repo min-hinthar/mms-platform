@@ -39,7 +39,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 721 `verify:slice` mutants · 126 target modules (110 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 723 `verify:slice` mutants · 126 target modules (110 `apps/qr/lib`, 3 API routes,
 > **12** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -670,11 +670,11 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > ⚠️ The heading used to say "measured 2026-09-06" over a line `check:docs` keeps CURRENT. Both
 > cannot be true, and the guard wins: its rule for this line reads the bare total, so writing
-> "688 that day (721 today)" here reddens step one of the fast lane. The date qualifies the test
+> "688 that day (723 today)" here reddens step one of the fast lane. The date qualifies the test
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **721 `verify:slice` mutants** · **126 target modules** (110 under `apps/qr/lib`, 3 API routes,
+> **723 `verify:slice` mutants** · **126 target modules** (110 under `apps/qr/lib`, 3 API routes,
 > 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
@@ -1144,7 +1144,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (721 today)**, **1372 qr + 138 ui tests at the time (2630 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 126 in all), 97 local
+> **334 mutants at the time (723 today)**, **1372 qr + 138 ui tests at the time (2632 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 126 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2036,7 +2036,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 721 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2630 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 723 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2632 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2758,7 +2758,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (721 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (723 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

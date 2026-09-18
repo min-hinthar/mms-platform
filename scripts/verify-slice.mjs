@@ -826,7 +826,7 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "A rejected Server Action never proved the mutation failed \u2014 `setQty`'s `if (!affected) throw` sits AFTER the RPC and discards its `{ error }`, and a response can be lost once the statement has committed. Drop the landing check and a write the diner can SEE in the list is announced as \"That didn't go through\", which is the direction they cannot recover from. The comparison is forgeable only the SAFE way (a peer writing the same value buys silence), which is why it may decide this and never the sentence",
-    find: "      if (landed(seen.view)) return null;",
+    find: "      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;",
     replace: "",
   },
   {
@@ -924,6 +924,22 @@ const MUTANTS = [
     why: "Codex round 3 P2, the IN-FLIGHT half. Round 2 asked \u201cdid anything land while I was diagnosing\u201d, and this is that question restored: with two lines there are two chains, so an edit tapped EARLIER can answer while a later tap is still being diagnosed \u2014 and its success says nothing about the later refusal. Sample the watermark for any change instead of comparing it to THIS gesture and the refusal is dropped in silence, with no edge that would ever bring it back",
     find: "      if (lastAcceptedGesture.current > gesture) return;",
     replace: "      if (lastAcceptedGesture.current > 0) return;",
+  },
+  {
+    id: "m224/landing-asks-the-view-that-lost",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 4 P2, and the asymmetry it names was WRITTEN IN by round 1's fix. The freeze classification moved to `freezeFactsRef` so an overtaken read could not narrate a freeze the screen had moved past; the LANDING check was left reading its own, losing, view. A write whose response was lost but which committed then gets \u201cWe couldn\u2019t confirm that\u201d printed beside the very quantity the winning view just put on screen. The union is deliberate \u2014 a BARRIER can overtake this read without applying any view, so the winner alone can be the OLDER basket",
+    find: "      if (landed(freezeFactsRef.current.items) || landed(seen.view.items)) return null;",
+    replace: "      if (landed(seen.view.items)) return null;",
+  },
+  {
+    id: "m224/a-parked-refusal-outlives-its-freeze",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 4 P2. Parking and publishing are two moments, and a BACKGROUNDED TAB throttles frames far enough apart for the peer to finish \u2014 so the release edge writes \u201cyou can edit again\u201d and a callback still holding the old verdict overwrites it with \u201cthe order\u2019s locked\u201d beside controls that are live. The guard keeps its SHAPE under this mutation and loses its EFFECT, which is the evasion to falsify: dropping the `return` clears the park and publishes anyway",
+    find: "      if (!stillTrue) {\n        setPendingRefusal(null);\n        return;\n      }",
+    replace: "      if (!stillTrue) {\n        setPendingRefusal(null);\n      }",
   },
   {
     id: "m224/an-older-success-retires-a-newer-refusal",
