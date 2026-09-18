@@ -926,6 +926,23 @@ const MUTANTS = [
     replace: "      if (lastAcceptedGesture.current > 0) return;",
   },
   {
+    id: "m224/a-dropped-refusal-leaves-its-banner-unsaid",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Codex round 6 P2. `announceRefusal` latches at PARK time, which SUPPRESSES the lock-entry banner \u2014 so a refusal that is then dropped at publish leaves the diner with nothing describing a live lock. The lock-edge effect cannot rescue it: it keys on `announced`, and the reaching path is exactly the one where the freeze NEVER changes (same lock held while a later view confirms the write). The region is empty beside dead controls",
+    find: "        setFreezeRepublish((n) => n + 1);\n",
+    replace: "",
+  },
+  {
+    id: "m224/republish-invents-a-release",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "The republish owes a banner only when something is FROZEN. Fall through to the edge effect's other branch and a drop on an unfrozen cart announces \u201cThe order\u2019s unlocked \u2014 you can edit again\u201d for a release that never happened \u2014 the M116/T14 fabrication class, reached from the opposite direction",
+    find: "    if (freezeMessage === null) return;\n    // Through a frame for the same two reasons every other announcement on this screen is: a\n    // synchronous `setState` in an effect body is a cascading render the React Compiler lint\n    // rejects, and the region has to be on screen before its text changes.\n    const frame = requestAnimationFrame(() => setStatus(freezeMessage));",
+    replace:
+      '    const frame = requestAnimationFrame(() =>\n      setStatus(freezeMessage ?? "The order\u2019s unlocked \u2014 you can edit again."),\n    );',
+  },
+  {
     id: "m224/parked-sentence-is-not-re-derived",
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
@@ -955,8 +972,8 @@ const MUTANTS = [
     file: "apps/qr/components/Checkout.tsx",
     suite: "components/Checkout.test.tsx",
     why: "Codex round 4 P2. Parking and publishing are two moments, and a BACKGROUNDED TAB throttles frames far enough apart for the peer to finish \u2014 so the release edge writes \u201cyou can edit again\u201d and a callback still holding the old verdict overwrites it with \u201cthe order\u2019s locked\u201d beside controls that are live. The guard keeps its SHAPE under this mutation and loses its EFFECT, which is the evasion to falsify: dropping the `return` clears the park and publishes anyway",
-    find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {\n        setPendingRefusal(null);\n        return;\n      }",
-    replace: "",
+    find: "      if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {",
+    replace: "      if (false) {",
   },
   {
     id: "m224/an-older-success-retires-a-newer-refusal",

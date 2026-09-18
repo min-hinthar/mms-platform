@@ -1003,3 +1003,72 @@ describe("Codex round 5 — the parked sentence is re-derived, not re-validated"
     }
   });
 });
+
+describe("Codex round 6 — a refusal that is never spoken must not silence the banner", () => {
+  it("names the still-held lock when a later view CONFIRMS the edit", async () => {
+    // ⚠️ THE SCENARIO THAT SEPARATES, and my own earlier attempt at this missed it. I tested
+    // ATTRIBUTION DRIFT (self→peer), where T33's suppression-LIFT edge treats the change as an edge
+    // and the banner speaks anyway — so clearing the latch was unfalsifiable and I reverted it.
+    // Here the freeze NEVER CHANGES: the same peer lock is held throughout, so there is no edge of
+    // any kind. The refusal is parked (and latches, suppressing the lock-entry banner), a later view
+    // shows the write actually landed, and the publish is dropped — leaving the latch asserting this
+    // diner was told about a lock nobody ever mentioned, beside dead controls.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("response lost"));
+      h.getCartView.mockResolvedValue(view({ locked: true, lockedBy: PEER_SEAT })); // qty 1: not landed
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      // The write DID land; a later read shows it, with the SAME lock still held.
+      h.getCartView.mockResolvedValue(
+        view({ locked: true, lockedBy: PEER_SEAT, items: [{ ...ITEM, qty: 2 }] }),
+      );
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the parked frame fires and DROPS the refusal
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // ...and the republish rides the NEXT frame
+      });
+
+      expect(regionText()).toContain("checking out");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not invent a RELEASE when the drop happens on an unfrozen cart", async () => {
+    // The republish must stay silent when nothing is frozen. Without the `freezeMessage === null`
+    // guard it falls through to the edge effect's other branch and announces "The order's unlocked
+    // — you can edit again" on a cart that was never locked: a release that never happened, which
+    // is the same fabrication class M116/T14 covers.
+    vi.useFakeTimers();
+    try {
+      h.setQty.mockRejectedValueOnce(new Error("response lost"));
+      mount();
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: `Add another ${ITEM.name}` }));
+      });
+
+      h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, qty: 2 }] })); // landed, never frozen
+      await act(async () => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(32); // the republish frame, if one were wrongly asked for
+      });
+
+      expect(regionText()).not.toContain("unlocked");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

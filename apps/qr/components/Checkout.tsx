@@ -826,6 +826,8 @@ export function Checkout({
    * lock whose ATTRIBUTION moved self→peer inside the gap printed "while you check out" beside a
    * peer's lock, and an `unknown` hedge published over a view that had since confirmed the write.
    */
+  /** Bumped when a parked refusal is DROPPED, so the banner it suppressed can be spoken. */
+  const [freezeRepublish, setFreezeRepublish] = useState(0);
   const [pendingRefusal, setPendingRefusal] = useState<{
     refusal: PublishableRefusal;
     landed: (items: CartItem[]) => boolean;
@@ -974,6 +976,34 @@ export function Checkout({
         settling: f.settling,
       });
       if (pendingRefusal.landed(f.items) || refusedWriteNotice(fresh) !== notice) {
+        // ⚠️ THE LATCH GOES WITH IT (Codex round 6 P2). `announceRefusal` latches at PARK time —
+        // deliberately, because T33 needs it before the banner runs — so making the publish
+        // conditional without retiring the latch leaves `explainedFreezeRef` asserting "this diner
+        // has been told about freeze X" when we have just decided NOT to tell them. The banner they
+        // are owed is then suppressed by an explanation nobody ever spoke.
+        //
+        // ⚠️ AND THE PATH THAT REACHES IT IS NARROWER THAN IT LOOKS, which is why my first attempt
+        // at this line was reverted as unfalsifiable. When the freeze CHANGES (a lock moving
+        // self→peer), T33's suppression-LIFT edge already treats that as an edge and the banner
+        // speaks regardless — so that fixture cannot separate the two. It takes a freeze that never
+        // changes: the same lock held throughout while a later view CONFIRMS the write, so the
+        // publish is dropped for landing rather than for a changed sentence and no edge of any kind
+        // fires. The region is then empty beside dead controls. Measured, not argued: the case
+        // above fails with `expected '' to contain 'checking out'` without this line.
+        // ⚠️ THE DROP HAS TO ASK FOR THE BANNER IT SUPPRESSED (Codex round 6 P2). `announceRefusal`
+        // latched at PARK time, which suppressed the lock-entry banner; the lock-edge effect has
+        // ALREADY run and keys on `announced`, so when the freeze does not change — the same lock
+        // held throughout while a later view confirms the write — nothing re-fires and the region is
+        // left EMPTY beside dead controls. The republish lives beside `freezeMessage` (declared far
+        // below this effect), the one binding that composes the sentence; asking for it rather than
+        // recomposing it here is the "name it ONCE" rule.
+        //
+        // ⚠️ RETIRING `explainedFreezeRef` HERE WAS TRIED TWICE AND IS NOT SHIPPED, both times
+        // because its mutant SURVIVED. It reads like the obvious other half, and it is exactly the
+        // kind of line this file has twice shipped behind a confident comment for a defect nobody
+        // had demonstrated. If a stale latch turns out to suppress a LATER banner, that needs its
+        // own case first — filed as M232 rather than guessed at here.
+        setFreezeRepublish((n) => n + 1);
         setPendingRefusal(null);
         return;
       }
@@ -1198,6 +1228,29 @@ export function Checkout({
     setPayError(null);
     setStatus(freezeMessage ?? "The order’s unlocked — you can edit again.");
   }, [announced, freezeMessage, onPay, settling, noticeFreeze]);
+
+  /**
+   * Speak the freeze banner a DROPPED refusal had already suppressed (Codex round 6 P2).
+   *
+   * ⚠️ IT KEYS ON THE COUNTER, NOT ON THE FREEZE, because the freeze is precisely what did NOT
+   * change: the same lock is held before and after, so the edge effect above sees `prev ===
+   * announced` and returns. Only the drop itself is news. The guard is `freezeMessage !== null` —
+   * a drop while nothing is frozen owes no banner, and writing the unlocked sentence there would
+   * invent a release that never happened.
+   */
+  useEffect(() => {
+    if (freezeRepublish === 0) return; // mount, not a drop
+    if (freezeMessage === null) return;
+    // Through a frame for the same two reasons every other announcement on this screen is: a
+    // synchronous `setState` in an effect body is a cascading render the React Compiler lint
+    // rejects, and the region has to be on screen before its text changes.
+    const frame = requestAnimationFrame(() => setStatus(freezeMessage));
+    return () => cancelAnimationFrame(frame);
+    // `freezeMessage` is deliberately NOT a dep: this effect answers a DROP, and re-running it when
+    // the sentence changes would let it overwrite the region on an ordinary freeze transition the
+    // edge effect above already owns.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [freezeRepublish]);
 
   /**
    * T33's STALENESS BOUND — retire an explanation when the freeze it named ENDS, scoped to that axis.

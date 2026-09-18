@@ -122,6 +122,23 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   a new false claim: the settle-release cleanup is unscoped (a newer refusal parked in the gap is
   cancelled with the old one), and a confirmed landing stays silent without advancing the
   supersession watermark.
+- **Codex round 6 found one, and it is the defect I had already tried to fix and wrongly reverted.**
+  A refusal that is PARKED latches `explainedFreezeRef` — deliberately, because T33 needs the latch
+  before the banner runs — so once round 5 made the publish conditional, a DROPPED refusal left the
+  lock-entry banner suppressed by an explanation nobody ever spoke. I had written this fix an hour
+  earlier, could not make its mutant fail, and reverted it as unfalsifiable. That was the right
+  call on the evidence and the wrong conclusion: my fixture tested ATTRIBUTION DRIFT (a lock moving
+  self→peer), where T33's suppression-LIFT edge treats the change as an edge and the banner speaks
+  anyway. Codex named the path that separates — the freeze NEVER CHANGES: the same lock held
+  throughout while a later view confirms the write, so the publish is dropped for landing rather
+  than for a changed sentence and no edge of any kind fires. Measured: the region is EMPTY beside
+  dead controls (`expected '' to contain 'checking out'`). The drop now asks for the banner it
+  suppressed via `setFreezeRepublish`, answered beside `freezeMessage` — the one binding that
+  composes the sentence — rather than recomposing it at the drop site.
+  ⚠️ **Retiring the latch itself is STILL not shipped, and that is on purpose.** Written twice,
+  reverted twice, because its mutant survived both times: the republish speaks regardless, so no
+  fixture separates them. Filed as **M232** with the instruction to find the case first. Shipping it
+  anyway would be the third confident comment in this file for a defect nobody had demonstrated.
 - **Filed:** **M229** (`check-money-coverage`'s `MONEY_PATHS` still excludes `apps/qr/components/`;
   six component files carry a money marker with no mutant, measured) and **M230** (the three refusal
   reasons that need an arm `RefusedWrite` does not have yet).
