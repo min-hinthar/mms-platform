@@ -2276,3 +2276,60 @@ Codex round 2 then found four more in the tightened version, which is the strong
 10. **"It takes a named binding" says nothing about what the binding DOES.** `useCoalescedRefresh(noop)` reported a coalesced consumer whose events invoked nothing. If the property is "this wraps the real reader", walk to the reader — transitively, because one hop is not enough when one caller reaches it directly and another goes through a helper.
 
 Two meta-rules fall out. **Keep the red-first list WITH the guard**, in its docblock: "watched red under twelve evasions" in a PR description is prose the next reader treats as coverage, and four of this guard's six holes were not in that twelve. And **state the scope you actually check**: this one claimed "repo-wide" while scanning `apps/qr` only, and claimed to prevent "a second copy of `150`/`600`" while matching two identifier NAMES — it cannot see `const ECHO_WINDOW_MS = 150`, and now says so.
+
+## #119 — Replacing a catch-all with something more precise LOSES whatever else the catch-all was doing (2026-09-18, #289 M224: the one CRITICAL Codex round 1 and the blind pass found independently)
+
+`changeQty` swallowed `setQty`'s throw in a comment-only `catch { }` and then called `refresh()`.
+M224's whole point was that the swallow was silent — so the fix routed the refusal to
+`explainRefusal`, which reads the cart, classifies, and speaks. Strictly better, by inspection.
+
+It was strictly WORSE. `refresh()` has a second job nobody was thinking about: its
+`outcome === "failed"` arm asks `counterPayOutcome` whether the register has settled the cart, and
+routes the diner to their receipt or a settled-close card. A closed cart makes the write AND the
+diagnosis read throw — `assertCartMember` answers `cart_closed` forever after, and
+`setLineFulfillment`/`makeItNow` have no `cart_closed` REASON, so a closed cart is a throw there too
+— so every edit gesture on an already-paid cart went: write throws → read throws → `null` → nothing.
+The diner sat on an editable bill for an order that was already paid, with no exit. The swallow had
+been carrying that recovery for free, on every tap.
+
+**The rule: before replacing a broad handler with a narrow one, enumerate every effect the broad one
+had, not just the one you are fixing.** Grep the function you are routing around for its OTHER
+callees — here, one `counterPayOutcome` call that appears exactly once in a 3,000-line file.
+
+Two reviewers found it independently, from a bundle, in minutes. Neither in-context pass did,
+because the author's framing ("the silent catch is the defect") is exactly what makes the loss
+invisible.
+
+## #120 — A green test can be green because the FIXTURE is wrong, and a text probe will not tell you (2026-09-18, #289: four fixtures degenerate, two mutants SURVIVED)
+
+`requestCounterPay`'s mock returned `{ ok: true, at: … }` where `askCounter` reads
+`r.counterRequestedAt`. So the counter card never rendered — and
+`queryByText(/Settle up at the counter/i)` reported it **present** on a DOM whose `textContent` did
+not contain that string. Two `confirmedWrite` mutants survived against it, and the assertion looked
+like a real one.
+
+Three things came out of that, all reusable:
+
+- **Assert on a LANDMARK, not on text.** `document.querySelectorAll('[aria-labelledby="counter-h"]')`
+  counts the card; a substring probe answered a question nobody asked.
+- **A mock's SHAPE is a claim about the source.** Type it from the real return type, or `satisfies`
+  it, or it is a `.returns<T>()` cast by another name — the exact class the delivery repo's gotchas
+  list bans.
+- **`verify:slice` is what noticed.** Not the review, not the suite: four fixtures shipped green and
+  the mutants said otherwise. A guard that has never been watched fail is a guess.
+
+## #121 — A guard whose verdict depends on machine load is not a guard (2026-09-18, #289)
+
+The case asserting that the live region is mounted-and-EMPTY before the refusal lands passed alone
+and failed inside `turbo lint typecheck build test`, where the concurrent build slows the loop enough
+for the `requestAnimationFrame` to fire inside `act()`. It would have gone red in CI on a coin flip.
+
+Anything that asserts an INTERMEDIATE state — between two commits, before a frame, mid-flight —
+belongs on fake timers, and `deferred()` promises rather than real ones. If the property you want is
+"this happens in a LATER commit", the test has to hold the clock; `act()` flushes effects but not
+frames, and how much else it happens to flush is a property of the machine.
+
+Corollary for the product code: `useEffect` + a synchronous `setState` is a cascading render the
+React Compiler lint rejects. Subscribing to a platform callback (rAF) is the sanctioned shape AND
+the falsifiable one — it says "deliberately a later commit" instead of suppressing the rule that
+noticed.
