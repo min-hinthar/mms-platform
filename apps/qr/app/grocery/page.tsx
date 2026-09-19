@@ -616,11 +616,21 @@ export default function Grocery() {
   // Named ONCE from the basket (falling back to the cached catalog while the line is still in
   // flight) — never a copy of what the scan returned, so the chip can never drift from the list
   // beside it or from what the shopper is actually being charged.
+  //
+  // ⚠️ The chip renders ONLY while the barcode is still accounted for — a line, or a scan waiting in
+  // the offline queue. Keeping it up after the shopper REMOVES the line would have it say "in your
+  // basket" about something the basket no longer holds (and `billedRef` has already dropped, so a
+  // re-scan correctly charges again): the chip would be the only thing on screen disagreeing with
+  // the list under it.
   const lastScannedLine = lastScanned ? lines.find((l) => l.barcode === lastScanned) : undefined;
+  const lastScannedQueued = lastScanned
+    ? pendingScans.some((q) => q.barcode === lastScanned)
+    : false;
   const lastScannedName =
     lastScannedLine?.name ??
     (lastScanned ? lookupCachedItem(lastScanned)?.name : undefined) ??
     null;
+  const showRescanChip = Boolean(lastScanned) && (Boolean(lastScannedLine) || lastScannedQueued);
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
   // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
@@ -1035,7 +1045,7 @@ export default function Grocery() {
                   only once a repeat is refused), because the shopper holding a second identical jar
                   needs to see it BEFORE they present it. Deliberately not a live region: the toast
                   is this view's one live region (QA §A) and it already announced the scan. */}
-              {lastScanned && (
+              {showRescanChip && lastScanned && (
                 <div
                   style={{
                     display: "flex",
@@ -1054,7 +1064,7 @@ export default function Grocery() {
                     {lastScannedName ?? lastScanned}
                     {lastScannedLine
                       ? ` · in your basket ×${lastScannedLine.qty}`
-                      : " · saved to add"}
+                      : " · waiting to sync"}
                   </span>
                   <button
                     type="button"
