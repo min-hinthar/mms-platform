@@ -4,33 +4,52 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
-### M186 — scan-and-go stops billing twice for one item (2026-09-19)
+### M186 — scan-and-go stops billing twice for one item, and stops guessing (2026-09-19)
 
-**`BarcodeScanner`'s "debounce" was a rate limiter wearing a debounce's name, and the difference is
-a double charge.** The rAF decode loop calls the gate on every decoded frame, so one barcode resting
-in front of the camera produces a continuous stream of identical codes. The guard refreshed its
-timestamp only when it EMITTED — a suppressed frame returned early and left the stamp where it was —
-so the window measured time since the last SCAN rather than time since the barcode was last SEEN,
-and re-opened on a schedule under an item that had never left the frame. Each re-fire mints a fresh
-`scanId`, which the server treats as a deliberate re-scan, so it bills again. Natural dwell is ≥1.5s,
-because the only confirmation is a round trip plus an 1800ms toast: the diner is looking at the
-screen, holding the item still, while it charges them for six.
+**A camera cannot tell a jar resting in frame from a second identical jar, so `/grocery` stopped
+trying and asked the basket instead.** The rAF decode loop calls the gate on every decoded frame, so
+one barcode held in front of the lens is a continuous stream of identical codes — and so are two of
+the same item. Every purely temporal rule therefore gets one direction wrong, which this row cost two
+attempts to learn:
 
-- **The rule moved to `apps/qr/lib/scan-gate.ts`, where a VALUE falsifies it.** `sightBarcode`
-  refreshes the clock on every sighting, emitted or not, so the window finally measures the quiet gap
-  it always claimed to. An item held in frame is one scan however long it rests; re-presenting it
-  after ≥1500ms away is a deliberate second. The caller stores `next` unconditionally — that
-  unconditional store IS the fix, and writing it only inside the `if` rebuilds the rate limiter.
-- **Eight cases, three mutants, each watched red.** `m186/a-resting-barcode-bills-again` restores the
-  exact shipped line and turns a ten-second 60fps dwell back into six charges.
+- The shipped inline guard refreshed its stamp only when it EMITTED, so the window measured time
+  since the last ANNOUNCEMENT and re-opened every 1500ms under a barcode that had never left. Each
+  re-fire mints a fresh `scanId`, which the server counts as a deliberate re-scan. Ten seconds of
+  natural dwell at 60fps is **seven** charges — computed against the restored line, not remembered.
+- The first fix inverted it to time since last SEEN. That makes a dwell one scan, and it makes the
+  SECOND of two identical jars **unscannable, silently, for as long as the first stays decodable** —
+  a refusal to charge is still a wrong number and this one is invisible until the receipt. It also
+  still double-bills whenever the decode stream itself gaps for 1500ms (autofocus hunting, a shadow,
+  the main thread stalling on the add round trip) over an item that never moved. The blind pre-PR
+  audit rejected it on exactly those two, plus a third: the gate died with the component, so a tab
+  round-trip re-billed the item in the shopper's hand.
+
+- **`classifyScan` decides what is charged, from the BASKET.** A barcode this basket already pays for
+  is never auto-billed again by the camera — the answer comes from the cart's own lines, the offline
+  queue, and what this session has successfully added (`billed`, the only record left when the
+  post-write read answers `lines: null`). A decode gap, a 1.5s stall and a Scan-tab remount all
+  change nothing, because none of them change what the basket holds.
+- **A second copy is one tap, never a guess.** The Scan tab now carries a chip naming the last
+  scanned item and its quantity, with **Add another** on it — present from the moment the first scan
+  lands, so a shopper holding a second jar sees the path before they present it. The tap travels the
+  same authorized `scanAdd` route (`via: "rescan"`), so the server's "a repeat barcode deliberately
+  counts" is unchanged; it is now reached deliberately. A refused repeat says so in the toast.
+- **What is left of the clock is a THROTTLE, not a money rule.** `sightBarcode` only keeps a 60fps
+  dwell from firing sixty toasts a second, reads `performance.now()` rather than a steppable wall
+  clock, and its worst failure is now a duplicate toast.
+- **Seventeen cases, nine mutants, each watched red** — including both directions of
+  `SCAN_QUIET_MS` (100 and 60_000 were previously green under every symbolic assertion) and the
+  under-bill direction, where a genuinely new barcode is classified as a repeat.
+- **`pnpm check:scan-repeat` is the fourteenth fast-lane step**, and it exists because of the audit's
+  blocking finding: the charge rule is a mutated `lib/` module, but the four-line guard clause that
+  CALLS it sits in a component outside `MONEY_PATHS` with no suite — deleting it restored the
+  double-bill with every test and every mutant still green. The guard parses `page.tsx`, binds the
+  `if` test to the verdict's own binding, refuses literally-dead branches, and carries one exemption
+  (the offline queue's replay) whose reason must fire. Five falsifications induced and watched red.
 - **⚠️ One fixture draft was wrong and the code was right, which is worth recording.** Stepping the
   dwell at exactly `SCAN_QUIET_MS` failed — correctly: a loop that sights a barcode once every 1500ms
-  cannot tell that apart from the item leaving and being presented again, and answering "one scan"
-  there would be the gate inventing a dwell it never observed. The bug is about a CONTINUOUS stream,
-  so the fixture samples at frame rate.
-- **The in-flight guard the row also asked for is deliberately NOT added**, because it is not what
-  double-bills: with the clock refreshed, a barcode resting through a 2s round trip is suppressed for
-  the whole of it.
+  cannot tell that apart from the item leaving and being presented again. The bug is about a
+  CONTINUOUS stream, so the fixture samples at frame rate.
 
 ### M224 · M227 — a refused /cart edit now says why, and `Checkout.tsx` gets its first suite (2026-09-18)
 

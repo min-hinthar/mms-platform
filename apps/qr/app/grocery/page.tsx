@@ -33,6 +33,7 @@ import {
   type QueuedScan,
 } from "@/lib/grocery-queue";
 import { lookupCachedItem } from "@/lib/grocery-catalog-cache";
+import { classifyScan } from "@/lib/scan-gate";
 import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
@@ -69,6 +70,17 @@ export default function Grocery() {
   const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
+  // M186 — what this basket has already been CHARGED for, read by the scan classifier. REFS, not
+  // deps: `add` is memoized so `onScan` keeps a stable identity, and the scanner effect is keyed on
+  // it — a fresh identity per basket change would tear down and restart the camera on every scan.
+  // `billedRef` is this session's own record and the ONLY source that survives a failed post-write
+  // read (`scanAdd` answers `lines: null`), which is exactly when the server view cannot prove it.
+  const linesRef = useRef<GroceryLine[]>(lines);
+  const pendingRef = useRef<QueuedScan[]>([]);
+  const billedRef = useRef<Set<string>>(new Set());
+  // The barcode the chip under the viewfinder is about. Set on every scan that lands OR is refused
+  // as a repeat, so the "Add another" path is on screen BEFORE the shopper presents a second copy.
+  const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
@@ -94,6 +106,9 @@ export default function Grocery() {
   useEffect(() => {
     cartIdRef.current = cartId;
   }, [cartId]);
+  useEffect(() => {
+    linesRef.current = lines;
+  }, [lines]);
   // Set true in the effect BODY (not the initializer): StrictMode's simulated remount keeps the
   // same ref, so an initializer-only `true` would stay false after the dev-mode unmount+remount.
   const mountedRef = useRef(true);
@@ -270,6 +285,10 @@ export default function Grocery() {
     async (line: GroceryLine, nextQty: number) => {
       if (!cartId || busyLine || nextQty > 99) return;
       setBusyLine(line.lineId);
+      // M186 — removing a line is the shopper saying they don't want it, so its barcode is a new
+      // item again. `lines` stays the primary source, so a rolled-back removal is covered by the
+      // line reappearing there.
+      if (nextQty <= 0) billedRef.current.delete(line.barcode);
       const snapshot = lines; // pre-flip truth for the double-failure rollback
       const appliedAtFlip = appliedSeq.current; // rollback only if nothing fresher landed meanwhile
       setLines((cur) =>
@@ -327,7 +346,9 @@ export default function Grocery() {
   // they render as their own visibly-distinct pending strip below.
   const [pendingScans, setPendingScans] = useState<QueuedScan[]>([]);
   const syncPending = useCallback(() => {
-    setPendingScans(cartId ? pendingFor(cartId) : []);
+    const next = cartId ? pendingFor(cartId) : [];
+    pendingRef.current = next; // read by the scan classifier — a queued scan is already charged for
+    setPendingScans(next);
   }, [cartId]);
   useEffect(() => {
     // setState via a scheduled callback, not synchronously in the effect (react-hooks rule).
@@ -358,6 +379,7 @@ export default function Grocery() {
           : "Saved — adds when you’re back online.",
       );
       syncPending();
+      setLastScanned(barcode); // the chip's "Add another" is the offline second copy too
       return true;
     },
     [cartId, flash, syncPending],
@@ -366,7 +388,35 @@ export default function Grocery() {
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
   // scanner effect (keyed on `onScan`) doesn't tear down + restart the camera on every re-render.
   const add = useCallback(
-    async (barcode: string, via: "scan" | "search" | "browse") => {
+    async (barcode: string, via: "scan" | "rescan" | "search" | "browse") => {
+      // M186 — a CAMERA scan of a barcode this basket already pays for is NEVER charged again. The
+      // decode stream cannot tell a jar resting in frame from a second identical jar, so every
+      // purely temporal rule gets one direction wrong (see `lib/scan-gate.ts`); the basket can tell,
+      // and it is never a guess. A second copy is the chip's "Add another" — `via: "rescan"`, a
+      // deliberate tap, which is also why Browse and search taps skip this entirely.
+      if (via === "scan") {
+        const verdict = classifyScan(
+          {
+            lines: linesRef.current,
+            queued: pendingRef.current.map((q) => q.barcode),
+            billed: [...billedRef.current],
+          },
+          barcode,
+        );
+        if (verdict.kind === "repeat") {
+          // Never silent: the toast says what happened and the chip below the viewfinder carries
+          // the one-tap path. A refusal the shopper can't see is a wrong number on the receipt.
+          setLastScanned(barcode);
+          flash(
+            verdict.where === "basket"
+              ? `${verdict.name} is already in your basket (×${verdict.qty}) — tap “Add another” for a second.`
+              : verdict.where === "queued"
+                ? "Already saved — it adds when you’re back online. Tap “Add another” for a second."
+                : "Already added — your list is out of date. Tap “Add another” for a second.",
+          );
+          return;
+        }
+      }
       // W7b — ONE identity per physical scan, minted at the top: the live attempt SENDS it and any
       // queued retry REUSES it, so the server's scan-event ledger dedupes a lost-response live add
       // against its own replay (review HIGH: a fresh id minted at enqueue time crosses idempotency
@@ -428,6 +478,11 @@ export default function Grocery() {
         // on a scan that comes back "not found" would be a physical lie.
         haptic("add");
         addedRef.current += 1;
+        // M186 — this session's own record that the basket is now paying for this barcode. It is
+        // the only one left when `r.lines` is null (the post-write read failed), and that is
+        // precisely when a second sighting would otherwise bill again.
+        billedRef.current.add(barcode);
+        setLastScanned(barcode);
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
         // post-write read failed: keep the current list (a failed read is never an empty basket);
@@ -542,6 +597,30 @@ export default function Grocery() {
   }, [drainNow]);
 
   const onScan = useCallback((code: string) => void add(code, "scan"), [add]);
+
+  // M186 — the ONE deliberate way to buy a second of something the basket already holds. `rescan`
+  // skips the repeat classification (that is the whole point: the shopper chose it) and otherwise
+  // travels the same authorized scanAdd path, so the server's "a repeat barcode deliberately
+  // counts" is reached by a tap instead of by a timing guess. Serialized like the browse adder so
+  // a double-tap can't buy two.
+  const addAnother = useCallback(async () => {
+    if (!lastScanned || addingBarcode || busyLine) return;
+    setAddingBarcode(lastScanned);
+    try {
+      await add(lastScanned, "rescan");
+    } finally {
+      setAddingBarcode(null);
+    }
+  }, [lastScanned, addingBarcode, busyLine, add]);
+
+  // Named ONCE from the basket (falling back to the cached catalog while the line is still in
+  // flight) — never a copy of what the scan returned, so the chip can never drift from the list
+  // beside it or from what the shopper is actually being charged.
+  const lastScannedLine = lastScanned ? lines.find((l) => l.barcode === lastScanned) : undefined;
+  const lastScannedName =
+    lastScannedLine?.name ??
+    (lastScanned ? lookupCachedItem(lastScanned)?.name : undefined) ??
+    null;
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
   // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
@@ -762,9 +841,14 @@ export default function Grocery() {
               // React Compiler forbids mutating these refs from effect bodies.)
               appliedSeq.current = reqSeq.current;
               addedRef.current = 0;
+              // M186 — the abandoned basket's charges are not this one's: a barcode the dead cart
+              // paid for must scan cleanly into the fresh one.
+              billedRef.current = new Set();
+              setLastScanned(null);
               // W7b — the dead basket's queued scans die with it: replaying them into the fresh
               // cart would charge it for the abandoned basket's scans (the queue's terminal rule).
               if (cartId) flushCart(cartId);
+              pendingRef.current = []; // the classifier must not count the dead basket's queue
               setPendingScans([]);
               setCartGone(null);
               setHydrated(false); // back to the honest "Checking your basket…" while the mint runs
@@ -945,7 +1029,45 @@ export default function Grocery() {
             error. Gate on cartId with an inline note (pre-merge review). */}
         {tab === "scan" &&
           (cartId && !cartGone ? (
-            <BarcodeScanner onScan={onScan} />
+            <>
+              <BarcodeScanner onScan={onScan} />
+              {/* M186 — the second-copy path, on screen from the moment the FIRST scan lands (not
+                  only once a repeat is refused), because the shopper holding a second identical jar
+                  needs to see it BEFORE they present it. Deliberately not a live region: the toast
+                  is this view's one live region (QA §A) and it already announced the scan. */}
+              {lastScanned && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: 10,
+                    flexWrap: "wrap",
+                    marginTop: 12,
+                    padding: "10px 12px",
+                    borderRadius: "var(--r-card)",
+                    border: "1px solid var(--bd)",
+                    background: "var(--cd)",
+                  }}
+                >
+                  <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
+                    {lastScannedName ?? lastScanned}
+                    {lastScannedLine
+                      ? ` · in your basket ×${lastScannedLine.qty}`
+                      : " · saved to add"}
+                  </span>
+                  <button
+                    type="button"
+                    className="grocery-retry"
+                    onClick={() => void addAnother()}
+                    disabled={addingBarcode === lastScanned || !!busyLine}
+                    aria-label={`Add another ${lastScannedName ?? lastScanned}`}
+                  >
+                    Add another
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <p style={{ color: "var(--t3)", marginTop: 12 }}>
               {cartGone

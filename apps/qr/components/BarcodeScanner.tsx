@@ -6,12 +6,13 @@ import { freshScanGate, sightBarcode, type ScanGate } from "@/lib/scan-gate";
 /**
  * Phone-camera barcode scanner. Uses the native BarcodeDetector API where available
  * (Chrome/Android — zero deps), and falls back to @zxing/library on everything else.
- * Calls onScan(barcode) once per code; `sightBarcode` decides when a sighting is a scan.
  *
- * ⚠️ THE GATE LIVES IN `lib/scan-gate.ts`, NOT HERE (M186). The inline version it replaced was a
- * rate limiter wearing a debounce's name — it refreshed its stamp only when it EMITTED, so a
- * barcode resting in frame re-opened the window every 1.5s and billed again each time. A rule about
- * money belongs where a VALUE can falsify it, not where a camera and five mocks are needed.
+ * ⚠️ THIS COMPONENT DOES NOT DECIDE WHAT IS CHARGED (M186). `sightBarcode` here is only a
+ * THROTTLE — one barcode resting in frame is a continuous stream of identical codes, and without
+ * it the page would hear about it sixty times a second. Whether a decoded barcode becomes a charge
+ * is `classifyScan`'s answer, made from the BASKET, in `lib/scan-gate.ts`: a camera cannot tell a
+ * jar resting in frame from a second identical jar, so nothing here should try. The worst this
+ * throttle can do is drop a duplicate toast; the worst it used to do was bill twice.
  */
 export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -24,11 +25,15 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
       stopped = true;
     };
     const emit = (code: string) => {
-      const { emit: isScan, next } = sightBarcode(gateRef.current, code, Date.now());
-      // ⚠️ STORED ON EVERY SIGHTING, emitted or not — that unconditional store IS the fix. Writing
-      // it only inside the `if` rebuilds the rate limiter that double-billed.
+      // `performance.now()`, not `Date.now()`: the throttle measures an elapsed interval, and a
+      // wall clock can step (NTP resync — this page is built around offline→online transitions).
+      // A step would only cost a duplicate toast now, but a monotonic reading is what the
+      // measurement actually means, and it costs nothing.
+      const { emit: announce, next } = sightBarcode(gateRef.current, code, performance.now());
+      // Stored on every sighting, emitted or not — otherwise the throttle measures time since the
+      // last announcement and re-announces on a schedule under a barcode that never left.
       gateRef.current = next;
-      if (isScan) onScan(code);
+      if (announce) onScan(code);
     };
 
     (async () => {
