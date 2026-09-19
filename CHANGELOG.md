@@ -4,6 +4,34 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M186 — scan-and-go stops billing twice for one item (2026-09-19)
+
+**`BarcodeScanner`'s "debounce" was a rate limiter wearing a debounce's name, and the difference is
+a double charge.** The rAF decode loop calls the gate on every decoded frame, so one barcode resting
+in front of the camera produces a continuous stream of identical codes. The guard refreshed its
+timestamp only when it EMITTED — a suppressed frame returned early and left the stamp where it was —
+so the window measured time since the last SCAN rather than time since the barcode was last SEEN,
+and re-opened on a schedule under an item that had never left the frame. Each re-fire mints a fresh
+`scanId`, which the server treats as a deliberate re-scan, so it bills again. Natural dwell is ≥1.5s,
+because the only confirmation is a round trip plus an 1800ms toast: the diner is looking at the
+screen, holding the item still, while it charges them for six.
+
+- **The rule moved to `apps/qr/lib/scan-gate.ts`, where a VALUE falsifies it.** `sightBarcode`
+  refreshes the clock on every sighting, emitted or not, so the window finally measures the quiet gap
+  it always claimed to. An item held in frame is one scan however long it rests; re-presenting it
+  after ≥1500ms away is a deliberate second. The caller stores `next` unconditionally — that
+  unconditional store IS the fix, and writing it only inside the `if` rebuilds the rate limiter.
+- **Eight cases, three mutants, each watched red.** `m186/a-resting-barcode-bills-again` restores the
+  exact shipped line and turns a ten-second 60fps dwell back into six charges.
+- **⚠️ One fixture draft was wrong and the code was right, which is worth recording.** Stepping the
+  dwell at exactly `SCAN_QUIET_MS` failed — correctly: a loop that sights a barcode once every 1500ms
+  cannot tell that apart from the item leaving and being presented again, and answering "one scan"
+  there would be the gate inventing a dwell it never observed. The bug is about a CONTINUOUS stream,
+  so the fixture samples at frame rate.
+- **The in-flight guard the row also asked for is deliberately NOT added**, because it is not what
+  double-bills: with the clock refreshed, a barcode resting through a 2s round trip is suppressed for
+  the whole of it.
+
 ### M224 · M227 — a refused /cart edit now says why, and `Checkout.tsx` gets its first suite (2026-09-18)
 
 **M224 was filed by #287's blind pass against the screen it had just touched, and closing it needed
@@ -41,7 +69,7 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   is this component's first suite (25 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
   with 20 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
   READ that does not exist — the component seeds every axis from props — so every server-driven flip
-  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 126 target modules.
+  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 127 target modules.
 - **⚠️ The first draft was REJECTED by both reviewers on the same defect, and that is the reusable
   part.** Codex round 1 and the blind adversarial pass independently found that the new refusal path
   dropped `refresh()` — and with it the `outcome === "failed"` arm that is the only thing which gets

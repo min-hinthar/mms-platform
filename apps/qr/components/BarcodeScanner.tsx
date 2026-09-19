@@ -1,15 +1,22 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
+import { freshScanGate, sightBarcode, type ScanGate } from "@/lib/scan-gate";
+
 /**
  * Phone-camera barcode scanner. Uses the native BarcodeDetector API where available
  * (Chrome/Android — zero deps), and falls back to @zxing/library on everything else.
- * Calls onScan(barcode) once per code, debounced so a held barcode doesn't spam.
+ * Calls onScan(barcode) once per code; `sightBarcode` decides when a sighting is a scan.
+ *
+ * ⚠️ THE GATE LIVES IN `lib/scan-gate.ts`, NOT HERE (M186). The inline version it replaced was a
+ * rate limiter wearing a debounce's name — it refreshed its stamp only when it EMITTED, so a
+ * barcode resting in frame re-opened the window every 1.5s and billed again each time. A rule about
+ * money belongs where a VALUE can falsify it, not where a camera and five mocks are needed.
  */
 export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [err, setErr] = useState<string | null>(null);
-  const lastRef = useRef<{ code: string; t: number }>({ code: "", t: 0 });
+  const gateRef = useRef<ScanGate>(freshScanGate());
 
   useEffect(() => {
     let stopped = false;
@@ -17,10 +24,11 @@ export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
       stopped = true;
     };
     const emit = (code: string) => {
-      const now = Date.now();
-      if (code === lastRef.current.code && now - lastRef.current.t < 1500) return;
-      lastRef.current = { code, t: now };
-      onScan(code);
+      const { emit: isScan, next } = sightBarcode(gateRef.current, code, Date.now());
+      // ⚠️ STORED ON EVERY SIGHTING, emitted or not — that unconditional store IS the fix. Writing
+      // it only inside the `if` rebuilds the rate limiter that double-billed.
+      gateRef.current = next;
+      if (isScan) onScan(code);
     };
 
     (async () => {
