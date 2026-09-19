@@ -2333,3 +2333,52 @@ Corollary for the product code: `useEffect` + a synchronous `setState` is a casc
 React Compiler lint rejects. Subscribing to a platform callback (rAF) is the sanctioned shape AND
 the falsifiable one — it says "deliberately a later commit" instead of suppressing the rule that
 noticed.
+
+## #122 — A camera cannot tell a resting item from a second identical one, so no temporal rule can price it (2026-09-19, #290)
+
+M186 said `/grocery`'s scan gate billed one item twice. It took two attempts and a REJECT to see
+why the obvious fix could not work: `BarcodeScanner`'s decode loop reports every decoded frame, so
+"one jar held still" and "two jars of the same balm" are **the same stream of identical codes**.
+Any rule that decides money from that stream's timing is guessing, and it guesses wrong in one
+direction or the other:
+
+| Rule                                   | Dwell                        | Second identical item      | ≥1.5 s decode gap over a resting item |
+| -------------------------------------- | ---------------------------- | -------------------------- | ------------------------------------- |
+| Time since last ANNOUNCEMENT (shipped) | **7 charges** / 10 s @ 60fps | billed ✓                   | n/a                                   |
+| Time since last SEEN (the "fix")       | 1 ✓                          | **never billed, silently** | **billed twice**                      |
+| The basket's own answer                | 1 ✓                          | one tap, named ✓           | 1 ✓                                   |
+
+- **The under-bill is the worse defect, and it is the one that felt like a fix.** Refusing to charge
+  is still a wrong number, and unlike a double charge nobody notices it until the receipt. The first
+  fix made the second jar unscannable for as long as the first stayed decodable — not for 1.5 s,
+  **never** — with no toast, no error, nothing: `if (isScan) onScan(code)` was the only consumer of
+  the verdict, so a suppressed sighting produced no output at all. Its own mutant rationale, written
+  the same hour, said "a refusal to charge is still a wrong number, and this one is invisible until
+  the receipt."
+- **When a signal genuinely cannot answer the question, stop asking it.** The charge decision moved
+  to `classifyScan`, which reads the BASKET — lines, offline queue, and what this session has
+  actually charged for. That third source exists because `scanAdd` answers `lines: null` when the
+  post-write read fails, and that is precisely the moment the basket looks empty of something it is
+  already paying for. A deliberate second copy became a TAP, which can never be off by one.
+- **Absence and a failed decode are the same signal; no amount of cleverness separates them.** The
+  in-flight guard the row asked for was refused on the argument that a refreshed clock suppresses a
+  barcode resting through a 2 s round trip — true only if the decode stream is uninterrupted for the
+  whole of it, which neither the module nor the caller can guarantee or detect. The catch block
+  admitting that (`// detection can throw on a bad frame`) was in the diff's own file.
+
+**And the guard lesson, which is #60's shape one layer out.** The rule is a `lib/` module with nine
+mutants; the four-line clause that CALLS it is in `page.tsx`, a component outside
+`check-money-coverage`'s `MONEY_PATHS` with no suite — so deleting it restored the double-bill with
+every test and every mutant still green. That is `scripts/check-scan-repeat.mjs` (fast-lane step
+14): it parses, binds the `if` test to the verdict's own binding, refuses the enumerated
+literally-dead shapes, and carries one exemption (the offline queue's replay) whose reason must
+fire. Five falsifications induced against the real file and watched red. **A mutated rule whose
+only caller is unguarded is a guarded rule in name only.**
+
+**Two measurement failures shipped in the first attempt, both mine, both the rules this file already
+carries.** "Six charges" was written into four documents from prose; computed, the mutant yields
+**512**, a faithful restoration **7**, the shipped code **1** — and the mutant was not even the
+shipped line. And a python edit to `docs/OPEN-ITEMS.md` used `parts[-2]` for the Status cell, which
+landed `closed` in the **Source** column and destroyed that row's provenance while leaving Status
+`open`; the row stayed counted as an open high money item. **Index a markdown table by measuring the
+neighbours' cells, never by counting from the end** — and re-read the row you just wrote.
