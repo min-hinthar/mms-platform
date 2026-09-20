@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
 import { changeDue } from "@/lib/register-math";
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { Sheet } from "@mms/ui";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
@@ -64,7 +65,11 @@ export function CashSettleButton({
   const lang = useStaffLang();
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
+  // A transition's `pending`, never a hand-rolled boolean — §16's one caller-owned contract. Inside
+  // a modal sheet every exit is refused while `busy` holds, behind a trapped focus scope, so a
+  // flag that any path forgets to clear is a permanent keyboard trap; `pending` settles by
+  // construction, including when the action rejects (caught below so it never escapes the sheet).
+  const [pending, startSettle] = useTransition();
   // The handoff path landed: the sheet is unmounted (see the render) and the close-restore below
   // must not fight the parent for focus — it focuses the card this control hands off to. A ref
   // beside the state because the restore runs from the unmounting sheet's own effect cleanup.
@@ -110,38 +115,46 @@ export function CashSettleButton({
   const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
   // §17 — the attribute and the handler read ONE predicate.
-  const canSettle = !busy && tipValid;
+  const canSettle = !pending && tipValid;
 
-  async function confirm() {
+  function confirm() {
     if (!canSettle) return;
-    setBusy(true);
     setError(null);
-    const res = await settleCash({ sessionId, tipCents });
-    if (!res.ok) {
-      // The sheet stays open with the refusal inside it — the cashier reads why where they
-      // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
-      // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
-      setBusy(false);
-      setError(res.error);
-      return;
-    }
-    if (handoff) {
-      landedRef.current = true;
-      setBusy(false);
-      setLanded(true);
-      setConfirming(false);
-      // The AUTHORITATIVE total the settle returned (the prop can be a poll interval stale), and the
-      // change computed against it. The parent owns the card — this component unmounts with the cart.
-      onHandoff?.({
-        orderId: res.orderId,
-        totalCents: res.totalCents,
-        changeCents: tenderedCents > 0 ? changeDue(res.totalCents, tenderedCents) : null,
-      });
-    }
-    // A table's settle (no handoff) leaves the sheet open and busy: the paid state arriving on the
-    // re-fetch unmounts this control, and a re-armed trigger in the meantime would only invite a
-    // second settle the server refuses.
-    router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
+    startSettle(async () => {
+      let res: Awaited<ReturnType<typeof settleCash>>;
+      try {
+        res = await settleCash({ sessionId, tipCents });
+      } catch (e) {
+        // A REJECTED action (a lost connection, a 5xx) is a refusal too — caught here so it never
+        // reaches the route's error boundary (the #283 P1 shape) and never strands the lock.
+        console.error("[CashSettleButton] settle rejected — the sheet stays", e);
+        setError(STAFF_WRITE_OUTAGE);
+        return;
+      }
+      if (!res.ok) {
+        // The sheet stays open with the refusal inside it — the cashier reads why where they
+        // tapped, and can fix the tip or cancel. (Closing it would raise the alert under the
+        // exiting sheet's `aria-hidden`, and hand them the trigger with the reason somewhere else.)
+        setError(res.error);
+        return;
+      }
+      if (handoff) {
+        landedRef.current = true;
+        setLanded(true);
+        setConfirming(false);
+        // The AUTHORITATIVE total the settle returned (the prop can be a poll interval stale), and the
+        // change computed against it. The parent owns the card — this component unmounts with the cart.
+        onHandoff?.({
+          orderId: res.orderId,
+          totalCents: res.totalCents,
+          changeCents: tenderedCents > 0 ? changeDue(res.totalCents, tenderedCents) : null,
+        });
+      }
+      // A table's settle (no handoff) leaves the sheet open and busy: the paid state arriving on
+      // the re-fetch unmounts this control, and a re-armed trigger in the meantime would only
+      // invite a second settle the server refuses.
+      router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
+    });
   }
 
   return (
@@ -167,10 +180,12 @@ export function CashSettleButton({
       {!landed && (
         <Sheet
           open={confirming}
+          // `busy` before the arrow-valued prop, deliberately: the M82 caller guard scans
+          // `<Sheet[^>]*busy=` and cannot cross an `=>`.
+          busy={pending}
           onOpenChange={(next) => {
             if (!next) setConfirming(false);
           }}
-          busy={busy}
           title={
             <Chrome
               lang={lang}
@@ -360,10 +375,10 @@ export function CashSettleButton({
                 className="staff-btn"
                 type="button"
                 onClick={() => {
-                  if (busy) return;
+                  if (pending) return;
                   setConfirming(false);
                 }}
-                aria-disabled={busy || undefined}
+                aria-disabled={pending || undefined}
                 style={cancelBtn}
               >
                 <Chrome lang={lang} k="settle.cancel" echo={false} />
@@ -374,10 +389,10 @@ export function CashSettleButton({
                 type="button"
                 onClick={confirm}
                 aria-disabled={!canSettle || undefined}
-                aria-busy={busy || undefined}
+                aria-busy={pending || undefined}
                 style={payBtn}
               >
-                {busy ? (
+                {pending ? (
                   <Chrome lang={lang} k="settle.cash.settling" echo={false} />
                 ) : (
                   <Chrome

@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
  * K29(b) — the cash confirm is the shared sheet. What the move had to keep, and what it changed
@@ -112,6 +113,23 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(within(dialog).getByRole("alert").textContent).toContain("Card reader offline");
     expect(settle().getAttribute("aria-disabled")).toBeNull();
     expect(settle().getAttribute("aria-busy")).toBeNull();
+  });
+
+  it("a settle that REJECTS (a lost connection) is a refusal read in the sheet — never a locked sheet", async () => {
+    settleCash.mockRejectedValueOnce(new Error("fetch failed"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { open, settle } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: drop the try/catch around `settleCash` — nothing sets the error, the lock is
+    // whatever React does with an escaped action, and the alert below is absent; red.
+    expect(screen.getByRole("dialog")).toBe(dialog);
+    expect(within(dialog).getByRole("alert").textContent).toContain(STAFF_WRITE_OUTAGE);
+    expect(settle().getAttribute("aria-busy")).toBeNull();
+    expect(settle().getAttribute("aria-disabled")).toBeNull();
+    expect(logged).toHaveBeenCalled();
   });
 
   it("while the settle runs: Settle is aria-disabled + aria-busy and refuses a second tap; the ✕ says so; a landed handoff UNMOUNTS the sheet and leaves focus for the parent's card", async () => {

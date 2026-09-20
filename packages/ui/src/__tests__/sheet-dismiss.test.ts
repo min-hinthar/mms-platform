@@ -153,7 +153,10 @@ describe("the wiring — sheet.tsx must actually consult the policy", () => {
     // and destroys the user's place (WCAG 2.4.3). `aria-disabled` announces the
     // state without moving focus, and the handler is the real enforcement.
     expect(SHEET_CODE).toMatch(/aria-disabled=\{busy/);
-    expect(SHEET_CODE).toMatch(/aria-label=\{busy\s*\?/);
+    // manager-9 — the English literal is the DEFAULT; a caller's `closeLabel` replaces it with
+    // sr-only DOM text, and then NO aria-label may compete (an aria-label wins over content).
+    expect(SHEET_CODE).toMatch(/aria-label=\{closeLabel \? undefined : busy\s*\?/);
+    expect(SHEET_CODE).toMatch(/\{busy \? closeLabel\.busy : closeLabel\.idle\}/);
     expect(SHEET_CODE).not.toMatch(/<Dialog\.Close[^>]*\sdisabled=/s);
   });
 

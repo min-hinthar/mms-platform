@@ -4,6 +4,51 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### manager-9 · manager-10 / M76 · K29(b) — the sheet primitive (2026-09-20)
+
+**Slice 4 of the staff-console polish: the shared `Sheet`, from the two findings the manager
+rails' pass deferred to `packages/ui` plus the last half of K29** (`docs/STAFF_POLISH_AUDIT.md` →
+Manager rails → manager-9 · manager-10).
+
+- **Sheets exit instead of cutting (manager-10 / M76).** `.mms-sheet[data-state="closed"]` slides
+  down and `.mms-scrim[data-state="closed"]` fades over the same `--dur-sheet`; Radix's `Presence`
+  holds a closing node while its `animationName` runs and unmounts it on `animationend`, so CSS
+  owns the entrance AND the exit (one motion owner — framer keeps only the drag), and the
+  reduced-motion block names both closed selectors because they out-specify the bare classes. The
+  half that made it work is structural, and nobody had filed it: `Dialog.Portal` wraps EACH child
+  in its own `Presence`, which reads the exit off the ref it forwards — and the `DomMaxProvider`
+  between the portal and the content forwards no DOM node, so that Presence unmounted every sheet
+  instantly, exit or no exit. The provider wraps the portal now (context crosses portals) and
+  `SheetContent` forwards its `ref`. Stated in the primitive's docblock: `onCloseAutoFocus` fires
+  at UNMOUNT, after the exit, which is where the opener-restore wants it; a caller that moves focus
+  elsewhere on close does so under the sheet's own `aria-hidden` and should unmount the sheet.
+- **The ✕ speaks the console's tongue (manager-9).** `Sheet.closeLabel { idle, busy }` renders as
+  sr-only DOM text inside the button (§17's circle idiom, never an `aria-label` — rule 3 cannot
+  follow a name into the package, and DOM text keeps the Burmese language-marked); the English
+  literal stays the default for the diner sheets. `shell.close` / `shell.closeBusy` (K15 drafts),
+  one builder (`sheetCloseLabel`) for the five staff callers.
+- **The cash confirm is the shared sheet (K29(b), the last half).** It rendered INLINE at the foot
+  of the column, a scroll below the trigger; it is `<Sheet busy>` now (an irreversible write,
+  §16), titled without the amount (`settle.cash.title` / `.titleTab` — the question carries the
+  tip-inclusive figure), the ✕ named in the console's tongue, the opener restored by hand (WebKit
+  never focused the tapped trigger, so the primitive's captured opener would be `<body>`). Three
+  decisions the sheet forced: a REFUSED settle stays inside the sheet with the reason (closing it
+  would raise the alert under the exiting sheet's `aria-hidden`, unannounced); the handoff path
+  UNMOUNTS the sheet instead of closing it, so the parent's #CODE card is focused on an un-hidden
+  page; and `busy` is a transition's `pending` with the action's rejection caught — the M82
+  caller guard reddened on the hand-rolled boolean it replaced, and inside a modal a settle that
+  threw would have stranded all four exits behind a trapped focus scope. Cancel and Settle are
+  `aria-disabled` + the handler refusing on one predicate (§17); K35 re-measured at 21 native sites
+  in 11 components.
+- Suites: `SheetExit.test.tsx` (the Presence hold under a stubbed computed style; the CSS parsed
+  with a brace walker — the closed selectors, their keyframes, the reduced-motion block; the ✕'s
+  name) and `CashSettleButton.test.tsx`, both new; `sheet-busy-callers` and `sheet-dismiss` updated
+  to the new caller and the new naming shape. Fourteen mutations induced and watched red.
+- Docs: OPEN-ITEMS (M76 ✅ · K29(b) ✅ · K35 re-measured) · audit statuses · DESIGN-LANGUAGE §16
+  (the caller count, the exit, `closeLabel`) · HANDOFF · LEARNINGS #129 (a portal child's Presence
+  needs a DOM node) · #130 (FocusScope restores focus in a `setTimeout(0)`, so a synchronous focus
+  assertion after a close is vacuous).
+
 ### manager-1 · manager-3 · manager-4 · manager-5 · manager-6 · manager-7 · manager-8 + M34 · P2t · the rails' K35 — the manager rails and the drill-down (2026-09-20)
 
 **Slice 3 of the staff-console polish: the approvals queue, the refunds strip, the refund and
