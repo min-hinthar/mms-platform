@@ -26,4 +26,12 @@ describe("browseRows — the menu list's one filter", () => {
     expect(ids(browseRows(rows, "noodle", true))).toEqual(["c"]);
     expect(ids(browseRows(rows, "mohinga", true))).toEqual([]);
   });
+
+  it("the acted row is kept under the chip whatever its state, but never past the needle", () => {
+    // MUTATION: drop `|| i.id === keep` — the dish just put back leaves the list under the
+    // focused pill; red.
+    expect(ids(browseRows(rows, "", true, "a"))).toEqual(["a", "b", "c"]);
+    expect(ids(browseRows(rows, "", false, "a"))).toEqual(["a", "b", "c"]);
+    expect(ids(browseRows(rows, "salad", true, "a"))).toEqual(["b"]); // the needle still rules
+  });
 });

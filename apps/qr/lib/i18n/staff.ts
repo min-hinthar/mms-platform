@@ -1278,6 +1278,12 @@ export const STAFF = {
   // The sold-out chip beside the search (the audit's "find the flags that outlived their shift"
   // affordance). {n} is a prose count → Burmese numerals.
   "browse.price.soldOutOnly": { en: "Sold out ({n})", my: "ဖြုတ်ထားတာ ({n})" },
+  // The empty state UNDER the chip: the needle searched only what is off the menu, and the
+  // sentence must say so — `browse.price.noMatch` while the chip hides a matching dish is false.
+  "browse.price.noMatchSoldOut": {
+    en: "No sold-out dish matches “{x}”.",
+    my: "“{x}” နဲ့ ကိုက်ညီတဲ့ ဖြုတ်ထားတဲ့ ဟင်း မရှိပါ။",
+  },
 
   // ── VERBS — the visible word on a control, and the word its name leads with ─
   // `86` is kitchen jargon on a 44px pill and stays the English console's word verbatim; the Burmese
@@ -1314,6 +1320,10 @@ export const STAFF = {
   "browse.price.draft.unchanged": {
     en: "That’s the current price",
     my: "အခု ဈေးအတိုင်းပဲ ဖြစ်နေပါတယ်",
+  },
+  "browse.price.draft.empty": {
+    en: "Enter a price, like {m}",
+    my: "ဈေး ရိုက်ထည့်ပါ၊ {m} လိုမျိုး",
   },
 
   // ── the view's ONE live region ─────────────────────────────────────────────

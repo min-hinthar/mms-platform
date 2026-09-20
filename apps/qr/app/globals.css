@@ -9694,14 +9694,19 @@ html[data-fx="lite"] .mms-scrim {
 @media print {
   /* gloss-1 — `.pgl` is the INNER column now, not the `<main>`, so W7a's `main { max-width: none
      !important }` no longer reaches the sheet's width: on Letter portrait (≈816px) 940 is inert,
-     on landscape it would rule a margin down the paper. And the shell's lines must never print. */
+     on landscape it would rule a margin down the paper. The column's side padding comes off on
+     the COMPOUND selector: `.staff-col { padding: 0 var(--s5) }` sits later in this file at the
+     same specificity, so a bare `.pgl { padding: 0 }` here is text that ships nothing (the blind
+     pass caught exactly that). `<main>`'s own padding is W7a's 12px `!important` above and is not
+     restated. And the shell's lines must never print. */
   .pgl {
     max-width: none;
+  }
+  .staff-col.pgl {
     padding: 0;
   }
   .staff-main {
     background-image: none;
-    padding: 0;
   }
   /* The first band is the ten minutes that matter, so it gets its own sheet of paper. Everything
      else follows behind it. */

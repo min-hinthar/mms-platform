@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
 /**
  * tips-1 — the restaurant's clock, pinned with a UTC fixture. The process zone is forced to UTC
@@ -7,7 +7,14 @@ import { describe, expect, it } from "vitest";
  * same digits and this suite would be green over the exact defect it exists for (the tips page on
  * Vercel printed UTC to every manager). Node re-reads `TZ` on assignment.
  */
+const PREV_TZ = process.env.TZ;
 process.env.TZ = "UTC";
+afterAll(() => {
+  // vitest isolates each file in its own fork, but a sibling that reads the process zone is owed
+  // the zone it started with all the same.
+  if (PREV_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = PREV_TZ;
+});
 const { sameServiceDay, serviceDayKey, staffClock, staffDate, staffDateTime } =
   await import("./staff-clock");
 

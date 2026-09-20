@@ -4611,7 +4611,7 @@ const MUTANTS = [
     file: "apps/qr/lib/menu-browse.ts",
     suite: "lib/menu-browse.test.ts",
     why: "the menu list's sold-out chip (slice 6) — pressed, it must narrow to the flags a server is told to watch for. A chip that lights and filters nothing is the §16 control that does nothing, wearing the selection cap",
-    find: "      (!soldOutOnly || i.soldOut) &&\n",
+    find: "      (!soldOutOnly || i.soldOut || i.id === keep) &&\n",
     replace: "",
   },
   {

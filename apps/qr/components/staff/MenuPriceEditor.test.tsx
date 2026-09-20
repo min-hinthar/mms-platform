@@ -199,6 +199,56 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
     expect(pill("86 — Mohinga")).toBeTruthy();
   });
 
+  it("a list that DISAGREES on arrival wins — a second writer inside the window is the truth, and the next tap posts its state", async () => {
+    // The KDS puts Mohinga back before this tablet's refresh lands: the list says available. An
+    // override kept "while the prop disagrees" would pin the row to `Put back` and refuse every
+    // retry forever (the blind pass, slice 6).
+    const { rerender } = mount([item()]);
+    await act(async () => {
+      fireEvent.click(pill("86 — Mohinga"));
+    });
+    expect(pill("Put back — Mohinga")).toBeTruthy();
+    // MUTATION: keep an override whose value the prop disagrees with — `Put back` survives the
+    // list below and the tap posts `expectedSoldOut: true` against an available dish; red.
+    rerender(
+      <StaffLangProvider lang="en">
+        <MenuPriceEditor items={[item({ soldOut: false })]} canEditPrice nowIso={NOW} />
+      </StaffLangProvider>,
+    );
+    const eightySix = pill("86 — Mohinga");
+    await act(async () => {
+      fireEvent.click(eightySix);
+    });
+    expect(setItemSoldOut).toHaveBeenLastCalledWith({
+      menuItemId: "a1",
+      soldOut: true,
+      expectedSoldOut: false,
+    });
+  });
+
+  it("a saved price yields the same way: the list that arrives after it is newer than it", async () => {
+    setMenuPrice.mockResolvedValue({ ok: true, priceCents: 1450 });
+    const { rerender } = mount([item()]);
+    fireEvent.click(pill("Edit — Mohinga"));
+    fireEvent.change(screen.getByLabelText("New price for Mohinga, in dollars"), {
+      target: { value: "14.50" },
+    });
+    fireEvent.click(pill("Save"));
+    await act(async () => {
+      fireEvent.click(pill("Set $14.50"));
+    });
+    expect(screen.getByText("$14.50")).toBeTruthy();
+    // Another manager set $16.00 in the meantime and the list says so: the row must ring $16.00,
+    // not the $14.50 this tablet confirmed a moment earlier.
+    rerender(
+      <StaffLangProvider lang="en">
+        <MenuPriceEditor items={[item({ priceCents: 1600 })]} canEditPrice nowIso={NOW} />
+      </StaffLangProvider>,
+    );
+    expect(screen.queryByText("$14.50")).toBeNull();
+    expect(screen.getByText("$16.00")).toBeTruthy();
+  });
+
   it("a saved price rings on the row at once, quoting the SERVER's amount", async () => {
     setMenuPrice.mockResolvedValue({ ok: true, priceCents: 1475 }); // the server rounded differently
     mount([item()]);
@@ -266,7 +316,20 @@ describe("menu-5 — the draft says WHY it cannot be saved, and Return does what
     // MUTATION: drop the `unchanged` hint arm — the field describes nothing; red.
     const hint = document.getElementById(field.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).toContain(STAFF["browse.price.draft.unchanged"].en);
-    expect(field.getAttribute("aria-invalid")).toBe("true");
+    // An untouched value equal to the current price is not INVALID — it conforms to the format
+    // and the range; there is simply nothing to save. `aria-invalid` is reserved for the three
+    // verdicts that mean "does not conform".
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
+  });
+
+  it("an EMPTY field is a refused draft with a stated reason too, and is not marked invalid", () => {
+    const field = openEdit();
+    fireEvent.change(field, { target: { value: "" } });
+    expect(pill("Save").getAttribute("aria-disabled")).toBe("true");
+    // MUTATION: drop the `empty` hint arm — the dead grey Save with no sentence is back; red.
+    const hint = document.getElementById(field.getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).toContain("Enter a price, like 14.50");
+    expect(field.hasAttribute("aria-invalid")).toBe(false);
   });
 
   it("names the floor, the ceiling and the shape; a good draft clears the hint and lights Save", () => {
@@ -275,6 +338,9 @@ describe("menu-5 — the draft says WHY it cannot be saved, and Return does what
       document.getElementById(field.getAttribute("aria-describedby") ?? "")?.textContent;
     fireEvent.change(field, { target: { value: "0.10" } });
     expect(hint()).toContain("Lowest price is $0.25");
+    // MUTATION: `aria-invalid={hintKey !== null || undefined}` again — `unchanged` and `empty`
+    // read as invalid; the case above reddens. Here a range violation IS invalid.
+    expect(field.getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(field, { target: { value: "6000" } });
     expect(hint()).toContain("Highest price is $5000.00");
     fireEvent.change(field, { target: { value: "12,50" } });
@@ -334,6 +400,67 @@ describe("the sold-out chip", () => {
     });
     expect(screen.queryByRole("button", { name: /Sold out \(/ })).toBeNull();
     expect(document.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  it("keeps the acted row under the chip — focus stays on its pill and the echo stays in view", async () => {
+    mount([
+      item({ id: "s1", nameEn: "Shan Noodles", soldOut: true }),
+      item({ id: "s2", nameEn: "Tea Leaf Salad", soldOut: true }),
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "Sold out (2)" }));
+    expect(document.querySelectorAll("li")).toHaveLength(2);
+    const putBack = pill("Put back — Shan Noodles");
+    putBack.focus();
+    setItemSoldOut.mockResolvedValue({ ok: true, soldOut: false });
+    await act(async () => {
+      fireEvent.click(putBack);
+    });
+    // MUTATION: drop `msg?.id ?? null` from the filter — the row unmounts under the focused pill,
+    // focus falls to <body> and the echo is rendered nowhere; red on all three.
+    expect(document.querySelectorAll("li")).toHaveLength(2);
+    expect(document.activeElement).toBe(putBack);
+    expect(putBack.textContent).toContain("86");
+    expect(document.querySelector('li p[aria-hidden="true"]')?.textContent).toBe(
+      STAFF["browse.price.live.on"].en.replace("{x}", "Shan Noodles"),
+    );
+    expect(screen.getByRole("button", { name: "Sold out (1)" })).toBeTruthy();
+    // The next action moves `msg` on, and the row leaves with it.
+    setItemSoldOut.mockResolvedValue({ ok: true, soldOut: false });
+    await act(async () => {
+      fireEvent.click(pill("Put back — Tea Leaf Salad"));
+    });
+    expect(screen.queryByRole("button", { name: /Sold out \(/ })).toBeNull();
+    expect(document.querySelectorAll("li")).toHaveLength(2); // the chip let go: everything shows
+  });
+
+  it("lets go of its STATE at zero — the next 86 remounts the chip unpressed and hides nothing", async () => {
+    mount([item(), item({ id: "b2", nameEn: "Shan Noodles", soldOut: true })]);
+    fireEvent.click(screen.getByRole("button", { name: "Sold out (1)" }));
+    setItemSoldOut.mockResolvedValue({ ok: true, soldOut: false });
+    await act(async () => {
+      fireEvent.click(pill("Put back — Shan Noodles"));
+    });
+    expect(screen.queryByRole("button", { name: /Sold out \(/ })).toBeNull();
+    // MUTATION: drop `if (soldOutOnly && soldOutCount === 0) setSoldOutOnly(false);` — the chip
+    // comes back PRESSED and the list collapses to one row without a tap; red.
+    setItemSoldOut.mockResolvedValue({ ok: true, soldOut: true });
+    await act(async () => {
+      fireEvent.click(pill("86 — Mohinga"));
+    });
+    const chip = screen.getByRole("button", { name: "Sold out (1)" });
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    expect(document.querySelectorAll("li")).toHaveLength(2);
+  });
+
+  it("under the chip the empty state names the filter, never a false `No dish matches`", () => {
+    mount([item(), item({ id: "b2", nameEn: "Shan Noodles", soldOut: true })]);
+    fireEvent.click(screen.getByRole("button", { name: "Sold out (1)" }));
+    fireEvent.change(screen.getByLabelText("Find a dish"), { target: { value: "Mohinga" } });
+    expect(document.querySelectorAll("li")).toHaveLength(0);
+    // MUTATION: render `browse.price.noMatch` unconditionally — "No dish matches “Mohinga”." while
+    // Mohinga is on the list behind the chip; red.
+    expect(screen.getByText(/No sold-out dish matches/)).toBeTruthy();
+    expect(screen.queryByText(/^No dish matches/)).toBeNull();
   });
 
   it("speaks Burmese numerals under the Burmese console", () => {

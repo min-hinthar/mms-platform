@@ -141,27 +141,21 @@ export function MenuPriceEditor({
   // menu-3 — the server's confirmed values, per row, until the list prop catches up.
   const [confirmed, setConfirmed] = useState<ReadonlyMap<string, Confirmed>>(() => new Map());
 
-  // Drop an override the moment the prop agrees with it — the refresh landed and the list is the
-  // truth again — and keep it while the prop still lags (a refresh requested by an EARLIER action
-  // can land before this one's write is readable). Reconciled DURING the render that first sees a
-  // new `items` array (React's "adjust state from a prop change" shape, one re-render, no effect),
-  // and spent for good once dropped: a value another tablet moves later never wakes it again.
+  // A confirmed value lives until the NEXT list arrives, whatever that list says. Reconciled
+  // DURING the render that first sees a new `items` array (React's "adjust state from a prop
+  // change" shape, one re-render, no effect), by clearing EVERY override: a list that arrives
+  // after a confirmation is at least as fresh as it — both actions `revalidatePath("/staff/menu")`,
+  // so the action's own response already carries a post-write list and the explicit refresh is a
+  // later read still. ⚠️ Not "until the prop agrees": the first cut kept an override while the
+  // prop DISAGREED (to cover a lagging refresh), and a second writer inside that window — the KDS
+  // putting the dish back, another tablet — pinned the row to a false verb (or a false PRICE)
+  // forever, every retry posting the stale expectation and being refused, the refresh confirming
+  // the disagreement and the override surviving it (the blind pass, slice 6). The prop is the
+  // truth the moment it is newer than the confirmation.
   const [seenItems, setSeenItems] = useState(items);
   if (items !== seenItems) {
     setSeenItems(items);
-    if (confirmed.size > 0) {
-      const next = new Map<string, Confirmed>();
-      for (const [id, c] of confirmed) {
-        const live = items.find((i) => i.id === id);
-        if (!live) continue;
-        const rest: Confirmed = {};
-        if (c.soldOut !== undefined && c.soldOut !== live.soldOut) rest.soldOut = c.soldOut;
-        if (c.priceCents !== undefined && c.priceCents !== live.priceCents)
-          rest.priceCents = c.priceCents;
-        if (Object.keys(rest).length > 0) next.set(id, rest);
-      }
-      setConfirmed(next);
-    }
+    if (confirmed.size > 0) setConfirmed(new Map());
   }
 
   function record(id: string, c: Confirmed) {
@@ -247,9 +241,20 @@ export function MenuPriceEditor({
 
   const soldOutCount = rows.reduce((n, r) => n + (r.soldOut ? 1 : 0), 0);
   // The chip is a filter over rows that EXIST: with nothing off the menu it has nothing to show, so
-  // a pressed chip whose count fell to zero (the last dish put back) lets go on its own.
+  // a pressed chip whose count fell to zero (the last dish put back) unmounts AND lets go of its
+  // state — the same adjust-during-render shape as the reconcile above. A first cut only unmounted
+  // it: the state stayed true, and the next 86 remounted the chip PRESSED, collapsing 114 rows
+  // under a manager mid-scroll without a tap (the blind pass, slice 6).
+  if (soldOutOnly && soldOutCount === 0) setSoldOutOnly(false);
   const filterSoldOut = soldOutOnly && soldOutCount > 0;
-  const shown = useMemo(() => browseRows(rows, q, filterSoldOut), [rows, q, filterSoldOut]);
+  // The acted row is KEPT under the chip whatever its state now: a dish put back while the chip is
+  // pressed must not leave the list the instant the server confirms — that unmounted the row under
+  // the focused pill (focus to `<body>`, the §17 loss this slice removed) and took the row's echo
+  // with it (the blind pass). It leaves with the next action, when `msg` moves on.
+  const shown = useMemo(
+    () => browseRows(rows, q, filterSoldOut, msg?.id ?? null),
+    [rows, q, filterSoldOut, msg],
+  );
 
   const current = rows.find((i) => i.id === editing) ?? null;
   // menu-5 — the verdict on the typed dollars, decided in lib, said beside the field.
@@ -378,6 +383,10 @@ export function MenuPriceEditor({
     );
   }
 
+  // Every refused draft has a stated reason — the empty field included (the blind pass: an empty
+  // field was the dead grey Save this slice retired, back again). `aria-invalid` is narrower: it
+  // means "does not conform to the expected format", which a malformed or out-of-range amount does
+  // and an untouched or empty field does not.
   const hintKey =
     verdict === "below"
       ? "browse.price.draft.below"
@@ -387,7 +396,10 @@ export function MenuPriceEditor({
           ? "browse.price.draft.nan"
           : verdict === "unchanged"
             ? "browse.price.draft.unchanged"
-            : null;
+            : verdict === "empty"
+              ? "browse.price.draft.empty"
+              : null;
+  const invalid = verdict === "nan" || verdict === "below" || verdict === "above";
 
   return (
     <div>
@@ -638,7 +650,7 @@ export function MenuPriceEditor({
                       inputMode="decimal"
                       enterKeyHint="done"
                       autoComplete="off"
-                      aria-invalid={hintKey !== null || undefined}
+                      aria-invalid={invalid || undefined}
                       aria-describedby={hintKey ? `mp-hint-${i.id}` : undefined}
                       style={priceInput}
                     />
@@ -676,7 +688,8 @@ export function MenuPriceEditor({
                               ? dollars(PRICE_MIN_CENTS)
                               : hintKey === "browse.price.draft.above"
                                 ? dollars(PRICE_MAX_CENTS)
-                                : hintKey === "browse.price.draft.nan"
+                                : hintKey === "browse.price.draft.nan" ||
+                                    hintKey === "browse.price.draft.empty"
                                   ? "14.50"
                                   : dollars(i.priceCents),
                         }}
@@ -698,8 +711,15 @@ export function MenuPriceEditor({
         })}
       </ul>
       {shown.length === 0 && (
+        // Under the chip the needle searched only what is off the menu, and the sentence says so —
+        // "No dish matches" while the chip hides a dish that does is a false sentence (the blind pass).
         <p style={cat}>
-          <Chrome lang={lang} k="browse.price.noMatch" vars={{ x: q.trim() }} echo="stack" />
+          <Chrome
+            lang={lang}
+            k={filterSoldOut ? "browse.price.noMatchSoldOut" : "browse.price.noMatch"}
+            vars={{ x: q.trim() }}
+            echo="stack"
+          />
         </p>
       )}
     </div>

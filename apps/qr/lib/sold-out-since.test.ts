@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 
-process.env.TZ = "UTC"; // see staff-clock.test.ts — the fixture must not be the process zone
+const PREV_TZ = process.env.TZ;
+process.env.TZ = "UTC";
+afterAll(() => {
+  // vitest isolates each file in its own fork, but a sibling that reads the process zone is owed
+  // the zone it started with all the same.
+  if (PREV_TZ === undefined) delete process.env.TZ;
+  else process.env.TZ = PREV_TZ;
+}); // see staff-clock.test.ts — the fixture must not be the process zone
 const { soldOutSinceParts } = await import("./sold-out-since");
 const plain = (s: string) => s.replace(/\u202f/g, " ");
 
