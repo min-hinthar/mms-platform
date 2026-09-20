@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-18 · M225 · M226(c) MERGED as `e798475` (#288); the /cart refusal slice (M224 · M227 · half of M230) is built and gated on `claude/qr-app-backlog-cj2t0m`)
+> ## ⏭️ (2026-09-18 · M225 · M226(c) MERGED as `e798475` (#288); the /cart refusal slice (M224 · M227 · half of M230) shipped as `f82545a` (#289))
 >
 > **`Checkout.tsx` has a suite now. That is the durable half of this slice, and it took two closed
 > rows to earn it.** #288 closed M225 by putting the ordering rule in `lib/` — correct, and its own
@@ -39,7 +39,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 728 `verify:slice` mutants · 126 target modules (110 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 737 `verify:slice` mutants · 127 target modules (111 `apps/qr/lib`, 3 API routes,
 > **12** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -58,6 +58,88 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > **Still open from #288:** **M228** (`"overtaken"` conflates a view overtake with a field-only
 > barrier — a lib-level shape change that earns its own red-first slice, and is easier now the suite
 > exists).
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-19 · M186 MERGED as PR #290; the /grocery QoL slice's second half, M187, is NOT started and is the obvious pickup)
+>
+> **The reusable thing this slice bought is a rule about what a signal can and cannot answer.**
+> M186 said scan-and-go billed one item twice. The obvious fix — make the quiet window measure time
+> since the barcode was last SEEN instead of time since the last scan — is the one the blind
+> adversarial pass REJECTED, and it was right. `BarcodeScanner`'s decode loop reports every decoded
+> frame, so "one jar held still" and "two jars of the same balm" are **the same stream of identical
+> codes**. Every purely temporal rule therefore prices one of them wrong:
+>
+> | Rule                                        | Dwell                       | Second identical item      | ≥1.5s decode gap over a resting item |
+> | ------------------------------------------- | --------------------------- | -------------------------- | ------------------------------------ |
+> | Time since last ANNOUNCEMENT (what shipped) | **7 charges** / 10s @ 60fps | billed ✓                   | n/a                                  |
+> | Time since last SEEN (the rejected fix)     | 1 ✓                         | **never billed, silently** | **billed twice**                     |
+> | The basket's own answer (merged)            | 1 ✓                         | one tap, named ✓           | 1 ✓                                  |
+>
+> So the charge decision left the clock entirely. `classifyScan` (`apps/qr/lib/scan-gate.ts`) answers
+> from the BASKET — the cart's lines, the offline queue, and `billed`, this session's own record,
+> which exists because `scanAdd` answers `lines: null` when the post-write read fails and that is
+> exactly when the basket looks empty of something it is already paying for. A second copy is the
+> Scan tab's one-tap **Add another** chip (`via: "rescan"`), so the server's "a repeat barcode
+> deliberately counts" is reached deliberately. What is left of `sightBarcode` is a presentation
+> THROTTLE on `performance.now()` whose worst failure is a duplicate toast. Full reasoning:
+> `.claude/LEARNINGS.md` **#122**.
+>
+> **`pnpm check:scan-repeat` is fast-lane step FOURTEEN and exists for one reason.** The rule is a
+> `lib/` module with nine mutants; the four-line clause that CALLS it lives in `page.tsx`, a
+> component outside `check-money-coverage`'s `MONEY_PATHS` with no suite — so deleting it restored
+> the double-bill with every test and every mutant green. The guard parses, binds the `if` test to
+> the verdict's own binding, refuses the enumerated literally-dead shapes, and carries one exemption
+> (`drainNow`, the offline replay) whose reason must fire. Five falsifications watched red.
+>
+> ### ▶️ M187 is next, and the design is already scouted — read this before re-deriving it
+>
+> `/grocery`'s "Running total" and the checkout CTA's accessible name say "total $X" for a **pre-tax**
+> figure: `page.tsx` does `lines.reduce((a, l) => a + l.unitPriceCents * l.qty, 0)`, and the 42
+> `retail_nonfood` SKUs are taxable at 10.5%, so two balms display $89.70 and charge $99.12. Measured
+> while scouting, so you do not have to:
+>
+> - **`qr_cart_items.tax_cents` already exists and already holds the server-derived per-line tax
+>   snapshot** — `scanAdd` computes `lineTax(unitPriceCents, item.tax_category, false)` and passes it
+>   to `insertOrIncLine`. Nothing needs a new column or a client-side tax computation.
+> - **`readGroceryLines` selects neither `tax_cents` nor `comped`** (`.select("id,menu_item_id,name,qty,unit_price_cents,state")`),
+>   so no surface downstream can label the figure honestly — and `computeTotals` EXCLUDES comped
+>   lines while this read includes them, which is a second, independent divergence.
+> - **`getCartTotals` (`apps/qr/lib/totals.ts`) is the one authoritative engine** and already
+>   handles the grocery-excluded service base, so a grocery-only basket's `subtotal − discount + tax`
+>   is exactly what the shopper will be charged. Cost of carrying it: 3 reads + 2 RPCs per call.
+> - **The precedent is already in this repo**: `KioskScan.tsx` carries the item COUNT, never a
+>   client-summed dollar figure, because "an unlabeled sum that quietly grows at review reads as a
+>   hidden fee" (its own comment). CLAUDE.md is blunter: never compute or trust a total client-side.
+>
+> **Recommendation:** carry `getCartTotals`'s answer with the lines — one `readGroceryView(cartId)`
+> returning `{ lines, totals }`, consumed by BOTH `getGroceryLines` (hydrate/sync) and `scanAdd`
+> (which already does a `readGroceryLines` in the same round trip). Then the page renders server
+> cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
+> accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
+>
+> **Gate today:** 737 `verify:slice` mutants · 127 target modules (111 `apps/qr/lib`, 3 API routes,
+> **12** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
+>
+> ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
+> message, twice). So #290's only independent review was the in-session blind pass, and the override
+> is recorded on the PR — the same handling as #283. **`codex-review` reading green on a DRAFT means
+> nothing**: the draft stand-down is green while naming the SHA and asserting the opposite. Check the
+> quota before assuming the gate is live again.
+>
+> **Filed by this slice:** **M233** (the scanner reads `codes[0]` and the throttle has a one-slot
+> memory, so two decodable codes in one frame thrash it — no longer a money bug, a toast storm;
+> needs a device to settle `detect()`'s result ordering). **Still open:** **M187** (above),
+> **M228** (`"overtaken"` conflates a view overtake with a field-only barrier), **M229**
+> (`MONEY_PATHS` excludes `apps/qr/components/`; six component files carry a money marker with no
+> mutant — re-measure, the number is a property of the marker list), **M230**, **C18** (confirm the
+> webhook is alive on prod).
+>
+> ⚠️ **Two measurement failures shipped in this slice's first attempt, both of rules this repo already
+> carries.** "Six charges" crossed from prose into four documents and was wrong in all four (computed:
+> the mutant yields **512**, a faithful restoration **7**, the shipped code **1**) — and a python edit
+> to `docs/OPEN-ITEMS.md` used `parts[-2]` for the Status cell, landing `closed` in the **Source**
+> column and destroying that row's provenance while Status still read `open`, so the row stayed
+> counted as an open **high** money item. Index a markdown table by measuring the neighbours' cells,
+> and re-read the row you just wrote.
 
 > ## ⏭️ (2026-09-17 · M218 · M219 MERGED as `062b6be` (#286) with the migration live on prod; the coalescer slice (M193's other half · M217) is built and gated on `claude/qr-app-backlog-cj2t0m`)
 >
@@ -670,11 +752,11 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > ⚠️ The heading used to say "measured 2026-09-06" over a line `check:docs` keeps CURRENT. Both
 > cannot be true, and the guard wins: its rule for this line reads the bare total, so writing
-> "688 that day (728 today)" here reddens step one of the fast lane. The date qualifies the test
+> "688 that day (737 today)" here reddens step one of the fast lane. The date qualifies the test
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **728 `verify:slice` mutants** · **126 target modules** (110 under `apps/qr/lib`, 3 API routes,
+> **737 `verify:slice` mutants** · **127 target modules** (111 under `apps/qr/lib`, 3 API routes,
 > 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
 > 99 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
@@ -1144,7 +1226,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (728 today)**, **1372 qr + 138 ui tests at the time (2641 + 142 today)**, 69 target modules at the time (110 under `apps/qr/lib` today, 126 in all), 97 local
+> **334 mutants at the time (737 today)**, **1372 qr + 138 ui tests at the time (2658 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2036,7 +2118,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 728 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2641 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 737 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2658 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2758,7 +2840,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (728 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (737 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

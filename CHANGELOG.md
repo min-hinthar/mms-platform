@@ -4,6 +4,53 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### M186 — scan-and-go stops billing twice for one item, and stops guessing (2026-09-19)
+
+**A camera cannot tell a jar resting in frame from a second identical jar, so `/grocery` stopped
+trying and asked the basket instead.** The rAF decode loop calls the gate on every decoded frame, so
+one barcode held in front of the lens is a continuous stream of identical codes — and so are two of
+the same item. Every purely temporal rule therefore gets one direction wrong, which this row cost two
+attempts to learn:
+
+- The shipped inline guard refreshed its stamp only when it EMITTED, so the window measured time
+  since the last ANNOUNCEMENT and re-opened every 1500ms under a barcode that had never left. Each
+  re-fire mints a fresh `scanId`, which the server counts as a deliberate re-scan. Ten seconds of
+  natural dwell at 60fps is **seven** charges — computed against the restored line, not remembered.
+- The first fix inverted it to time since last SEEN. That makes a dwell one scan, and it makes the
+  SECOND of two identical jars **unscannable, silently, for as long as the first stays decodable** —
+  a refusal to charge is still a wrong number and this one is invisible until the receipt. It also
+  still double-bills whenever the decode stream itself gaps for 1500ms (autofocus hunting, a shadow,
+  the main thread stalling on the add round trip) over an item that never moved. The blind pre-PR
+  audit rejected it on exactly those two, plus a third: the gate died with the component, so a tab
+  round-trip re-billed the item in the shopper's hand.
+
+- **`classifyScan` decides what is charged, from the BASKET.** A barcode this basket already pays for
+  is never auto-billed again by the camera — the answer comes from the cart's own lines, the offline
+  queue, and what this session has successfully added (`billed`, the only record left when the
+  post-write read answers `lines: null`). A decode gap, a 1.5s stall and a Scan-tab remount all
+  change nothing, because none of them change what the basket holds.
+- **A second copy is one tap, never a guess.** The Scan tab now carries a chip naming the last
+  scanned item and its quantity, with **Add another** on it — present from the moment the first scan
+  lands, so a shopper holding a second jar sees the path before they present it. The tap travels the
+  same authorized `scanAdd` route (`via: "rescan"`), so the server's "a repeat barcode deliberately
+  counts" is unchanged; it is now reached deliberately. A refused repeat says so in the toast.
+- **What is left of the clock is a THROTTLE, not a money rule.** `sightBarcode` only keeps a 60fps
+  dwell from firing sixty toasts a second, reads `performance.now()` rather than a steppable wall
+  clock, and its worst failure is now a duplicate toast.
+- **Seventeen cases, nine mutants, each watched red** — including both directions of
+  `SCAN_QUIET_MS` (100 and 60_000 were previously green under every symbolic assertion) and the
+  under-bill direction, where a genuinely new barcode is classified as a repeat.
+- **`pnpm check:scan-repeat` is the fourteenth fast-lane step**, and it exists because of the audit's
+  blocking finding: the charge rule is a mutated `lib/` module, but the four-line guard clause that
+  CALLS it sits in a component outside `MONEY_PATHS` with no suite — deleting it restored the
+  double-bill with every test and every mutant still green. The guard parses `page.tsx`, binds the
+  `if` test to the verdict's own binding, refuses literally-dead branches, and carries one exemption
+  (the offline queue's replay) whose reason must fire. Five falsifications induced and watched red.
+- **⚠️ One fixture draft was wrong and the code was right, which is worth recording.** Stepping the
+  dwell at exactly `SCAN_QUIET_MS` failed — correctly: a loop that sights a barcode once every 1500ms
+  cannot tell that apart from the item leaving and being presented again. The bug is about a
+  CONTINUOUS stream, so the fixture samples at frame rate.
+
 ### M224 · M227 — a refused /cart edit now says why, and `Checkout.tsx` gets its first suite (2026-09-18)
 
 **M224 was filed by #287's blind pass against the screen it had just touched, and closing it needed
@@ -41,7 +88,7 @@ flips `locked`, so shipping the sentence without the arbitration would have ship
   is this component's first suite (25 cases) and `Checkout.tsx` joins the `verify:slice` mutate set
   with 20 mutants, each watched RED before the claim. ⚠️ The row's own plan rested on a MOUNT-TIME
   READ that does not exist — the component seeds every axis from props — so every server-driven flip
-  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 126 target modules.
+  in the suite rides the **visibility** backstop instead. Gate: 703 mutants, 127 target modules.
 - **⚠️ The first draft was REJECTED by both reviewers on the same defect, and that is the reusable
   part.** Codex round 1 and the blind adversarial pass independently found that the new refusal path
   dropped `refresh()` — and with it the `outcome === "failed"` arm that is the only thing which gets

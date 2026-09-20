@@ -93,6 +93,13 @@ jobs:
       # The usual cause is `pnpm format` reflowing the target after the anchor was written
       # (LEARNINGS #106), which is why this sits AFTER format:check rather than before it.
       - run: pnpm check:mutant-anchors
+      # M186 — the /grocery camera scan's repeat guard. The charge RULE is a pure module with nine
+      # mutants; its WIRING sits in a component, outside `check-money-coverage`'s MONEY_PATHS and
+      # with no suite, so deleting the four-line guard clause in `page.tsx` restores the double-bill
+      # with every test and every mutant still green. That is the exact shape the blind audit
+      # blocked M186's first attempt on. Parses (comments and `{false && …}` branches satisfy
+      # nothing) and binds the `if` test to the verdict's own binding.
+      - run: pnpm check:scan-repeat
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports
