@@ -4,6 +4,53 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### board-1 · board-2 · board-3 · board-4 · board-5 · board-6 · board-7 · board-8 · board-9 + K28(b) — the order-ready TV (2026-09-20)
+
+**Slice 5 of the staff-console polish: `/board`, the wall the room reads, from the audit's nine
+verified findings** (`docs/STAFF_POLISH_AUDIT.md` → /board; board-10 was refuted — P6f is closed).
+
+- **The rush cut (board-1).** A wall TV cannot scroll, and a column that outgrew the screen pushed
+  the runner's `Food up` band and the oldest bags off the bottom in silence. The root IS the screen
+  now (`height: 100dvh`, columns clip, the band `flex: none`), and each column shows a MEASURED
+  number of rows — `boardColumnFit(count, cap)` (`lib/board-fit.ts`, pure) with `cap` from the
+  list's box over its first row's height (`useColumnFit`, re-measured on content and resize; the
+  `<ul>` is always mounted so the ref is stable) — ending in a `+N more` row through the KDS's own
+  `kds.more` words. The cut falls on the end that matters least: Ready stays newest-first, and
+  Preparing now leads with the bag about to come up (the route's newest-first order reversed).
+- **A stale board reads as stale from three metres (board-2).** `data-stale` on the root: the cards
+  fall to the secondary ink and the ONE status line, already saying `Reconnecting…`, grows to the
+  empty-state scale — a state, not motion; still one live region.
+- **The band at the wall's scale (board-3 / K27).** The `Food up` chip, the stat labels, the rail's
+  heading, rows and `+N more` all step up to the columns' viewport clamps.
+- **The sound chip is a toggle that stays (board-4).** It used to unmount on the tap that armed it —
+  focus to `<body>`, no mute afterwards. Now `aria-pressed` under the shared lit cap, `Sound on` when
+  pressed, a second tap mutes (the engine stays armed; the poll reads a ref, because its
+  `useCallback` closes over the render that made it); a refused arm is said ONCE through the one
+  status node and the chip stays live to try again (`board.sound.on` · `board.sound.refused`, K15).
+- **The unlinked screen speaks the console's tongue (board-5).** `board.signin` through `<Chrome>`
+  with the Latin path in the `{x}` slot (marked `lang="en"` inside the Burmese run); the brand from
+  `BRAND_NAME` in all three headings and the page title; `board.unlinked` and `board.unavailable`,
+  dead, deleted.
+- **The always-on posture (board-6, the cheap half).** The column rules are `--bd` hairlines (the
+  gold stays on the READY heading's text) and the three static groups drift ±2px over ten minutes,
+  transform only, reduced-motion escorted with the flash.
+- **The shelf wait has a ceiling (board-7 / K28(b)).** `shelfWait(mins)` in `lib/kds-time.ts`:
+  `Just now` · `{mins} min` · `Over an hour` (`board.card.waitLong`, K15) — a bag nobody collected
+  read `1440 min` to the room. The card renders the key it is handed.
+- **Name + code are one identity (board-8)**: the code's auto margin, no three-way space-between.
+- **Two vocabulary slips (board-9).** `.orb-table-up` is the SEVENTH selector in the shared pressed
+  rule (it was a gold outline — §2's idle idiom — claiming to be the cap), ink `--oa` on the fill;
+  the flash animates OPACITY on a `::before` overlay, never the card's paint.
+- Suites: `board-fit.test.ts` (new), `kds-time.test.ts` (+4), `ReadyBoard.test.tsx` (+11: the
+  measured cut under stubbed boxes, Preparing's order, the toggle's four states, the tell, the
+  tongue, the ceiling, and the stylesheet parsed — the bounded root, the opacity flash, the drift's
+  escort, the cap's one fill, the identity group), `KdsBoard.test.tsx`'s one-fill guard at seven.
+  14 `MUTATION:` annotations added (measured from the diff), every one induced and watched red;
+  `verify:slice --only=board` and `--only=pulse` green (the three mutants anchored in
+  `ReadyBoard.tsx` kept their lines verbatim).
+- Docs: OPEN-ITEMS (K28 ✅ both halves · K27 note · P6f retired) · audit statuses · DESIGN-LANGUAGE
+  (seven selectors) · HANDOFF.
+
 ### manager-9 · manager-10 / M76 · K29(b) — the sheet primitive (2026-09-20)
 
 **Slice 4 of the staff-console polish: the shared `Sheet`, from the two findings the manager

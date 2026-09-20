@@ -757,7 +757,7 @@ built.
   irreversible write: `busy` while in flight, Send `aria-disabled` with the refusal in the handler,
   the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
   back on the field, success announced by moving focus to the sent card. The gate answers KEYS
-  (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.
+  (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language. The seventh is `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip, an `<li>` pressed by its class rather than an attribute — it had worn a gold OUTLINE, which is §2's idle idiom, while the band's own comment called it the cap.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 

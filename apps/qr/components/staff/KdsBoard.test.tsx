@@ -292,6 +292,8 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
     '.help-size-row[aria-pressed="true"]',
     '.staff-arm[aria-expanded="true"]',
     '.staff-chip[aria-pressed="true"]',
+    // board-9 — the wall's `Food up` chip wears the cap too (an <li>, pressed by its class).
+    ".orb-table-up",
   ];
   // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
   // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
@@ -314,7 +316,7 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
       expect(f, `${PRESSED[i]} declares its fill exactly once`).toHaveLength(1);
     const bodies = new Set(fills.map((f) => f[0]![2]!.trim()));
     // MUTATION: give the switch back its own `background: var(--ac)` block — two blocks, red.
-    expect(bodies.size, "all six pressed selectors resolve to one declaration").toBe(1);
+    expect(bodies.size, "all seven pressed selectors resolve to one declaration").toBe(1);
     expect([...bodies][0]).toMatch(/background:\s*var\(--ac\)/);
     expect([...bodies][0]).toMatch(/--glow-gold/);
   });

@@ -7509,7 +7509,8 @@ a .chrome-en {
 .staff-lang-btn[aria-pressed="true"],
 .help-size-row[aria-pressed="true"],
 .staff-arm[aria-expanded="true"],
-.staff-chip[aria-pressed="true"] {
+.staff-chip[aria-pressed="true"],
+.orb-table-up {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -8099,7 +8100,12 @@ a .chrome-en {
      A TV wants its own scale anyway: the chip's tier is sized in viewport units like every other
      word on this screen, not borrowed from a tablet's 15px. */
   --kfs-meta: clamp(15px, 1.2vw, 22px);
-  min-height: 100dvh;
+  /* board-1 — the root IS the screen (height, not min-height): a wall TV cannot scroll, so a column
+     that outgrew a growing root pushed the runner's `Food up` band and the oldest bags off the
+     bottom in silence. Each column clips and the component cuts to a MEASURED row count, ending in
+     a `+N more` row (`lib/board-fit.ts`); the band is `flex: none`, so it cannot be squeezed. */
+  height: 100dvh;
+  overflow: hidden;
   background: var(--pg);
   color: var(--tx);
   display: flex;
@@ -8133,12 +8139,21 @@ a .chrome-en {
   gap: clamp(16px, 2.5vw, 44px);
   min-height: 0;
 }
+.orb-col {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 .orb-col h2 {
+  flex: none;
   margin: 0 0 clamp(8px, 1vw, 16px);
   font-size: clamp(22px, 2.4vw, 36px);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-bottom: 2px solid var(--bd);
+  /* board-6 — a hairline, not a 2px full-brightness rule: this screen is lit 12h a day and the
+     gold stays on the READY heading's TEXT alone (the burn-in-aware half of the always-on posture). */
+  border-bottom: 1px solid var(--bd);
   padding-bottom: 10px;
 }
 .orb-col h2 small {
@@ -8157,20 +8172,33 @@ a .chrome-en {
    asserted in contrast-audit.test.ts. An earlier pass in this PR "fixed" it to --gold-strong on the
    strength of a 1.97:1 measurement taken against the LIGHT ground this heading never renders on;
    the edit was a byte-identical no-op (--gold-strong aliases --gold in .dark) and the defect did not
-   exist. Left as a warning: a ratio is meaningless until you know which theme the surface renders in. */
+   exist. Left as a warning: a ratio is meaningless until you know which theme the surface renders in.
+   board-6 dropped the matching gold RULE under it (a hairline now, see `.orb-col h2`); the text keeps
+   the gold. */
 .orb-col-ready h2 {
   color: var(--gold);
-  border-bottom-color: var(--gold);
 }
 .orb-col ul {
   list-style: none;
   margin: 0;
   padding: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* board-1 — the `+N more` row: the room is told what the cut hid, at the empty-state scale. */
+.orb-more {
+  flex: none;
+  margin: clamp(8px, 1vw, 16px) 0 0;
+  color: var(--t2);
+  font-size: clamp(18px, 1.8vw, 30px);
+  font-weight: 700;
 }
 .orb-card {
+  position: relative; /* board-9 — the flash is a `::before` overlay */
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
+  /* board-8 — name + code are ONE identity at the leading edge (`.orb-code`'s auto margin), the
+     wait alone at the trailing edge; a three-way space-between drifted the code to mid-row. */
   gap: 20px;
   padding: clamp(10px, 1.2vw, 20px) 6px;
   border-bottom: 1px solid var(--bd);
@@ -8181,6 +8209,7 @@ a .chrome-en {
 }
 .orb-code {
   flex: none;
+  margin-right: auto;
   color: var(--t2);
   font-size: 0.58em;
   font-weight: 700;
@@ -8195,15 +8224,22 @@ a .chrome-en {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.orb-card-flash {
-  animation: orbFlash 2s var(--ease-out);
+/* board-9 — the flash animates OPACITY on an overlay (§3: transform/opacity only), never the card's
+   own paint. `forwards` holds it at 0 for the class's life; reduced motion hides the overlay. */
+.orb-card-flash::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--gold) 32%, transparent);
+  animation: orbFlash 2s var(--ease-out) forwards;
 }
 @keyframes orbFlash {
-  0% {
-    background: color-mix(in srgb, var(--gold) 32%, transparent);
+  from {
+    opacity: 1;
   }
-  100% {
-    background: transparent;
+  to {
+    opacity: 0;
   }
 }
 .orb-empty {
@@ -8212,8 +8248,47 @@ a .chrome-en {
   font-size: clamp(18px, 1.8vw, 30px);
   font-weight: 600;
 }
+/* board-2 — a stale board must read as stale from three metres: the cards fall to the secondary
+   ink (a state, not motion — nothing here for reduced motion) and the ONE status line, which already
+   says `Reconnecting…`, is promoted to the empty-state scale in the primary ink. `--t2` and `--tx` on
+   `--pg` are the root's own asserted pairs. */
+.orb-root[data-stale] .orb-card {
+  color: var(--t2);
+}
+.orb-root[data-stale] .orb-status {
+  font-size: clamp(18px, 1.8vw, 30px);
+  color: var(--tx);
+  font-weight: 800;
+}
+/* board-6 — the anti-burn drift: ±2px over ten minutes on the three static groups, transform only,
+   far below anything a guest can see. Reduced motion turns it off with the flash. */
+.orb-head,
+.orb-cols,
+.orb-pulse {
+  animation: orbDrift 600s linear infinite;
+}
+@keyframes orbDrift {
+  0%,
+  100% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(2px, -2px);
+  }
+  50% {
+    transform: translate(-2px, 2px);
+  }
+  75% {
+    transform: translate(2px, 2px);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
-  .orb-card-flash {
+  .orb-card-flash::before {
+    display: none;
+  }
+  .orb-head,
+  .orb-cols,
+  .orb-pulse {
     animation: none;
   }
 }
@@ -8233,15 +8308,25 @@ a .chrome-en {
 
    GOLD IS THE SELECTION VOCABULARY AND IT IS NOT SPENT ELSEWHERE. `.orb-table-up` is the only new
    gold in this block; the rail's quantity stays `--tx` precisely so the one lit thing on the band is
-   the one a runner has to act on. Extending the lit-gold cap, never inventing a parallel one
+   the one a runner has to act on. board-9 made it the cap itself: `.orb-table-up` is the SEVENTH
+   selector in the shared pressed rule (accent fill, `--oa` ink, the sheen, the gold halo — the pair
+   `contrast-audit.test.ts` asserts for every pressed KDS chip), where it had been a gold OUTLINE,
+   which is §2's IDLE idiom. Extending the lit-gold cap, never inventing a parallel one
    (DESIGN-LANGUAGE §"ONE selection vocabulary").
+
+   board-3 / K27 — sized for the wall: the band is the only "act now" text a runner reads, and it sat
+   at phone size beside 54px cards. Every clamp below is on the columns' viewport scale now.
+
+   It ANIMATES nothing a person can see: the ±2px anti-burn drift it shares with the columns
+   (board-6, `orbDrift`) is the one exception and is reduced-motion escorted with the flash.
 
    The uppercase + tracked labels below are the KDS's chrome idiom, and Burmese needs neither: the
    `.orb-root [lang="my"]` rule at the bottom of this file is (0,2,0) and beats `.orb-stat span`
    (0,1,1) and `.orb-table-state` (0,1,0), restoring Padauk, normal tracking and no case transform on
    every marked run. That is why these rules may state them at all. */
 .orb-pulse {
-  border-top: 2px solid var(--bd);
+  flex: none; /* board-1 — never squeezed off the screen by a growing column */
+  border-top: 1px solid var(--bd);
   padding-top: clamp(10px, 1.2vw, 20px);
   display: grid;
   gap: clamp(8px, 1vw, 16px);
@@ -8294,7 +8379,7 @@ a .chrome-en {
   line-height: 1;
 }
 .orb-stat span {
-  font-size: clamp(11px, 0.85vw, 14px);
+  font-size: clamp(14px, 1.2vw, 20px);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -8315,25 +8400,24 @@ a .chrome-en {
   padding: clamp(5px, 0.6vw, 10px) clamp(10px, 1vw, 18px);
   border: 1px solid var(--bd);
   border-radius: var(--r-full);
-  font-size: clamp(15px, 1.4vw, 24px);
+  font-size: clamp(22px, 2.1vw, 36px);
   line-height: var(--lh-tight);
 }
 .orb-table-no {
   font-weight: 800;
 }
 .orb-table-state {
-  font-size: 0.68em;
+  font-size: 0.8em;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--t2);
 }
-.orb-table-up {
-  border-color: var(--gold);
-}
+/* board-9 — the up-chip wears the cap (the fill lives in the shared pressed rule); the ink follows
+   the FILL (§2), so both runs are `--oa`, never `--t2` or gold on gold. */
 .orb-table-up .orb-table-no,
 .orb-table-up .orb-table-state {
-  color: var(--gold);
+  color: var(--oa);
 }
 .orb-rail {
   flex: 1 1 clamp(220px, 26vw, 460px);
@@ -8345,7 +8429,7 @@ a .chrome-en {
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
-  font-size: clamp(11px, 0.85vw, 14px);
+  font-size: clamp(14px, 1.2vw, 20px);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -8369,7 +8453,7 @@ a .chrome-en {
   align-items: baseline;
   justify-content: space-between;
   gap: 14px;
-  font-size: clamp(15px, 1.4vw, 24px);
+  font-size: clamp(18px, 1.7vw, 30px);
   line-height: var(--lh-tight);
 }
 .orb-rail-name {
@@ -8390,7 +8474,7 @@ a .chrome-en {
 }
 .orb-rail-more {
   margin: 4px 0 0;
-  font-size: clamp(11px, 0.9vw, 15px);
+  font-size: clamp(14px, 1.2vw, 20px);
   font-weight: 700;
   color: var(--t2);
 }

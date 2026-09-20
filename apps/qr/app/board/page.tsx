@@ -1,8 +1,9 @@
 import { ReadyBoard } from "@/components/ReadyBoard";
 import { readBoardLang } from "@/lib/staff-lang-server";
+import { BRAND_NAME } from "@/lib/brand";
 
 export const metadata = {
-  title: "Order ready board — Mandalay Morning Star",
+  title: `Order ready board — ${BRAND_NAME}`,
   robots: { index: false, follow: false }, // a device URL, never a search destination
 };
 export const dynamic = "force-dynamic";

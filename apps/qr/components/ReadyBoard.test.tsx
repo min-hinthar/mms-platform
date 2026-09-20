@@ -2,9 +2,29 @@
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/kds-sound", () => ({ KdsChime: class {} }));
+/** The chime as the board sees it: whether the TV's browser lets it arm, and what it played. */
+const chime = vi.hoisted(() => ({ armOk: true, play: vi.fn(), armCalls: 0 }));
+vi.mock("@/lib/kds-sound", () => ({
+  KdsChime: class {
+    async arm() {
+      chime.armCalls += 1;
+      return chime.armOk;
+    }
+    get armed() {
+      return chime.armOk;
+    }
+    play(...a: unknown[]) {
+      chime.play(...a);
+    }
+  },
+}));
 
 const { ReadyBoard } = await import("./ReadyBoard");
+const { BRAND_NAME } = await import("@/lib/brand");
+const { tf } = await import("@/lib/i18n/fill");
+const { STAFF } = await import("@/lib/i18n/staff");
+const { readFileSync } = await import("node:fs");
+const { join } = await import("node:path");
 const { PULSE_RAIL_MIN_PARTIES } = await import("@/lib/board-pulse");
 const { BOARD_FAIL_THRESHOLD } = await import("@/lib/board-poll");
 type BoardPulse = import("@/lib/board-pulse").BoardPulse;
@@ -424,5 +444,330 @@ describe("P6 — the kitchen pulse band", () => {
       expect(container.textContent).toContain("A1B2C3");
       expect(container.querySelector(".orb-wait")).toBeNull();
     });
+  });
+});
+
+/** A poll sequence: each call to `fetch` answers the next body in the list (the last one repeats). */
+function pollSequence(bodies: object[]) {
+  let i = 0;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => {
+      const body = bodies[Math.min(i, bodies.length - 1)]!;
+      i += 1;
+      return {
+        status: 200,
+        ok: true,
+        json: async () => ({ serverNow: SERVER_NOW, pulse: pulse(), ...body }),
+      };
+    }),
+  );
+}
+const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+const order = (code: string, status: "preparing" | "ready", readyMinutes?: number) => ({
+  code,
+  name: `Guest ${code}`,
+  status,
+  readyAt: status === "ready" ? SERVER_NOW : null,
+  ...(readyMinutes === undefined ? {} : { readyMinutes }),
+});
+
+describe("board-1 — the rush cut: a column shows what fits and says what it hid", () => {
+  /** A 600px list whose rows are 100px: six slots. jsdom measures nothing, so the boxes are ours. */
+  function stubBoxes() {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
+    vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: Element,
+    ) {
+      const height = this.tagName === "UL" ? 600 : this.tagName === "LI" ? 100 : 0;
+      return {
+        height,
+        width: 0,
+        top: 0,
+        left: 0,
+        bottom: 0,
+        right: 0,
+        x: 0,
+        y: 0,
+        toJSON() {},
+      } as DOMRect;
+    });
+  }
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("nine ready bags on six slots: five cards and a `+4 more` row, inside the list", async () => {
+    stubBoxes();
+    const codes = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "A9"];
+    await renderBoard("en", undefined, { orders: codes.map((c) => order(c, "ready")) });
+    const readyCol = () => screen.getByRole("region", { name: "Ready" });
+    await waitFor(() => expect(readyCol().querySelectorAll(".orb-card")).toHaveLength(5));
+    // MUTATION: `shown = cap` in boardColumnFit — six cards and the row pushed past the box, red.
+    const more = readyCol().querySelector("ul > li.orb-more");
+    expect(more?.textContent).toBe(tf("en", "kds.more", { n: 4 }));
+    // The row is the list's LAST item, so the box the fit measured is the box it fills.
+    expect(readyCol().querySelector("ul")!.lastElementChild).toBe(more);
+  });
+
+  it("an unmeasured column (no boxes) shows everything and no row", async () => {
+    await renderBoard("en", undefined, {
+      orders: ["B1", "B2", "B3"].map((c) => order(c, "ready")),
+    });
+    await waitFor(() => expect(document.querySelectorAll(".orb-card")).toHaveLength(3));
+    expect(document.querySelector(".orb-more")).toBeNull();
+  });
+
+  it("Preparing leads with the bag about to come up — the route's newest-first order reversed", async () => {
+    await renderBoard("en", undefined, {
+      orders: [order("NEW", "preparing"), order("MID", "preparing"), order("OLD", "preparing")],
+    });
+    const prep = () => screen.getByRole("region", { name: "Preparing" });
+    await waitFor(() => expect(prep().querySelectorAll(".orb-card")).toHaveLength(3));
+    // MUTATION: drop `.reverse()` — the just-placed bag leads and the cut would hide the next one up; red.
+    expect([...prep().querySelectorAll(".orb-card")].map((c) => c.textContent)).toEqual([
+      "Guest OLD#OLD",
+      "Guest MID#MID",
+      "Guest NEW#NEW",
+    ]);
+  });
+});
+
+describe("board-4 — the sound chip is a toggle that stays", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    chime.armOk = true;
+    chime.play.mockReset();
+    chime.armCalls = 0;
+  });
+
+  it("arms on the first tap and STAYS, pressed and named `Sound on`; a second tap mutes and the next call-out is silent", async () => {
+    vi.useFakeTimers();
+    pollSequence([
+      { orders: [order("C1", "preparing"), order("C2", "preparing")] },
+      { orders: [order("C1", "ready"), order("C2", "preparing")] },
+      { orders: [order("C1", "ready"), order("C2", "ready")] },
+    ]);
+    render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    const chip = () => screen.getByRole("button", { name: /Enable sound|Sound on/ });
+    expect(chip().getAttribute("aria-pressed")).toBe("false");
+    chip().focus(); // a remote's OK lands on a focused control; a tap alone would not focus it
+    await act(async () => {
+      chip().click();
+    });
+    // MUTATION: `{!soundOn && (<button …` again — the control is gone the moment it works and the
+    // focus with it; red (the last assertion of this case).
+    expect(chip().getAttribute("aria-pressed")).toBe("true");
+    expect(chip().textContent).toBe(STAFF["board.sound.on"].en);
+    expect(chime.play).toHaveBeenCalledTimes(1); // the arming confirmation tone
+    await tick(5_000); // C1 comes up
+    expect(chime.play).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      chip().click(); // mute
+    });
+    expect(chip().getAttribute("aria-pressed")).toBe("false");
+    expect(chip().textContent).toBe(STAFF["board.sound"].en);
+    await tick(5_000); // C2 comes up
+    // MUTATION: drop `&& soundOnRef.current` from the poll — a muted wall chimes; red.
+    expect(chime.play).toHaveBeenCalledTimes(2);
+    expect(document.activeElement).toBe(chip()); // focus never left the element
+  });
+
+  it("a refused arm says so ONCE through the one status node, then the node goes back to the poll — and the chip stays live to try again", async () => {
+    vi.useFakeTimers();
+    chime.armOk = false;
+    pollSequence([{ orders: [] }]);
+    render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    const status = () => screen.getByRole("status");
+    const before = status().textContent;
+    await act(async () => {
+      screen.getByRole("button", { name: "Enable sound" }).click();
+    });
+    // MUTATION: swallow the `false` again — nothing says why nothing happened; red.
+    expect(status().textContent).toBe(STAFF["board.sound.refused"].en);
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    const chip = screen.getByRole("button", { name: "Enable sound" });
+    expect(chip.getAttribute("aria-disabled")).toBeNull();
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    await tick(6_000);
+    // MUTATION: drop the timer — the refusal sits on the status line for the rest of the shift; red.
+    expect(status().textContent).toBe(before);
+    chime.armOk = true;
+    await act(async () => {
+      chip.click();
+    });
+    expect(chime.armCalls).toBe(2);
+    expect(chip.getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
+describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a stale board carries `data-stale` on its root (the three-metre tell) and nothing else changes in the DOM", async () => {
+    vi.useFakeTimers();
+    let answering = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        if (!answering) throw new Error("network");
+        return {
+          status: 200,
+          ok: true,
+          json: async () => ({
+            orders: [order("D1", "ready", 3)],
+            serverNow: SERVER_NOW,
+            pulse: pulse(),
+          }),
+        };
+      }),
+    );
+    const { container } = render(<ReadyBoard token="t" lang="en" />);
+    await tick(1);
+    expect(container.querySelector(".orb-root[data-stale]")).toBeNull();
+    answering = false;
+    for (let i = 0; i < BOARD_FAIL_THRESHOLD; i++) await tick(5_000);
+    // MUTATION: drop `data-stale={stale || undefined}` — a stale wall looks live at three metres; red.
+    expect(container.querySelector(".orb-root[data-stale]")).not.toBeNull();
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+  });
+
+  it("the unlinked screen speaks the console's tongue: no bare Latin outside the path, and the brand from the singleton", async () => {
+    await renderBoard("my", { status: 401, body: { reason: "denied", error: "no" } });
+    // Not the `.orb-empty` count: the LOADING tree has two of those as well (the columns' empties).
+    await screen.findByText("/staff/login?next=/board");
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(BRAND_NAME);
+    // Every Latin run under the two refusal lines sits inside a `lang="en"` element (the path).
+    // MUTATION: the bare English sentence again — a Latin text node with no `lang="en"` ancestor; red.
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const bare: string[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const el = n.parentElement!;
+      if (!el.closest(".orb-empty")) continue;
+      if (
+        /[A-Za-z]/.test(n.textContent ?? "") &&
+        el.closest("[lang]")?.getAttribute("lang") !== "en"
+      )
+        bare.push(n.textContent!);
+    }
+    expect(bare).toEqual([]);
+    expect(document.querySelector('.orb-empty [lang="en"]')?.textContent).toBe(
+      "/staff/login?next=/board",
+    );
+  });
+
+  it("the shelf wait has a ceiling on the wall: `Over an hour`, never `1440 min`", async () => {
+    await renderBoard("en", undefined, {
+      orders: [order("E1", "ready", 1440), order("E2", "ready", 5), order("E3", "ready", 0)],
+    });
+    await waitFor(() => expect(document.querySelectorAll(".orb-wait")).toHaveLength(3));
+    const waits = [...document.querySelectorAll(".orb-wait")].map((w) => w.textContent);
+    // MUTATION: render `tf(lang, "board.card.wait", { mins: wait })` again — `1440 min`; red.
+    expect(waits).toEqual([
+      STAFF["board.card.waitLong"].en,
+      "5 min",
+      STAFF["board.card.justNow"].en,
+    ]);
+  });
+});
+
+describe("board-1 · 6 · 9 — the stylesheet, parsed (comments stripped, at-rule bodies attributed)", () => {
+  const css = readFileSync(join(__dirname, "../app/globals.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  type Block = { prelude: string; body: string };
+  function blocksOf(src: string): Block[] {
+    const out: Block[] = [];
+    let depth = 0;
+    let prelude = "";
+    let body = "";
+    for (const ch of src) {
+      if (ch === "{") {
+        depth += 1;
+        if (depth === 1) continue;
+      } else if (ch === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          out.push({ prelude: prelude.trim(), body });
+          prelude = "";
+          body = "";
+          continue;
+        }
+      }
+      if (depth === 0) prelude += ch;
+      else body += ch;
+    }
+    return out;
+  }
+  const top = blocksOf(css);
+  const selectors = (b: Block) => b.prelude.split(",").map((s) => s.trim());
+  const decl = (b: Block, prop: string) =>
+    b.body
+      .split(";")
+      .map((d) => d.trim())
+      .filter((d) => d.startsWith(`${prop}:`))
+      .map((d) => d.slice(prop.length + 1).trim());
+  const rule = (sel: string) => top.filter((b) => selectors(b).includes(sel));
+
+  it("the root IS the screen and the band cannot be squeezed off it", () => {
+    // MUTATION: `min-height: 100dvh` again — the root grows past the TV and the band leaves; red.
+    expect(rule(".orb-root").flatMap((b) => decl(b, "height"))).toEqual(["100dvh"]);
+    expect(rule(".orb-pulse").flatMap((b) => decl(b, "flex"))).toEqual(["none"]);
+  });
+
+  it("the flash animates opacity on an overlay, never the card's paint, and reduced motion hides it", () => {
+    const kf = top.find((b) => b.prelude === "@keyframes orbFlash")!;
+    expect(kf).toBeTruthy();
+    // MUTATION: animate `background` in the keyframes again — red.
+    expect(kf.body).toMatch(/opacity/);
+    expect(kf.body).not.toMatch(/background/);
+    expect(rule(".orb-card-flash::before").flatMap((b) => decl(b, "animation"))[0]).toMatch(
+      /^orbFlash/,
+    );
+    const rm = top
+      .filter((b) => b.prelude === "@media (prefers-reduced-motion: reduce)")
+      .flatMap((m) => blocksOf(m.body));
+    expect(
+      rm.some(
+        (b) =>
+          selectors(b).includes(".orb-card-flash::before") && decl(b, "display").includes("none"),
+      ),
+    ).toBe(true);
+    // board-6 — the anti-burn drift is escorted the same way.
+    for (const sel of [".orb-head", ".orb-cols", ".orb-pulse"]) {
+      expect(rule(sel).flatMap((b) => decl(b, "animation"))[0], sel).toMatch(/^orbDrift/);
+      expect(
+        rm.some((b) => selectors(b).includes(sel) && decl(b, "animation").includes("none")),
+        sel,
+      ).toBe(true);
+    }
+  });
+
+  it("the `Food up` chip wears the shared cap (one fill block names it) and its ink follows the fill", () => {
+    const fills = rule(".orb-table-up").filter((b) => decl(b, "background").length);
+    expect(fills).toHaveLength(1);
+    expect(fills[0]!.prelude).toContain('.kds-chip[aria-pressed="true"]');
+    // MUTATION: `color: var(--gold)` on the runs again — gold on gold; red.
+    expect(rule(".orb-table-up .orb-table-no").flatMap((b) => decl(b, "color"))).toEqual([
+      "var(--oa)",
+    ]);
+  });
+
+  it("name + code are one identity: the code's auto margin, no three-way space-between", () => {
+    expect(rule(".orb-code").flatMap((b) => decl(b, "margin-right"))).toEqual(["auto"]);
+    expect(rule(".orb-card").flatMap((b) => decl(b, "justify-content"))).toEqual([]);
   });
 });
