@@ -1268,10 +1268,16 @@ export const STAFF = {
   // The sold-out flag on a row. Leading " · " sits INSIDE the value, the way `kds.held` carries its
   // own separator; {t} is a clock time and stays Latin in both tongues.
   "browse.price.soldOut": { en: " · sold out", my: " · ဖြုတ်ထားပြီ" },
+  // menu-4 — {t} is the clock alone on the same service day and `Sep 15, 6:40 PM` on any other
+  // (`lib/sold-out-since.ts` decides; the row tints the older one). ONE key on purpose: the
+  // sentence is the same, only the stamp grows a day.
   "browse.price.soldOutSince": {
     en: " · sold out since {t}",
     my: " · {t} ကတည်းက ဖြုတ်ထားပြီ",
   },
+  // The sold-out chip beside the search (the audit's "find the flags that outlived their shift"
+  // affordance). {n} is a prose count → Burmese numerals.
+  "browse.price.soldOutOnly": { en: "Sold out ({n})", my: "ဖြုတ်ထားတာ ({n})" },
 
   // ── VERBS — the visible word on a control, and the word its name leads with ─
   // `86` is kitchen jargon on a 44px pill and stays the English console's word verbatim; the Burmese
@@ -1300,6 +1306,15 @@ export const STAFF = {
   "browse.price.keep": { en: "Keep {m}", my: "{m} အတိုင်း ထား" }, // K15-HIGH — the way out
   "browse.price.set": { en: "Set {m}", my: "{m} သတ်မှတ်" }, // K15-HIGH — the tap that charges it
   "browse.price.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" },
+  // menu-5 — WHY Save is refused, said beside the field (`lib/menu-price-draft.ts` decides). {m}
+  // is a preformatted amount or the example shape `14.50`, Latin in both tongues.
+  "browse.price.draft.below": { en: "Lowest price is {m}", my: "အနိမ့်ဆုံး ဈေးက {m} ပါ" },
+  "browse.price.draft.above": { en: "Highest price is {m}", my: "အမြင့်ဆုံး ဈေးက {m} ပါ" },
+  "browse.price.draft.nan": { en: "Numbers only, like {m}", my: "ဂဏန်းသာ ရိုက်ပါ၊ {m} လိုမျိုး" },
+  "browse.price.draft.unchanged": {
+    en: "That’s the current price",
+    my: "အခု ဈေးအတိုင်းပဲ ဖြစ်နေပါတယ်",
+  },
 
   // ── the view's ONE live region ─────────────────────────────────────────────
   "browse.price.live.off": {
@@ -1913,6 +1928,9 @@ export const STAFF = {
     my: "တွန့်ကွင်းထဲက အရာတွေကို ရှိတဲ့အတိုင်း ထားပါ — {n}၊ {t}၊ {x} နေရာတွေမှာ အက်ပ်က ဂဏန်း၊ အချိန်၊ နာမည် ထည့်ပါတယ်။ ဘေးက စကားလုံးတွေကိုပဲ ပြင်ပါ၊ တွန့်ကွင်းကို မပြင်ပါနဲ့။",
   },
   "pilot.gloss.print": { en: "Print", my: "ပုံနှိပ်" },
+  // gloss-1 — the sheet is a sub-page of the Menu screen (its print circle opens it), so its bar
+  // leads with the way back up, the console's own arrow pill (`floor.back`'s shape).
+  "pilot.gloss.back": { en: "← Menu", my: "← မီနူး" },
   // ⚠️ Neither heading may be `မြန်မာ` or `English` on its own — those two strings are the language
   // control’s own labels, and `autonyms.test.ts` refuses them as dictionary VALUES so a corrector
   // can never meet one on the printed sheet with a box beside it.

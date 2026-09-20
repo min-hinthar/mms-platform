@@ -4,6 +4,7 @@ import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
+import { staffClock, staffDate } from "@/lib/staff-clock";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
 import {
@@ -275,7 +276,8 @@ export function HelpButton(props: HelpProps) {
         : view === "report"
           ? "report.row"
           : "help.title";
-  const clock = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  // tips-1's sweep — the restaurant's clock on the report, never the device's.
+  const clock = staffClock(new Date().toISOString());
 
   return (
     <>
@@ -615,7 +617,7 @@ export function HelpButton(props: HelpProps) {
                   <li key={r.id} className="help-report-item">
                     <div className="help-report-item-head">
                       <span lang="en">{r.shortId}</span>
-                      <span lang="en">{new Date(r.createdAt).toLocaleDateString()}</span>
+                      <span lang="en">{staffDate(r.createdAt)}</span>
                     </div>
                     <p className="help-report-item-msg">{r.message}</p>
                     <div className="help-report-chips">

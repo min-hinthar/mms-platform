@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — on draft PR #294 (`claude/qr-app-backlog-cj2t0m`), its Codex round and merge the next step; slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — on draft PR #296 (`claude/qr-app-backlog-cj2t0m`), its blind pass REJECT closed, merging on the standing go; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — on draft PR #294 (`claude/qr-app-backlog-cj2t0m`), its Codex round and merge the next step; slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — MERGED as `3695957` (#296); slice 6 — Menu · Tips · Glossary (menu-1..6 · gloss-1..2 · tips-1..2) — built and gated on `claude/qr-app-backlog-cj2t0m`, its blind pass and PR the next step; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
@@ -66,15 +66,20 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    a landed settle unmounts it and the trigger reads busy; LEARNINGS #130 on the focus-restore
 >    timer). The blind pass (REJECT: a table's settle parked the cashier in a busy modal) is closed
 >    on the PR. One device check is owed and filed with M76: the drag-release exit's first frames.
-> 2. **`/board` — ✅ ON PR #296 (slice 5):** the rush cut (`boardColumnFit` + a measured cap on a
+> 2. **`/board` — ✅ MERGED (#296, slice 5):** the rush cut (`boardColumnFit` + a measured cap on a
 >    `flex: 1` list of one-line rows, `+N more`), the stale tell, the band at TV scale, the sound
 >    TOGGLE with a said refusal and a one-arm guard, the dictionary sign-in + `BRAND_NAME`, the
 >    hairline (the drift withdrawn → K36), the shelf-wait ceiling (`shelfWait`), the identity group,
 >    the cap on `.orb-table-up` + the opacity flash behind the text. board-10 retired (P6f closed).
-> 3. **Menu · Tips · Glossary**, then **Sign-in + chrome** (K35's 40 native `disabled` sites in 18
->    components — measure native-only, the row's old count read `aria-disabled=` as native), then
->    the cross-cutting CSS/motion list once someone has verified it (M76's sheet exit animation is
->    the known real one).
+> 3. **Menu · Tips · Glossary — ✅ BUILT (slice 6):** §17 on the price editor (the last four native
+>    sites on the screen), the sr-only region + the row echo, confirmed values before the refresh,
+>    the two-day 86 stamp, the draft's stated reasons + Return, the sold-out chip, per-screen
+>    skeletons, the glossary in the one shell with a print circle, the restaurant's clock named
+>    once (`lib/staff-clock.ts`), the follow-up row's order. K13's write half stays read-only (P5).
+> 4. **Sign-in + chrome** (K35's 17 remaining native `disabled` sites in 10 components — measure
+>    native-only, the row's old count read `aria-disabled=` as native; signin-1..5 · help-1 ·
+>    chrome-1 in the audit), then the cross-cutting CSS/motion list once someone has verified it
+>    (M76's sheet exit animation is the known real one).
 >
 > **Mechanics that bit these slices:** a `verify:slice` mutation loop that asserts before its final
 > restore leaves a MUTANT on disk — keep a scratchpad backup and `cmp` after every loop, and NEVER
@@ -130,7 +135,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 741 `verify:slice` mutants · 127 target modules (111 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 747 `verify:slice` mutants · 131 target modules (115 `apps/qr/lib`, 3 API routes,
 > **12** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -207,7 +212,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 741 `verify:slice` mutants · 127 target modules (111 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 747 `verify:slice` mutants · 131 target modules (115 `apps/qr/lib`, 3 API routes,
 > **12** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
@@ -847,8 +852,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **741 `verify:slice` mutants** · **127 target modules** (111 under `apps/qr/lib`, 3 API routes,
-> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (2793 + 146 today)** ·
+> **747 `verify:slice` mutants** · **131 target modules** (115 under `apps/qr/lib`, 3 API routes,
+> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (2820 + 146 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1317,7 +1322,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2793 + 146 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (747 today)**, **1372 qr + 138 ui tests at the time (2820 + 146 today)**, 69 target modules at the time (115 under `apps/qr/lib` today, 131 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2209,7 +2214,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2793 qr tests + 146 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 747 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2820 qr tests + 146 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -2931,7 +2936,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (741 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (747 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

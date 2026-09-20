@@ -4,6 +4,7 @@ import { Chrome } from "./Chrome";
 import { getPilotNight } from "@/lib/pilot";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { STAFF, STAFF_CHANNEL_KEY } from "@/lib/i18n/staff";
+import { staffDate } from "@/lib/staff-clock";
 import { promoFigure } from "@/lib/pilot-night";
 import type { StaffLang } from "@/lib/staff-lang";
 
@@ -57,7 +58,7 @@ export async function PilotNightSheet() {
           <Chrome lang={lang} k="pilot.night.title" echo="inline" />
         </h2>
         <p className="pns-since">
-          <Chrome lang={lang} k="pilot.night.since" vars={{ t: laDate(night.sinceIso) }} />
+          <Chrome lang={lang} k="pilot.night.since" vars={{ t: staffDate(night.sinceIso) }} />
         </p>
       </div>
 
@@ -113,7 +114,7 @@ export async function PilotNightSheet() {
                     <Chrome
                       lang={lang}
                       k="pilot.night.promo.until"
-                      vars={{ t: laDate(night.promo.validUntil) }}
+                      vars={{ t: staffDate(night.promo.validUntil) }}
                       echo={false}
                     />
                   </span>
@@ -334,14 +335,4 @@ function Money({
       <dd className="pns-value">${(cents / 100).toFixed(2)}</dd>
     </div>
   );
-}
-
-/** The service day, in the restaurant's own clock — the same TZ every date surface here uses. */
-function laDate(iso: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: "America/Los_Angeles",
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  }).format(new Date(iso));
 }

@@ -1,11 +1,24 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { useRouter } from "next/navigation";
+import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "@mms/db/bounds";
 import { setMenuPrice } from "@/lib/menu-price";
 import { setItemSoldOut } from "@/lib/menu-availability";
+import { draftCents, priceDraftVerdict } from "@/lib/menu-price-draft";
+import { browseRows } from "@/lib/menu-browse";
+import { soldOutSinceParts } from "@/lib/sold-out-since";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
 import { al, sx } from "@/lib/staff-labels";
+import { localizeCount } from "@/lib/i18n/fill";
 
 export type PricedItem = {
   id: string;
@@ -20,7 +33,8 @@ export type PricedItem = {
 };
 
 /**
- * P2 — what the view's ONE live region has to say, and WHO authored it.
+ * P2 — what the view's ONE live region has to say, WHO authored it, and (menu-2) WHICH ROW it is
+ * about, so the same words can be echoed where the eye already is.
  *
  * A `server` message is a sentence `setMenuPrice` / `setItemSoldOut` returned, and only
  * `<OutageText>` may render one: it swaps the single sentence that has an authored Burmese twin and
@@ -33,20 +47,24 @@ export type PricedItem = {
  * exactly the vars its key declares: `<Chrome>`'s `vars` prop is a loose record and cannot check
  * that for us.
  */
-type Msg =
-  /** A sentence the Server Action returned. */
-  | { ok: false; kind: "server"; error: string }
-  /** A key with no slots. */
-  | { ok: false; kind: "plain"; k: "browse.price.err.saveUnknown" }
-  /** A key whose only slot is the dish. */
-  | {
-      ok: boolean;
-      kind: "dish";
-      k: "browse.price.err.flipUnknown" | "browse.price.live.off" | "browse.price.live.on";
-      x: string;
-    }
-  /** The save confirmation — the dish, and the amount it now rings at. */
-  | { ok: true; kind: "saved"; x: string; m: string };
+type Msg = { id: string } &
+  // A sentence the Server Action returned.
+  (| { ok: false; kind: "server"; error: string }
+    // A key with no slots.
+    | { ok: false; kind: "plain"; k: "browse.price.err.saveUnknown" }
+    // A key whose only slot is the dish.
+    | {
+        ok: boolean;
+        kind: "dish";
+        k: "browse.price.err.flipUnknown" | "browse.price.live.off" | "browse.price.live.on";
+        x: string;
+      }
+    // The save confirmation — the dish, and the amount it now rings at.
+    | { ok: true; kind: "saved"; x: string; m: string }
+  );
+
+/** menu-3 — a value the SERVER confirmed, held until the list prop agrees (the refresh landed). */
+type Confirmed = { soldOut?: boolean; priceCents?: number };
 
 /**
  * The search placeholder — a COMPONENT CONSTANT, not a dictionary key, and deliberately so: it is a
@@ -67,10 +85,25 @@ const SEARCH_PLACEHOLDER = "Mohinga, ကြေးအိုး, Curries…";
  *
  * The authority is `setMenuPrice` (manager floor re-checked server-side, Zod + a column CHECK
  * bounding the amount). Everything here is affordance and honest feedback — never the gate.
+ *
+ * Slice 6 (menu-1 · 2 · 3 · 4 · 5) — what changed about the feedback loop, in the audit's words:
+ *  - §17: no control here goes native `disabled` after a tap. The 86 pill, Keep, Set and Save are
+ *    `aria-disabled` with the handler refusing re-entry on a REF (a render-lagged flag cannot gate a
+ *    double tap), so focus stays where the thumb is and a refused tap keeps its name.
+ *  - The ONE live region stays sr-only for good (no srOnly→visible swap, no layout shift above a
+ *    115-row list) and the same words are ECHOED, `aria-hidden`, inside the row they concern.
+ *  - The 86 and the price are recorded the moment the server confirms them (`confirmed`), so the
+ *    row shows the new verb and the new amount before `router.refresh()` lands — a second tap in
+ *    that window used to post a stale `expectedSoldOut` and be refused. The prop remains the truth:
+ *    a refusal changes nothing (revert-to-confirmed IS the prop), and the override is dropped the
+ *    moment the prop agrees.
+ *  - A draft that cannot be saved says why, beside the field (`priceDraftVerdict`), and Return
+ *    opens the confirm the way the Save tap does.
  */
 export function MenuPriceEditor({
   items,
   canEditPrice,
+  nowIso,
 }: {
   items: PricedItem[];
   /** W23a (Codex P2) — a SERVER reaches this page for the 86 control alone. The price editor is
@@ -78,31 +111,91 @@ export function MenuPriceEditor({
    *  keeps the screen from offering an action the authority would refuse. It is also the ONLY door
    *  into the edit form (`openEdit` has no other caller), so withholding it withholds the form. */
   canEditPrice: boolean;
+  /** menu-4 — the request's clock, from the page: the server render and the hydrating client must
+   *  agree on which stamps are from another service day, and a client `new Date()` at render would
+   *  not. Re-read on every refresh (the page is `force-dynamic`). */
+  nowIso: string;
 }) {
   // P2 — the device language, from app/staff/layout.tsx (one cookie read, one provider).
   const lang = useStaffLang();
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [soldOutOnly, setSoldOutOnly] = useState(false);
   // The row being edited, and its typed dollars. One row at a time: a bulk grid of live price inputs
   // invites a mis-tab into the wrong dish, and there is no undo on a price.
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  // W23a — the ids whose 86 is in flight, so only those rows' controls disable (a page-wide busy flag
+  /** Mirrors `busy` synchronously — the re-entry guard `save()` reads (§17, StaffPromoControl). */
+  const busyRef = useRef(false);
+  // W23a — the ids whose 86 is in flight, so only those rows' controls dim (a page-wide busy flag
   // would freeze every row while one cook flips one dish). A SET, not one id: two taps in quick
   // succession are ordinary during a rush, and a single slot would let the first flip's completion
-  // re-enable the second row's button while that flip was still in the air.
+  // re-enable the second row's button while that flip was still in the air. The REF is the guard
+  // (`aria-disabled` does not block a click); the state is what the row renders.
   const [flipping, setFlipping] = useState<ReadonlySet<string>>(() => new Set());
+  const flippingRef = useRef(new Set<string>());
   // ONE live region for this view (QA §A) — outcomes and refusals both ride it.
   const [msg, setMsg] = useState<Msg | null>(null);
+  // menu-3 — the server's confirmed values, per row, until the list prop catches up.
+  const [confirmed, setConfirmed] = useState<ReadonlyMap<string, Confirmed>>(() => new Map());
+
+  // Drop an override the moment the prop agrees with it — the refresh landed and the list is the
+  // truth again — and keep it while the prop still lags (a refresh requested by an EARLIER action
+  // can land before this one's write is readable). Reconciled DURING the render that first sees a
+  // new `items` array (React's "adjust state from a prop change" shape, one re-render, no effect),
+  // and spent for good once dropped: a value another tablet moves later never wakes it again.
+  const [seenItems, setSeenItems] = useState(items);
+  if (items !== seenItems) {
+    setSeenItems(items);
+    if (confirmed.size > 0) {
+      const next = new Map<string, Confirmed>();
+      for (const [id, c] of confirmed) {
+        const live = items.find((i) => i.id === id);
+        if (!live) continue;
+        const rest: Confirmed = {};
+        if (c.soldOut !== undefined && c.soldOut !== live.soldOut) rest.soldOut = c.soldOut;
+        if (c.priceCents !== undefined && c.priceCents !== live.priceCents)
+          rest.priceCents = c.priceCents;
+        if (Object.keys(rest).length > 0) next.set(id, rest);
+      }
+      setConfirmed(next);
+    }
+  }
+
+  function record(id: string, c: Confirmed) {
+    setConfirmed((prev) => new Map(prev).set(id, { ...prev.get(id), ...c }));
+  }
+
+  // The rows as the screen KNOWS them: the prop, with every server-confirmed value laid over it.
+  const rows = useMemo(
+    () =>
+      items.map((i) => {
+        const c = confirmed.get(i.id);
+        const soldOut = c?.soldOut ?? i.soldOut;
+        return {
+          ...i,
+          soldOut,
+          priceCents: c?.priceCents ?? i.priceCents,
+          // The stamp is the SERVER's and arrives with the refresh: a flag confirmed here but not
+          // yet in the prop shows the bare "sold out" until then, never a stamp for the wrong flag.
+          soldOutAt: soldOut && i.soldOut ? i.soldOutAt : null,
+        };
+      }),
+    [items, confirmed],
+  );
 
   // W23a — the 86 toggle. ONE tap in both directions, deliberately: this is the control the cook
   // reaches for with their hands full at the moment the pan comes up empty, and a confirm step is
   // exactly the friction that makes people skip it and let the orders keep coming. It is also cheap
   // to undo — unlike a price, which every future guest pays and which keeps its two-step confirm
   // right below. The ledger is what keeps a one-tap control accountable.
-  async function toggleSoldOut(i: PricedItem) {
+  async function toggleSoldOut(i: (typeof rows)[number]) {
+    // §17 — the guard is the REF: `aria-disabled` keeps the pill in the focus order and does not
+    // block the click, so the second tap of a bounce lands here and is refused.
+    if (flippingRef.current.has(i.id)) return;
+    flippingRef.current.add(i.id);
     setFlipping((f) => new Set(f).add(i.id));
     setMsg(null);
     // Same shape as `save()` below, and for the same reason it was added there (Codex P2 on #180): a
@@ -114,14 +207,20 @@ export function MenuPriceEditor({
         menuItemId: i.id,
         soldOut: !i.soldOut,
         // The state this row RENDERED with — the server refuses a flip made against a stale screen.
+        // `i.soldOut` is the CONFIRMED value when one is held, so a second flip inside the refresh
+        // window posts what the server itself just answered, not the stale prop (menu-3).
         expectedSoldOut: i.soldOut,
       });
+      // Recorded BEFORE the pill re-enables (the `finally` below): the row must never be tappable
+      // while still wearing the verb the server just answered against.
+      if (r.ok) record(i.id, { soldOut: r.soldOut });
     } catch {
-      setMsg({ ok: false, kind: "dish", k: "browse.price.err.flipUnknown", x: i.nameEn });
+      setMsg({ id: i.id, ok: false, kind: "dish", k: "browse.price.err.flipUnknown", x: i.nameEn });
       // The list is the only honest account of what landed; the toggle's own state is a guess.
       router.refresh();
       return;
     } finally {
+      flippingRef.current.delete(i.id);
       setFlipping((f) => {
         const next = new Set(f);
         next.delete(i.id);
@@ -129,7 +228,7 @@ export function MenuPriceEditor({
       });
     }
     if (!r.ok) {
-      setMsg({ ok: false, kind: "server", error: r.error });
+      setMsg({ id: i.id, ok: false, kind: "server", error: r.error });
       // Codex P2 on #193, same rule as the price refusal: a concurrency refusal means this screen is
       // stale, and without a refresh the row keeps feeding the SAME stale `expectedSoldOut` forever —
       // so every retry fails identically and the cook cannot get the dish off the menu at all.
@@ -137,6 +236,7 @@ export function MenuPriceEditor({
       return;
     }
     setMsg({
+      id: i.id,
       ok: true,
       kind: "dish",
       k: r.soldOut ? "browse.price.live.off" : "browse.price.live.on",
@@ -145,26 +245,17 @@ export function MenuPriceEditor({
     router.refresh();
   }
 
-  const shown = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter(
-      (i) =>
-        i.nameEn.toLowerCase().includes(needle) ||
-        (i.nameMy ?? "").includes(q.trim()) ||
-        i.category.toLowerCase().includes(needle),
-    );
-  }, [items, q]);
+  const soldOutCount = rows.reduce((n, r) => n + (r.soldOut ? 1 : 0), 0);
+  // The chip is a filter over rows that EXIST: with nothing off the menu it has nothing to show, so
+  // a pressed chip whose count fell to zero (the last dish put back) lets go on its own.
+  const filterSoldOut = soldOutOnly && soldOutCount > 0;
+  const shown = useMemo(() => browseRows(rows, q, filterSoldOut), [rows, q, filterSoldOut]);
 
-  // Parsed to integer cents the same way the server bounds it. NaN on an empty/garbage field.
-  const draftCents = Math.round(Number.parseFloat(draft) * 100);
-  const current = items.find((i) => i.id === editing) ?? null;
-  const validDraft =
-    Number.isFinite(draftCents) &&
-    draftCents >= 25 &&
-    draftCents <= 500000 &&
-    current != null &&
-    draftCents !== current.priceCents;
+  const current = rows.find((i) => i.id === editing) ?? null;
+  // menu-5 — the verdict on the typed dollars, decided in lib, said beside the field.
+  const verdict = current ? priceDraftVerdict(draft, current.priceCents) : "empty";
+  const validDraft = verdict === "ok";
+  const cents = draftCents(draft);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -199,8 +290,22 @@ export function MenuPriceEditor({
     setConfirming(false);
   }
 
+  function toConfirm() {
+    if (!validDraft) return; // §17 — a refused Save keeps its focus and its stated reason
+    setConfirming(true);
+  }
+
+  /** Return in the price field does what the Save tap does — the tablet keyboard's Done key. */
+  function onDraftKey(e: KeyboardEvent<HTMLInputElement>) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    toConfirm();
+  }
+
   async function save() {
     if (!current || !validDraft) return;
+    if (busyRef.current) return; // §17 — the second tap of a bounce, refused on the ref
+    busyRef.current = true;
     setBusy(true);
     // W21d (Codex P2 on #180) — a rejected Server Action promise (dead radio, 5xx transport) used
     // to skip setBusy(false) entirely: both confirm buttons stuck on "Saving…" forever. The
@@ -210,22 +315,26 @@ export function MenuPriceEditor({
     try {
       res = await setMenuPrice({
         menuItemId: current.id,
-        priceCents: draftCents,
+        priceCents: cents,
         // W21d (Codex P1 on #180) — the price this screen SHOWED; the server refuses if it moved.
         expectedPriceCents: current.priceCents,
       });
+      // The server's amount is a CONFIRMED value — recorded before the buttons re-enable, so the
+      // row rings the new price the instant the answer lands (menu-3).
+      if (res.ok) record(current.id, { priceCents: res.priceCents });
     } catch {
-      setMsg({ ok: false, kind: "plain", k: "browse.price.err.saveUnknown" });
+      setMsg({ id: current.id, ok: false, kind: "plain", k: "browse.price.err.saveUnknown" });
       setConfirming(false);
       return;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
     setConfirming(false);
     if (!res.ok) {
       // The row stays open with the typed value intact — a refusal should not also cost the manager
       // their input.
-      setMsg({ ok: false, kind: "server", error: res.error });
+      setMsg({ id: current.id, ok: false, kind: "server", error: res.error });
       // W21d (Codex P2 on #193) — refresh the LIST on a refusal: the concurrency refusal tells the
       // manager to "check the new price and try again", but the stale `items` prop would keep
       // feeding the same stale expectedPriceCents forever. The edit row's own client state
@@ -234,6 +343,7 @@ export function MenuPriceEditor({
       return;
     }
     setMsg({
+      id: current.id,
       ok: true,
       kind: "saved",
       x: current.nameEn,
@@ -248,45 +358,81 @@ export function MenuPriceEditor({
     router.refresh();
   }
 
+  /** The words the live region says and the acted row echoes — ONE rendering, used twice. */
+  function msgNode(m: Msg): ReactNode {
+    return m.kind === "server" ? (
+      // ⚠️ INERT TODAY, and saying so is the point. `<OutageText>` swaps exactly one sentence —
+      // `STAFF_WRITE_OUTAGE` — and BOTH producers of this arm pass their own outage copy to the
+      // gate (`staffGate("manager", PRICE_OUTAGE)` and `staffGate("server", AVAILABILITY_OUTAGE)`),
+      // so nothing here can ever match and every server sentence on this screen stays English in
+      // both tongues. It is kept rather than removed because it costs nothing and becomes live
+      // the moment either module drops its custom copy — but a mechanism that cannot fail must
+      // not be mistaken for the conversion. The twins those two constants need are OPEN-ITEMS P2i.
+      <OutageText lang={lang} error={m.error} />
+    ) : m.kind === "plain" ? (
+      <Chrome lang={lang} k={m.k} />
+    ) : m.kind === "dish" ? (
+      <Chrome lang={lang} k={m.k} vars={{ x: m.x }} />
+    ) : (
+      <Chrome lang={lang} k="browse.price.live.saved" vars={{ x: m.x, m: m.m }} />
+    );
+  }
+
+  const hintKey =
+    verdict === "below"
+      ? "browse.price.draft.below"
+      : verdict === "above"
+        ? "browse.price.draft.above"
+        : verdict === "nan"
+          ? "browse.price.draft.nan"
+          : verdict === "unchanged"
+            ? "browse.price.draft.unchanged"
+            : null;
+
   return (
     <div>
       <label htmlFor="mp-search" style={label}>
         <Chrome lang={lang} k="browse.price.find" echo="stack" />
       </label>
-      <input
-        id="mp-search"
-        ref={searchRef}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        // A placeholder is a flat attribute: it carries no markup and so no `lang`. The visible
-        // <label> above is the marked one.
-        placeholder={SEARCH_PLACEHOLDER}
-        autoComplete="off"
-        style={input}
-      />
+      <div style={searchRow}>
+        <input
+          id="mp-search"
+          ref={searchRef}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          // A placeholder is a flat attribute: it carries no markup and so no `lang`. The visible
+          // <label> above is the marked one.
+          placeholder={SEARCH_PLACEHOLDER}
+          autoComplete="off"
+          style={input}
+        />
+        {soldOutCount > 0 && (
+          // The lit-gold cap is the ONE selection vocabulary (`.staff-chip[aria-pressed="true"]`,
+          // manager-7): pressed, the list narrows to what is off the menu — the flags the lead copy
+          // tells a server to watch for, findable without reading 115 rows top to bottom.
+          <button
+            type="button"
+            className="staff-chip staff-press"
+            aria-pressed={filterSoldOut}
+            onClick={() => setSoldOutOnly((v) => !v)}
+          >
+            <Chrome
+              lang={lang}
+              k="browse.price.soldOutOnly"
+              vars={{ n: localizeCount(soldOutCount, lang) }}
+            />
+          </button>
+        )}
+      </div>
 
-      {/* The view's ONE live region — every outcome and refusal lands here. No echo: a bilingual
+      {/* The view's ONE live region — every outcome and refusal lands here, and it stays sr-only
+          for good (menu-2): a region that grew from 1px to a line above a 115-row list shifted the
+          whole list under the thumb, and was off-screen for any row past the first viewport. The
+          same words are echoed inside the row they concern. No echo of the tongue: a bilingual
           announcement says everything twice, and <Chrome>/<OutageText> mark their own Burmese, so
           the region itself carries no `lang`. */}
-      <p role="status" style={msg ? (msg.ok ? okLine : errLine) : srOnly}>
-        {msg === null ? (
-          ""
-        ) : msg.kind === "server" ? (
-          // ⚠️ INERT TODAY, and saying so is the point. `<OutageText>` swaps exactly one sentence —
-          // `STAFF_WRITE_OUTAGE` — and BOTH producers of this arm pass their own outage copy to the
-          // gate (`staffGate("manager", PRICE_OUTAGE)` and `staffGate("server", AVAILABILITY_OUTAGE)`),
-          // so nothing here can ever match and every server sentence on this screen stays English in
-          // both tongues. It is kept rather than removed because it costs nothing and becomes live
-          // the moment either module drops its custom copy — but a mechanism that cannot fail must
-          // not be mistaken for the conversion. The twins those two constants need are OPEN-ITEMS P2i.
-          <OutageText lang={lang} error={msg.error} />
-        ) : msg.kind === "plain" ? (
-          <Chrome lang={lang} k={msg.k} />
-        ) : msg.kind === "dish" ? (
-          <Chrome lang={lang} k={msg.k} vars={{ x: msg.x }} />
-        ) : (
-          <Chrome lang={lang} k="browse.price.live.saved" vars={{ x: msg.x, m: msg.m }} />
-        )}
+      <p role="status" style={srOnly}>
+        {msg === null ? "" : msgNode(msg)}
       </p>
 
       {/* The list's name follows the PAGE's heading, which is role-conditional: a server is shown
@@ -301,22 +447,22 @@ export function MenuPriceEditor({
       >
         {shown.map((i) => {
           const open = editing === i.id;
+          const inFlight = flipping.has(i.id);
+          const since = i.soldOutAt ? soldOutSinceParts(i.soldOutAt, nowIso) : null;
           return (
             <li key={i.id} className="card" style={row}>
               <div style={{ minWidth: 0 }}>
                 <p style={name}>
                   {i.nameEn}
                   {i.soldOut && (
-                    <span style={soldOutTag}>
+                    // menu-4 — a stamp from another service day carries its day AND wears the warn
+                    // ink: the one signal a manual 86 has outlived its shift, pre-attentive.
+                    <span style={since && !since.sameDay ? soldOutTagOld : soldOutTag}>
                       {/* The leading " · " lives INSIDE the value, the way `kds.held` carries its
                           own separator — a joiner spliced in here would be authored text in a
                           language nobody chose. No echo: this is a badge on a row. */}
-                      {i.soldOutAt ? (
-                        <Chrome
-                          lang={lang}
-                          k="browse.price.soldOutSince"
-                          vars={{ t: clock(i.soldOutAt) }}
-                        />
+                      {since ? (
+                        <Chrome lang={lang} k="browse.price.soldOutSince" vars={{ t: since.t }} />
                       ) : (
                         <Chrome lang={lang} k="browse.price.soldOut" />
                       )}
@@ -336,8 +482,10 @@ export function MenuPriceEditor({
                   <span style={price}>{dollars(i.priceCents)}</span>
                   <button
                     type="button"
+                    className="staff-btn staff-press"
                     style={i.soldOut ? restoreBtn : eightySixBtn}
-                    disabled={flipping.has(i.id)}
+                    aria-disabled={inFlight || undefined}
+                    aria-busy={inFlight || undefined}
                     onClick={() => void toggleSoldOut(i)}
                     // The visible label is one verb; the accessible name has to say WHICH dish,
                     // because every row in this list carries the same one. TWO whole al() calls
@@ -362,7 +510,7 @@ export function MenuPriceEditor({
                   >
                     {/* echo="inline": the 86 control is named in <Chrome>'s echo policy, and a
                         stacked pair on every row would grow the row's height fifty times over. */}
-                    {flipping.has(i.id) ? (
+                    {inFlight ? (
                       "…"
                     ) : i.soldOut ? (
                       <Chrome lang={lang} k="browse.price.verb.putBack" echo="inline" />
@@ -373,6 +521,7 @@ export function MenuPriceEditor({
                   {canEditPrice && (
                     <button
                       type="button"
+                      className="staff-btn staff-press"
                       style={ghostBtn}
                       onClick={() => openEdit(i)}
                       // "Edit" reads the same on every row, so the name says which dish. This
@@ -422,7 +571,7 @@ export function MenuPriceEditor({
                       vars={{
                         x: current.nameEn,
                         old: dollars(current.priceCents),
-                        m: dollars(draftCents),
+                        m: dollars(cents),
                       }}
                       echo="stack"
                     />
@@ -433,9 +582,13 @@ export function MenuPriceEditor({
                   <div style={{ display: "flex", gap: "var(--s2)" }}>
                     <button
                       type="button"
+                      className="staff-btn staff-press"
                       style={cancelBtn}
-                      disabled={busy}
-                      onClick={() => setConfirming(false)}
+                      aria-disabled={busy || undefined}
+                      onClick={() => {
+                        if (busyRef.current) return;
+                        setConfirming(false);
+                      }}
                     >
                       <Chrome
                         lang={lang}
@@ -444,52 +597,101 @@ export function MenuPriceEditor({
                         echo="stack"
                       />
                     </button>
-                    <button type="button" style={proceedBtn} disabled={busy} onClick={save}>
+                    <button
+                      type="button"
+                      className="staff-btn staff-press"
+                      style={proceedBtn}
+                      aria-disabled={busy || undefined}
+                      aria-busy={busy || undefined}
+                      onClick={() => void save()}
+                    >
                       {/* Both states echo, so the button cannot change height mid-save. The busy
                           key declares no {m} slot, so the var is simply unused there. */}
                       <Chrome
                         lang={lang}
                         k={busy ? "browse.price.saving" : "browse.price.set"}
-                        vars={{ m: dollars(draftCents) }}
+                        vars={{ m: dollars(cents) }}
                         echo="stack"
                       />
                     </button>
                   </div>
                 </div>
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: "var(--s2)" }}>
-                  <span aria-hidden="true" style={{ color: "var(--t2)" }}>
-                    $
-                  </span>
-                  <label htmlFor={`mp-${i.id}`} style={srOnly}>
-                    {/* Never seen on screen, so no echo — but it carries the dish, and sx() takes
-                        no vars, so it is <Chrome> rather than an aria-only lookup. */}
-                    <Chrome lang={lang} k="browse.price.a11y.newPrice" vars={{ x: i.nameEn }} />
-                  </label>
-                  <input
-                    id={`mp-${i.id}`}
-                    ref={inputRef}
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    // `decimal` gives the numeric pad WITH a decimal point on the tablet the console
-                    // runs on; `numeric` would hide it and make $14.50 untypeable.
-                    inputMode="decimal"
-                    autoComplete="off"
-                    style={priceInput}
-                  />
-                  <button type="button" style={ghostBtn} onClick={closeEdit}>
-                    <Chrome lang={lang} k="browse.price.verb.cancel" echo="inline" />
-                  </button>
-                  <button
-                    ref={saveRef}
-                    type="button"
-                    style={validDraft ? saveBtn : saveBtnOff}
-                    disabled={!validDraft}
-                    onClick={() => setConfirming(true)}
-                  >
-                    <Chrome lang={lang} k="browse.price.verb.save" echo="inline" />
-                  </button>
+                <div style={editWrap}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "var(--s2)" }}>
+                    <span aria-hidden="true" style={{ color: "var(--t2)" }}>
+                      $
+                    </span>
+                    <label htmlFor={`mp-${i.id}`} style={srOnly}>
+                      {/* Never seen on screen, so no echo — but it carries the dish, and sx() takes
+                          no vars, so it is <Chrome> rather than an aria-only lookup. */}
+                      <Chrome lang={lang} k="browse.price.a11y.newPrice" vars={{ x: i.nameEn }} />
+                    </label>
+                    <input
+                      id={`mp-${i.id}`}
+                      ref={inputRef}
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onKeyDown={onDraftKey}
+                      // `decimal` gives the numeric pad WITH a decimal point on the tablet the console
+                      // runs on; `numeric` would hide it and make $14.50 untypeable.
+                      inputMode="decimal"
+                      enterKeyHint="done"
+                      autoComplete="off"
+                      aria-invalid={hintKey !== null || undefined}
+                      aria-describedby={hintKey ? `mp-hint-${i.id}` : undefined}
+                      style={priceInput}
+                    />
+                    <button
+                      type="button"
+                      className="staff-btn staff-press"
+                      style={ghostBtn}
+                      onClick={closeEdit}
+                    >
+                      <Chrome lang={lang} k="browse.price.verb.cancel" echo="inline" />
+                    </button>
+                    <button
+                      ref={saveRef}
+                      type="button"
+                      className="staff-btn staff-press"
+                      style={saveBtn}
+                      // §17 — stated, never native: the reason is the hint line the field describes
+                      // itself by, and a refused tap keeps focus where the thumb is.
+                      aria-disabled={!validDraft || undefined}
+                      onClick={toConfirm}
+                    >
+                      <Chrome lang={lang} k="browse.price.verb.save" echo="inline" />
+                    </button>
+                  </div>
+                  {hintKey && (
+                    // menu-5 — WHY Save is refused. `{m}` is the bound the write enforces, or the
+                    // shape a malformed draft should take; Latin in both tongues.
+                    <p id={`mp-hint-${i.id}`} style={hintLine}>
+                      <Chrome
+                        lang={lang}
+                        k={hintKey}
+                        vars={{
+                          m:
+                            hintKey === "browse.price.draft.below"
+                              ? dollars(PRICE_MIN_CENTS)
+                              : hintKey === "browse.price.draft.above"
+                                ? dollars(PRICE_MAX_CENTS)
+                                : hintKey === "browse.price.draft.nan"
+                                  ? "14.50"
+                                  : dollars(i.priceCents),
+                        }}
+                        echo="stack"
+                      />
+                    </p>
+                  )}
                 </div>
+              )}
+              {msg !== null && msg.id === i.id && (
+                // menu-2 — the verdict where the eye already is: the same words the sr-only region
+                // announced, echoed `aria-hidden` inside the row that changed (or refused).
+                <p aria-hidden style={msg.ok ? okLine : errLine}>
+                  {msgNode(msg)}
+                </p>
               )}
             </li>
           );
@@ -526,13 +728,8 @@ const name: CSSProperties = { margin: 0, fontWeight: 700, fontSize: "var(--fs-bo
 const nameMy: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--fs-sm)" };
 const cat: CSSProperties = { margin: "2px 0 0", color: "var(--t3)", fontSize: "var(--fs-xs)" };
 const soldOutTag: CSSProperties = { color: "var(--t3)", fontWeight: 400 };
-/** The restaurant's clock, never the device's — a manager travelling must read the counter's time. */
-const clockFmt = new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Los_Angeles",
-  hour: "numeric",
-  minute: "2-digit",
-});
-const clock = (iso: string): string => clockFmt.format(new Date(iso));
+/** menu-4 — a flag from another service day: the warn ink, pre-attentive across the list. */
+const soldOutTagOld: CSSProperties = { color: "var(--warn)", fontWeight: 600 };
 const eightySixBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 12px",
@@ -562,8 +759,15 @@ const label: CSSProperties = {
   fontWeight: 700,
   marginBottom: "var(--s2)",
 };
+const searchRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--s2)",
+  flexWrap: "wrap",
+};
 const input: CSSProperties = {
-  width: "100%",
+  flex: "1 1 200px",
+  minWidth: 0,
   minHeight: 48,
   padding: "0 var(--s3)",
   borderRadius: "var(--r-sm)",
@@ -572,7 +776,13 @@ const input: CSSProperties = {
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
 };
-const priceInput: CSSProperties = { ...input, width: 96, textAlign: "right" };
+const priceInput: CSSProperties = { ...input, flex: "none", width: 96, textAlign: "right" };
+const editWrap: CSSProperties = { display: "grid", gap: "var(--s2)" };
+const hintLine: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-xs)",
+  color: "var(--warn)",
+};
 const ghostBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 var(--s3)",
@@ -591,7 +801,6 @@ const saveBtn: CSSProperties = {
   color: "var(--oa)",
   fontWeight: 800,
 };
-const saveBtnOff: CSSProperties = { ...saveBtn, opacity: 0.5, cursor: "default" };
 const confirmCard: CSSProperties = {
   border: "1px solid var(--ac)",
   borderRadius: "var(--r-sm)",
@@ -616,13 +825,16 @@ const confirmDetail: CSSProperties = {
 };
 const cancelBtn: CSSProperties = { ...ghostBtn, flex: 1 };
 const proceedBtn: CSSProperties = { ...saveBtn, flex: 1 };
+/** The row's echo of the live region's words — a full-width line under the row's controls. */
 const okLine: CSSProperties = {
-  margin: "var(--s3) 0 0",
+  flexBasis: "100%",
+  margin: 0,
   color: "var(--ac-strong)",
   fontSize: "var(--fs-sm)",
 };
 const errLine: CSSProperties = {
-  margin: "var(--s3) 0 0",
+  flexBasis: "100%",
+  margin: 0,
   color: "var(--warn)",
   fontSize: "var(--fs-sm)",
 };

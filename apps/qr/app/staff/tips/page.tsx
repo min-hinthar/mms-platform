@@ -13,6 +13,7 @@ import { readStaffLang } from "@/lib/staff-lang-server";
 import { plural, tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
+import { staffDateTime } from "@/lib/staff-clock";
 
 export const metadata = { title: "Tips today — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -261,7 +262,13 @@ function FeedbackZone({ lang, feedback }: { lang: StaffLang; feedback: StaffFeed
           // QA §A: a `role="list"` with `list-style: none` needs a name. It has no visible label of
           // its own, so the name is aria-only — `sx()`, never `al()`.
           aria-label={sx(lang, "floor.fb.a11y.list")}
-          style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}
+          style={{
+            listStyle: "none",
+            margin: "var(--s4) 0 0",
+            padding: 0,
+            display: "grid",
+            gap: "var(--s3)",
+          }}
         >
           {rows.map((r) => {
             const low = r.rating <= 3;
@@ -276,7 +283,7 @@ function FeedbackZone({ lang, feedback }: { lang: StaffLang; feedback: StaffFeed
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    gap: 10,
+                    gap: "var(--s3)",
                   }}
                 >
                   <span
@@ -307,16 +314,31 @@ function FeedbackZone({ lang, feedback }: { lang: StaffLang; feedback: StaffFeed
                     </span>
                   )}
                   <span
+                    lang="en"
                     style={{ marginLeft: "auto", fontSize: "var(--fs-xs)", color: "var(--t3)" }}
                   >
-                    {new Date(r.createdAt).toLocaleString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
+                    {/* tips-1 — the restaurant's clock (`lib/staff-clock.ts`). This is a Server
+                        Component, so `toLocaleString(undefined, …)` here was Vercel's UTC, not even
+                        the device's: a 7:05 PM review read `2:05 AM` to every manager. */}
+                    {staffDateTime(r.createdAt)}
                   </span>
                 </div>
+                {/* tips-2 (K13) — the row names the ORDER it is about, in the console's own words:
+                    the table for dine-in, the guest's name over the short code otherwise (the same
+                    `#XXXXXX` the KDS and the expo print, derived the same way). A "Needs follow-up"
+                    badge with no way to find the order asked for a recovery nobody could start. */}
+                <p style={orderRef}>
+                  {r.order.tableNumber !== null ? (
+                    <Chrome lang={lang} k="floor.table" vars={{ id: r.order.tableNumber }} />
+                  ) : (
+                    <>
+                      {r.order.customerName && <span>{r.order.customerName} </span>}
+                      <span lang="en" style={{ color: "var(--t3)" }}>
+                        #{r.order.shortCode}
+                      </span>
+                    </>
+                  )}
+                </p>
                 {r.comment && (
                   <p
                     style={{
@@ -364,13 +386,19 @@ const muted: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--f
 const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
 const rowCard: CSSProperties = {
-  padding: "12px 14px",
+  padding: "var(--s3) var(--s4)",
+};
+const orderRef: CSSProperties = {
+  margin: "var(--s2) 0 0",
+  fontSize: "var(--fs-sm)",
+  fontWeight: 700,
+  color: "var(--t2)",
 };
 const followChip: CSSProperties = {
   fontSize: "var(--fs-xs)",
   fontWeight: 800,
   color: "var(--warn)",
   border: "1px solid var(--warn)",
-  borderRadius: 999,
+  borderRadius: "var(--r-full)",
   padding: "2px 8px",
 };
