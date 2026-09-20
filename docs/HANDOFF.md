@@ -807,7 +807,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 >
 > **737 `verify:slice` mutants** · **127 target modules** (111 under `apps/qr/lib`, 3 API routes,
 > 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
-> 99 tracked docs files ·
+> 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -2167,7 +2167,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 737 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2686 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 737 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2686 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
