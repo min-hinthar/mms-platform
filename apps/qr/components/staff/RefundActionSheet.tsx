@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
+import { sheetCloseLabel } from "./SheetCloseLabel";
 import { refundLine, type SettledLine, type SettledOrder } from "@/lib/refunds";
 import { dollars } from "@/lib/receipt-view";
 import { REFUND_REASONS, REFUND_REASON_KEY, type RefundReason } from "@/lib/settled-view";
@@ -146,6 +147,7 @@ export function RefundActionSheet({
     <Sheet
       open
       busy={pending}
+      closeLabel={sheetCloseLabel(lang)}
       onOpenChange={(next) => !next && onClose()}
       title={<Chrome lang={lang} k="floor.refund.title" vars={{ x: line.name }} />}
     >

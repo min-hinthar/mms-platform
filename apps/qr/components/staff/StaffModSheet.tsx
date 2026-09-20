@@ -1,6 +1,7 @@
 "use client";
 import { useId, useMemo, useState, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
+import { sheetCloseLabel } from "./SheetCloseLabel";
 import {
   initialSelection,
   isSelectionValid,
@@ -97,7 +98,13 @@ export function StaffModSheet({
     // behind the modal scrim". Dismissing mid-add destroys the one surface that message has, so the
     // server is told nothing and the item is simply not there. `pending` is the parent's transition
     // flag, threaded down.
-    <Sheet open={open} onOpenChange={onOpenChange} busy={pending} title={itemName}>
+    <Sheet
+      open={open}
+      onOpenChange={onOpenChange}
+      busy={pending}
+      title={itemName}
+      closeLabel={sheetCloseLabel(lang)}
+    >
       {/* The Sheet renders its title visibly — no duplicate heading here. The title is the DISH's
           catalog name: data, rendered verbatim in whatever script it arrives in, never chrome. */}
       <div style={body}>

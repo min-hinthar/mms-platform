@@ -22,6 +22,20 @@ import { mayDismiss, sheetDismiss } from "./sheet-dismiss";
  * M82 — **`busy`**: while the body has an irreversible write in flight, none of the FOUR dismissal
  * vectors may close the sheet. The policy lives in `sheet-dismiss.ts` (pure, tested, and the place
  * the vector list is enumerated); this file is the wiring that consults it. See the `busy` prop.
+ *
+ * M76 — **the exit is CSS, and the presence chain must reach a DOM node.** Radix's `Presence` keeps
+ * an overlay or content mounted while its computed `animationName` changed on `data-state="closed"`
+ * and unmounts it on `animationend`; `.mms-sheet[data-state="closed"]` / `.mms-scrim[…]` in
+ * globals.css supply that animation, so CSS owns the entrance AND the exit (one motion owner) and
+ * framer keeps only the drag. The structural half is what made it work: `Dialog.Portal` wraps EACH
+ * child in its own `Presence`, which reads the animation off the ref it forwards — so the
+ * `DomMaxProvider` that used to sit between the portal and the content (a context provider with no
+ * DOM node) made that Presence see nothing and unmount instantly, exit or no exit. The provider now
+ * wraps the portal (React context crosses portals) and `SheetContent` forwards its `ref` to the
+ * content node. `onCloseAutoFocus` therefore fires at UNMOUNT — after the exit — which is where the
+ * default opener-restore wants it; a caller that moves focus elsewhere on close does so during the
+ * exit, under the sheet's own `aria-hidden` on the page, and should unmount the sheet instead if
+ * that focus must be announced (the cash confirm's handoff path is the worked example).
  */
 export function Sheet({
   open,
@@ -31,6 +45,7 @@ export function Sheet({
   busy = false,
   onCloseAutoFocus,
   className,
+  closeLabel,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -69,6 +84,16 @@ export function Sheet({
    *  wrong — e.g. the grocery basket sheet, whose trigger can unmount while it is open — and
    *  `e.preventDefault()` + focus your own stable element (WCAG 2.4.3). */
   onCloseAutoFocus?: (event: Event) => void;
+  /**
+   * manager-9 — the ✕'s name in the caller's tongue, as DOM text (rendered `.sr-only` inside the
+   * button, the icon stays decorative), NOT as an `aria-label`: the console names every circle by
+   * sr-only dictionary text through `<Chrome>` so the Burmese arrives language-marked and the
+   * {visible, aria} pair cannot drift (DESIGN-LANGUAGE §17; rule 3 of `check-staff-lang` cannot
+   * follow a name into this package). Both states travel together on purpose — a caller that
+   * localized the idle name and left the busy one English would announce a half-translated exit at
+   * the one moment it matters. Omit for the English default the diner surfaces use.
+   */
+  closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
 }) {
   return (
     // THE choke point. Radix funnels Esc (`useEscapeKeydown` → `onDismiss`), the scrim
@@ -85,13 +110,16 @@ export function Sheet({
         onOpenChange(next);
       }}
     >
-      <Dialog.Portal>
-        <Dialog.Overlay className="mms-scrim" />
-        <DomMaxProvider>
+      {/* The domMax provider wraps the portal, never sits inside it (M76, see the docblock): the
+          portal's per-child Presence must be handed a DOM node, and a provider forwards none. */}
+      <DomMaxProvider>
+        <Dialog.Portal>
+          <Dialog.Overlay className="mms-scrim" />
           <SheetContent
             title={title}
             busy={busy}
             className={className}
+            closeLabel={closeLabel}
             // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
             // caller and it runs its own `sheetDismiss` — but handing the child a raw
             // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
@@ -105,8 +133,8 @@ export function Sheet({
           >
             {children}
           </SheetContent>
-        </DomMaxProvider>
-      </Dialog.Portal>
+        </Dialog.Portal>
+      </DomMaxProvider>
     </Dialog.Root>
   );
 }
@@ -123,20 +151,26 @@ function writeKbInset(px: number) {
 }
 
 // Separate component so the drag-controls hook runs UNDER the DomMaxProvider (where `m`/drag resolve).
+// `ref` (React 19 ref-as-prop) is forwarded to the content node — the portal's Presence composes it
+// in through the Slot, and reads the exit animation off that node (M76).
 function SheetContent({
+  ref,
   title,
   busy,
   onClose,
   className,
   children,
   onCloseAutoFocus,
+  closeLabel,
 }: {
+  ref?: React.Ref<HTMLDivElement>;
   title: React.ReactNode;
   busy: boolean;
   onClose: () => void;
   className?: string;
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
+  closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
 }) {
   const controls = useDragControls();
   // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
@@ -201,6 +235,7 @@ function SheetContent({
   return (
     <Dialog.Content
       asChild
+      ref={ref}
       aria-describedby={undefined}
       // A STATE, not an announcement: it tells assistive tech this region is mid-update and to hold
       // off re-reading it. Deliberately not a live region — QA §A P1 allows exactly ONE polite
@@ -263,10 +298,15 @@ function SheetContent({
               tabbable element here — the container above is `tabIndex={-1}`, i.e. focusable but not
               tabbable — which makes the point stronger, not weaker.) */}
           <Dialog.Close
-            aria-label={busy ? "Close — finishing, please wait" : "Close"}
+            aria-label={closeLabel ? undefined : busy ? "Close — finishing, please wait" : "Close"}
             aria-disabled={busy || undefined}
             className="mms-sheet-close"
           >
+            {/* manager-9 — a caller-supplied name is DOM text, so it is the accessible name only
+                while no `aria-label` competes with it (an aria-label wins over content). */}
+            {closeLabel ? (
+              <span className="sr-only">{busy ? closeLabel.busy : closeLabel.idle}</span>
+            ) : null}
             <Icon name="close" size={18} />
           </Dialog.Close>
         </div>

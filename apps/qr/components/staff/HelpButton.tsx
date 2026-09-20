@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import posthog from "posthog-js";
 import { Icon, Sheet } from "@mms/ui";
+import { sheetCloseLabel } from "./SheetCloseLabel";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { haptic } from "@/lib/haptics";
@@ -296,6 +297,7 @@ export function HelpButton(props: HelpProps) {
         open={open}
         onOpenChange={show}
         busy={pending}
+        closeLabel={sheetCloseLabel(lang)}
         title={<Chrome lang={lang} k={title} echo="stack" />}
         className={sheetClassName ? `help-sheet ${sheetClassName}` : "help-sheet"}
       >
