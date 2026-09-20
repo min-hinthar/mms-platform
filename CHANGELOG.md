@@ -35,7 +35,10 @@ AA). Every new guard was watched fail first: 34 mutants, every one red (`mutate-
   (`components/staff/ViewStatus.tsx`) owns a single sr-only `role="status"` at the end of the
   column; each card speaks through `announce()` and shows its line as an `aria-hidden` echo where
   the eye is (the menu-2 idiom). A card mounted alone keeps its own region, so the lock screen and
-  every single-card suite are unchanged; the same words twice are a new node both times.
+  every single-card suite are unchanged; the same words twice are a new node both times. What is
+  stored is the MESSAGE (a key with its slots, or the server's sentence), rendered against the
+  language the page hands the provider — a switch is a refresh that keeps the provider's state, and
+  a stored node kept the old tongue while the echo beside it re-rendered (Codex round 2).
 - **The Lock circle's refusal is a KEY, beneath the row (signin-3 / chrome-1).** `lockConsole`
   answers reason codes (`outage` · `auth` · `no_pin`) like `setPin`; `LockButton` renders them
   through `<MsgText>` — Burmese under the Burmese switch — in `.staff-bar-msg`, the tail's one
@@ -54,11 +57,17 @@ var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the r
   the front-door shape (a static `alert` mark — no Screens link, no Lock — the page's name, the
   switch in the tail's fixed slot) over `.staff-col.entry-col`; the card's heading is an h2 that
   still takes focus. `check-staff-lang.mjs`'s self-check now asks whether the excluded shell still
-  REACHES a switch (through the bar), not whether it mounts one in its own JSX.
+  REACHES a switch (through the bar), not whether it mounts one in its own JSX — traced from the
+  shell's EXPORTED component through live JSX, so an unused import, a dead branch or an uncalled
+  helper holding the bar each fail it (the blind pass and Codex round 2, one evasion each).
 - **The front door's own skeleton (signin-1).** `/staff/login` and `/staff/lock` fell back to the
   floor's 1080 three-zone skeleton. `EntrySkeleton` mirrors the pages — the bar band, then the
-  pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card — the
-  root `aria-busy`, with `shell.loading` carried sr-only for the screen it stands in for.
+  pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card in EACH
+  route's first shape (the email step's brand line, Google pill and divider; the PIN form's escape
+  link — one field each; a first cut drew two fields for both and shifted the card on resolve,
+  Codex round 2) — the root `aria-busy`, with `shell.loading` carried sr-only for the screen it
+  stands in for. The suite renders the two live forms and holds each variant to their field count,
+  pill count and brand line.
 - **The doors say "Opening…" (doors-1 / K29) and the More list has a name (doors-2).** A tapped
   door's note slot reads `floor.door.opening` while its cookie write is awaited (one slot — a busy
   current door never grows a line) and `.staff-door[aria-busy="true"]` draws the §17 dim with no

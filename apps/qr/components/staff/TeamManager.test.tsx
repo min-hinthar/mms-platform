@@ -277,7 +277,7 @@ describe("§17 on the roster's three controls", () => {
   it("under a view announcer the zone shows its line as an echo and speaks through the view's ONE region", () => {
     render(
       <StaffLangProvider lang="en">
-        <ViewStatusProvider>
+        <ViewStatusProvider lang="en">
           <TeamManager initial={[ROW]} selfUid="u1" selfEmail={null} callerRole="manager" />
         </ViewStatusProvider>
       </StaffLangProvider>,

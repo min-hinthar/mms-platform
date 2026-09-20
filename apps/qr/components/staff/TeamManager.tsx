@@ -102,7 +102,7 @@ export function TeamManager({
   const announce = useViewStatus();
   const say = (next: { ok: boolean; m: StaffMsg } | null) => {
     setMsg(next);
-    announce?.(next ? <MsgText lang={lang} msg={next.m} /> : null);
+    announce?.(next ? next.m : null); // the MESSAGE, never a node — the provider renders it
   };
 
   async function add(e: FormEvent) {

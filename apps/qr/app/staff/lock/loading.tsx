@@ -1,6 +1,6 @@
 import { EntrySkeleton } from "@/components/staff/EntrySkeleton";
 
-/** signin-1 — the lock screen's OWN skeleton: the same card the PIN form renders into. */
+/** signin-1 — the lock screen's OWN skeleton, in the PIN form's shape. */
 export default function LockLoading() {
-  return <EntrySkeleton what="what.lock" />;
+  return <EntrySkeleton what="what.lock" form="lock" />;
 }

@@ -1352,12 +1352,17 @@ function reachesSwitch(root) {
 }
 
 /**
- * The apps/qr modules this file's LIVE JSX mounts: every `<Tag …>` outside a literal-dead branch
- * whose tag is an import from a module under apps/qr, resolved. Parsed, not walked (LEARNINGS #60):
- * an import EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing, and
- * `{false && <StaffBar/>}` reaches nothing — so a self-check built on `importsOf` alone would pass
- * both (a blind pass wrote the second one down). Member tags (`<Foo.Bar>`) are not imports of a
- * component and are not counted.
+ * The apps/qr modules this file's EXPORTED components mount in LIVE JSX: starting from every
+ * exported function component (a `function` declaration, or a `const` initialised with an arrow
+ * or function expression, carrying `export` — `default` included), walk its body; a `<Tag …>`
+ * outside a literal-dead branch whose tag is a component declared in THIS file is followed into
+ * that component (once), and one whose tag is an import from a module under apps/qr is a mount of
+ * that module. Parsed, not walked (LEARNINGS #60), and traced from the EXPORTS rather than over
+ * the whole file (Codex round 2 on #298, P2): an import EDGE is not a mount — `import { StaffBar }`
+ * with no `<StaffBar>` reaches nothing; `{false && <StaffBar/>}` reaches nothing; and an uncalled
+ * `function Example() { return <StaffBar/>; }` left in the file reaches nothing either, because
+ * nothing exported renders it. Member tags (`<Foo.Bar>`) are not imports of a component and are
+ * not counted.
  */
 function liveMountedModules(file) {
   let sf;
@@ -1366,45 +1371,77 @@ function liveMountedModules(file) {
   } catch {
     return [];
   }
-  const byLocal = new Map();
-  const tags = new Set();
-  function visit(node) {
-    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
-      const resolved = resolveSpecifier(node.moduleSpecifier.text, file);
-      const clause = node.importClause;
+  const byLocal = new Map(); // imported local name → resolved module
+  const locals = new Map(); // component name declared in this file → its body node
+  const exported = [];
+  const isExported = (node) =>
+    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+  const isFnInit = (init) => !!init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init));
+  for (const stmt of sf.statements) {
+    if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
+      const resolved = resolveSpecifier(stmt.moduleSpecifier.text, file);
+      const clause = stmt.importClause;
       if (resolved && clause) {
         if (clause.name) byLocal.set(clause.name.text, resolved);
         if (clause.namedBindings && ts.isNamedImports(clause.namedBindings))
           for (const el of clause.namedBindings.elements) byLocal.set(el.name.text, resolved);
       }
+    } else if (ts.isFunctionDeclaration(stmt) && stmt.body) {
+      const name = stmt.name?.text ?? "default";
+      locals.set(name, stmt.body);
+      if (isExported(stmt)) exported.push(name);
+    } else if (ts.isVariableStatement(stmt)) {
+      for (const d of stmt.declarationList.declarations)
+        if (ts.isIdentifier(d.name) && isFnInit(d.initializer)) {
+          locals.set(d.name.text, d.initializer);
+          if (isExported(stmt)) exported.push(d.name.text);
+        }
     }
-    if (
-      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
-      ts.isIdentifier(node.tagName) &&
-      !inDeadBranch(node)
-    )
-      tags.add(node.tagName.text);
-    ts.forEachChild(node, (c) => {
-      visit(c);
-    });
   }
-  visit(sf);
-  return [...tags].map((t) => byLocal.get(t)).filter((m) => m && m.startsWith(QR));
+  const modules = new Set();
+  const seen = new Set();
+  function walk(name) {
+    if (seen.has(name)) return;
+    seen.add(name);
+    const body = locals.get(name);
+    if (!body) return;
+    function visit(node) {
+      if (
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        ts.isIdentifier(node.tagName) &&
+        !inDeadBranch(node)
+      ) {
+        const tag = node.tagName.text;
+        if (locals.has(tag)) walk(tag);
+        else {
+          const m = byLocal.get(tag);
+          if (m && m.startsWith(QR)) modules.add(m);
+        }
+      }
+      ts.forEachChild(node, (c) => {
+        visit(c);
+      });
+    }
+    visit(body);
+  }
+  for (const name of exported) walk(name);
+  return [...modules];
 }
 
-/** Does this module reach a live switch — mounted in its own live JSX, or through a component its
- *  live JSX mounts (the shell's `<StaffBar>` since signin-5)? */
+/** Does this module reach a live switch — mounted in its own live JSX, or through a component an
+ *  EXPORTED component's live JSX mounts (the shell's `<StaffBar>` since signin-5)? */
 function reachesSwitchLive(file) {
   if (mountsSwitchHere(file)) return true;
   return liveMountedModules(file).some((m) => switchMounts(m).length > 0);
 }
 
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
-// in its own LIVE JSX or through a component that JSX mounts (the shell's is `<StaffBar>`'s since
-// signin-5). If the shell ever stops reaching one, this set is silently hiding nothing and the next
-// reader would trust a comment that has stopped being true. Live JSX, never the import graph: the
-// walk the pages get follows every import, which is right for "does this page reach a control"
-// and wrong for "does this module still mount one" — an unused import or a dead branch would pass.
+// in its own LIVE JSX or through a component that JSX mounts, traced from its EXPORTS (the shell's
+// is `<StaffBar>`'s since signin-5). If the shell ever stops reaching one, this set is silently
+// hiding nothing and the next reader would trust a comment that has stopped being true. Live JSX
+// from the exports, never the import graph: the walk the pages get follows every import, which is
+// right for "does this page reach a control" and wrong for "does this module still mount one" —
+// an unused import, a dead branch or an uncalled helper would each pass.
 for (const f of SWITCH_WALK_EXCLUDED)
   if (!reachesSwitchLive(f))
     failures.push(

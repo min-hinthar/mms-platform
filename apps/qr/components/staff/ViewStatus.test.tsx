@@ -17,6 +17,8 @@ vi.mock("@/lib/staff-actions", () => ({
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: vi.fn(), refresh: vi.fn() }) }));
 
 const { ViewStatusProvider, useViewStatus } = await import("./ViewStatus");
+const { STAFF } = await import("@/lib/i18n/staff");
+type StaffMsg = import("./StaffMsg").StaffMsg;
 const { SignedInCard } = await import("./SignedInCard");
 const { TeamManager } = await import("./TeamManager");
 const { StaffLangProvider } = await import("./StaffLangProvider");
@@ -35,14 +37,16 @@ beforeEach(() => {
   provisionStaff.mockReset();
 });
 
-function Speaker({ id, text }: { id: string; text: string | null }) {
+/** A card standing in for the real ones: it announces a MESSAGE (a string is the server-sentence
+ *  arm of `StaffMsg`, rendered verbatim by `OutageText`; a key renders through the dictionary). */
+function Speaker({ id, msg }: { id: string; msg: StaffMsg | null }) {
   const announce = useViewStatus();
   return (
     <button
       type="button"
       data-testid={id}
       data-has={announce ? "yes" : "no"}
-      onClick={() => announce?.(text)}
+      onClick={() => announce?.(msg)}
     />
   );
 }
@@ -51,9 +55,9 @@ const region = () => document.querySelector('[role="status"]')!;
 describe("ViewStatusProvider", () => {
   it("one region, sr-only, at the END; the newest line replaces the last", () => {
     const { container } = render(
-      <ViewStatusProvider>
-        <Speaker id="a" text="A said" />
-        <Speaker id="b" text="B said" />
+      <ViewStatusProvider lang="en">
+        <Speaker id="a" msg="A said" />
+        <Speaker id="b" msg="B said" />
       </ViewStatusProvider>,
     );
     expect(document.querySelectorAll('[role="status"]').length).toBe(1);
@@ -67,9 +71,9 @@ describe("ViewStatusProvider", () => {
   });
   it("the same words twice are a NEW node both times, and null clears", () => {
     render(
-      <ViewStatusProvider>
-        <Speaker id="a" text="again" />
-        <Speaker id="z" text={null} />
+      <ViewStatusProvider lang="en">
+        <Speaker id="a" msg="again" />
+        <Speaker id="z" msg={null} />
       </ViewStatusProvider>,
     );
     fireEvent.click(screen.getByTestId("a"));
@@ -84,14 +88,29 @@ describe("ViewStatusProvider", () => {
     expect(region().firstElementChild).toBeNull();
   });
   it("without a provider a card has no announcer — it keeps its own region", () => {
-    render(<Speaker id="lone" text="x" />);
+    render(<Speaker id="lone" msg="x" />);
     expect(screen.getByTestId("lone").getAttribute("data-has")).toBe("no");
     expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+  it("a language switch re-renders the region in the new tongue — the MESSAGE is stored, never a node", () => {
+    // A switch is a `router.refresh()` that keeps this provider's client state: a stored node
+    // would keep the old language while the echo beside it re-rendered (Codex round 2, P2).
+    const ui = (lang: "en" | "my") => (
+      <ViewStatusProvider lang={lang}>
+        <Speaker id="k" msg={{ k: "entry.pin.err.mismatch" }} />
+      </ViewStatusProvider>
+    );
+    const { rerender } = render(ui("en"));
+    fireEvent.click(screen.getByTestId("k"));
+    expect(region().textContent).toBe(STAFF["entry.pin.err.mismatch"].en);
+    rerender(ui("my"));
+    expect(region().textContent).toBe(STAFF["entry.pin.err.mismatch"].my);
+    expect(region().querySelector('[lang="my"]')).not.toBeNull();
   });
   it("the signed-in sign-in screen: the card and the roster share ONE region, each showing its own echo", async () => {
     render(
       <StaffLangProvider lang="en">
-        <ViewStatusProvider>
+        <ViewStatusProvider lang="en">
           <SignedInCard lang="en" hasPin={false} displayName="Daw Hla" email={null} />
           <TeamManager initial={[]} selfUid="u1" selfEmail={null} callerRole="manager" />
         </ViewStatusProvider>

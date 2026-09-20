@@ -126,8 +126,10 @@ export default async function StaffLoginPage({
       <div className="staff-col entry-col">
         {/* ONE polite live region for the view (QA §A): the card and the roster each used to carry
             their own, and two regions flip together. The provider owns the region at the end of the
-            column; both cards speak through it and show their line as an aria-hidden echo. */}
-        <ViewStatusProvider>
+            column; both cards speak through it and show their line as an aria-hidden echo. It takes
+            the CURRENT language: a switch is a refresh that keeps its state, and the region must
+            re-render every message in the new tongue like the echoes beside it. */}
+        <ViewStatusProvider lang={lang}>
           <SignedInCard
             lang={lang}
             hasPin={hasPin}

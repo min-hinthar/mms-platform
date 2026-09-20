@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — MERGED as `2c6b151` (#294); slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — MERGED as `3695957` (#296); slice 6 — Menu · Tips · Glossary (menu-1..6 · gloss-1..2 · tips-1..2) — MERGED as `280b1ab` (#297); slice 7 — the SIGN-IN screen + the shared chrome (signin-1..5 · doors-1/2 · help-1 · chrome-1 · the view's one live region · K35's last three sign-in sites · M78's staff half) — built and gated on `claude/qr-app-backlog-cj2t0m`, its blind pass and PR the next step; after it only the UNVERIFIED cross-cutting CSS/motion list in `docs/STAFF_POLISH_AUDIT.md` remains)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — MERGED as `2c6b151` (#294); slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — MERGED as `3695957` (#296); slice 6 — Menu · Tips · Glossary (menu-1..6 · gloss-1..2 · tips-1..2) — MERGED as `280b1ab` (#297); slice 7 — the SIGN-IN screen + the shared chrome (signin-1..5 · doors-1/2 · help-1 · chrome-1 · the view's one live region · K35's last three sign-in sites · M78's staff half) — on PR #298 (`claude/qr-app-backlog-cj2t0m`), ready: the blind pass's REJECT (three criticals) and Codex round 2's three P2s are closed on the head, merging on the owner's standing go; after it only the UNVERIFIED cross-cutting CSS/motion list in `docs/STAFF_POLISH_AUDIT.md` remains — the next session starts there, or on the C18 / M228 / M187 rows if the owner points elsewhere)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
@@ -76,14 +76,20 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    the two-day 86 stamp, the draft's stated reasons + Return, the sold-out chip, per-screen
 >    skeletons, the glossary in the one shell with a print circle, the restaurant's clock named
 >    once (`lib/staff-clock.ts`), the follow-up row's order. K13's write half stays read-only (P5).
-> 4. **Sign-in + chrome — ✅ BUILT (slice 7):** §17 on the roster (the sign-in screen's last three
+> 4. **Sign-in + chrome — ✅ BUILT (slice 7, PR #298):** §17 on the roster (the sign-in screen's last three
 >    native sites; K35 at 14 in 9), the said refusals with focus to the field, ONE live region for
 >    the two-card screen (`ViewStatusProvider` — a card alone keeps its own), the Lock circle's
 >    keyed refusal in `.staff-bar-msg` beneath the tail + press + haptic, `--fs-field` (M78's staff
 >    half), the two takeovers on the bar (card heading h2), the login/lock skeletons
 >    (`EntrySkeleton`), the doors' busy word + the More list's name, the help pictures in the real
->    ticket shell with the `--kfs-*` tier on `.help-pic`. **Next: the cross-cutting CSS/motion
->    list** once someone has verified it (M76's sheet exit animation is the known real one).
+>    ticket shell with the `--kfs-*` tier on `.help-pic`; the blind pass then found the refusal
+>    line defeated at ≤720px, the pictures stuck at the Small dial stop and a malformed address
+>    reaching the server in English, and Codex round 2 found the region frozen in one tongue across
+>    a switch, the skeleton one shape for two routes and the guard's self-check reachable through an
+>    uncalled helper — all closed on the head. **Next: the cross-cutting CSS/motion list** once
+>    someone has verified it (M76's sheet exit animation is the known real one). After the merge:
+>    `git fetch origin main && git checkout -B claude/qr-app-backlog-cj2t0m origin/main` and
+>    force-with-lease the branch — it carries only merged history.
 >
 > **Mechanics that bit these slices:** a `verify:slice` mutation loop that asserts before its final
 > restore leaves a MUTANT on disk — keep a scratchpad backup and `cmp` after every loop, and NEVER
@@ -103,8 +109,14 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > is asserted INSIDE that `@media` block (brace-walk it — `[^{}]` regexes cannot). (2) A guard
 > about "does this module still mount X" must read LIVE JSX, never the import graph: an import
 > edge alone and `{false && <X/>}` both pass a walk (`check-staff-lang.mjs`'s self-check now parses
-> the excluded shell's live tags and resolves them). (3) Run `tsc` AFTER the last test edit —
-> vitest does not typecheck, and CI's `typecheck` caught a fixture the suite happily ran. Two
+> the excluded shell's live tags and resolves them — from its EXPORTS, since Codex round 2 showed an
+> uncalled helper holding the tag would pass a whole-file walk). (3) Run `tsc` AFTER the last test
+> edit — vitest does not typecheck, and CI's `typecheck` caught a fixture the suite happily ran.
+> (4) A provider that announces for other components stores the MESSAGE, never a rendered node: a
+> language switch is a `router.refresh()` that keeps client state, so a node built with the old
+> `lang` keeps speaking it while everything around it re-renders (Codex round 2). (5) A shared
+> skeleton is drawn per ROUTE SHAPE, not per column width — two routes in one column class can
+> still resolve to cards of different heights. Two
 > jsdom facts from slice 3 (LEARNINGS #127): a `fireEvent.click` on a `type="submit"` button lands
 > the action but commits the transition's pending render OUTSIDE `act` — dispatch `submit` on the
 > form; and `window.location.assign` cannot be spied (vitest swaps the console object, so jsdom's
@@ -865,7 +877,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **747 `verify:slice` mutants** · **131 target modules** (115 under `apps/qr/lib`, 3 API routes,
-> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (2897 + 146 today)** ·
+> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (2900 + 146 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1334,7 +1346,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (747 today)**, **1372 qr + 138 ui tests at the time (2897 + 146 today)**, 69 target modules at the time (115 under `apps/qr/lib` today, 131 in all), 97 local
+> **334 mutants at the time (747 today)**, **1372 qr + 138 ui tests at the time (2900 + 146 today)**, 69 target modules at the time (115 under `apps/qr/lib` today, 131 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2226,7 +2238,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 747 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2897 qr tests + 146 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 747 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2900 qr tests + 146 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
