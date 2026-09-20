@@ -657,14 +657,20 @@ built.
   two vocabularies in one bar — and inside `.staff-seg` the tint was not even visible: the track's
   `.staff-seg > .kds-chip` (0,2,1) out-specified `.kds-chip[aria-pressed]` (0,2,0) and painted the
   fill transparent, leaving a sheen ring (K29's "grey disc"). `KdsBoard.test.tsx` parses the
-  stylesheet and reddens the moment any of the four pressed selectors grows a second fill.
-  Segments never drop under 44px (O-E): the thumb IS the target.
+  stylesheet and reddens the moment any of the five pressed selectors grows a second fill — the
+  fifth is the register's open Start arm (`.staff-arm[aria-expanded="true"]`, counter-4): a
+  selection is a selection whichever attribute says so, and it joins the rule rather than the
+  accent outline it wore before. Segments never drop under 44px (O-E): the thumb IS the target.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
   The kitchen board's eight action buttons — bump · fire · the line · 86 · undo · recall · the pager
-  — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; 64 native
-  `disabled` sites remain across 27 other staff components (K35). Busy is the attribute (`aria-busy`) plus a dim, never a label swap: `{pending ? "…" : label}` on a
+  — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; the lane's
+  bump and the register's five controls followed the same day, and 40 native `disabled` sites
+  remain across 18 other staff components (K35 — measured native-only; `aria-disabled={` is not
+  one). The register also shows the trap in the predicate: a `busy` computed at RENDER is the same
+  stale `false` for every tap of one frame, so the handler reads the in-flight REF when the tap
+  lands (LEARNINGS #126). Busy is the attribute (`aria-busy`) plus a dim, never a label swap: `{pending ? "…" : label}` on a
   button with no `aria-label` makes its accessible name literally "…" for the round trip, and a 64px
   zone that collapses to an ellipsis moves under the thumb.
 - **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a

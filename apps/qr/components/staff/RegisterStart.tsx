@@ -1,13 +1,14 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
+import { useRef, useState, useTransition, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { openRegisterOrder } from "@/lib/register";
+import { haptic } from "@/lib/haptics";
 import { useStaffLang } from "./StaffLangProvider";
 import { Chrome, OutageText } from "./Chrome";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { tf } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
-import { startBtn, startBtnActive } from "./register-stage";
+import { START_ARM } from "./register-stage";
 
 /**
  * P2 — what the zone has to say, and who authored it.
@@ -24,11 +25,20 @@ import { startBtn, startBtnActive } from "./register-stage";
  */
 type Notice = { kind: "local"; k: StaffKey } | { kind: "server"; error: string };
 
+type Arm = "none" | "phone" | "table";
+
 /**
  * The register's Start zone (W6a) — Walk-up · Phone order · Start a table. Each arm mints server-side
  * (staff-gated service-role; never /api/session) and lands on the existing drill-down order screen.
  * One busy state for the whole zone: a counter mints one order at a time, and a double-tap minting two
  * sessions is worse than a beat of waiting.
+ *
+ * counter-3 (§17) — busy is `aria-disabled` + `aria-busy` on the controls, never native `disabled`:
+ * a natively disabled button drops focus to `<body>` mid-tap, so a REFUSED mint used to leave focus
+ * nowhere and the notice unread. The attribute is decorative, so the refusal lives in the handlers,
+ * on the same predicate. The tapped control keeps its label AND its focus through the round trip;
+ * the `<p role="status">` announces the refusal on its own (focusing a live region on top of that
+ * would double the announcement, and a refusal is none of §7's focus-move cases).
  */
 export function RegisterStart({
   labelledBy,
@@ -40,24 +50,51 @@ export function RegisterStart({
   const lang = useStaffLang();
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // Two taps in one frame both read `pending === false` — the transition has not committed yet —
+  // so the guard that stops the second MINT is a ref written synchronously (the doors' shape,
+  // `StaffDoors.tsx`); `pending` is what the controls SAY, one render later.
+  const inFlight = useRef(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [phoneName, setPhoneName] = useState("");
   const [tableNumber, setTableNumber] = useState("");
-  const [arm, setArm] = useState<"none" | "phone" | "table">("none");
+  const [arm, setArm] = useState<Arm>("none");
+  // Read at TAP time, never at render: a render-time constant is the same stale `false` for every
+  // tap of one frame (the suite's two-taps case reddened on exactly that draft).
+  const isBusy = () => pending || inFlight.current;
+
+  /** counter-5 — opening an arm is a PICK. The other arm's notice leaves with it (a table-number
+   *  refusal must not sit under the phone form), and the revealed input takes focus: the form
+   *  mounts fresh per arm, so `autoFocus` runs inside the tap's own flush and iOS raises the
+   *  keyboard. Refused while a mint is in flight, like every other control in the zone. */
+  function toggle(next: Exclude<Arm, "none">) {
+    if (isBusy()) return;
+    haptic("pick");
+    setNotice(null);
+    setArm(arm === next ? "none" : next);
+  }
 
   function mint(input: {
     kind: "walkup" | "phone" | "table";
     tableNumber?: number;
     customerName?: string;
   }) {
+    if (isBusy()) return;
+    inFlight.current = true;
     setNotice(null);
+    // A mint is a COMMIT (W22c): the press is its visible half, the order screen the outcome.
+    haptic("commit");
     startTransition(async () => {
-      const r = await openRegisterOrder(input);
-      if (!r.ok) {
-        setNotice({ kind: "server", error: r.error });
-        return;
+      try {
+        const r = await openRegisterOrder(input);
+        if (!r.ok) {
+          setNotice({ kind: "server", error: r.error });
+          return;
+        }
+        router.push(`/staff/table/${r.sessionId}/add`);
+      } finally {
+        // Released before the push lands: the counter's screen may stay mounted under it.
+        inFlight.current = false;
       }
-      router.push(`/staff/table/${r.sessionId}/add`);
     });
   }
 
@@ -70,27 +107,29 @@ export function RegisterStart({
       <div style={row}>
         <button
           type="button"
-          style={startBtn}
-          disabled={pending}
+          className={`${START_ARM} staff-press`}
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
           onClick={() => mint({ kind: "walkup" })}
         >
           <Chrome lang={lang} k="reg.start.walkup" echo="stack" />
         </button>
+        {/* `aria-expanded` is the state the arm already carries; the lit cap reads it (counter-4). */}
         <button
           type="button"
-          style={arm === "phone" ? startBtnActive : startBtn}
-          disabled={pending}
+          className={`${START_ARM} staff-press`}
+          aria-disabled={pending || undefined}
           aria-expanded={arm === "phone"}
-          onClick={() => setArm(arm === "phone" ? "none" : "phone")}
+          onClick={() => toggle("phone")}
         >
           <Chrome lang={lang} k="reg.start.phone" echo="stack" />
         </button>
         <button
           type="button"
-          style={arm === "table" ? startBtnActive : startBtn}
-          disabled={pending}
+          className={`${START_ARM} staff-press`}
+          aria-disabled={pending || undefined}
           aria-expanded={arm === "table"}
-          onClick={() => setArm(arm === "table" ? "none" : "table")}
+          onClick={() => toggle("table")}
         >
           <Chrome lang={lang} k="reg.start.table" echo="stack" />
         </button>
@@ -114,6 +153,8 @@ export function RegisterStart({
               value={phoneName}
               maxLength={40}
               autoComplete="off"
+              autoFocus
+              enterKeyHint="go"
               onChange={(e) => setPhoneName(e.target.value)}
               // A placeholder is a flat attribute — it carries no markup and so no `lang`, the same
               // trade-off an accessible name makes (lib/staff-labels.ts). The visible <label> above
@@ -121,7 +162,13 @@ export function RegisterStart({
               placeholder={ts(lang, "reg.phone.placeholder")}
             />
             {/* Both states echo, so the button cannot change height mid-transition. */}
-            <button type="submit" style={goBtn} disabled={pending}>
+            <button
+              type="submit"
+              className="staff-btn"
+              style={goBtn}
+              aria-disabled={pending || undefined}
+              aria-busy={pending || undefined}
+            >
               <Chrome lang={lang} k={pending ? "reg.going" : "reg.go"} echo="stack" />
             </button>
           </div>
@@ -133,6 +180,7 @@ export function RegisterStart({
           style={subForm}
           onSubmit={(e) => {
             e.preventDefault();
+            if (isBusy()) return;
             const n = Number.parseInt(tableNumber, 10);
             if (!Number.isInteger(n) || n < 1) {
               setNotice({ kind: "local", k: "reg.err.table" });
@@ -153,12 +201,20 @@ export function RegisterStart({
               pattern="[0-9]*"
               maxLength={3}
               autoComplete="off"
+              autoFocus
+              enterKeyHint="go"
               onChange={(e) => setTableNumber(e.target.value.replace(/\D/g, ""))}
               // The example number rides an `{id}` slot: it is an identifier, Latin in both tongues,
               // and no dictionary VALUE may carry a digit of either script.
               placeholder={tf(lang, "reg.table.placeholder", { id: EXAMPLE_TABLE })}
             />
-            <button type="submit" style={goBtn} disabled={pending}>
+            <button
+              type="submit"
+              className="staff-btn"
+              style={goBtn}
+              aria-disabled={pending || undefined}
+              aria-busy={pending || undefined}
+            >
               <Chrome lang={lang} k={pending ? "reg.going" : "reg.go"} echo="stack" />
             </button>
           </div>
@@ -186,7 +242,8 @@ const EXAMPLE_TABLE = 4;
 
 const zone: CSSProperties = { display: "grid", gap: "var(--s3)" };
 const row: CSSProperties = { display: "flex", gap: "var(--s3)", flexWrap: "wrap" };
-// `startBtn` / `startBtnActive` live in `register-stage.ts` — the help card draws them too.
+// The three arms are `.staff-arm` (`register-stage.ts` names it; `globals.css` draws it) — the help
+// card wears the same class.
 const subForm: CSSProperties = { display: "grid", gap: "var(--s2)" };
 const label: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--t2)" };
 const input: CSSProperties = {

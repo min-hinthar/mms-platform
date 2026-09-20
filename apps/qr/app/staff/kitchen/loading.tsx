@@ -1,12 +1,19 @@
 import { Skeleton } from "@mms/ui";
+import { Chrome } from "@/components/staff/Chrome";
+import { ts } from "@/lib/i18n/staff";
+import { readStaffLang } from "@/lib/staff-lang-server";
 
 /** Instant skeleton for the KDS — full-bleed Night board: header strip then the ticket grid (matches
- *  the W3 kds-root geometry so the swap to live tickets doesn't jump). */
-export default function ConsoleLoading() {
+ *  the W3 kds-root geometry so the swap to live tickets doesn't jump). The one announced line is the
+ *  dictionary's (counter-9), like the counter's skeleton beside it. */
+export default async function ConsoleLoading() {
+  const lang = await readStaffLang();
   return (
     <main>
       <div className="kds-root dark">
-        <span className="sr-only">Loading the kitchen queue…</span>
+        <span className="sr-only">
+          <Chrome lang={lang} k="shell.loading" vars={{ what: ts(lang, "what.kitchen") }} />
+        </span>
         <div aria-hidden>
           <div
             style={{

@@ -2433,3 +2433,19 @@ KDS had that line all along. **A table-cell edit keyed by "third from the end" i
 with fewer columns:** the K27 row has no origin cell, so the STATUS index landed on its
 description and wiped it. Address a cell by what it IS (`closed`/`open`/a date), assert before
 writing, and diff the row after.
+
+## #126 — A busy predicate computed at render is stale for every tap of one frame (2026-09-20, slice 2b)
+
+`RegisterStart` needed §17's shape: `aria-disabled` from `pending`, and the handler refusing
+re-entry on the same predicate (#124). The first draft wrote `const busy = pending || inFlight.current`
+at the top of the component and had `mint` read `busy`. The suite's two-taps case (two
+`fireEvent.click` inside ONE `act`) minted TWICE: both taps ran against the same render, where
+`busy` had been evaluated once as `false` — the ref was set by the first tap, but nobody re-read it.
+`useTransition`'s `pending` cannot help there either; it commits one render later.
+
+The rule: **the attribute derives from STATE (what the control says, one render behind); the handler
+reads the REF at call time (`isBusy()`), never a render-time snapshot of it.** #124's "same
+predicate" means the same SOURCE, read when the tap lands. `StaffDoors.tsx` had this right with
+`inFlight.current` inline; the register copied the ref and lost the read. The mutation note in
+`RegisterStart.test.tsx` ("drop `inFlight` and gate on `pending` alone") is the shape to keep
+watching red.

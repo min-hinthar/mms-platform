@@ -4,6 +4,53 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### counter-3 · counter-4 · counter-5 · counter-8 · counter-9 · counter-10 + the counter halves of K29 · K35 — the register and the floor's chrome (2026-09-20)
+
+**Slice 2b of the staff-console polish: the counter's Start zone, the age on every card, the
+floor's skeleton and the More rows, from the audit's verified findings** (`docs/STAFF_POLISH_AUDIT.md`
+→ Counter & tables).
+
+- **The Start zone is §17 (counter-3; K35's five sites).** Walk-up · Phone order · Start a table
+  and both Go buttons were native `disabled` during a mint, so a refused mint dropped focus to
+  `<body>` and left the notice unread. They are `aria-disabled` now (+ `aria-busy` on the minting
+  control), the refusal in the handlers — read at TAP time through an in-flight ref, because a
+  render-time `busy` constant is the same stale `false` for every tap of one frame (the suite's
+  two-taps case reddened on exactly that draft; LEARNINGS #126). The tapped arm keeps its label and
+  its focus through the round trip; the one live region announces alone. `RegisterStart.test.tsx`
+  (5 cases) pins it: never native, one mint per frame, focus kept, the zone live again after a
+  refusal, the Go button the same.
+- **The open arm wears the console's ONE lit cap (counter-4; K29's pills).** `register-stage.ts` is
+  a CLASS now (`.staff-arm`, drawn once in `globals.css`); the open arm — `aria-expanded`, the
+  state it already carried — is the fifth selector in the shared pressed rule beside the KDS chips
+  (accent fill, `--oa` ink, sheen, gold halo — `KdsBoard.test.tsx`'s one-fill guard names it), and
+  all three arms carry `.staff-press` with `haptic("pick")` on a toggle and `haptic("commit")` on a
+  mint. The help card wears the same class; `HelpPicture.test.tsx` holds it live in the stylesheet
+  (its old `style.background` read-back is gone with the style object).
+- **Opening an arm focuses its field (counter-5).** `autoFocus` on the fresh-mounted input (inside
+  the tap's own flush, so iOS raises the keyboard), `enterKeyHint="go"` on both, and the other
+  arm's notice leaves with the switch — a table-number refusal no longer reads under the phone form.
+- **The age on every card is the dictionary's (counter-8).** `RelativeTime` printed "just now" /
+  "5m ago" as English literals under a Burmese console — on every table card, counter card,
+  approval row and the drill-down's two lines. `lib/relative-time.ts` picks the key and the count
+  (`time.justNow` · `time.minAgo` · `time.hrAgo` · `time.dayAgo`; `{n}` is a COUNT slot, so Burmese
+  numerals under `my`), `<RelativeTime>` renders it through `<Chrome>` inside the `<time>` (the
+  machine stamp kept), and the two `table.detail.*` labels stay PREFIXES on purpose: `{t}` is a
+  Latin clock by contract and the age is prose in the reader's tongue, a marked run of its own.
+  `relative-time.test.ts` pins the thresholds (45 s · 60 · 24, watched red under `<=`), the jsdom
+  suite the render. Four machine-drafted MY strings → K15's sheet.
+- **The floor's skeleton is the floor's geometry (counter-9).** `app/staff/loading.tsx` draws the
+  bar, the column at 1080, the greeting and the three zones in the page's own classes and `--s*`
+  tokens — the first heading used to land ~110px below where the skeleton drew it. Async for the
+  memoized cookie read, so its one announced line is `shell.loading` through `<Chrome>` in the
+  console's tongue; the kitchen's skeleton says its line the same way.
+- **The More rows (counter-10; K29's echo + arrow).** The eight `floor.nav.*` values drop their
+  trailing ` →` — the chevron is the disclosure, and a screen reader spoke "right arrow" inside the
+  approvals circle's name — and the English echo sits at `--fs-sm`, the bar title's own echo size,
+  where it was 11px under 19px Padauk. (The `*.back` keys keep their `←`; P2o carries the note.)
+- **The doors' titles sit at one height (K29's doors half).** `.staff-door` is top-anchored; the
+  door this tablet walked through has one more line, and the sub-line alone now takes that slack.
+- TableCard's six magic gaps read `--s1` / `--s2` / `--s3`.
+
 ### counter-1 · P2p · P2q + the counter half of K27 — the takeaway lane (2026-09-20)
 
 **Slice 2a of the staff-console polish: the counter's bagging lane, from the audit's verified

@@ -96,7 +96,7 @@ export function TableCard({
           {td.unregistered && (
             <span
               style={{
-                marginLeft: 6,
+                marginLeft: "var(--s2)",
                 fontFamily: "var(--font-body)",
                 fontSize: "var(--fs-xs)",
                 color: "var(--warn)",
@@ -107,7 +107,7 @@ export function TableCard({
             </span>
           )}
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)" }}>
           {table.tab !== "none" && (
             // Decorative: the card's aria-label already says "tab open" / "over tab limit".
             // Warn keeps a non-color shape cue (alert glyph) too — never color-alone, for color-blind floor staff.
@@ -210,7 +210,7 @@ export function TableCard({
 const card: CSSProperties = {
   display: "flex",
   flexDirection: "column",
-  gap: 8,
+  gap: "var(--s2)",
   minHeight: 44,
   padding: "var(--s4) var(--s5)",
   textDecoration: "none",
@@ -220,7 +220,7 @@ const topRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 10,
+  gap: "var(--s3)",
 };
 const label: CSSProperties = {
   fontFamily: "var(--font-display)",
@@ -230,7 +230,7 @@ const label: CSSProperties = {
 const metaRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 7,
+  gap: "var(--s2)",
   flexWrap: "wrap",
   fontSize: "var(--fs-sm)",
   color: "var(--t2)",
@@ -239,8 +239,8 @@ const bottomRow: CSSProperties = {
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
-  gap: 10,
-  marginTop: 2,
+  gap: "var(--s3)",
+  marginTop: "var(--s1)",
 };
 
 /**
