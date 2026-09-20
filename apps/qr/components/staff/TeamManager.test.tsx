@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
+import type { StaffRow } from "@/lib/staff";
 
 const provisionStaff = vi.fn();
 const setStaffActive = vi.fn();
@@ -48,15 +49,15 @@ beforeEach(() => {
   setStaffRole.mockResolvedValue({ ok: true });
 });
 
-const ROW = {
+const ROW: StaffRow = {
   userId: "u2",
-  role: "server" as const,
+  role: "server",
   displayName: "Ko Ko",
   email: "koko@example.com",
   active: true,
   createdAt: "2026-09-01T00:00:00Z",
 };
-const INACTIVE = {
+const INACTIVE: StaffRow = {
   ...ROW,
   userId: "u3",
   displayName: "Ma Ma",
@@ -64,14 +65,14 @@ const INACTIVE = {
   active: false,
 };
 /** A row this manager cannot reach (A6): the controls give way to the dash. */
-const OWNER = {
+const OWNER: StaffRow = {
   ...ROW,
   userId: "u4",
   displayName: "U Ba",
   email: "uba@example.com",
-  role: "owner" as const,
+  role: "owner",
 };
-const mount = (initial: (typeof ROW)[] | null) =>
+const mount = (initial: StaffRow[] | null) =>
   render(
     <StaffLangProvider lang="en">
       <TeamManager initial={initial} selfUid="u1" selfEmail="me@example.com" callerRole="manager" />
