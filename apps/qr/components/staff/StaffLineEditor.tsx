@@ -3,7 +3,7 @@ import { useState, useTransition, type CSSProperties } from "react";
 import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
 import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
-import { Stepper } from "@mms/ui";
+import { Stepper, useSheetSubject } from "@mms/ui";
 import { ts } from "@/lib/i18n/staff";
 import { al } from "@/lib/staff-labels";
 import { LossActionSheet } from "./LossActionSheet";
@@ -45,6 +45,7 @@ export function StaffLineEditor({
   const [optimisticQty, setOptimisticQty] = useState<number | null>(null);
   const [seenServerQty, setSeenServerQty] = useState(line.qty);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const loss = useSheetSubject(sheetOpen && !line.pendingApproval ? line : null);
   // W3b kitchen note: null = editor closed; a string = the in-progress draft (may be "", which clears).
   const [noteDraft, setNoteDraft] = useState<string | null>(null);
   const [notePending, startNote] = useTransition();
@@ -186,14 +187,16 @@ export function StaffLineEditor({
             </button>
           )}
         </span>
-        {/* Mounted only while open so each open is a fresh sheet (resets reason/PIN, refetches managers)
-            without a setState-in-effect reset. */}
-        {sheetOpen && !line.pendingApproval && (
+        {/* Each open is a fresh sheet (resets reason/PIN, refetches managers) by REMOUNT — the
+            `key` advances on every open — while the subject is HELD through the exit so the sheet
+            can slide down instead of cutting (M76, `useSheetSubject`). */}
+        {loss.held && (
           <LossActionSheet
-            open
+            key={loss.key}
+            open={loss.open}
             onOpenChange={setSheetOpen}
             sessionId={sessionId}
-            line={line}
+            line={loss.held}
             onDone={() => setSheetOpen(false)}
           />
         )}

@@ -187,9 +187,14 @@ select {
    drag threshold continues down from where the thumb left it instead of snapping to the top first.
    The scrim fades over the same `--dur-sheet` so it never vanishes while the sheet is still
    sliding. Reduced motion turns both off in the block below the keyframes — these attribute
-   selectors out-specify the bare classes, so they are named there explicitly. */
+   selectors out-specify the bare classes, so they are named there explicitly.
+   ⚠️ An exit's name must NOT contain its entrance's name: Radix ends the hold on `animationend`
+   OR `animationcancel` and matches by SUBSTRING (`current.includes(event.animationName)`), so a
+   close that lands inside the entrance cancels `fade`, and an exit called `fadeOut` would have
+   read that cancel as its own end and dropped the scrim at once (the blind pass, slice 4).
+   `SheetExit.test.tsx` parses both names and refuses the containment. */
 .mms-scrim[data-state="closed"] {
-  animation: fadeOut var(--dur-sheet) var(--ease-out) forwards;
+  animation: scrimOut var(--dur-sheet) var(--ease-out) forwards;
 }
 .mms-sheet[data-state="closed"] {
   animation: sheetDown var(--dur-sheet) var(--ease-in-out) forwards;
@@ -315,7 +320,7 @@ select {
     transform: translateY(100%);
   }
 }
-@keyframes fadeOut {
+@keyframes scrimOut {
   to {
     opacity: 0;
   }

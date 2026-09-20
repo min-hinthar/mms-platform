@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — on draft PR #294 (`claude/qr-app-backlog-cj2t0m`), its Codex round and merge the next step; slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — built, gated and blind-passed LOCALLY on the same branch, queued behind #294's merge for its own PR; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — on draft PR #294 (`claude/qr-app-backlog-cj2t0m`), its Codex round and merge the next step; slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — on draft PR #295 (`claude/qr-app-backlog-cj2t0m`), blind pass REJECT closed, its Codex round and merge the next step; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
@@ -55,16 +55,17 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >
 > **Slice order, by where staff are and by verified severity — what is LEFT:**
 >
-> 1. **The sheet primitive (`packages/ui`) — ✅ BUILT (slice 4, local, queued behind #294):**
->    manager-9 (`Sheet.closeLabel {idle, busy}` as sr-only DOM text, `sheetCloseLabel(lang)` for
->    the five staff callers), manager-10 / M76 (NOT the `forceMount` + `AnimatePresence` plan the
->    audit sketched — a CSS exit pair on `[data-state="closed"]` that Radix's own `Presence` honours,
->    once the `DomMaxProvider` stopped sitting between the portal and the content and
->    `SheetContent` forwarded its ref; LEARNINGS #129), and K29(b)'s cash-settle confirm → `Sheet`
->    (`busy` as a transition — the M82 caller guard caught the hand-rolled boolean; a refusal stays
->    in the sheet; the handoff path unmounts it; LEARNINGS #130 on the focus-restore timer). Its PR
->    opens once #294 is merged and the branch is reset: `git checkout -B claude/qr-app-backlog-cj2t0m
-origin/main && git cherry-pick <the two slice-4 commits>`.
+> 1. **The sheet primitive (`packages/ui`) — ✅ BUILT (slice 4, draft PR #295):** manager-9
+>    (`Sheet.closeLabel {idle, busy}` as sr-only DOM text, `sheetCloseLabel(lang)` for the five
+>    staff callers), manager-10 / M76 (NOT the `forceMount` + `AnimatePresence` plan the audit
+>    sketched — a CSS exit pair on `[data-state="closed"]` that Radix's own `Presence` honours, once
+>    `SheetContent` became the portal's child and forwarded its ref through the provider, and once
+>    the three parents that unmounted their sheet on close held the subject through the exit with
+>    `useSheetSubject`; LEARNINGS #129), and K29(b)'s cash-settle confirm → `Sheet` (`busy` as a
+>    transition — the M82 caller guard caught the hand-rolled boolean; a refusal stays in the sheet;
+>    a landed settle unmounts it and the trigger reads busy; LEARNINGS #130 on the focus-restore
+>    timer). The blind pass (REJECT: a table's settle parked the cashier in a busy modal) is closed
+>    on the PR. One device check is owed and filed with M76: the drag-release exit's first frames.
 > 2. **`/board`** (K28(b): the Ready shelf's raw `readyMinutes` gets `fmtElapsed`; `.orb-status`
 >    size).
 > 3. **Menu · Tips · Glossary**, then **Sign-in + chrome** (K35's 40 native `disabled` sites in 18
@@ -844,7 +845,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **741 `verify:slice` mutants** · **127 target modules** (111 under `apps/qr/lib`, 3 API routes,
-> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests _as measured that day_** ·
+> 12 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (2767 + 146 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1313,7 +1314,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2761 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2767 + 146 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2205,7 +2206,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2761 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2767 qr tests + 146 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

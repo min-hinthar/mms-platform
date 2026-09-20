@@ -28,14 +28,17 @@ import { mayDismiss, sheetDismiss } from "./sheet-dismiss";
  * and unmounts it on `animationend`; `.mms-sheet[data-state="closed"]` / `.mms-scrim[…]` in
  * globals.css supply that animation, so CSS owns the entrance AND the exit (one motion owner) and
  * framer keeps only the drag. The structural half is what made it work: `Dialog.Portal` wraps EACH
- * child in its own `Presence`, which reads the animation off the ref it forwards — so the
- * `DomMaxProvider` that used to sit between the portal and the content (a context provider with no
- * DOM node) made that Presence see nothing and unmount instantly, exit or no exit. The provider now
- * wraps the portal (React context crosses portals) and `SheetContent` forwards its `ref` to the
- * content node. `onCloseAutoFocus` therefore fires at UNMOUNT — after the exit — which is where the
- * default opener-restore wants it; a caller that moves focus elsewhere on close does so during the
- * exit, under the sheet's own `aria-hidden` on the page, and should unmount the sheet instead if
- * that focus must be announced (the cash confirm's handoff path is the worked example).
+ * child in its own `Presence`, which reads the animation off the ref it forwards into that child —
+ * so the `DomMaxProvider` that used to be the portal's child (a context provider with no DOM node)
+ * made that Presence see nothing and unmount instantly, exit or no exit. `SheetContent` is the
+ * portal's child now and forwards its `ref` THROUGH the provider to the content node; the provider
+ * stays inside the portal child on purpose — mounted only while a sheet is present, so its lazy
+ * `domMax` chunk still loads on first open, not on every route that renders a closed sheet.
+ * `onCloseAutoFocus` therefore fires at UNMOUNT — after the exit — which is where the default
+ * opener-restore wants it; a caller that moves focus elsewhere on close does so during the exit,
+ * under the sheet's own `aria-hidden` on the page, and should unmount the sheet instead if that
+ * focus must be announced (the cash confirm's handoff path is the worked example). A sheet whose
+ * PARENT unmounts it on close cannot exit at all — `useSheetSubject` holds the subject through it.
  */
 export function Sheet({
   open,
@@ -110,31 +113,29 @@ export function Sheet({
         onOpenChange(next);
       }}
     >
-      {/* The domMax provider wraps the portal, never sits inside it (M76, see the docblock): the
-          portal's per-child Presence must be handed a DOM node, and a provider forwards none. */}
-      <DomMaxProvider>
-        <Dialog.Portal>
-          <Dialog.Overlay className="mms-scrim" />
-          <SheetContent
-            title={title}
-            busy={busy}
-            className={className}
-            closeLabel={closeLabel}
-            // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
-            // caller and it runs its own `sheetDismiss` — but handing the child a raw
-            // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
-            // adversarial pass showed exactly that shape sailing past the suite (a hand-rolled
-            // `onClick` on the scrim, the defect W22c deleted from `RefundActionSheet`). Belt and
-            // brace: two gates on one path is cheap, an ungated second path is the whole bug.
-            onClose={() => {
-              if (mayDismiss({ busy })) onOpenChange(false);
-            }}
-            onCloseAutoFocus={onCloseAutoFocus}
-          >
-            {children}
-          </SheetContent>
-        </Dialog.Portal>
-      </DomMaxProvider>
+      {/* Each portal child is handed a ref by its Presence (M76, see the docblock): the overlay is
+          Radix's own, and `SheetContent` forwards its ref through the provider to the content. */}
+      <Dialog.Portal>
+        <Dialog.Overlay className="mms-scrim" />
+        <SheetContent
+          title={title}
+          busy={busy}
+          className={className}
+          closeLabel={closeLabel}
+          // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
+          // caller and it runs its own `sheetDismiss` — but handing the child a raw
+          // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
+          // adversarial pass showed exactly that shape sailing past the suite (a hand-rolled
+          // `onClick` on the scrim, the defect W22c deleted from `RefundActionSheet`). Belt and
+          // brace: two gates on one path is cheap, an ungated second path is the whole bug.
+          onClose={() => {
+            if (mayDismiss({ busy })) onOpenChange(false);
+          }}
+          onCloseAutoFocus={onCloseAutoFocus}
+        >
+          {children}
+        </SheetContent>
+      </Dialog.Portal>
     </Dialog.Root>
   );
 }
@@ -150,19 +151,9 @@ function writeKbInset(px: number) {
   document.documentElement.style.setProperty("--kb-inset", `${px}px`);
 }
 
-// Separate component so the drag-controls hook runs UNDER the DomMaxProvider (where `m`/drag resolve).
-// `ref` (React 19 ref-as-prop) is forwarded to the content node — the portal's Presence composes it
-// in through the Slot, and reads the exit animation off that node (M76).
-function SheetContent({
-  ref,
-  title,
-  busy,
-  onClose,
-  className,
-  children,
-  onCloseAutoFocus,
-  closeLabel,
-}: {
+type SheetContentProps = {
+  /** React 19 ref-as-prop — the portal's Presence composes it in through the Slot and reads the
+   *  exit animation off the node it reaches (M76). Handed through the provider untouched. */
   ref?: React.Ref<HTMLDivElement>;
   title: React.ReactNode;
   busy: boolean;
@@ -171,7 +162,29 @@ function SheetContent({
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
   closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
-}) {
+};
+
+// The portal's child: the provider sits INSIDE it (mounted only while a sheet is present, so the
+// lazy domMax chunk loads on first open) and the ref passes through as a plain prop — no Slot, no
+// context boundary in the way — to the body, whose drag-controls hook runs under the provider.
+function SheetContent(props: SheetContentProps) {
+  return (
+    <DomMaxProvider>
+      <SheetBody {...props} />
+    </DomMaxProvider>
+  );
+}
+
+function SheetBody({
+  ref,
+  title,
+  busy,
+  onClose,
+  className,
+  children,
+  onCloseAutoFocus,
+  closeLabel,
+}: SheetContentProps) {
   const controls = useDragControls();
   // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
   // VisualViewport API and publish its height as `--kb-inset` on <html>, which `.mms-sheet` uses to sit

@@ -28,6 +28,22 @@ if (typeof globalThis.CSS === "undefined" || typeof globalThis.CSS.escape !== "f
 
 /** What a real stylesheet gives Radix: the computed `animationName` follows `data-state`. Other
  *  elements keep jsdom's real answer (react-remove-scroll and aria-hidden read styles too). */
+/** The exit keyframe names, read from the stylesheet so the fixture follows a rename. */
+const EXIT = (() => {
+  const src = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  const name = (sel: string) =>
+    new RegExp(
+      `${sel.replace(/[.[\]"=]/g, (c) => "\\" + c)}\\s*\\{[^}]*animation:\\s*([a-zA-Z]+)`,
+    ).exec(src)?.[1] ?? "none";
+  return {
+    sheet: name('.mms-sheet[data-state="closed"]'),
+    scrim: name('.mms-scrim[data-state="closed"]'),
+  };
+})();
+
 function stubComputedStyle() {
   const real = window.getComputedStyle.bind(window);
   vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
@@ -41,10 +57,10 @@ function stubComputedStyle() {
           const closed = node.getAttribute("data-state") === "closed";
           return node.classList.contains("mms-sheet")
             ? closed
-              ? "sheetDown"
+              ? EXIT.sheet
               : "up"
             : closed
-              ? "fadeOut"
+              ? EXIT.scrim
               : "fade";
         }
         const v = Reflect.get(target, key);
@@ -95,19 +111,21 @@ describe("M76 — the exit", () => {
     expect(dialog.getAttribute("data-state")).toBe("closed");
     expect(document.querySelector(".mms-scrim")?.getAttribute("data-state")).toBe("closed");
     await act(async () => {
-      animationEnd(dialog, "sheetDown");
+      animationEnd(dialog, EXIT.sheet);
     });
     // The scrim's own animation has not ended: it is still there, the sheet is not.
     expect(document.querySelector(".mms-sheet")).toBeNull();
     expect(document.querySelector(".mms-scrim")).not.toBeNull();
     await act(async () => {
-      animationEnd(scrim!, "fadeOut");
+      animationEnd(scrim!, EXIT.scrim);
     });
     expect(document.querySelector(".mms-scrim")).toBeNull();
   });
 
-  it("without an exit animation (reduced motion) a closing sheet unmounts at once", async () => {
-    // jsdom's real computed style: no stylesheet, `animationName` empty → Radix reads "none".
+  it("with no computed exit animation — what `animation: none` hands Radix — a closing sheet unmounts at once", async () => {
+    // jsdom's real computed style: no stylesheet, `animationName` empty → Radix reads "none". This
+    // is Radix's default; the reduced-motion PATH itself is CSS, pinned by the parse below (the
+    // block names both closed selectors AND sits after them, since specificity ties there).
     const { rerender } = render(<Host open />);
     await act(async () => {
       rerender(<Host open={false} />);
@@ -154,27 +172,44 @@ describe("M76 — the exit", () => {
       .filter((d) => d.startsWith(`${prop}:`))
       .map((d) => d.slice(prop.length + 1).trim());
   const top = blocksOf(css);
+  const RM = "@media (prefers-reduced-motion: reduce)";
+  /** Every rule block at ANY depth, tagged with the at-rule it sits in (null at the top level) — a
+   *  second `animation` for a closed selector parked inside `@media (min-width…)` ships a different
+   *  exit and would be invisible to a top-level-only count (the blind pass, slice 4). */
+  const deep = (blocks: Block[], parent: string | null): (Block & { parent: string | null })[] =>
+    blocks.flatMap((b) =>
+      b.prelude.startsWith("@") && b.body.includes("{")
+        ? deep(blocksOf(b.body), b.prelude)
+        : [{ ...b, parent }],
+    );
+  const every = deep(top, null);
   const keyframes = new Set(
     top.filter((b) => b.prelude.startsWith("@keyframes ")).map((b) => b.prelude.slice(11).trim()),
   );
   const CLOSED = ['.mms-sheet[data-state="closed"]', '.mms-scrim[data-state="closed"]'];
+  const animationName = (b: Block) => declaration(b, "animation")[0]?.split(/\s+/)[0] ?? null;
 
-  it.each(CLOSED)("%s ships exactly one top-level animation, and its keyframes exist", (sel) => {
-    const owners = top.filter(
-      (b) => selectors(b).includes(sel) && declaration(b, "animation").length,
-    );
-    // MUTATION: delete the `.mms-sheet[data-state="closed"]` rule — no owner, red.
-    expect(owners, `${sel} declares its exit once`).toHaveLength(1);
-    const [anim] = declaration(owners[0]!, "animation");
-    const name = anim!.split(/\s+/)[0]!;
-    // MUTATION: rename `@keyframes sheetDown` — the shipped literal names nothing, red.
-    expect([...keyframes], `${sel}: ${anim}`).toContain(name);
-    expect(name).not.toBe("none");
-    expect(anim).toMatch(/var\(--dur-sheet\)/);
-  });
+  it.each(CLOSED)(
+    "%s ships exactly one animation anywhere outside reduced motion, and its keyframes exist",
+    (sel) => {
+      const owners = every.filter(
+        (b) => b.parent !== RM && selectors(b).includes(sel) && declaration(b, "animation").length,
+      );
+      // MUTATION: delete the `.mms-sheet[data-state="closed"]` rule — no owner, red. MUTATION: add a
+      // second `animation:` for it inside `@media (min-width: 480px)` — two owners, red.
+      expect(owners, `${sel} declares its exit once`).toHaveLength(1);
+      expect(owners[0]!.parent).toBeNull();
+      const [anim] = declaration(owners[0]!, "animation");
+      const name = anim!.split(/\s+/)[0]!;
+      // MUTATION: rename `@keyframes sheetDown` — the shipped literal names nothing, red.
+      expect([...keyframes], `${sel}: ${anim}`).toContain(name);
+      expect(name).not.toBe("none");
+      expect(anim).toMatch(/var\(--dur-sheet\)/);
+    },
+  );
 
-  it("the reduced-motion block names both closed selectors with `animation: none`", () => {
-    const rm = top.filter((b) => b.prelude === "@media (prefers-reduced-motion: reduce)");
+  it("the reduced-motion block names both closed selectors with `animation: none` — and comes AFTER them", () => {
+    const rm = top.filter((b) => b.prelude === RM);
     expect(rm.length).toBeGreaterThan(0);
     for (const sel of CLOSED) {
       const inner = rm.flatMap((m) => blocksOf(m.body)).filter((b) => selectors(b).includes(sel));
@@ -182,6 +217,39 @@ describe("M76 — the exit", () => {
       // selector out-specifies `.mms-sheet`, so the exit would run under reduced motion; red.
       expect(inner, `${sel} inside prefers-reduced-motion`).toHaveLength(1);
       expect(declaration(inner[0]!, "animation")).toEqual(["none"]);
+      // Same specificity on both sides, so SOURCE ORDER is the whole mechanism: the reduced-motion
+      // block that names the selector must sit after the block that gives it the exit.
+      // MUTATION: move the reduced-motion block above the exit rules — red.
+      const owner = top.findIndex(
+        (b) => selectors(b).includes(sel) && declaration(b, "animation").length,
+      );
+      const rmIndex = top.findIndex(
+        (b) => b.prelude === RM && blocksOf(b.body).some((x) => selectors(x).includes(sel)),
+      );
+      expect(owner).toBeGreaterThanOrEqual(0);
+      expect(rmIndex).toBeGreaterThan(owner);
+    }
+  });
+
+  it("an exit's name never CONTAINS its entrance's name — Radix ends the hold on `animationcancel` by substring", () => {
+    // A close inside the entrance cancels `fade`; with an exit called `fadeOut`,
+    // `"fadeOut".includes("fade")` read that cancel as the exit's end and dropped the scrim at once.
+    const pairs: [string, string][] = [
+      [".mms-sheet", '.mms-sheet[data-state="closed"]'],
+      [".mms-scrim", '.mms-scrim[data-state="closed"]'],
+    ];
+    for (const [entrance, exit] of pairs) {
+      const inName = top
+        .filter((b) => selectors(b).includes(entrance) && declaration(b, "animation").length)
+        .map(animationName);
+      const outName = top
+        .filter((b) => selectors(b).includes(exit) && declaration(b, "animation").length)
+        .map(animationName);
+      expect(inName, entrance).toHaveLength(1);
+      expect(outName, exit).toHaveLength(1);
+      // MUTATION: rename `scrimOut` back to `fadeOut` — red.
+      expect(outName[0]!.includes(inName[0]!), `${outName[0]} contains ${inName[0]}`).toBe(false);
+      expect(inName[0]!.includes(outName[0]!)).toBe(false);
     }
   });
 });

@@ -1,6 +1,9 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import ts from "typescript";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
@@ -83,7 +86,9 @@ function mount(props: Partial<Parameters<typeof CashSettleButton>[0]> = {}) {
   };
   const settle = () => screen.getByRole("button", { name: /^Settle \$|^Settling…/ });
   const cancel = () => screen.getByRole("button", { name: "Cancel" });
-  return { trigger, open, settle, cancel, onHandoff };
+  /** The trigger AFTER a landed settle — the only "Settling…" left once the sheet is gone. */
+  const settling = () => screen.getByRole("button", { name: "Settling…" });
+  return { trigger, open, settle, cancel, settling, onHandoff };
 }
 
 describe("CashSettleButton — the confirm is a sheet", () => {
@@ -103,7 +108,7 @@ describe("CashSettleButton — the confirm is a sheet", () => {
 
   it("a refused settle keeps the sheet open with the reason inside it, and Settle live again", async () => {
     settleCash.mockResolvedValueOnce({ ok: false, error: "Card reader offline" });
-    const { open, settle } = mount();
+    const { open, settle, cancel } = mount();
     const dialog = open();
     await act(async () => {
       fireEvent.click(settle());
@@ -113,6 +118,19 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(within(dialog).getByRole("alert").textContent).toContain("Card reader offline");
     expect(settle().getAttribute("aria-disabled")).toBeNull();
     expect(settle().getAttribute("aria-busy")).toBeNull();
+    // Cancel: the refusal was read beside the tap — nothing outlives the sheet, and the next open is
+    // this attempt's, not the last one's.
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    await settleFocus();
+    // MUTATION: bring back the alert under the trigger (`error && !confirming`) — it mounts at the
+    // start of the exit, under the sheet's own aria-hidden, unannounced; red.
+    expect(screen.queryByRole("alert")).toBeNull();
+    const again = open();
+    // MUTATION: drop `setError(null)` from the trigger's tap — the stale refusal re-mounts as a
+    // fresh alert inside the new sheet; red.
+    expect(within(again).queryByRole("alert")).toBeNull();
   });
 
   it("a settle that REJECTS (a lost connection) is a refusal read in the sheet — never a locked sheet", async () => {
@@ -136,7 +154,7 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     stubComputedStyle();
     const d = deferred<{ ok: true; orderId: string; totalCents: number }>();
     settleCash.mockReturnValueOnce(d.promise);
-    const { open, settle, onHandoff, trigger } = mount();
+    const { open, settle, settling, onHandoff } = mount();
     open();
     await act(async () => {
       fireEvent.click(settle());
@@ -164,11 +182,38 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(onHandoff).toHaveBeenCalledWith({ orderId: "o1", totalCents: 4210, changeCents: null });
     expect(refresh).toHaveBeenCalledTimes(1);
+    // §17 — the trigger stays, reads busy and refuses; the attribute is the pinned half (with the
+    // sheet unmounted, the handler's early return has no observable effect of its own).
+    // MUTATION: drop `aria-disabled={landed || undefined}` — a live-looking control after the
+    // write landed; red.
+    expect(settling().getAttribute("aria-disabled")).toBe("true");
+    expect(settling().getAttribute("aria-busy")).toBe("true");
     await settleFocus();
-    // MUTATION: focus the trigger regardless of `landedRef` — the parent's card focus is fought
-    // (FloorDetailLive focuses the #CODE card in its own effect); red.
-    expect(document.activeElement).not.toBe(trigger());
+    // MUTATION: focus the trigger regardless of `handoffLandedRef` — the parent's card focus is
+    // fought (FloorDetailLive focuses the #CODE card in its own effect — parsed below); red.
+    expect(document.activeElement).not.toBe(settling());
     expect(document.activeElement).toBe(document.body);
+  });
+
+  it("a table's settle (no handoff) lands the same way: the sheet UNMOUNTS, the trigger reads busy and takes focus", async () => {
+    stubComputedStyle();
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o1", totalCents: 4210 });
+    const { open, settle, settling, onHandoff } = mount({ handoff: false });
+    open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // Unmounted (held by the stubbed exit if it were merely closed) — a sheet left open with a
+    // re-armed Settle inside it, or held busy for a re-fetch this control does not own, is the
+    // trap §16 names. MUTATION: skip `setLanded(true)` on the non-handoff path; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(onHandoff).not.toHaveBeenCalled();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(settling().getAttribute("aria-disabled")).toBe("true");
+    await settleFocus();
+    // Nothing else owns focus on this path: the busy trigger is the cashier's place.
+    // MUTATION: set `handoffLandedRef` on every landing — focus drops to <body>; red.
+    expect(document.activeElement).toBe(settling());
   });
 
   it("a quick-tip chip fills the field and lights; the settle carries its cents, nothing else", async () => {
@@ -198,5 +243,71 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     });
     // MUTATION: drop `tipValid` from `canSettle` — the settle is sent, red.
     expect(settleCash).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The claim the handoff case rests on — "the parent focuses the #CODE card in its own effect" —
+ * lives in another file, so it is PARSED there, never trusted from a comment: a `useEffect` in
+ * `FloorDetailLive` whose body is `if (handoff) handoffRef.current?.focus()` with `handoff` in its
+ * deps. Comments are not AST nodes; a dead `{false && …}` branch is not an `if` on `handoff`.
+ */
+describe("the handoff card's focus is the parent's — parsed, not trusted", () => {
+  it("FloorDetailLive focuses `handoffRef` in an effect keyed on `handoff`", () => {
+    const src = readFileSync(join(__dirname, "FloorDetailLive.tsx"), "utf8");
+    const sf = ts.createSourceFile(
+      "FloorDetailLive.tsx",
+      src,
+      ts.ScriptTarget.Latest,
+      true,
+      ts.ScriptKind.TSX,
+    );
+    const focusEffects: ts.CallExpression[] = [];
+    const isHandoffFocusCall = (n: ts.Node): boolean =>
+      ts.isCallExpression(n) &&
+      ts.isPropertyAccessExpression(n.expression) &&
+      n.expression.name.text === "focus" &&
+      /^handoffRef\.current\??$/.test(n.expression.expression.getText(sf).replace(/\s/g, "")) &&
+      n.expression.questionDotToken !== undefined;
+    const containsHandoffIf = (body: ts.Node): boolean => {
+      let found = false;
+      const visit = (n: ts.Node) => {
+        if (
+          ts.isIfStatement(n) &&
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === "handoff" &&
+          n.elseStatement === undefined
+        ) {
+          const then = n.thenStatement;
+          const stmt = ts.isBlock(then) ? then.statements[0] : then;
+          if (stmt && ts.isExpressionStatement(stmt) && isHandoffFocusCall(stmt.expression))
+            found = true;
+        }
+        ts.forEachChild(n, (c) => {
+          visit(c);
+        });
+      };
+      visit(body);
+      return found;
+    };
+    const walk = (n: ts.Node) => {
+      if (
+        ts.isCallExpression(n) &&
+        ts.isIdentifier(n.expression) &&
+        n.expression.text === "useEffect" &&
+        n.arguments.length === 2 &&
+        ts.isArrowFunction(n.arguments[0]!) &&
+        ts.isArrayLiteralExpression(n.arguments[1]!) &&
+        n.arguments[1]!.elements.some((e) => ts.isIdentifier(e) && e.text === "handoff") &&
+        containsHandoffIf(n.arguments[0]!.body)
+      )
+        focusEffects.push(n);
+      ts.forEachChild(n, (c) => {
+        walk(c);
+      });
+    };
+    walk(sf);
+    // MUTATION: comment the focus line out in FloorDetailLive, or key the effect on `[]` — red.
+    expect(focusEffects).toHaveLength(1);
   });
 });

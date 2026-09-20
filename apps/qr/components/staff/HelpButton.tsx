@@ -193,8 +193,11 @@ export function HelpButton(props: HelpProps) {
 
   function show(next: boolean) {
     if (!next && pending) return; // the sheet is busy — the choke point refuses too; belt and brace
-    setOpen(next);
-    if (!next) {
+    // M76 — the reset rides the OPEN, not the close: the content stays mounted for the whole exit
+    // slide now, so a close-time reset flipped the "Report sent" card and the title back to the
+    // menu in the first frame of the slide (the blind pass, slice 4). Resetting here is the same
+    // fresh sheet the next tap always got, with nothing visible in between.
+    if (next) {
       setView("menu");
       setStep(1);
       setErr(null);
@@ -202,6 +205,7 @@ export function HelpButton(props: HelpProps) {
       setMine({ state: "idle", rows: [] });
       setMineGen(0);
     }
+    setOpen(next);
   }
 
   function draft(): StaffReportDraft {
@@ -282,8 +286,7 @@ export function HelpButton(props: HelpProps) {
         aria-expanded={open}
         onClick={() => {
           haptic("pick");
-          setView("menu");
-          setOpen(true);
+          show(true); // resets the last visit's view, step, error and sent card (M76)
         }}
       >
         <span aria-hidden className="help-glyph">

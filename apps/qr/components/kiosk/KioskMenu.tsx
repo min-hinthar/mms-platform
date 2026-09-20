@@ -1,4 +1,5 @@
 "use client";
+import { useSheetSubject } from "@mms/ui";
 import { useMemo, useState, useTransition } from "react";
 import Image from "next/image";
 import { addItem } from "@/lib/cart";
@@ -34,6 +35,7 @@ export function KioskMenu({
 }) {
   const [cat, setCat] = useState<string | null>(categories[0] ?? null);
   const [sheetItem, setSheetItem] = useState<KioskItem | null>(null);
+  const mod = useSheetSubject(sheetItem);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -153,22 +155,24 @@ export function KioskMenu({
         </button>
       </div>
 
-      {sheetItem && (
+      {/* M76 — the item is HELD through the exit (`useSheetSubject`); `key` still makes every
+          open a fresh sheet (selection, qty and notes reset by remount). */}
+      {mod.held && (
         <StaffModSheet
-          key={sheetItem.id}
-          open
+          key={mod.key}
+          open={mod.open}
           onOpenChange={(open) => {
             if (!open) {
               setSheetItem(null);
               setSheetError(null);
             }
           }}
-          itemName={sheetItem.nameEn}
-          basePriceCents={sheetItem.priceCents}
-          groups={sheetItem.groups}
+          itemName={mod.held.nameEn}
+          basePriceCents={mod.held.priceCents}
+          groups={mod.held.groups}
           pending={pending}
           error={sheetError}
-          onAdd={(choice) => add(sheetItem, choice)}
+          onAdd={(choice) => add(mod.held!, choice)}
         />
       )}
     </div>

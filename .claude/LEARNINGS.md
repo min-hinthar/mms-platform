@@ -2494,10 +2494,15 @@ by reading `getComputedStyle(node).animationName` off the ref it forwards into t
 `Sheet` had a `DomMaxProvider` (a `LazyMotion` context provider, no DOM element) sitting between the
 portal and the content — so the portal-level `Presence` was handed `null`, read "none", and unmounted
 the whole subtree the moment `open` went false, with every `[data-state="closed"]` rule in the world
-declared and never seen. Two rules: **a provider that renders no element must wrap the portal, never
-sit inside it** (React context crosses portals, so nothing is lost); and **a component in that
-position must forward its `ref` to the DOM node** (`SheetContent` takes `ref` as a prop and hands it
-to `Dialog.Content`, whose Slot composes it with the `m.div`'s own). The guard cannot be the CSS —
+declared and never seen. The rule: **the portal's child must forward its `ref` to the DOM node**
+(`SheetContent` is the child, takes `ref` as a prop, and hands it THROUGH the provider to
+`Dialog.Content`, whose Slot composes it with the `m.div`'s own). The first fix wrapped the PORTAL
+in the provider instead — which also works, and loads the lazy `domMax` chunk on every route that
+renders a closed sheet (`LazyMotion` fetches in a mount effect); the blind pass caught the perf
+regression, and the provider went back inside the child, below the ref. A second half the same
+pass found: three sheets were mounted `{subject && <XSheet/>}` — a `Presence` can hold a node whose
+`open` went false, never one React removed — so `useSheetSubject` holds the subject through the
+exit and keys a fresh instance per open (`holdSubject` is pure; four value cases pin it). The guard cannot be the CSS —
 it is the render: stub `getComputedStyle` to answer from `data-state` the way a real stylesheet
 would, close the sheet, and assert it is still there until `animationend` (`SheetExit.test.tsx`);
 both structural mutants go red, a CSS-only guard stays green through either.

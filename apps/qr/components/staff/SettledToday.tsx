@@ -8,7 +8,7 @@ import {
   useTransition,
   type CSSProperties,
 } from "react";
-import { EmptyState, Icon } from "@mms/ui";
+import { EmptyState, Icon, useSheetSubject } from "@mms/ui";
 import {
   getSettledToday,
   type SettledLine,
@@ -67,6 +67,7 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
   const [refunding, setRefunding] = useState<{ order: SettledOrder; line: SettledLine } | null>(
     null,
   );
+  const refund = useSheetSubject(refunding);
   // The last refund's confirmation (the server-authorized amount — the clamp may have bitten). The
   // region exists only once a Refund has been opened, so it never announces on load.
   const [armed, setArmed] = useState(false);
@@ -284,14 +285,19 @@ export function SettledToday({ initial }: { initial: Snapshot }) {
         />
       )}
 
-      {refunding && (
+      {/* M76 — the subject is HELD through the exit (`useSheetSubject`): the sheet stays mounted
+          with `open=false` while it slides down, and `key` makes the next open a fresh instance
+          (reason, PIN and lockout copy reset by remount, as before). */}
+      {refund.held && (
         <RefundActionSheet
-          order={refunding.order}
-          line={refunding.line}
+          key={refund.key}
+          open={refund.open}
+          order={refund.held.order}
+          line={refund.held.line}
           onClose={() => setRefunding(null)}
           onDone={(refundedCents?: number) => {
-            const orderId = refunding.order.id;
-            const path = refunding.order.refundPath;
+            const orderId = refund.held!.order.id;
+            const path = refund.held!.order.refundPath;
             setRefunding(null);
             if (refundedCents == null) {
               // A NO-OP — `already_refunded` or `fully_refunded`, nothing recorded. Leaving the

@@ -611,12 +611,19 @@ someone's money.
 - **The exit is CSS, and the presence chain must reach a DOM node (M76, slice 4).** A closing sheet
   slides down and its scrim fades over one `--dur-sheet` — `[data-state="closed"]` rules beside the
   entrance, so CSS owns both beats and framer keeps only the drag; reduced motion names the closed
-  selectors explicitly, because the attribute selector out-specifies the bare class. Radix's
-  `Presence` holds the node while that animation runs, reading it off the ref each portal child
-  forwards — so never put a context provider between `Dialog.Portal` and the content (it forwards
-  no node and the sheet cuts again), and know that `onCloseAutoFocus` now fires at UNMOUNT, after
-  the exit: a caller that moves focus elsewhere on close does so under the sheet's own
-  `aria-hidden`, and should unmount the sheet instead (the cash confirm's handoff path).
+  selectors explicitly AND after them (the attribute selector ties the bare class on specificity,
+  so source order decides). Radix's `Presence` holds the node while that animation runs, reading it
+  off the ref each portal child forwards — so the portal's child must forward its `ref` to the
+  content node (a context provider AS the child forwards none, and the sheet cuts again; the
+  provider lives inside the child, where it mounts only with a sheet and its lazy chunk stays off
+  every closed-sheet route). A parent that UNMOUNTS the sheet on close gives `Presence` nothing to
+  hold: mount it through `useSheetSubject` — the subject is held through the exit, `open` follows
+  the live subject, and `key` advances per open so each open is still a fresh instance. An exit's
+  name never CONTAINS its entrance's (Radix ends the hold on `animationcancel` by substring). Any
+  state a sheet resets "on close" is now visible for the whole slide — reset on the next open.
+  And `onCloseAutoFocus` fires at UNMOUNT, after the exit: a caller that moves focus elsewhere on
+  close does so under the sheet's own `aria-hidden`, and should unmount the sheet instead (the
+  cash confirm's landing).
 - **The ✕ speaks the caller's tongue through `closeLabel`, as DOM text (manager-9).** The staff
   sheets pass `sheetCloseLabel(lang)` — `{ idle, busy }` rendered sr-only inside the button, §17's
   circle idiom, never an `aria-label` (rule 3 cannot follow a name into the package, and DOM text

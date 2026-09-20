@@ -26,9 +26,10 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * the trigger on a long table. `busy` because the settle is an irreversible write. Two choices the
  * sheet forced, both about what a screen reader hears: a REFUSED settle keeps the sheet open with
  * the reason inside it (closing it would raise the alert under the sheet's own `aria-hidden`
- * during the exit, unannounced); and the handoff path UNMOUNTS the sheet instead of closing it, so
- * the parent's #CODE card takes focus on an un-hidden page rather than mid-exit (M76 — the close
- * animation is why these differ). Cancel and Settle are `aria-disabled` + the handler refusing on
+ * during the exit, unannounced); and a LANDED settle UNMOUNTS the sheet instead of closing it — the
+ * trigger then reads "Settling…", busy, until the paid state re-renders this control away, and on
+ * the handoff path the parent's #CODE card takes focus on an un-hidden page rather than mid-exit
+ * (M76 — the close animation is why a live sheet cannot simply be left open on success). Cancel and Settle are `aria-disabled` + the handler refusing on
  * the same predicate (§17), never native.
  */
 export function CashSettleButton({
@@ -70,11 +71,12 @@ export function CashSettleButton({
   // flag that any path forgets to clear is a permanent keyboard trap; `pending` settles by
   // construction, including when the action rejects (caught below so it never escapes the sheet).
   const [pending, startSettle] = useTransition();
-  // The handoff path landed: the sheet is unmounted (see the render) and the close-restore below
-  // must not fight the parent for focus — it focuses the card this control hands off to. A ref
-  // beside the state because the restore runs from the unmounting sheet's own effect cleanup.
+  // The settle landed: the sheet is unmounted (see the render) and the trigger goes busy until the
+  // paid state re-renders this control away. On the HANDOFF path the close-restore must not fight
+  // the parent for focus (it focuses the #CODE card, `FloorDetailLive`'s own effect); a ref beside
+  // the state because the restore runs from the unmounting sheet's effect cleanup.
   const [landed, setLanded] = useState(false);
-  const landedRef = useRef(false);
+  const handoffLandedRef = useRef(false);
   const [error, setError] = useState<string | null>(null);
   const [tendered, setTendered] = useState("");
   // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
@@ -138,10 +140,13 @@ export function CashSettleButton({
         setError(res.error);
         return;
       }
+      // Either path: the write is recorded — the sheet goes (unmounted, not closed: an exiting
+      // sheet with a re-armed Settle inside it, or one held busy for a re-fetch this control does
+      // not own, is the trap §16 names) and the trigger reads busy until the paid state lands.
+      setLanded(true);
+      setConfirming(false);
       if (handoff) {
-        landedRef.current = true;
-        setLanded(true);
-        setConfirming(false);
+        handoffLandedRef.current = true;
         // The AUTHORITATIVE total the settle returned (the prop can be a poll interval stale), and the
         // change computed against it. The parent owns the card — this component unmounts with the cart.
         onHandoff?.({
@@ -150,31 +155,42 @@ export function CashSettleButton({
           changeCents: tenderedCents > 0 ? changeDue(res.totalCents, tenderedCents) : null,
         });
       }
-      // A table's settle (no handoff) leaves the sheet open and busy: the paid state arriving on
-      // the re-fetch unmounts this control, and a re-armed trigger in the meantime would only
-      // invite a second settle the server refuses.
+      // No handoff (a table): the paid state arrives on the re-fetch and unmounts this control; until
+      // then the trigger says "Settling…" and refuses — honest, and non-modal if that read stalls.
       router.refresh(); // the realtime re-fetch also fires; this makes the paid state immediate
     });
   }
 
   return (
     <div>
+      {/* §17 — after a landed settle the trigger stays, says "Settling…" and refuses (aria-disabled +
+          aria-busy on one predicate), never a live-looking control that silently does nothing. */}
       <button
         className="staff-btn"
         ref={triggerRef}
         type="button"
-        onClick={() => setConfirming(true)}
+        onClick={() => {
+          if (landed) return;
+          setError(null); // a refusal read in the last sheet is not this attempt's
+          setConfirming(true);
+        }}
+        aria-disabled={landed || undefined}
+        aria-busy={landed || undefined}
         aria-describedby="settle-hint"
         style={{ ...payBtn, width: "100%" }}
       >
-        <Chrome
-          lang={lang}
-          k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
-          vars={{ m: fmt(totalCents) }}
-          echo="stack"
-        />
+        {landed ? (
+          <Chrome lang={lang} k="settle.cash.settling" echo={false} />
+        ) : (
+          <Chrome
+            lang={lang}
+            k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
+            vars={{ m: fmt(totalCents) }}
+            echo="stack"
+          />
+        )}
       </button>
-      {/* Unmounted, not closed, once the handoff landed (see the docblock). The opener is restored
+      {/* Unmounted, not closed, once the settle landed (see the docblock). The opener is restored
           by hand: WebKit does not focus a tapped button, so the primitive's captured activeElement
           is <body> on the tablet this runs on, and the cashier's place is the trigger. */}
       {!landed && (
@@ -196,7 +212,7 @@ export function CashSettleButton({
           closeLabel={sheetCloseLabel(lang)}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (!landedRef.current) triggerRef.current?.focus();
+            if (!handoffLandedRef.current) triggerRef.current?.focus();
           }}
         >
           <div style={confirmBody}>
@@ -404,8 +420,9 @@ export function CashSettleButton({
                 )}
               </button>
             </div>
-            {/* The refusal, INSIDE the sheet while it is open (the one alert on this control — the
-              copy below the trigger renders only once the sheet has closed). */}
+            {/* The ONE alert on this control, inside the sheet where the tap was — a second copy under
+                the trigger would mount at the start of the exit, under the sheet's own `aria-hidden`,
+                unannounced (the blind pass); Cancel and the trigger clear it. */}
             {error && (
               <p role="alert" style={{ ...hint, margin: 0, color: "var(--warn)" }}>
                 <OutageText lang={lang} error={error} />
@@ -427,11 +444,6 @@ export function CashSettleButton({
       <p id="settle-hint" style={hint}>
         <Chrome lang={lang} k="settle.cash.hint" echo="stack" />
       </p>
-      {error && !confirming && (
-        <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          <OutageText lang={lang} error={error} />
-        </p>
-      )}
     </div>
   );
 }
