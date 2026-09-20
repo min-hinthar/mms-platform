@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — built and gated on `claude/qr-app-backlog-cj2t0m`, its PR the next step; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — on draft PR #294 (`claude/qr-app-backlog-cj2t0m`), its Codex round and merge the next step; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
