@@ -666,13 +666,18 @@ built.
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
   The kitchen board's eight action buttons — bump · fire · the line · 86 · undo · recall · the pager
   — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; the lane's
-  bump and the register's five controls followed the same day, and 40 native `disabled` sites
-  remain across 18 other staff components (K35 — measured native-only; `aria-disabled={` is not
-  one). The register also shows the trap in the predicate: a `busy` computed at RENDER is the same
-  stale `false` for every tap of one frame, so the handler reads the in-flight REF when the tap
-  lands (LEARNINGS #126). Busy is the attribute (`aria-busy`) plus a dim, never a label swap: `{pending ? "…" : label}` on a
-  button with no `aria-label` makes its accessible name literally "…" for the round trip, and a 64px
-  zone that collapses to an ellipsis moves under the thumb.
+  bump and the register's five controls are `aria-disabled` the same way since the same day, and 40
+  native `disabled` sites remain across 18 other staff components (K35 — measured native-only;
+  `aria-disabled={` is not one). The register also shows the trap in the predicate: a `busy`
+  computed at RENDER is the same stale `false` for every tap of one frame, so the handler reads the
+  in-flight REF when the tap lands (LEARNINGS #126). **`aria-disabled` is the ZONE's fact; `aria-busy`
+  is the ONE control's** — the register holds all five while a mint runs and marks busy only the
+  control that minted (a draft that stamped busy on Walk-up for a phone mint told assistive tech
+  the wrong element was updating). Busy is the attribute plus a dim, never a label swap TO AN
+  ELLIPSIS: `{pending ? "…" : label}` on a button with no `aria-label` makes its accessible name
+  literally "…" for the round trip, and a 64px zone that collapses to an ellipsis moves under the
+  thumb. A swap to a stated word is not that rule's subject — the register's Go says "Going…"
+  (`reg.going`, both states echoing so the height holds), and only on the form that went.
 - **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
   tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
   of real links, named by its visible heading.

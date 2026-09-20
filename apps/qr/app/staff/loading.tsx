@@ -1,7 +1,5 @@
 import { Skeleton } from "@mms/ui";
-import { Chrome } from "@/components/staff/Chrome";
-import { ts } from "@/lib/i18n/staff";
-import { readStaffLang } from "@/lib/staff-lang-server";
+import { LoadingLine } from "@/components/staff/LoadingLine";
 
 /**
  * Instant skeleton for the counter's one screen (A4·2) — the page's OWN geometry (counter-9), so
@@ -9,18 +7,14 @@ import { readStaffLang } from "@/lib/staff-lang-server";
  * bar (a circle, the title, the trailing circles), the column at the page's width, the greeting
  * line, then the three zones in the order the page lays them out — a heading with its sub-line
  * over the three arms, a heading over the card grid, a heading over the bag grid. Every gap is the
- * class the live page wears (`.staff-bar` · `.staff-col` · `.staff-zone`) or a `--s*` token.
- *
- * Async for one cheap read: `readStaffLang()` is the memoized cookie (no DB), so the one announced
- * line comes through `<Chrome>` in the console's tongue rather than an English literal.
+ * class the live page wears (`.staff-bar` · `.staff-col` · `.staff-zone`) or a `--s*` token. The
+ * one announced line is `<LoadingLine>` — the dictionary's, in the console's tongue, read from the
+ * layout's provider so the boundary stays synchronous.
  */
-export default async function StaffLoading() {
-  const lang = await readStaffLang();
+export default function StaffLoading() {
   return (
     <main className="staff-main">
-      <span className="sr-only">
-        <Chrome lang={lang} k="shell.loading" vars={{ what: ts(lang, "what.floor") }} />
-      </span>
+      <LoadingLine what="what.floor" />
       <div aria-hidden>
         <div className="staff-bar">
           <Skeleton width={44} height={44} radius={999} />

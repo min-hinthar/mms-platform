@@ -86,13 +86,20 @@ describe("RegisterStart — the Start zone's wiring", () => {
     expect(walkup.getAttribute("aria-disabled")).toBeNull();
     expect(walkup.getAttribute("aria-busy")).toBeNull();
     expect(document.activeElement).toBe(walkup);
-    // …and the zone is live again: the next tap mints.
+    // …and the zone is live again: the next tap mints — and a LANDED mint holds the zone until the
+    // route swap unmounts it: a third tap in that beat mints nothing.
     openRegisterOrder.mockResolvedValueOnce({ ok: true, sessionId: "s2" });
     await act(async () => {
       fireEvent.click(walkup);
     });
     expect(openRegisterOrder).toHaveBeenCalledTimes(2);
     expect(push).toHaveBeenCalledWith("/staff/table/s2/add");
+    // MUTATION: release `inFlight`/`minting` in `finally` unconditionally — the third tap mints.
+    for (const b of arms()) expect(b.getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(walkup);
+    });
+    expect(openRegisterOrder).toHaveBeenCalledTimes(2);
   });
 
   it("two taps in ONE frame mint one order — the ref guard, before `pending` has committed", async () => {
@@ -162,14 +169,15 @@ describe("RegisterStart — the Start zone's wiring", () => {
     expect(container.querySelector("#reg-table-number")).toBeNull();
   });
 
-  it("the Go button is §17 too: aria-disabled + busy while the phone mint runs, its label an echoing state", async () => {
-    const d = deferred<{ ok: true; sessionId: string }>();
+  it("the Go button is §17 too — and `aria-busy` lands on the MINTING control only, never on Walk-up", async () => {
+    const d = deferred<{ ok: false; error: string }>();
     openRegisterOrder.mockReturnValueOnce(d.promise);
-    const { arms, container } = mount();
+    const { arms, region, container } = mount();
     await act(async () => {
       fireEvent.click(arms()[1]!);
     });
     const go = container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    go.focus();
     await act(async () => {
       fireEvent.submit(go.closest("form")!);
     });
@@ -178,10 +186,64 @@ describe("RegisterStart — the Start zone's wiring", () => {
     expect(go.getAttribute("aria-disabled")).toBe("true");
     expect(go.getAttribute("aria-busy")).toBe("true");
     expect(go.textContent).toContain(ts("en", "reg.going"));
+    // The zone is held, but only the form that went is BUSY — the blind pass caught a draft that
+    // stamped Walk-up `aria-busy` (and "Going…" on a form nobody submitted) for any mint.
+    // MUTATION: `aria-busy={pending || undefined}` on Walk-up — this reddens.
+    const walkup = arms()[0]!;
+    expect(walkup.getAttribute("aria-disabled")).toBe("true");
+    expect(walkup.getAttribute("aria-busy")).toBeNull();
+    expect(document.activeElement).toBe(go);
     await act(async () => {
-      d.resolve({ ok: true, sessionId: "s3" });
+      d.resolve({ ok: false, error: "Pick a table number." });
       await d.promise;
     });
-    expect(push).toHaveBeenCalledWith("/staff/table/s3/add");
+    // A refusal re-arms the Go button with its focus and its label intact.
+    expect(region().textContent).toBe("Pick a table number.");
+    expect(go.getAttribute("aria-disabled")).toBeNull();
+    expect(go.getAttribute("aria-busy")).toBeNull();
+    expect(go.textContent).toContain(ts("en", "reg.go"));
+    expect(go.textContent).not.toContain(ts("en", "reg.going"));
+    expect(document.activeElement).toBe(go);
+  });
+
+  it("a Walk-up mint beside an open form leaves that form's Go alone — no busy, no 'Going…'", async () => {
+    const d = deferred<{ ok: true; sessionId: string }>();
+    openRegisterOrder.mockReturnValueOnce(d.promise);
+    const { arms, container } = mount();
+    await act(async () => {
+      fireEvent.click(arms()[1]!);
+    });
+    const go = container.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    await act(async () => {
+      fireEvent.click(arms()[0]!);
+    });
+    expect(openRegisterOrder).toHaveBeenCalledWith({ kind: "walkup" });
+    expect(arms()[0]!.getAttribute("aria-busy")).toBe("true");
+    // MUTATION: `k={pending ? "reg.going" : "reg.go"}` — the phone form says "Going…" and reddens.
+    expect(go.getAttribute("aria-disabled")).toBe("true");
+    expect(go.getAttribute("aria-busy")).toBeNull();
+    expect(go.textContent).toContain(ts("en", "reg.go"));
+    expect(go.textContent).not.toContain(ts("en", "reg.going"));
+    await act(async () => {
+      d.resolve({ ok: true, sessionId: "s4" });
+      await d.promise;
+    });
+    expect(push).toHaveBeenCalledWith("/staff/table/s4/add");
+  });
+
+  it("closing an open arm hands focus back to the arm — WebKit does not focus a tapped button, and the form that held focus unmounts", async () => {
+    const { arms, container } = mount();
+    const table = arms()[2]!;
+    await act(async () => {
+      fireEvent.click(table);
+    });
+    expect(document.activeElement).toBe(container.querySelector("#reg-table-number"));
+    await act(async () => {
+      fireEvent.click(table);
+    });
+    expect(container.querySelector("#reg-table-number")).toBeNull();
+    // MUTATION: drop `e.currentTarget.focus()` from the closing branch — focus is <body>.
+    expect(document.activeElement).toBe(table);
+    expect(table.getAttribute("aria-expanded")).toBe("false");
   });
 });

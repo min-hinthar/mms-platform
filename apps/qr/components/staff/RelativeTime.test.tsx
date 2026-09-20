@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, render } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StaffLangProvider } from "./StaffLangProvider";
 import { RelativeTime } from "./RelativeTime";
@@ -47,14 +48,32 @@ describe("RelativeTime — the dictionary's age", () => {
     expect(t.children).toHaveLength(0);
   });
 
-  it("paints from the server clock, then ticks from the device's", async () => {
-    vi.useFakeTimers({ now: T0 });
+  // The device clock runs FIVE MINUTES ahead of the server in the cases below — the blind pass
+  // caught a fixture that pinned `Date.now()` to `serverNow`, where a device-seeded first paint and
+  // a dropped skew correction both produce the server's number and no mutant can die.
+  const SKEW_MS = 5 * 60_000;
+
+  it("the FIRST paint is the server's clock — the HTML the server sends, no effect, no device time", () => {
+    vi.useFakeTimers({ now: T0 + SKEW_MS });
+    const html = renderToString(
+      <StaffLangProvider lang="en">
+        <RelativeTime iso={ago(0.5)} serverNow={NOW} />
+      </StaffLangProvider>,
+    );
+    // MUTATION: `useState(() => Date.now())` — the server would print "6m ago" for a 30 s row.
+    expect(html).toContain(ts("en", "time.justNow"));
+    expect(html).not.toContain("m ago");
+  });
+
+  it("the mount absorbs the device/server skew once, then ticks from the device clock", async () => {
+    vi.useFakeTimers({ now: T0 + SKEW_MS });
     const t = mount("en", ago(0.5));
+    // MUTATION: drop `- skew` in the effect — the first tick reads the device's "6m ago".
     expect(t.textContent).toBe(ts("en", "time.justNow"));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(45_000);
     });
-    // The 30 s tick landed: 60 s old is a minute.
+    // The 30 s tick landed: 60 s old is a minute — on the server's clock, not the device's.
     expect(t.textContent).toBe("1m ago");
   });
 });
