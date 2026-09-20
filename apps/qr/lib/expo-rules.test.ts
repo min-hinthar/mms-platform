@@ -4,7 +4,9 @@ import {
   EXPO_TONE_MIN,
   expoAge,
   kitchenStateOf,
+  PICKED_UNDO_ARM_MS,
   PICKED_UNDO_MS,
+  pickedUndoArmed,
   pickedUndoOpen,
   type ExpoOrderKey,
 } from "./expo-rules";
@@ -136,5 +138,11 @@ describe("pickedUndoOpen — the deferred picked-up write waits exactly the wind
   it("the window is a real parameter", () => {
     expect(pickedUndoOpen(0, 500, 1_000)).toBe(true);
     expect(pickedUndoOpen(0, 1_000, 1_000)).toBe(false);
+  });
+  it("Undo is inert for the arm — a double-tap's second tap is the same gesture, not a change of mind", () => {
+    // MUTATION: `return true` — the second tap of a double-tap lands on Undo and cancels the pick.
+    expect(pickedUndoArmed(1_000, 1_000 + PICKED_UNDO_ARM_MS - 1)).toBe(false);
+    expect(pickedUndoArmed(1_000, 1_000 + PICKED_UNDO_ARM_MS)).toBe(true);
+    expect(pickedUndoArmed(0, 50, 100)).toBe(false);
   });
 });

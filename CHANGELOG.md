@@ -39,12 +39,31 @@ findings** (`docs/STAFF_POLISH_AUDIT.md` → Counter & tables).
 - **§17 on the bump (counter-2).** `aria-disabled` + `aria-busy` with the handler refusing re-entry
   and the label kept (the "…" swap collapsed the zone); `.staff-btn`'s hover/active feedback is
   keyed on `[aria-disabled]` too, so a refused tap gets no brightness or scale.
-- **Guards:** `expo-rules.test.ts` (+6) · `expo-errors.test.ts` (2) · the lane's first component
-  suite, `ExpoBoard.test.tsx` (7: the window writes once at 6 s and never before, an undo cancels
-  it, a gone bag drops its window, §17 focus + label, the Burmese card, a refusal marked through the
-  region, the header tone) — seven mutations induced against the component, three new
-  `verify:slice` mutants on the rules, every one watched red.
-- **New Burmese (K15):** seventeen machine drafts — `expo.tag.*` (3), `expo.pickup`,
+- **The blind pass (REJECT, closed in the same PR).** Six criticals, all real. Three were the
+  deferred write lying about the bag: the tick DROPPED the window before issuing the write, so the
+  card flipped back to a live "Picked up" for the whole write + poll round trip on every pick (the
+  entry stays, marked `committing`, until the refetch drops the bag — Undo inert meanwhile); the
+  Undo control takes the SAME slot and node, so a double-tap "to make sure" cancelled the pick
+  (`pickedUndoArmed` — Undo is inert for 400 ms; the posture is a dashed ghost, not the stage
+  look); and a lock/sign-in redirect or an unmount inside the window silently lost the write (open
+  windows are flushed before the redirect and on unmount — the counter already handed the bag
+  over). The fourth froze the lane's clock: a fallback offset RECOMPUTED on every call is the
+  constant `parse(serverNow)`, so a lane that mounts into an outage never advanced an age or the
+  paper-flow escalation (the offset is `??=`-assigned at mount, the KDS's line). The fifth let a
+  standing refusal mask the pick's own announcement (a user action clears the region first). The
+  sixth used `--r-md`, a token LEARNINGS already records as nonexistent — square strip corners
+  over a 20 px card (`--r-card`). It also caught K27 "closed" with three of its four sites
+  untouched (all four at `--fs-body` now), a transcribed "seventeen" for eighteen keys with one
+  dead (`expo.picked.pending` renders as the tag while the window is open), and a Burmese-card
+  case proven on one posture (a preparing bag joins the fixture).
+- **Guards:** `expo-rules.test.ts` (+7) · `expo-errors.test.ts` (2) · the lane's first component
+  suite, `ExpoBoard.test.tsx` (11: the window writes once at 6 s and never before and the card
+  holds its posture through the round trip, an undo cancels it, a double-tap does not, a gone bag
+  drops its window, a standing refusal yields to the pick's notice, the unmount flush, §17 focus +
+  label, the Burmese card on three postures, a refusal marked through the region, the header tone,
+  the clock advancing from an outage mount) — twelve mutations induced against the component, four
+  new `verify:slice` mutants on the rules, every one watched red.
+- **New Burmese (K15):** eighteen machine drafts — `expo.tag.*` (3), `expo.pickup`,
   `expo.grocery.note`, `expo.dest.*` (2), `expo.picked.pending`, `expo.live.picked*` (4),
   `expo.err.*` (6).
 

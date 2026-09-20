@@ -3327,6 +3327,8 @@ html[data-fx="off"] .pa-pause {
 }
 .staff-btn[aria-disabled="true"] {
   opacity: 0.6;
+}
+.staff-btn[aria-busy="true"] {
   cursor: progress;
 }
 
@@ -10873,7 +10875,7 @@ html[data-fx="lite"] .mms-scrim {
   gap: var(--s3);
   margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
   padding: var(--s3) var(--s4);
-  border-radius: var(--r-md) var(--r-md) 0 0;
+  border-radius: var(--r-card) var(--r-card) 0 0; /* the card's own radius — `--r-md` does not exist */
 }
 .expo-head[data-tone="warn"] {
   background: var(--warnb);
@@ -10887,9 +10889,12 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
-/* counter-1 — the picked posture: the write is waiting on the undo window, and the card says so. */
-.card[data-picked="true"] {
-  opacity: 0.72;
+/* counter-1 — the picked posture: the write is waiting on the undo window. The header wears the ok
+   surface and the tag says "Picked up — undo?"; no opacity dim (a dimmed card is a contrast
+   question the tokens have already answered). */
+.card[data-picked="true"] > .expo-head {
+  background: var(--okb);
+  box-shadow: inset 0 -2px 0 var(--ok);
 }
 .expo-status {
   margin: 0;

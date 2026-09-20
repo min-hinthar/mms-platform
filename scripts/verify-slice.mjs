@@ -4296,6 +4296,14 @@ const MUTANTS = [
     replace: "  return nowMs - startedMs <= windowMs;",
   },
   {
+    id: "expo-rules/undo-arms-on-the-tap-that-picked",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "the lane's Undo takes the SAME 64px slot the pick was tapped in and React reuses the node; armed from the first millisecond, the second tap of a double-tap 'to make sure' lands on Undo and the bag the counter just handed over stays 'ready' on the tracker and the wall",
+    find: "  return nowMs - startedMs >= armMs;",
+    replace: "  return true;",
+  },
+  {
     id: "expo/a-failed-kitchen-read-freezes-the-counter",
     file: "apps/qr/lib/expo.ts",
     suite: "lib/expo.test.ts",

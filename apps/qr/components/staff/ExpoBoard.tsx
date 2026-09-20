@@ -9,7 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
-import { expoAge, pickedUndoOpen } from "@/lib/expo-rules";
+import { expoAge, pickedUndoArmed, pickedUndoOpen } from "@/lib/expo-rules";
 import { expoErrOutcome, expoFailedMsg, type ExpoMsg, type ExpoSubject } from "@/lib/expo-errors";
 import { actionErrorStale, ERR_DWELL_MS } from "@/lib/kds-errors";
 import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
@@ -29,7 +29,7 @@ import { Badge, EmptyState, Icon } from "@mms/ui";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { ts } from "@/lib/i18n/staff";
 import { useStaffLang } from "./StaffLangProvider";
-import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
+import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
 import { Chrome } from "./Chrome";
 
 /**
@@ -92,12 +92,23 @@ export function ExpoBoard({
   // bag early nor shorten the paper-flow escalation.
   const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
   const clockOffset = useRef<number | null>(null);
-  const stampNow = useCallback(
-    () => Date.now() + (clockOffset.current ?? Date.parse(initial.serverNow) - Date.now()),
+  // The offset is taken AT MOUNT (the KDS's line) — a first tick a second later would seed it a
+  // second short and every age would read one second young for the rest of the shift.
+  useEffect(() => {
+    clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
     // initial.serverNow is a mount-time snapshot — the prop never changes meaningfully.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
+  }, []);
+  const stampNow = useCallback(() => {
+    // ASSIGN the mount-time offset once (`??=`, the KDS's line) — a fallback that recomputed
+    // `Date.parse(initial.serverNow) - Date.now()` on every call collapses to the constant
+    // `Date.parse(initial.serverNow)`, and a lane that mounts into an outage then never advances:
+    // no age, no escalation, "reconnecting" forever (blind pass, critical 1).
+    clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
+    return Date.now() + clockOffset.current;
+    // initial.serverNow is a mount-time snapshot — the prop never changes meaningfully.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [degraded, setDegraded] = useState<StaffDegraded | null>(() =>
     initialOutage ? nextDegraded(null, "outage", Date.parse(initial.serverNow)) : null,
   );
@@ -107,9 +118,15 @@ export function ExpoBoard({
   // counter-1 — the picked-up windows, keyed by ORDER in the lane (a card re-renders from `snap`
   // on every poll and would lose its own state): when each was tapped, and the subject its
   // sentences name. See the tick below and `PICKED_UNDO_MS`.
-  const [picked, setPicked] = useState<ReadonlyMap<string, { at: number; subject: ExpoSubject }>>(
-    () => new Map(),
-  );
+  const [picked, setPicked] = useState<
+    ReadonlyMap<string, { at: number; subject: ExpoSubject; committing: boolean }>
+  >(() => new Map());
+  // A mirror for the two readers that run outside render and outside the tick's closure: the
+  // poll's redirect and the unmount flush. Written in an effect, never during render.
+  const pickedRef = useRef(picked);
+  useEffect(() => {
+    pickedRef.current = picked;
+  }, [picked]);
 
   useWakeLock(); // O-F: the bagging tablet is always-on too
 
@@ -127,6 +144,15 @@ export function ExpoBoard({
           setDegraded((d) => nextDegraded(d, "outage", stampNow()));
           return;
         }
+        // A window still open when the console is leaving (a lock, an expired cookie) is a bag the
+        // counter already handed over: send its write NOW, then go. A refused write (the cookie
+        // really is gone) leaves the bag "ready", which is the honest state for a bag whose pick
+        // was never recorded — the same outcome, minus the silence.
+        await Promise.allSettled(
+          [...pickedRef.current]
+            .filter(([, p]) => !p.committing)
+            .map(([orderId]) => setTogoStatus({ orderId, to: "picked_up" })),
+        );
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
       }
@@ -161,17 +187,33 @@ export function ExpoBoard({
   // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
   // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
   // and the bag stays "ready": the safe direction.
+  const dropPicked = useCallback((orderId: string) => {
+    setPicked((prev) => {
+      if (!prev.has(orderId)) return prev;
+      const next = new Map(prev);
+      next.delete(orderId);
+      return next;
+    });
+  }, []);
+  // The deferred write. The entry STAYS in the map, marked `committing`, for the whole round trip:
+  // the card keeps its picked posture (Undo inert) until the refetch drops the bag from the queue
+  // — dropping the entry first flipped the card back to a live "Picked up" for the write + poll
+  // round trip on every single pick (blind pass, critical 2). A refusal or a throw drops the entry:
+  // the bag is back, honestly, with the sentence beside it.
   const commitPicked = useCallback(
     async (orderId: string, subject: ExpoSubject) => {
       try {
         const res = await setTogoStatus({ orderId, to: "picked_up" });
-        if (!res.ok) onRefused(res, subject);
-        else await refresh();
+        if (!res.ok) {
+          onRefused(res, subject);
+          dropPicked(orderId);
+        } else await refresh(); // the poll's prune removes the entry with the bag
       } catch {
         showErr(expoFailedMsg(subject));
+        dropPicked(orderId);
       }
     },
-    [onRefused, refresh, showErr],
+    [dropPicked, onRefused, refresh, showErr],
   );
   // The interval is re-armed when the map changes (a tap, an undo, a bag leaving) so the tick
   // always reads the live windows without a ref written during render.
@@ -179,39 +221,59 @@ export function ExpoBoard({
     const id = setInterval(() => {
       const localNow = Date.now();
       setNowMs(stampNow());
-      const due = [...picked].filter(([, p]) => !pickedUndoOpen(p.at, localNow));
+      const due = [...picked].filter(([, p]) => !p.committing && !pickedUndoOpen(p.at, localNow));
       if (due.length === 0) return;
       setPicked((prev) => {
         const next = new Map(prev);
-        for (const [orderId] of due) next.delete(orderId);
+        for (const [orderId, p] of due) next.set(orderId, { ...p, committing: true });
         return next;
       });
       for (const [orderId, p] of due) void commitPicked(orderId, p.subject);
     }, 1000);
     return () => clearInterval(id);
   }, [picked, commitPicked, stampNow]);
-  const onPicked = useCallback((orderId: string, subject: ExpoSubject) => {
-    haptic("commit");
-    setPicked((prev) => new Map(prev).set(orderId, { at: Date.now(), subject }));
-    setNotice(
-      subject.kind === "table"
-        ? { k: "expo.live.pickedTable", vars: { id: subject.id } }
-        : { k: "expo.live.picked", vars: { x: subject.x } },
-    );
-  }, []);
-  const onUndoPicked = useCallback((orderId: string, subject: ExpoSubject) => {
-    haptic("commit");
-    setPicked((prev) => {
-      const next = new Map(prev);
-      next.delete(orderId);
-      return next;
-    });
-    setNotice(
-      subject.kind === "table"
-        ? { k: "expo.live.pickedUndoneTable", vars: { id: subject.id } }
-        : { k: "expo.live.pickedUndone", vars: { x: subject.x } },
-    );
-  }, []);
+  // The lane leaving with windows open (a route change, a remount) sends their writes at once —
+  // the counter saw "picked up" and handed the bag over; the undo affordance is what is gone, not
+  // the pick. Fire-and-forget: a server action outlives the component that called it.
+  useEffect(
+    () => () => {
+      for (const [orderId, p] of pickedRef.current)
+        if (!p.committing) void setTogoStatus({ orderId, to: "picked_up" });
+    },
+    [],
+  );
+  const onPicked = useCallback(
+    (orderId: string, subject: ExpoSubject) => {
+      haptic("commit");
+      showErr(null); // a user action replaces a standing refusal — the region must say THIS
+      setPicked((prev) =>
+        new Map(prev).set(orderId, { at: Date.now(), subject, committing: false }),
+      );
+      setNotice(
+        subject.kind === "table"
+          ? { k: "expo.live.pickedTable", vars: { id: subject.id } }
+          : { k: "expo.live.picked", vars: { x: subject.x } },
+      );
+    },
+    [showErr],
+  );
+  const onUndoPicked = useCallback(
+    (orderId: string, subject: ExpoSubject) => {
+      const entry = picked.get(orderId);
+      // Inert while the write is in flight, and for the arm after the pick: the second tap of a
+      // double-tap lands here (same slot, same node) and is not a change of mind.
+      if (!entry || entry.committing || !pickedUndoArmed(entry.at, Date.now())) return;
+      haptic("commit");
+      showErr(null);
+      dropPicked(orderId);
+      setNotice(
+        subject.kind === "table"
+          ? { k: "expo.live.pickedUndoneTable", vars: { id: subject.id } }
+          : { k: "expo.live.pickedUndone", vars: { x: subject.x } },
+      );
+    },
+    [picked, dropPicked, showErr],
+  );
   useEffect(() => {
     if (!notice) return;
     const id = setTimeout(() => setNotice(null), 4000);
@@ -403,6 +465,7 @@ export function ExpoBoard({
               ticket={t}
               nowMs={nowMs}
               picked={picked.has(t.orderId)}
+              committing={picked.get(t.orderId)?.committing ?? false}
               onBumped={refresh}
               onError={showErr}
               onRefused={onRefused}
@@ -420,6 +483,7 @@ function ExpoCard({
   ticket,
   nowMs,
   picked,
+  committing,
   onBumped,
   onError,
   onRefused,
@@ -431,6 +495,8 @@ function ExpoCard({
   nowMs: number;
   /** counter-1 — this bag's picked-up write is waiting on its undo window. */
   picked: boolean;
+  /** …and the window has closed: the write is in flight, Undo is inert, the bag is leaving. */
+  committing: boolean;
   onBumped: () => void | Promise<void>;
   onError: (msg: ExpoMsg | null) => void;
   onRefused: (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => void;
@@ -554,11 +620,18 @@ function ExpoCard({
               <Chrome lang={lang} k="expo.kitchenDone" />
             </Badge>
           )}
-          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly. */}
-          {ticket.status === "ready" && (
+          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly.
+              counter-1: while the pick waits on its window the tag says THAT instead. */}
+          {picked ? (
             <span style={readyTag} lang={lang}>
-              {ts(lang, grocery ? "expo.tag.verified" : "expo.tag.ready")}
+              {ts(lang, "expo.picked.pending")}
             </span>
+          ) : (
+            ticket.status === "ready" && (
+              <span style={readyTag} lang={lang}>
+                {ts(lang, grocery ? "expo.tag.verified" : "expo.tag.ready")}
+              </span>
+            )
           )}
           {/* counter-7 — how long this bag has been DUE (from the guest's arrival, else the slot,
               else payment): nothing before that moment, a clock after it, spoken as a sentence. */}
@@ -573,14 +646,14 @@ function ExpoCard({
         </span>
       </header>
       {ticket.pickupSlot && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+        <p style={secondaryLine}>
           <Chrome lang={lang} k="expo.pickup" vars={{ t: formatSlotLong(ticket.pickupSlot) }} />
         </p>
       )}
       {/* W21 — the pickup contact the checkout REQUIRED, finally readable where it's needed: a
           tel: link so the counter phone dials in one tap. Staff-gated surface; never public. */}
       {ticket.customerPhone && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+        <p style={secondaryLine}>
           <a
             href={`tel:${ticket.customerPhone.replace(/[^0-9+]/g, "")}`}
             style={{ color: "inherit", fontWeight: 700, minHeight: 44, display: "inline-block" }}
@@ -593,7 +666,7 @@ function ExpoCard({
       {/* W9d — the honest job description: the shopper already holds these items, so the counter's
           work is the exit-pass check, not bagging. */}
       {grocery && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+        <p style={secondaryLine}>
           <Chrome lang={lang} k="expo.grocery.note" vars={{ x: "Scan & Go" }} />
         </p>
       )}
@@ -622,9 +695,11 @@ function ExpoCard({
         <button
           type="button"
           onClick={() => onUndoPicked(ticket.orderId, subject)}
+          aria-disabled={committing || undefined}
+          aria-busy={committing || undefined}
           aria-label={al(lang, { kind: "undo", label: grocery ? verifyWho : callOutAria }).aria}
           className="staff-btn staff-press"
-          style={{ ...bumpBtn, ...pickedBtn }}
+          style={{ ...bumpBtn, ...undoBtn }}
         >
           <Chrome lang={lang} k="kds.undo" />
         </button>
@@ -730,6 +805,8 @@ const cardStyle: CSSProperties = { padding: "var(--s4)", display: "grid", gap: "
 // K27 (the counter half) — the call-out at the heading tier; the header's layout is `.expo-head`.
 const tableLabel: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-h2)" };
 const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+// K27 — the pickup slot, the phone and the scan-and-go note at body size: read at arm's length.
+const secondaryLine: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", color: "var(--t2)" };
 // The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
 const noteInline: CSSProperties = { display: "block", fontWeight: 700, color: "var(--tx)" };
 const readyTag: CSSProperties = {

@@ -106,3 +106,20 @@ export function pickedUndoOpen(
 ): boolean {
   return nowMs - startedMs < windowMs;
 }
+
+/**
+ * The Undo control takes the SAME 64px slot the "Picked up" button held (the lane has no bar of its
+ * own), and React reuses the node — so a double-tap "to make sure" would land its second tap on
+ * Undo and silently cancel the pick. Undo is inert for the first moments of the window: a tap
+ * younger than the arm is the same gesture, not a change of mind.
+ */
+export const PICKED_UNDO_ARM_MS = 400;
+
+/** Has the undo control armed — is this tap a change of mind rather than the pick's own echo? */
+export function pickedUndoArmed(
+  startedMs: number,
+  nowMs: number,
+  armMs = PICKED_UNDO_ARM_MS,
+): boolean {
+  return nowMs - startedMs >= armMs;
+}

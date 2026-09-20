@@ -22,3 +22,10 @@ export const readyBtn: CSSProperties = {
   borderColor: "var(--ac)",
 };
 export const pickedBtn: CSSProperties = { background: "var(--cd)", color: "var(--tx)" };
+/** counter-1 — the Undo posture in the same slot: a hairline ghost, unmistakably not a stage. */
+export const undoBtn: CSSProperties = {
+  background: "var(--sf)",
+  color: "var(--tx)",
+  borderColor: "var(--ac)",
+  borderStyle: "dashed",
+};

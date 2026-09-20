@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ExpoQueue, ExpoTicket } from "@/lib/expo-types";
+import type { ExpoPoll, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
 
 /**
@@ -55,8 +55,11 @@ const ticket = (over: Partial<ExpoTicket> = {}): ExpoTicket => ({
 const queue = (tickets: ExpoTicket[] = [ticket()]): ExpoQueue => ({ tickets, serverNow: NOW });
 let currentQueue = queue();
 
+const getExpoQueue = vi.fn(
+  (): Promise<ExpoPoll> => Promise.resolve({ ok: true, queue: currentQueue }),
+);
 vi.mock("@/lib/expo", () => ({
-  getExpoQueue: () => Promise.resolve({ ok: true, queue: currentQueue }),
+  getExpoQueue: () => getExpoQueue(),
   setTogoStatus: (...a: unknown[]) => setTogoStatus(...(a as [])),
 }));
 vi.mock("@/lib/haptics", () => ({ haptic: (...a: unknown[]) => haptic(...a) }));
@@ -77,6 +80,8 @@ afterEach(() => {
   vi.useRealTimers();
   setTogoStatus.mockReset();
   setTogoStatus.mockImplementation(() => Promise.resolve({ ok: true }));
+  getExpoQueue.mockReset();
+  getExpoQueue.mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
   haptic.mockReset();
   currentQueue = queue();
 });
@@ -114,9 +119,69 @@ describe("counter-1 — Picked up waits on its window, and Undo is the way back"
       await vi.advanceTimersByTimeAsync(5_000);
     });
     expect(setTogoStatus).not.toHaveBeenCalled();
+    // The write is issued at 6 s and held in flight by hand; the queue drops the bag only once the
+    // refetch after it lands.
+    const d = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => d.promise);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(1_000);
     });
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    expect(setTogoStatus).toHaveBeenLastCalledWith({ orderId: "order-1", to: "picked_up" });
+    // MUTATION: drop the map entry BEFORE the write — the card flips back to a live "Picked up"
+    // for the whole round trip, and a tap in that gap opens a second window; red here.
+    expect(card.getAttribute("data-picked")).toBe("true");
+    expect(getByRole("button", { name: /^Undo/ }).getAttribute("aria-busy")).toBe("true");
+    expect(() => getByRole("button", { name: pickedUpName("en") })).toThrow();
+    currentQueue = queue([]);
+    await act(async () => {
+      d.resolve({ ok: true });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(container.querySelector("article")).toBeNull();
+  });
+
+  it("a double-tap's second tap does not undo — Undo arms 400 ms after the pick", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    // MUTATION: drop the arm guard — this second tap lands on Undo (same slot, same node), red.
+    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBe("true");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400);
+    });
+    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
+  });
+
+  it("a standing refusal is replaced by the pick's own announcement", async () => {
+    currentQueue = queue([ticket({ orderId: "a", tableNumber: 3, status: "preparing" }), ticket()]);
+    setTogoStatus.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: "Couldn’t update that bag. Try again.", code: "failed" }),
+    );
+    const { getByRole, container } = mount("en", currentQueue);
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "expo.verb.bagged")}`) }));
+    const region = container.querySelector('[role="status"]')!;
+    await waitFor(() => expect(region.textContent).toBe(tf("en", "expo.err.bagTable", { id: 3 })));
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    // MUTATION: leave `err` standing in `onPicked` — the region keeps the old refusal, red.
+    expect(region.textContent).toBe(tf("en", "expo.live.pickedTable", { id: 7 }));
+  });
+
+  it("the lane leaving with a window open sends the write — the counter already handed the bag over", async () => {
+    vi.useFakeTimers();
+    const { getByRole, unmount } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(setTogoStatus).not.toHaveBeenCalled();
+    unmount();
+    // MUTATION: drop the unmount flush — the pick the counter saw is never recorded, red.
     expect(setTogoStatus).toHaveBeenCalledTimes(1);
     expect(setTogoStatus).toHaveBeenLastCalledWith({ orderId: "order-1", to: "picked_up" });
   });
@@ -183,7 +248,10 @@ describe("§17 — the first-stage bump is aria-disabled and busy in flight, nev
 });
 
 describe("counter-6 / P2q — the card speaks the device language", () => {
-  it("under my, the tags, the pickup line, the chip and the call-out are the dictionary's", () => {
+  it("under my, the tags, the pickup line, the chip and the call-out are the dictionary's — on a ready bag, a ready grocery basket and a preparing bag", () => {
+    // The stage VERBS keep their English echo by design (`echo="stack"`); this pins the card's
+    // CHROME, so the forbidden list is the chrome's words — "Verified" is a tag here, and no
+    // preparing grocery card is mounted (its verb's echo would legitimately read "Verified").
     currentQueue = queue([
       ticket({ arrivedAt: iso(-1), pickupSlot: iso(-2), tableNumber: 7 }),
       ticket({
@@ -192,6 +260,7 @@ describe("counter-6 / P2q — the card speaks the device language", () => {
         customerName: "Aye Aye",
         lines: [{ ...ticket().lines[0]!, id: "l-2", fulfillment: "grocery" }],
       }),
+      ticket({ orderId: "order-3", tableNumber: 2, status: "preparing", pickupSlot: iso(30) }),
     ]);
     const { container } = mount("my", currentQueue);
     const text = container.textContent ?? "";
@@ -227,6 +296,27 @@ describe("P2p — a refusal reaches the ONE region as the dictionary's sentence,
     expect(region.textContent).not.toContain("already updated");
     expect(region.querySelector('[lang="my"]')).not.toBeNull();
     expect(region.closest("[lang]")).toBeNull();
+  });
+});
+
+describe("the lane's clock advances from the FIRST tick, even when no poll ever succeeds", () => {
+  it("a lane that mounts into an outage still ages its bags — the offset is taken once, not recomputed", async () => {
+    vi.useFakeTimers();
+    currentQueue = queue([ticket({ orderId: "late", pickupSlot: iso(-25), createdAt: iso(-90) })]);
+    getExpoQueue.mockImplementation(() => Promise.resolve({ ok: false, reason: "outage" }));
+    const { container } = render(
+      <StaffLangProvider lang="en">
+        <ExpoBoard initial={currentQueue} initialOutage />
+      </StaffLangProvider>,
+    );
+    expect(container.querySelector(".expo-age")?.textContent).toContain("25:00");
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60_000);
+    });
+    // MUTATION: recompute the fallback offset on every call — `Date.now() + (parse(serverNow) -
+    // Date.now())` is the constant `parse(serverNow)`, the clock never moves, and neither does the
+    // paper-flow escalation this path exists for; red here.
+    expect(container.querySelector(".expo-age")?.textContent).toContain("26:00");
   });
 });
 

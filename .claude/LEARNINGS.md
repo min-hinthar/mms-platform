@@ -2410,3 +2410,26 @@ undo that still acted, and a screen-reader cook who "waited for the busy to clea
 seconds run out. §17's sentence is exact: the attribute is a statement about the handler behind it.
 Derive it from the SAME predicate the handler gates on — one binding, both readers — never a superset
 that merely includes it.
+
+## #125 — A deferred write is a promise the screen makes; every exit from the window must keep it (2026-09-20, #292)
+
+The lane's "Picked up" got a six-second undo window because the SQL machine has no reverse edge.
+The first cut kept the promise on exactly one path — the tick firing with the tab open and the
+poll succeeding — and broke it on every other: the tick dropped the map entry BEFORE issuing the
+write (the card flipped back to a live "Picked up" for the round trip, on every pick); Undo took
+the same slot and DOM node as the button that was just tapped (a double-tap cancelled the pick);
+a lock/sign-in redirect and an unmount discarded open windows silently; and a standing refusal in
+the one region hid the pick's own announcement. The blind pass found all four; no in-context read
+had, because each one is fine on the happy path. The rule: enumerate the EXITS from a deferred
+state (timer · user reversal · same-gesture repeat · navigation · unmount · a competing message)
+and write the wiring case for each before the happy path's test — the happy path was green from
+the first run and proved nothing about the promise.
+
+Two smaller shapes from the same pass. **A fallback that recomputes what it should have captured
+is a constant:** `Date.now() + (offset ?? parse(serverNow) - Date.now())` collapses to
+`parse(serverNow)` whenever `offset` is null — the clock never moved on the one path
+(`initialOutage`) the escalation exists for; `offset ??= …` at mount is the whole fix, and the
+KDS had that line all along. **A table-cell edit keyed by "third from the end" is wrong on a row
+with fewer columns:** the K27 row has no origin cell, so the STATUS index landed on its
+description and wiped it. Address a cell by what it IS (`closed`/`open`/a date), assert before
+writing, and diff the row after.
