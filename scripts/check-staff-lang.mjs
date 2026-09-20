@@ -1351,13 +1351,24 @@ function reachesSwitch(root) {
   return switchMounts(root).length > 0;
 }
 
-/** The one module whose export IS the control — reached by MODULE identity, never by a tag name. */
+/**
+ * The one export that IS the control — identified by MODULE + SYMBOL, never by a tag name: an alias
+ * (`import { StaffLangSwitch as S }`) counts in THIS walk, a same-named local does not (the pages'
+ * walk, `mountsSwitchHere`, is still tag-named and reports an alias as no mount). Codex round 4 on #298:
+ * the module alone was not enough either — a bar that mounts `<Foo>` from a module whose OTHER
+ * export holds the switch is not a bar that reaches it.
+ */
 const SWITCH_MODULE = join(QR, "components/staff/StaffLangSwitch.tsx");
+const SWITCH_EXPORT = "StaffLangSwitch";
 
 /**
- * What the export-rooted walk needs from a module: imports by local name (resolved), the component
- * bodies declared in the file by name (a `function` declaration, or a `const` initialised with an
- * arrow or function expression), and which of those carry `export` (`default` included).
+ * What the export-rooted walk needs from a module: imports by local name — resolved to the module
+ * AND the symbol imported from it (`default` for a default import); the component bodies declared
+ * at the top level by name (a `function` declaration, or a `const` initialised with an arrow or
+ * function expression); and the export table, export name → local name, or → `{ module, name }`
+ * for a re-export (`export { X } from "./x"`). `export default function X` exports `default`,
+ * `export default X;` and `export { X as Y }` are read; `export * from` is not followed (an entry
+ * behind one is reported as unreached — the closed direction).
  */
 function componentGraph(file) {
   let sf;
@@ -1368,77 +1379,134 @@ function componentGraph(file) {
   }
   const byLocal = new Map();
   const locals = new Map();
-  const exported = [];
-  const isExported = (node) =>
-    !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
-  const isFnInit = (init) => !!init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init));
+  const exported = new Map();
+  const has = (node, kind) => !!node.modifiers?.some((m) => m.kind === kind);
+  const isExported = (node) => has(node, ts.SyntaxKind.ExportKeyword);
+  const isDefault = (node) => has(node, ts.SyntaxKind.DefaultKeyword);
   for (const stmt of sf.statements) {
     if (ts.isImportDeclaration(stmt) && ts.isStringLiteral(stmt.moduleSpecifier)) {
       const resolved = resolveSpecifier(stmt.moduleSpecifier.text, file);
       const clause = stmt.importClause;
       if (resolved && clause) {
-        if (clause.name) byLocal.set(clause.name.text, resolved);
+        if (clause.name) byLocal.set(clause.name.text, { module: resolved, name: "default" });
         if (clause.namedBindings && ts.isNamedImports(clause.namedBindings))
-          for (const el of clause.namedBindings.elements) byLocal.set(el.name.text, resolved);
+          for (const el of clause.namedBindings.elements)
+            byLocal.set(el.name.text, {
+              module: resolved,
+              name: (el.propertyName ?? el.name).text,
+            });
       }
     } else if (ts.isFunctionDeclaration(stmt) && stmt.body) {
       const name = stmt.name?.text ?? "default";
       locals.set(name, stmt.body);
-      if (isExported(stmt)) exported.push(name);
+      if (isExported(stmt)) exported.set(isDefault(stmt) ? "default" : name, name);
     } else if (ts.isVariableStatement(stmt)) {
       for (const d of stmt.declarationList.declarations)
         if (ts.isIdentifier(d.name) && isFnInit(d.initializer)) {
           locals.set(d.name.text, d.initializer);
-          if (isExported(stmt)) exported.push(d.name.text);
+          if (isExported(stmt)) exported.set(d.name.text, d.name.text);
         }
+    } else if (ts.isExportAssignment(stmt) && !stmt.isExportEquals) {
+      if (ts.isIdentifier(stmt.expression)) exported.set("default", stmt.expression.text);
+    } else if (
+      ts.isExportDeclaration(stmt) &&
+      stmt.exportClause &&
+      ts.isNamedExports(stmt.exportClause)
+    ) {
+      const from =
+        stmt.moduleSpecifier && ts.isStringLiteral(stmt.moduleSpecifier)
+          ? resolveSpecifier(stmt.moduleSpecifier.text, file)
+          : null;
+      for (const el of stmt.exportClause.elements) {
+        const local = (el.propertyName ?? el.name).text;
+        if (stmt.moduleSpecifier) {
+          if (from) exported.set(el.name.text, { module: from, name: local });
+        } else exported.set(el.name.text, local);
+      }
     }
   }
   return { byLocal, locals, exported };
 }
 
+/** A function-LIKE node with a NAME binding — a separate root, never part of the enclosing body. */
+const isFnInit = (init) => !!init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init));
+const isNamedFn = (node) =>
+  ts.isFunctionDeclaration(node) ||
+  (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && isFnInit(node.initializer));
+
 /**
- * Does an EXPORTED component of `file` reach a live `<StaffLangSwitch>` through live JSX at EVERY
- * hop? From each exported component's body: a `<Tag …>` outside a literal-dead branch that is a
- * component declared in this file is followed into that component (once); one that is an import of
- * the switch's own module IS the control; one that is an import of another apps/qr module is
- * followed into THAT module's exported components (once per module), by the same rule. Parsed, not
- * walked (LEARNINGS #60), and export-rooted at every hop (Codex rounds 2 and 3 on #298): an import
- * EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false &&
- * <StaffBar/>}` reaches nothing; an uncalled `function Example() { return <StaffBar/>; }` reaches
- * nothing because nothing exported renders it; a mounted bar that merely IMPORTS the switch, or
- * holds it only in an uncalled helper, reaches nothing either — the first cut fell back to a
- * file-wide tag scan on the excluded module and to the import graph after the first hop, and both
- * of those pass exactly those shapes. Member tags (`<Foo.Bar>`) are not imports of a component and
- * are not counted; the tag is identified by the MODULE its import resolves to, so an alias
- * (`import { StaffLangSwitch as S }`) counts and a same-named local does not.
+ * Does an EXPORTED component of `file` — the one named `entry`, or any when `entry` is null — reach
+ * a live `<StaffLangSwitch>` through live JSX at EVERY hop? From the component's body: a `<Tag …>`
+ * (or a `Tag(…)` call) outside a literal-dead branch that names a function declared in a scope the
+ * body can see is followed into that function (once per body); one that is an import of the
+ * switch's own export IS the control; one that is an import of another apps/qr module is followed
+ * into THAT module's export of THAT symbol (once per module+symbol), by the same rule. Parsed, not
+ * walked (LEARNINGS #60), and export-rooted at every hop (Codex rounds 2, 3 and 4 on #298): an
+ * import EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false
+ * && <StaffBar/>}` reaches nothing; an uncalled `function Example() { return <StaffBar/>; }`
+ * reaches nothing because nothing exported renders it; a mounted bar that merely IMPORTS the
+ * switch, or holds it only in an uncalled helper, reaches nothing either; a mounted `<StaffBar>`
+ * whose module's OTHER export holds the switch reaches nothing (the edge carries the SYMBOL, so the
+ * next hop starts at that export, never at all of them); and a function NESTED in a mounted body
+ * is a separate root — `function Example() { return <StaffLangSwitch/>; }` inside the bar counts
+ * only when the bar's live JSX mounts `<Example>` or calls `Example()`. Anonymous callbacks in
+ * expression position (a `.map(…)` body, a render prop) are walked as part of the body: what calls
+ * them is not knowable statically, and the enumerated dead shapes are named declarations. Passing
+ * a named function BY REFERENCE (`render={Example}`) is not a mount and is not followed — the
+ * closed direction. Member tags (`<Foo.Bar>`) are not imports of a component and are not counted.
  */
-function reachesSwitchFromExports(file, seenModules = new Set()) {
-  if (seenModules.has(file)) return false;
-  seenModules.add(file);
+function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
+  const key = `${file}#${entry ?? "*"}`;
+  if (seenModules.has(key)) return false;
+  seenModules.add(key);
   const g = componentGraph(file);
   if (!g) return false;
-  const seenLocal = new Set();
-  function walk(name) {
-    if (seenLocal.has(name)) return false;
-    seenLocal.add(name);
-    const body = g.locals.get(name);
-    if (!body) return false;
+  const seenBodies = new Set();
+
+  /** Named function-likes declared in `body`, outside any named function nested in it. */
+  function declaredIn(body) {
+    const scope = new Map();
+    function collect(node) {
+      if (node !== body && isNamedFn(node)) {
+        if (ts.isFunctionDeclaration(node)) {
+          if (node.name && node.body) scope.set(node.name.text, node.body);
+        } else scope.set(node.name.text, node.initializer);
+        return;
+      }
+      ts.forEachChild(node, (c) => {
+        collect(c);
+      });
+    }
+    collect(body);
+    return scope;
+  }
+
+  function walkBody(body, chain) {
+    if (seenBodies.has(body)) return false;
+    seenBodies.add(body);
+    const here = [declaredIn(body), ...chain];
+    const lookup = (name) => here.find((s) => s.has(name))?.get(name);
     let hit = false;
+    function follow(name) {
+      const local = lookup(name);
+      if (local) return walkBody(local, here);
+      return followImport(g.byLocal.get(name));
+    }
     function visit(node) {
       if (hit) return;
+      if (node !== body && isNamedFn(node)) return;
       if (
         (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
         ts.isIdentifier(node.tagName) &&
         !inDeadBranch(node)
       ) {
-        const tag = node.tagName.text;
-        if (g.locals.has(tag)) {
-          if (walk(tag)) hit = true;
-        } else {
-          const m = g.byLocal.get(tag);
-          if (m === SWITCH_MODULE) hit = true;
-          else if (m && m.startsWith(QR) && reachesSwitchFromExports(m, seenModules)) hit = true;
-        }
+        if (follow(node.tagName.text)) hit = true;
+      } else if (
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        !inDeadBranch(node)
+      ) {
+        if (follow(node.expression.text)) hit = true;
       }
       ts.forEachChild(node, (c) => {
         visit(c);
@@ -1447,7 +1515,28 @@ function reachesSwitchFromExports(file, seenModules = new Set()) {
     visit(body);
     return hit;
   }
-  return g.exported.some((n) => walk(n));
+
+  /** An import edge: the switch's own export IS the control; another apps/qr module is entered at
+   *  the imported symbol; anything else (a package, a type) reaches nothing. */
+  function followImport(imp) {
+    if (!imp) return false;
+    if (imp.module === SWITCH_MODULE) return imp.name === SWITCH_EXPORT;
+    return imp.module.startsWith(QR) && reachesSwitchFromExports(imp.module, seenModules, imp.name);
+  }
+
+  // An export names a body declared here, an import passed through (`import { X } …; export { X }`
+  // or `export default X;`), or a re-export from another module.
+  function walkExport(name) {
+    const target = g.exported.get(name);
+    if (target === undefined) return false;
+    if (typeof target === "object")
+      return reachesSwitchFromExports(target.module, seenModules, target.name);
+    const body = g.locals.get(target);
+    if (body) return walkBody(body, [g.locals]);
+    return followImport(g.byLocal.get(target));
+  }
+  if (entry !== null) return walkExport(entry);
+  return [...g.exported.keys()].some((n) => walkExport(n));
 }
 
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
@@ -1456,7 +1545,8 @@ function reachesSwitchFromExports(file, seenModules = new Set()) {
 // silently hiding nothing and the next reader would trust a comment that has stopped being true.
 // Never the import graph, never a file-wide scan: the walk the pages get follows every import,
 // which is right for "does this page reach a control" and wrong for "does this module still mount
-// one" — an unused import, a dead branch or an uncalled helper, at either hop, would each pass.
+// one" — an unused import, a dead branch, an uncalled helper (top-level OR nested), or a sibling
+// export of the mounted module holding the switch, at either hop, would each pass.
 for (const f of SWITCH_WALK_EXCLUDED)
   if (!reachesSwitchFromExports(f))
     failures.push(

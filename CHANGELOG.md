@@ -58,9 +58,13 @@ var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the r
   switch in the tail's fixed slot) over `.staff-col.entry-col`; the card's heading is an h2 that
   still takes focus. `check-staff-lang.mjs`'s self-check now asks whether the excluded shell still
   REACHES a switch (through the bar), not whether it mounts one in its own JSX — traced from the
-  shell's EXPORTED component through live JSX at EVERY hop, the switch identified by its module, so
-  an unused import, a dead branch or an uncalled helper holding the bar — or a mounted bar that
-  only imports the switch — each fail it (the blind pass and Codex rounds 2 and 3, one evasion each).
+  shell's EXPORTED component through live JSX at EVERY hop, the switch identified by its module AND
+  its exported symbol, so an unused import, a dead branch or an uncalled helper holding the bar — a
+  mounted bar that only imports the switch — a mounted bar whose SIBLING export holds it — or the
+  switch parked in a function NESTED in the bar that nothing mounts or calls — each fail it (the
+  blind pass, Codex rounds 2 and 3 with one evasion each, round 4 with the last two; the import
+  edge carries the symbol now, and a named function nested in a body is a separate root entered
+  only by a tag or a call).
 - **The front door's own skeleton (signin-1).** `/staff/login` and `/staff/lock` fell back to the
   floor's 1080 three-zone skeleton. `EntrySkeleton` mirrors the pages — the bar band, then the
   pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card in EACH
@@ -68,7 +72,9 @@ var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the r
   link — one field each; a first cut drew two fields for both and shifted the card on resolve,
   Codex round 2) — the root `aria-busy`, with `shell.loading` carried sr-only for the screen it
   stands in for. The suite renders the two live forms and holds each variant to their field count,
-  pill count and brand line.
+  pill count and brand line. The login variant is the FORM's shape for every visitor — a signed-in
+  member lands on the taller card after a height shift; the fallback cannot know the auth state it
+  is waiting on (Codex round 4, filed as K37 with the neutral-shape option).
 - **The doors say "Opening…" (doors-1 / K29) and the More list has a name (doors-2).** A tapped
   door's note slot reads `floor.door.opening` while its cookie write is awaited (one slot — a busy
   current door never grows a line) and `.staff-door[aria-busy="true"]` draws the §17 dim with no
