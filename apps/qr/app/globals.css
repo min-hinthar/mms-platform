@@ -3317,11 +3317,17 @@ html[data-fx="off"] .pa-pause {
     box-shadow var(--dur-fast) var(--ease-out),
     filter var(--dur-fast) var(--ease-out);
 }
-.staff-btn:not(:disabled):hover {
+/* §17 — a busy control is `aria-disabled` (never native `disabled`), so the feedback is keyed on
+   BOTH: a refused tap gets no brightness and no scale. */
+.staff-btn:not(:disabled):not([aria-disabled="true"]):hover {
   filter: brightness(1.04);
 }
-.staff-btn:not(:disabled):active {
+.staff-btn:not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(0.97);
+}
+.staff-btn[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3333,7 +3339,7 @@ html[data-fx="off"] .pa-pause {
   .staff-btn {
     transition: none;
   }
-  .staff-btn:not(:disabled):active {
+  .staff-btn:not(:disabled):not([aria-disabled="true"]):active {
     transform: none;
   }
 }
@@ -7791,7 +7797,7 @@ a .chrome-en {
   justify-content: center;
   gap: 10px;
   margin: 10px;
-  min-height: 64px;
+  min-height: var(--tap-bump);
   border: 0;
   border-radius: var(--r-sm);
   background: var(--ok);
@@ -10857,6 +10863,34 @@ html[data-fx="lite"] .mms-scrim {
   padding: 0 14px;
 }
 /* The takeaway board's status line, declared ONCE — `ExpoBoard` wears it live, the help card inert. */
+/* counter-7 — the lane's due-ness as a HEADER-STRIP tone (SPEC-KDS §1: never recolour the body, never
+   the text): ok is the card, warn and late are the paired surfaces. The age clock beside it reads at
+   `--fs-h3`; the text keeps its own ink at every tone. */
+.expo-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  margin: calc(-1 * var(--s4)) calc(-1 * var(--s4)) 0;
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-md) var(--r-md) 0 0;
+}
+.expo-head[data-tone="warn"] {
+  background: var(--warnb);
+}
+.expo-head[data-tone="late"] {
+  background: var(--warnb);
+  box-shadow: inset 0 -2px 0 var(--warn);
+}
+.expo-age {
+  font-size: var(--fs-h3);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+/* counter-1 — the picked posture: the write is waiting on the undo window, and the card says so. */
+.card[data-picked="true"] {
+  opacity: 0.72;
+}
 .expo-status {
   margin: 0;
   font-size: var(--fs-sm);

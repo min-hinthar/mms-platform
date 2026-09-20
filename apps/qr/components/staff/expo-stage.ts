@@ -9,7 +9,7 @@ import type { CSSProperties } from "react";
  * inverted, two looks the board has never had, under a docblock promising the opposite.
  */
 export const bumpBtn: CSSProperties = {
-  minHeight: 44,
+  minHeight: "var(--tap-bump)", // O-E — the KDS bump's height, ONE token (counter-1)
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   fontWeight: 700,

@@ -4270,6 +4270,31 @@ const MUTANTS = [
     replace:
       '  const cooking = Number(a.kitchen === "cooking") - Number(b.kitchen === "cooking");\n  if (cooking !== 0) return cooking;\n  const arrived = Number(!a.arrivedAt) - Number(!b.arrivedAt);\n  if (arrived !== 0) return arrived;',
   },
+  // ── staff-console polish, slice 2a (counter-1 · counter-7): the lane's due-ness and its undo window
+  {
+    id: "expo-rules/a-scheduled-bag-ages-from-payment",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "counter-7 (O-G) — the lane's clock is due-ness: counted from PAYMENT when a slot exists, a noon-paid 6 pm pickup wears a late header strip for five hours while nobody is waiting for it, and the strip stops meaning anything by dinner",
+    find: "  const from = Date.parse(t.arrivedAt ?? t.pickupSlot ?? t.createdAt);",
+    replace: "  const from = Date.parse(t.arrivedAt ?? t.createdAt);",
+  },
+  {
+    id: "expo-rules/late-flips-a-minute-after-the-threshold",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "counter-7 — the thresholds are the config constant the counter reads by; a strict compare on the late edge is a silent minute of drift between what the constant says and what the strip shows",
+    find: '    min >= EXPO_TONE_MIN.late ? "late" : min >= EXPO_TONE_MIN.warn ? "warn" : "ok";',
+    replace: '    min > EXPO_TONE_MIN.late ? "late" : min >= EXPO_TONE_MIN.warn ? "warn" : "ok";',
+  },
+  {
+    id: "expo-rules/the-undo-window-outlives-itself",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "counter-1 (O-E) — the deferred picked-up write goes out on the first tick at which the window is CLOSED; an inclusive compare holds the bag on the tracker and the wall one tick longer than the window the card promised, every time",
+    find: "  return nowMs - startedMs < windowMs;",
+    replace: "  return nowMs - startedMs <= windowMs;",
+  },
   {
     id: "expo/a-failed-kitchen-read-freezes-the-counter",
     file: "apps/qr/lib/expo.ts",

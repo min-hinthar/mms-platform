@@ -17,6 +17,8 @@
   --s8: 32px;
   --s10: 40px;
   --s15: 60px;
+  /* The pass's biggest commit — the KDS bump and the lane's stage button share ONE height (O-E). */
+  --tap-bump: 64px;
   /* ── Type scale (world-class R10): modular ratio ~1.24, rem-based; per-role line-heights + display
      tracking. Additive — no COLOR token changed, so the contrast-audit (which parses this file) is
      unaffected. Replaces inline magic font-sizes (e.g. the homepage's hard-coded 30px). ── */
