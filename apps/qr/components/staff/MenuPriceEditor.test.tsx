@@ -185,7 +185,9 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
       </StaffLangProvider>,
     );
     expect(pill("Put back — Mohinga")).toBeTruthy();
-    expect(screen.getByText(/sold out since/).textContent?.replace(/\u202f/g, " ")).toContain("8:40 PM");
+    expect(screen.getByText(/sold out since/).textContent?.replace(/\u202f/g, " ")).toContain(
+      "8:40 PM",
+    );
     // …and it is SPENT: another tablet puts the dish back, the next refresh says so, and the row
     // must follow the prop — a stale override that was never let go would still say `Put back`.
     // MUTATION: skip the reconcile on a new `items` array — red here.
