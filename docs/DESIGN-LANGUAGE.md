@@ -657,18 +657,24 @@ built.
   two vocabularies in one bar — and inside `.staff-seg` the tint was not even visible: the track's
   `.staff-seg > .kds-chip` (0,2,1) out-specified `.kds-chip[aria-pressed]` (0,2,0) and painted the
   fill transparent, leaving a sheen ring (K29's "grey disc"). `KdsBoard.test.tsx` parses the
-  stylesheet and reddens the moment any of the five pressed selectors grows a second fill — the
+  stylesheet and reddens the moment any of the six pressed selectors grows a second fill — the
   fifth is the register's open Start arm (`.staff-arm[aria-expanded="true"]`, counter-4): a
   selection is a selection whichever attribute says so, and it joins the rule rather than the
-  accent outline it wore before. Segments never drop under 44px (O-E): the thumb IS the target.
+  accent outline it wore before; the sixth is `.staff-chip[aria-pressed="true"]` (manager-7), the
+  ONE rest class every pressed chip outside the KDS root wears — the loss sheet's segment and
+  reason rows, the menu browser's categories, the mod sheet's options, the cash settle's tip chips
+  — because an INLINE fill beats any class, so five `*On` style objects had kept the rule from ever
+  reaching them. Segments never drop under 44px (O-E): the thumb IS the target.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
   The kitchen board's eight action buttons — bump · fire · the line · 86 · undo · recall · the pager
   — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; the lane's
-  bump and the register's five controls are `aria-disabled` the same way since the same day, and 40
-  native `disabled` sites remain across 18 other staff components (K35 — measured native-only;
-  `aria-disabled={` is not one). The register also shows the trap in the predicate: a `busy`
+  bump, the register's five controls and (slice 3) the manager rails — `Stepper` itself, the
+  approvals card, the refund and void/comp sheets, the line editor, the mod sheet, the menu browser,
+  the add button — are `aria-disabled` the same way since the same day, and 23 native `disabled`
+  sites remain across 12 other staff components (K35 — measured native-only; `aria-disabled={` is
+  not one, and two of the 23 are not taps: a `Stepper` prop and a roster dead-end). The register also shows the trap in the predicate: a `busy`
   computed at RENDER is the same stale `false` for every tap of one frame, so the handler reads the
   in-flight REF when the tap lands (LEARNINGS #126). **`aria-disabled` is the ZONE's fact; `aria-busy`
   is the ONE control's** — the register holds all five while a mint runs and marks busy only the

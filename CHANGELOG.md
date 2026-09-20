@@ -4,6 +4,56 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### manager-1 · manager-3 · manager-4 · manager-5 · manager-6 · manager-7 · manager-8 + M34 · P2t · the rails' K35 — the manager rails and the drill-down (2026-09-20)
+
+**Slice 3 of the staff-console polish: the approvals queue, the refunds strip, the refund and
+void/comp sheets, the drill-down's line controls and skeleton, from the audit's verified findings**
+(`docs/STAFF_POLISH_AUDIT.md` → Manager rails + the table drill-down). The two sheet-primitive
+findings (manager-9 the ✕'s English name, manager-10 / M76 the missing exit animation) and K29(b)'s
+inline cash-settle confirm are the next PR — they change `packages/ui`.
+
+- **The approvals poll gives a verdict (manager-1, M34).** `listPendingApprovals` throws on purpose,
+  and the board folded every throw into one `unknown` miss — so an EXPIRED SESSION read "Not
+  updating right now … Reconnecting…" forever with no path to the login, while every other board
+  redirects on its own poll. `pollPendingApprovals` answers `signin` · `outage` · rows;
+  `lib/approvals-poll.ts` decides by status (401/403 a person, everything else the platform; the
+  suite pins a 503 as an outage, never an eviction); the board leaves for the login through
+  `lib/staff-leave.ts` on `signin` and freezes as a KNOWN outage after two misses on `outage`.
+  Only a client-side throw (`raceTimeout`) is still `unknown`.
+- **"Mark refunded" is two taps (manager-3).** It was one tap with no confirm, no undo and no busy
+  state on the one control whose mis-tap hides a stranded charge from the console. The first tap
+  opens an inline group naming the amount and the processor with focus inside; the second commits,
+  `aria-disabled` + `aria-busy` and "Marking…" while it runs; Cancel hands focus back to the trigger;
+  a landed mark lands focus on the strip or, for the last row, the zone's heading.
+- **Approve/Deny move focus into the form (manager-4).** The tapped button unmounts when the form
+  takes its place, so the PIN step used to open with focus on `<body>`; the form (named by its
+  question) takes focus, and Cancel returns it to the button that was tapped.
+- **The refund sheet's PIN discipline (manager-5).** A refused PIN now leaves the masked field and
+  focus returns to it (the next tap used to re-send the same wrong digits and burn an attempt toward
+  the lockout); `locked` is read at last, so the Refund button refuses through the countdown and the
+  field is READ-ONLY (§17), as it is on the approvals card and the loss sheet.
+- **The void/comp sheet speaks the console's tongue (manager-6, P2t).** Its title was an English
+  literal behind a comment claiming a `string` prop the primitive had stopped having, and twelve
+  refusals were `setMsg("…")` literals; two title keys and eight `table.loss.msg.*` keys (reusing
+  `table.appr.msg.inFlight` and `table.loss.reasonRequired`) close P2t — the approvals half had
+  already been converted. Ten machine-drafted MY strings → K15's sheet.
+- **One pressed vocabulary (manager-7).** Five `aria-pressed` chips on this surface drew their own
+  on-state — two accent fills, a 10% tint, a ring-and-wash, a partial cap. `.staff-chip` is the one
+  rest class (with `-block` / `-seg` / `-amount` modifiers) and `.staff-chip[aria-pressed="true"]`
+  is the sixth selector in the console's shared lit-cap rule; the inline `*On` objects are gone,
+  because an inline fill beats any class and the rule could never have reached them.
+- **The drill-down skeleton is the live view's geometry (manager-8)** — chip row, sub-line, party
+  card with ~30px guest chips, order card with the 44px note pill and stepper pair — announcing
+  through `<LoadingLine>`.
+- **§17 on the rails (manager-2, K35).** `Stepper` (the shared primitive; the customer cart rides
+  it too) is `aria-disabled` with the handler refusing on the same predicate and a dim keyed on it,
+  so a refused "+" announces why instead of blurring; the approvals card, the two sheets, the line
+  editor, the mod sheet, the menu browser and the add button follow; the PIN fields' lockout is
+  read-only on the input and no longer disables the roster select. The line editor's Save says
+  "Saving…" while it saves — its content was its accessible name, and the name was "…". Re-measured:
+  23 native sites remain in 12 components (two of them not taps: a `Stepper` prop, a roster
+  dead-end).
+
 ### counter-3 · counter-4 · counter-5 · counter-8 · counter-9 · counter-10 + the counter halves of K29 · K35 — the register and the floor's chrome (2026-09-20)
 
 **Slice 2b of the staff-console polish: the counter's Start zone, the age on every card, the

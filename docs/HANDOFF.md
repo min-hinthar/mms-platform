@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — built, gated, blind-pass-closed and on draft PR #293 from `claude/qr-app-backlog-cj2t0m`; slices 3–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — built and gated on `claude/qr-app-backlog-cj2t0m`, its PR the next step; the sheet-primitive PR, `/board`, menu/tips and sign-in are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
@@ -39,10 +39,21 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > wiring), filed to ride with the manager rails' pass beside the two vocabulary slips the audit
 > named there (`reasonBtnOn`'s tint, `tipChipOn`'s ring).
 >
+> **Slice 3 is the `### manager-1 · manager-3 · … — the manager rails and the drill-down` entry:**
+> the approvals poll's verdict (M34 closed — `pollPendingApprovals` + `lib/approvals-poll.ts` +
+> `lib/staff-leave.ts`, the ONE exit a suite can pin), the refund strip's two-step, focus into the
+> approvals form, the refund sheet's PIN clear + lockout, the loss sheet in the console's tongue
+> (P2t closed), `.staff-chip` as the sixth selector in the one pressed rule, the drill-down
+> skeleton, §17 through `Stepper` and every rail control (K35 at 23 native sites in 12 files),
+> "Saving…". Six suites (three new: LossActionSheet · RefundActionSheet · StaffLineEditor;
+> ApprovalsBoard +5 cases; approvals-poll; KdsBoard's guard at six), ten mutations watched red.
+>
 > **Slice order, by where staff are and by verified severity — what is LEFT:**
 >
-> 1. **Manager rails + table drill-down** — read the audit's section; K29(b)'s cash-settle confirm
->    → `Sheet` rides here, with `reasonBtnOn` / `tipChipOn` adopting the shared pressed rule.
+> 1. **The sheet primitive (`packages/ui`)** — manager-9 (`closeLabel` so the ✕ speaks the
+>    console's tongue), manager-10 / M76 (the exit animation: `forceMount` on Portal, Overlay AND
+>    Content + `AnimatePresence`, gated on `useAnimationPreference`), and K29(b)'s cash-settle
+>    confirm → `Sheet`.
 > 2. **`/board`** (K28(b): the Ready shelf's raw `readyMinutes` gets `fmtElapsed`; `.orb-status`
 >    size).
 > 3. **Menu · Tips · Glossary**, then **Sign-in + chrome** (K35's 40 native `disabled` sites in 18
@@ -61,7 +72,11 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > contain that substring; `K15-HIGH` markers must match `STAFF_K15_HIGH` (autonyms.test); the
 > dictionary's namespace guard (`strings.test.ts`) enumerates the surface prefixes — a new
 > cross-surface vocabulary (`time.*`) is admitted THERE, by name, not by renaming it into `shell.*`;
-> and **`check:docs` counts TRACKED docs files** — run it after `git add` (LEARNINGS #123).
+> and **`check:docs` counts TRACKED docs files** — run it after `git add` (LEARNINGS #123). Two
+> jsdom facts from slice 3 (LEARNINGS #127): a `fireEvent.click` on a `type="submit"` button lands
+> the action but commits the transition's pending render OUTSIDE `act` — dispatch `submit` on the
+> form; and `window.location.assign` cannot be spied (vitest swaps the console object, so jsdom's
+> "not implemented" report is invisible) — route the exit through a module and mock it.
 >
 > **Codex quota is exhausted** (the #283/#290/#291/#292 precedent): if it still refuses on this PR,
 > record the override in the PR comment and merge on the standing go once CI is green.
@@ -1287,7 +1302,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2725 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2743 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2179,7 +2194,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2725 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2743 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

@@ -108,6 +108,7 @@ export function StaffMenuBrowser({
   }
 
   function saveName() {
+    if (namePending || nameSaved) return; // §17 — the button says so with `aria-disabled`
     startNameTransition(async () => {
       try {
         const r = await setCartCustomerName({ sessionId, name: name.trim() });
@@ -152,7 +153,12 @@ export function StaffMenuBrowser({
             />
             {/* No echo on these three: the button shares a flex row with a `flex: 1` input, and a
                 second script beside the label squeezes the field it sits next to. */}
-            <button type="submit" style={nameBtn} disabled={namePending || nameSaved}>
+            <button
+              type="submit"
+              style={nameBtn}
+              aria-disabled={namePending || nameSaved || undefined}
+              aria-busy={namePending || undefined}
+            >
               {namePending ? (
                 <Chrome lang={lang} k="browse.name.saving" />
               ) : nameSaved ? (
@@ -176,9 +182,10 @@ export function StaffMenuBrowser({
         />
       </div>
       <div style={chipRow} role="group" aria-label={sx(lang, "browse.a11y.categories")}>
+        {/* manager-7 — `.staff-chip`: the chosen category wears the console's ONE lit cap. */}
         <button
           type="button"
-          style={cat === null ? chipOn : chip}
+          className="staff-chip"
           aria-pressed={cat === null}
           onClick={() => setCat(null)}
         >
@@ -189,7 +196,7 @@ export function StaffMenuBrowser({
           <button
             key={c}
             type="button"
-            style={cat === c ? chipOn : chip}
+            className="staff-chip"
             aria-pressed={cat === c}
             onClick={() => setCat(cat === c ? null : c)}
           >
@@ -259,11 +266,14 @@ export function StaffMenuBrowser({
               <button
                 type="button"
                 style={chooseBtn}
-                disabled={i.soldOut}
+                aria-disabled={i.soldOut || undefined}
                 aria-label={
                   al(lang, { kind: "verb", verb: "browse.verb.choose", subject: i.nameEn }).aria
                 }
-                onClick={() => setSheetItem(i)}
+                onClick={() => {
+                  if (i.soldOut) return; // §17 — the refusal announces itself instead of blurring
+                  setSheetItem(i);
+                }}
               >
                 {/* Same key the name leads with (rule 3c). No echo: this is a compact pill in a
                     three-up row, and a second script beside it squeezes the dish name on a phone. */}
@@ -350,23 +360,6 @@ const chipRow: CSSProperties = {
   gap: "var(--s2)",
   flexWrap: "wrap",
   margin: "0 0 var(--s3)",
-};
-const chip: CSSProperties = {
-  minHeight: 44,
-  padding: "0 var(--s3)",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
-  cursor: "pointer",
-};
-const chipOn: CSSProperties = {
-  ...chip,
-  background: "var(--ac)",
-  borderColor: "var(--ac)",
-  color: "var(--oa)",
-  fontWeight: 700,
 };
 const statusText: CSSProperties = {
   color: "var(--t2)",

@@ -129,9 +129,11 @@ export function StaffModSheet({
                     type="button"
                     // Toggle-button semantics (aria-pressed): conformant without the roving-tabindex
                     // machinery real radio groups demand — the single-select behavior lives in
-                    // toggleOption, and each option stays independently tabbable.
+                    // toggleOption, and each option stays independently tabbable. manager-7: the
+                    // chosen option wears the console's ONE lit cap (`.staff-chip` + the shared rule).
+                    className="staff-chip"
                     aria-pressed={chosen}
-                    style={chosen ? optBtnOn : optBtn}
+                    style={optBtn}
                     onClick={() =>
                       setSel((s) => ({ ...s, [g.id]: toggleOption(g, s[g.id] ?? [], o.id) }))
                     }
@@ -162,8 +164,12 @@ export function StaffModSheet({
               type="button"
               style={qtyBtn}
               aria-label={sx(lang, "browse.mod.a11y.less")}
-              disabled={qty <= 1}
-              onClick={() => setQty((q) => Math.max(1, q - 1))}
+              // §17 (K35) — a bound refusal announces itself instead of blurring the tap.
+              aria-disabled={qty <= 1 || undefined}
+              onClick={() => {
+                if (qty <= 1) return;
+                setQty((q) => Math.max(1, q - 1));
+              }}
             >
               −
             </button>
@@ -172,8 +178,11 @@ export function StaffModSheet({
               type="button"
               style={qtyBtn}
               aria-label={sx(lang, "browse.mod.a11y.more")}
-              disabled={qty >= 9}
-              onClick={() => setQty((q) => Math.min(9, q + 1))}
+              aria-disabled={qty >= 9 || undefined}
+              onClick={() => {
+                if (qty >= 9) return;
+                setQty((q) => Math.min(9, q + 1));
+              }}
             >
               +
             </button>
@@ -196,14 +205,16 @@ export function StaffModSheet({
         <button
           type="button"
           style={valid && !pending ? cta : ctaDisabled}
-          disabled={!valid || pending}
-          onClick={() =>
+          aria-disabled={!valid || pending || undefined}
+          aria-busy={pending || undefined}
+          onClick={() => {
+            if (!valid || pending) return; // §17 — the refusal, on the button's own predicate
             onAdd({
               modifierIds: selectedIds(groups, sel),
               qty,
               notes: notes.trim() || undefined,
-            })
-          }
+            });
+          }}
         >
           {/* The money slot stays Latin and <Chrome> marks it lang="en" inside the Burmese run.
               Presentation only — `previewCents` is unchanged, and the server re-derives the price. */}
@@ -259,26 +270,9 @@ const legend: CSSProperties = {
 const reqTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: 600 };
 const optTag: CSSProperties = { color: "var(--t3)", fontWeight: 400 };
 const optList: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--s2)" };
-const optBtn: CSSProperties = {
-  minHeight: 44,
-  padding: "0 var(--s3)",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--s2)",
-  cursor: "pointer",
-};
-const optBtnOn: CSSProperties = {
-  ...optBtn,
-  borderColor: "var(--ac)",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontWeight: 700,
-};
+// manager-7 — layout only: the fill, ink, hairline, radius and size are `.staff-chip`'s, so the
+// shared pressed rule can reach the chosen option (an inline fill would beat it).
+const optBtn: CSSProperties = { gap: "var(--s2)" };
 const delta: CSSProperties = { fontSize: "var(--fs-xs)", opacity: 0.85 };
 const qtyRow: CSSProperties = {
   display: "flex",

@@ -1096,14 +1096,16 @@ html[data-fx="off"] .pa-pause {
 .mms-stepper-btn {
   transition: transform var(--dur-fast) var(--ease-out);
 }
-.mms-stepper-btn:active:not(:disabled) {
+/* §17 — the stepper is `aria-disabled` while a mutation is in flight (never native), so the press
+   feedback is keyed on both. */
+.mms-stepper-btn:active:not(:disabled):not([aria-disabled="true"]) {
   transform: scale(0.9);
 }
 @media (prefers-reduced-motion: reduce) {
   .mms-stepper-btn {
     transition: none;
   }
-  .mms-stepper-btn:active:not(:disabled) {
+  .mms-stepper-btn:active:not(:disabled):not([aria-disabled="true"]) {
     transform: none;
   }
 }
@@ -7454,8 +7456,9 @@ a .chrome-en {
    station track it was not even visible: `.staff-seg > .kds-chip` at (0,2,1) out-specifies
    `.kds-chip[aria-pressed]` at (0,2,0) and paints the fill transparent, so the pressed station was
    a faint sheen ring — the "grey disc" two reviewers saw. Listed explicitly at (0,3,1) so the track
-   can never swallow it again. The language switch, the Help sheet's size rows and (counter-4) the
-   register's OPEN arm — `aria-expanded`, the state it already carries — share this rule
+   can never swallow it again. The language switch, the Help sheet's size rows, (counter-4) the
+   register's OPEN arm — `aria-expanded`, the state it already carries — and (manager-7) every
+   `.staff-chip` on the manager rails and the drill-down sheets share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
@@ -7470,7 +7473,8 @@ a .chrome-en {
 .staff-seg > .kds-chip[aria-pressed="true"],
 .staff-lang-btn[aria-pressed="true"],
 .help-size-row[aria-pressed="true"],
-.staff-arm[aria-expanded="true"] {
+.staff-arm[aria-expanded="true"],
+.staff-chip[aria-pressed="true"] {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -9977,6 +9981,51 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-body);
   font-weight: 700;
   cursor: pointer;
+}
+/* manager-7 — ONE rest state for every `aria-pressed` chip outside the KDS root (the loss sheet's
+   Void/Comp segment and reason rows, the menu browser's categories, the mod sheet's options, the
+   cash settle's tip chips): the vellum ghost, a hairline, the body ink. The pressed state is the
+   shared lit-cap rule above the KDS block — these five used to carry five inline `*On` objects
+   (two accent fills, a 10% tint, a ring-and-wash, a partial cap), and an INLINE fill beats any
+   class, so the rest declarations had to move here for the one rule to reach them at all. */
+.staff-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+/* A full-width row (the loss sheet's reasons): left-aligned, the card's corner, not a pill. */
+.staff-chip-block {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 0 14px;
+  border-radius: var(--r-sm);
+}
+/* A segment half (the loss sheet's Void/Comp): shares the row. */
+.staff-chip-seg {
+  flex: 1;
+  font-weight: 700;
+}
+/* A quieter figure inside a chip (the tip chips' amount); on the cap it takes the cap's ink. */
+.staff-chip-amount {
+  font-weight: 500;
+  color: var(--t2);
+}
+.staff-chip[aria-pressed="true"] .staff-chip-amount {
+  font-weight: 600;
+  color: inherit;
+}
+.staff-chip[aria-disabled="true"] {
+  opacity: 0.6;
 }
 /* The approvals circle in the counter's bar carries its count as a small badge on the ring. */
 .staff-circ-count-host {

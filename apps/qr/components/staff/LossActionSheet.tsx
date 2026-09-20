@@ -5,7 +5,7 @@ import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/l
 import { requestApproval } from "@/lib/approvals";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import type { TableLineView } from "@/lib/floor-types";
-import type { StaffKey } from "@/lib/i18n/staff";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { ManagerPinFields, PIN_NO_PIN_COPY, pinFailureCopy, useLockout } from "./ManagerPinStepUp";
 import { Chrome } from "./Chrome";
@@ -168,13 +168,13 @@ export function LossActionSheet({
         setMsg({ k: "pin.rateLimited" });
         break;
       case "in_flight":
-        setMsg("This table is mid-payment — wait until they’ve finished.");
+        setMsg({ k: "table.appr.msg.inFlight" });
         break;
       case "not_open":
-        setMsg("This table’s order is no longer open.");
+        setMsg({ k: "table.loss.msg.notOpen" });
         break;
       case "not_found":
-        setMsg("That item isn’t on this table anymore.");
+        setMsg({ k: "table.loss.msg.notFound" });
         break;
       case "already":
         // Already voided/comped (a double-tap / a peer beat us) — treat as done so the sheet closes clean.
@@ -186,7 +186,7 @@ export function LossActionSheet({
         setMsg(STAFF_WRITE_OUTAGE);
         break;
       default:
-        setMsg("Couldn’t do that just now — please try again.");
+        setMsg({ k: "table.loss.msg.failed" });
     }
   }
 
@@ -194,10 +194,10 @@ export function LossActionSheet({
     e.preventDefault();
     if (!effectiveReason) {
       setReasonInvalid(true); // S14: tell them what's missing instead of a dead, dimmed button
-      setMsg("Pick a reason first.");
+      setMsg({ k: "table.loss.reasonRequired" });
       return;
     }
-    if (!canSubmit) return;
+    if (!canSubmit) return; // §17 — the button says so with `aria-disabled`; the refusal is here
     setMsg(null);
     startTransition(async () => {
       // ⚠️ The transport itself can reject — offline, a server-action version skew after a deploy —
@@ -223,10 +223,10 @@ export function LossActionSheet({
   // Deferred path (S2.4): no manager at hand → request approval (no PIN). The line stays live until a
   // manager resolves it from the queue. Needs a reason (for the audit), not a manager/PIN.
   function submitRequest() {
-    if (pending || locked) return;
+    if (pending || locked) return; // §17 — the buttons say so with `aria-disabled`
     if (!effectiveReason) {
       setReasonInvalid(true); // S14: same inline validation on the deferred path
-      setMsg("Pick a reason first.");
+      setMsg({ k: "table.loss.reasonRequired" });
       return;
     }
     setMsg(null);
@@ -252,36 +252,32 @@ export function LossActionSheet({
       }
       switch (res.reason) {
         case "already_pending":
-          setMsg("A manager request is already open for this item.");
+          setMsg({ k: "table.loss.msg.alreadyPending" });
           break;
         case "no_approval_needed":
-          setMsg("This one doesn’t need a manager — use “Void item”.");
+          setMsg({
+            k: "table.loss.msg.noApprovalNeeded",
+            vars: { x: ts(lang, "table.loss.seg.void") },
+          });
           break;
         case "in_flight":
-          setMsg("This table is mid-payment — wait until they’ve finished.");
+          setMsg({ k: "table.appr.msg.inFlight" });
           break;
         case "not_open":
-          setMsg("This table’s order is no longer open.");
+          setMsg({ k: "table.loss.msg.notOpen" });
           break;
         case "not_found":
-          setMsg("That item isn’t on this table anymore.");
+          setMsg({ k: "table.loss.msg.notFound" });
           break;
         case "outage":
           // W10b — the request wasn't recorded; the platform is unreachable, not the line.
           setMsg(STAFF_WRITE_OUTAGE);
           break;
         default:
-          setMsg("Couldn’t send that request — please try again.");
+          setMsg({ k: "table.loss.msg.sendFailed" });
       }
     });
   }
-
-  // STILL ENGLISH, deliberately: `Sheet`'s `title` is typed `string` (packages/ui/src/sheet.tsx),
-  // so a dictionary value would reach `Dialog.Title` as an unmarked Burmese run — rendered in the
-  // Latin face at Latin leading, which is exactly the defect `check-staff-lang.mjs` rule 5 exists
-  // for, and which that rule reddens on a bare `title` prop. Widening the primitive to a ReactNode
-  // is a `packages/ui` change this slice does not make. Everything INSIDE the sheet is converted.
-  const titleVerb = action === "comp" ? "Comp" : "Void";
 
   // The lockout countdown takes precedence over a transient message.
   const shown = lockCopy ?? msg;
@@ -296,7 +292,16 @@ export function LossActionSheet({
       open={open}
       onOpenChange={onOpenChange}
       busy={pending}
-      title={`${titleVerb} “${line.name}”`}
+      // manager-6 / P2t — the dictionary's title, marked (`Sheet.title` is a ReactNode, and the
+      // refund sheet beside this one already passes <Chrome>); the comment that kept it an English
+      // literal claimed a `string` prop the primitive had stopped having.
+      title={
+        <Chrome
+          lang={lang}
+          k={action === "comp" ? "table.loss.title.comp" : "table.loss.title.void"}
+          vars={{ x: line.name }}
+        />
+      }
     >
       <form onSubmit={submit} style={{ marginTop: 8 }} noValidate>
         <p style={lineSummary}>
@@ -310,18 +315,19 @@ export function LossActionSheet({
         </p>
 
         {/* Action: void vs comp. role="group" + aria-pressed toggle buttons (the app's segmented-control
-            convention — not role="radio", which would promise arrow-key roving this doesn't implement). */}
+            convention — not role="radio", which would promise arrow-key roving this doesn't implement).
+            manager-7: `.staff-chip` — the chosen half wears the console's ONE lit cap through the shared
+            pressed rule, never an inline accent fill of its own (K29's second vocabulary). */}
         <div role="group" aria-label={sx(lang, "table.loss.a11y.action")} style={seg}>
           {(["void", "comp"] as Action[]).map((a) => {
             const on = action === a;
             return (
               <button
-                className="staff-btn"
+                className="staff-btn staff-chip staff-chip-seg"
                 key={a}
                 type="button"
                 aria-pressed={on}
                 onClick={() => setAction(a)}
-                style={{ ...segBtn, ...(on ? segBtnOn : null) }}
               >
                 {/* No echo: two 44px aria-pressed pills sharing one row, the same shape as the KDS
                     station chips. The hint below states the chosen action in full, bilingually. */}
@@ -352,16 +358,12 @@ export function LossActionSheet({
               // double the height of the list a cook scans with both hands full.
               return (
                 <button
-                  className="staff-btn"
+                  className="staff-btn staff-chip staff-chip-block"
                   key={r.value}
                   type="button"
                   aria-pressed={on}
                   onClick={() => pickReason(r.value)}
-                  style={{
-                    ...reasonBtn,
-                    ...(on ? reasonBtnOn : null),
-                    ...(reasonInvalid ? { borderColor: "var(--warn)" } : null),
-                  }}
+                  style={reasonInvalid ? { borderColor: "var(--warn)" } : undefined}
                 >
                   <Chrome lang={lang} k={r.k} echo="inline" />
                 </button>
@@ -407,7 +409,8 @@ export function LossActionSheet({
             className="staff-btn"
             type="button"
             onClick={submitRequest}
-            disabled={pending || locked}
+            aria-disabled={pending || locked || undefined}
+            aria-busy={pending || undefined}
             style={{ ...primaryBtn, opacity: pending || locked ? 0.6 : 1 }}
           >
             {pending ? (
@@ -421,7 +424,8 @@ export function LossActionSheet({
             <button
               className="staff-btn"
               type="submit"
-              disabled={!canSubmit}
+              aria-disabled={!canSubmit || undefined}
+              aria-busy={pending || undefined}
               style={{ ...primaryBtn, opacity: canSubmit ? 1 : 0.6 }}
             >
               {pending ? (
@@ -440,7 +444,7 @@ export function LossActionSheet({
                 className="staff-btn"
                 type="button"
                 onClick={submitRequest}
-                disabled={pending || locked}
+                aria-disabled={pending || locked || undefined}
                 style={{ ...secondaryBtn, opacity: pending || locked ? 0.6 : 1 }}
               >
                 <Chrome lang={lang} k="table.loss.noManager" echo="stack" />
@@ -470,22 +474,6 @@ const lineSummary: CSSProperties = {
   fontWeight: 600,
 };
 const seg: CSSProperties = { display: "flex", gap: 6, marginBottom: 8 };
-const segBtn: CSSProperties = {
-  flex: 1,
-  minHeight: 44,
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 700,
-  cursor: "pointer",
-};
-const segBtnOn: CSSProperties = {
-  background: "var(--ac)",
-  color: "var(--oa)",
-  borderColor: "var(--ac)",
-};
 const hint: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const fieldset: CSSProperties = { border: "none", padding: 0, margin: "12px 0 0" };
 const legend: CSSProperties = {
@@ -493,23 +481,6 @@ const legend: CSSProperties = {
   fontSize: "var(--fs-sm)",
   fontWeight: 700,
   marginBottom: 8,
-};
-const reasonBtn: CSSProperties = {
-  width: "100%",
-  minHeight: 44,
-  textAlign: "left",
-  padding: "0 14px",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
-  cursor: "pointer",
-};
-const reasonBtnOn: CSSProperties = {
-  borderColor: "var(--ac)",
-  background: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
-  fontWeight: 700,
 };
 const primaryBtn: CSSProperties = {
   width: "100%",

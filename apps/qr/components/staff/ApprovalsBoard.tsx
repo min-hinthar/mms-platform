@@ -9,12 +9,13 @@ import {
   type FormEvent,
 } from "react";
 import {
-  listPendingApprovals,
   listRefundsNeeded,
+  pollPendingApprovals,
   resolveApproval,
   type PendingApproval,
   type RefundNeeded,
 } from "@/lib/approvals";
+import { leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
@@ -109,14 +110,15 @@ export function ApprovalsBoard({
   // duplicate dashboard refund). Forgotten once a fresh read no longer lists the id.
   const resolvedIds = useRef(new Set<string>());
   const [serverNow] = useState(() => new Date().toISOString());
-  // W10b — degraded state with the moment it began. This board's poll is a plain throw/resolve
-  // (listPendingApprovals THROWS on an unreadable queue instead of returning a false "all clear"),
-  // so a rejection can be an outage OR an expired session OR this device's wifi — we genuinely
-  // cannot tell them apart here, and a poll miss is therefore `unknown`: the copy says "not
-  // updating", never "we can't reach the ordering system" (pre-merge review — don't assert a side
-  // you have no evidence about). The ONE exception is the server render's own failed read
-  // (`initialOutage`): that side IS known. `asOfIso`/`since`/`nowMs` are all this device's clock,
-  // so the escalation elapsed is single-domain.
+  // W10b — degraded state with the moment it began. M34: the poll answers with a VERDICT now
+  // (`pollPendingApprovals` — `signin` · `outage` · the rows; `lib/approvals-poll.ts` decides it),
+  // so an expired session LEAVES for the login like every other board, and an unreadable queue is
+  // a KNOWN outage ("we can't reach the ordering system"). Only a rejection the client itself
+  // raises — `raceTimeout`, a dropped transport — is still a miss whose side nobody knows, and
+  // that one stays `unknown`: the copy says "not updating", never a side there is no evidence
+  // for (pre-merge review). The server render's own failed read (`initialOutage`) is known too.
+  // `asOfIso`/`since`/`nowMs` are all this device's clock, so the escalation elapsed is
+  // single-domain.
   const [degraded, setDegraded] = useState<StaffDegraded | null>(() =>
     initialOutage ? nextDegraded(null, "outage", Date.now()) : null,
   );
@@ -142,7 +144,7 @@ export function ApprovalsBoard({
       // #283, P1): server-rendered once, the strip never re-read the ledger, so a charge the
       // webhook recorded after load stayed hidden until someone reloaded.
       const [queue, who, ledger] = await Promise.allSettled([
-        raceTimeout(listPendingApprovals()),
+        raceTimeout(pollPendingApprovals()),
         rosterRef.current === null
           ? raceTimeout(listApprovers())
           : Promise.resolve(rosterRef.current),
@@ -176,7 +178,23 @@ export function ApprovalsBoard({
         );
       }
       if (queue.status === "rejected") throw queue.reason;
-      setSnap(queue.value);
+      const poll = queue.value;
+      if (!poll.ok) {
+        // M34 — a genuinely expired/invalid staff session: the honest surface is the login (the
+        // floor board's line). The counter's other boards would do this on their own poll within
+        // one interval; this zone no longer waits for them.
+        if (poll.reason === "signin") {
+          leaveForLogin();
+          return;
+        }
+        // A KNOWN outage: the last good queue stays, and after two misses the freeze says which
+        // side is down instead of "not updating".
+        fails.current += 1;
+        setNowMs(Date.now());
+        if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+        return;
+      }
+      setSnap(poll.rows);
       setAsOfIso(new Date().toISOString());
       fails.current = 0;
       setDegraded(null);
@@ -320,6 +338,21 @@ function RequestCard({
 }) {
   const lang = useStaffLang();
   const [decision, setDecision] = useState<"approve" | "deny" | null>(null);
+  // manager-4 — the Approve/Deny row UNMOUNTS when a decision opens (the form takes its place), so
+  // the tap used to leave focus on <body> and the PIN step opened unannounced. The form takes focus
+  // when it opens; on cancel the row remounts and the button that was tapped takes it back
+  // (`lastOpened` says which — the ClearTableButton shape, edge-triggered so a first mount never
+  // grabs focus).
+  const [lastOpened, setLastOpened] = useState<"approve" | "deny" | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const openerRef = useRef<HTMLButtonElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    const isOpen = decision !== null;
+    if (isOpen && !wasOpen.current) formRef.current?.focus();
+    else if (!isOpen && wasOpen.current) openerRef.current?.focus();
+    wasOpen.current = isOpen;
+  }, [decision]);
   const [approverStaffId, setApproverStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [msg, setMsg] = useState<StaffMsg | null>(null);
@@ -346,9 +379,11 @@ function RequestCard({
 
   function open(d: "approve" | "deny") {
     setDecision(d);
+    setLastOpened(d);
     setMsg(null);
   }
   function cancel() {
+    if (pending) return; // §17 — the button says so with `aria-disabled`; the refusal is here
     setDecision(null);
     setPin("");
     setMsg(null);
@@ -454,6 +489,7 @@ function RequestCard({
               decision lands on. The SAME key renders as the button’s visible label, so WCAG 2.5.3
               containment holds by construction (guard rule 3c). */}
           <button
+            ref={lastOpened === "approve" ? openerRef : undefined}
             type="button"
             onClick={() => open("approve")}
             className="staff-btn"
@@ -470,6 +506,7 @@ function RequestCard({
             <Chrome lang={lang} k="table.appr.verb.approve" echo="stack" />
           </button>
           <button
+            ref={lastOpened === "deny" ? openerRef : undefined}
             type="button"
             onClick={() => open("deny")}
             className="staff-btn"
@@ -487,8 +524,18 @@ function RequestCard({
           </button>
         </div>
       ) : (
-        <form onSubmit={confirm} style={{ marginTop: 4 }} noValidate>
-          <p style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+        <form
+          ref={formRef}
+          tabIndex={-1}
+          aria-labelledby={`appr-q-${request.id}`}
+          onSubmit={confirm}
+          style={{ marginTop: 4, outline: "none" }}
+          noValidate
+        >
+          <p
+            id={`appr-q-${request.id}`}
+            style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", fontWeight: 600 }}
+          >
             <Chrome lang={lang} k={confirmKey} echo="stack" />
           </p>
           <ManagerPinFields
@@ -503,7 +550,9 @@ function RequestCard({
           <div style={btnRow}>
             <button
               type="submit"
-              disabled={!canConfirm}
+              // §17 (K35) — never native: `confirm` refuses on the same predicate, the dim stays.
+              aria-disabled={!canConfirm || undefined}
+              aria-busy={pending || undefined}
               className="staff-btn"
               style={{
                 ...actionBtn,
@@ -525,7 +574,7 @@ function RequestCard({
             <button
               type="button"
               onClick={cancel}
-              disabled={pending}
+              aria-disabled={pending || undefined}
               className="staff-btn"
               style={{ ...actionBtn, ...cancelBtn }}
             >
