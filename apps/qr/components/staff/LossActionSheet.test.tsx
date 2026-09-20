@@ -63,8 +63,10 @@ const confirmVoid = () =>
 describe("LossActionSheet — the sheet in the console's tongue", () => {
   it("under my the title is the dictionary's, marked, with the dish name a Latin run inside it", () => {
     mount("my");
-    const title = document.querySelector('[role="dialog"] h2, [role="dialog"] [id$="title"]');
-    const my = (title ?? document.body).querySelector('[lang="my"]');
+    const title = document.querySelector('[role="dialog"] h2');
+    // The title itself, never a fallback to the first Burmese run in the body (uniqueness ≠ liveness).
+    expect(title).not.toBeNull();
+    const my = title!.querySelector('[lang="my"]');
     // MUTATION: `title={`Void “${line.name}”`}` — no marked run, this reddens.
     expect(my).not.toBeNull();
     expect(my!.textContent).toBe(tf("my", "table.loss.title.void", { x: "Mohinga" }));

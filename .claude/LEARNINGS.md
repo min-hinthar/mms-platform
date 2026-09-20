@@ -2468,3 +2468,20 @@ nothing while the error printed raw beside the results. The redirect is a real b
 must pin (M34's whole defect was a board that did not leave), so it lives in ONE module
 (`lib/staff-leave.ts` → `leaveForLogin()`) and the suite mocks that. A dropped redirect is then a
 mock never called, not a console line nobody can catch.
+
+## #128 — An edge-triggered focus effect keyed on null↔id misses the two interleavings that matter (2026-09-20, slice 3)
+
+The refund strip's first two-step draft moved focus with `if (id !== null && prev === null) …
+else if (id === null && prev !== null) …`, and the one suite case exercised open → cancel on ONE
+row. Two reachable interleavings fell through both branches: opening a second row's confirm
+straight from an open one (`prev = "r-1"`, `id = "r-2"`), and the poll — or the other tablet —
+removing the row whose group is open (the `<li>` unmounts with the focus inside it and the raw id
+stays set, so the NEXT open never focuses either). Both dump a screen-reader manager on `<body>`,
+the exact WCAG 2.4.3 shape the slice was closing one zone below.
+
+The shape that holds: **derive the open state from the live rows** (`confirming` is the id only
+while a row with that id is rendered), key the effect on the DERIVED value, treat any id→different
+id as an open, and give the close branch a landing chain (`trigger ?? section ?? heading`) for the
+case where the trigger no longer exists. The row leaving then closes the group by itself — which
+also removes the question of whether `setConfirmingId(null)` and the parent's removal commit in one
+batch. Pin BOTH interleavings, not open→cancel on one row.

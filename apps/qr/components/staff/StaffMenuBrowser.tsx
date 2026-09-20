@@ -265,19 +265,30 @@ export function StaffMenuBrowser({
             {i.groups.length > 0 ? (
               <button
                 type="button"
+                className="staff-btn"
                 style={chooseBtn}
                 aria-disabled={i.soldOut || undefined}
+                // §17 — a sold-out dish's button SAYS sold out (the add button's own word), in the
+                // name and on the face, and dims; it used to keep "Choose…" and refuse in silence.
+                // Two whole al() calls: rule 3c needs each verb key as a literal (StaffAddButton).
                 aria-label={
-                  al(lang, { kind: "verb", verb: "browse.verb.choose", subject: i.nameEn }).aria
+                  i.soldOut
+                    ? al(lang, { kind: "verb", verb: "browse.add.verb.soldOut", subject: i.nameEn })
+                        .aria
+                    : al(lang, { kind: "verb", verb: "browse.verb.choose", subject: i.nameEn }).aria
                 }
                 onClick={() => {
-                  if (i.soldOut) return; // §17 — the refusal announces itself instead of blurring
+                  if (i.soldOut) return;
                   setSheetItem(i);
                 }}
               >
                 {/* Same key the name leads with (rule 3c). No echo: this is a compact pill in a
                     three-up row, and a second script beside it squeezes the dish name on a phone. */}
-                <Chrome lang={lang} k="browse.verb.choose" />
+                {i.soldOut ? (
+                  <Chrome lang={lang} k="browse.add.verb.soldOut" />
+                ) : (
+                  <Chrome lang={lang} k="browse.verb.choose" />
+                )}
               </button>
             ) : (
               <StaffAddButton

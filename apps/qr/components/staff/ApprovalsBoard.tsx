@@ -15,7 +15,7 @@ import {
   type PendingApproval,
   type RefundNeeded,
 } from "@/lib/approvals";
-import { leaveForLogin } from "@/lib/staff-leave";
+import { leaveForHome, leaveForLogin } from "@/lib/staff-leave";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { listApprovers, type Approver } from "@/lib/voids";
 import { EmptyState } from "@mms/ui";
@@ -111,8 +111,9 @@ export function ApprovalsBoard({
   const resolvedIds = useRef(new Set<string>());
   const [serverNow] = useState(() => new Date().toISOString());
   // W10b — degraded state with the moment it began. M34: the poll answers with a VERDICT now
-  // (`pollPendingApprovals` — `signin` · `outage` · the rows; `lib/approvals-poll.ts` decides it),
-  // so an expired session LEAVES for the login like every other board, and an unreadable queue is
+  // (`pollPendingApprovals` — `signin` · `role` · `outage` · the rows; `lib/approvals-poll.ts`
+  // decides it), so an expired session LEAVES for the login like every other board, a lowered role
+  // leaves for the counter without these zones, and an unreadable queue is
   // a KNOWN outage ("we can't reach the ordering system"). Only a rejection the client itself
   // raises — `raceTimeout`, a dropped transport — is still a miss whose side nobody knows, and
   // that one stays `unknown`: the copy says "not updating", never a side there is no evidence
@@ -185,6 +186,12 @@ export function ApprovalsBoard({
         // one interval; this zone no longer waits for them.
         if (poll.reason === "signin") {
           leaveForLogin();
+          return;
+        }
+        // Still signed in, no longer a manager (the role lowered under an open screen): the counter
+        // re-rendered without these zones is the honest surface, not the login.
+        if (poll.reason === "role") {
+          leaveForHome();
           return;
         }
         // A KNOWN outage: the last good queue stays, and after two misses the freeze says which

@@ -1341,8 +1341,10 @@ export function Checkout({
   }, [draftCount]);
 
   // W9b — the same focus discipline as the draft-count effect above, for the lock. A peer taking the
-  // lock disables the stepper the diner may be standing on; if focus actually fell to <body>, park it
-  // on the heading (WCAG 2.4.3). Only when it dropped — never yank focus off a control they moved to.
+  // lock used to natively disable the stepper the diner may be standing on; since K35 the stepper is
+  // `aria-disabled` and keeps that focus, so this effect no longer fires for it — it stays for any
+  // control the flip still drops to <body>, and parks focus on the heading (WCAG 2.4.3) only when
+  // it actually dropped — never yanking focus off a control they moved to.
   // J4 (residual) — widened with the announcement above, for the same reason: the focus lands on the
   // bar that explains why the controls died, and a self-held freeze kills exactly as many controls.
   const prevLockedByPeer = useRef(announced);
@@ -2686,10 +2688,12 @@ export function Checkout({
                     ) : i.lineState === "draft" ? (
                       <Stepper
                         qty={i.qty}
-                        // The shared Stepper natively-disables (packages/ui). That is right here: its
-                        // buttons are inside a card the lockbar sits above, and the focus-restore
-                        // effect parks focus on the heading if this flip drops it to <body>.
+                        // §17 (K35): the shared Stepper is `aria-disabled` while frozen, so a diner
+                        // standing on "+" KEEPS focus through a peer's lock — and the control's name
+                        // must then say why it refuses, not promise "Add another". The lockbar above
+                        // carries the reason to the region; this carries it to the control.
                         disabled={!canEdit || editsFrozen}
+                        disabledLabel={`${i.name} can’t be changed right now`}
                         soldOut={i.soldOut}
                         name={i.name}
                         removeGlyph={<Icon name="trash" size={18} />}

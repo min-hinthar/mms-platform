@@ -3330,6 +3330,7 @@ html[data-fx="off"] .pa-pause {
 .staff-btn[aria-disabled="true"],
 .staff-arm[aria-disabled="true"] {
   opacity: 0.6;
+  cursor: default;
 }
 .staff-btn[aria-busy="true"],
 .staff-arm[aria-busy="true"] {

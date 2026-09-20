@@ -10,6 +10,7 @@ import {
   type ModGroup,
   type Selection,
 } from "@/lib/menu/modifiers";
+import { tf } from "@/lib/i18n/fill";
 import { ts } from "@/lib/i18n/staff";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
@@ -160,11 +161,18 @@ export function StaffModSheet({
             <Chrome lang={lang} k="browse.mod.qty" />
           </span>
           <div style={qtyCtl} role="group" aria-labelledby={qtyLabelId}>
+            {/* §17 (K35) — at a bound the button says so in its NAME and dims (`.staff-btn`'s
+                `[aria-disabled]` rule); the blind pass caught a draft that refused silently with a
+                pointer cursor and "One fewer" for a name. */}
             <button
               type="button"
+              className="staff-btn"
               style={qtyBtn}
-              aria-label={sx(lang, "browse.mod.a11y.less")}
-              // §17 (K35) — a bound refusal announces itself instead of blurring the tap.
+              aria-label={
+                qty <= 1
+                  ? tf(lang, "browse.mod.a11y.lessMin", { n: 1 })
+                  : sx(lang, "browse.mod.a11y.less")
+              }
               aria-disabled={qty <= 1 || undefined}
               onClick={() => {
                 if (qty <= 1) return;
@@ -176,8 +184,13 @@ export function StaffModSheet({
             <span style={qtyNum}>{qty}</span>
             <button
               type="button"
+              className="staff-btn"
               style={qtyBtn}
-              aria-label={sx(lang, "browse.mod.a11y.more")}
+              aria-label={
+                qty >= 9
+                  ? tf(lang, "browse.mod.a11y.moreMax", { n: 9 })
+                  : sx(lang, "browse.mod.a11y.more")
+              }
               aria-disabled={qty >= 9 || undefined}
               onClick={() => {
                 if (qty >= 9) return;

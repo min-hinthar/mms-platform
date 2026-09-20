@@ -37,6 +37,7 @@ export function Stepper({
   showCount = false,
   incrementLabel,
   soldOutLabel,
+  disabledLabel,
 }: {
   qty: number;
   /** Receives the next quantity (`qty ± 1`). The parent performs the mutation. */
@@ -64,6 +65,11 @@ export function Stepper({
   /** Override the sold-out "+" accessible name (e.g. staff's "{name} is sold out — can't add more").
    *  Defaults to "{name} is sold out". */
   soldOutLabel?: string;
+  /** The name BOTH controls take while `disabled` — the reason a refused tap gives. A control that
+   *  keeps its focus (§17) must not keep a name that promises the action it now refuses: the diner
+   *  cart's "+" said "Add another Mohinga" through a payment freeze. Omit for a sub-second busy
+   *  beat, where a renamed control would only chatter. */
+  disabledLabel?: string;
 }) {
   const removing = qty <= min;
   const incDisabled = disabled || qty >= max || soldOut;
@@ -77,7 +83,13 @@ export function Stepper({
           onChange(qty - 1);
         }}
         aria-disabled={disabled || undefined}
-        aria-label={removing ? `Remove ${name}` : `Decrease ${name} quantity`}
+        aria-label={
+          disabled && disabledLabel
+            ? disabledLabel
+            : removing
+              ? `Remove ${name}`
+              : `Decrease ${name} quantity`
+        }
         style={{ ...step(disabled), ...(removing && removeTone ? { color: removeTone } : null) }}
       >
         <span aria-hidden>{removing ? removeGlyph : "−"}</span>
@@ -103,11 +115,13 @@ export function Stepper({
         }}
         aria-disabled={incDisabled || undefined}
         aria-label={
-          soldOut
-            ? (soldOutLabel ?? `${name} is sold out`)
-            : qty >= max
-              ? `Maximum ${max} ${name}`
-              : (incrementLabel ?? `Increase ${name} quantity`)
+          disabled && disabledLabel
+            ? disabledLabel
+            : soldOut
+              ? (soldOutLabel ?? `${name} is sold out`)
+              : qty >= max
+                ? `Maximum ${max} ${name}`
+                : (incrementLabel ?? `Increase ${name} quantity`)
         }
         style={{
           ...step(incDisabled),

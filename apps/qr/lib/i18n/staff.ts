@@ -623,6 +623,9 @@ export const STAFF = {
   },
   "browse.mod.a11y.less": { en: "One fewer", my: "တစ်ခု လျှော့" },
   "browse.mod.a11y.more": { en: "One more", my: "တစ်ခု ထပ်ထည့်" },
+  // §17 — the name at a bound says WHY the tap is refused (`{n}` is the bound, a count).
+  "browse.mod.a11y.lessMin": { en: "At the minimum of {n}", my: "အနည်းဆုံး {n} ဖြစ်ပြီ" },
+  "browse.mod.a11y.moreMax": { en: "At the maximum of {n}", my: "အများဆုံး {n} ဖြစ်ပြီ" },
 
   // ═══ P2 PR B · detail ═══════════════════════════════════════════════════════════
   // ── the table drill-down (/staff/table/[id]) — the page and FloorDetailLive ────────────────

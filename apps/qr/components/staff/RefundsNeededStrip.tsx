@@ -52,17 +52,31 @@ export function RefundsNeededStrip({
   // Which row is marking — `pending` is the strip's one flag (one mark at a time), this names it.
   const [markingId, setMarkingId] = useState<string | null>(null);
   const sectionRef = useRef<HTMLElement>(null);
-  // Focus follows the flow: into the group as it opens, back to that row's trigger as it closes.
-  // Edge-triggered on the PREVIOUS id, so a first mount never grabs focus.
+  // The group that is OPEN is derived from the live rows, never the raw id: the poll (or the other
+  // tablet) can drop the row whose group is open, and a stale id would keep the next open from
+  // ever taking focus. A landed mark leaves the same way — the row goes, the group goes with it.
+  const confirming =
+    confirmingId !== null && refunds !== null && refunds.some((r) => r.id === confirmingId)
+      ? confirmingId
+      : null;
+  // Focus follows the flow: into the group as it opens — including straight from ANOTHER row's
+  // group (the blind pass's interleaving) — and, as it closes, back to that row's trigger; when the
+  // row itself has gone (marked here, or by the poll), to the strip, or to the zone's heading once
+  // the strip has no rows left. Edge-triggered on the PREVIOUS id, so a first mount never grabs.
   const wasConfirming = useRef<string | null>(null);
   useEffect(() => {
     const prev = wasConfirming.current;
-    if (confirmingId !== null && prev === null)
-      document.getElementById(`refund-confirm-${confirmingId}`)?.focus();
-    else if (confirmingId === null && prev !== null)
-      document.getElementById(`refund-mark-${prev}`)?.focus();
-    wasConfirming.current = confirmingId;
-  }, [confirmingId]);
+    wasConfirming.current = confirming;
+    if (confirming !== null && prev !== confirming) {
+      document.getElementById(`refund-confirm-${confirming}`)?.focus();
+    } else if (confirming === null && prev !== null) {
+      const landing =
+        document.getElementById(`refund-mark-${prev}`) ??
+        sectionRef.current ??
+        document.getElementById("appr-h");
+      landing?.focus({ preventScroll: true });
+    }
+  }, [confirming]);
 
   function openConfirm(id: string) {
     if (pending) return;
@@ -73,7 +87,7 @@ export function RefundsNeededStrip({
     if (pending) return;
     setConfirmingId(null);
   }
-  function confirm(id: string, lastRow: boolean) {
+  function confirm(id: string) {
     if (pending) return;
     setMarkingId(id);
     setFailedId(null);
@@ -81,12 +95,10 @@ export function RefundsNeededStrip({
       try {
         // The server action throws on an unreadable table — the row then stays, honestly.
         await resolveRefundNeeded(id);
+        // Both land in one batch (React batches every update in a continuation): the row leaves
+        // with the group inside it, and the focus effect above lands on the strip or the heading.
         setConfirmingId(null);
         onResolved?.(id);
-        // The row is leaving with the focus inside it: land on the strip while it has rows, else on
-        // the zone's heading (the strip unmounts with its last row).
-        if (lastRow) document.getElementById("appr-h")?.focus({ preventScroll: true });
-        else sectionRef.current?.focus({ preventScroll: true });
       } catch (e) {
         console.error("[RefundsNeededStrip] resolve failed — the row stays", e);
         setFailedId(id);
@@ -150,7 +162,7 @@ export function RefundsNeededStrip({
               <code style={{ fontSize: "var(--fs-xs)", overflowWrap: "anywhere" }}>
                 {r.paymentIntent}
               </code>
-              {confirmingId === r.id ? (
+              {confirming === r.id ? (
                 <div
                   id={`refund-confirm-${r.id}`}
                   tabIndex={-1}
@@ -192,7 +204,7 @@ export function RefundsNeededStrip({
                     <button
                       type="button"
                       className="staff-btn"
-                      onClick={() => confirm(r.id, refunds.length === 1)}
+                      onClick={() => confirm(r.id)}
                       aria-disabled={pending || undefined}
                       aria-busy={marking || undefined}
                       style={resolveBtn}

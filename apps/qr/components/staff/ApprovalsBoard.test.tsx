@@ -35,7 +35,11 @@ vi.mock("@/lib/voids", () => ({ listApprovers: () => rosterAnswer() }));
 // M34 — the exit, pinned through its one module: jsdom cannot navigate, and its "not implemented"
 // report goes to a console the test cannot spy on.
 const leaveForLogin = vi.fn();
-vi.mock("@/lib/staff-leave", () => ({ leaveForLogin: () => leaveForLogin() }));
+const leaveForHome = vi.fn();
+vi.mock("@/lib/staff-leave", () => ({
+  leaveForLogin: () => leaveForLogin(),
+  leaveForHome: () => leaveForHome(),
+}));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ApprovalsBoard } = await import("./ApprovalsBoard");
@@ -267,6 +271,54 @@ describe("ApprovalsBoard — the poll and the jump", () => {
     expect(screen.queryByText(new RegExp(STAFF["out.head.notUpdating"].en))).toBeNull();
     expect(screen.queryByText(new RegExp(STAFF["out.head.cant"].en))).toBeNull();
     leaveForLogin.mockClear();
+  });
+
+  it("M34 — a `role` verdict (still signed in, no longer a manager) leaves for the counter, not the login", async () => {
+    vi.useFakeTimers();
+    pollAnswer = () => Promise.resolve({ ok: false, reason: "role" });
+    mount([pending("r1")], []);
+    await tick(5_000);
+    // MUTATION: fold `role` into the signin arm — a demoted manager lands on their own profile.
+    expect(leaveForHome).toHaveBeenCalledTimes(1);
+    expect(leaveForLogin).not.toHaveBeenCalled();
+    leaveForHome.mockClear();
+  });
+
+  it("manager-3 — opening a second row's confirm straight from an open one moves focus into the NEW group (the blind pass's interleaving)", async () => {
+    mount([], [], [refundNeeded("r-1"), refundNeeded("r-2")]);
+    await act(async () => {
+      screen.getByRole("button", { name: /pi_r-1/ }).click();
+    });
+    expect(document.activeElement?.id).toBe("refund-confirm-r-1");
+    await act(async () => {
+      screen.getByRole("button", { name: /pi_r-2/ }).click();
+    });
+    // MUTATION: `confirming !== null && prev === null` — an id→id switch focuses nothing, red.
+    expect(document.activeElement?.id).toBe("refund-confirm-r-2");
+    expect(document.getElementById("refund-confirm-r-1")).toBeNull();
+    expect(resolved).toEqual([]);
+  });
+
+  it("manager-3 — a poll that drops the row whose confirm is open lands focus on the strip, and the next open still takes focus", async () => {
+    vi.useFakeTimers();
+    let rows = [refundNeeded("r-1"), refundNeeded("r-2")];
+    refundsAnswer = () => Promise.resolve(rows);
+    mount([], [], rows);
+    await act(async () => {
+      screen.getByRole("button", { name: /pi_r-1/ }).click();
+    });
+    expect(document.activeElement?.id).toBe("refund-confirm-r-1");
+    // The other tablet marked r-1: the next poll no longer lists it.
+    rows = [refundNeeded("r-2")];
+    await tick(5_000);
+    expect(screen.queryByText(/pi_r-1/)).toBeNull();
+    // MUTATION: read the raw `confirmingId` instead of the derived `confirming` — focus is <body>
+    // here, and the open below never focuses its group.
+    expect(document.activeElement).toBe(screen.getByRole("region", { name: /refund/i }));
+    await act(async () => {
+      screen.getByRole("button", { name: /pi_r-2/ }).click();
+    });
+    expect(document.activeElement?.id).toBe("refund-confirm-r-2");
   });
 
   it("M34 — an `outage` verdict freezes the queue as a KNOWN outage after two misses, not as 'not updating'", async () => {

@@ -41,12 +41,17 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >
 > **Slice 3 is the `### manager-1 · manager-3 · … — the manager rails and the drill-down` entry:**
 > the approvals poll's verdict (M34 closed — `pollPendingApprovals` + `lib/approvals-poll.ts` +
-> `lib/staff-leave.ts`, the ONE exit a suite can pin), the refund strip's two-step, focus into the
+> `lib/staff-leave.ts`, the ONE exit a suite can pin; 401 → the login, 403 → the counter), the
+> refund strip's two-step (the open group DERIVED from the live rows, the focus effect id-aware —
+> the blind pass's critical), focus into the
 > approvals form, the refund sheet's PIN clear + lockout, the loss sheet in the console's tongue
 > (P2t closed), `.staff-chip` as the sixth selector in the one pressed rule, the drill-down
 > skeleton, §17 through `Stepper` and every rail control (K35 at 23 native sites in 12 files),
-> "Saving…". Six suites (three new: LossActionSheet · RefundActionSheet · StaffLineEditor;
-> ApprovalsBoard +5 cases; approvals-poll; KdsBoard's guard at six), ten mutations watched red.
+> "Saving…", `Stepper`'s `disabledLabel` for the diner cart's frozen "+". Seven suites (three
+> new: LossActionSheet · RefundActionSheet · StaffLineEditor; ApprovalsBoard +8 cases; Checkout
+> +1; approvals-poll; KdsBoard's guard at six) carrying nineteen `MUTATION:` annotations, every
+> one induced and watched red (measure: `grep -c "MUTATION:"` over the changed suites — the first
+> draft of this line said "ten" from memory, and the blind pass caught it).
 >
 > **Slice order, by where staff are and by verified severity — what is LEFT:**
 >
@@ -1302,7 +1307,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2743 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2747 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2194,7 +2199,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2743 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2747 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

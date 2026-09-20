@@ -10,3 +10,12 @@
 export function leaveForLogin(): void {
   window.location.assign("/staff/login");
 }
+
+/**
+ * The exit for a `role` verdict: still signed in, no longer a manager. A fresh `/staff` re-renders
+ * the counter without the manager zones — the honest surface, where the login would show a signed-in
+ * staffer their own profile with no word why.
+ */
+export function leaveForHome(): void {
+  window.location.assign("/staff");
+}

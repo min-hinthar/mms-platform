@@ -18,13 +18,18 @@ inline cash-settle confirm are the next PR — they change `packages/ui`.
   redirects on its own poll. `pollPendingApprovals` answers `signin` · `outage` · rows;
   `lib/approvals-poll.ts` decides by status (401/403 a person, everything else the platform; the
   suite pins a 503 as an outage, never an eviction); the board leaves for the login through
-  `lib/staff-leave.ts` on `signin` and freezes as a KNOWN outage after two misses on `outage`.
-  Only a client-side throw (`raceTimeout`) is still `unknown`.
+  `lib/staff-leave.ts` on `signin`, for the COUNTER on `role` (still signed in, no longer a
+  manager — the login would show a signed-in staffer their own profile with no word why; the blind
+  pass's question) and freezes as a KNOWN outage after two misses on `outage`. Only a client-side
+  throw (`raceTimeout`) is still `unknown`.
 - **"Mark refunded" is two taps (manager-3).** It was one tap with no confirm, no undo and no busy
   state on the one control whose mis-tap hides a stranded charge from the console. The first tap
   opens an inline group naming the amount and the processor with focus inside; the second commits,
-  `aria-disabled` + `aria-busy` and "Marking…" while it runs; Cancel hands focus back to the trigger;
-  a landed mark lands focus on the strip or, for the last row, the zone's heading.
+  `aria-disabled` + `aria-busy` and "Marking…" while it runs; Cancel hands focus back to the trigger.
+  The OPEN group is derived from the live rows, and the focus effect is id-aware: opening a second
+  row's confirm straight from an open one lands in the new group, and a row the poll (or the other
+  tablet) removes while its group is open lands focus on the strip — or the zone's heading once the
+  strip has no rows — instead of `<body>` (the blind pass's critical; both interleavings are pinned).
 - **Approve/Deny move focus into the form (manager-4).** The tapped button unmounts when the form
   takes its place, so the PIN step used to open with focus on `<body>`; the form (named by its
   question) takes focus, and Cancel returns it to the button that was tapped.
@@ -47,12 +52,34 @@ inline cash-settle confirm are the next PR — they change `packages/ui`.
   through `<LoadingLine>`.
 - **§17 on the rails (manager-2, K35).** `Stepper` (the shared primitive; the customer cart rides
   it too) is `aria-disabled` with the handler refusing on the same predicate and a dim keyed on it,
-  so a refused "+" announces why instead of blurring; the approvals card, the two sheets, the line
-  editor, the mod sheet, the menu browser and the add button follow; the PIN fields' lockout is
-  read-only on the input and no longer disables the roster select. The line editor's Save says
+  and takes a `disabledLabel` — the name both controls carry while frozen — because a control that
+  KEEPS its focus (§17) must not keep a name that promises the action it refuses: the diner cart's
+  "+" said "Add another Mohinga" through a peer's payment lock (the blind pass; the cart's comment
+  claiming the primitive natively disables is gone, and `Checkout.test.tsx` pins the frozen name).
+  A refused "+" at a bound announces why (sold out, at the maximum); the mod sheet's −/+ say "At the
+  minimum of 1" / "At the maximum of 9" and dim, and a sold-out dish's Choose says "Sold out" on its
+  face and in its name (both were refusing in silence behind a pointer cursor). The approvals card,
+  the two sheets, the line editor, the mod sheet, the menu browser and the add button follow; the
+  PIN fields' lockout is read-only on the input and no longer disables the roster select. The line editor's Save says
   "Saving…" while it saves — its content was its accessible name, and the name was "…". Re-measured:
   23 native sites remain in 12 components (two of them not taps: a `Stepper` prop, a roster
   dead-end).
+
+**The blind pass (one `adversarial-auditor` round on `pnpm review:bundle`, lenses concurrency ·
+a11y · product truth) returned REJECT with one critical, one blast-radius finding, three guard
+findings and two open questions — all real, all closed here.** The critical: the refund strip's
+focus effect fired only on null↔id, so opening a second row's confirm from an open one, or a poll
+removing the open row, dumped a screen-reader manager on `<body>` — the open group is derived from
+the live rows now and the effect is id-aware, both interleavings pinned. The blast radius: the
+`Stepper` change reached the DINER cart, whose comment said the primitive natively disables and
+whose frozen "+" kept the name "Add another" — `disabledLabel`, the comment corrected, a cart case.
+The guards: the mod sheet's bound −/+ refused in silence with a pointer cursor (a dim and a reason
+in the name now, the sold-out Choose likewise); the loss-sheet title assertion fell back to the
+first Burmese run in the body when its selector missed (it asserts the title now); and "ten
+mutations watched red" was prose — the six changed suites carry nineteen `MUTATION:` annotations,
+and every one has now been induced. The questions: a 403 is a demoted manager, not a sign-in — its
+own `role` verdict returns them to the counter; and the success-path batching the pass could not
+settle by reading is settled by the derived group (the row's leaving alone closes it).
 
 ### counter-3 · counter-4 · counter-5 · counter-8 · counter-9 · counter-10 + the counter halves of K29 · K35 — the register and the floor's chrome (2026-09-20)
 

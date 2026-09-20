@@ -6,9 +6,11 @@ const { AuthzError } = await import("./authz");
 import { approvalsPollVerdict } from "./approvals-poll";
 
 describe("approvalsPollVerdict — the poll's two refusals", () => {
-  it("a gate refusal is a person who must sign in again — 401 and 403 alike", () => {
+  it("401 is a person who must sign in again; 403 is a person still signed in but no longer a manager", () => {
     expect(approvalsPollVerdict(new AuthzError("Staff sign-in required.", 401))).toBe("signin");
-    expect(approvalsPollVerdict(new AuthzError("Manager only.", 403))).toBe("signin");
+    // MUTATION: `err.status === 401 || err.status === 403` → "signin" — a demoted manager is sent
+    // to the login and lands on their own profile with no word why; this reddens.
+    expect(approvalsPollVerdict(new AuthzError("Insufficient role", 403))).toBe("role");
   });
 
   it("the platform unreachable is an outage, never a sign-in — the board must not evict a manager mid-service over a 503", () => {

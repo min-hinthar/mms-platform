@@ -1221,3 +1221,25 @@ describe("Codex round 7 — the republished banner must actually be visible", ()
     }
   });
 });
+
+describe("§17 (K35) — the stepper under a peer's lock", () => {
+  it("keeps its focus, is aria-disabled (never native), and its name says why instead of promising 'Add another'", () => {
+    mount({ initialLocked: true, initialLockedBy: PEER_SEAT });
+    const frozen = screen.getAllByRole("button", {
+      name: "Mohinga can’t be changed right now",
+    }) as HTMLButtonElement[];
+    // Both controls of the one line carry the reason.
+    expect(frozen).toHaveLength(2);
+    for (const b of frozen) {
+      // MUTATION: `disabled={disabled}` back on the primitive — `disabled` reads true, red.
+      expect(b.disabled).toBe(false);
+      expect(b.getAttribute("aria-disabled")).toBe("true");
+    }
+    // MUTATION: drop `disabledLabel` from the cart — "+" promises "Add another Mohinga" while it
+    // refuses, and this reddens.
+    expect(screen.queryByRole("button", { name: /Add another Mohinga/ })).toBeNull();
+    frozen[1]!.focus();
+    frozen[1]!.click();
+    expect(document.activeElement).toBe(frozen[1]);
+  });
+});
