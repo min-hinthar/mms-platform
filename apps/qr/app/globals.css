@@ -8182,19 +8182,28 @@ a .chrome-en {
   list-style: none;
   margin: 0;
   padding: 0;
+  /* board-1 — the list takes the column's REMAINING height whatever it holds (`flex: 1`): the fit
+     measures this box, and a content-sized box (the flex default, `0 1 auto`) fed the cut back into
+     its own measurement — every new bag collapsed the column to a lone `+N more` for a frame, and an
+     overflowing column never settled (the blind pass, slice 5). `ReadyBoard.test.tsx` pins the
+     declaration; the fixture's constant box is honest only because of it. */
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 /* board-1 — the `+N more` row: the room is told what the cut hid, at the empty-state scale. */
 .orb-more {
-  flex: none;
   margin: clamp(8px, 1vw, 16px) 0 0;
   color: var(--t2);
   font-size: clamp(18px, 1.8vw, 30px);
   font-weight: 700;
 }
 .orb-card {
-  position: relative; /* board-9 — the flash is a `::before` overlay */
+  /* board-9 — the flash is a `::before` overlay BEHIND the text: the card is its own stacking
+     context so the overlay's `z-index: -1` sits between the card's background and its content
+     (a positioned pseudo-element with `z-index: auto` paints OVER in-flow text — the blind pass). */
+  position: relative;
+  isolation: isolate;
   display: flex;
   align-items: baseline;
   /* board-8 — name + code are ONE identity at the leading edge (`.orb-code`'s auto margin), the
@@ -8205,7 +8214,15 @@ a .chrome-en {
   font-size: clamp(28px, 3.6vw, 54px);
   font-weight: 800;
   line-height: var(--lh-tight);
-  overflow-wrap: anywhere;
+}
+/* board-1 — EVERY row is one line: the fit divides the box by a row's height, so a wrapped name
+   would push the `+N more` row under the clip with nothing to say so. A very long name ends in an
+   ellipsis on the wall; the code beside it is what the guest matches against their receipt. */
+.orb-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .orb-code {
   flex: none;
@@ -8230,6 +8247,7 @@ a .chrome-en {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: -1;
   pointer-events: none;
   background: color-mix(in srgb, var(--gold) 32%, transparent);
   animation: orbFlash 2s var(--ease-out) forwards;
@@ -8260,36 +8278,13 @@ a .chrome-en {
   color: var(--tx);
   font-weight: 800;
 }
-/* board-6 — the anti-burn drift: ±2px over ten minutes on the three static groups, transform only,
-   far below anything a guest can see. Reduced motion turns it off with the flash. */
-.orb-head,
-.orb-cols,
-.orb-pulse {
-  animation: orbDrift 600s linear infinite;
-}
-@keyframes orbDrift {
-  0%,
-  100% {
-    transform: translate(0, 0);
-  }
-  25% {
-    transform: translate(2px, -2px);
-  }
-  50% {
-    transform: translate(-2px, 2px);
-  }
-  75% {
-    transform: translate(2px, 2px);
-  }
-}
+/* board-6 ships the hairline half only. The ±2px anti-burn DRIFT was drafted and withdrawn (the
+   blind pass, slice 5): an auto-motion with no pause control on a screen that has no pointer, and a
+   linear sub-pixel translate that can rasterize every glyph off the pixel grid on a TV compositor —
+   a visible cost the "2px nobody sees" argument does not cover. Filed for a device check. */
 @media (prefers-reduced-motion: reduce) {
   .orb-card-flash::before {
     display: none;
-  }
-  .orb-head,
-  .orb-cols,
-  .orb-pulse {
-    animation: none;
   }
 }
 
@@ -8317,8 +8312,7 @@ a .chrome-en {
    board-3 / K27 — sized for the wall: the band is the only "act now" text a runner reads, and it sat
    at phone size beside 54px cards. Every clamp below is on the columns' viewport scale now.
 
-   It ANIMATES nothing a person can see: the ±2px anti-burn drift it shares with the columns
-   (board-6, `orbDrift`) is the one exception and is reduced-motion escorted with the flash.
+   It ANIMATES NOTHING and therefore joins no reduced-motion list — deliberately, not by omission.
 
    The uppercase + tracked labels below are the KDS's chrome idiom, and Burmese needs neither: the
    `.orb-root [lang="my"]` rule at the bottom of this file is (0,2,0) and beats `.orb-stat span`

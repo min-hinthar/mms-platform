@@ -108,6 +108,9 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
   // TV's audio must be able to try again (over-blocking is the same defect as under-blocking).
   const [soundNote, setSoundNote] = useState(false);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One arm at a time: two taps inside `await arm()` both took the arm path and both played the
+  // confirmation tone (the blind pass, slice 5).
+  const arming = useRef(false);
   useEffect(
     () => () => {
       if (noteTimer.current) clearTimeout(noteTimer.current);
@@ -215,17 +218,23 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
       setSoundOn(false);
       return;
     }
-    chime.current ??= new KdsChime();
-    const ok = await chime.current.arm();
-    if (!ok) {
-      setSoundNote(true);
-      if (noteTimer.current) clearTimeout(noteTimer.current);
-      noteTimer.current = setTimeout(() => setSoundNote(false), SOUND_NOTE_MS);
-      return;
+    if (arming.current) return;
+    arming.current = true;
+    try {
+      chime.current ??= new KdsChime();
+      const ok = await chime.current.arm();
+      if (!ok) {
+        setSoundNote(true);
+        if (noteTimer.current) clearTimeout(noteTimer.current);
+        noteTimer.current = setTimeout(() => setSoundNote(false), SOUND_NOTE_MS);
+        return;
+      }
+      soundOnRef.current = true;
+      setSoundOn(true);
+      chime.current.play("pickup");
+    } finally {
+      arming.current = false;
     }
-    soundOnRef.current = true;
-    setSoundOn(true);
-    chime.current.play("pickup");
   };
 
   if (state.kind === "unlinked") {
@@ -366,35 +375,47 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
 const SOUND_NOTE_MS = 6_000;
 
 /**
- * board-1 — rows a column can show, MEASURED, never a constant: the list's box divided by its first
- * row's height. `Infinity` until both exist (an empty or unlaid-out column shows everything; the CSS
- * clip holds it on-screen meanwhile). Re-measured when the column's content count changes and, via
- * ResizeObserver, when the list or its first row resizes — a TV that changes zoom, a name that
- * wraps. The `<ul>` is ALWAYS mounted (empty when empty) so the ref is stable and the box is the
- * whole remaining column even before the first row arrives (a conditional target breaks observers).
- * The `+N more` row renders INSIDE the list as its last item, which is why the fit reserves a slot
- * for it and why the box never changes size as the row comes and goes.
+ * board-1 — rows a column can show, MEASURED, never a constant: the list's box divided by the
+ * tallest rendered row. `Infinity` until both exist (an empty or unlaid-out column shows everything;
+ * the CSS clip holds it on-screen meanwhile).
+ *
+ * ⚠️ THE BOX MUST NOT DEPEND ON THE ROWS. The `<ul>` is `flex: 1 1 auto` in its column (globals.css,
+ * pinned by the suite), so its height is the column's remaining space whatever it holds. The first
+ * cut measured a content-sized list — the flex default — and read its own output back: a new bag
+ * shrank the shown rows, which shrank the box, which shrank the cap, down to a lone `+N more`; an
+ * overflowing column cycled that forever (the blind pass, slice 5). The same reason every row is ONE
+ * line (`.orb-name` ellipsizes): the division assumes rows of one height, and a wrapped name would
+ * push the `+N more` row under the clip in silence.
+ *
+ * Re-measured on every snapshot (the effect keys on the orders array) and, via ResizeObserver, when
+ * the list or any rendered row resizes — a TV that changes zoom. The `<ul>` is ALWAYS mounted so
+ * the ref is stable (a conditional target breaks observers). The `+N more` row renders INSIDE the
+ * list as its last item, which is why the fit reserves a slot for it and why the box never changes
+ * as the row comes and goes. `setCap` with an unchanged value is a React no-op, so a re-measure
+ * that finds the same cap does not re-render.
  */
-function useColumnFit(count: number): { ref: RefObject<HTMLUListElement | null>; cap: number } {
+function useColumnFit(orders: readonly BoardOrder[]): {
+  ref: RefObject<HTMLUListElement | null>;
+  cap: number;
+} {
   const ref = useRef<HTMLUListElement>(null);
   const [cap, setCap] = useState(Infinity);
   useEffect(() => {
     const ul = ref.current;
     if (!ul) return;
+    const rows = () => [...ul.querySelectorAll("li:not(.orb-more)")];
     const measure = () => {
-      const row = ul.querySelector("li:not(.orb-more)");
       const box = ul.getBoundingClientRect().height;
-      const rowH = row?.getBoundingClientRect().height ?? 0;
+      const rowH = Math.max(0, ...rows().map((r) => r.getBoundingClientRect().height));
       setCap(box > 0 && rowH > 0 ? Math.floor(box / rowH) : Infinity);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
     const ro = new ResizeObserver(measure);
     ro.observe(ul);
-    const row = ul.querySelector("li:not(.orb-more)");
-    if (row) ro.observe(row);
+    for (const r of rows()) ro.observe(r);
     return () => ro.disconnect();
-  }, [count]);
+  }, [orders]);
   return { ref, cap };
 }
 
@@ -413,7 +434,7 @@ function BoardColumn({
   flashes: Map<string, number> | null;
   stale: boolean;
 }) {
-  const { ref, cap } = useColumnFit(orders.length);
+  const { ref, cap } = useColumnFit(orders);
   const fit = boardColumnFit(orders.length, cap);
   return (
     <section
@@ -651,7 +672,7 @@ function BoardCard({
   const wait = order.readyMinutes ?? null;
   return (
     <li className={`orb-card${flash != null ? " orb-card-flash" : ""}`}>
-      <span>{order.name ?? `#${order.code}`}</span>
+      <span className="orb-name">{order.name ?? `#${order.code}`}</span>
       {order.name && <span className="orb-code">#{order.code}</span>}
       {wait !== null && !stale && (
         <span className="orb-wait" lang={lang === "my" ? "my" : undefined}>

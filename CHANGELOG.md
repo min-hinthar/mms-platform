@@ -13,9 +13,13 @@ verified findings** (`docs/STAFF_POLISH_AUDIT.md` → /board; board-10 was refut
   the runner's `Food up` band and the oldest bags off the bottom in silence. The root IS the screen
   now (`height: 100dvh`, columns clip, the band `flex: none`), and each column shows a MEASURED
   number of rows — `boardColumnFit(count, cap)` (`lib/board-fit.ts`, pure) with `cap` from the
-  list's box over its first row's height (`useColumnFit`, re-measured on content and resize; the
-  `<ul>` is always mounted so the ref is stable) — ending in a `+N more` row through the KDS's own
-  `kds.more` words. The cut falls on the end that matters least: Ready stays newest-first, and
+  list's box over its tallest rendered row (`useColumnFit`: re-measured on every snapshot and,
+  through a `ResizeObserver` on the list AND every row, on a zoom or a late Padauk load; the `<ul>`
+  is always mounted so the ref is stable) — ending in a `+N more` row through the KDS's own
+  `kds.more` words. Two facts the fit depends on are declared in the stylesheet and pinned: the
+  list is `flex: 1 1 auto` in its column, so the box it measures is the column's remaining height
+  whatever the list holds; and every row is ONE line (`.orb-name` ellipsizes), so the division by
+  one row height is honest. The cut falls on the end that matters least: Ready stays newest-first, and
   Preparing now leads with the bag about to come up (the route's newest-first order reversed).
 - **A stale board reads as stale from three metres (board-2).** `data-stale` on the root: the cards
   fall to the secondary ink and the ONE status line, already saying `Reconnecting…`, grows to the
@@ -31,25 +35,41 @@ verified findings** (`docs/STAFF_POLISH_AUDIT.md` → /board; board-10 was refut
   with the Latin path in the `{x}` slot (marked `lang="en"` inside the Burmese run); the brand from
   `BRAND_NAME` in all three headings and the page title; `board.unlinked` and `board.unavailable`,
   dead, deleted.
-- **The always-on posture (board-6, the cheap half).** The column rules are `--bd` hairlines (the
-  gold stays on the READY heading's text) and the three static groups drift ±2px over ten minutes,
-  transform only, reduced-motion escorted with the flash.
+- **The always-on posture (board-6, the hairline half).** The column rules are `--bd` hairlines;
+  the gold stays on the READY heading's text. The ±2px anti-burn drift drafted beside it was
+  withdrawn before merge (see the closure below) and is filed for a device check (K36).
 - **The shelf wait has a ceiling (board-7 / K28(b)).** `shelfWait(mins)` in `lib/kds-time.ts`:
   `Just now` · `{mins} min` · `Over an hour` (`board.card.waitLong`, K15) — a bag nobody collected
   read `1440 min` to the room. The card renders the key it is handed.
 - **Name + code are one identity (board-8)**: the code's auto margin, no three-way space-between.
 - **Two vocabulary slips (board-9).** `.orb-table-up` is the SEVENTH selector in the shared pressed
   rule (it was a gold outline — §2's idle idiom — claiming to be the cap), ink `--oa` on the fill;
-  the flash animates OPACITY on a `::before` overlay, never the card's paint.
-- Suites: `board-fit.test.ts` (new), `kds-time.test.ts` (+4), `ReadyBoard.test.tsx` (+11: the
-  measured cut under stubbed boxes, Preparing's order, the toggle's four states, the tell, the
-  tongue, the ceiling, and the stylesheet parsed — the bounded root, the opacity flash, the drift's
-  escort, the cap's one fill, the identity group), `KdsBoard.test.tsx`'s one-fill guard at seven.
-  14 `MUTATION:` annotations added (measured from the diff), every one induced and watched red;
-  `verify:slice --only=board` and `--only=pulse` green (the three mutants anchored in
-  `ReadyBoard.tsx` kept their lines verbatim).
-- Docs: OPEN-ITEMS (K28 ✅ both halves · K27 note · P6f retired) · audit statuses · DESIGN-LANGUAGE
-  (seven selectors) · HANDOFF.
+  the flash animates OPACITY on a `::before` overlay BEHIND the text (the card isolates, the
+  overlay is `z-index: -1`), never the card's paint.
+- Suites: `board-fit.test.ts` (new), `kds-time.test.ts` (+4), `ReadyBoard.test.tsx` (+17: the
+  measured cut under driven boxes and a driven observer, the re-measure on a list or a row resize,
+  Preparing's order, the toggle's four states and the double tap, the tell, the tongue in both
+  directions, the ceiling, and the stylesheet parsed at every depth — the bounded root, the list's
+  `flex: 1`, the one-line row, the opacity flash behind the text, the hairline, the cap's one fill,
+  the identity group), `KdsBoard.test.tsx`'s one-fill guard at seven. 24 `MUTATION:` annotations
+  added (measured from the diff), every one induced and watched red; `verify:slice --only=board`
+  and `--only=pulse` green (the three mutants anchored in `ReadyBoard.tsx` kept their lines
+  verbatim).
+- **The blind pass (REJECT, closed before the PR left draft).** Five findings, every one verified
+  against source and fixed: (1) the fit measured a CONTENT-sized list — the flex default — and read
+  its own output back, so a new bag collapsed the column to a lone `+N more` for a frame and an
+  overflowing column never settled: the list is `flex: 1 1 auto` now and the suite pins it; (2) a
+  wrapped name broke the one-row-height division and pushed the `+N more` row under the clip in
+  silence: rows are one line, the fit measures the tallest row and observes every row; (3) the
+  flash overlay painted OVER the name and code for its two seconds: the card isolates and the
+  overlay sits at `z-index: -1`; (4) the anti-burn drift was an auto-motion with no pause control
+  on a screen with no pointer, and a linear sub-pixel translate can rasterize every glyph off the
+  pixel grid on a TV compositor — withdrawn, filed as K36; (5) two taps inside one `await arm()`
+  both took the arm path and both played the tone: an `arming` ref refuses the second. Plus the
+  suite's own defects: a depth-1 stylesheet walk that could not see a breakpoint override, `[0]`
+  picks where uniqueness had to be asserted, and a stale case named for more than it asserted.
+- Docs: OPEN-ITEMS (K28 ✅ both halves · K27 note · P6f retired · K36 filed) · audit statuses ·
+  DESIGN-LANGUAGE (seven selectors) · HANDOFF.
 
 ### manager-9 · manager-10 / M76 · K29(b) — the sheet primitive (2026-09-20)
 
