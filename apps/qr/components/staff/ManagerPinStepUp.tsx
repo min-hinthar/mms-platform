@@ -119,7 +119,9 @@ export function ManagerPinFields({
         id={`${idPrefix}-mgr`}
         value={approverStaffId}
         onChange={(e) => onApproverChange(e.target.value)}
-        disabled={locked || noManagers}
+        // A dead-end state, not a tapped control: with no manager on shift there is nothing to
+        // pick. The lockout no longer disables it (§17 — the lockout is the PIN field's, read-only).
+        disabled={noManagers}
         style={select}
       >
         {/* An <option> can hold only text, so the mark rides the element itself (rule 5). */}
@@ -154,7 +156,9 @@ export function ManagerPinFields({
         value={pin}
         onChange={(e) => onPinChange(e.target.value.replace(/\D/g, "").slice(0, 8))}
         placeholder="••••"
-        disabled={locked}
+        // §17 — a lockout makes the field READ-ONLY, never disabled: the refused submit just moved
+        // focus into it (or will), and a disabled field drops that focus to <body>.
+        readOnly={locked}
         // S2-audit S10: NOT described-by the live region — a node can't be both a field description and a
         // transactional live region without double-announcing; the label + placeholder suffice.
         style={input}

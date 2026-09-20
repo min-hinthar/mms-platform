@@ -41,11 +41,25 @@ export function RefundActionSheet({
   const lang = useStaffLang();
   // P7·2 — the same `pin.*` sentences the loss sheet, the approvals queue and the lock screen say,
   // and the same countdown: "wrong PIN — 2 tries left" is ONE sentence on every screen that says it.
-  const { setLockLeft, lockCopy } = useLockout(lang);
+  // manager-5 — `locked` too: without it the Refund button stayed tappable through the lockout
+  // countdown and the field neither read-only nor gated, so a locked manager kept re-sending into
+  // the lock (the approvals card and the loss sheet both gate on it).
+  const { setLockLeft, locked, lockCopy } = useLockout(lang);
   const [pending, startTransition] = useTransition();
   const amount = dollars(line.offeredCents);
+  const canSubmit = !pending && !locked && pin.length >= 4;
+
+  // manager-5 — a refused PIN leaves the field: the masked wrong digits used to stay, so the next
+  // Refund tap re-sent them and burned another attempt toward the lockout (the approvals card and
+  // the loss sheet both clear it). Focus returns to the field so the retype starts where it ended.
+  const pinRefused = () => {
+    setPin("");
+    document.getElementById("refund-pin")?.focus();
+  };
 
   const submit = () => {
+    // §17 — the button says so with `aria-disabled`; the refusal is here, on the same predicate.
+    if (!canSubmit) return;
     setError(null);
     startTransition(async () => {
       try {
@@ -54,6 +68,9 @@ export function RefundActionSheet({
           onDone(res.amountCents); // the SERVER-authorized amount (its clamp is the authority)
           return;
         }
+        // The two silent closes below unmount the sheet; every other refusal keeps it, and none of
+        // them may keep the PIN.
+        if (res.reason !== "already_refunded" && res.reason !== "fully_refunded") pinRefused();
         switch (res.reason) {
           case "pin_wrong":
           case "pin_locked":
@@ -108,6 +125,7 @@ export function RefundActionSheet({
             setError({ k: "floor.refund.err.failed" });
         }
       } catch {
+        pinRefused();
         setError({ k: "floor.refund.err.failed" });
       }
     });
@@ -194,6 +212,9 @@ export function RefundActionSheet({
           autoComplete="off"
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+          // §17 — a lockout makes the field READ-ONLY, not disabled: the refused submit just moved
+          // focus into it, and a disabled field would drop that focus to <body>.
+          readOnly={locked}
           style={field}
           placeholder="••••"
         />
@@ -215,8 +236,11 @@ export function RefundActionSheet({
           <button
             className="staff-btn"
             type="button"
-            onClick={onClose}
-            disabled={pending}
+            onClick={() => {
+              if (pending) return; // the sheet's `busy` refuses every exit mid-flight (M82)
+              onClose();
+            }}
+            aria-disabled={pending || undefined}
             style={secondaryBtn}
           >
             <Chrome lang={lang} k="table.appr.verb.cancel" echo="stack" />
@@ -225,7 +249,8 @@ export function RefundActionSheet({
             className="staff-btn"
             type="button"
             onClick={submit}
-            disabled={pending || pin.length < 4}
+            aria-disabled={!canSubmit || undefined}
+            aria-busy={pending || undefined}
             style={primaryBtn}
           >
             {/* No aria-label, deliberately: the visible label SWAPS to "Refunding…" mid-submit,

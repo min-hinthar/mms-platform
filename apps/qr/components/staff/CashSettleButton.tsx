@@ -185,16 +185,18 @@ export function CashSettleButton({
                     <button
                       key={p.label}
                       type="button"
-                      className="staff-btn"
+                      // manager-7 — `.staff-chip`: the lit chip is the console's ONE cap through the
+                      // shared pressed rule, not the ring-and-wash this file used to draw itself.
+                      className="staff-btn staff-chip"
                       aria-pressed={on}
-                      style={on ? tipChipOn : tipChip}
+                      style={tipChip}
                       onClick={() => {
                         tipTouched.current = true;
                         setTip((cents / 100).toFixed(2));
                       }}
                     >
                       {p.label}
-                      <span style={on ? tipChipAmountOn : tipChipAmount}>{fmt(cents)}</span>
+                      <span className="staff-chip-amount">{fmt(cents)}</span>
                     </button>
                   );
                 })}
@@ -203,7 +205,7 @@ export function CashSettleButton({
                   claim two truths at once. */}
               <button
                 type="button"
-                className="staff-btn"
+                className="staff-btn staff-chip"
                 style={tipChip}
                 onClick={() => {
                   tipTouched.current = true;
@@ -412,26 +414,5 @@ const hint: CSSProperties = {
 };
 
 const tipChipRow: CSSProperties = { display: "flex", gap: "var(--s2)", flexWrap: "wrap" };
-const tipChip: CSSProperties = {
-  minHeight: 44,
-  padding: "0 var(--s3)",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--bd)",
-  background: "var(--sf)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-sm)",
-  fontWeight: 700,
-  cursor: "pointer",
-  display: "inline-flex",
-  alignItems: "center",
-  gap: "var(--s2)",
-};
-const tipChipAmount: CSSProperties = { fontWeight: 500, color: "var(--t2)" };
-// The checkout tip chips' on-state, in the staff console's clothes: accent ring + a 9% accent wash.
-const tipChipOn: CSSProperties = {
-  ...tipChip,
-  border: "1.5px solid var(--ac)",
-  background: "color-mix(in oklab, var(--ac) 9%, var(--sf))",
-  color: "var(--ac-strong)",
-};
-const tipChipAmountOn: CSSProperties = { fontWeight: 600, color: "var(--ac-strong)" };
+// manager-7 — layout only: the fill, ink, hairline and size are `.staff-chip`'s.
+const tipChip: CSSProperties = { gap: "var(--s2)" };

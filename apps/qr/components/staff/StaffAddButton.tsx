@@ -50,6 +50,7 @@ export function StaffAddButton({
   );
 
   function add() {
+    if (pending || soldOut) return; // §17 — the button says so with `aria-disabled`
     setError(null);
     setAdded(true); // optimistic — reverted below if the server refuses OR the action throws
     if (timer.current) clearTimeout(timer.current);
@@ -79,7 +80,8 @@ export function StaffAddButton({
         className="staff-btn"
         type="button"
         onClick={add}
-        disabled={pending || !!soldOut}
+        aria-disabled={pending || !!soldOut || undefined}
+        aria-busy={pending || undefined}
         // P2 — three whole al() calls rather than one call over a computed key: the key has to be a
         // string literal or `check-staff-lang.mjs` rule 3c cannot find the label the name must
         // contain, and the button's visible word genuinely changes with its state.

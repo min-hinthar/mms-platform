@@ -510,6 +510,26 @@ export const STAFF = {
     en: "Couldn’t resolve that just now — please try again.",
     my: "အခု မဆုံးဖြတ်နိုင်သေးပါ — ထပ်ကြိုးစားပါ။",
   },
+  // manager-3 — the refund strip's two-step: the question names the amount and the processor
+  // (`{x}` = `table.appr.stripe`), the group is named by the payment intent (Latin, `{x}`), the
+  // yes-verb is a stated word and the busy label a stated word too (§17 — never an ellipsis).
+  "table.appr.confirmRefunded.q": {
+    en: "Refunded {m} in {x}?",
+    my: "{x} မှာ {m} ပြန်အမ်းပြီးပြီလား?",
+  },
+  "table.appr.confirmRefunded.qUnknown": {
+    en: "Refunded this charge in {x}?",
+    my: "ဒီငွေကို {x} မှာ ပြန်အမ်းပြီးပြီလား?",
+  },
+  "table.appr.verb.markRefunded.confirm": {
+    en: "Yes, mark it done",
+    my: "ဟုတ်ကဲ့၊ ပြီးပြီလို့ မှတ်",
+  },
+  "table.appr.marking": { en: "Marking…", my: "မှတ်နေပါတယ်…" },
+  "table.appr.a11y.confirmRefunded": {
+    en: "Confirm {x} refunded",
+    my: "{x} ပြန်အမ်းပြီးကြောင်း အတည်ပြု",
+  },
   "table.appr.refunds.outage": {
     en: "The refunds ledger can’t load right now — anything already recorded is still there.",
     my: "ပြန်အမ်းရန် စာရင်းကို အခု မဖတ်နိုင်သေးပါ — မှတ်ထားပြီးသားတွေ ရှိနေဆဲပါ။",
@@ -603,6 +623,9 @@ export const STAFF = {
   },
   "browse.mod.a11y.less": { en: "One fewer", my: "တစ်ခု လျှော့" },
   "browse.mod.a11y.more": { en: "One more", my: "တစ်ခု ထပ်ထည့်" },
+  // §17 — the name at a bound says WHY the tap is refused (`{n}` is the bound, a count).
+  "browse.mod.a11y.lessMin": { en: "At the minimum of {n}", my: "အနည်းဆုံး {n} ဖြစ်ပြီ" },
+  "browse.mod.a11y.moreMax": { en: "At the maximum of {n}", my: "အများဆုံး {n} ဖြစ်ပြီ" },
 
   // ═══ P2 PR B · detail ═══════════════════════════════════════════════════════════
   // ── the table drill-down (/staff/table/[id]) — the page and FloorDetailLive ────────────────
@@ -1112,6 +1135,8 @@ export const STAFF = {
     my: "ဥပမာ — မြေပဲ မထည့်ရ၊ ဓာတ်မတည့်",
   }, // grounded: browse.mod.notePlaceholder
   "table.line.save": { en: "Save", my: "သိမ်း" }, // grounded: browse.price.verb.save
+  // §17 — the busy label is a stated word, never "…" (the accessible name was literally an ellipsis).
+  "table.line.saving": { en: "Saving…", my: "သိမ်းနေပါတယ်…" },
 
   // ── the loss sheet: void / comp a fired line (LossActionSheet) ─────────────
   // Aria-only names for the two segmented groups. Neither group has visible text of its own, so
@@ -1159,6 +1184,36 @@ export const STAFF = {
     my: "ဆက်သွားဖို့ အကြောင်းအရင်း ရွေးပါ။",
   },
 
+  // manager-6 / P2t — the sheet's title and the twelve refusals that reached its live region as
+  // English literals. The title is two whole keys, not a verb slot: the verb sits in a different
+  // place in each tongue. `in_flight` reuses `table.appr.msg.inFlight`; "pick a reason" reuses
+  // `table.loss.reasonRequired`; the "use Void" hint quotes the segment's own word through `{x}`.
+  "table.loss.title.void": { en: "Void “{x}”", my: "“{x}” ဖျက်" },
+  "table.loss.title.comp": { en: "Comp “{x}”", my: "“{x}” အခမဲ့" },
+  "table.loss.msg.notOpen": {
+    en: "This table’s order is no longer open.",
+    my: "ဒီစားပွဲရဲ့ အော်ဒါ ပိတ်သွားပြီ။",
+  },
+  "table.loss.msg.notFound": {
+    en: "That item isn’t on this table anymore.",
+    my: "ဒီပစ္စည်း ဒီစားပွဲမှာ မရှိတော့ပါ။",
+  },
+  "table.loss.msg.failed": {
+    en: "Couldn’t do that just now — please try again.",
+    my: "အခု မလုပ်နိုင်သေးပါ — ထပ်ကြိုးစားပါ။",
+  },
+  "table.loss.msg.alreadyPending": {
+    en: "A manager request is already open for this item.",
+    my: "ဒီပစ္စည်းအတွက် မန်နေဂျာ တောင်းဆိုချက် ဖွင့်ထားပြီးသား။",
+  },
+  "table.loss.msg.noApprovalNeeded": {
+    en: "This one doesn’t need a manager — use “{x}”.",
+    my: "ဒီဟာ မန်နေဂျာ မလိုပါ — “{x}” ကို သုံးပါ။",
+  },
+  "table.loss.msg.sendFailed": {
+    en: "Couldn’t send that request — please try again.",
+    my: "တောင်းဆိုချက် မပို့နိုင်သေးပါ — ထပ်ကြိုးစားပါ။",
+  },
   "table.loss.managerLegend": { en: "Manager approval", my: "မန်နေဂျာ ခွင့်ပြုချက်" },
   "table.loss.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" },
   "table.loss.working": { en: "Working…", my: "လုပ်နေပါတယ်…" },

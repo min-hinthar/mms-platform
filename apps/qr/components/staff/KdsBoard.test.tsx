@@ -18,7 +18,7 @@ import type { KitchenActionResult } from "@/lib/kitchen";
  *     button on the board (bump, fire, line, 86, undo, recall, pager) follows the same rule, and
  *     the handler refuses re-entry so the attribute is a statement, not the gate;
  *   - K28: a ticket's visible age has a ceiling and its SPOKEN age is the dictionary's sentence;
- *   - §2: the five pressed selectors on the console share ONE rule — a second copy is the drift
+ *   - §2: the six pressed selectors on the console share ONE rule — a second copy is the drift
  *     K29 found (a tint that vanished inside the station track).
  */
 const NOW = "2026-09-20T18:00:00.000Z";
@@ -281,15 +281,17 @@ describe("K28 — the ticket's age has a ceiling, and its spoken form is the dic
   });
 });
 
-describe("§2 — the console's five pressed selectors share ONE lit-cap rule", () => {
+describe("§2 — the console's six pressed selectors share ONE lit-cap rule", () => {
   // counter-4 added the register's open arm (`aria-expanded`, the state that control already
-  // carries) to the same list — a selection is a selection whichever attribute says so.
+  // carries) to the same list — a selection is a selection whichever attribute says so; manager-7
+  // added `.staff-chip`, the one rest class every pressed chip outside the KDS root wears.
   const PRESSED = [
     '.kds-chip[aria-pressed="true"]',
     '.staff-seg > .kds-chip[aria-pressed="true"]',
     '.staff-lang-btn[aria-pressed="true"]',
     '.help-size-row[aria-pressed="true"]',
     '.staff-arm[aria-expanded="true"]',
+    '.staff-chip[aria-pressed="true"]',
   ];
   // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
   // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
@@ -312,7 +314,7 @@ describe("§2 — the console's five pressed selectors share ONE lit-cap rule", 
       expect(f, `${PRESSED[i]} declares its fill exactly once`).toHaveLength(1);
     const bodies = new Set(fills.map((f) => f[0]![2]!.trim()));
     // MUTATION: give the switch back its own `background: var(--ac)` block — two blocks, red.
-    expect(bodies.size, "all five pressed selectors resolve to one declaration").toBe(1);
+    expect(bodies.size, "all six pressed selectors resolve to one declaration").toBe(1);
     expect([...bodies][0]).toMatch(/background:\s*var\(--ac\)/);
     expect([...bodies][0]).toMatch(/--glow-gold/);
   });

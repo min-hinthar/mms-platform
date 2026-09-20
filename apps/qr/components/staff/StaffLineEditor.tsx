@@ -50,6 +50,7 @@ export function StaffLineEditor({
   const [notePending, startNote] = useTransition();
 
   function saveNote() {
+    if (notePending) return; // §17 — the button says so with `aria-disabled`; the refusal is here
     const value = (noteDraft ?? "").trim();
     startNote(async () => {
       try {
@@ -164,8 +165,11 @@ export function StaffLineEditor({
             <button
               className="staff-btn"
               type="button"
-              onClick={() => setSheetOpen(true)}
-              disabled={disabled}
+              onClick={() => {
+                if (disabled) return;
+                setSheetOpen(true);
+              }}
+              aria-disabled={disabled || undefined}
               aria-label={
                 al(lang, {
                   kind: "verb",
@@ -220,8 +224,11 @@ export function StaffLineEditor({
         <button
           className="staff-btn"
           type="button"
-          onClick={() => setNoteDraft((d) => (d === null ? (line.notes ?? "") : null))}
-          disabled={busy}
+          onClick={() => {
+            if (busy) return;
+            setNoteDraft((d) => (d === null ? (line.notes ?? "") : null));
+          }}
+          aria-disabled={busy || undefined}
           aria-expanded={noteDraft !== null}
           // Two whole al() calls rather than one over a computed key: `check-staff-lang.mjs` rule 3c
           // needs the verb key as a string LITERAL to find the label the name must contain, and the
@@ -251,6 +258,7 @@ export function StaffLineEditor({
           qty={qty}
           onChange={setQty}
           name={line.name}
+          // The primitive maps this to `aria-disabled` + a refusal in its handlers (§17, K35).
           disabled={busy}
           soldOut={line.soldOut}
           // STILL ENGLISH, deliberately. `Stepper` hardcodes its other two names ("Remove {name}",
@@ -280,10 +288,17 @@ export function StaffLineEditor({
             className="staff-btn"
             type="button"
             onClick={saveNote}
-            disabled={notePending}
+            aria-disabled={notePending || undefined}
+            aria-busy={notePending || undefined}
             style={noteSave}
           >
-            {notePending ? "…" : <Chrome lang={lang} k="table.line.save" />}
+            {/* §17 — a stated word while it saves, never "…": this button has no aria-label, so its
+                content IS its accessible name, and an ellipsis was the name for the round trip. */}
+            {notePending ? (
+              <Chrome lang={lang} k="table.line.saving" />
+            ) : (
+              <Chrome lang={lang} k="table.line.save" />
+            )}
           </button>
         </span>
       )}

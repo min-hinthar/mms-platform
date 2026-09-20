@@ -11,9 +11,13 @@ import { Icon } from "./icon";
  *  - 44px tap targets on both controls;
  *  - the **remove-at-min swap** — at `qty <= min` the "−" becomes a destructive Remove (a swapped glyph
  *    + a swapped accessible name), while the "−"/remove itself stays enabled so the line can be cleared;
- *  - the **increment gate** — "+" disables at `busy`/`disabled`, `qty >= max`, or `soldOut`, each with
- *    the right accessible name (a sold-out "+" also dims). The "−"/remove stays enabled when an item is
- *    sold out (so the line can still be cleared); it disables only with `disabled` (a mutation in flight).
+ *  - the **increment gate** — "+" refuses at `busy`/`disabled`, `qty >= max`, or `soldOut`, each with
+ *    the right accessible name (a sold-out "+" also dims). The "−"/remove stays live when an item is
+ *    sold out (so the line can still be cleared); it refuses only with `disabled` (a mutation in flight).
+ *  - **§17 — never native `disabled` on a control that was just tapped.** A natively disabled button
+ *    drops focus to `<body>` mid-tap, so a busy stepper spoke its name from nowhere. Both controls are
+ *    `aria-disabled` with the handler refusing re-entry (the same predicate), and a dim keyed on it;
+ *    a refused "+" therefore ANNOUNCES why (sold out, at the maximum) instead of blurring.
  *
  * a11y: each button has an accessible name woven from `name` (e.g. "Increase Tea Leaf Salad quantity" /
  * "Remove Tea Leaf Salad"). The optional center count is a plain `<span aria-label="Quantity N">` — NOT
@@ -33,6 +37,7 @@ export function Stepper({
   showCount = false,
   incrementLabel,
   soldOutLabel,
+  disabledLabel,
 }: {
   qty: number;
   /** Receives the next quantity (`qty ± 1`). The parent performs the mutation. */
@@ -60,6 +65,11 @@ export function Stepper({
   /** Override the sold-out "+" accessible name (e.g. staff's "{name} is sold out — can't add more").
    *  Defaults to "{name} is sold out". */
   soldOutLabel?: string;
+  /** The name BOTH controls take while `disabled` — the reason a refused tap gives. A control that
+   *  keeps its focus (§17) must not keep a name that promises the action it now refuses: the diner
+   *  cart's "+" said "Add another Mohinga" through a payment freeze. Omit for a sub-second busy
+   *  beat, where a renamed control would only chatter. */
+  disabledLabel?: string;
 }) {
   const removing = qty <= min;
   const incDisabled = disabled || qty >= max || soldOut;
@@ -68,9 +78,18 @@ export function Stepper({
       <button
         type="button"
         className="mms-stepper-btn"
-        onClick={() => onChange(qty - 1)}
-        disabled={disabled}
-        aria-label={removing ? `Remove ${name}` : `Decrease ${name} quantity`}
+        onClick={() => {
+          if (disabled) return;
+          onChange(qty - 1);
+        }}
+        aria-disabled={disabled || undefined}
+        aria-label={
+          disabled && disabledLabel
+            ? disabledLabel
+            : removing
+              ? `Remove ${name}`
+              : `Decrease ${name} quantity`
+        }
         style={{ ...step(disabled), ...(removing && removeTone ? { color: removeTone } : null) }}
       >
         <span aria-hidden>{removing ? removeGlyph : "−"}</span>
@@ -90,14 +109,19 @@ export function Stepper({
       <button
         type="button"
         className="mms-stepper-btn"
-        onClick={() => onChange(qty + 1)}
-        disabled={incDisabled}
+        onClick={() => {
+          if (incDisabled) return;
+          onChange(qty + 1);
+        }}
+        aria-disabled={incDisabled || undefined}
         aria-label={
-          soldOut
-            ? (soldOutLabel ?? `${name} is sold out`)
-            : qty >= max
-              ? `Maximum ${max} ${name}`
-              : (incrementLabel ?? `Increase ${name} quantity`)
+          disabled && disabledLabel
+            ? disabledLabel
+            : soldOut
+              ? (soldOutLabel ?? `${name} is sold out`)
+              : qty >= max
+                ? `Maximum ${max} ${name}`
+                : (incrementLabel ?? `Increase ${name} quantity`)
         }
         style={{
           ...step(incDisabled),
@@ -123,6 +147,7 @@ const step = (disabled: boolean): CSSProperties => ({
   fontWeight: 700,
   lineHeight: 1,
   cursor: disabled ? "default" : "pointer",
+  opacity: disabled ? 0.6 : 1,
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",

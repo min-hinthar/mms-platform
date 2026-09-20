@@ -4,6 +4,7 @@ import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { requestApprovalInput, resolveApprovalInput } from "@mms/db/schemas";
 import { AuthzError } from "./authz";
+import { approvalsPollVerdict, type ApprovalsPollRefusal } from "./approvals-poll";
 import { getStaffAuth, requireStaff } from "./staff";
 import { approverStepUpAllowed, verifyStaffPin } from "./staff-pin";
 import { paymentInFlightReason } from "./pay-guard";
@@ -310,6 +311,26 @@ export async function listRefundsNeeded(): Promise<RefundNeeded[]> {
     reason: r.reason,
     createdAt: r.created_at,
   }));
+}
+
+/**
+ * M34 — the board's poll. NEVER throws: an expired session is `signin` (the board leaves for the
+ * login, as every other board does on its own poll's verdict), an unreadable queue is `outage` (a
+ * KNOWN side — the board freezes as such instead of "not updating"), and the rows otherwise.
+ * `listPendingApprovals` below keeps its throw for the page's `allSettled` render; the verdict is
+ * `lib/approvals-poll.ts`'s, so it is falsifiable by a value. A hung transport rejects on the
+ * client, in `raceTimeout`, and stays the board's `unknown` there.
+ */
+export type ApprovalsPoll =
+  | { ok: true; rows: PendingApproval[] }
+  | { ok: false; reason: ApprovalsPollRefusal };
+
+export async function pollPendingApprovals(): Promise<ApprovalsPoll> {
+  try {
+    return { ok: true, rows: await listPendingApprovals() };
+  } catch (e) {
+    return { ok: false, reason: approvalsPollVerdict(e) };
+  }
 }
 
 export async function listPendingApprovals(): Promise<PendingApproval[]> {

@@ -4,6 +4,83 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### manager-1 · manager-3 · manager-4 · manager-5 · manager-6 · manager-7 · manager-8 + M34 · P2t · the rails' K35 — the manager rails and the drill-down (2026-09-20)
+
+**Slice 3 of the staff-console polish: the approvals queue, the refunds strip, the refund and
+void/comp sheets, the drill-down's line controls and skeleton, from the audit's verified findings**
+(`docs/STAFF_POLISH_AUDIT.md` → Manager rails + the table drill-down). The two sheet-primitive
+findings (manager-9 the ✕'s English name, manager-10 / M76 the missing exit animation) and K29(b)'s
+inline cash-settle confirm are the next PR — they change `packages/ui`.
+
+- **The approvals poll gives a verdict (manager-1, M34).** `listPendingApprovals` throws on purpose,
+  and the board folded every throw into one `unknown` miss — so an EXPIRED SESSION read "Not
+  updating right now … Reconnecting…" forever with no path to the login, while every other board
+  redirects on its own poll. `pollPendingApprovals` answers `signin` · `outage` · rows;
+  `lib/approvals-poll.ts` decides by status (401/403 a person, everything else the platform; the
+  suite pins a 503 as an outage, never an eviction); the board leaves for the login through
+  `lib/staff-leave.ts` on `signin`, for the COUNTER on `role` (still signed in, no longer a
+  manager — the login would show a signed-in staffer their own profile with no word why; the blind
+  pass's question) and freezes as a KNOWN outage after two misses on `outage`. Only a client-side
+  throw (`raceTimeout`) is still `unknown`.
+- **"Mark refunded" is two taps (manager-3).** It was one tap with no confirm, no undo and no busy
+  state on the one control whose mis-tap hides a stranded charge from the console. The first tap
+  opens an inline group naming the amount and the processor with focus inside; the second commits,
+  `aria-disabled` + `aria-busy` and "Marking…" while it runs; Cancel hands focus back to the trigger.
+  The OPEN group is derived from the live rows, and the focus effect is id-aware: opening a second
+  row's confirm straight from an open one lands in the new group, and a row the poll (or the other
+  tablet) removes while its group is open lands focus on the strip — or the zone's heading once the
+  strip has no rows — instead of `<body>` (the blind pass's critical; both interleavings are pinned).
+- **Approve/Deny move focus into the form (manager-4).** The tapped button unmounts when the form
+  takes its place, so the PIN step used to open with focus on `<body>`; the form (named by its
+  question) takes focus, and Cancel returns it to the button that was tapped.
+- **The refund sheet's PIN discipline (manager-5).** A refused PIN now leaves the masked field and
+  focus returns to it (the next tap used to re-send the same wrong digits and burn an attempt toward
+  the lockout); `locked` is read at last, so the Refund button refuses through the countdown and the
+  field is READ-ONLY (§17), as it is on the approvals card and the loss sheet.
+- **The void/comp sheet speaks the console's tongue (manager-6, P2t).** Its title was an English
+  literal behind a comment claiming a `string` prop the primitive had stopped having, and twelve
+  refusals were `setMsg("…")` literals; two title keys and eight `table.loss.msg.*` keys (reusing
+  `table.appr.msg.inFlight` and `table.loss.reasonRequired`) close P2t — the approvals half had
+  already been converted. Ten machine-drafted MY strings → K15's sheet.
+- **One pressed vocabulary (manager-7).** Five `aria-pressed` chips on this surface drew their own
+  on-state — two accent fills, a 10% tint, a ring-and-wash, a partial cap. `.staff-chip` is the one
+  rest class (with `-block` / `-seg` / `-amount` modifiers) and `.staff-chip[aria-pressed="true"]`
+  is the sixth selector in the console's shared lit-cap rule; the inline `*On` objects are gone,
+  because an inline fill beats any class and the rule could never have reached them.
+- **The drill-down skeleton is the live view's geometry (manager-8)** — chip row, sub-line, party
+  card with ~30px guest chips, order card with the 44px note pill and stepper pair — announcing
+  through `<LoadingLine>`.
+- **§17 on the rails (manager-2, K35).** `Stepper` (the shared primitive; the customer cart rides
+  it too) is `aria-disabled` with the handler refusing on the same predicate and a dim keyed on it,
+  and takes a `disabledLabel` — the name both controls carry while frozen — because a control that
+  KEEPS its focus (§17) must not keep a name that promises the action it refuses: the diner cart's
+  "+" said "Add another Mohinga" through a peer's payment lock (the blind pass; the cart's comment
+  claiming the primitive natively disables is gone, and `Checkout.test.tsx` pins the frozen name).
+  A refused "+" at a bound announces why (sold out, at the maximum); the mod sheet's −/+ say "At the
+  minimum of 1" / "At the maximum of 9" and dim, and a sold-out dish's Choose says "Sold out" on its
+  face and in its name (both were refusing in silence behind a pointer cursor). The approvals card,
+  the two sheets, the line editor, the mod sheet, the menu browser and the add button follow; the
+  PIN fields' lockout is read-only on the input and no longer disables the roster select. The line editor's Save says
+  "Saving…" while it saves — its content was its accessible name, and the name was "…". Re-measured:
+  23 native sites remain in 12 components (two of them not taps: a `Stepper` prop, a roster
+  dead-end).
+
+**The blind pass (one `adversarial-auditor` round on `pnpm review:bundle`, lenses concurrency ·
+a11y · product truth) returned REJECT with one critical, one blast-radius finding, three guard
+findings and two open questions — all real, all closed here.** The critical: the refund strip's
+focus effect fired only on null↔id, so opening a second row's confirm from an open one, or a poll
+removing the open row, dumped a screen-reader manager on `<body>` — the open group is derived from
+the live rows now and the effect is id-aware, both interleavings pinned. The blast radius: the
+`Stepper` change reached the DINER cart, whose comment said the primitive natively disables and
+whose frozen "+" kept the name "Add another" — `disabledLabel`, the comment corrected, a cart case.
+The guards: the mod sheet's bound −/+ refused in silence with a pointer cursor (a dim and a reason
+in the name now, the sold-out Choose likewise); the loss-sheet title assertion fell back to the
+first Burmese run in the body when its selector missed (it asserts the title now); and "ten
+mutations watched red" was prose — the six changed suites carry nineteen `MUTATION:` annotations,
+and every one has now been induced. The questions: a 403 is a demoted manager, not a sign-in — its
+own `role` verdict returns them to the counter; and the success-path batching the pass could not
+settle by reading is settled by the derived group (the row's leaving alone closes it).
+
 ### counter-3 · counter-4 · counter-5 · counter-8 · counter-9 · counter-10 + the counter halves of K29 · K35 — the register and the floor's chrome (2026-09-20)
 
 **Slice 2b of the staff-console polish: the counter's Start zone, the age on every card, the

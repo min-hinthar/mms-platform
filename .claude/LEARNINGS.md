@@ -2449,3 +2449,39 @@ predicate" means the same SOURCE, read when the tap lands. `StaffDoors.tsx` had 
 `inFlight.current` inline; the register copied the ref and lost the read. The mutation note in
 `RegisterStart.test.tsx` ("drop `inFlight` and gate on `pending` alone") is the shape to keep
 watching red.
+
+## #127 — Two things jsdom will not let a suite see, and the honest way round each (2026-09-20, slice 3)
+
+**A click on a `type="submit"` button is not the form's submit.** `fireEvent.click(submitBtn)` inside
+`act` made jsdom run its implicit-submission steps, React's `onSubmit` fired, the server action was
+called once — and the transition's PENDING render was not in the DOM when `act` returned: the
+`aria-busy`/`aria-disabled` assertions read null while the same assertions on a `type="button"`
+sibling (`RefundActionSheet`) read true. The implicit submission runs outside the batch `act`
+flushes. Dispatch `fireEvent.submit(form)` — what a tap and Enter both produce at the DOM level —
+and the pending render is there.
+
+**`window.location.assign` cannot be observed.** jsdom cannot navigate; it reports the attempt to its
+VIRTUAL console as a "Not implemented: navigation" error, and vitest forwards that to the console
+object the ENVIRONMENT captured at setup — not the one the test's `vi.spyOn(console, "error")`
+patches, because vitest replaces `globalThis.console` per test for output capture. The spy saw
+nothing while the error printed raw beside the results. The redirect is a real behaviour a suite
+must pin (M34's whole defect was a board that did not leave), so it lives in ONE module
+(`lib/staff-leave.ts` → `leaveForLogin()`) and the suite mocks that. A dropped redirect is then a
+mock never called, not a console line nobody can catch.
+
+## #128 — An edge-triggered focus effect keyed on null↔id misses the two interleavings that matter (2026-09-20, slice 3)
+
+The refund strip's first two-step draft moved focus with `if (id !== null && prev === null) …
+else if (id === null && prev !== null) …`, and the one suite case exercised open → cancel on ONE
+row. Two reachable interleavings fell through both branches: opening a second row's confirm
+straight from an open one (`prev = "r-1"`, `id = "r-2"`), and the poll — or the other tablet —
+removing the row whose group is open (the `<li>` unmounts with the focus inside it and the raw id
+stays set, so the NEXT open never focuses either). Both dump a screen-reader manager on `<body>`,
+the exact WCAG 2.4.3 shape the slice was closing one zone below.
+
+The shape that holds: **derive the open state from the live rows** (`confirming` is the id only
+while a row with that id is rendered), key the effect on the DERIVED value, treat any id→different
+id as an open, and give the close branch a landing chain (`trigger ?? section ?? heading`) for the
+case where the trigger no longer exists. The row leaving then closes the group by itself — which
+also removes the question of whether `setConfirmingId(null)` and the parent's removal commit in one
+batch. Pin BOTH interleavings, not open→cancel on one row.
