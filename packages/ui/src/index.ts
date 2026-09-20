@@ -1,4 +1,7 @@
 export { Sheet } from "./sheet";
+// M76 — hold a sheet's subject through its exit (a parent that unmounts on close cuts the animation)
+export { useSheetSubject, holdSubject } from "./sheet-subject";
+export type { SheetSubjectState } from "./sheet-subject";
 // Nested framer domMax provider (Richness R5b) — drag/layout where used (Sheet swipe; future drag-to-assign)
 export { DomMaxProvider } from "./dom-max-provider";
 // re-export NumberFlow so apps import animated currency from one place

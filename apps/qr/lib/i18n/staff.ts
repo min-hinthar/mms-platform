@@ -46,6 +46,14 @@ export const STAFF = {
   // control that has children. The Screens circle reuses `shell.screens`.
   "shell.lock": { en: "Lock this tablet", my: "ဒီတက်ဘလက်ကို လော့ခ်ချ" },
   "shell.locking": { en: "Locking…", my: "လော့ခ်ချနေသည်…" },
+  // manager-9 — the shared sheet's ✕ on every console sheet, spoken as sr-only DOM text through
+  // <Chrome> (§17's circle idiom). The busy twin is what the ✕ says while an irreversible write is
+  // in flight and every exit is refused (§16). Claude-authored drafts pending K15.
+  "shell.close": { en: "Close", my: "ပိတ်" },
+  "shell.closeBusy": {
+    en: "Close — finishing, please wait",
+    my: "ပိတ် — ပြီးအောင် လုပ်နေပါတယ်၊ ခဏစောင့်ပါ",
+  },
   "shell.a11y.tools": { en: "Console tools", my: "စက် ကိရိယာများ" },
   // P7·1b — the KDS text-size SHEET (the three chips left the header for the bar's Aa circle).
   "kds.size.title": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
@@ -1574,6 +1582,11 @@ export const STAFF = {
   // ── cash settle (the two-step confirm at the counter and at the table) ────
   "settle.cash.trigger": { en: "Settle in cash · {m}", my: "ငွေသားနဲ့ ရှင်း · {m}" },
   "settle.cash.triggerTab": { en: "Close tab · cash · {m}", my: "စာရင်းပိတ် · ငွေသား · {m}" },
+  // K29(b) — the cash confirm is the shared sheet now; its title names the act WITHOUT the amount
+  // (the question below carries it, tip-inclusive, and a title that quoted the pre-tip figure would
+  // put two different numbers on one sheet). Grounded: the two trigger keys above, amount dropped.
+  "settle.cash.title": { en: "Settle in cash", my: "ငွေသားနဲ့ ရှင်း" },
+  "settle.cash.titleTab": { en: "Close tab · cash", my: "စာရင်းပိတ် · ငွေသား" },
   "settle.cash.take": { en: "Take {m} in cash?", my: "ငွေသား {m} လက်ခံမလား?" }, // K15-HIGH — the amount actually collected
   "settle.cash.tipBreakdown": { en: "({m} + {tip} tip)", my: "({m} + အပိုကြေး {tip})" },
   "settle.cash.closesTab": { en: "This closes the tab.", my: "ဒါနဲ့ စာရင်း ပိတ်ပါမယ်။" },
@@ -1694,7 +1707,6 @@ export const STAFF = {
   "settle.merge.confirmBtn": { en: "Merge into Table {into}", my: "စားပွဲ {into} ထဲ ပေါင်း" },
 
   // ── aria-only names: regions and panels with no visible label of their own ─
-  "settle.a11y.confirmCash": { en: "Confirm cash settlement", my: "ငွေသား ရှင်းတာ အတည်ပြု" },
   "settle.a11y.tipQuick": { en: "Quick tip amounts", my: "အပိုကြေး အမြန်ရွေး" },
   "settle.a11y.confirmCard": {
     en: "Confirm charging the card on file",

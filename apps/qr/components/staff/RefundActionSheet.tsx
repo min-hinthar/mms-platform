@@ -1,6 +1,7 @@
 "use client";
 import { useState, useTransition, type CSSProperties } from "react";
 import { Sheet } from "@mms/ui";
+import { sheetCloseLabel } from "./SheetCloseLabel";
 import { refundLine, type SettledLine, type SettledOrder } from "@/lib/refunds";
 import { dollars } from "@/lib/receipt-view";
 import { REFUND_REASONS, REFUND_REASON_KEY, type RefundReason } from "@/lib/settled-view";
@@ -25,11 +26,15 @@ import { ExpoLineMy } from "./TicketText";
 export function RefundActionSheet({
   order,
   line,
+  open,
   onClose,
   onDone,
 }: {
   order: SettledOrder;
   line: SettledLine;
+  /** M76 — the parent holds this sheet mounted through its exit (`useSheetSubject`) and drives
+   *  `open`; a sheet that is unmounted on close cannot animate out. */
+  open: boolean;
   onClose: () => void;
   /** Called on success/no-op. The amount (cents) is passed on a real refund so the board can confirm the
    *  ACTUAL figure (the server's clamp is the authority); omitted on a no-op. */
@@ -144,8 +149,9 @@ export function RefundActionSheet({
     // with no confirmation and no error — a state indistinguishable from a refund that never
     // happened, over money that may already have left the card. `busy` refuses every exit.
     <Sheet
-      open
+      open={open}
       busy={pending}
+      closeLabel={sheetCloseLabel(lang)}
       onOpenChange={(next) => !next && onClose()}
       title={<Chrome lang={lang} k="floor.refund.title" vars={{ x: line.name }} />}
     >

@@ -1,4 +1,5 @@
 "use client";
+import { useSheetSubject } from "@mms/ui";
 import { useMemo, useState, useTransition, type CSSProperties } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -67,6 +68,7 @@ export function StaffMenuBrowser({
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string | null>(null);
   const [sheetItem, setSheetItem] = useState<StaffMenuItem | null>(null);
+  const mod = useSheetSubject(sheetItem);
   const [notice, setNotice] = useState<BrowserNotice | null>(null);
   const [sheetError, setSheetError] = useState<StaffSheetFailure | null>(null);
   const [pending, startTransition] = useTransition();
@@ -307,23 +309,25 @@ export function StaffMenuBrowser({
         </p>
       )}
 
-      {sheetItem && (
+      {/* M76 — the item is HELD through the exit (`useSheetSubject`); `key` still makes every
+          open a fresh sheet (selection, qty and notes reset by remount). */}
+      {mod.held && (
         <StaffModSheet
-          key={sheetItem.id}
-          open
+          key={mod.key}
+          open={mod.open}
           onOpenChange={(open) => {
             if (!open) {
               setSheetItem(null);
               setSheetError(null);
             }
           }}
-          itemName={sheetItem.nameEn}
-          basePriceCents={sheetItem.priceCents}
-          groups={sheetItem.groups}
+          itemName={mod.held.nameEn}
+          basePriceCents={mod.held.priceCents}
+          groups={mod.held.groups}
           pending={pending}
           error={sheetError}
           lang={lang}
-          onAdd={(choice) => addWithChoice(sheetItem, choice)}
+          onAdd={(choice) => addWithChoice(mod.held!, choice)}
         />
       )}
     </div>

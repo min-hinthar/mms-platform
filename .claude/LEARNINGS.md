@@ -2485,3 +2485,41 @@ id as an open, and give the close branch a landing chain (`trigger ?? section ??
 case where the trigger no longer exists. The row leaving then closes the group by itself — which
 also removes the question of whether `setConfirmingId(null)` and the parent's removal commit in one
 batch. Pin BOTH interleavings, not open→cancel on one row.
+
+## #129 — A Radix portal child's Presence needs a DOM node, or a CSS exit animation changes nothing (2026-09-20, slice 4)
+
+M76 (sheets cut on close) looked like a missing animation and was a missing REF. Radix's
+`Dialog.Portal` wraps EACH child in its own `Presence`, and `Presence` decides "hold for the exit"
+by reading `getComputedStyle(node).animationName` off the ref it forwards into that child. The
+`Sheet` had a `DomMaxProvider` (a `LazyMotion` context provider, no DOM element) sitting between the
+portal and the content — so the portal-level `Presence` was handed `null`, read "none", and unmounted
+the whole subtree the moment `open` went false, with every `[data-state="closed"]` rule in the world
+declared and never seen. The rule: **the portal's child must forward its `ref` to the DOM node**
+(`SheetContent` is the child, takes `ref` as a prop, and hands it THROUGH the provider to
+`Dialog.Content`, whose Slot composes it with the `m.div`'s own). The first fix wrapped the PORTAL
+in the provider instead — which also works, and loads the lazy `domMax` chunk on every route that
+renders a closed sheet (`LazyMotion` fetches in a mount effect); the blind pass caught the perf
+regression, and the provider went back inside the child, below the ref. A second half the same
+pass found: three sheets were mounted `{subject && <XSheet/>}` — a `Presence` can hold a node whose
+`open` went false, never one React removed — so `useSheetSubject` holds the subject through the
+exit and keys a fresh instance per open (`holdSubject` is pure; four value cases pin it). The guard cannot be the CSS —
+it is the render: stub `getComputedStyle` to answer from `data-state` the way a real stylesheet
+would, close the sheet, and assert it is still there until `animationend` (`SheetExit.test.tsx`);
+both structural mutants go red, a CSS-only guard stays green through either.
+
+Corollary worth knowing before the next caller: `onCloseAutoFocus` is FocusScope's
+`onUnmountAutoFocus`, so with an exit it fires after the animation, while the page is still under
+the sheet's `aria-hidden`. The default opener-restore wants exactly that; a caller that focuses
+something ELSE on close (the cash confirm's #CODE handoff card) must unmount the sheet rather than
+close it, or the focus lands on a hidden node and is never announced.
+
+## #130 — Radix restores focus in a `setTimeout(0)` after unmount, so a synchronous focus assertion is vacuous (2026-09-20, slice 4)
+
+FocusScope's cleanup schedules the unmount-autofocus in a `setTimeout(…, 0)`. A suite that closes a
+sheet inside `act()` and asserts `document.activeElement` on the next line reads the moment BEFORE
+any restore — and passes for the wrong code: the "trigger must NOT be refocused after the handoff"
+mutant (refocus it unconditionally) SURVIVED, because the refocus had not happened yet when the
+assertion ran. Flush the timer first (`await act(async () => { await new Promise((r) =>
+setTimeout(r, 0)); })`), then assert; the same case then goes red under the mutant and the
+"focus returns to the trigger" case stops depending on which of `act`'s internal ticks happened to
+run the timeout. Sibling of #127: a jsdom fact, not a React one.

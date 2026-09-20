@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SettledOrder, SettledToday as Snapshot } from "@/lib/refunds";
 import { STAFF } from "@/lib/i18n/staff";
@@ -350,5 +350,58 @@ describe("SettledToday — the refund console, reading the receipt", () => {
     cleanup();
     const { container } = mount({ ok: false, reason: "forbidden" });
     expect(container.textContent).toBe("");
+  });
+});
+
+/** Radix Presence compares `event.animationName` through `CSS.escape`; jsdom has no `CSS`. */
+if (typeof globalThis.CSS === "undefined" || typeof globalThis.CSS.escape !== "function")
+  (globalThis as unknown as { CSS: { escape: (s: string) => string } }).CSS = {
+    escape: (s: string) => s,
+  };
+/** A stylesheet's answer for the sheet and its scrim: an exit animation once `data-state` is
+ *  closed. With it, a CLOSED sheet is held until `animationend` — so "still there after close"
+ *  proves the parent kept it mounted (SheetExit.test.tsx has the full fixture). */
+function stubComputedStyle() {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+    const style = real(el);
+    const node = el as HTMLElement;
+    if (!node.classList?.contains("mms-sheet") && !node.classList?.contains("mms-scrim"))
+      return style;
+    return new Proxy(style, {
+      get(target, key) {
+        if (key === "animationName")
+          return node.getAttribute("data-state") === "closed" ? "exit" : "enter";
+        const v = Reflect.get(target, key);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+  });
+}
+function animationEnd(el: Element) {
+  const ev = new Event("animationend", { bubbles: true });
+  Object.defineProperty(ev, "animationName", { value: "exit" });
+  el.dispatchEvent(ev);
+}
+
+describe("M76 — the refund sheet is HELD through its exit", () => {
+  it("closing keeps the dialog mounted, `data-state=closed`, until its exit animation ends", async () => {
+    stubComputedStyle();
+    mount(snapshot([order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001")]));
+    fireEvent.click(screen.getByRole("button", { expanded: false }));
+    fireEvent.click(screen.getByRole("button", { name: /Mohinga/ }));
+    const dialog = screen.getByRole("dialog", { name: /Refund Mohinga/ });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    });
+    // MUTATION: mount it as `{refunding && …}` again — the dialog is gone here; red.
+    expect(screen.queryByRole("dialog")).toBe(dialog);
+    expect(dialog.getAttribute("data-state")).toBe("closed");
+    await act(async () => {
+      animationEnd(dialog);
+      animationEnd(document.querySelector(".mms-scrim")!);
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    vi.restoreAllMocks();
   });
 });

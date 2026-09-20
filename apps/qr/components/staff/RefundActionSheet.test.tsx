@@ -52,7 +52,7 @@ const order = {
 function mount() {
   render(
     <StaffLangProvider lang="en">
-      <RefundActionSheet order={order} line={line} onClose={() => {}} onDone={() => {}} />
+      <RefundActionSheet open order={order} line={line} onClose={() => {}} onDone={() => {}} />
     </StaffLangProvider>,
   );
   const pin = () => document.getElementById("refund-pin") as HTMLInputElement;

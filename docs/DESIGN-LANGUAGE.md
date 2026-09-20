@@ -586,7 +586,8 @@ someone's money.
   own; dressing it as a near-miss is the same overclaim this file forbids elsewhere.
 - **`busy` is for an irreversible write, and nothing else.** Dismissing does not cancel the write. It
   only guarantees nobody sees how it ended — usually on a tree that unmounted while the server was
-  still answering. Of eleven callers, three qualify; the other eight write nothing irreversible, or
+  still answering. Of fourteen callers, five qualify (the refund, void/comp and modifier sheets, the
+  report sheet, the cash confirm); the other nine write nothing irreversible, or
   write into a provider that outlives the sheet and shows the result plainly afterwards. **Do not add
   it "for consistency"** — a lock with no reason is a lock a user cannot predict.
 - **A blocked exit must look blocked.** The local version of this rule swallowed the ✕'s click and
@@ -607,6 +608,27 @@ someone's money.
   wandering scroll discards a half-filled form. It belongs next to the policy it serves, with a test
   — including that it is **downward only**, since an upward tug is someone pulling the sheet further
   open, and a sheet that closes when you try to see more of it is the opposite of the gesture.
+- **The exit is CSS, and the presence chain must reach a DOM node (M76, slice 4).** A closing sheet
+  slides down and its scrim fades over one `--dur-sheet` — `[data-state="closed"]` rules beside the
+  entrance, so CSS owns both beats and framer keeps only the drag; reduced motion names the closed
+  selectors explicitly AND after them (the attribute selector ties the bare class on specificity,
+  so source order decides). Radix's `Presence` holds the node while that animation runs, reading it
+  off the ref each portal child forwards — so the portal's child must forward its `ref` to the
+  content node (a context provider AS the child forwards none, and the sheet cuts again; the
+  provider lives inside the child, where it mounts only with a sheet and its lazy chunk stays off
+  every closed-sheet route). A parent that UNMOUNTS the sheet on close gives `Presence` nothing to
+  hold: mount it through `useSheetSubject` — the subject is held through the exit, `open` follows
+  the live subject, and `key` advances per open so each open is still a fresh instance. An exit's
+  name never CONTAINS its entrance's (Radix ends the hold on `animationcancel` by substring). Any
+  state a sheet resets "on close" is now visible for the whole slide — reset on the next open.
+  And `onCloseAutoFocus` fires at UNMOUNT, after the exit: a caller that moves focus elsewhere on
+  close does so under the sheet's own `aria-hidden`, and should unmount the sheet instead (the
+  cash confirm's landing).
+- **The ✕ speaks the caller's tongue through `closeLabel`, as DOM text (manager-9).** The staff
+  sheets pass `sheetCloseLabel(lang)` — `{ idle, busy }` rendered sr-only inside the button, §17's
+  circle idiom, never an `aria-label` (rule 3 cannot follow a name into the package, and DOM text
+  keeps the Burmese language-marked); both states travel together so the busy name is never left
+  in English at the one moment it matters. The diner sheets keep the English default.
 
 ## 17 · The staff console — one bar, every page (P7·1b)
 

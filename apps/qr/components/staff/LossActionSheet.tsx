@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useTransition, type CSSProperties, type FormEvent } from "react";
 import { Sheet } from "@mms/ui";
+import { sheetCloseLabel } from "./SheetCloseLabel";
 import { listApprovers, voidLine, type Approver, type VoidLineResult } from "@/lib/voids";
 import { requestApproval } from "@/lib/approvals";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
@@ -292,6 +293,7 @@ export function LossActionSheet({
       open={open}
       onOpenChange={onOpenChange}
       busy={pending}
+      closeLabel={sheetCloseLabel(lang)}
       // manager-6 / P2t — the dictionary's title, marked (`Sheet.title` is a ReactNode, and the
       // refund sheet beside this one already passes <Chrome>); the comment that kept it an English
       // literal claimed a `string` prop the primitive had stopped having.

@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
  * written in the same commit. It lives HERE rather than beside the policy because a `packages/ui`
  * test reading `apps/qr` off disk would invert the one-way dependency rule.
  *
- * An ALLOWLIST, not a sweep. Nine of the twelve `Sheet` callers must NOT pass `busy` — they write
+ * An ALLOWLIST, not a sweep. Nine of the fourteen `Sheet` callers must NOT pass `busy` — they write
  * nothing irreversible, and a lock a user cannot predict is worse than no lock — so "every Sheet has
  * busy" would be the wrong assertion and would pressure a future author into adding it everywhere.
  *
@@ -54,7 +54,7 @@ function sheetCallers(): string[] {
   return rendering("Sheet");
 }
 
-/** The three that perform an irreversible write, and why each one earned the prop. */
+/** The five that perform an irreversible write, and why each one earned the prop. */
 const GUARDED: [file: string, because: string][] = [
   [
     "staff/LossActionSheet.tsx",
@@ -65,6 +65,10 @@ const GUARDED: [file: string, because: string][] = [
   // P7·4 — "Something's wrong": a row, an email and a GitHub issue leave on Send; dismissing
   // mid-flight would hide how it ended (the id the person reads back to us).
   ["staff/HelpButton.tsx", "a report is filed three ways on Send"],
+  // K29(b) — the cash confirm moved into the sheet; the settle records the cash and closes the
+  // order server-side, and this guard is what turned its hand-rolled `busy` boolean into a
+  // transition (a rejected settle would have stranded the lock inside a modal).
+  ["staff/CashSettleButton.tsx", "the settle records the cash and closes the order"],
 ];
 
 /** Sheets that must stay dismissible — pickers, viewers, and writes that land above the sheet. */
@@ -93,8 +97,12 @@ describe("M82 — the sheets that hold an irreversible write pass `busy`", () =>
     for (const [rel] of GUARDED) {
       expect(read(rel)).toMatch(/busy=\{pending\}/);
     }
-    // Two of the three own their transition outright.
-    for (const rel of ["staff/LossActionSheet.tsx", "staff/RefundActionSheet.tsx"]) {
+    // Three of the five own their transition outright.
+    for (const rel of [
+      "staff/LossActionSheet.tsx",
+      "staff/RefundActionSheet.tsx",
+      "staff/CashSettleButton.tsx",
+    ]) {
       expect(read(rel)).toMatch(/useTransition\(\)/);
     }
   });

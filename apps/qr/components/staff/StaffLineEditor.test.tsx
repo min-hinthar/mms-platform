@@ -17,7 +17,24 @@ vi.mock("@/lib/staff-cart", () => ({
   staffSetQty: (...a: unknown[]) => staffSetQty(...(a as [])),
   setLineNotes: (...a: unknown[]) => setLineNotes(...(a as [])),
 }));
-vi.mock("./LossActionSheet", () => ({ LossActionSheet: () => null }));
+/** The loss sheet is a stand-in that REPORTS what the editor hands it: `open`, and an instance
+ *  number (a fresh instance per open is the freshness the old mount-while-open shape gave). */
+const counters = vi.hoisted(() => ({ loss: 0 }));
+vi.mock("./LossActionSheet", async () => {
+  const React = await import("react");
+  return {
+    LossActionSheet: (p: { open: boolean; onOpenChange: (o: boolean) => void }) => {
+      const [instance] = React.useState(() => ++counters.loss);
+      return (
+        <div data-testid="loss" data-open={String(p.open)} data-instance={instance}>
+          <button type="button" onClick={() => p.onOpenChange(false)}>
+            close-loss
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { StaffLineEditor } = await import("./StaffLineEditor");
@@ -117,5 +134,32 @@ describe("StaffLineEditor — §17 through the stepper", () => {
     await act(async () => {
       release!({ ok: true });
     });
+  });
+});
+
+describe("M76 — the loss sheet is HELD through its exit, and each open is a fresh instance", () => {
+  const fired = { ...line, state: "fired" } as unknown as TableLineView;
+  it("closing hands the sheet open=false and keeps it mounted; the next open is a new instance", () => {
+    render(
+      <StaffLangProvider lang="en">
+        <ul>
+          <StaffLineEditor sessionId="s1" line={fired} disabled={false} onError={() => {}} />
+        </ul>
+      </StaffLangProvider>,
+    );
+    const loss = () => screen.queryByTestId("loss");
+    expect(loss()).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Void \/ Comp/ }));
+    expect(loss()?.getAttribute("data-open")).toBe("true");
+    const first = loss()!.getAttribute("data-instance");
+    fireEvent.click(screen.getByRole("button", { name: "close-loss" }));
+    // MUTATION: mount it as `{sheetOpen && …}` again — gone at once, nothing left to slide; red.
+    expect(loss()?.getAttribute("data-open")).toBe("false");
+    expect(loss()!.getAttribute("data-instance")).toBe(first);
+    fireEvent.click(screen.getByRole("button", { name: /Void \/ Comp/ }));
+    expect(loss()?.getAttribute("data-open")).toBe("true");
+    // MUTATION: `key={line.id}` instead of `key={loss.key}` — the same instance, its PIN and
+    // reason still filled from last time; red.
+    expect(loss()!.getAttribute("data-instance")).not.toBe(first);
   });
 });

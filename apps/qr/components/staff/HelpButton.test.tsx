@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { StrictMode } from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
 
@@ -59,6 +59,35 @@ function stubMatchMedia(matches: boolean) {
   });
 }
 const dialog = () => screen.getByRole("dialog");
+/** Radix Presence compares `event.animationName` through `CSS.escape`; jsdom has no `CSS`. */
+if (typeof globalThis.CSS === "undefined" || typeof globalThis.CSS.escape !== "function")
+  (globalThis as unknown as { CSS: { escape: (s: string) => string } }).CSS = {
+    escape: (s: string) => s,
+  };
+/** A stylesheet's answer for the sheet and its scrim: an exit once `data-state` is closed, so a
+ *  closed sheet is HELD until `animationend` (SheetExit.test.tsx has the full fixture). */
+function stubComputedStyle() {
+  const real = window.getComputedStyle.bind(window);
+  vi.spyOn(window, "getComputedStyle").mockImplementation((el: Element) => {
+    const style = real(el);
+    const node = el as HTMLElement;
+    if (!node.classList?.contains("mms-sheet") && !node.classList?.contains("mms-scrim"))
+      return style;
+    return new Proxy(style, {
+      get(target, key) {
+        if (key === "animationName")
+          return node.getAttribute("data-state") === "closed" ? "exit" : "enter";
+        const v = Reflect.get(target, key);
+        return typeof v === "function" ? v.bind(target) : v;
+      },
+    });
+  });
+}
+function animationEnd(el: Element) {
+  const ev = new Event("animationend", { bubbles: true });
+  Object.defineProperty(ev, "animationName", { value: "exit" });
+  el.dispatchEvent(ev);
+}
 const circle = () => screen.getByRole("button", { name: "Help" });
 
 describe("HelpButton", () => {
@@ -399,5 +428,40 @@ describe("HelpButton", () => {
     const d = await screen.findByRole("dialog");
     expect(d.closest(".mms-sheet")?.className).toContain("dark");
     expect(document.querySelectorAll('[role="status"], [aria-live]').length).toBe(0);
+  });
+});
+
+describe("M76 — the help sheet through its exit", () => {
+  it("closing keeps the card on screen while the sheet slides; the reset rides the NEXT open", async () => {
+    seen("counter");
+    stubComputedStyle();
+    render(<HelpButton lang="en" screen="counter" />);
+    fireEvent.click(circle());
+    fireEvent.click(await screen.findByRole("button", { name: /How this screen works/ }));
+    await waitFor(() =>
+      expect(document.getElementById("help-lede")!.textContent).toMatch(/Tap Walk-up/),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    const step2 = `Step 2 of ${helpCardCount("counter")}`;
+    await waitFor(() => expect(screen.getByText(step2)).not.toBeNull());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    });
+    // Held by the stubbed exit — and still ON the card: a close-time reset flipped the deck back
+    // to the rows in the first frame of the slide (the blind pass, slice 4).
+    // MUTATION: reset view/step in `show(false)` again — the rows are back mid-slide; red.
+    expect(dialog().getAttribute("data-state")).toBe("closed");
+    expect(screen.getByText(step2)).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /How this screen works/ })).toBeNull();
+    await act(async () => {
+      animationEnd(dialog());
+      animationEnd(document.querySelector(".mms-scrim")!);
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(circle());
+    // MUTATION: drop the reset from `show(true)` — the deck reopens mid-card; red.
+    expect((await screen.findByRole("dialog")).textContent).toContain("How this screen works");
+    expect(screen.queryByText(step2)).toBeNull();
+    vi.restoreAllMocks();
   });
 });

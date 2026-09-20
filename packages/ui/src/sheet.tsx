@@ -22,6 +22,23 @@ import { mayDismiss, sheetDismiss } from "./sheet-dismiss";
  * M82 — **`busy`**: while the body has an irreversible write in flight, none of the FOUR dismissal
  * vectors may close the sheet. The policy lives in `sheet-dismiss.ts` (pure, tested, and the place
  * the vector list is enumerated); this file is the wiring that consults it. See the `busy` prop.
+ *
+ * M76 — **the exit is CSS, and the presence chain must reach a DOM node.** Radix's `Presence` keeps
+ * an overlay or content mounted while its computed `animationName` changed on `data-state="closed"`
+ * and unmounts it on `animationend`; `.mms-sheet[data-state="closed"]` / `.mms-scrim[…]` in
+ * globals.css supply that animation, so CSS owns the entrance AND the exit (one motion owner) and
+ * framer keeps only the drag. The structural half is what made it work: `Dialog.Portal` wraps EACH
+ * child in its own `Presence`, which reads the animation off the ref it forwards into that child —
+ * so the `DomMaxProvider` that used to be the portal's child (a context provider with no DOM node)
+ * made that Presence see nothing and unmount instantly, exit or no exit. `SheetContent` is the
+ * portal's child now and forwards its `ref` THROUGH the provider to the content node; the provider
+ * stays inside the portal child on purpose — mounted only while a sheet is present, so its lazy
+ * `domMax` chunk still loads on first open, not on every route that renders a closed sheet.
+ * `onCloseAutoFocus` therefore fires at UNMOUNT — after the exit — which is where the default
+ * opener-restore wants it; a caller that moves focus elsewhere on close does so during the exit,
+ * under the sheet's own `aria-hidden` on the page, and should unmount the sheet instead if that
+ * focus must be announced (the cash confirm's handoff path is the worked example). A sheet whose
+ * PARENT unmounts it on close cannot exit at all — `useSheetSubject` holds the subject through it.
  */
 export function Sheet({
   open,
@@ -31,6 +48,7 @@ export function Sheet({
   busy = false,
   onCloseAutoFocus,
   className,
+  closeLabel,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -69,6 +87,16 @@ export function Sheet({
    *  wrong — e.g. the grocery basket sheet, whose trigger can unmount while it is open — and
    *  `e.preventDefault()` + focus your own stable element (WCAG 2.4.3). */
   onCloseAutoFocus?: (event: Event) => void;
+  /**
+   * manager-9 — the ✕'s name in the caller's tongue, as DOM text (rendered `.sr-only` inside the
+   * button, the icon stays decorative), NOT as an `aria-label`: the console names every circle by
+   * sr-only dictionary text through `<Chrome>` so the Burmese arrives language-marked and the
+   * {visible, aria} pair cannot drift (DESIGN-LANGUAGE §17; rule 3 of `check-staff-lang` cannot
+   * follow a name into this package). Both states travel together on purpose — a caller that
+   * localized the idle name and left the busy one English would announce a half-translated exit at
+   * the one moment it matters. Omit for the English default the diner surfaces use.
+   */
+  closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
 }) {
   return (
     // THE choke point. Radix funnels Esc (`useEscapeKeydown` → `onDismiss`), the scrim
@@ -85,27 +113,28 @@ export function Sheet({
         onOpenChange(next);
       }}
     >
+      {/* Each portal child is handed a ref by its Presence (M76, see the docblock): the overlay is
+          Radix's own, and `SheetContent` forwards its ref through the provider to the content. */}
       <Dialog.Portal>
         <Dialog.Overlay className="mms-scrim" />
-        <DomMaxProvider>
-          <SheetContent
-            title={title}
-            busy={busy}
-            className={className}
-            // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
-            // caller and it runs its own `sheetDismiss` — but handing the child a raw
-            // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
-            // adversarial pass showed exactly that shape sailing past the suite (a hand-rolled
-            // `onClick` on the scrim, the defect W22c deleted from `RefundActionSheet`). Belt and
-            // brace: two gates on one path is cheap, an ungated second path is the whole bug.
-            onClose={() => {
-              if (mayDismiss({ busy })) onOpenChange(false);
-            }}
-            onCloseAutoFocus={onCloseAutoFocus}
-          >
-            {children}
-          </SheetContent>
-        </DomMaxProvider>
+        <SheetContent
+          title={title}
+          busy={busy}
+          className={className}
+          closeLabel={closeLabel}
+          // Guarded at the DESCENT, not only at each consumer. Today `onDragEnd` is the sole
+          // caller and it runs its own `sheetDismiss` — but handing the child a raw
+          // `onOpenChange(false)` means the NEXT consumer is unguarded by construction, and the
+          // adversarial pass showed exactly that shape sailing past the suite (a hand-rolled
+          // `onClick` on the scrim, the defect W22c deleted from `RefundActionSheet`). Belt and
+          // brace: two gates on one path is cheap, an ungated second path is the whole bug.
+          onClose={() => {
+            if (mayDismiss({ busy })) onOpenChange(false);
+          }}
+          onCloseAutoFocus={onCloseAutoFocus}
+        >
+          {children}
+        </SheetContent>
       </Dialog.Portal>
     </Dialog.Root>
   );
@@ -122,22 +151,40 @@ function writeKbInset(px: number) {
   document.documentElement.style.setProperty("--kb-inset", `${px}px`);
 }
 
-// Separate component so the drag-controls hook runs UNDER the DomMaxProvider (where `m`/drag resolve).
-function SheetContent({
-  title,
-  busy,
-  onClose,
-  className,
-  children,
-  onCloseAutoFocus,
-}: {
+type SheetContentProps = {
+  /** React 19 ref-as-prop — the portal's Presence composes it in through the Slot and reads the
+   *  exit animation off the node it reaches (M76). Handed through the provider untouched. */
+  ref?: React.Ref<HTMLDivElement>;
   title: React.ReactNode;
   busy: boolean;
   onClose: () => void;
   className?: string;
   children: React.ReactNode;
   onCloseAutoFocus?: (event: Event) => void;
-}) {
+  closeLabel?: { idle: React.ReactNode; busy: React.ReactNode };
+};
+
+// The portal's child: the provider sits INSIDE it (mounted only while a sheet is present, so the
+// lazy domMax chunk loads on first open) and the ref passes through as a plain prop — no Slot, no
+// context boundary in the way — to the body, whose drag-controls hook runs under the provider.
+function SheetContent(props: SheetContentProps) {
+  return (
+    <DomMaxProvider>
+      <SheetBody {...props} />
+    </DomMaxProvider>
+  );
+}
+
+function SheetBody({
+  ref,
+  title,
+  busy,
+  onClose,
+  className,
+  children,
+  onCloseAutoFocus,
+  closeLabel,
+}: SheetContentProps) {
   const controls = useDragControls();
   // Keyboard-aware lift: while the sheet is mounted (open), track the on-screen keyboard via the
   // VisualViewport API and publish its height as `--kb-inset` on <html>, which `.mms-sheet` uses to sit
@@ -201,6 +248,7 @@ function SheetContent({
   return (
     <Dialog.Content
       asChild
+      ref={ref}
       aria-describedby={undefined}
       // A STATE, not an announcement: it tells assistive tech this region is mid-update and to hold
       // off re-reading it. Deliberately not a live region — QA §A P1 allows exactly ONE polite
@@ -263,10 +311,15 @@ function SheetContent({
               tabbable element here — the container above is `tabIndex={-1}`, i.e. focusable but not
               tabbable — which makes the point stronger, not weaker.) */}
           <Dialog.Close
-            aria-label={busy ? "Close — finishing, please wait" : "Close"}
+            aria-label={closeLabel ? undefined : busy ? "Close — finishing, please wait" : "Close"}
             aria-disabled={busy || undefined}
             className="mms-sheet-close"
           >
+            {/* manager-9 — a caller-supplied name is DOM text, so it is the accessible name only
+                while no `aria-label` competes with it (an aria-label wins over content). */}
+            {closeLabel ? (
+              <span className="sr-only">{busy ? closeLabel.busy : closeLabel.idle}</span>
+            ) : null}
             <Icon name="close" size={18} />
           </Dialog.Close>
         </div>

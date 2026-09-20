@@ -180,6 +180,25 @@ select {
   padding: 0 20px calc(24px + env(safe-area-inset-bottom, 0px));
   animation: up var(--dur-sheet) var(--spring);
 }
+/* M76 — the EXIT. Radix's Presence keeps an overlay or content mounted while `data-state="closed"`
+   carries an animation and unmounts it on `animationend`, so the exit lives HERE beside the
+   entrance: CSS owns both beats (one motion owner), framer keeps only the drag. No `from` on either
+   keyframe — an animation starts from the element's CURRENT value, so a sheet released past the
+   drag threshold continues down from where the thumb left it instead of snapping to the top first.
+   The scrim fades over the same `--dur-sheet` so it never vanishes while the sheet is still
+   sliding. Reduced motion turns both off in the block below the keyframes — these attribute
+   selectors out-specify the bare classes, so they are named there explicitly.
+   ⚠️ An exit's name must NOT contain its entrance's name: Radix ends the hold on `animationend`
+   OR `animationcancel` and matches by SUBSTRING (`current.includes(event.animationName)`), so a
+   close that lands inside the entrance cancels `fade`, and an exit called `fadeOut` would have
+   read that cancel as its own end and dropped the scrim at once (the blind pass, slice 4).
+   `SheetExit.test.tsx` parses both names and refuses the containment. */
+.mms-scrim[data-state="closed"] {
+  animation: scrimOut var(--dur-sheet) var(--ease-out) forwards;
+}
+.mms-sheet[data-state="closed"] {
+  animation: sheetDown var(--dur-sheet) var(--ease-in-out) forwards;
+}
 /* W9e — once the sheet no longer spans both screen edges, bottom-flush + square bottom corners read
    as a broken card: float it as a true card instead (small bottom gap + full radii). The keyboard
    lift still composes — the gap rides ON TOP of --kb-inset. Threshold = the cap itself (441px =
@@ -296,12 +315,27 @@ select {
     transform: none;
   }
 }
+@keyframes sheetDown {
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes scrimOut {
+  to {
+    opacity: 0;
+  }
+}
 /* Sheet + scrim honor reduced motion. The sheet's `up` slide uses --dur-sheet (collapses under the
    token override) but the scrim's `fade` is a hardcoded 0.24s, so neither is actually disabled
-   without this — turn both off so an open is instant for users who ask for no motion (QA §A P1). */
+   without this — turn both off so an open is instant for users who ask for no motion (QA §A P1).
+   The M76 exit pair is listed by its own selectors: `.mms-sheet[data-state="closed"]` (0,1,1)
+   out-specifies `.mms-sheet` (0,1,0), so a bare-class `animation: none` here would not reach it,
+   and Radix would hold every closing sheet for the exit's length under reduced motion. */
 @media (prefers-reduced-motion: reduce) {
   .mms-scrim,
-  .mms-sheet {
+  .mms-sheet,
+  .mms-scrim[data-state="closed"],
+  .mms-sheet[data-state="closed"] {
     animation: none;
   }
 }
