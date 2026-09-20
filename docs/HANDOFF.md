@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — built and gated on `claude/qr-app-backlog-cj2t0m`; slices 2b–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — built, gated and on draft PR #292 from `claude/qr-app-backlog-cj2t0m`; slices 2b–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
