@@ -156,3 +156,20 @@ export type KitchenQueue = {
 export type KitchenPoll =
   | { ok: true; queue: KitchenQueue }
   | { ok: false; reason: "signin" | "locked" | "outage" };
+
+/**
+ * kitchen-3 (DESIGN-LANGUAGE §17's `msg: string` wall): a refused kitchen ACTION answers with a
+ * code beside its English sentence, so the board can say it in the device language. `sentence`
+ * means "no key — show the sentence as it is": the gate's refusals (the write-outage twin lives in
+ * `OutageText`; the role floor has no Burmese yet) and the one-off verdicts a caller only has words
+ * for. A sentence we cannot translate is shown in English rather than guessed at. `signin` is not
+ * a message at all — the board leaves for /staff/login, the honest surface (K10).
+ */
+export type KitchenErrCode =
+  | "sentence"
+  | "signin"
+  | "invalid"
+  | "failed"
+  | "stale"
+  | "recall-window"
+  | "already-live";

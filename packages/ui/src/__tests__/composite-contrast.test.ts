@@ -588,7 +588,7 @@ describe("the reward shimmer — a light band that crosses TEXT, not an edge", (
 
 describe("the KDS held card — two stacked fades the hex audit cannot see (P1)", () => {
   /**
-   * `.kds-ticket-held` fades the CARD and `.kds-line:disabled` fades the LINE, and a held line is
+   * `.kds-ticket-held` fades the CARD and `.kds-line[aria-disabled="true"]` fades the LINE, and a held line is
    * always disabled (`disabled={pending || held}`, KdsBoard). So the English echo under a Burmese
    * dish name (`.kds-line-en`, 21px/800) composites through BOTH: the line group over the card
    * face, then the card over the page. The design panel on P1 shipped one draft that set the echo in
@@ -623,7 +623,9 @@ describe("the KDS held card — two stacked fades the hex audit cannot see (P1)"
     return m[1] as string;
   };
   const held = Number(raw(dark, tokenOf(declared(".kds-ticket-held", "opacity"))));
-  const off = Number(raw(dark, tokenOf(declared(".kds-line:disabled", "opacity"))));
+  // `[aria-disabled="true"]`, not `:disabled`, since the K22/K28 slice — §17: a tapped control is
+  // never natively disabled, so the fade is keyed on the attribute the board actually sets.
+  const off = Number(raw(dark, tokenOf(declared('.kds-line[aria-disabled="true"]', "opacity"))));
   const echoToken = tokenOf(declared(".kds-line-en", "color"));
   const LARGE = 3; // WCAG 1.4.3 large text (≥18.66px bold) floor — 21px/800 qualifies
   const stacked = (ink: Rgba) => {

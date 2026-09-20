@@ -52,6 +52,38 @@ describe("P7·3 — the sizes the Help sheet quotes are the sizes the board rend
     expect(KDS_SIZE_PX.m).toBe(px('.kds-root[data-size="m"]'));
     expect(KDS_SIZE_PX.l).toBe(px('.kds-root[data-size="l"]'));
   });
+  it("every `--kfs-*` tier the root declares is restated at BOTH dial stops (K27)", () => {
+    // The dial's promise is "scaling every `--kfs-*` together". It once restated four of six, so the
+    // elapsed clock and every chip stayed at the small size while the dish lines grew — a seventh
+    // tier added to the root and forgotten in an override would do the same thing again.
+    const tiers = (selector: string) => {
+      const block = css.match(
+        new RegExp(`${selector.replace(/[.[\]"]/g, "\\$&")}\\s*\\{([^}]*)\\}`),
+      );
+      expect(block, selector).not.toBeNull();
+      // Any value form is a tier (a `px` or `clamp()` declaration must be restated too); only the
+      // rem ones take part in the growth check below.
+      return new Map(
+        [...block![1]!.matchAll(/(--kfs-[a-z-]+):\s*([^;]+);/g)].map((m) => {
+          const rem = /^([\d.]+)rem$/.exec(m[2]!.trim());
+          return [m[1]!, rem ? Number(rem[1]) : NaN];
+        }),
+      );
+    };
+    const root = tiers(".kds-root");
+    expect(root.size).toBeGreaterThanOrEqual(6);
+    for (const sz of ["m", "l"] as const) {
+      const over = tiers(`.kds-root[data-size="${sz}"]`);
+      expect([...over.keys()].sort(), `[data-size="${sz}"] restates the root's tiers`).toEqual(
+        [...root.keys()].sort(),
+      );
+      // Each tier grows monotonically with the dial, and the clock stays under the ticket identity.
+      for (const [name, rem] of root)
+        if (!Number.isNaN(rem)) expect(over.get(name)!, name).toBeGreaterThan(rem);
+      expect(over.get("--kfs-clock")!).toBeLessThan(over.get("--kfs-id")!);
+    }
+    expect(root.get("--kfs-clock")!).toBeLessThan(root.get("--kfs-id")!);
+  });
   it("the '{n} across' the sheet quotes is the wide grid's column count at each size", () => {
     // The sheet derives "across" as kdsPageSize / 2 (a two-row envelope). The columns actually LIVE
     // in the 1200px media rules on `.kds-grid` — four at small, three under the m/l overrides — so

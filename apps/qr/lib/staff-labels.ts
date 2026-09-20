@@ -33,7 +33,7 @@ export type StaffLabel = { visible: string; aria: string };
 export type VerbKey = Extract<StaffKey, `${string}.verb.${string}`>;
 
 /** The dish name as the ticket actually RENDERS it: Burmese when the catalog has it, else English. */
-function dishVisible(lang: StaffLang, name: string, nameMy: string | null): string {
+export function dishVisible(lang: StaffLang, name: string, nameMy: string | null): string {
   return lang === "my" && nameMy !== null ? nameMy : name;
 }
 

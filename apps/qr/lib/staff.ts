@@ -150,6 +150,13 @@ export async function requireStaff(minRole: StaffRole = "server"): Promise<Staff
  * `error` is ready-to-render copy: the outage truth, the sign-in ask, or the role floor — each an
  * honest, distinct sentence.
  */
+/**
+ * The gate's sign-in sentence, named ONCE so a caller that must tell "go sign in" from every other
+ * refusal (the KDS leaves for /staff/login on it — kitchen-3) compares against the binding, never
+ * a second copy of the words.
+ */
+export const STAFF_SIGNIN_REQUIRED = "Staff sign-in required.";
+
 export async function staffGate(
   minRole: StaffRole = "server",
   // The outage sentence defaults to the ORDER-flow one ("keep it on paper"), which is the right
@@ -159,7 +166,7 @@ export async function staffGate(
 ): Promise<{ ok: true; caller: StaffCaller } | { ok: false; error: string }> {
   const auth = await getStaffAuth();
   if (auth.kind === "unavailable") return { ok: false, error: outageCopy };
-  if (auth.kind !== "staff") return { ok: false, error: "Staff sign-in required." };
+  if (auth.kind !== "staff") return { ok: false, error: STAFF_SIGNIN_REQUIRED };
   if (!roleAtLeast(auth.caller.role, minRole))
     return {
       ok: false,

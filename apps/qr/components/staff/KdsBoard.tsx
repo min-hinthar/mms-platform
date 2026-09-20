@@ -13,7 +13,13 @@ import { setItemSoldOut } from "@/lib/menu-availability";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
-import { KdsChime, getKdsVolume, setKdsVolume } from "@/lib/kds-sound";
+import {
+  KdsChime,
+  getKdsSoundWanted,
+  getKdsVolume,
+  setKdsSoundWanted,
+  setKdsVolume,
+} from "@/lib/kds-sound";
 import { allDayRows } from "@/lib/ticket-names";
 import { RailRowText, TicketLineText } from "./TicketText";
 import type {
@@ -29,11 +35,22 @@ import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
 import { KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds-size";
+import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
+import {
+  actionErrorStale,
+  eightySixOutcome,
+  ERR_DWELL_MS,
+  kitchenErrOutcome,
+  type KdsAct,
+  type KdsMsg,
+} from "@/lib/kds-errors";
+import type { KitchenErrCode } from "@/lib/kitchen-types";
+import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
 import { plural, tf } from "@/lib/i18n/fill";
-import { al, sx } from "@/lib/staff-labels";
+import { al, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
 import { servedMoreKey } from "@/lib/kitchen-stats";
 
@@ -57,6 +74,11 @@ const UNDO_MS = 6_000;
 const RECALL_MS = 120_000; // mirror of the SQL 2-minute recall window (the server is the authority)
 
 type RecallEntry = { cartId: string; label: string; lineIds: string[]; expiresAt: number };
+/** K22 — what the undo bar can take back: a bump (the SQL 2-minute recall behind it) or an 86 (the
+ *  reverse compare-and-swap on `menu_items.is_sold_out`). One bar, one 6-second window, two kinds. */
+type UndoEntry =
+  | ({ kind: "bump" } & RecallEntry)
+  | { kind: "eighty6"; menuItemId: string; label: string; expiresAt: number };
 
 // P2 — keys, not labels. The four station names stay LATIN in both tongues by owner decision
 // (2026-09-05): they are set-once English kitchen jargon, and a wrong Burmese word here HIDES
@@ -98,13 +120,6 @@ function ticketId(
   return { main, node: main, sub: t.customerName ? code : null };
 }
 
-function fmtElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${String(s).padStart(2, "0")}`;
-}
-
 function fmtSlot(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
@@ -123,7 +138,29 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
-  const [err, setErr] = useState<string | null>(null); // one board-level action-error region (S8)
+  // One board-level action-error region (S8). kitchen-3: a KEY with its slots or a server sentence,
+  // never only a string — the region could otherwise only ever render English (§17's wall).
+  const [err, setErr] = useState<KdsMsg | null>(null);
+  // kitchen-10 — when the banner went up, on the device clock; a good snapshot may clear it only
+  // once it has had its dwell (`actionErrorStale`). The 5-second poll is not the reader's clock.
+  const errSince = useRef<number | null>(null);
+  const showErr = useCallback((m: KdsMsg | null) => {
+    errSince.current = m ? Date.now() : null;
+    setErr(m);
+  }, []);
+  // A refused server action: the dictionary's sentence in the device language, or the exit to
+  // /staff/login when the refusal is "go sign in" — a banner in the wrong language is not an answer.
+  const onRefused = useCallback(
+    (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => {
+      const out = kitchenErrOutcome(res, act, x);
+      if (out.kind === "leave") {
+        window.location.assign(out.href);
+        return;
+      }
+      showErr(out.msg);
+    },
+    [showErr],
+  );
   // W10b — ONE degraded state carrying WHEN it started and WHY. `outage` = the server told us it
   // can't reach the platform (immediate, no debounce); `unknown` = repeated transport failures from
   // this tablet (after 2 misses), which must NOT assert whose fault it is. `since` is stamped in the
@@ -146,7 +183,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
 
   // W3d recall/undo state (client mirrors of the SQL 2-minute window).
   const [recall, setRecall] = useState<RecallEntry[]>([]);
-  const [undo, setUndo] = useState<RecallEntry | null>(null);
+  const [undo, setUndo] = useState<UndoEntry | null>(null);
 
   // Board controls (persisted per device).
   const [station, setStation] = useState<"all" | KitchenStation>("all");
@@ -157,6 +194,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
   const [soundOn, setSoundOn] = useState(false);
+  // kitchen-8 — "this device wanted sound": armed on a previous mount, disarmed by the reload.
+  const [soundWanted, setSoundWanted] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const chime = useRef<KdsChime | null>(null);
 
@@ -196,13 +235,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         rail: localStorage.getItem(RAIL_KEY),
         size: localStorage.getItem(KDS_SIZE_KEY),
         volume: getKdsVolume(),
+        sound: getKdsSoundWanted(),
       }))
-      .then(({ station: s, rail, size: sz, volume: v }) => {
+      .then(({ station: s, rail, size: sz, volume: v, sound }) => {
         if (!active) return;
         if (s === "wok" || s === "cold" || s === "drinks") setStation(s);
         if (rail === "1") setRailOpen(true);
         setSize(parseKdsSize(sz));
         setVolume(v);
+        setSoundWanted(sound);
       })
       .catch(() => {
         /* private mode — defaults are fine */
@@ -259,7 +300,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       }
 
       setSnap(queue);
-      setErr(null); // a fresh good snapshot clears a stale action-error banner (no perma-stuck error)
+      // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
+      // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.
+      if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
+        errSince.current = null;
+        setErr(null);
+      }
       fails.current = 0;
       setDegraded(null);
     } catch (e) {
@@ -412,12 +458,34 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     chime.current ??= new KdsChime();
     const ok = await chime.current.arm();
     setSoundOn(ok);
-    if (ok) chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
+    if (ok) {
+      setKdsSoundWanted(true);
+      chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
+    }
   };
   const changeVolume = (v: number) => {
     setVolume(v);
     setKdsVolume(v);
+    setKdsSoundWanted(v > 0); // an explicit mute is a choice; the next mount does not nag about it
   };
+  // kitchen-8 — a device that wanted sound re-arms off the FIRST tap of the shift (usually a bump):
+  // browsers need some gesture, not the chip's. One attempt, silent (no confirmation tone — nobody
+  // asked for one); if the device has no audio the warn chip stays and says so.
+  const rootRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!soundWanted || soundOn) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const onFirstTap = () => {
+      root.removeEventListener("click", onFirstTap, true);
+      chime.current ??= new KdsChime();
+      void chime.current.arm().then((ok) => {
+        if (ok) setSoundOn(true);
+      });
+    };
+    root.addEventListener("click", onFirstTap, true);
+    return () => root.removeEventListener("click", onFirstTap, true);
+  }, [soundWanted, soundOn]);
   const jumpToNew = () => {
     setPage(liveTailPage);
     setNewCount(0);
@@ -426,7 +494,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const onBumped = useCallback(
     (entry: RecallEntry, label: string) => {
       setRecall((prev) => [entry, ...prev].slice(0, 5)); // last 5 (SPEC-KDS §4)
-      setUndo({ ...entry, expiresAt: Date.now() + UNDO_MS });
+      // ONE slot, two kinds — and only the bump has a rail behind it. A bump landing inside an 86's
+      // six seconds (the tap beside it, mid-rush — K22's own scenario) must not evict the dish's
+      // only way back: the 86 keeps the bar until it expires, and this bump is reachable from the
+      // recall rail the whole two minutes. The reverse (an 86 after a bump) may take the slot.
+      setUndo((prev) =>
+        prev?.kind === "eighty6" && prev.expiresAt > Date.now()
+          ? prev
+          : { kind: "bump", ...entry, expiresAt: Date.now() + UNDO_MS },
+      );
       setNotice(tf(lang, "kds.live.bumped", { x: label }));
       void refresh();
     },
@@ -436,23 +512,62 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     [lang, refresh],
   );
 
+  // K22 — an 86 from the ticket is one tap on a target beside the bump, mid-rush, with wet hands.
+  // The bump has had a 6-second undo since W3d; the 86 had none, and its reverse lives on another
+  // screen. Same bar, same window, same key. The reverse is the compare-and-swap back to
+  // available, with `expectedSoldOut: true` because that is the state this board just wrote — a
+  // manager who put it back on /staff/menu in between makes the swap refuse honestly.
+  const onEightySixed = useCallback(
+    (entry: { menuItemId: string; label: string }) => {
+      setUndo({ kind: "eighty6", ...entry, expiresAt: Date.now() + UNDO_MS });
+      setNotice(tf(lang, "kds.live.86", { x: entry.label }));
+      haptic("commit");
+    },
+    [lang],
+  );
+  const [undo86Pending, startUndo86] = useTransition();
+  const undoEightySix = (entry: Extract<UndoEntry, { kind: "eighty6" }>) => {
+    if (undo86Pending) return; // §17 — the handler refuses re-entry; the button is never `disabled`
+    showErr(null);
+    startUndo86(async () => {
+      try {
+        const res = await setItemSoldOut({
+          menuItemId: entry.menuItemId,
+          soldOut: false,
+          expectedSoldOut: true,
+        });
+        if (!res.ok) {
+          showErr(eightySixOutcome(res, entry.label));
+          return;
+        }
+        setUndo(null);
+        setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
+        haptic("commit");
+        void refresh();
+      } catch {
+        showErr({ k: "kds.err.86.undo", vars: { x: entry.label } });
+      }
+    });
+  };
+
   const [recallPending, startRecall] = useTransition();
   const doRecall = (entry: RecallEntry) => {
-    setErr(null);
+    if (recallPending) return; // §17 — refuse re-entry in the handler, never via `disabled`
+    showErr(null);
     startRecall(async () => {
       try {
         const res = await recallTicket({ cartId: entry.cartId, lineIds: entry.lineIds });
-        if (!res.ok) setErr(res.error);
+        if (!res.ok) onRefused(res, "recall", entry.label);
         else {
           setNotice(tf(lang, "kds.live.restored", { x: entry.label }));
           // Filter by CART, not object identity — the undo toast holds a spread COPY of the rail's
           // entry, so an identity filter would leave a dead rail button behind (adversarial LOW-1).
           setRecall((prev) => prev.filter((r) => r.cartId !== entry.cartId));
-          if (undo && undo.cartId === entry.cartId) setUndo(null);
+          if (undo && undo.kind === "bump" && undo.cartId === entry.cartId) setUndo(null);
           await refresh();
         }
       } catch {
-        setErr(tf(lang, "kds.err.recall", { x: entry.label }));
+        showErr({ k: "kds.err.recall", vars: { x: entry.label } });
       }
     });
   };
@@ -462,6 +577,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
 
   return (
     <section
+      ref={rootRef}
       className="kds-root dark"
       data-size={size}
       aria-labelledby="kds-h"
@@ -550,9 +666,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             aria-live=polite (the codebase idiom). */}
         <p
           role="status"
-          // The region's whole content is chrome in the device language (never a pair — a bilingual
-          // live region announces everything twice), so the MARK belongs on the region itself.
-          lang={lang}
+          // The region's content is chrome in the device language (never a pair — a bilingual live
+          // region announces everything twice), and each branch carries its OWN mark: a keyed error
+          // arrives marked through <Chrome>, while a server sentence with no twin renders as bare
+          // English — a `lang` on the region itself would announce it as Burmese (kitchen-3).
           style={{
             margin: 0,
             fontSize: "var(--kfs-meta)",
@@ -564,20 +681,25 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               BOTH in server-space, so a skewed tablet clock can't decide when staff are told to fall
               back to paper. Elapsed clocks keep ticking on the frozen cards: the food really has
               been waiting that long — that's the truth, not fake liveness. */}
-          {err ??
-            (degraded
-              ? frozenBoardCopy(
-                  lang,
-                  snap.serverNow,
-                  nowMs - degraded.since,
-                  "what.queue",
-                  degraded.cause,
-                )
-              : (notice ??
-                (count === 0
-                  ? ts(lang, "kds.allclear")
-                  : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
-                    (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : ""))))}
+          {err ? (
+            <MsgText lang={lang} msg={err} />
+          ) : (
+            <span lang={lang}>
+              {degraded
+                ? frozenBoardCopy(
+                    lang,
+                    snap.serverNow,
+                    nowMs - degraded.since,
+                    "what.queue",
+                    degraded.cause,
+                  )
+                : (notice ??
+                  (count === 0
+                    ? ts(lang, "kds.allclear")
+                    : tf(lang, plural(count, "kds.open.one", "kds.open.many"), { n: count }) +
+                      (heldCount > 0 ? tf(lang, "kds.held.count", { n: heldCount }) : "")))}
+            </span>
+          )}
         </p>
 
         <div className="kds-controls">
@@ -609,8 +731,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             </label>
           ) : (
             // Browsers gate audio behind a gesture — this tap at shift start IS the arming (O-C).
-            <button type="button" className="kds-chip" onClick={enableSound}>
-              <Chrome lang={lang} k="kds.sound.enable" />
+            // kitchen-8: a device that WANTED sound wears the warn tone until the first tap re-arms it.
+            <button
+              type="button"
+              className="kds-chip"
+              data-muted={soundWanted || undefined}
+              onClick={enableSound}
+            >
+              <Chrome lang={lang} k={soundWanted ? "kds.sound.off" : "kds.sound.enable"} />
             </button>
           )}
           {/* Offscreen-arrival pill: only when the live tail (where arrivals render) is NOT the page
@@ -619,6 +747,55 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             <button type="button" className="kds-new-pill" onClick={jumpToNew}>
               <Chrome lang={lang} k="kds.new" vars={{ n: newCount }} />
             </button>
+          )}
+          {/* kitchen-4 — the pager and "+N more" live in the HEAD, beside the arrival pill: the
+              count IS the rush signal (SPEC-KDS §2, O-D), and a footer under a grid that grows past
+              the viewport is the one place a ninth ticket cannot be seen from. */}
+          {pageCount > 1 && (
+            <nav className="kds-pager" aria-label={sx(lang, "kds.a11y.pager")}>
+              <button
+                type="button"
+                className="kds-page-btn"
+                onClick={() => {
+                  if (safePage === 0) return; // §17 — the edge is refused here, not by `disabled`
+                  const p = Math.max(0, safePage - 1);
+                  setPage(p);
+                  if (p === liveTailPage) setNewCount(0); // stepping back onto the live tail counts too
+                }}
+                aria-disabled={safePage === 0 || undefined}
+                aria-label={sx(lang, "kds.a11y.prevPage")}
+              >
+                ‹
+              </button>
+              <span className="kds-dots" aria-hidden="true">
+                {Array.from({ length: pageCount }, (_, i) => (
+                  <span key={i} className="kds-dot" data-current={i === safePage} />
+                ))}
+              </span>
+              <span className="sr-only" lang={lang}>
+                {tf(lang, "kds.page", { n: safePage + 1, total: pageCount })}
+              </span>
+              <button
+                type="button"
+                className="kds-page-btn"
+                onClick={() => {
+                  if (safePage >= pageCount - 1) return; // §17
+                  const p = Math.min(pageCount - 1, safePage + 1);
+                  setPage(p);
+                  // Reaching the live tail = you've seen the newest arrivals; the pill's debt is paid.
+                  if (p === liveTailPage) setNewCount(0);
+                }}
+                aria-disabled={safePage >= pageCount - 1 || undefined}
+                aria-label={sx(lang, "kds.a11y.nextPage")}
+              >
+                ›
+              </button>
+              {moreAfter > 0 && (
+                <span className="kds-more">
+                  <Chrome lang={lang} k="kds.more" vars={{ n: moreAfter }} />
+                </span>
+              )}
+            </nav>
           )}
           {/* P2/1b — the language control is in the staff bar above (rule 4 reaches it through
               `StaffBar`); the bar is sticky and 68px, and P4 measures the board under it. */}
@@ -646,7 +823,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 thresholds={snap.thresholds}
                 pulse={pulses.get(t.cartId) ?? null}
                 onBumped={onBumped}
-                onError={setErr}
+                onEightySixed={onEightySixed}
+                onError={showErr}
+                onRefused={onRefused}
                 onRefresh={refresh}
               />
             ))}
@@ -690,7 +869,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
             </div>
             {railView === "allday" ? (
               <>
-                <h3>
+                <h3 id="kds-allday-h">
                   <Chrome lang={lang} k="kds.allday.title" echo="stack" />
                 </h3>
                 {allDay.length === 0 ? (
@@ -698,7 +877,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                     <Chrome lang={lang} k="kds.allday.empty" />
                   </p>
                 ) : (
-                  <ul role="list">
+                  <ul role="list" aria-labelledby="kds-allday-h">
                     {allDay.map((row) => (
                       <li key={row.label}>
                         <span style={{ minWidth: 0 }}>
@@ -712,7 +891,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               </>
             ) : (
               <>
-                <h3>
+                <h3 id="kds-served-h">
                   <Chrome lang={lang} k="kds.served.title" echo="stack" />
                 </h3>
                 {/* Three honest states, never conflated: unreadable (the ADVISORY read failed —
@@ -742,7 +921,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                         />
                       </p>
                     )}
-                    <ul role="list">
+                    <ul role="list" aria-labelledby="kds-served-h">
                       {snap.served.lines.map((l) => (
                         <li key={l.id} className="kds-served">
                           <span className="kds-served-text">
@@ -781,53 +960,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         )}
       </div>
 
-      {(pageCount > 1 || recall.length > 0) && (
+      {recall.length > 0 && (
         <footer style={{ display: "grid", gap: 8 }}>
-          {pageCount > 1 && (
-            <nav className="kds-pager" aria-label={sx(lang, "kds.a11y.pager")}>
-              <button
-                type="button"
-                className="kds-page-btn"
-                onClick={() => {
-                  const p = Math.max(0, safePage - 1);
-                  setPage(p);
-                  if (p === liveTailPage) setNewCount(0); // stepping back onto the live tail counts too
-                }}
-                disabled={safePage === 0}
-                aria-label={sx(lang, "kds.a11y.prevPage")}
-              >
-                ‹
-              </button>
-              <span className="kds-dots" aria-hidden="true">
-                {Array.from({ length: pageCount }, (_, i) => (
-                  <span key={i} className="kds-dot" data-current={i === safePage} />
-                ))}
-              </span>
-              <span className="sr-only" lang={lang}>
-                {tf(lang, "kds.page", { n: safePage + 1, total: pageCount })}
-              </span>
-              <button
-                type="button"
-                className="kds-page-btn"
-                onClick={() => {
-                  const p = Math.min(pageCount - 1, safePage + 1);
-                  setPage(p);
-                  // Reaching the live tail = you've seen the newest arrivals; the pill's debt is paid.
-                  if (p === liveTailPage) setNewCount(0);
-                }}
-                disabled={safePage >= pageCount - 1}
-                aria-label={sx(lang, "kds.a11y.nextPage")}
-              >
-                ›
-              </button>
-              {moreAfter > 0 && (
-                <span className="kds-more">
-                  <Chrome lang={lang} k="kds.more" vars={{ n: moreAfter }} />
-                </span>
-              )}
-            </nav>
-          )}
-
           {recall.length > 0 && (
             <div className="kds-recall" role="group" aria-label={sx(lang, "kds.a11y.recall")}>
               <span
@@ -848,7 +982,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                   type="button"
                   className="kds-recall-btn"
                   onClick={() => doRecall(r)}
-                  disabled={recallPending}
+                  aria-disabled={recallPending || undefined}
                   aria-label={al(lang, { kind: "recall", label: r.label }).aria}
                 >
                   <Icon name="undo" size={16} style={{ verticalAlign: "-2px", marginRight: 3 }} />
@@ -863,12 +997,19 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       {undo && (
         <div className="kds-undo">
           <span>
-            <Chrome lang={lang} k="kds.undo.bumped" vars={{ x: undo.label }} />
+            {undo.kind === "bump" ? (
+              <Chrome lang={lang} k="kds.undo.bumped" vars={{ x: undo.label }} />
+            ) : (
+              <Chrome lang={lang} k="kds.undo.86" vars={{ x: undo.label }} />
+            )}
           </span>
           <button
             type="button"
-            onClick={() => doRecall(undo)}
-            disabled={recallPending}
+            onClick={() => (undo.kind === "bump" ? doRecall(undo) : undoEightySix(undo))}
+            // §17: the attribute is a STATEMENT about the handler behind it — exactly the transition
+            // this entry's handler refuses on, never both (a rail recall in flight must not dim the
+            // 86's only undo while the tap still acts, or the reverse).
+            aria-disabled={(undo.kind === "bump" ? recallPending : undo86Pending) || undefined}
             aria-label={al(lang, { kind: "undo", label: undo.label }).aria}
           >
             <Chrome lang={lang} k="kds.undo" />
@@ -885,7 +1026,9 @@ function TicketCard({
   thresholds,
   pulse,
   onBumped,
+  onEightySixed,
   onError,
+  onRefused,
   onRefresh,
 }: {
   ticket: KitchenTicket;
@@ -893,7 +1036,9 @@ function TicketCard({
   thresholds: KdsThresholds;
   pulse: number | null;
   onBumped: (entry: RecallEntry, label: string) => void;
-  onError: (msg: string | null) => void;
+  onEightySixed: (entry: { menuItemId: string; label: string }) => void;
+  onError: (msg: KdsMsg | null) => void;
+  onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
@@ -909,32 +1054,36 @@ function TicketCard({
         : "kds-strip";
 
   const bumpAll = () => {
+    if (pending) return; // §17 — refuse re-entry here; native `disabled` would drop focus mid-tap
+    haptic("commit"); // kitchen-9 — the biggest commit on the console buzzes like every door does
     onError(null);
     startTransition(async () => {
       try {
         const lineIds = ticket.lines.map((l) => l.id);
         const res = await bumpTicket({ cartId: ticket.cartId, lineIds });
-        if (!res.ok) onError(res.error);
+        if (!res.ok) onRefused(res, "bump", id.main);
         else
           onBumped(
             { cartId: ticket.cartId, label: id.main, lineIds, expiresAt: Date.now() + RECALL_MS },
             id.main,
           );
       } catch {
-        onError(tf(lang, "kds.err.bump", { x: id.main }));
+        onError({ k: "kds.err.bump", vars: { x: id.main } });
       }
     });
   };
 
   const fireNow = () => {
+    if (pending) return; // §17
+    haptic("commit");
     onError(null);
     startTransition(async () => {
       try {
         const res = await fireTicketNow({ cartId: ticket.cartId });
-        if (!res.ok) onError(res.error);
+        if (!res.ok) onRefused(res, "fire", id.main);
         else await onRefresh();
       } catch {
-        onError(tf(lang, "kds.err.fire", { x: id.main }));
+        onError({ k: "kds.err.fire", vars: { x: id.main } });
       }
     });
   };
@@ -957,10 +1106,13 @@ function TicketCard({
           <span className="kds-clock" aria-hidden="true">
             {ticket.held ? fmtSlot(ticket.firedAt) : fmtElapsed(ageMs)}
           </span>
-          <span className="sr-only">
+          {/* K28 — spoken through the dictionary in the device language: this was a bare English
+              template literal, which `check-staff-lang` rule 5 cannot see because it is not a
+              dictionary string. The visible clock above is `aria-hidden`, so this is the age. */}
+          <span className="sr-only" lang={lang}>
             {ticket.held
-              ? `fires at ${fmtSlot(ticket.firedAt)}`
-              : `${Math.floor(ageMs / 60000)} minutes ${Math.floor((ageMs % 60000) / 1000)} seconds elapsed`}
+              ? tf(lang, "kds.slot", { t: fmtSlot(ticket.firedAt) })
+              : spokenElapsed(lang, ageMs)}
           </span>
           {/* Class C — a badge this size cannot legibly stack two scripts, so it speaks the
               device's language alone. */}
@@ -972,18 +1124,24 @@ function TicketCard({
       </header>
 
       {ticket.held && ticket.pickupSlot && (
-        <p className="kds-slot">
+        <p className="kds-slot" id={`kds-slot-${ticket.cartId}`}>
           <Chrome lang={lang} k="kds.slot" vars={{ t: fmtSlot(ticket.pickupSlot) }} echo="stack" />
         </p>
       )}
 
-      <ul className="kds-lines" role="list">
+      {/* P2n — the one list on the board that had no name: "Items for Table 4". */}
+      <ul className="kds-lines" role="list" aria-label={tf(lang, "kds.a11y.lines", { x: id.main })}>
         {ticket.lines.map((l) => (
           <KdsLineRow
             key={l.id}
             line={l}
             held={ticket.held}
+            // Only when the slot line actually renders (held AND a pickup slot) — a description
+            // pointing at a missing id is a broken promise, not a name.
+            slotId={ticket.held && ticket.pickupSlot ? `kds-slot-${ticket.cartId}` : undefined}
+            onEightySixed={onEightySixed}
             onError={onError}
+            onRefused={onRefused}
             onRefresh={onRefresh}
           />
         ))}
@@ -992,30 +1150,29 @@ function TicketCard({
       {ticket.held ? (
         <button
           type="button"
-          className="kds-bump kds-bump-fire"
+          className="kds-bump kds-bump-fire staff-press"
           onClick={fireNow}
-          disabled={pending}
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
         >
-          {pending ? "…" : <Chrome lang={lang} k="kds.fire" echo="stack" />}
+          {/* The label STAYS through the round trip: this button has no `aria-label`, so an "…"
+              swap made its accessible name literally "…", and the 64px zone collapsed under the
+              thumb. Busy is the attribute + the CSS dim, never a different label. */}
+          <Chrome lang={lang} k="kds.fire" echo="stack" />
         </button>
       ) : (
         <button
           type="button"
-          className="kds-bump"
+          className="kds-bump staff-press"
           onClick={bumpAll}
-          disabled={pending}
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
           aria-label={
             al(lang, { kind: "bump", echo: "stack", id: id.main, items: ticket.lines.length }).aria
           }
         >
-          {pending ? (
-            "…"
-          ) : (
-            <>
-              <Chrome lang={lang} k="kds.bump" echo="stack" />{" "}
-              <Icon name="check" size={22} strokeWidth={2.25} style={{ verticalAlign: "-3px" }} />
-            </>
-          )}
+          <Chrome lang={lang} k="kds.bump" echo="stack" />
+          <Icon name="check" size={22} strokeWidth={2.25} />
         </button>
       )}
     </li>
@@ -1025,12 +1182,19 @@ function TicketCard({
 function KdsLineRow({
   line,
   held,
+  slotId,
+  onEightySixed,
   onError,
+  onRefused,
   onRefresh,
 }: {
   line: KitchenLine;
   held: boolean;
-  onError: (msg: string | null) => void;
+  /** The ticket's slot line (`.kds-slot`), present only on a held ticket — names WHY a line refuses. */
+  slotId?: string;
+  onEightySixed: (entry: { menuItemId: string; label: string }) => void;
+  onError: (msg: KdsMsg | null) => void;
+  onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
@@ -1043,6 +1207,7 @@ function KdsLineRow({
   // it, so the kitchen still owes whatever it can make. What this stops is the NEXT order — which is
   // the only thing an 86 can honestly do.
   const flip = async (menuItemId: string) => {
+    if (eightySixing) return; // §17 — refuse re-entry here, never via `disabled`
     setEightySixing(true);
     onError(null);
     try {
@@ -1055,28 +1220,36 @@ function KdsLineRow({
         expectedSoldOut: line.soldOut,
       });
       // A refusal here is usually "someone already 86'd it", which is a success from the cook's point
-      // of view — but say what the server said rather than inventing a cheerful verdict.
-      if (!res.ok) onError(res.error);
-      else await onRefresh();
+      // of view — say what the server said, in the device language, rather than inventing a
+      // cheerful verdict.
+      if (!res.ok) onError(eightySixOutcome(res, dishVisible(lang, line.name, line.nameMy)));
+      else {
+        // K22 — the undo bar takes it from here: the dish as the cook sees it (Burmese-first, the
+        // same rule the accessible name uses), and the id the reverse swap needs.
+        onEightySixed({ menuItemId, label: dishVisible(lang, line.name, line.nameMy) });
+        await onRefresh();
+      }
     } catch {
-      onError(tf(lang, "kds.err.86", { x: line.name }));
+      onError({ k: "kds.err.86", vars: { x: dishVisible(lang, line.name, line.nameMy) } });
     } finally {
       setEightySixing(false);
     }
   };
 
   const tap = () => {
+    if (pending || held) return; // §17 — refused in the handler; a held line has nothing to act on
+    haptic("pick"); // kitchen-9 — the row wash is the visible half
     onError(null); // clear any prior board-level error as we retry
     startTransition(async () => {
       try {
         const res = await bumpLine({ lineId: line.id, to });
-        if (!res.ok) onError(res.error);
+        if (!res.ok) onRefused(res, "line", dishVisible(lang, line.name, line.nameMy));
         // AWAIT the refresh so `pending` covers the refetch — releasing on the write alone flickered
         // the row back to its stale state for a beat before the new snapshot landed.
         else await onRefresh();
       } catch {
         // S2-audit B3: a thrown action must not silently no-op the tap — surface it on the board region.
-        onError(tf(lang, "kds.err.line", { x: line.name }));
+        onError({ k: "kds.err.line", vars: { x: dishVisible(lang, line.name, line.nameMy) } });
       }
     });
   };
@@ -1090,7 +1263,11 @@ function KdsLineRow({
         className="kds-line"
         data-state={line.state}
         onClick={tap}
-        disabled={pending || held}
+        aria-disabled={pending || held || undefined}
+        aria-busy={pending || undefined}
+        // A held line is refused (the kitchen has not been handed it), and the ticket's slot line
+        // says why — "fires at 5:48 PM" rides the name instead of a bare no-op with an action verb.
+        aria-describedby={held ? slotId : undefined}
         aria-label={
           al(lang, {
             kind: "line",
@@ -1142,14 +1319,15 @@ function KdsLineRow({
           <button
             type="button"
             className="kds-line-86"
-            disabled={eightySixing}
+            aria-disabled={eightySixing || undefined}
+            aria-busy={eightySixing || undefined}
             onClick={() => void flip(line.menuItemId!)}
             aria-label={
               al(lang, { kind: "eighty6", echo: "stack", name: line.name, nameMy: line.nameMy })
                 .aria
             }
           >
-            {eightySixing ? "…" : <Chrome lang={lang} k="kds.86" echo="stack" />}
+            <Chrome lang={lang} k="kds.86" echo="stack" />
           </button>
         ))}
       {line.notes && <p className="kds-note">{line.notes}</p>}

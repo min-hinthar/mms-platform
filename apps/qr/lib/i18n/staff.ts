@@ -214,11 +214,21 @@ export const STAFF = {
 
   // ── KDS: controls ──────────────────────────────────────────────────────────
   "kds.sound.enable": { en: "Enable sound", my: "အသံ ဖွင့်" },
+  // kitchen-8 — this device WANTED sound (armed last shift) and a reload disarmed it: a warn chip,
+  // not a ghost identical to the filter beside it. Any tap on the board re-arms it silently.
+  "kds.sound.off": { en: "Sound off — tap to turn on", my: "အသံ ပိတ်နေ — ဖွင့်ရန် နှိပ်ပါ" },
   "kds.recall": { en: "Recall", my: "ပြန်ခေါ်" }, // K15-HIGH — the second way back (2-minute window)
   "kds.undo": { en: "Undo", my: "ပြန်ဖျက်" }, // K15-HIGH — the only way back inside 6 seconds
   "kds.undo.bumped": { en: "{x} bumped", my: "{x} ပြီးသွားပြီ" },
+  "kds.undo.86": { en: "{x} off the menu", my: "{x} မီနူးက ဖြုတ်ပြီ" }, // K15-HIGH — the undo bar's copy after an 86
   "kds.page": { en: "Page {n} of {total}", my: "စာမျက်နှာ {n} / {total}" },
   "kds.more": { en: "+{n} more", my: "နောက်ထပ် {n}" },
+
+  // ── KDS: the ticket's age, SPOKEN (class D — the visible `3:42` / `2h 44m` / `1d+` is a Latin
+  //    clock figure and `aria-hidden`; these carry the sentence, with prose-count numerals) ──────
+  "kds.age.mmss": { en: "{m} minutes {s} seconds elapsed", my: "{m} မိနစ် {s} စက္ကန့် ကြာပြီ" },
+  "kds.age.hm": { en: "{h} hours {m} minutes elapsed", my: "{h} နာရီ {m} မိနစ် ကြာပြီ" },
+  "kds.age.days": { en: "More than a day elapsed", my: "တစ်ရက်ကျော် ကြာပြီ" },
 
   // ── KDS: live-region announcements (class D — primary tongue only) ─────────
   "kds.live.bumped": {
@@ -226,6 +236,11 @@ export const STAFF = {
     my: "{x} ပြီးသွားပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
   },
   "kds.live.restored": { en: "{x} restored to the board.", my: "{x} ဘုတ်ပေါ် ပြန်တင်ပြီးပြီ။" },
+  "kds.live.86": {
+    en: "{x} off the menu — undo available.",
+    my: "{x} မီနူးက ဖြုတ်ပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
+  },
+  "kds.live.86.undone": { en: "{x} back on the menu.", my: "{x} မီနူးပေါ် ပြန်တင်ပြီးပြီ။" },
 
   // ── KDS: failures (read at the moment the tablet is not working) ──────────
   "kds.err.bump": {
@@ -244,9 +259,28 @@ export const STAFF = {
     en: "Couldn’t take {x} off the menu — try again.",
     my: "{x} ကို မီနူးက မဖြုတ်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
+  "kds.err.86.undo": {
+    en: "Couldn’t put {x} back — use the Menu screen.",
+    my: "{x} ကို ပြန်မတင်နိုင်ပါ — မီနူး စခရင်မှာ လုပ်ပါ။",
+  },
   "kds.err.line": {
     en: "Couldn’t update {x} — try again.",
     my: "{x} ကို မပြင်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  // kitchen-3 — the server's refusals, keyed so the region can say them in the device language.
+  "kds.err.stale": { en: "{x} was already updated.", my: "{x} ကို ပြောင်းပြီးသားပါ။" },
+  "kds.err.recall.window": {
+    en: "The recall window has passed for {x}.",
+    my: "{x} အတွက် ပြန်ခေါ်နိုင်ချိန် ကုန်သွားပြီ။",
+  },
+  "kds.err.fire.live": {
+    en: "{x} is already in the kitchen.",
+    my: "{x} က မီးဖိုချောင်မှာ ရောက်နေပြီ။",
+  },
+  "kds.err.86.gone": { en: "{x} is no longer on the menu.", my: "{x} က မီနူးမှာ မရှိတော့ပါ။" },
+  "kds.err.invalid": {
+    en: "That request didn’t make sense — reload the board.",
+    my: "တောင်းဆိုချက် မမှန်ပါ — ဘုတ်ကို ပြန်ဖွင့်ပါ။",
   },
 
   // ── KDS: accessible names with no visible text to pair with ───────────────
@@ -255,6 +289,7 @@ export const STAFF = {
   "kds.a11y.stats": { en: "Service stats", my: "ဝန်ဆောင်မှု စာရင်း" },
   "kds.a11y.stationFilter": { en: "Station filter", my: "စတေရှင် စစ်ထုတ်" },
   "kds.a11y.tickets": { en: "Open kitchen tickets", my: "ဖွင့်ထားတဲ့ မီးဖိုချောင် အော်ဒါများ" },
+  "kds.a11y.lines": { en: "Items for {x}", my: "{x} အတွက် ပစ္စည်းများ" }, // P2n — the ticket's line list
   "kds.a11y.allDay": { en: "All-day counts", my: "စုစုပေါင်း အရေအတွက်" },
   "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.a11y.railView": { en: "Rail view", my: "ဘေးဘား အမြင်" },
@@ -2408,6 +2443,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.slot",
   "kds.stat.late",
   "kds.undo",
+  "kds.undo.86",
   "out.err.body",
   "out.err.bodySustained",
   "out.shell.body",

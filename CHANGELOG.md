@@ -4,6 +4,114 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### K22 · K28 · P6f + the KDS halves of K27 · K29 — the kitchen board at the pass (2026-09-20)
+
+**The owner asked for production polish on the staff console; the kitchen board is where the staff
+actually are** (21 bumps in 30 days against ≤3 views on any other screen), so it is the first slice.
+A seven-surface audit (one auditor per surface, each verified adversarially) ran beside it; its
+confirmed findings drive the next slices.
+
+- **An 86 from the ticket can be undone from the bar, like a bump (K22).** The undo bar has two
+  kinds now; the 86's Undo is the compare-and-swap BACK to available with `expectedSoldOut: true` —
+  the state this board just wrote, so a manager who put the dish back on /staff/menu in between
+  makes the swap refuse honestly rather than flip it twice. Same 6-second window, same key, a
+  `haptic("commit")` on both ends, and the dish named Burmese-first the way its accessible name is.
+- **The ticket's age has a ceiling, and its spoken form is the dictionary's (K28).** One formatter,
+  `lib/kds-time.ts` — `3:42` under an hour, `2h 44m` under a day, `1d+` past it — serves the ticket
+  clock, the Oldest and Avg cells, and the sr-only sentence, which was a bare English template
+  literal on a board that can be Burmese: `check-staff-lang` rule 5 cannot see a literal, because it
+  is not a dictionary string. Four band-edge mutations watched red. The `/board` half (the Ready
+  shelf's raw minute count) lands with the /board slice.
+- **§17's "never native `disabled` on a tapped control", applied to the board's eight action
+  buttons.** Bump · fire · the line · 86 · undo · recall · the pager are `aria-disabled` with the
+  handler refusing re-entry, and the CSS is keyed on the attribute — a native `disabled` set on the
+  control that was just tapped drops focus to `<body>`, and the busy name is then spoken from
+  nowhere. Pinned in `KdsBoard.test.tsx`: focus stays on the 86 while its write is in flight, and a
+  double-tapped bump is one write. 64 sites remain across 27 other components — measured, filed as
+  K35.
+- **The console's ONE selection vocabulary, and the mechanism behind K29's "grey disc".** The KDS
+  chips wore a 20% gold-tint gradient while the language switch beside them wore a solid accent fill
+  — and inside the station track the tint was not even visible: `.staff-seg > .kds-chip` (0,2,1)
+  out-specifies `.kds-chip[aria-pressed]` (0,2,0) and painted the pressed fill transparent, leaving a
+  sheen ring. The four pressed selectors share ONE rule now, the §2 recipe as built (accent fill +
+  `--oa` + sheen + gold halo — Night's accent is gold-adjacent by design, so on the Night-forced board
+  it IS gold), listed at (0,3,1) so the track can never swallow it again; the switch's comment
+  claiming to be "lifted from `.kds-chip`" is corrected (it had neither the sheen nor the halo); the
+  suite parses the stylesheet and reddens on a second block. §17's prose is corrected where it had
+  drifted. The bump's ✓ rides its label (flex) instead of wrapping to the corner.
+- **Type at the pass (K27, the KDS half) and the TV's chip (P6f).** The strip labels (12px) and the
+  ticket badge (13px) sit on `--kfs-meta`; `.orb-root` declares its own TV-scaled `--kfs-meta`, so
+  the board's sound chip resolves — it was reading a token declared only on `.kds-root`. The undo
+  bar's `z-index: 60` literal is `var(--z-toast)`.
+- **A refused action speaks the device language (the audit's kitchen-3).** Every server refusal
+  reached the board as an English sentence held in `err: string` and rendered under the region's
+  `lang="my"` — §17's `msg: string` wall, and a screen reader voicing Latin with a Burmese voice.
+  `KitchenActionResult`'s failure arm carries a `code` beside its sentence now; `lib/kds-errors.ts`
+  turns the code into the dictionary's sentence about the thing that was tapped (`stale` ·
+  `recall-window` · `already-live` · `invalid` · `failed` per act), the gate's sentence passes through
+  `OutageText` (the write-outage twin exists; the role floor stays honest English), and `signin`
+  leaves for /staff/login instead of a five-second banner. The mark rides each branch, not the
+  region.
+- **A refusal outlives the poll that follows it (kitchen-10).** The good-snapshot clear ran on every
+  poll and realtime echo, so "Couldn't bump that ticket" lived anywhere from ~0 s to 5 s. Pure
+  `actionErrorStale` — an 8-second dwell; the next user action still replaces it at once.
+- **The rush signal is in the head (kitchen-4 · the P7g mechanism).** "+N more", the dots and the
+  pager rendered only in a footer under a grid that `min-height: 100dvh` lets grow past the screen —
+  so in exactly the rush that makes a ninth ticket, its count was the one thing off-screen. They sit
+  in `.kds-controls` beside the arrival pill now (SPEC-KDS §2's "header strip, always visible").
+- **A device that wanted sound says so, and the first tap re-arms it (kitchen-8).** Sound arming
+  was per page load: a deploy, the auth redirect or a slept tablet remounted the board mute with an
+  "Enable sound" chip identical to the filter beside it. A successful arm is remembered
+  (`mms.kds.sound`, cleared by an explicit mute at volume 0); on the next mount the chip wears the
+  warn tone and reads "Sound off — tap to turn on", and a one-shot `click` capture on the board arms
+  the chime off the first tap of the shift — silently, no confirmation tone nobody asked for.
+- **The bump presses and buzzes like every door (kitchen-9), and busy keeps its name.** `.staff-press`
+  - `haptic("commit")` on the bump and the fire button, `haptic("pick")` on the line tap. The
+    `{pending ? "…" : label}` swap is gone from all three: the fire button has no `aria-label`, so its
+    accessible name was literally "…" for the round trip and the 64px zone collapsed under the thumb.
+    Busy is `aria-busy` plus a dim (`[aria-disabled="true"]` twins for the bump, the recall buttons
+    and the undo bar's button — the last two had none, so a refused second tap looked like nothing).
+- **The dial restates EVERY tier (the rest of K27's KDS half).** `--kfs-clock` and `--kfs-meta` were
+  never restated at m/l, so a cook who picked Large to read the dish lines got no larger clock, chips
+  or badges — and two comments promised otherwise. A `--kfs-label` tier replaces the last two px
+  literals (the line tags, the rail headings); both overrides restate all seven; `kds-size.test.ts`
+  holds the overrides to the root's own list, monotone, with the clock under the ticket identity.
+- **Every list on the board is named (P2n's KDS half).** "Items for Table 4" on the ticket's line
+  list; the two rail lists are `aria-labelledby` their headings.
+- **Guards:** `kds-time.test.ts` (6) · `kds-errors.test.ts` (6) · the K27 case in `kds-size.test.ts`
+  · the board's first component suite, `KdsBoard.test.tsx` (19 cases: the swap's expected state, the
+  bar's Burmese-first name, focus under an in-flight write, one write per double-tap, no
+  natively-disabled action button, the `1d+` ceiling, the Burmese-numeral spoken age, the one-rule
+  cap, the pager in the head, a refusal in Burmese through the one region, the dwell across a poll,
+  the remembered chime, every list named, busy keeps its label, the 86's undo surviving the tap
+  beside it, the bar's own busy state, the string branch unmarked and the outage twin marked) —
+  twenty-nine mutations induced against the component, the modules and the stylesheet, every one
+  watched red.
+- **New Burmese (K15):** thirteen machine drafts — `kds.undo.86` (HIGH: it says what Undo will do),
+  `kds.live.86`, `kds.live.86.undone`, `kds.err.86.undo`, the three spoken-age sentences, the four
+  keyed refusals (`kds.err.stale` · `kds.err.recall.window` · `kds.err.fire.live` ·
+  `kds.err.invalid`), `kds.err.86.gone`, `kds.sound.off` and `kds.a11y.lines`.
+- **The blind pass (REJECT, closed in the same PR).** Two criticals, both real: a bump inside the
+  86's six seconds took the ONE undo slot and the dish's only way back with it (the bump has a
+  two-minute rail behind it; the 86 has nothing) — the 86 keeps the bar while it is live now, and
+  the bump rides the rail; and the bar's `aria-disabled` OR'd both transitions while each handler
+  refused on one, so a rail recall in flight dimmed an undo that still acted — the attribute names
+  exactly the transition its entry's handler gates. Five guard defects, every one "green for the
+  wrong reason": the no-native-`disabled` case rendered zero `:disabled` on the OLD code too
+  (one unheld ticket, no pager, nothing in flight — it mounts nine tickets and a held one now); the
+  chime case never asserted the arming tap still LANDED; the one-rule-cap parse read an `@media`
+  prelude as a selector, so a second fill nested in any at-rule was invisible; the region's string
+  branch — the changed behaviour — had no assertion; and `kds-errors` pinned an `"86"` act no
+  caller used while the 86's own refusals were still bare English. `setItemSoldOut` carries a code
+  now too (`sentence` · `invalid` · `gone` · `stale`) and the 86 speaks through `eightySixOutcome`;
+  the kitchen code is `sentence`, not `gate` (it also covers "no open order", which `stale` had
+  mislabelled); a held line is described by the ticket's slot line ("fires at 5:48 PM") instead of
+  standing as a focusable no-op with an action verb; `.staff-press` gives a refused tap no sheen.
+  Seven more mutations watched red.
+- **The audit itself** is digested in `docs/STAFF_POLISH_AUDIT.md` — seven surfaces, every finding
+  with its verifier's verdict — and is the backlog for the counter, manager, `/board`, menu/tips and
+  sign-in slices.
+
 ### M186 — scan-and-go stops billing twice for one item, and stops guessing (2026-09-19)
 
 **A camera cannot tell a jar resting in frame from a second identical jar, so `/grocery` stopped

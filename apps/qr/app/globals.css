@@ -7310,9 +7310,10 @@ a .chrome-en {
   color: inherit;
 }
 /* ── the language control ────────────────────────────────────────────────────────────────────────
-   Two buttons reading as one object. The pressed state EXTENDS the console's existing selection
-   vocabulary — the declarations are lifted from `.kds-chip[aria-pressed="true"]` rather than a new
-   look invented beside it — and it animates nothing, so it joins no reduced-motion list. */
+   Two buttons reading as one object. The pressed state IS the console's one selection vocabulary —
+   the shared rule beside `.kds-chip[aria-pressed="true"]`, not a copy (a copy here once claimed to
+   be lifted from the chip and had neither its sheen nor its halo) — and it animates nothing, so it
+   joins no reduced-motion list. */
 .staff-lang {
   display: inline-flex;
   align-items: center;
@@ -7340,10 +7341,7 @@ a .chrome-en {
   font-synthesis: none;
   letter-spacing: normal;
 }
-.staff-lang-btn[aria-pressed="true"] {
-  background: var(--ac);
-  color: var(--oa);
-}
+/* Pressed: the ONE lit cap, declared once beside `.kds-chip[aria-pressed="true"]` — see there. */
 /* Never `:disabled` — see StaffLangSwitch's docblock: a disabled button drops focus. */
 .staff-lang-btn[aria-disabled="true"] {
   cursor: default;
@@ -7366,6 +7364,7 @@ a .chrome-en {
   --kfs-mod: 1.3125rem; /* 21px modifiers, FULL contrast (allergy-critical) */
   --kfs-clock: 1.5rem; /* 24px mm:ss elapsed + header numbers */
   --kfs-meta: 0.9375rem; /* 15px chrome/badges/buttons */
+  --kfs-label: 0.8125rem; /* 13px tags + rail headings — the smallest tier, and it moves too */
   min-height: 100dvh;
   background: var(--pg);
   color: var(--tx);
@@ -7405,7 +7404,8 @@ a .chrome-en {
   line-height: 1;
 }
 .kds-stat span {
-  font-size: 12px;
+  /* K27 — the meta tier (15px at small), not a phone 12px: these labels are read from the pass. */
+  font-size: var(--kfs-meta);
   font-weight: 700;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -7436,13 +7436,35 @@ a .chrome-en {
    board: the stations in the bar, the all-day rail, the sizes in the sheet. The accent-filled
    pressed chip this replaced was the console's second vocabulary, and the blind pass saw both on
    one screen. */
-.kds-chip[aria-pressed="true"] {
-  color: var(--tx);
-  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
+/* ── the ONE selection vocabulary on the console (DESIGN-LANGUAGE §2, as built): the lit cap ──
+   Solid accent fill, on-accent ink, the inset sheen, a gold halo — the recipe `.checkout-pill-on`,
+   `.taste-chip-on` and `.checkout-tip-on` wear. Night's `--ac` is gold-adjacent by design
+   (tokens.css), so on the Night-forced board this IS the lit-gold cap, with `--oa` dark ink at
+   contrast. The 20%-gold-tint gradient it replaces was a SECOND vocabulary (K29) — and inside the
+   station track it was not even visible: `.staff-seg > .kds-chip` at (0,2,1) out-specifies
+   `.kds-chip[aria-pressed]` at (0,2,0) and paints the fill transparent, so the pressed station was
+   a faint sheen ring — the "grey disc" two reviewers saw. Listed explicitly at (0,3,1) so the track
+   can never swallow it again. The language switch and the Help sheet's size rows share this rule
+   rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
+   not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
+   is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
+   `.app-header-order-open`. */
+/* kitchen-8 — a device that WANTED sound and lost it to a reload: a warn hairline + warn ink, so
+   the chip is never the ghost twin of the filter beside it. Not a selection — a state tone. */
+.kds-chip[data-muted="true"] {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+.kds-chip[aria-pressed="true"],
+.staff-seg > .kds-chip[aria-pressed="true"],
+.staff-lang-btn[aria-pressed="true"],
+.help-size-row[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--ac);
+  color: var(--oa);
   box-shadow:
     inset 0 1px 0 var(--sheen),
-    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
+    0 0 14px -6px var(--glow-gold);
 }
 .kds-vol {
   accent-color: var(--ac);
@@ -7547,7 +7569,7 @@ a .chrome-en {
   line-height: 1;
 }
 .kds-badge {
-  font-size: 13px;
+  font-size: var(--kfs-meta); /* K27 — same tier as every other chrome word on the ticket */
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -7584,7 +7606,9 @@ a .chrome-en {
 .kds-line[data-state="in_progress"] {
   background: color-mix(in srgb, var(--ac) 12%, transparent);
 }
-.kds-line:disabled {
+/* §17: `aria-disabled`, never `:disabled` — a native disabled button drops focus to <body> the
+   moment it is tapped, and the busy name is then spoken from nowhere. The handler refuses re-entry. */
+.kds-line[aria-disabled="true"] {
   cursor: default;
   opacity: var(--kds-line-off-op);
 }
@@ -7622,7 +7646,7 @@ a .chrome-en {
 }
 .kds-line-tag {
   margin: 2px 0 0;
-  font-size: 13px;
+  font-size: var(--kfs-label);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -7727,12 +7751,12 @@ a .chrome-en {
   font-size: var(--kfs-mod);
   cursor: pointer;
 }
-.kds-line-86:disabled {
+.kds-line-86[aria-disabled="true"] {
   opacity: 0.55;
   cursor: default;
 }
 @media (hover: hover) {
-  .kds-line-86:hover:not(:disabled) {
+  .kds-line-86:hover:not([aria-disabled="true"]) {
     background: color-mix(in srgb, var(--warn) 14%, transparent);
   }
 }
@@ -7762,6 +7786,10 @@ a .chrome-en {
 }
 
 .kds-bump {
+  display: flex; /* K29 — the ✓ sits BESIDE the (stacked, bilingual) label, never wraps under it */
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   margin: 10px;
   min-height: 64px;
   border: 0;
@@ -7775,6 +7803,15 @@ a .chrome-en {
 }
 .kds-bump-fire {
   background: var(--ac);
+}
+/* §17 — busy is the ATTRIBUTE (the handler refuses re-entry), shown as a dim, never a label swap or
+   native `disabled`: the bump, the recall buttons and the undo bar each keep their name and their
+   focus through the round trip. */
+.kds-bump[aria-disabled="true"],
+.kds-recall-btn[aria-disabled="true"],
+.kds-undo > button[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: progress;
 }
 .kds-slot {
   margin: 0;
@@ -7811,12 +7848,13 @@ a .chrome-en {
   }
 }
 
+/* kitchen-4 — the pager sits in `.kds-controls` (the head), not a footer under the grid: "+N more"
+   is the rush signal and must be on screen precisely when the grid has outgrown the viewport. */
 .kds-pager {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--s3);
-  padding-top: var(--s2);
 }
 .kds-page-btn {
   min-width: 64px;
@@ -7829,7 +7867,7 @@ a .chrome-en {
   font-weight: 800;
   cursor: pointer;
 }
-.kds-page-btn:disabled {
+.kds-page-btn[aria-disabled="true"] {
   opacity: 0.35;
   cursor: default;
 }
@@ -7876,7 +7914,7 @@ a .chrome-en {
 }
 .kds-rail h3 {
   margin: 0 0 var(--s2);
-  font-size: 13px;
+  font-size: var(--kfs-label);
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.07em;
@@ -7968,7 +8006,7 @@ a .chrome-en {
   bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 60;
+  z-index: var(--z-toast); /* a transient notice: above a sheet, below the recovery alert */
   display: flex;
   align-items: center;
   gap: var(--s3);
@@ -8005,6 +8043,11 @@ a .chrome-en {
 /* ── W3e: the order-ready board (/board — any smart-TV browser) ────────────────────────────────────────
    Two columns, read across a room: names + short codes only. Same Night-forced wrapper as the KDS. */
 .orb-root {
+  /* P6f — `.kds-chip` reads `--kfs-meta`, declared only on `.kds-root`; the board's sound chip is a
+     `.kds-chip` under THIS root, so its font-size was unresolved and fell to the inherited value.
+     A TV wants its own scale anyway: the chip's tier is sized in viewport units like every other
+     word on this screen, not borrowed from a tablet's 15px. */
+  --kfs-meta: clamp(15px, 1.2vw, 22px);
   min-height: 100dvh;
   background: var(--pg);
   color: var(--tx);
@@ -9927,17 +9970,26 @@ html[data-fx="lite"] .mms-scrim {
    identity tier (table number) never drops below the dish line. Medium and large also drop the wide
    envelope to THREE columns: bigger type at four across would wrap every Burmese line. The page size
    follows the column count in `KdsBoard.tsx` (`kdsPageSize`), so "one page" stays "one screen". */
+/* K27 — EVERY `--kfs-*` tier is restated at each dial stop (`kds-size.test.ts` holds the two
+   overrides to the root's list): the elapsed clock, the chips, the badges and the tags scale with the
+   dish lines, and the clock stays under the ticket identity at every step. */
 .kds-root[data-size="m"] {
   --kfs-id: 2.25rem; /* 36 */
   --kfs-item: 2rem; /* 32 */
   --kfs-item-my: 2.125rem; /* 34 */
   --kfs-mod: 1.5rem; /* 24 */
+  --kfs-clock: 1.75rem; /* 28 */
+  --kfs-meta: 1.0625rem; /* 17 */
+  --kfs-label: 0.9375rem; /* 15 */
 }
 .kds-root[data-size="l"] {
   --kfs-id: 2.5rem; /* 40 */
   --kfs-item: 2.25rem; /* 36 */
   --kfs-item-my: 2.375rem; /* 38 */
   --kfs-mod: 1.6875rem; /* 27 */
+  --kfs-clock: 2rem; /* 32 */
+  --kfs-meta: 1.1875rem; /* 19 */
+  --kfs-label: 1rem; /* 16 */
 }
 @media (min-width: 1200px) {
   .kds-root[data-size="m"] .kds-grid,
@@ -10203,7 +10255,8 @@ html[data-fx="lite"] .mms-scrim {
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
-.staff-press:active {
+/* A refused tap (§17 `aria-disabled`) gets no commit sheen — the press says "you committed". */
+.staff-press:active:not([aria-disabled="true"]) {
   transform: scale(0.985);
 }
 .staff-press::after {
@@ -10215,7 +10268,7 @@ html[data-fx="lite"] .mms-scrim {
   transform: translateX(-120%);
   opacity: 0;
 }
-.staff-press:active::after {
+.staff-press:active:not([aria-disabled="true"])::after {
   opacity: 1;
   animation: staffSheen var(--dur-base) var(--ease-out) forwards;
 }
@@ -11073,13 +11126,7 @@ html[data-fx="lite"] .mms-scrim {
   text-align: left;
   cursor: pointer;
 }
-.help-size-row[aria-pressed="true"] {
-  border-color: color-mix(in oklab, var(--gold) 55%, var(--bd));
-  background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 20%, var(--cd)), var(--cd));
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    0 1px 2px color-mix(in oklab, var(--tx) 18%, transparent);
-}
+/* Pressed: the ONE lit cap, declared once beside `.kds-chip[aria-pressed="true"]` — see there. */
 .help-size-sample {
   flex: 1 1 auto;
   min-width: 0;
