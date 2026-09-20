@@ -9,6 +9,7 @@ import { BRAND_NAME } from "@/lib/brand";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { MsgText, type StaffMsg } from "./StaffMsg";
+import { useViewStatus } from "./ViewStatus";
 
 /**
  * A4·4 — the SIGNED-IN state of the sign-in screen: who you are · your PIN · sign out, last. The
@@ -26,8 +27,12 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
  *     form can grey (the lock screen's Unlock below four digits says nothing worth saying); a
  *     two-field form that greys leaves a parent tapping a dead button. So Update is refused only
  *     while a save is in flight, and a bad pair is SAID, with focus moved to the field at fault.
- *   · ONE live region (`#me-msg`) for the PIN outcome AND the sign-out failure (QA §A). The old
- *     page had two components with a region each; on one card that is two regions for one person.
+ *   · ONE live region for the PIN outcome AND the sign-out failure (QA §A). The old page had two
+ *     components with a region each; on one card that is two regions for one person — and since
+ *     the roster joined this screen, the region is the VIEW's (`ViewStatusProvider`, mounted by
+ *     the page): `#me-msg` is then the visible, `aria-hidden` echo where the eye is, and the card
+ *     speaks through the provider. Mounted alone (a suite, a future single-card screen) `#me-msg`
+ *     is the region itself, as before.
  *   · The action answers REASON CODES and each is a key — `entry.pin.err.*` — so the region is
  *     never English under the Burmese switch (P2m's defect, on the last surface that had it). An
  *     `auth` answer refreshes instead of explaining: the page re-gates to the form, which is the
@@ -56,6 +61,14 @@ export function SignedInCard({
   const [msg, setMsg] = useState<{ ok: boolean; m: StaffMsg } | null>(null);
   const pinRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
+  // The view's announcer when a provider sits above this card (the signed-in sign-in screen), or
+  // null when the card is the whole view. `say` is the ONE writer: the visible line always, and the
+  // spoken one through the provider whenever there is one.
+  const announce = useViewStatus();
+  const say = (next: { ok: boolean; m: StaffMsg } | null) => {
+    setMsg(next);
+    announce?.(next ? <MsgText lang={lang} msg={next.m} /> : null);
+  };
 
   // Strip to digits as the user types — the field is numeric-only; mirrors the 4–8 digit server rule.
   const onlyDigits = (s: string) => s.replace(/\D/g, "").slice(0, PIN_MAX_LENGTH);
@@ -65,14 +78,14 @@ export function SignedInCard({
   async function save(e: FormEvent) {
     e.preventDefault();
     if (busy) return; // re-entry refused here, never by `disabled`
-    setMsg(null);
+    say(null);
     if (!lengthOk) {
-      setMsg({ ok: false, m: { k: "entry.pin.err.length", vars: bounds } });
+      say({ ok: false, m: { k: "entry.pin.err.length", vars: bounds } });
       pinRef.current?.focus();
       return;
     }
     if (pin !== confirm) {
-      setMsg({ ok: false, m: { k: "entry.pin.err.mismatch" } });
+      say({ ok: false, m: { k: "entry.pin.err.mismatch" } });
       confirmRef.current?.focus();
       return;
     }
@@ -88,7 +101,7 @@ export function SignedInCard({
       res = await setPin({ pin });
     } catch (e) {
       console.error("[sign-in] setPin rejected", e);
-      setMsg({ ok: false, m: { k: "entry.pin.err.outage" } });
+      say({ ok: false, m: { k: "entry.pin.err.outage" } });
       return;
     } finally {
       setBusy(false);
@@ -100,7 +113,7 @@ export function SignedInCard({
       }
       // `invalid` cannot happen past the two checks above unless the server's rule moved; say the
       // rule rather than nothing. The pair is KEPT on every refusal — an outage checked nothing.
-      setMsg({
+      say({
         ok: false,
         m:
           res.reason === "invalid"
@@ -111,20 +124,20 @@ export function SignedInCard({
     }
     setPinValue("");
     setConfirm("");
-    setMsg({ ok: true, m: { k: hasPin ? "entry.pin.saved.updated" : "entry.pin.saved.set" } });
+    say({ ok: true, m: { k: hasPin ? "entry.pin.saved.updated" : "entry.pin.saved.set" } });
     router.refresh();
   }
 
   async function remove() {
     if (removing) return;
     setRemoving(true);
-    setMsg(null);
+    say(null);
     let res: Awaited<ReturnType<typeof removePin>>;
     try {
       res = await removePin();
     } catch (e) {
       console.error("[sign-in] removePin rejected", e);
-      setMsg({ ok: false, m: { k: "entry.pin.err.outage" } });
+      say({ ok: false, m: { k: "entry.pin.err.outage" } });
       return;
     } finally {
       setRemoving(false);
@@ -134,13 +147,13 @@ export function SignedInCard({
         router.refresh();
         return;
       }
-      setMsg({
+      say({
         ok: false,
         m: { k: res.reason === "outage" ? "entry.pin.err.outage" : "entry.pin.err.remove" },
       });
       return;
     }
-    setMsg({ ok: true, m: { k: "entry.pin.removed" } });
+    say({ ok: true, m: { k: "entry.pin.removed" } });
     // The Remove button UNMOUNTS on the re-render that follows (`hasPin` flips), taking focus to
     // <body> with it (blind pass, CRITICAL 3). Move it to the PIN field first — the field persists
     // across the refresh, and it is where the next thing to do lives.
@@ -155,7 +168,7 @@ export function SignedInCard({
   async function signOut() {
     if (signingOut) return;
     setSigningOut(true);
-    setMsg(null);
+    say(null);
     // The same latch shape as the two writes above, one control down (Codex round 2 on #284):
     // supabase-js resolves an AUTH failure into `{ error }`, but the client itself can THROW (a
     // navigator-lock timeout, a storage operation), and a throw skipped both the error branch and
@@ -168,12 +181,12 @@ export function SignedInCard({
     } catch (e) {
       console.error("[sign-in] signOut rejected", e);
       setSigningOut(false);
-      setMsg({ ok: false, m: { k: "entry.err.signOut" } });
+      say({ ok: false, m: { k: "entry.err.signOut" } });
       return;
     }
     if (error) {
       setSigningOut(false);
-      setMsg({
+      say({
         ok: false,
         m: { k: isRetryableAuthShape(error) ? "entry.err.signOutOutage" : "entry.err.signOut" },
       });
@@ -280,10 +293,12 @@ export function SignedInCard({
         <Chrome lang={lang} k="entry.signOut" echo="inline" />
       </button>
 
-      {/* One live region for the PIN outcome and the sign-out failure (QA §A). */}
+      {/* One live region for the PIN outcome and the sign-out failure (QA §A) — the view's when a
+          provider is mounted (this is then the aria-hidden echo), this card's own otherwise. */}
       <p
         id="me-msg"
-        role="status"
+        role={announce ? undefined : "status"}
+        aria-hidden={announce ? true : undefined}
         className={msg && !msg.ok ? "entry-msg entry-msg-warn" : "entry-msg"}
       >
         {msg && <MsgText lang={lang} msg={msg.m} />}

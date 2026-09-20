@@ -20,6 +20,12 @@ import { START_ARM } from "./register-stage";
  * Decorative and inert — `aria-hidden`, no pointer events (`.help-pic` in globals.css) — the card's
  * sentence carries the meaning. Under Burmese the replica's label comes through <Chrome> like the
  * original's, so it is marked and in the right face.
+ *
+ * help-1 — a `help-pic-*` class is LAYOUT ONLY (where a replica sits, what box it gets), never a
+ * size, a colour or a border: `HelpPicture.test.tsx` parses the stylesheet and refuses any paint on
+ * one. The board's `--kfs-*` tier is declared on `.help-pic` too (the Help sheet is portaled outside
+ * `.kds-root`, so the bump's `--kfs-clock` used to resolve to nothing and a copy-class sized it), so
+ * every kitchen replica is the control at the board's own size.
  */
 export function HelpPicture({
   screen,
@@ -51,13 +57,16 @@ export function HelpPicture({
         </span>
       )}
       {screen === "kitchen" && n === 3 && (
-        <span className="kds-line-86 help-pic-86">
+        <span className="kds-line-86">
           <Chrome lang={lang} k="kds.86" echo="stack" />
         </span>
       )}
       {screen === "kitchen" && n === 4 && (
-        <span className="help-pic-held">
-          <span className="kds-bump kds-bump-fire help-pic-bump">
+        // help-1 — the fire button inside the REAL held ticket's shell (`.kds-ticket.kds-ticket-held`:
+        // the ticket's own hairline, dashed and dimmed by the board's own rule), never a dashed box
+        // drawn for the card. The bump keeps the ticket's own margin, so `help-pic-bump` is not here.
+        <span className="kds-ticket kds-ticket-held help-pic-ticket">
+          <span className="kds-bump kds-bump-fire">
             <Chrome lang={lang} k="kds.fire" echo="stack" />
           </span>
         </span>

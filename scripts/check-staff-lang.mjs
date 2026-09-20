@@ -1246,9 +1246,10 @@ if (staffPages.length < 9)
  * person who cannot read English arriving on a staff screen with no way to change it — which is the
  * exact failure the rule was written for, so it does not get to be a TODO.
  *
- * `SWITCH_WALK_EXCLUDED` above is the one thing that still needs care: `StaffOutageShell` mounts the
- * control and every page imports it, so the walk must not follow that import or all fifteen pages
- * would answer "reachable" on the strength of a screen that only exists during an outage.
+ * `SWITCH_WALK_EXCLUDED` above is the one thing that still needs care: `StaffOutageShell` reaches
+ * the control (through `<StaffBar>` since signin-5) and every page imports it, so the walk must not
+ * follow that import or all fifteen pages would answer "reachable" on the strength of a screen that
+ * only exists during an outage.
  */
 const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
 
@@ -1307,9 +1308,10 @@ function mountsSwitchHere(file, srcOverride) {
 /**
  * ⚠️ NOT FOLLOWED by the walk below, and this is the single most load-bearing line in rule 4.
  *
- * `StaffOutageShell` MOUNTS the control as of P2 PR B (OPEN-ITEMS P2h) — it is the surface with the
- * strongest claim on it, because it replaces the page during an outage and takes the page's own
- * control with it. Every staff page imports the shell for its unknowable-gate branch. So a walk that
+ * `StaffOutageShell` REACHES the control as of P2 PR B (OPEN-ITEMS P2h) — mounted in its own JSX
+ * then, through the shared `<StaffBar>` since signin-5 — because it is the surface with the
+ * strongest claim on it: it replaces the page during an outage and takes the page's own control
+ * with it. Every staff page imports the shell for its unknowable-gate branch. So a walk that
  * followed this import would answer "yes, reachable" for all fifteen pages the moment the shell was
  * converted, and rule 4 would go green over every page that has NO control in its normal render —
  * re-opening, in a new form, the exact hole the rule was rewritten to close (it used to accept the
@@ -1348,13 +1350,15 @@ function reachesSwitch(root) {
   return switchMounts(root).length > 0;
 }
 
-// Self-check: the exclusion is only meaningful while the excluded module ACTUALLY mounts a switch.
-// If the shell ever stops mounting one, this set is silently hiding nothing and the next reader
-// would trust a comment that has stopped being true.
+// Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
+// in its own JSX or through a module it imports (the shell's is `<StaffBar>`'s since signin-5). If
+// the shell ever stops reaching one, this set is silently hiding nothing and the next reader would
+// trust a comment that has stopped being true. Its own walk is unaffected by the exclusion (the root
+// is seeded, never filtered), so the question is answered by the same walk the pages get.
 for (const f of SWITCH_WALK_EXCLUDED)
-  if (!mountsSwitchHere(f))
+  if (switchMounts(f).length === 0)
     failures.push(
-      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but no longer mounts <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
+      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
     );
 
 for (const file of staffPages) {

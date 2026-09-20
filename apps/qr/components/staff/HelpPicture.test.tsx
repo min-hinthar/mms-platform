@@ -147,3 +147,117 @@ describe("HelpPicture — the real control, inert", () => {
     expect(statusInlineStyle).toBe(false);
   });
 });
+
+/**
+ * help-1 — a picture is the control's own declaration at the board's own size, and a `help-pic-*`
+ * class says only WHERE it sits. The first cut drew the held card (a dashed box of its own) and
+ * re-sized the bump replica (56px, `--fs-h3`) because the board's `--kfs-*` tier did not resolve
+ * outside `.kds-root` — two drawings of controls that do not exist, on the surface built to stop
+ * exactly that. So: every rule that belongs to a `help-pic-*` class ALONE declares placement only;
+ * the held card is the real ticket shell; the tier is declared for the pictures in the SAME block
+ * as the root; and the classes the pictures wear and the classes the sheet declares are one set.
+ */
+describe("help-1 — pictures are declarations, never drawings", () => {
+  // Leaf rules: selector list + body. `[^{}]` on both sides makes a rule inside an @media block its
+  // own match (the block's opener is left unmatched), so nothing is skipped.
+  const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({
+    selectors: m[1]!
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
+    body: m[2]!,
+  }));
+  // Placement and box — never a height (a control's height is its own declaration), a font, a
+  // colour, a border, a radius, a shadow or an opacity.
+  const LAYOUT = new Set([
+    "display",
+    "align-items",
+    "align-self",
+    "justify-content",
+    "gap",
+    "order",
+    "flex",
+    "flex-basis",
+    "flex-grow",
+    "flex-shrink",
+    "flex-direction",
+    "flex-wrap",
+    "margin",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "padding",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "position",
+    "inset",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "transform",
+    "z-index",
+    "width",
+    "min-width",
+    "max-width",
+    "box-sizing",
+    "overflow",
+  ]);
+  // The picture's OWN furniture, not a replica of any control: the arrow between two stages.
+  const OWN = new Set([".help-pic-arrow"]);
+  const props = (body: string) => [...body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1]!);
+
+  it("every rule that belongs to a help-pic-* class ALONE declares placement only", () => {
+    const own = rules.filter(
+      (r) =>
+        r.selectors.length > 0 &&
+        r.selectors.every((s) => /^\.help-pic-[a-z0-9-]+$/.test(s)) &&
+        !r.selectors.some((s) => OWN.has(s)),
+    );
+    expect(own.length).toBeGreaterThanOrEqual(4);
+    for (const r of own) {
+      const declared = props(r.body);
+      expect(declared.length, r.selectors.join()).toBeGreaterThan(0);
+      for (const p of declared)
+        expect(LAYOUT.has(p), `${r.selectors.join()} declares ${p}`).toBe(true);
+    }
+  });
+
+  it("the held card is the REAL ticket shell — dashed and dimmed by the board's own rule — with no drawing of its own", () => {
+    const p = pic("kitchen", 4);
+    expect(p.querySelector(".kds-ticket.kds-ticket-held > .kds-bump.kds-bump-fire")).not.toBeNull();
+    expect(p.querySelector(".help-pic-held")).toBeNull();
+    expect(css).not.toMatch(/\.help-pic-held/);
+    const held = rules.find((r) => r.selectors.includes(".kds-ticket-held"));
+    expect(held?.body).toMatch(/border-style:\s*dashed/);
+    expect(held?.body).toMatch(/opacity:\s*var\(--kds-held-op\)/);
+  });
+
+  it("the board's --kfs-* tier is declared for the pictures in the SAME block as the root, so the bump is the board's own size with no class of its own re-sizing it", () => {
+    const tier = rules.filter(
+      (r) => /--kfs-clock:/.test(r.body) && r.selectors.includes(".help-pic"),
+    );
+    expect(tier.length).toBe(1);
+    expect(tier[0]!.selectors).toContain(".kds-root");
+    expect(pic("kitchen", 1).querySelector(".kds-bump")!.className).toBe("kds-bump help-pic-bump");
+    cleanup();
+    expect(pic("kitchen", 3).querySelector(".kds-line-86")!.className).toBe("kds-line-86");
+  });
+
+  it("the help-pic-* classes the pictures wear and the ones the sheet declares are ONE set", () => {
+    const worn = new Set<string>();
+    for (const screen of HELP_SCREENS)
+      for (let n = 1; n <= helpCardCount(screen); n++) {
+        for (const el of pic(screen, n).querySelectorAll("*"))
+          for (const c of el.classList) if (c.startsWith("help-pic-")) worn.add(`.${c}`);
+        cleanup();
+      }
+    const declared = new Set(
+      rules.flatMap((r) => r.selectors).flatMap((s) => s.match(/\.help-pic-[a-z0-9-]+/g) ?? []),
+    );
+    expect([...worn].sort()).toEqual([...declared].sort());
+  });
+});

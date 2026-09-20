@@ -7,6 +7,7 @@ import { resolveSignInState } from "@/lib/sign-in-state";
 import { StaffLogin } from "@/components/staff/StaffLogin";
 import { SignedInCard } from "@/components/staff/SignedInCard";
 import { TeamManager } from "@/components/staff/TeamManager";
+import { ViewStatusProvider } from "@/components/staff/ViewStatus";
 import { RoleBadge } from "@/components/staff/RoleBadge";
 import { StaffOutageShell } from "@/components/staff/StaffOutageShell";
 import { StaffBar } from "@/components/staff/StaffBar";
@@ -123,24 +124,29 @@ export default async function StaffLoginPage({
         lock={hasPin}
       />
       <div className="staff-col entry-col">
-        <SignedInCard
-          lang={lang}
-          hasPin={hasPin}
-          displayName={caller.displayName}
-          email={caller.email}
-        />
-        {manager && (
-          // A6 — `callerRole` drives the ceiling in the UI: the role <select>s offer only what this
-          // caller may actually grant, and a row they cannot reach loses its controls. The server
-          // refuses either way (`canActOn` in every action); this is the affordance, so a manager is
-          // never shown an option that answers "only the owner can".
-          <TeamManager
-            initial={roster}
-            selfUid={caller.uid}
-            selfEmail={caller.email}
-            callerRole={caller.role}
+        {/* ONE polite live region for the view (QA §A): the card and the roster each used to carry
+            their own, and two regions flip together. The provider owns the region at the end of the
+            column; both cards speak through it and show their line as an aria-hidden echo. */}
+        <ViewStatusProvider>
+          <SignedInCard
+            lang={lang}
+            hasPin={hasPin}
+            displayName={caller.displayName}
+            email={caller.email}
           />
-        )}
+          {manager && (
+            // A6 — `callerRole` drives the ceiling in the UI: the role <select>s offer only what
+            // this caller may actually grant, and a row they cannot reach loses its controls. The
+            // server refuses either way (`canActOn` in every action); this is the affordance, so a
+            // manager is never shown an option that answers "only the owner can".
+            <TeamManager
+              initial={roster}
+              selfUid={caller.uid}
+              selfEmail={caller.email}
+              callerRole={caller.role}
+            />
+          )}
+        </ViewStatusProvider>
       </div>
     </main>
   );

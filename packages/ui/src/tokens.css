@@ -36,6 +36,10 @@
   --fs-h2: 1.3125rem; /* 21 */
   --fs-h3: 1.0625rem; /* 17 */
   --fs-body: 1rem; /* 16 */
+  /* M78 — every form FIELD's size, pinned at the 16px floor iOS Safari zooms beneath: the floor is a
+     RULE here, not the coincidence of `--fs-body` happening to be 1rem. Fields read this, never body,
+     so a type-scale pass that drops body text can no longer re-introduce focus-zoom silently. */
+  --fs-field: max(1rem, var(--fs-body));
   --fs-sm: 0.8125rem; /* 13 */
   --fs-xs: 0.6875rem; /* 11 */
   --track-display: -0.02em;

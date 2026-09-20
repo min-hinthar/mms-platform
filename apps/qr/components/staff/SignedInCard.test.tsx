@@ -64,7 +64,7 @@ describe("SignedInCard", () => {
     expect(screen.getByRole("button", { name: "Remove PIN" })).toBeTruthy();
   });
 
-  it("the escape is the LAST control, and the CARD has exactly ONE polite live region (a manager's roster zone below it carries its own)", () => {
+  it("the escape is the LAST control, and the CARD alone has exactly ONE polite live region (on the sign-in screen the view's provider takes it over — ViewStatus.test)", () => {
     render(<SignedInCard lang="en" hasPin={true} {...ME} />);
     const buttons = screen.getAllByRole("button");
     expect(buttons[buttons.length - 1]!.textContent).toBe("Sign out");

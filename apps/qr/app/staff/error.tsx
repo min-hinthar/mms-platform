@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import posthog from "posthog-js";
 import { OutageState } from "@mms/ui";
 import { bumpErrorCount, tryChunkReload } from "@/lib/error-recovery";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
 import { useStaffLang } from "@/components/staff/StaffLangProvider";
 
 /**
@@ -23,11 +23,15 @@ import { useStaffLang } from "@/components/staff/StaffLangProvider";
  * the building, so they are the likeliest to be holding chunk URLs a deploy has replaced.
  *
  * P7·2 — it speaks the device language, the way `StaffOutageShell` does: every sentence through
- * `<Chrome>` (`out.err.*`), the retry pair the shell's own, and it MOUNTS THE LANGUAGE CONTROL,
- * because it is a takeover — the page it replaces took its bar with it, and this is exactly the
- * screen where a person who cannot read English needs the switch most. The language comes from the
- * provider: `app/staff/error.tsx` renders INSIDE `app/staff/layout.tsx` (a segment boundary catches
- * its page, never its own layout), so `useStaffLang()` always has one.
+ * `<Chrome>` (`out.err.*`), the retry pair the shell's own. The language comes from the provider:
+ * `app/staff/error.tsx` renders INSIDE `app/staff/layout.tsx` (a segment boundary catches its page,
+ * never its own layout), so `useStaffLang()` always has one.
+ *
+ * signin-5 — it wears the BAR, the shell's way: a takeover replaces the page it caught, bar and
+ * all, and this is exactly the screen where a person who cannot read English needs the switch most
+ * — so the switch is where it always is, in the tail, under the same static mark the shell uses.
+ * The bar is plain JSX (no data need), so nothing here depends on the thing that failed. The bar's
+ * h1 is the page's; the card's heading is an h2 and still takes focus on mount.
  *
  * The way out is the DOORS by name (`?doors=1` wins over a remembered door), as a hard link: the
  * router may be the thing that failed.
@@ -53,15 +57,11 @@ export default function StaffError({
 
   return (
     <main className="staff-main">
-      <div className="staff-col" style={wrap}>
-        {/* Above the card, trailing edge — the shell's placement: the control is the one thing on
-            this screen that still works, and it must not sit between the focused heading and Retry. */}
-        <div style={switchRow}>
-          <StaffLangSwitch lang={lang} />
-        </div>
+      <StaffBar lang={lang} title="out.err.title" leading={{ kind: "here", icon: "alert" }} />
+      <div className="staff-col entry-col">
         <OutageState
           focusOnMount
-          headingLevel="h1"
+          headingLevel="h2"
           titleMy={null}
           title={<Chrome lang={lang} k="out.err.title" echo="stack" />}
           body={
@@ -85,10 +85,3 @@ export default function StaffError({
     </main>
   );
 }
-
-const wrap: CSSProperties = { maxWidth: 640, paddingTop: "var(--s4)" };
-const switchRow: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  marginBottom: "var(--s4)",
-};
