@@ -61,10 +61,14 @@ var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the r
   shell's EXPORTED component through live JSX at EVERY hop, the switch identified by its module AND
   its exported symbol, so an unused import, a dead branch or an uncalled helper holding the bar — a
   mounted bar that only imports the switch — a mounted bar whose SIBLING export holds it — or the
-  switch parked in a function NESTED in the bar that nothing mounts or calls — each fail it (the
-  blind pass, Codex rounds 2 and 3 with one evasion each, round 4 with the last two; the import
-  edge carries the symbol now, and a named function nested in a body is a separate root entered
-  only by a tag or a call).
+  switch parked in a function NESTED in the bar that nothing mounts — a sibling export of the
+  SHELL's own file mounting the bar — the bar in `{false ? … : null}` (or behind `true ||`, a
+  literal `??`, `if (false)`) — a nested `Tail` rendering its `StaffBar` PROP — or a discarded
+  `StaffBar(…)` call — each fail it (the blind pass, Codex rounds 2 and 3 with one evasion each,
+  round 4 with two, round 5 with four; the import edge carries the symbol, the shell is entered
+  at its named export, a named function nested in a body is a separate root entered only by a
+  tag, a lexical binding shadows the import it names, and a call is a closed direction, not an
+  edge).
 - **The front door's own skeleton (signin-1).** `/staff/login` and `/staff/lock` fell back to the
   floor's 1080 three-zone skeleton. `EntrySkeleton` mirrors the pages — the bar band, then the
   pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card in EACH

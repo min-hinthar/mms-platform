@@ -1254,7 +1254,11 @@ if (staffPages.length < 9)
 const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
 
 /**
- * Is this JSX element parked in a literal-dead branch — `{false && <X/>}` or `{0 && <X/>}`?
+ * Is this JSX element parked in a literal-dead branch — `{false && <X/>}`, `{0 && <X/>}`,
+ * `{true || <X/>}`, `{"" ?? <X/>}`, `{false ? <X/> : null}`, `{true ? null : <X/>}`, or under
+ * `if (false)` / the `else` of `if (true)`? Only what a LITERAL settles — `false` · `true` · `null`
+ * · `undefined` · a numeric or string literal; a variable is live, whatever it holds (Codex round 5
+ * on #298 reproduced the ternary against the excluded shell).
  *
  * ⚠️ THIS USED TO BE A 40-CHARACTER RAW-TEXT REGEX (`/\{\s*(false|0)\s*&&\s*$/` over the source
  * before the tag), and a pre-merge blind pass showed exactly what that costs: write the same dead
@@ -1270,15 +1274,38 @@ const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
  * its rules parse. Walking parents costs nothing and cannot be defeated by a line break. Module
  * scope since signin-5: the excluded shell's self-check needs it for `<StaffBar>` too.
  */
+/** A literal's truthiness (`false`/`null`/`undefined`/`0`/`""` → false, `true`/`1`/`"x"` → true), or
+ *  `null` when the expression is not a literal the parser can settle. */
+function literalTruth(e) {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  if (e.kind === ts.SyntaxKind.FalseKeyword || e.kind === ts.SyntaxKind.NullKeyword) return false;
+  if (e.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (ts.isIdentifier(e) && e.text === "undefined") return false;
+  if (ts.isNumericLiteral(e)) return Number(e.text) !== 0;
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text.length > 0;
+  return null;
+}
+function isNullishLiteral(e) {
+  while (ts.isParenthesizedExpression(e)) e = e.expression;
+  return e.kind === ts.SyntaxKind.NullKeyword || (ts.isIdentifier(e) && e.text === "undefined");
+}
 function inDeadBranch(node) {
-  for (let n = node.parent; n; n = n.parent) {
-    if (
-      ts.isBinaryExpression(n) &&
-      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-      (n.left.kind === ts.SyntaxKind.FalseKeyword ||
-        (ts.isNumericLiteral(n.left) && n.left.text === "0"))
-    )
-      return true;
+  for (let prev = node, n = node.parent; n; prev = n, n = n.parent) {
+    if (ts.isBinaryExpression(n) && prev === n.right) {
+      const k = n.operatorToken.kind;
+      const t = literalTruth(n.left);
+      if (k === ts.SyntaxKind.AmpersandAmpersandToken && t === false) return true;
+      if (k === ts.SyntaxKind.BarBarToken && t === true) return true;
+      if (k === ts.SyntaxKind.QuestionQuestionToken && t !== null && !isNullishLiteral(n.left))
+        return true;
+    } else if (ts.isConditionalExpression(n)) {
+      const t = literalTruth(n.condition);
+      if ((t === false && prev === n.whenTrue) || (t === true && prev === n.whenFalse)) return true;
+    } else if (ts.isIfStatement(n)) {
+      const t = literalTruth(n.expression);
+      if ((t === false && prev === n.thenStatement) || (t === true && prev === n.elseStatement))
+        return true;
+    }
     if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) break;
   }
   return false;
@@ -1321,8 +1348,14 @@ function mountsSwitchHere(file, srcOverride) {
  * The shell is a DIFFERENT SURFACE, not this page's chrome. Rule 4 asks whether the person can
  * change the language on the page they are looking at; an answer that only holds while the ordering
  * system is unreachable is not an answer.
+ *
+ * Module → the EXPORT the pages mount. The self-check below enters the shell at that export, never
+ * at every export of the file: a sibling export rendering the bar beside a switch-less shell was
+ * green until Codex round 5 on #298 reproduced it.
  */
-const SWITCH_WALK_EXCLUDED = new Set([join(QR, "components/staff/StaffOutageShell.tsx")]);
+const SWITCH_WALK_EXCLUDED = new Map([
+  [join(QR, "components/staff/StaffOutageShell.tsx"), "StaffOutageShell"],
+]);
 
 /**
  * …or does any module it transitively imports, within apps/qr, other than the excluded surfaces?
@@ -1437,23 +1470,27 @@ const isNamedFn = (node) =>
 /**
  * Does an EXPORTED component of `file` — the one named `entry`, or any when `entry` is null — reach
  * a live `<StaffLangSwitch>` through live JSX at EVERY hop? From the component's body: a `<Tag …>`
- * (or a `Tag(…)` call) outside a literal-dead branch that names a function declared in a scope the
- * body can see is followed into that function (once per body); one that is an import of the
- * switch's own export IS the control; one that is an import of another apps/qr module is followed
- * into THAT module's export of THAT symbol (once per module+symbol), by the same rule. Parsed, not
- * walked (LEARNINGS #60), and export-rooted at every hop (Codex rounds 2, 3 and 4 on #298): an
- * import EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false
- * && <StaffBar/>}` reaches nothing; an uncalled `function Example() { return <StaffBar/>; }`
- * reaches nothing because nothing exported renders it; a mounted bar that merely IMPORTS the
- * switch, or holds it only in an uncalled helper, reaches nothing either; a mounted `<StaffBar>`
- * whose module's OTHER export holds the switch reaches nothing (the edge carries the SYMBOL, so the
- * next hop starts at that export, never at all of them); and a function NESTED in a mounted body
- * is a separate root — `function Example() { return <StaffLangSwitch/>; }` inside the bar counts
- * only when the bar's live JSX mounts `<Example>` or calls `Example()`. Anonymous callbacks in
- * expression position (a `.map(…)` body, a render prop) are walked as part of the body: what calls
- * them is not knowable statically, and the enumerated dead shapes are named declarations. Passing
- * a named function BY REFERENCE (`render={Example}`) is not a mount and is not followed — the
- * closed direction. Member tags (`<Foo.Bar>`) are not imports of a component and are not counted.
+ * outside a literal-dead branch that names a function declared in a scope the body can see is
+ * followed into that function (once per body); one that is an import of the switch's own export IS
+ * the control; one that is an import of another apps/qr module is followed into THAT module's
+ * export of THAT symbol (once per module+symbol), by the same rule. Parsed, not walked (LEARNINGS
+ * #60), and export-rooted at every hop (Codex rounds 2–5 on #298): an import EDGE is not a mount —
+ * `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false && <StaffBar/>}` and every
+ * other literal-dead shape `inDeadBranch` names reach nothing; an uncalled `function Example() {
+ * return <StaffBar/>; }` reaches nothing because nothing exported renders it; a mounted bar that
+ * merely IMPORTS the switch, or holds it only in an uncalled helper, reaches nothing either; a
+ * mounted `<StaffBar>` whose module's OTHER export holds the switch reaches nothing (the edge
+ * carries the SYMBOL, so the next hop starts at that export, never at all of them); a function
+ * NESTED in a mounted body is a separate root — `function Example() { return <StaffLangSwitch/>;
+ * }` inside the bar counts only when the bar's live JSX mounts `<Example>`; and a tag that names a
+ * LEXICAL BINDING of the body — a parameter (`function Tail({ StaffBar })`), a `const`/`let`
+ * without a function body, a catch or loop variable — is that binding, never the import it
+ * shadows, and reaches nothing. Anonymous callbacks in expression position (a `.map(…)` body, a
+ * render prop) are walked as part of the body: what calls them is not knowable statically, and the
+ * enumerated dead shapes are named declarations. THREE closed directions, each reported as "no
+ * mount" rather than analysed: a call (`{tail()}`, `StaffBar(…)` — the round-4 call edge followed
+ * a discarded expression statement, so it is gone, not qualified), a named function passed BY
+ * REFERENCE (`render={Example}`), and a member tag (`<Foo.Bar>`).
  */
 function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
   const key = `${file}#${entry ?? "*"}`;
@@ -1463,9 +1500,23 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
   if (!g) return false;
   const seenBodies = new Set();
 
-  /** Named function-likes declared in `body`, outside any named function nested in it. */
+  /**
+   * The bindings `body` can see that are its own: named function-likes (→ their body, a root to
+   * enter) and every other lexical name — the root function's parameters, `const`/`let`/`var`
+   * without a function initializer, catch and loop variables, the parameters of anonymous callbacks
+   * walked as part of the body — as SHADOWS (→ `null`, nothing to enter, never an import). Names
+   * inside a NAMED function nested here belong to that function's own scope.
+   */
   function declaredIn(body) {
     const scope = new Map();
+    const shadow = (name) => {
+      if (ts.isIdentifier(name)) {
+        if (!scope.has(name.text)) scope.set(name.text, null);
+      } else if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name))
+        for (const el of name.elements) if (ts.isBindingElement(el)) shadow(el.name);
+    };
+    const fn = ts.isBlock(body) ? body.parent : body;
+    if (fn && ts.isFunctionLike(fn)) for (const p of fn.parameters) shadow(p.name);
     function collect(node) {
       if (node !== body && isNamedFn(node)) {
         if (ts.isFunctionDeclaration(node)) {
@@ -1473,6 +1524,7 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
         } else scope.set(node.name.text, node.initializer);
         return;
       }
+      if (ts.isParameter(node) || ts.isVariableDeclaration(node)) shadow(node.name);
       ts.forEachChild(node, (c) => {
         collect(c);
       });
@@ -1485,11 +1537,15 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
     if (seenBodies.has(body)) return false;
     seenBodies.add(body);
     const here = [declaredIn(body), ...chain];
-    const lookup = (name) => here.find((s) => s.has(name))?.get(name);
     let hit = false;
+    // Innermost binding wins, as it does at runtime: a function body is entered, a shadow (a
+    // parameter, a plain variable) is the end of the road, and only an UNBOUND name is an import.
     function follow(name) {
-      const local = lookup(name);
-      if (local) return walkBody(local, here);
+      const scope = here.find((s) => s.has(name));
+      if (scope) {
+        const local = scope.get(name);
+        return local ? walkBody(local, here) : false;
+      }
       return followImport(g.byLocal.get(name));
     }
     function visit(node) {
@@ -1501,12 +1557,6 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
         !inDeadBranch(node)
       ) {
         if (follow(node.tagName.text)) hit = true;
-      } else if (
-        ts.isCallExpression(node) &&
-        ts.isIdentifier(node.expression) &&
-        !inDeadBranch(node)
-      ) {
-        if (follow(node.expression.text)) hit = true;
       }
       ts.forEachChild(node, (c) => {
         visit(c);
@@ -1545,12 +1595,13 @@ function reachesSwitchFromExports(file, seenModules = new Set(), entry = null) {
 // silently hiding nothing and the next reader would trust a comment that has stopped being true.
 // Never the import graph, never a file-wide scan: the walk the pages get follows every import,
 // which is right for "does this page reach a control" and wrong for "does this module still mount
-// one" — an unused import, a dead branch, an uncalled helper (top-level OR nested), or a sibling
-// export of the mounted module holding the switch, at either hop, would each pass.
-for (const f of SWITCH_WALK_EXCLUDED)
-  if (!reachesSwitchFromExports(f))
+// one" — an unused import, a dead branch, an uncalled helper (top-level OR nested), a sibling
+// export of the mounted module — or of the SHELL's own module — holding the switch, a parameter
+// shadowing the bar's import, or a discarded `StaffBar(…)` call, at either hop, would each pass.
+for (const [f, entry] of SWITCH_WALK_EXCLUDED)
+  if (!reachesSwitchFromExports(f, new Set(), entry))
     failures.push(
-      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but its LIVE JSX no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
+      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but its \`${entry}\` export's LIVE JSX no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
     );
 
 for (const file of staffPages) {

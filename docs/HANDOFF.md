@@ -5,7 +5,7 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — MERGED as `2c6b151` (#294); slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — MERGED as `3695957` (#296); slice 6 — Menu · Tips · Glossary (menu-1..6 · gloss-1..2 · tips-1..2) — MERGED as `280b1ab` (#297); slice 7 — the SIGN-IN screen + the shared chrome (signin-1..5 · doors-1/2 · help-1 · chrome-1 · the view's one live region · K35's last three sign-in sites · M78's staff half) — on PR #298 (`claude/qr-app-backlog-cj2t0m`), ready: the blind pass's REJECT (three criticals), Codex round 2's three P2s, round 3's one and round 4's two guard evasions are closed on the head — round 4's skeleton note is K37 — merging on the owner's standing go; after it only the UNVERIFIED cross-cutting CSS/motion list in `docs/STAFF_POLISH_AUDIT.md` remains — the next session starts there, or on the C18 / M228 / M187 rows if the owner points elsewhere)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — MERGED as `eb7833b` (#293); slice 3 — the MANAGER RAILS + the drill-down — MERGED as `2c6b151` (#294); slice 4 — the SHEET PRIMITIVE (M76 · manager-9 · K29(b)'s last half) — MERGED as `11333f6` (#295); slice 5 — the `/board` TV (board-1..9 + K28(b)) — MERGED as `3695957` (#296); slice 6 — Menu · Tips · Glossary (menu-1..6 · gloss-1..2 · tips-1..2) — MERGED as `280b1ab` (#297); slice 7 — the SIGN-IN screen + the shared chrome (signin-1..5 · doors-1/2 · help-1 · chrome-1 · the view's one live region · K35's last three sign-in sites · M78's staff half) — on PR #298 (`claude/qr-app-backlog-cj2t0m`), ready: the blind pass's REJECT (three criticals), Codex round 2's three P2s, round 3's one, round 4's two and round 5's four guard evasions are closed on the head — round 4's skeleton note is K37 — merging on the owner's standing go; after it only the UNVERIFIED cross-cutting CSS/motion list in `docs/STAFF_POLISH_AUDIT.md` remains — the next session starts there, or on the C18 / M228 / M187 rows if the owner points elsewhere)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
@@ -86,8 +86,10 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    line defeated at ≤720px, the pictures stuck at the Small dial stop and a malformed address
 >    reaching the server in English, and Codex round 2 found the region frozen in one tongue across
 >    a switch, the skeleton one shape for two routes and the guard's self-check reachable through an
->    uncalled helper; rounds 3 and 4 found three more ways through that self-check (a mounted bar
->    that only imports the switch · a sibling export holding it · a nested uncalled helper) — all
+>    uncalled helper; rounds 3–5 found seven more ways through that self-check (a mounted bar
+>    that only imports the switch · a sibling export holding it · a nested uncalled helper · the
+>    shell's own sibling export · a literal-false ternary · a prop shadowing the import · a
+>    discarded call) — all
 >    closed on the head; round 4's note that the login skeleton is form-shaped for a signed-in
 >    visitor is K37. **Next: the cross-cutting CSS/motion list** once
 >    someone has verified it (M76's sheet exit animation is the known real one). After the merge:
@@ -113,10 +115,16 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > about "does this module still mount X" must read LIVE JSX, never the import graph: an import
 > edge alone and `{false && <X/>}` both pass a walk (`check-staff-lang.mjs`'s self-check now parses
 > the excluded shell's live tags and resolves them — from its EXPORTS at EVERY hop, the import edge
-> carrying the SYMBOL and a named function nested in a body a separate root, since Codex rounds
-> 2–4 showed an uncalled helper holding the tag, a mounted bar that only imports the switch, a
-> sibling export holding it, and a switch parked in a nested function nothing calls, would each
-> pass a whole-file scan, an import walk, or a module-wide export walk). (3) Run `tsc` AFTER the last test
+> carrying the SYMBOL, the excluded shell entered at its NAMED export, a named function nested in
+> a body a separate root, a lexical binding a shadow of the import it names, and every
+> literal-dead shape the parser can settle refused — since Codex rounds 2–5 showed an uncalled
+> helper holding the tag, a mounted bar that only imports the switch, a sibling export holding it
+> (of the bar's file, then of the shell's), a switch parked in a nested function nothing mounts, a
+> `{false ? … : null}`, a prop named like the import, and a discarded `StaffBar()` call, would each
+> pass a whole-file scan, an import walk, a module-wide export walk, or an edge that followed
+> calls. The lesson the loop taught: a self-check on an EXCLUSION is liveness against parked dead
+> copies, and every fix adds surface; from round 3 the directive is fix-on-sight or file-and-merge,
+> so the sixth round on #298 was declared file-and-merge BEFORE it was read). (3) Run `tsc` AFTER the last test
 > edit — vitest does not typecheck, and CI's `typecheck` caught a fixture the suite happily ran.
 > (4) A provider that announces for other components stores the MESSAGE, never a rendered node: a
 > language switch is a `router.refresh()` that keeps client state, so a node built with the old
