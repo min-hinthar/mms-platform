@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "@mms/ui";
 import { Chrome } from "./Chrome";
 import type { StaffLang } from "@/lib/staff-lang";
 
@@ -8,10 +9,11 @@ import type { StaffLang } from "@/lib/staff-lang";
  * A button rather than "just press Cmd-P", because the people this sheet is for read it on a tablet
  * where there is no Cmd-P — and because the control has to say, in their language, what it does.
  *
- * It carries no `aria-label`: the visible bilingual label IS the accessible name, which is WCAG
- * 2.5.3 satisfied by construction rather than by a pair that has to be kept in agreement (the reason
- * `lib/staff-labels.ts` exists for the controls that cannot do this). `.print-hide` keeps it off the
- * paper — the repo's existing print block (globals.css, W7a) hides that class wholesale.
+ * gloss-2 — a CIRCLE in the bar's trailing slot, the same idiom the Menu bar uses to reach this
+ * sheet (§17: trailing = circles in one order), named by sr-only `<Chrome>` in the device language.
+ * It was a text pill — a second vocabulary for one action, on a bar whose whole promise is that
+ * positions and shapes mean one thing. `.print-hide` keeps it off the paper (the W7a print block
+ * hides that class wholesale).
  *
  * ⚠️ `window.print()` is not available during SSR and is blocked outright in some embedded browsers.
  * A throw inside an onClick would reach `app/staff/error.tsx` and take the whole page down over a
@@ -22,7 +24,7 @@ export function PrintSheetButton({ lang }: { lang: StaffLang }) {
   return (
     <button
       type="button"
-      className="pgl-print print-hide"
+      className="staff-circ staff-press print-hide"
       onClick={() => {
         try {
           window.print();
@@ -31,7 +33,10 @@ export function PrintSheetButton({ lang }: { lang: StaffLang }) {
         }
       }}
     >
-      <Chrome lang={lang} k="pilot.gloss.print" echo="inline" />
+      <Icon name="print" size={20} />
+      <span className="sr-only">
+        <Chrome lang={lang} k="pilot.gloss.print" />
+      </span>
     </button>
   );
 }

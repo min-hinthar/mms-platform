@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { PRICE_MAX_CENTS, PRICE_MIN_CENTS } from "./bounds";
 
 /**
  * Runtime validation at the trust boundary (decision #4 in docs/BACKEND_ARCHITECTURE.md §5).
@@ -571,12 +572,12 @@ export const setKioskTipInput = z.object({
  *  must stay that way (see priceItem: it reads this stored price, it never accepts one). */
 export const setMenuPriceInput = z.object({
   menuItemId: uuid,
-  priceCents: z.number().int().min(25).max(500000),
+  priceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
   // W21d (Codex P1 on #180) — the price the manager's SCREEN showed when they confirmed. The
   // server refuses when the live value differs: the old id-keyed CAS only guarded the server's own
   // read-to-write window, so a confirmation visibly reading "$14 → $16" could overwrite another
   // manager's fresher $18.
-  expectedPriceCents: z.number().int().min(25).max(500000),
+  expectedPriceCents: z.number().int().min(PRICE_MIN_CENTS).max(PRICE_MAX_CENTS),
 });
 
 /** setItemSoldOut (W23a) — the 86 toggle. NOT a money amount, but it is a revenue decision: while the

@@ -100,7 +100,13 @@ export default async function StaffMenuPrices() {
             echo="stack"
           />
         </p>
-        <MenuPriceEditor items={items} canEditPrice={canEditPrice} />
+        {/* menu-4 — the request's clock, so the server render and the hydrating client agree on
+            which 86 stamps are from another service day (`lib/sold-out-since.ts`). */}
+        <MenuPriceEditor
+          items={items}
+          canEditPrice={canEditPrice}
+          nowIso={new Date().toISOString()}
+        />
       </div>
     </main>
   );

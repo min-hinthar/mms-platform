@@ -49,6 +49,7 @@ import { MsgText } from "./StaffMsg";
 import { HelpButton } from "./HelpButton";
 import { Chrome } from "./Chrome";
 import { STAFF_CHANNEL_KEY, ts, type StaffKey } from "@/lib/i18n/staff";
+import { staffClock } from "@/lib/staff-clock";
 import { plural, tf } from "@/lib/i18n/fill";
 import { al, dishVisible, sx } from "@/lib/staff-labels";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -120,8 +121,9 @@ function ticketId(
   return { main, node: main, sub: t.customerName ? code : null };
 }
 
+/** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
 function fmtSlot(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return staffClock(iso);
 }
 
 function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "amber" | "red" {

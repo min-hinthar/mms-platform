@@ -9547,41 +9547,12 @@ html[data-fx="lite"] .mms-scrim {
 
    It ANIMATES NOTHING and therefore joins no reduced-motion list — a sheet that moves while someone
    is reading 180 lines off it would be a defect, not a flourish. */
+/* gloss-1 — the sheet's column is a `.staff-col` (the one shell: the bar spans the viewport over
+   `.staff-main`'s lines, the column carries the width). Only the width is the sheet's own; the
+   centring and the side padding are the column's. The old `.pgl-bar*`/`.pgl-back`/`.pgl-print`
+   strip is gone with the markup that wore it. */
 .pgl {
   max-width: 940px;
-  margin: 0 auto;
-  padding: var(--s5) var(--s5) var(--s8);
-}
-.pgl-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--s4);
-  flex-wrap: wrap;
-  margin-bottom: var(--s4);
-}
-.pgl-bar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--s3);
-}
-.pgl-back {
-  display: inline-flex;
-  align-items: center;
-  min-height: 44px;
-  color: var(--ac);
-  font-weight: 700;
-  text-decoration: none;
-}
-.pgl-print {
-  min-height: 44px;
-  padding: 0 18px;
-  border: 1px solid var(--bd);
-  border-radius: var(--r-full);
-  background: var(--cd);
-  color: var(--tx);
-  font-weight: 700;
-  cursor: pointer;
 }
 .pgl-head {
   border-bottom: 2px solid var(--bd);
@@ -9721,10 +9692,22 @@ html[data-fx="lite"] .mms-scrim {
 }
 
 @media print {
-  /* NO `.pgl { max-width; padding }` rule here. The W7a block above already sets
-     `main { padding: 12px !important; max-width: none !important }` and `.pgl` IS the `<main>`, so
-     a second declaration without `!important` is inert — the shape LEARNINGS #60 calls a matcher
-     satisfied by text that does not ship the behaviour, one layer down in CSS. */
+  /* gloss-1 — `.pgl` is the INNER column now, not the `<main>`, so W7a's `main { max-width: none
+     !important }` no longer reaches the sheet's width: on Letter portrait (≈816px) 940 is inert,
+     on landscape it would rule a margin down the paper. The column's side padding comes off on
+     the COMPOUND selector: `.staff-col { padding: 0 var(--s5) }` sits later in this file at the
+     same specificity, so a bare `.pgl { padding: 0 }` here is text that ships nothing (the blind
+     pass caught exactly that). `<main>`'s own padding is W7a's 12px `!important` above and is not
+     restated. And the shell's lines must never print. */
+  .pgl {
+    max-width: none;
+  }
+  .staff-col.pgl {
+    padding: 0;
+  }
+  .staff-main {
+    background-image: none;
+  }
   /* The first band is the ten minutes that matter, so it gets its own sheet of paper. Everything
      else follows behind it. */
   .pgl-band-high {

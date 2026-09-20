@@ -97,6 +97,11 @@ export type StaffFeedbackRow = {
   rating: number;
   comment: string | null;
   createdAt: string;
+  /** tips-2 — the order this is about, as the console names orders: the table for dine-in, the
+   *  guest's name over the short code otherwise. The code is the LAST SIX of the order id, upper
+   *  case — the derivation `kitchen.ts`, `expo.ts` and `served-today.ts` each carry, so the code a
+   *  manager reads here is the one the ticket and the bag wore. */
+  order: { tableNumber: number | null; customerName: string | null; shortCode: string };
 };
 
 export type StaffFeedbackResult =
@@ -123,9 +128,12 @@ export type StaffFeedbackResult =
 export async function getStaffFeedback(limit = 50): Promise<StaffFeedbackResult> {
   await requireStaff("manager");
   const lim = Math.min(Math.max(Math.trunc(limit), 1), 100);
+  // The embed rides `mms_feedback.order_id → qr_orders(id)` (unique, not null — one feedback per
+  // order), so `qr_orders` is one row, never a list; `null` only if the order were gone, which the
+  // cascade forbids. Read-side only: no column, no migration.
   const { data, error } = await serviceClient()
     .from("mms_feedback")
-    .select("id,rating,comment,created_at")
+    .select("id,rating,comment,created_at,order_id,qr_orders(table_number,customer_name)")
     .order("created_at", { ascending: false })
     .limit(lim);
   if (error) {
@@ -139,6 +147,11 @@ export async function getStaffFeedback(limit = 50): Promise<StaffFeedbackResult>
       rating: r.rating,
       comment: r.comment,
       createdAt: r.created_at,
+      order: {
+        tableNumber: r.qr_orders?.table_number ?? null,
+        customerName: r.qr_orders?.customer_name ?? null,
+        shortCode: r.order_id.slice(-6).toUpperCase(),
+      },
     })),
   };
 }

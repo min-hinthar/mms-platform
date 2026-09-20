@@ -4,6 +4,95 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### menu-1 · menu-2 · menu-3 · menu-4 · menu-5 · menu-6 · gloss-1 · gloss-2 · tips-1 · tips-2 — the Menu, Tips and Glossary screens (2026-09-20)
+
+**Slice 6 of the staff-console polish: the manager's three screens, from the audit's ten verified
+findings** (`docs/STAFF_POLISH_AUDIT.md` → Menu · Tips · Glossary) plus the two the verifier added.
+
+- **§17 on the price editor (menu-1 / K35).** The 86 pill, Keep, Set and Save went native
+  `disabled` the instant they were tapped — focus to `<body>`. All four are `aria-disabled` now,
+  with the handler refusing re-entry on a REF (`flippingRef` per row, `busyRef` for the save), the
+  acting control `aria-busy`, and every button wearing `.staff-btn .staff-press`. The editor's four
+  were the last native sites on the Menu screen; K35 re-measured at 17 in 10 components.
+- **The verdict where the eye is (menu-2 / K24).** The view's ONE live region stays sr-only for
+  good — it used to grow from 1px to a line ABOVE a 115-row list, shifting the list under the thumb
+  and landing off-screen for any row past the first viewport — and the same words are echoed
+  `aria-hidden` inside the row they concern (`Msg` carries the row's id).
+- **Confirmed values, before the refresh (menu-3).** The 86 verb and the saved price are recorded
+  the moment the server answers (`confirmed`, cleared during the render that first sees a new
+  `items` array — no effect, no cascading render), so a second tap inside the refresh window posts
+  the state the server just confirmed instead of the stale prop it used to be refused for. A list
+  that arrives after a confirmation is newer than it (both actions revalidate `/staff/menu`), so
+  it wins whatever it says; a refusal changes nothing: the prop is the truth.
+- **A stamp from another day says so (menu-4).** `soldOutSinceParts(iso, nowIso)`
+  (`lib/sold-out-since.ts`, pure, falsified across the Los Angeles midnight) renders the clock
+  alone on the same service day and `Sep 15, 6:40 PM` otherwise, and the older tag wears the warn
+  ink — the one signal a manual 86 outlived its shift, pre-attentive. The page hands the editor the
+  request's clock so the server render and the hydrating client agree.
+- **A draft says why it cannot be saved (menu-5).** `priceDraftVerdict(draft, currentCents)`
+  (`lib/menu-price-draft.ts`) reads the bounds from the new zod-free `@mms/db/bounds`
+  (`PRICE_MIN_CENTS` · `PRICE_MAX_CENTS`, which `setMenuPriceInput` now reads too — named ONCE),
+  and five `browse.price.draft.*` lines under the field (`aria-describedby`) say the floor, the
+  ceiling, the shape, "that's the current price" or "enter a price" — every refused draft has a
+  stated reason; `aria-invalid` only for the three that mean "does not conform" (a malformed or
+  out-of-range amount), never for an untouched or empty field. Return in the field does what the
+  Save tap does (`enterKeyHint="done"`); a refused Save keeps its focus and its name.
+- **The sold-out chip.** `Sold out ({n})` beside the search, the lit-gold cap when pressed
+  (`.staff-chip[aria-pressed="true"]`, the one selection vocabulary), narrowing the list to the
+  flags a server is told to watch for — `browseRows()` in `lib/menu-browse.ts`, pure. The row the
+  last action was about stays under the chip until the next action (a dish put back must not leave
+  the list under the focused pill), the empty state under the chip says "No sold-out dish matches",
+  and the chip lets go of its STATE when the last dish is put back, so the next 86 remounts it
+  unpressed.
+- **Every screen's own skeleton (menu-6).** `menu/`, `tips/` and `glossary/loading.tsx` draw the
+  bar's footprint and each page's shapes at its width; they fell back to the counter's 1080
+  skeleton with no bar. (`app/staff/loading.tsx` itself still draws the counter for a `/staff` that
+  can also be the doors — noted, not touched.)
+- **The glossary joins the one shell (gloss-1 · gloss-2 / K26).** `.staff-main` → the bar with the
+  way back up to the Menu screen (`pilot.gloss.back`) → `.staff-col pgl`; the print control is the
+  bar's circle idiom named by sr-only `<Chrome>` (it was a text pill — a second vocabulary for the
+  action the Menu bar reaches with a circle). The dead `.pgl-bar*` · `.pgl-back` · `.pgl-print`
+  rules are gone; the print block drops `.pgl`'s width, the column's side padding (on the compound
+  `.staff-col.pgl`, the only selector that beats `.staff-col`'s own) and `.staff-main`'s lines on
+  paper.
+- **The restaurant's clock, named ONCE (tips-1).** `lib/staff-clock.ts` (`staffClock` ·
+  `staffDate` · `staffDateTime` · `sameServiceDay`, on `pickupTime.ts`'s `RESTAURANT_TZ`) replaces
+  the tips page's `toLocaleString(undefined, …)` — a Server Component, so on Vercel that was UTC
+  and every feedback row read `2:05 AM` for a 7:05 PM review — and the private formatters in
+  `PilotNightSheet` and `MenuPriceEditor`, plus the sweep's three device-clock sites (`KdsBoard`'s
+  slot, `HelpButton`'s report clock and date). The suite forces the process zone to UTC so a
+  Los Angeles dev box cannot hide a dropped zone.
+- **A follow-up row names its order (tips-2 / K13).** `getStaffFeedback` embeds
+  `qr_orders(table_number,customer_name)` over the FK (read-side, no migration) and each row prints
+  the table, or the guest's name over the ticket's `#XXXXXX` (the last six of the id, upper-cased —
+  the same derivation the KDS, the expo and the served rail use). Read-only stays read-only (P5).
+- Suites: `staff-clock.test.ts` · `sold-out-since.test.ts` · `menu-price-draft.test.ts` ·
+  `menu-browse.test.ts` (new), `feedback-read.test.ts` (the embed and the code), and
+  `MenuPriceEditor.test.tsx` (new, jsdom: no native attribute at rest, mid-flight or with a dead
+  draft; the two re-entry guards under held promises; the confirmed verb and price before the
+  refresh, a list that disagrees on arrival winning over both; the sr-only region's fixed geometry
+  and the row echo; the five draft reasons, `aria-invalid`'s scope and Return; the two-day stamp
+  and its ink; the chip in both numerals, the acted row kept under it, its state let go at zero,
+  its honest empty state) — 34 `it(` added. 24 `MUTATION:` annotations added (measured from the
+  diff); 24 mutants induced and watched red across the editor, the feedback read and the four
+  libs. Six new `verify:slice` mutants (747 in all, 131 target modules, 115 under `apps/qr/lib`).
+- **The blind pass (REJECT, closed before the PR left draft).** Four product findings, every one
+  verified against source: (1) the confirmed override was kept while the prop DISAGREED (to cover a
+  lagging refresh), so a second writer inside the window — the KDS putting a dish back, another
+  tablet — pinned the row to a false verb or a false price with every retry refused: the reconcile
+  now clears every override on a new list, which is newer than the confirmation by construction;
+  (2) the chip's filter read the confirmed value, so a dish put back under the chip unmounted its
+  row under the focused pill (focus to `<body>`, the echo rendered nowhere): the acted row is kept
+  until the next action; (3) `soldOutOnly` was never reset, so the chip remounted PRESSED on the
+  next 86 and collapsed the list without a tap: it lets go of its state at zero; (4) "No dish
+  matches" rendered while the chip hid a matching dish: the empty state under the chip names the
+  filter. Two guard findings: both `padding: 0` declarations in the print block were inert (beaten
+  by `.staff-col`'s later rule and by W7a's `!important`) — the padding now sits on
+  `.staff-col.pgl` and `<main>`'s is not restated; and `empty` was a refused draft with no stated
+  reason — it has one, and `aria-invalid` is narrowed to format and range. The clock suites restore
+  the process zone in `afterAll`.
+- Docs: OPEN-ITEMS (K13 · K15 · K24 · K26 · K35) · audit statuses · HANDOFF · the counts.
+
 ### board-1 · board-2 · board-3 · board-4 · board-5 · board-6 · board-7 · board-8 · board-9 + K28(b) — the order-ready TV (2026-09-20)
 
 **Slice 5 of the staff-console polish: `/board`, the wall the room reads, from the audit's nine

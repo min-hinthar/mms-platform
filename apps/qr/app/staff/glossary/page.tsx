@@ -67,67 +67,72 @@ export default async function GlossaryPage() {
   const rest = glossary.bands.find((b) => b.id === "rest");
 
   return (
-    <main className="pgl">
+    // gloss-1 (K26) — the one shell: `.staff-main` (the lines), the bar spanning the viewport with
+    // the way back up to the Menu screen this sheet is an action of, then the sheet in a
+    // `.staff-col` at its own width. On paper the bar and the lines are gone (the print block).
+    <main className="staff-main">
       <StaffBar
         lang={lang}
         title="pilot.gloss.title"
+        leading={{ kind: "back", href: "/staff/menu", k: "pilot.gloss.back" }}
         trailing={<PrintSheetButton lang={lang} />}
         lock={hasPin}
         className="print-hide"
       />
-
-      {/* The printed sheet keeps its own title (the bar is `print-hide`); on screen the bar is the h1. */}
-      <header className="pgl-head">
-        <p className="pgl-title print-only" aria-hidden>
-          <Chrome lang={lang} k="pilot.gloss.title" echo="stack" />
-        </p>
-        <p className="pgl-lede">
-          <Chrome lang={lang} k="pilot.gloss.lede" echo="stack" />
-        </p>
-        <p className="pgl-count">
-          <Chrome
-            lang={lang}
-            k="pilot.gloss.count"
-            vars={{ n: glossary.openForCorrection, total: glossary.total }}
-            echo="inline"
-          />
-        </p>
-        {/* Three notes, and each explains an ABSENCE or a rule the paper cannot enforce. They are
+      <div className="staff-col pgl">
+        {/* The printed sheet keeps its own title (the bar is `print-hide`); on screen the bar is the h1. */}
+        <header className="pgl-head">
+          <p className="pgl-title print-only" aria-hidden>
+            <Chrome lang={lang} k="pilot.gloss.title" echo="stack" />
+          </p>
+          <p className="pgl-lede">
+            <Chrome lang={lang} k="pilot.gloss.lede" echo="stack" />
+          </p>
+          <p className="pgl-count">
+            <Chrome
+              lang={lang}
+              k="pilot.gloss.count"
+              vars={{ n: glossary.openForCorrection, total: glossary.total }}
+              echo="inline"
+            />
+          </p>
+          {/* Three notes, and each explains an ABSENCE or a rule the paper cannot enforce. They are
             boxed rather than footnoted because an unexplained gap gets written into the margin, and
             a margin note against a decision already made is worse than no sheet. */}
-        <p className="pgl-note">
-          <Chrome lang={lang} k="pilot.gloss.scope" echo="stack" />
-        </p>
-        <p className="pgl-note">
-          <Chrome lang={lang} k="pilot.gloss.slots" echo="stack" />
-        </p>
-        <p className="pgl-note">
-          <Chrome lang={lang} k="pilot.gloss.autonyms" echo="stack" />
-        </p>
-      </header>
-
-      {high && high.rows.length > 0 && (
-        <section className="pgl-band pgl-band-high" aria-labelledby="pgl-band-high">
-          <h2 className="pgl-band-title" id="pgl-band-high">
-            <Chrome lang={lang} k="pilot.gloss.band.high" echo="stack" />
-          </h2>
-          <p className="pgl-band-why">
-            <Chrome lang={lang} k="pilot.gloss.band.high.why" echo="stack" />
+          <p className="pgl-note">
+            <Chrome lang={lang} k="pilot.gloss.scope" echo="stack" />
           </p>
-          <SheetTable lang={lang} rows={high.rows} labelledBy="pgl-band-high" />
-          <SignOff lang={lang} />
-        </section>
-      )}
+          <p className="pgl-note">
+            <Chrome lang={lang} k="pilot.gloss.slots" echo="stack" />
+          </p>
+          <p className="pgl-note">
+            <Chrome lang={lang} k="pilot.gloss.autonyms" echo="stack" />
+          </p>
+        </header>
 
-      {rest && rest.rows.length > 0 && (
-        <section className="pgl-band" aria-labelledby="pgl-band-rest">
-          <h2 className="pgl-band-title" id="pgl-band-rest">
-            <Chrome lang={lang} k="pilot.gloss.band.rest" echo="stack" />
-          </h2>
-          <SheetTable lang={lang} rows={rest.rows} labelledBy="pgl-band-rest" />
-          <SignOff lang={lang} />
-        </section>
-      )}
+        {high && high.rows.length > 0 && (
+          <section className="pgl-band pgl-band-high" aria-labelledby="pgl-band-high">
+            <h2 className="pgl-band-title" id="pgl-band-high">
+              <Chrome lang={lang} k="pilot.gloss.band.high" echo="stack" />
+            </h2>
+            <p className="pgl-band-why">
+              <Chrome lang={lang} k="pilot.gloss.band.high.why" echo="stack" />
+            </p>
+            <SheetTable lang={lang} rows={high.rows} labelledBy="pgl-band-high" />
+            <SignOff lang={lang} />
+          </section>
+        )}
+
+        {rest && rest.rows.length > 0 && (
+          <section className="pgl-band" aria-labelledby="pgl-band-rest">
+            <h2 className="pgl-band-title" id="pgl-band-rest">
+              <Chrome lang={lang} k="pilot.gloss.band.rest" echo="stack" />
+            </h2>
+            <SheetTable lang={lang} rows={rest.rows} labelledBy="pgl-band-rest" />
+            <SignOff lang={lang} />
+          </section>
+        )}
+      </div>
     </main>
   );
 }

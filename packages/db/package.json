@@ -9,6 +9,7 @@
     ".": "./src/index.ts",
     "./server": "./src/server.ts",
     "./schemas": "./src/schemas.ts",
+    "./bounds": "./src/bounds.ts",
     "./factory": "./src/factory.ts"
   },
   "scripts": {

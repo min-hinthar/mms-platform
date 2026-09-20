@@ -56,17 +56,50 @@ describe("getStaffFeedback — an outage is not an empty inbox", () => {
   it("reports the rows when the read succeeds", async () => {
     result = {
       data: [
-        { id: "f1", rating: 5, comment: "lovely", created_at: "2026-09-05T02:00:00.000Z" },
-        { id: "f2", rating: 2, comment: null, created_at: "2026-09-05T01:00:00.000Z" },
+        {
+          id: "f1",
+          rating: 5,
+          comment: "lovely",
+          created_at: "2026-09-05T02:00:00.000Z",
+          order_id: "0a1b2c3d-0000-4000-8000-00000000abcdef",
+          qr_orders: { table_number: 4, customer_name: null },
+        },
+        {
+          id: "f2",
+          rating: 2,
+          comment: null,
+          created_at: "2026-09-05T01:00:00.000Z",
+          order_id: "0a1b2c3d-0000-4000-8000-0000009f8e7d",
+          qr_orders: { table_number: null, customer_name: "Nilar" },
+        },
       ],
       error: null,
     };
     const res = await getStaffFeedback();
     expect(res.ok).toBe(true);
     if (!res.ok) return;
+    // tips-2 — the row names its order the way the console does: the table, or the guest's name
+    // over the LAST SIX of the id upper-cased (the ticket's and the bag's code, same derivation).
     expect(res.rows).toEqual([
-      { id: "f1", rating: 5, comment: "lovely", createdAt: "2026-09-05T02:00:00.000Z" },
-      { id: "f2", rating: 2, comment: null, createdAt: "2026-09-05T01:00:00.000Z" },
+      {
+        id: "f1",
+        rating: 5,
+        comment: "lovely",
+        createdAt: "2026-09-05T02:00:00.000Z",
+        order: { tableNumber: 4, customerName: null, shortCode: "ABCDEF" },
+      },
+      {
+        id: "f2",
+        rating: 2,
+        comment: null,
+        createdAt: "2026-09-05T01:00:00.000Z",
+        order: { tableNumber: null, customerName: "Nilar", shortCode: "9F8E7D" },
+      },
+    ]);
+    // …and the read ASKS for the order: a select that dropped the embed would map every row to a
+    // null table and a null name, which reads as "a pickup with no name" — never a refusal.
+    expect(selected).toEqual([
+      "id,rating,comment,created_at,order_id,qr_orders(table_number,customer_name)",
     ]);
   });
 
