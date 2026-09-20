@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const setPin = vi.fn();
@@ -64,7 +64,7 @@ describe("SignedInCard", () => {
     expect(screen.getByRole("button", { name: "Remove PIN" })).toBeTruthy();
   });
 
-  it("the escape is the LAST control, and the CARD has exactly ONE polite live region (a manager's roster zone below it carries its own)", () => {
+  it("the escape is the LAST control, and the CARD alone has exactly ONE polite live region (on the sign-in screen the view's provider takes it over — ViewStatus.test)", () => {
     render(<SignedInCard lang="en" hasPin={true} {...ME} />);
     const buttons = screen.getAllByRole("button");
     expect(buttons[buttons.length - 1]!.textContent).toBe("Sign out");
@@ -263,5 +263,42 @@ describe("SignedInCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/staff/login"));
     expect(refresh).toHaveBeenCalled();
+  });
+});
+
+/**
+ * LEARNINGS #126 — two taps in ONE frame both read the same stale render, so a STATE latch lets
+ * both post; each of the card's three latches is a REF. One `act` per pair: React batches the
+ * state the first event sets, so the second event sees exactly what a same-frame double tap sees.
+ */
+describe("the three latches are refs — a same-frame double tap posts once", () => {
+  const dbl = (el: Element, type: "submit" | "click") =>
+    act(() => {
+      for (let i = 0; i < 2; i++)
+        el.dispatchEvent(
+          type === "click"
+            ? new MouseEvent("click", { bubbles: true, cancelable: true })
+            : new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+  it("Update PIN", () => {
+    setPin.mockReturnValue(new Promise(() => {}));
+    render(<SignedInCard lang="en" hasPin={false} displayName="Daw Hla" email={null} />);
+    fireEvent.change(document.getElementById("pin-new")!, { target: { value: "2468" } });
+    fireEvent.change(document.getElementById("pin-confirm")!, { target: { value: "2468" } });
+    dbl(document.getElementById("pin-new")!.closest("form")!, "submit");
+    expect(setPin).toHaveBeenCalledTimes(1);
+  });
+  it("Remove PIN", () => {
+    removePin.mockReturnValue(new Promise(() => {}));
+    render(<SignedInCard lang="en" hasPin displayName="Daw Hla" email={null} />);
+    dbl(screen.getByRole("button", { name: /Remove/ }), "click");
+    expect(removePin).toHaveBeenCalledTimes(1);
+  });
+  it("Sign out", () => {
+    signOut.mockReturnValue(new Promise(() => {}));
+    render(<SignedInCard lang="en" hasPin={false} displayName="Daw Hla" email={null} />);
+    dbl(screen.getByRole("button", { name: /Sign out/ }), "click");
+    expect(signOut).toHaveBeenCalledTimes(1);
   });
 });

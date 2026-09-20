@@ -4,6 +4,97 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### signin-1 · signin-2 · signin-3 · signin-4 · signin-5 · doors-1 · doors-2 · help-1 · chrome-1 — the sign-in screen and the shared chrome (2026-09-20)
+
+**Slice 7 of the staff-console polish: the front door and everything every screen shares, from the
+audit's nine verified findings** (`docs/STAFF_POLISH_AUDIT.md` → Sign-in + shared chrome) plus the
+two the verifier added (two polite live regions on one screen; an inactive roster row dimmed below
+AA). Every new guard was watched fail first: 34 mutants, every one red (`mutate-s7.py`, scratchpad).
+
+- **§17 on the roster (signin-2 / K35).** The add form's submit, the role `<select>` and the
+  deactivate toggle went native `disabled` the instant they were tapped — focus to `<body>`, the
+  busy name spoken from nowhere. All three are `aria-disabled` now, with the handler refusing
+  re-entry on a REF read at tap time, the acting control `aria-busy`, ONE write of each kind at a
+  time (a second role change while one is held snaps back to the stored role), the toggle's LABEL
+  kept through the round trip (never "…"), the submit the entry card's own primary pill with
+  `.staff-press`. K35 re-measured at 14 native sites in 9 components — the sign-in screen has none.
+- **A missing or malformed name or address is SAID (signin-2).** The submit used to grey on a
+  short name or address, which explained nothing (and a disabled default button blocks Enter). The
+  form is `noValidate`; the two refusals are keys (`floor.team.err.name` · `.email`) in the live
+  region with focus moved to the field at fault — `SignedInCard`'s rule, on the card beneath it.
+  The address's shape is read off the field's own `validity` (the platform's `type="email"`
+  grammar, still computed under `noValidate`), so a malformed address never reaches the server
+  and comes back as its English sentence under the Burmese switch (the blind pass's third
+  critical); the server's stricter rule stays the backstop.
+- **The card's three latches are refs too.** `SignedInCard`'s save, remove and sign-out guarded
+  on state (`if (busy) return`) — stale for two taps in one frame (LEARNINGS #126), the shape the
+  roster and the lock circle were being converted away from beside it. Each is a ref now, pinned
+  by a same-`act` double dispatch on all three (and on the roster's submit and the lock circle).
+- **ONE live region on the sign-in screen.** `SignedInCard` and `TeamManager` each carried "the
+  one region for this view", true before A4·4 put them on one screen. `ViewStatusProvider`
+  (`components/staff/ViewStatus.tsx`) owns a single sr-only `role="status"` at the end of the
+  column; each card speaks through `announce()` and shows its line as an `aria-hidden` echo where
+  the eye is (the menu-2 idiom). A card mounted alone keeps its own region, so the lock screen and
+  every single-card suite are unchanged; the same words twice are a new node both times. What is
+  stored is the MESSAGE (a key with its slots, or the server's sentence), rendered against the
+  language the page hands the provider — a switch is a refresh that keeps the provider's state, and
+  a stored node kept the old tongue while the echo beside it re-rendered (Codex round 2).
+- **The Lock circle's refusal is a KEY, beneath the row (signin-3 / chrome-1).** `lockConsole`
+  answers reason codes (`outage` · `auth` · `no_pin`) like `setPin`; `LockButton` renders them
+  through `<MsgText>` — Burmese under the Burmese switch — in `.staff-bar-msg`, the tail's one
+  assertive line at full width, ORDERED LAST, never a sibling reflowing the circles a person is
+  mid-tap on — on a phone too, where R1's `nowrap` tail wraps only while it holds the line (the
+  blind pass's critical: the first cut's rule was defeated at ≤720px and the circles still slid
+  under the thumb). `auth` re-gates instead of explaining. The circle wears `.staff-press` and
+  buzzes a commit like every other bar circle; a THROWN action releases the latch and says the
+  outage.
+- **The field floor is a token (signin-4 / M78, staff half).** `--fs-field: max(1rem,
+var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the roster's fields
+  and role select read it. The 13px role select that zoomed a manager's phone is gone with the
+  roster's inline styles — every size lives in a `.team-*` class now (tokens where one exists).
+- **The takeovers wear the bar (signin-5).** `StaffOutageShell` and `app/staff/error.tsx` used to
+  drop the chrome and float the language switch in a hand-placed row. Both render `<StaffBar>` in
+  the front-door shape (a static `alert` mark — no Screens link, no Lock — the page's name, the
+  switch in the tail's fixed slot) over `.staff-col.entry-col`; the card's heading is an h2 that
+  still takes focus. `check-staff-lang.mjs`'s self-check now asks whether the excluded shell still
+  REACHES a switch (through the bar), not whether it mounts one in its own JSX — traced from the
+  shell's EXPORTED component through live JSX at EVERY hop, the switch identified by its module AND
+  its exported symbol, so an unused import, a dead branch or an uncalled helper holding the bar — a
+  mounted bar that only imports the switch — a mounted bar whose SIBLING export holds it — or the
+  switch parked in a function NESTED in the bar that nothing mounts — a sibling export of the
+  SHELL's own file mounting the bar — the bar in `{false ? … : null}` (or behind `true ||`, a
+  literal `??`, `if (false)`) — a nested `Tail` rendering its `StaffBar` PROP — or a discarded
+  `StaffBar(…)` call — each fail it (the blind pass, Codex rounds 2 and 3 with one evasion each,
+  round 4 with two, round 5 with four; the import edge carries the symbol, the shell is entered
+  at its named export, a named function nested in a body is a separate root entered only by a
+  tag, a lexical binding shadows the import it names, and a call is a closed direction, not an
+  edge).
+- **The front door's own skeleton (signin-1).** `/staff/login` and `/staff/lock` fell back to the
+  floor's 1080 three-zone skeleton. `EntrySkeleton` mirrors the pages — the bar band, then the
+  pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card in EACH
+  route's first shape (the email step's brand line, Google pill and divider; the PIN form's escape
+  link — one field each; a first cut drew two fields for both and shifted the card on resolve,
+  Codex round 2) — the root `aria-busy`, with `shell.loading` carried sr-only for the screen it
+  stands in for. The suite renders the two live forms and holds each variant to their field count,
+  pill count and brand line. The login variant is the FORM's shape for every visitor — a signed-in
+  member lands on the taller card after a height shift; the fallback cannot know the auth state it
+  is waiting on (Codex round 4, filed as K37 with the neutral-shape option).
+- **The doors say "Opening…" (doors-1 / K29) and the More list has a name (doors-2).** A tapped
+  door's note slot reads `floor.door.opening` while its cookie write is awaited (one slot — a busy
+  current door never grows a line) and `.staff-door[aria-busy="true"]` draws the §17 dim with no
+  motion; the More `<ul>` is `aria-labelledby` its heading (the section was; the list was not).
+- **Help pictures are declarations (help-1).** The held card is the REAL `.kds-ticket.kds-ticket-held`
+  shell; `.help-pic-held` and the bump's 56px/`--fs-h3` copy-class are gone, because the board's
+  `--kfs-*` tier is now declared for `.help-pic` in the SAME block as `.kds-root`, and each dial
+  stop for `.help-pic[data-size]` beside `.kds-root[data-size]` — the sheet stamps the board's
+  size on the picture (the Help sheet is portaled outside the root, so the tier never resolved
+  there, and a picture that only knew Small sat beside a board dialed to Large — the blind pass's
+  second critical). `HelpPicture.test.tsx` parses the sheet: every rule whose every selector names
+  a `help-pic-*` class declares placement only (a box property only by enumerated selector), the
+  three stops reach both hosts, and the classes the pictures wear and the classes the sheet
+  declares are one set.
+- **K15.** Five new drafts: the lock's two refusals, the roster's two, the doors' busy word.
+
 ### menu-1 · menu-2 · menu-3 · menu-4 · menu-5 · menu-6 · gloss-1 · gloss-2 · tips-1 · tips-2 — the Menu, Tips and Glossary screens (2026-09-20)
 
 **Slice 6 of the staff-console polish: the manager's three screens, from the audit's ten verified

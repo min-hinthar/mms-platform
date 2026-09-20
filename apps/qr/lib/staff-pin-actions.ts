@@ -2,7 +2,7 @@
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { setStaffPinInput, verifyStaffPinInput } from "@mms/db/schemas";
-import { getStaffAuth, staffGate } from "./staff";
+import { getStaffAuth } from "./staff";
 import { setStaffPin, clearStaffPin, verifyStaffPin, staffHasPin } from "./staff-pin";
 import { LOCK_COOKIE } from "./staff-lock";
 
@@ -14,18 +14,12 @@ import { LOCK_COOKIE } from "./staff-lock";
  * lock affordance, both gated by the existing S1.1a staff identity.
  */
 
-export type PinActionResult = { ok: true } | { ok: false; error: string };
-
-/** W10b — the PIN/lock surfaces are NOT order flow: "keep it on paper" (the shared write-outage
- *  sentence) is nonsense advice for a device lock, so it carries its own. */
-const PIN_OUTAGE =
-  "We can\u2019t reach the sign-in service \u2014 that didn\u2019t save. Try again in a moment.";
-
 /**
  * A4·4 — the set/remove answers are REASON CODES, not sentences: the signed-in card renders each
  * as a dictionary key, so a refusal is never English under the Burmese switch (P2m's defect, on the
- * last surface that had it — the old `PinManager` showed `res.error` verbatim). The lock keeps the
- * sentence shape above; `LockButton` still renders it (its only reader).
+ * last surface that had it — the old `PinManager` showed `res.error` verbatim). The lock answers
+ * the same way since signin-3 (`LockResult` below) — it was the last action here still handing a
+ * sentence to the bar.
  *
  *   · `invalid`  — the format failed the server's own check (the field enforces 4–8 digits, so this
  *                  is the edge path — a hand-built POST);
@@ -76,17 +70,31 @@ export async function removePin(): Promise<PinSetResult> {
 }
 
 /**
+ * signin-3 — the lock's answers are REASON CODES like `setPin`'s. The sentence shape that stood here
+ * was the P2m defect kept alive on the bar: `LockButton` rendered `res.error` verbatim, English
+ * under the Burmese switch, inside the bar's tail.
+ *
+ *   · `outage` — the gate could not verify the caller (W10b: nothing was checked, nothing locked);
+ *   · `auth`   — no staff session behind the POST (the circle refreshes; the page re-gates);
+ *   · `no_pin` — the caller has no PIN. The circle only mounts when one exists, so this is the
+ *                hand-built-POST arm — and the one refusal that would strand the device.
+ */
+export type LockResult = { ok: true } | { ok: false; reason: "outage" | "auth" | "no_pin" };
+
+/**
  * Lock the console on this device. Refuses if the caller hasn't set a PIN — otherwise they'd lock
  * themselves out with no way back except a full sign-out (the deliberate escape, not the happy path).
  * httpOnly + path-scoped cookie so page JS can't flip it; the unlock requires the server-verified PIN.
+ * Every staff role may lock (the floor is `server`, the ladder's lowest rung), so the auth read is
+ * the whole gate — the same three-way read `setPin` and `removePin` make.
  */
-export async function lockConsole(): Promise<PinActionResult> {
-  const gate = await staffGate("server", PIN_OUTAGE);
-  if (!gate.ok) return { ok: false, error: gate.error };
-  const caller = gate.caller;
+export async function lockConsole(): Promise<LockResult> {
+  const auth = await getStaffAuth();
+  if (auth.kind === "unavailable") return { ok: false, reason: "outage" };
+  if (auth.kind !== "staff") return { ok: false, reason: "auth" };
+  const caller = auth.caller;
 
-  if (!(await staffHasPin(caller.staffId)))
-    return { ok: false, error: "Set a PIN before locking." };
+  if (!(await staffHasPin(caller.staffId))) return { ok: false, reason: "no_pin" };
 
   (await cookies()).set(LOCK_COOKIE, "1", {
     httpOnly: true,

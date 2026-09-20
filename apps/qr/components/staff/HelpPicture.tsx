@@ -1,5 +1,6 @@
 import { Card, Icon } from "@mms/ui";
 import type { HelpDoorScreen } from "@/lib/help";
+import type { KdsSize } from "@/lib/kds-size";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -20,18 +21,29 @@ import { START_ARM } from "./register-stage";
  * Decorative and inert — `aria-hidden`, no pointer events (`.help-pic` in globals.css) — the card's
  * sentence carries the meaning. Under Burmese the replica's label comes through <Chrome> like the
  * original's, so it is marked and in the right face.
+ *
+ * help-1 — a `help-pic-*` class is PLACEMENT ONLY (where a replica sits), never a size, a colour
+ * or a border: `HelpPicture.test.tsx` parses the stylesheet and refuses any paint on one. The
+ * board's `--kfs-*` tier is declared on `.help-pic` too, and each dial stop is restated for
+ * `.help-pic[data-size]` (the Help sheet is portaled outside `.kds-root`, so the bump's
+ * `--kfs-clock` used to resolve to nothing and a copy-class sized it; and a picture that only knew
+ * Small sat beside a board dialed to Large). The board's size arrives as `size` and is stamped on
+ * the picture, so every kitchen replica is the control at the size the board is drawing.
  */
 export function HelpPicture({
   screen,
   n,
   lang,
+  size,
 }: {
   screen: HelpDoorScreen;
   n: number;
   lang: StaffLang;
+  /** The board's text size, when the screen has a dial — the kitchen replicas follow it. */
+  size?: KdsSize;
 }) {
   return (
-    <div className="help-pic" aria-hidden>
+    <div className="help-pic" aria-hidden data-size={size}>
       {screen === "kitchen" && n === 1 && (
         <span className="kds-bump help-pic-bump">
           <Chrome lang={lang} k="kds.bump" echo="stack" />{" "}
@@ -51,13 +63,16 @@ export function HelpPicture({
         </span>
       )}
       {screen === "kitchen" && n === 3 && (
-        <span className="kds-line-86 help-pic-86">
+        <span className="kds-line-86">
           <Chrome lang={lang} k="kds.86" echo="stack" />
         </span>
       )}
       {screen === "kitchen" && n === 4 && (
-        <span className="help-pic-held">
-          <span className="kds-bump kds-bump-fire help-pic-bump">
+        // help-1 — the fire button inside the REAL held ticket's shell (`.kds-ticket.kds-ticket-held`:
+        // the ticket's own hairline, dashed and dimmed by the board's own rule), never a dashed box
+        // drawn for the card. The bump keeps the ticket's own margin, so `help-pic-bump` is not here.
+        <span className="kds-ticket kds-ticket-held help-pic-ticket">
+          <span className="kds-bump kds-bump-fire">
             <Chrome lang={lang} k="kds.fire" echo="stack" />
           </span>
         </span>

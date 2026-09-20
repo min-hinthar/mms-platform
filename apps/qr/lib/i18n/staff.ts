@@ -46,6 +46,17 @@ export const STAFF = {
   // control that has children. The Screens circle reuses `shell.screens`.
   "shell.lock": { en: "Lock this tablet", my: "ဒီတက်ဘလက်ကို လော့ခ်ချ" },
   "shell.locking": { en: "Locking…", my: "လော့ခ်ချနေသည်…" },
+  // signin-3 — the Lock circle's two refusals as KEYS (the action answers reason codes now, never a
+  // sentence): the sign-in service unreachable, and the no-PIN arm only a hand-built POST can reach
+  // (the circle mounts only when a PIN exists). Claude-authored drafts pending K15.
+  "shell.lock.err.outage": {
+    en: "We can’t reach the sign-in service — the tablet wasn’t locked. Try again in a moment.",
+    my: "အကောင့်ဝင် စနစ်နဲ့ ဆက်သွယ်မရလို့ တက်ဘလက်ကို လော့ခ်မချရသေးပါ။ ခဏနေ ထပ်စမ်းပါ။",
+  },
+  "shell.lock.err.noPin": {
+    en: "Set a PIN before locking.",
+    my: "မလော့ခ်ချခင် ပင်နံပါတ် အရင် သတ်မှတ်ပါ။",
+  },
   // manager-9 — the shared sheet's ✕ on every console sheet, spoken as sr-only DOM text through
   // <Chrome> (§17's circle idiom). The busy twin is what the ✕ says while an irreversible write is
   // in flight and every exit is refused (§16). Claude-authored drafts pending K15.
@@ -930,6 +941,9 @@ export const STAFF = {
   },
   // A tablet that has walked through a door says so on that door, and opens there next time.
   "floor.door.here": { en: "This tablet opens here", my: "ဒီတက်ဘလက် ဖွင့်တိုင်း ဒီစခရင် ရောက်မယ်" },
+  // doors-1 — what a tapped door says while its cookie write is awaited (the `shell.locking`
+  // idiom): spoken from the note slot, seen as the door's dim. Claude-authored draft pending K15.
+  "floor.door.opening": { en: "Opening…", my: "ဖွင့်နေသည်…" },
   "floor.door.more": { en: "More", my: "နောက်ထပ်" },
   "floor.a11y.doors": { en: "Choose this tablet’s screen", my: "ဒီတက်ဘလက်ရဲ့ စခရင် ရွေးပါ" },
   // A4·2 — the one list holds tables AND counter orders; its name says so, like its heading.
@@ -1500,6 +1514,14 @@ export const STAFF = {
   "floor.team.roleChanged": {
     en: "Role updated.",
     my: "ရာထူး ပြောင်းပြီးပါပြီ။",
+  },
+  // signin-2 — the two refusals the add form can explain itself, SAID in the view's live region
+  // with focus moved to the field (the greyed submit they replace explained nothing, and a disabled
+  // default button blocks Enter too — `SignedInCard`'s rule). Claude-authored drafts pending K15.
+  "floor.team.err.name": { en: "Enter their name.", my: "သူ့နာမည် ထည့်ပါ။" },
+  "floor.team.err.email": {
+    en: "Enter the email they’ll sign in with.",
+    my: "သူ ဝင်မယ့် အီးမေးလ် ထည့်ပါ။",
   },
 
   // ═══ P2 PR B · reg ═══════════════════════════════════════════════════════════

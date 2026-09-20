@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { STAFF } from "@/lib/i18n/staff";
 
 const setStaffDoor = vi.fn();
 const push = vi.fn();
@@ -174,5 +175,58 @@ describe("the door-title CSS matches the DOM the doors render", () => {
     const { container } = render(<StaffDoors lang="my" current={null} more={[]} />);
     expect(container.querySelector('.staff-door-name > [lang="my"]')).toBeNull();
     expect(container.querySelector('.staff-door-name > .chrome-pair > [lang="my"]')).not.toBeNull();
+  });
+});
+
+/**
+ * doors-1 · doors-2 — a tapped door SAYS it is opening (the note slot, one line, never both) and is
+ * drawn dim by a rule that matches the busy DOM with no motion in it; the More list is named by its
+ * heading — the list itself, not only the section around it.
+ */
+describe("the busy word and the More list's name", () => {
+  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  it("a tapped door says it is opening while the write is awaited — in its one note slot — and stops when it settles", async () => {
+    let settle!: (v: unknown) => void;
+    setStaffDoor.mockReturnValue(new Promise((r) => (settle = r)));
+    render(<StaffDoors lang="my" current="kitchen" more={[]} />);
+    fireEvent.click(kitchen());
+    expect(kitchen().getAttribute("aria-busy")).toBe("true");
+    const notes = kitchen().querySelectorAll(".staff-door-here");
+    expect(notes.length).toBe(1);
+    expect(notes[0]!.textContent).toContain(STAFF["floor.door.opening"].my);
+    expect(kitchen().textContent).not.toContain(STAFF["floor.door.here"].my);
+    expect(counter().querySelector(".staff-door-here")).toBeNull();
+    settle({ ok: true, door: "kitchen" });
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/staff/kitchen"));
+    await waitFor(() => expect(kitchen().getAttribute("aria-busy")).toBeNull());
+    expect(kitchen().textContent).not.toContain(STAFF["floor.door.opening"].my);
+    expect(kitchen().textContent).toContain(STAFF["floor.door.here"].my);
+  });
+  it("the busy door is drawn dim by a rule that matches it, with no motion in it", () => {
+    const rule = css.match(/\.staff-door\[aria-busy="true"\]\s*\{([^}]*)\}/);
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toMatch(/opacity:/);
+    expect(rule![1]).not.toMatch(/transition|animation|transform/);
+    setStaffDoor.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<StaffDoors lang="my" current={null} more={[]} />);
+    expect(container.querySelector('.staff-door[aria-busy="true"]')).toBeNull();
+    fireEvent.click(counter());
+    expect(container.querySelector('.staff-door[aria-busy="true"]')).toBe(counter());
+  });
+  it("the More list is named by its heading — the list, not only the section", () => {
+    render(
+      <StaffDoors
+        lang="my"
+        current={null}
+        more={[{ href: "/staff/tips", k: "floor.nav.tips", icon: "gift" }]}
+      />,
+    );
+    const list = screen.getByRole("list", { name: new RegExp(STAFF["floor.door.more"].my) });
+    expect(list.getAttribute("aria-labelledby")).toBe("staff-more-h");
+    expect(document.getElementById("staff-more-h")?.tagName).toBe("H2");
+    expect(list.getAttribute("aria-label")).toBeNull(); // dictionary text on screen, no literal name
   });
 });

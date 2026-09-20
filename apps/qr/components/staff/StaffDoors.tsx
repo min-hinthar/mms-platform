@@ -31,7 +31,8 @@ import { Chrome } from "./Chrome";
  * a flag latched on the way out left two dead links until a reload (blind pass CRITICAL 2).
  *
  * The door this tablet walked through wears the lit-gold cap (`aria-current="true"`) and says so in
- * words: a gold border alone is a status nobody can name.
+ * words: a gold border alone is a status nobody can name. A tapped door says "Opening…" in the same
+ * slot while its write is awaited (doors-1): `aria-busy` is drawn as a dim and spoken by nothing.
  */
 export function StaffDoors({
   lang,
@@ -77,6 +78,21 @@ export function StaffDoors({
     router.push(STAFF_DOOR_TARGET[door]);
   };
 
+  // doors-1 — the door's note slot. While the cookie write is awaited the door SAYS it is opening
+  // (`floor.door.opening`, the `shell.locking` idiom — `aria-busy` alone is drawn as a dim and
+  // spoken by nothing), and the remembered door says so in words the rest of the time. One slot,
+  // so a busy current door never shows both lines and never grows a line taller than its neighbour.
+  const note = (door: StaffDoor) =>
+    busy === door ? (
+      <span className="staff-door-here">
+        <Chrome lang={lang} k="floor.door.opening" echo="inline" />
+      </span>
+    ) : current === door ? (
+      <span className="staff-door-here">
+        <Chrome lang={lang} k="floor.door.here" echo="inline" />
+      </span>
+    ) : null;
+
   return (
     <>
       <nav className="staff-doors" aria-label={sx(lang, "floor.a11y.doors")}>
@@ -97,11 +113,7 @@ export function StaffDoors({
             <span className="staff-door-sub">
               <Chrome lang={lang} k="floor.door.kitchen.sub" echo="stack" />
             </span>
-            {current === "kitchen" && (
-              <span className="staff-door-here">
-                <Chrome lang={lang} k="floor.door.here" echo="inline" />
-              </span>
-            )}
+            {note("kitchen")}
           </span>
         </Link>
         <Link
@@ -120,11 +132,7 @@ export function StaffDoors({
             <span className="staff-door-sub">
               <Chrome lang={lang} k="floor.door.counter.sub" echo="stack" />
             </span>
-            {current === "counter" && (
-              <span className="staff-door-here">
-                <Chrome lang={lang} k="floor.door.here" echo="inline" />
-              </span>
-            )}
+            {note("counter")}
           </span>
         </Link>
       </nav>
@@ -141,7 +149,8 @@ export function StaffDoors({
  * beneath, and a disclosure chevron; two columns on a tablet, one on a phone, hairlines drawn once.
  * Still one `role="list"` of real links, named by the visible "More" heading. A tile's label is a
  * plain key: the one label that carried a count (approvals) moved to the bar's circle with A4·2 and
- * left the grid with A4·5.
+ * left the grid with A4·5. The list is `aria-labelledby` the heading (doors-2): the section around
+ * it was, and a list with a role and no name of its own is announced as a bare "list".
  */
 export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) {
   if (more.length === 0) return null;
@@ -150,7 +159,11 @@ export function MoreGrid({ lang, more }: { lang: StaffLang; more: MoreTile[] }) 
       <h2 id="staff-more-h" className="staff-more-head">
         <Chrome lang={lang} k="floor.door.more" />
       </h2>
-      <ul className="staff-inset" role="list">
+      {/* doors-2 — the LIST is named by the heading, not only the section around it: `.staff-inset`
+          is `list-style: none`, so `role="list"` is load-bearing and a list with a role and no name
+          is announced as a bare "list". The heading is dictionary text through <Chrome>, so no
+          literal aria-label (rule 3) — `aria-labelledby` points at what is already on screen. */}
+      <ul className="staff-inset" role="list" aria-labelledby="staff-more-h">
         {more.map((t) => (
           <li key={t.href}>
             <Link href={t.href} className="staff-row staff-press">

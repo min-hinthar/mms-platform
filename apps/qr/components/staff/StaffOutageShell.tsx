@@ -1,7 +1,6 @@
-import type { CSSProperties } from "react";
 import { OutageRefresh } from "@/components/OutageRefresh";
 import { Chrome } from "@/components/staff/Chrome";
-import { StaffLangSwitch } from "@/components/staff/StaffLangSwitch";
+import { StaffBar } from "@/components/staff/StaffBar";
 import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { readStaffLang } from "@/lib/staff-lang-server";
 
@@ -16,13 +15,23 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
  * were. Explicit that the SIGN-IN is fine: the worst misread of an outage screen is "I've been
  * logged out".
  *
- * P2 · OPEN-ITEMS P2h — it now speaks the device language, and it MOUNTS THE LANGUAGE CONTROL.
+ * P2 · OPEN-ITEMS P2h — it speaks the device language, and it MOUNTS THE LANGUAGE CONTROL. This
+ * shell is a full-page takeover: it REPLACES the page, so whatever control that page had is gone
+ * with it, on every staff page that renders it, during the outage it exists to explain. It has the
+ * strongest claim on the switch of any surface in the console — `setStaffLang` is deliberately
+ * UNGATED (see its docblock) precisely so it still works when `getStaffAuth()` answers
+ * `unavailable`, and here nothing else on the screen does.
  *
- * Both halves of that matter and the second is the point. This shell is a full-page takeover: it
- * REPLACES the page, so whatever control that page had is gone with it, on the fourteen pages that
- * render it, during the outage it exists to explain. It has the strongest claim on the switch of any
- * surface in the console — `setStaffLang` is deliberately UNGATED (see its docblock) precisely so it
- * still works when `getStaffAuth()` answers `unavailable`, and here nothing else on the screen does.
+ * signin-5 — the switch rides the BAR. The takeover used to drop the chrome (a hand-sized `<main>`,
+ * the switch floating above the card at a position it had nowhere else), so the one screen that
+ * changes everything also changed where the controls were (§17: a parent learns WHERE once). It now
+ * wears the same `<StaffBar>` as the page it replaces, in the front-door shape: a STATIC mark in the
+ * leading slot (no Screens circle — the doors need the very auth answer this shell says is
+ * unknowable — and no Lock, which needs a verified PIN), the page's name, the switch in the tail's
+ * fixed slot. The bar's h1 is the page's; the card's heading is an h2 and still takes focus on
+ * mount, so what a screen reader hears first is unchanged. The card's heading repeats the bar's
+ * words on purpose: `OutageState` requires a heading (it is the focus target), and a second key for
+ * a screen that exists to be rare would be one more Burmese draft for K15.
  *
  * `what` is a dictionary KEY, not a sentence. It was a free English string threaded from twenty-one
  * call sites; every one of them named a noun the `what.*` family already carries, and a key is the
@@ -30,10 +39,10 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
  *
  * The copy goes through `<Chrome>` rather than as plain strings, which is why `OutageState`'s three
  * copy props — and, after a blind audit read the card as a whole, its RETRY LABEL too — widened to
- * `ReactNode`: a Burmese heading passed as a bare string would land in a `<p>`
- * with no `lang`, i.e. in the Latin face, tracked, at Latin leading, and announced as English — the
- * exact defect `check-staff-lang.mjs` rule 5 exists for. `titleMy` stays null: that prop is the
- * pre-P2 "English title + Padauk companion" shape, and `<Chrome>` already emits the pair, MY first.
+ * `ReactNode`: a Burmese heading passed as a bare string would land in a `<p>` with no `lang`, i.e.
+ * in the Latin face, tracked, at Latin leading, and announced as English — the exact defect
+ * `check-staff-lang.mjs` rule 5 exists for. `titleMy` stays null: that prop is the pre-P2 "English
+ * title + Padauk companion" shape, and `<Chrome>` already emits the pair, MY first.
  *
  * ⚠️ THE RETRY BUTTON IS PART OF THE SCREEN. The first cut localized the heading and both bodies and
  * left `RetryButton`'s hardcoded `label="Try again"` — a Burmese card with an English button, and
@@ -43,35 +52,22 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
 export async function StaffOutageShell({ what = "what.console" }: { what?: WhatKey }) {
   const lang = await readStaffLang();
   return (
-    <main style={wrap}>
-      <div style={switchRow}>
-        <StaffLangSwitch lang={lang} />
+    <main className="staff-main">
+      <StaffBar lang={lang} title="out.shell.title" leading={{ kind: "here", icon: "alert" }} />
+      <div className="staff-col entry-col">
+        <OutageRefresh
+          focusOnMount
+          headingLevel="h2"
+          titleMy={null}
+          title={<Chrome lang={lang} k="out.shell.title" echo="stack" />}
+          body={
+            <Chrome lang={lang} k="out.shell.body" vars={{ what: ts(lang, what) }} echo="stack" />
+          }
+          escalatedBody={<Chrome lang={lang} k="out.shell.escalated" echo="stack" />}
+          retryLabel={<Chrome lang={lang} k="out.shell.retry" echo="stack" />}
+          retryBusyLabel={<Chrome lang={lang} k="out.shell.retrying" echo="stack" />}
+        />
       </div>
-      <OutageRefresh
-        focusOnMount
-        headingLevel="h1"
-        titleMy={null}
-        title={<Chrome lang={lang} k="out.shell.title" echo="stack" />}
-        body={
-          <Chrome lang={lang} k="out.shell.body" vars={{ what: ts(lang, what) }} echo="stack" />
-        }
-        escalatedBody={<Chrome lang={lang} k="out.shell.escalated" echo="stack" />}
-        retryLabel={<Chrome lang={lang} k="out.shell.retry" echo="stack" />}
-        retryBusyLabel={<Chrome lang={lang} k="out.shell.retrying" echo="stack" />}
-      />
     </main>
   );
 }
-
-const wrap: CSSProperties = {
-  maxWidth: 640,
-  margin: "0 auto",
-  padding: "var(--s8) var(--s6)",
-};
-// Above the card, trailing edge: the control is the one thing on this screen that still works, and
-// it must not sit between the focused heading and the retry the person came here to tap.
-const switchRow: CSSProperties = {
-  display: "flex",
-  justifyContent: "flex-end",
-  marginBottom: "var(--s4)",
-};
