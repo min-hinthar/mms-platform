@@ -1,5 +1,8 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { BRAND_NAME } from "@/lib/brand";
+import { shelfWait } from "@/lib/kds-time";
+import { boardColumnFit } from "@/lib/board-fit";
 import { useWakeLock } from "@/lib/useWakeLock";
 import { raceTimeout } from "@/lib/staff-outage";
 import {
@@ -13,6 +16,7 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome } from "@/components/staff/Chrome";
 import type { BoardPulse, PulseDish, PulseTable } from "@/lib/board-pulse";
 import type { StaffLang } from "@/lib/staff-lang";
+import type React from "react";
 import { KdsChime } from "@/lib/kds-sound";
 
 /**
@@ -93,7 +97,26 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
    * staff-session path pays a `getUser()` round-trip per poll before the orders read.
    */
   const inFlight = useRef(false);
+  // board-4 — the sound chip is a TOGGLE that stays mounted (it used to unmount on the tap that
+  // armed it, dropping focus to <body> with no mute afterwards). `soundOn` drives the chip; the ref
+  // is what the poll reads, because `poll` is a `useCallback` over `token` alone and a state read
+  // inside it would be the value from the render that created it.
   const [soundOn, setSoundOn] = useState(false);
+  const soundOnRef = useRef(false);
+  // The TV's browser refused audio: said ONCE through the one status node, then the node goes back
+  // to the poll state. The chip stays live — a refusal is the browser's, and a manager who fixes the
+  // TV's audio must be able to try again (over-blocking is the same defect as under-blocking).
+  const [soundNote, setSoundNote] = useState(false);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // One arm at a time: two taps inside `await arm()` both took the arm path and both played the
+  // confirmation tone (the blind pass, slice 5).
+  const arming = useRef(false);
+  useEffect(
+    () => () => {
+      if (noteTimer.current) clearTimeout(noteTimer.current);
+    },
+    [],
+  );
   const chime = useRef<KdsChime | null>(null);
 
   useWakeLock(); // a TV browser tab must never sleep mid-service
@@ -164,7 +187,8 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         for (const c of newlyReady) next.set(c, ++flashNonce.current);
         return next;
       });
-      if (newlyReady.length > 0) chime.current?.play("pickup");
+      // Muted (the toggle off) is silent; armed-but-muted keeps the engine so the next tap is instant.
+      if (newlyReady.length > 0 && soundOnRef.current) chime.current?.play("pickup");
 
       setState({ kind: "live", orders: data.orders, pulse: data.pulse ?? null, stale: false });
     } catch {
@@ -188,18 +212,36 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
     };
   }, [poll]);
 
-  const enableSound = async () => {
-    chime.current ??= new KdsChime();
-    const ok = await chime.current.arm();
-    setSoundOn(ok);
-    if (ok) chime.current.play("pickup");
+  const toggleSound = async () => {
+    if (soundOnRef.current) {
+      soundOnRef.current = false;
+      setSoundOn(false);
+      return;
+    }
+    if (arming.current) return;
+    arming.current = true;
+    try {
+      chime.current ??= new KdsChime();
+      const ok = await chime.current.arm();
+      if (!ok) {
+        setSoundNote(true);
+        if (noteTimer.current) clearTimeout(noteTimer.current);
+        noteTimer.current = setTimeout(() => setSoundNote(false), SOUND_NOTE_MS);
+        return;
+      }
+      soundOnRef.current = true;
+      setSoundOn(true);
+      chime.current.play("pickup");
+    } finally {
+      arming.current = false;
+    }
   };
 
   if (state.kind === "unlinked") {
     return (
       <div className="orb-root dark">
         <header className="orb-head">
-          <h1 className="orb-title">Mandalay Morning Star</h1>
+          <h1 className="orb-title">{BRAND_NAME}</h1>
         </header>
         {/* P2 — the server's sentence is ENGLISH and this screen may be Burmese, so render OUR copy
             keyed on the reason. There are exactly two: `readBoardRefusal` returns a verdict only
@@ -210,8 +252,11 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
           {state.reason === "denied" ? ts(lang, "board.denied") : ts(lang, "board.notConfigured")}
         </p>
+        {/* board-5 — through the dictionary, under the refusal it follows: this was a bare English
+            sentence on a Burmese screen. The Latin path rides the `{x}` slot, which <Chrome> marks
+            `lang="en"` inside the Burmese run. */}
         <p className="orb-empty">
-          A manager can sign in on this screen at <strong>/staff/login?next=/board</strong>.
+          <Chrome lang={lang} k="board.signin" vars={{ x: "/staff/login?next=/board" }} />
         </p>
       </div>
     );
@@ -225,7 +270,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
     return (
       <div className="orb-root dark">
         <header className="orb-head">
-          <h1 className="orb-title">Mandalay Morning Star</h1>
+          <h1 className="orb-title">{BRAND_NAME}</h1>
         </header>
         <p className="orb-empty" role="status" lang={lang === "my" ? "my" : undefined}>
           {ts(lang, state.escalated ? "board.offline.still" : "board.offline")}
@@ -238,74 +283,71 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
   // A stale snapshot keeps its names and codes (they do not rot) and drops every AGE — the pulse's
   // below, and each card's wait minutes (Codex round 1 on A4·1).
   const stale = state.kind === "live" && state.stale;
-  const preparing = orders.filter((o) => o.status === "preparing");
+  // board-1 — the cut falls on the end that matters least in each column. The route sends the
+  // newest order first (`created_at` desc), which for PREPARING puts the bag about to come up at the
+  // BOTTOM; reversed, the next bag up leads and the cut hides what was just placed — those parties
+  // are told by the `+N more` row that they are in the queue.
+  const preparing = orders.filter((o) => o.status === "preparing").reverse();
   // Freshest call-outs at the top — the person walking up scans the top of the Ready column.
   const ready = orders
     .filter((o) => o.status === "ready")
     .sort((a, b) => (b.readyAt ?? "").localeCompare(a.readyAt ?? ""));
 
   return (
-    <div className="orb-root dark">
+    // board-2 — `data-stale` is the tell at three metres: the cards fall to the secondary ink and the
+    // status line grows (globals.css); the ONE live region is unchanged, so nothing announces twice.
+    <div className="orb-root dark" data-stale={stale || undefined}>
       <header className="orb-head">
         <h1 className="orb-title">
-          <span aria-hidden="true">✦</span> Mandalay Morning Star
+          <span aria-hidden="true">✦</span> {BRAND_NAME}
         </h1>
         {/* ONE polite region: poll state only (card moves are visual + chime; a TV isn't an SR surface,
             but the region keeps the page honest for anyone on a browser). */}
         {/* ONE polite region, single-voice: a bilingual live region would announce everything twice. */}
         <p className="orb-status" role="status" lang={lang === "my" ? "my" : undefined}>
-          {state.kind === "loading"
-            ? ts(lang, "board.connecting")
-            : state.kind === "live" && state.stale
-              ? ts(lang, "board.reconnecting")
-              : tf(lang, "board.status", { n: ready.length, total: preparing.length })}
+          {soundNote
+            ? ts(lang, "board.sound.refused")
+            : state.kind === "loading"
+              ? ts(lang, "board.connecting")
+              : state.kind === "live" && state.stale
+                ? ts(lang, "board.reconnecting")
+                : tf(lang, "board.status", { n: ready.length, total: preparing.length })}
         </p>
-        {!soundOn && (
-          <button
-            type="button"
-            className="kds-chip"
-            onClick={enableSound}
-            lang={lang === "my" ? "my" : undefined}
-          >
-            {ts(lang, "board.sound")}
-          </button>
-        )}
+        {/* board-4 — one chip, both states: the pressed word is `Sound on` under the shared lit cap
+            (`.kds-chip[aria-pressed="true"]`), a second tap mutes; focus never leaves the element.
+            The visible text IS the name (no aria-label — rule 3's containment pair). */}
+        <button
+          type="button"
+          className="kds-chip staff-press"
+          aria-pressed={soundOn}
+          onClick={toggleSound}
+          lang={lang === "my" ? "my" : undefined}
+        >
+          {ts(lang, soundOn ? "board.sound.on" : "board.sound")}
+        </button>
       </header>
 
       <div className="orb-cols">
-        <section className="orb-col" aria-label={ts(lang, "board.col.preparing")}>
-          <BilingualHeading lang={lang} k="board.col.preparing" />
-          {preparing.length === 0 ? (
-            <p className="orb-empty">—</p>
-          ) : (
-            <ul role="list">
-              {preparing.map((o) => (
-                <BoardCard key={o.code} order={o} flash={null} lang={lang} stale={stale} />
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className="orb-col orb-col-ready" aria-label={ts(lang, "board.col.ready")}>
-          <BilingualHeading lang={lang} k="board.col.ready" />
-          {ready.length === 0 ? (
+        <BoardColumn
+          lang={lang}
+          k="board.col.preparing"
+          orders={preparing}
+          empty={<p className="orb-empty">—</p>}
+          flashes={null}
+          stale={stale}
+        />
+        <BoardColumn
+          lang={lang}
+          k="board.col.ready"
+          orders={ready}
+          empty={
             <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
               {ts(lang, "board.empty")}
             </p>
-          ) : (
-            <ul role="list">
-              {ready.map((o) => (
-                <BoardCard
-                  key={o.code}
-                  order={o}
-                  flash={flashes.get(o.code) ?? null}
-                  lang={lang}
-                  stale={stale}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
+          }
+          flashes={flashes}
+          stale={stale}
+        />
       </div>
 
       {/* ⚠️ `stale` NULLS THE PULSE, and that asymmetry with the Ready column is the point. The
@@ -326,6 +368,99 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         known={state.kind === "live"}
       />
     </div>
+  );
+}
+
+/** How long the sound refusal holds the status node before it goes back to the poll state. */
+const SOUND_NOTE_MS = 6_000;
+
+/**
+ * board-1 — rows a column can show, MEASURED, never a constant: the list's box divided by the
+ * tallest rendered row. `Infinity` until both exist (an empty or unlaid-out column shows everything;
+ * the CSS clip holds it on-screen meanwhile).
+ *
+ * ⚠️ THE BOX MUST NOT DEPEND ON THE ROWS. The `<ul>` is `flex: 1 1 auto` in its column (globals.css,
+ * pinned by the suite), so its height is the column's remaining space whatever it holds. The first
+ * cut measured a content-sized list — the flex default — and read its own output back: a new bag
+ * shrank the shown rows, which shrank the box, which shrank the cap, down to a lone `+N more`; an
+ * overflowing column cycled that forever (the blind pass, slice 5). The same reason every row is ONE
+ * line (`.orb-name` ellipsizes): the division assumes rows of one height, and a wrapped name would
+ * push the `+N more` row under the clip in silence.
+ *
+ * Re-measured on every snapshot (the effect keys on the orders array) and, via ResizeObserver, when
+ * the list or any rendered row resizes — a TV that changes zoom. The `<ul>` is ALWAYS mounted so
+ * the ref is stable (a conditional target breaks observers). The `+N more` row renders INSIDE the
+ * list as its last item, which is why the fit reserves a slot for it and why the box never changes
+ * as the row comes and goes. `setCap` with an unchanged value is a React no-op, so a re-measure
+ * that finds the same cap does not re-render.
+ */
+function useColumnFit(orders: readonly BoardOrder[]): {
+  ref: RefObject<HTMLUListElement | null>;
+  cap: number;
+} {
+  const ref = useRef<HTMLUListElement>(null);
+  const [cap, setCap] = useState(Infinity);
+  useEffect(() => {
+    const ul = ref.current;
+    if (!ul) return;
+    const rows = () => [...ul.querySelectorAll("li:not(.orb-more)")];
+    const measure = () => {
+      const box = ul.getBoundingClientRect().height;
+      const rowH = Math.max(0, ...rows().map((r) => r.getBoundingClientRect().height));
+      setCap(box > 0 && rowH > 0 ? Math.floor(box / rowH) : Infinity);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(ul);
+    for (const r of rows()) ro.observe(r);
+    return () => ro.disconnect();
+  }, [orders]);
+  return { ref, cap };
+}
+
+function BoardColumn({
+  lang,
+  k,
+  orders,
+  empty,
+  flashes,
+  stale,
+}: {
+  lang: StaffLang;
+  k: "board.col.preparing" | "board.col.ready";
+  orders: BoardOrder[];
+  empty: React.ReactNode;
+  flashes: Map<string, number> | null;
+  stale: boolean;
+}) {
+  const { ref, cap } = useColumnFit(orders);
+  const fit = boardColumnFit(orders.length, cap);
+  return (
+    <section
+      className={k === "board.col.ready" ? "orb-col orb-col-ready" : "orb-col"}
+      aria-label={ts(lang, k)}
+    >
+      <BilingualHeading lang={lang} k={k} />
+      {orders.length === 0 && empty}
+      <ul role="list" ref={ref}>
+        {orders.slice(0, fit.shown).map((o) => (
+          <BoardCard
+            key={o.code}
+            order={o}
+            flash={flashes?.get(o.code) ?? null}
+            lang={lang}
+            stale={stale}
+          />
+        ))}
+        {fit.more > 0 && (
+          // The room is told what the cut hid — the KDS's own `+N more` words, no new copy.
+          <li className="orb-more" lang={lang === "my" ? "my" : undefined}>
+            {tf(lang, "kds.more", { n: fit.more })}
+          </li>
+        )}
+      </ul>
+    </section>
   );
 }
 
@@ -537,13 +672,15 @@ function BoardCard({
   const wait = order.readyMinutes ?? null;
   return (
     <li className={`orb-card${flash != null ? " orb-card-flash" : ""}`}>
-      <span>{order.name ?? `#${order.code}`}</span>
+      <span className="orb-name">{order.name ?? `#${order.code}`}</span>
       {order.name && <span className="orb-code">#{order.code}</span>}
       {wait !== null && !stale && (
         <span className="orb-wait" lang={lang === "my" ? "my" : undefined}>
-          {wait === 0
-            ? ts(lang, "board.card.justNow")
-            : tf(lang, "board.card.wait", { mins: wait })}
+          {/* K28(b) — the ceiling lives in `shelfWait`; this card renders the key it is handed. */}
+          {(() => {
+            const w = shelfWait(wait);
+            return w.k === "board.card.wait" ? tf(lang, w.k, { mins: w.mins }) : ts(lang, w.k);
+          })()}
         </span>
       )}
     </li>

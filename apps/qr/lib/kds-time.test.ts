@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { localizeCount, tf } from "./i18n/fill";
-import { elapsedParts, fmtElapsed, spokenElapsed } from "./kds-time";
+import {
+  elapsedParts,
+  fmtElapsed,
+  spokenElapsed,
+  shelfWait,
+  SHELF_WAIT_CEILING_MIN,
+} from "./kds-time";
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -57,5 +63,25 @@ describe("K28 — one elapsed-time formatter, with a ceiling", () => {
     expect(spokenElapsed("my", 3 * DAY)).toBe(tf("my", "kds.age.days", {}));
     // …and a prose count takes Burmese numerals under my (the owner's numerals rule).
     expect(spokenElapsed("my", 3 * MIN + 42_000)).toMatch(/[၀-၉]/);
+  });
+});
+
+describe("K28(b) — the shelf wait on the wall has a ceiling", () => {
+  it("zero minutes is `Just now`, never `0 min`", () => {
+    expect(shelfWait(0)).toEqual({ k: "board.card.justNow" });
+  });
+  it("under the ceiling the minutes carry information", () => {
+    // MUTATION: `m > 0` → `m >= 0` on the justNow branch, or the ceiling at `> 60` — red at the edges.
+    expect(shelfWait(1)).toEqual({ k: "board.card.wait", mins: 1 });
+    expect(shelfWait(SHELF_WAIT_CEILING_MIN - 1)).toEqual({ k: "board.card.wait", mins: 59 });
+  });
+  it("at the ceiling and past it the wall says `Over an hour` — a bigger number is not information a guest can use", () => {
+    // MUTATION: drop the ceiling branch — `1440 min` to the room, red.
+    expect(shelfWait(SHELF_WAIT_CEILING_MIN)).toEqual({ k: "board.card.waitLong" });
+    expect(shelfWait(1440)).toEqual({ k: "board.card.waitLong" });
+  });
+  it("floors a fractional count and clamps a negative one to zero (a route that predates the field, or skew)", () => {
+    expect(shelfWait(4.9)).toEqual({ k: "board.card.wait", mins: 4 });
+    expect(shelfWait(-3)).toEqual({ k: "board.card.justNow" });
   });
 });

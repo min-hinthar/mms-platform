@@ -686,7 +686,10 @@ built.
   ONE rest class every pressed chip outside the KDS root wears — the loss sheet's segment and
   reason rows, the menu browser's categories, the mod sheet's options, the cash settle's tip chips
   — because an INLINE fill beats any class, so five `*On` style objects had kept the rule from ever
-  reaching them. Segments never drop under 44px (O-E): the thumb IS the target.
+  reaching them. Segments never drop under 44px (O-E): the thumb IS the target. The seventh is
+  `.orb-table-up` (slice 5, board-9): the wall's `Food up` chip, an `<li>` pressed by its class
+  rather than an attribute — it had worn a gold OUTLINE, which is §2's idle idiom, while the band's
+  own comment called it the cap.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).

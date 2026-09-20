@@ -66,3 +66,26 @@ export function spokenElapsed(lang: StaffLang, ms: number): string {
       return tf(lang, "kds.age.days", {});
   }
 }
+
+/**
+ * K28(b) — the Ready shelf's wait on the /board wall, from the route's WHOLE-MINUTE count (a TV
+ * does no clock arithmetic of its own — `readyMinutes` is derived server-side against the DB clock,
+ * and re-deriving it here would be the two-clock-domain skew `staff-outage.ts` documents). Under an
+ * hour the minutes carry information; past it they do not — a bag on the shelf for `1440 min` tells
+ * the room nothing `Over an hour` does not, and reads as a broken clock. The ceiling is a guest-wall
+ * decision, distinct from the KDS's `2h 44m` (a cook wants the figure; a guest wants the verdict).
+ * Returns the KEY and its slot, never a string, so the card renders it through the dictionary.
+ */
+export type ShelfWait =
+  | { k: "board.card.justNow" }
+  | { k: "board.card.wait"; mins: number }
+  | { k: "board.card.waitLong" };
+
+export const SHELF_WAIT_CEILING_MIN = 60;
+
+export function shelfWait(mins: number): ShelfWait {
+  const m = Math.max(0, Math.floor(mins));
+  if (m === 0) return { k: "board.card.justNow" };
+  if (m >= SHELF_WAIT_CEILING_MIN) return { k: "board.card.waitLong" };
+  return { k: "board.card.wait", mins: m };
+}

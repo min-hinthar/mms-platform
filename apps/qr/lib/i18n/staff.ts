@@ -1735,6 +1735,9 @@ export const STAFF = {
   // count beside it is Latin by construction, and one wall renders a duration one way.
   "board.card.wait": { en: "{mins} min", my: "{mins} မိနစ်" },
   "board.card.justNow": { en: "Just now", my: "ခုလေးတင်" },
+  // K28(b) — the shelf wait's ceiling on the guest wall: past an hour the figure is not information
+  // (`shelfWait`, lib/kds-time.ts). Claude-authored draft pending K15.
+  "board.card.waitLong": { en: "Over an hour", my: "တစ်နာရီကျော်" },
   "board.connecting": { en: "Connecting…", my: "ဆက်သွယ်နေပါတယ်…" },
   "board.reconnecting": {
     en: "Reconnecting — showing the last update",
@@ -1749,9 +1752,20 @@ export const STAFF = {
     my: "ယူလို့ရပြီးတဲ့ အော်ဒါတွေ ဒီမှာ ပေါ်ပါမယ်။",
   },
   "board.sound": { en: "Enable sound", my: "အသံ ဖွင့်" },
-  "board.unlinked": {
-    en: "This screen isn’t linked yet — ask a manager to set it up.",
-    my: "ဒီစခရင်ကို မချိတ်ရသေးပါ — မန်နေဂျာကို ချိတ်ပေးဖို့ ပြောပါ။",
+  // board-4 — the chip is a TOGGLE now (it used to unmount on the tap that armed it): the pressed
+  // state's word, and the one sentence the status node says when the TV's browser refuses audio.
+  // Claude-authored drafts pending K15.
+  "board.sound.on": { en: "Sound on", my: "အသံ ဖွင့်ထား" },
+  "board.sound.refused": {
+    en: "This screen can’t play sound — check the TV’s audio.",
+    my: "ဒီစခရင်က အသံ မထွက်နိုင်ပါ — တီဗွီ အသံကို စစ်ပါ။",
+  },
+  // board-5 — the unlinked screen's one instruction, through the dictionary (it was a bare English
+  // sentence under a Burmese refusal); `{x}` is the Latin path, which <Chrome> marks `lang="en"`.
+  // Claude-authored draft pending K15.
+  "board.signin": {
+    en: "A manager can sign in on this screen at {x}.",
+    my: "မန်နေဂျာက ဒီစခရင်မှာ {x} ကနေ ဝင်နိုင်ပါတယ်။",
   },
   "board.offline": {
     en: "Can’t reach the ordering system — this screen isn’t updating. Trying again…",
@@ -1768,10 +1782,6 @@ export const STAFF = {
   "board.denied": {
     en: "This screen isn’t authorized for the order-ready board.",
     my: "ဒီစခရင်ကို အော်ဒါ ဘုတ်အတွက် ခွင့်မပြုထားပါ။",
-  },
-  "board.unavailable": {
-    en: "We can’t read the board right now.",
-    my: "ဘုတ်ကို အခု မဖတ်နိုင်သေးပါ။",
   },
 
   // ── promo (P3) — the register's apply/remove on the table drill-down ───────
