@@ -61,11 +61,13 @@ describe("P7·3 — the sizes the Help sheet quotes are the sizes the board rend
         new RegExp(`${selector.replace(/[.[\]"]/g, "\\$&")}\\s*\\{([^}]*)\\}`),
       );
       expect(block, selector).not.toBeNull();
+      // Any value form is a tier (a `px` or `clamp()` declaration must be restated too); only the
+      // rem ones take part in the growth check below.
       return new Map(
-        [...block![1]!.matchAll(/(--kfs-[a-z-]+):\s*([\d.]+)rem/g)].map((m) => [
-          m[1]!,
-          Number(m[2]),
-        ]),
+        [...block![1]!.matchAll(/(--kfs-[a-z-]+):\s*([^;]+);/g)].map((m) => {
+          const rem = /^([\d.]+)rem$/.exec(m[2]!.trim());
+          return [m[1]!, rem ? Number(rem[1]) : NaN];
+        }),
       );
     };
     const root = tiers(".kds-root");
@@ -76,7 +78,8 @@ describe("P7·3 — the sizes the Help sheet quotes are the sizes the board rend
         [...root.keys()].sort(),
       );
       // Each tier grows monotonically with the dial, and the clock stays under the ticket identity.
-      for (const [name, rem] of root) expect(over.get(name)!, name).toBeGreaterThan(rem);
+      for (const [name, rem] of root)
+        if (!Number.isNaN(rem)) expect(over.get(name)!, name).toBeGreaterThan(rem);
       expect(over.get("--kfs-clock")!).toBeLessThan(over.get("--kfs-id")!);
     }
     expect(root.get("--kfs-clock")!).toBeLessThan(root.get("--kfs-id")!);

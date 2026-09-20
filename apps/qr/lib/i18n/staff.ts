@@ -277,6 +277,7 @@ export const STAFF = {
     en: "{x} is already in the kitchen.",
     my: "{x} က မီးဖိုချောင်မှာ ရောက်နေပြီ။",
   },
+  "kds.err.86.gone": { en: "{x} is no longer on the menu.", my: "{x} က မီနူးမှာ မရှိတော့ပါ။" },
   "kds.err.invalid": {
     en: "That request didn’t make sense — reload the board.",
     my: "တောင်းဆိုချက် မမှန်ပါ — ဘုတ်ကို ပြန်ဖွင့်ပါ။",

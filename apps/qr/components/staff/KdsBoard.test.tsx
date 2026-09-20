@@ -26,6 +26,7 @@ const HOUR = 3_600_000;
 
 const setItemSoldOut = vi.fn(() => Promise.resolve({ ok: true as const, soldOut: true }));
 const bumpTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
+const recallTicket = vi.fn((): Promise<KitchenActionResult> => Promise.resolve({ ok: true }));
 const haptic = vi.fn();
 // kitchen-8 — the device's remembered sound preference and whether this "device" has audio.
 let soundWanted = false;
@@ -82,7 +83,7 @@ vi.mock("@/lib/kitchen", () => ({
   bumpTicket: (...a: unknown[]) => bumpTicket(...(a as [])),
   bumpLine: () => Promise.resolve({ ok: true }),
   fireTicketNow: () => Promise.resolve({ ok: true }),
-  recallTicket: () => Promise.resolve({ ok: true }),
+  recallTicket: (...a: unknown[]) => recallTicket(...(a as [])),
 }));
 vi.mock("@/lib/menu-availability", () => ({
   setItemSoldOut: (...a: unknown[]) => setItemSoldOut(...(a as [])),
@@ -118,6 +119,7 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { KdsBoard } = await import("./KdsBoard");
 const { tf, localizeCount } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const { sx } = await import("@/lib/staff-labels");
 
 afterEach(() => {
   cleanup();
@@ -125,6 +127,8 @@ afterEach(() => {
   setItemSoldOut.mockImplementation(() => Promise.resolve({ ok: true as const, soldOut: true }));
   bumpTicket.mockReset();
   bumpTicket.mockImplementation(() => Promise.resolve({ ok: true }));
+  recallTicket.mockReset();
+  recallTicket.mockImplementation(() => Promise.resolve({ ok: true }));
   haptic.mockReset();
   setKdsSoundWanted.mockReset();
   soundWanted = false;
@@ -236,8 +240,22 @@ describe("§17 — a tapped control is aria-disabled, keeps focus, and refuses r
     });
   });
 
-  it("no action button on the board is ever natively disabled", () => {
-    const { container } = mount();
+  it("no action button on the board is ever natively disabled — at the pager's edge, on a held line", () => {
+    // Nine tickets at page 0 puts the ‹ button at its refused edge; the held ticket is on page 2,
+    // so the board is paged there and its line is the refused one. Before §17 both were native
+    // `disabled` — a one-ticket fixture with nothing in flight rendered zero `:disabled` buttons
+    // on the OLD code too, so this case could not fail until the refused states were on screen.
+    const { container, getByRole } = mount("en", nineTickets(true));
+    const prev = getByRole("button", { name: sx("en", "kds.a11y.prevPage") });
+    expect(prev.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(getByRole("button", { name: sx("en", "kds.a11y.nextPage") }));
+    const heldLine = container.querySelector(".kds-ticket-held .kds-line")!;
+    expect(heldLine).not.toBeNull();
+    expect(heldLine.getAttribute("aria-disabled")).toBe("true");
+    // …and the slot line names WHY it refuses.
+    const slot = container.querySelector(".kds-ticket-held .kds-slot")!;
+    expect(heldLine.getAttribute("aria-describedby")).toBe(slot.id);
+    // MUTATION: `disabled={safePage === 0}` on ‹ or `disabled={pending || held}` on the line — red.
     expect(container.querySelectorAll("button:disabled")).toHaveLength(0);
   });
 });
@@ -270,10 +288,12 @@ describe("§2 — the console's four pressed selectors share ONE lit-cap rule", 
     '.staff-lang-btn[aria-pressed="true"]',
     '.help-size-row[aria-pressed="true"]',
   ];
-  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    "",
-  );
+  // Comments stripped, and every at-rule prelude (`@media … {`) removed so a block nested inside
+  // one is matched by its OWN selector — otherwise a second fill parked under `@media (min-width: 0)`
+  // would be counted as the at-rule's block and the guard would read green (LEARNINGS #60).
+  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/@(media|supports|layer|container)[^{]*\{/g, "");
   /** Every rule block whose selector list names `sel` exactly (as a whole comma-separated entry). */
   const blocksNaming = (sel: string) =>
     [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].filter((m) =>
@@ -295,18 +315,25 @@ describe("§2 — the console's four pressed selectors share ONE lit-cap rule", 
   });
 });
 
+/** Nine tickets on an eight-slot page — the pager exists; the last one is HELD when asked. */
+const nineTickets = (heldLast = false): KitchenQueue => {
+  const nine = queue();
+  nine.tickets = Array.from({ length: 9 }, (_, i) => ({
+    ...nine.tickets[0]!,
+    cartId: `cart-${i}`,
+    sessionId: `sess-${i}`,
+    tableNumber: i + 1,
+    label: `T${i + 1}`,
+    held: heldLast && i === 8,
+    pickupSlot: heldLast && i === 8 ? NOW : null,
+    lines: [{ ...nine.tickets[0]!.lines[0]!, id: `line-${i}` }],
+  }));
+  return nine;
+};
+
 describe("kitchen-4 — the rush signal is in the head, never under a grid that outgrew the screen", () => {
   it("with nine tickets on an eight-slot page, `+1 more` and the pager sit in `.kds-head`", () => {
-    const nine = queue();
-    nine.tickets = Array.from({ length: 9 }, (_, i) => ({
-      ...nine.tickets[0]!,
-      cartId: `cart-${i}`,
-      sessionId: `sess-${i}`,
-      tableNumber: i + 1,
-      label: `T${i + 1}`,
-      lines: [{ ...nine.tickets[0]!.lines[0]!, id: `line-${i}` }],
-    }));
-    const { container } = mount("en", nine);
+    const { container } = mount("en", nineTickets());
     // MUTATION: render the pager in the footer again — `.kds-head .kds-more` is null, red.
     expect(container.querySelector(".kds-head .kds-more")?.textContent).toBe(
       tf("en", "kds.more", { n: 1 }),
@@ -335,6 +362,88 @@ describe("kitchen-3 — a refused action speaks the device language through the 
     // announced as Burmese.
     expect(region.getAttribute("lang")).toBeNull();
     expect(region.querySelector('[lang="my"]')).not.toBeNull();
+  });
+});
+
+describe("kitchen-3 — the string branch: a twin-less sentence is shown unmarked, a twin marked", () => {
+  it("a role-floor refusal under my is the English sentence with no Burmese mark anywhere over it", async () => {
+    bumpTicket.mockImplementationOnce(() =>
+      Promise.resolve({
+        ok: false,
+        error: "That needs a manager — ask one to step in.",
+        code: "sentence",
+      }),
+    );
+    const { getByRole, container } = mount("my");
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("my", "kds.bump")}`) }));
+    const region = container.querySelector('[role="status"]')!;
+    await waitFor(() =>
+      expect(region.textContent).toBe("That needs a manager — ask one to step in."),
+    );
+    // MUTATION: `lang={lang}` back on the region — the sentence is announced as Burmese, red.
+    expect(region.querySelector("[lang]")).toBeNull();
+    expect(region.closest("[lang]")).toBeNull();
+  });
+
+  it("the write-outage sentence under my arrives as its Burmese twin, marked", async () => {
+    const { STAFF_WRITE_OUTAGE, STAFF_WRITE_OUTAGE_MY } = await import("@/lib/staff-outage");
+    bumpTicket.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: STAFF_WRITE_OUTAGE, code: "sentence" }),
+    );
+    const { getByRole, container } = mount("my");
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("my", "kds.bump")}`) }));
+    const region = container.querySelector('[role="status"]')!;
+    await waitFor(() => expect(region.textContent).toBe(STAFF_WRITE_OUTAGE_MY));
+    expect(region.querySelector('[lang="my"]')?.textContent).toBe(STAFF_WRITE_OUTAGE_MY);
+  });
+});
+
+describe("K22 — the 86's only undo survives the tap beside it, and the bar's busy state is its own", () => {
+  it("a bump inside the 86's window leaves the dish in the bar; the bump rides the recall rail", async () => {
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: /86 this dish/ }));
+    await waitFor(() =>
+      expect(container.querySelector(".kds-undo")?.textContent).toContain("Mohinga"),
+    );
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    await waitFor(() => expect(bumpTicket).toHaveBeenCalledTimes(1));
+    // MUTATION: `setUndo({ kind: "bump", … })` unconditionally — the bar now reads "T4 bumped" and
+    // the dish's only way back is gone, red.
+    await waitFor(() => expect(container.querySelector(".kds-recall-btn")).not.toBeNull());
+    expect(container.querySelector(".kds-undo")?.textContent).toContain(
+      tf("en", "kds.undo.86", { x: "Mohinga" }),
+    );
+    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    await waitFor(() => expect(setItemSoldOut).toHaveBeenCalledTimes(2));
+    expect(setItemSoldOut).toHaveBeenLastCalledWith({
+      menuItemId: "mi-1",
+      soldOut: false,
+      expectedSoldOut: true,
+    });
+  });
+
+  it("a rail recall in flight does not dim the 86's undo, and the undo still acts", async () => {
+    const { getByRole, container } = mount();
+    // A bump first (a rail entry), then an 86 (the bar).
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    await waitFor(() => expect(container.querySelector(".kds-recall-btn")).not.toBeNull());
+    fireEvent.click(getByRole("button", { name: /86 this dish/ }));
+    await waitFor(() =>
+      expect(container.querySelector(".kds-undo")?.textContent).toContain("Mohinga"),
+    );
+    const d = deferred<KitchenActionResult>();
+    recallTicket.mockImplementationOnce(() => d.promise);
+    fireEvent.click(container.querySelector(".kds-recall-btn")!);
+    const rail = container.querySelector(".kds-recall-btn")!;
+    await waitFor(() => expect(rail.getAttribute("aria-disabled")).toBe("true"));
+    const undoBtn = getByRole("button", { name: /^Undo/ });
+    // MUTATION: `aria-disabled={recallPending || undo86Pending}` — the bar says busy here, red.
+    expect(undoBtn.getAttribute("aria-disabled")).toBeNull();
+    fireEvent.click(undoBtn);
+    await waitFor(() => expect(setItemSoldOut).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      d.resolve({ ok: true });
+    });
   });
 });
 
@@ -386,6 +495,9 @@ describe("kitchen-8 — a device that wanted sound says so, and the first tap re
     fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
     await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
     expect(container.querySelector('.kds-chip[data-muted="true"]')).toBeNull();
+    // The gesture that armed the chime was a BUMP, and it still lands — the capture listener must
+    // never swallow the shift's first tap.
+    expect(bumpTicket).toHaveBeenCalledTimes(1);
   });
 
   it("a fresh device shows the plain chip, and an explicit arm is what sets the preference", async () => {

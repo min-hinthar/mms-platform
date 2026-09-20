@@ -338,7 +338,7 @@ export type KitchenActionResult = { ok: true } | { ok: false; error: string; cod
 
 /** The gate's refusal, coded: the sign-in ask is a redirect on the board, everything else a sentence. */
 function gateRefusal(error: string): KitchenActionResult {
-  return { ok: false, error, code: error === STAFF_SIGNIN_REQUIRED ? "signin" : "gate" };
+  return { ok: false, error, code: error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence" };
 }
 
 /**
@@ -483,8 +483,8 @@ export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> 
     .maybeSingle();
   // W10b — an unread cart is not "no open order": that verdict sends staff hunting a phantom problem
   // at the table while the real one is the platform.
-  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "gate" };
-  if (!cart) return { ok: false, error: "This table has no open order.", code: "stale" };
+  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "sentence" };
+  if (!cart) return { ok: false, error: "This table has no open order.", code: "sentence" };
 
   const { data: fireRows, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });
   if (error) {

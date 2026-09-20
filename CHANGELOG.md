@@ -79,16 +79,35 @@ confirmed findings drive the next slices.
 - **Every list on the board is named (P2n's KDS half).** "Items for Table 4" on the ticket's line
   list; the two rail lists are `aria-labelledby` their headings.
 - **Guards:** `kds-time.test.ts` (6) · `kds-errors.test.ts` (6) · the K27 case in `kds-size.test.ts`
-  · the board's first component suite, `KdsBoard.test.tsx` (15 cases: the swap's expected state, the
+  · the board's first component suite, `KdsBoard.test.tsx` (19 cases: the swap's expected state, the
   bar's Burmese-first name, focus under an in-flight write, one write per double-tap, no
   natively-disabled action button, the `1d+` ceiling, the Burmese-numeral spoken age, the one-rule
   cap, the pager in the head, a refusal in Burmese through the one region, the dwell across a poll,
-  the remembered chime, every list named, busy keeps its label) — twenty-two mutations induced
-  against the component, the modules and the stylesheet, every one watched red.
-- **New Burmese (K15):** twelve machine drafts — `kds.undo.86` (HIGH: it says what Undo will do),
+  the remembered chime, every list named, busy keeps its label, the 86's undo surviving the tap
+  beside it, the bar's own busy state, the string branch unmarked and the outage twin marked) —
+  twenty-nine mutations induced against the component, the modules and the stylesheet, every one
+  watched red.
+- **New Burmese (K15):** thirteen machine drafts — `kds.undo.86` (HIGH: it says what Undo will do),
   `kds.live.86`, `kds.live.86.undone`, `kds.err.86.undo`, the three spoken-age sentences, the four
   keyed refusals (`kds.err.stale` · `kds.err.recall.window` · `kds.err.fire.live` ·
-  `kds.err.invalid`), `kds.sound.off` and `kds.a11y.lines`.
+  `kds.err.invalid`), `kds.err.86.gone`, `kds.sound.off` and `kds.a11y.lines`.
+- **The blind pass (REJECT, closed in the same PR).** Two criticals, both real: a bump inside the
+  86's six seconds took the ONE undo slot and the dish's only way back with it (the bump has a
+  two-minute rail behind it; the 86 has nothing) — the 86 keeps the bar while it is live now, and
+  the bump rides the rail; and the bar's `aria-disabled` OR'd both transitions while each handler
+  refused on one, so a rail recall in flight dimmed an undo that still acted — the attribute names
+  exactly the transition its entry's handler gates. Five guard defects, every one "green for the
+  wrong reason": the no-native-`disabled` case rendered zero `:disabled` on the OLD code too
+  (one unheld ticket, no pager, nothing in flight — it mounts nine tickets and a held one now); the
+  chime case never asserted the arming tap still LANDED; the one-rule-cap parse read an `@media`
+  prelude as a selector, so a second fill nested in any at-rule was invisible; the region's string
+  branch — the changed behaviour — had no assertion; and `kds-errors` pinned an `"86"` act no
+  caller used while the 86's own refusals were still bare English. `setItemSoldOut` carries a code
+  now too (`sentence` · `invalid` · `gone` · `stale`) and the 86 speaks through `eightySixOutcome`;
+  the kitchen code is `sentence`, not `gate` (it also covers "no open order", which `stale` had
+  mislabelled); a held line is described by the ticket's slot line ("fires at 5:48 PM") instead of
+  standing as a focusable no-op with an action verb; `.staff-press` gives a refused tap no sheen.
+  Seven more mutations watched red.
 - **The audit itself** is digested in `docs/STAFF_POLISH_AUDIT.md` — seven surfaces, every finding
   with its verifier's verdict — and is the backlog for the counter, manager, `/board`, menu/tips and
   sign-in slices.

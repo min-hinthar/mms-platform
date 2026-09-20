@@ -1,5 +1,6 @@
 import type { StaffKey } from "./i18n/staff";
 import type { KitchenErrCode } from "./kitchen-types";
+import type { SoldOutErrCode } from "./menu-availability";
 
 /**
  * kitchen-3 — a refused kitchen action speaks the device language.
@@ -7,16 +8,19 @@ import type { KitchenErrCode } from "./kitchen-types";
  * The server answers with a CODE beside its English sentence (`KitchenActionResult`); this module
  * turns the code into what the board's one live region may hold: the dictionary's sentence about
  * the thing the cook just tapped (`x` = the ticket id or the dish, Burmese-first where the ticket
- * is), or the server sentence verbatim for the one arm that has no key — the gate. That arm is
+ * is), or the server sentence verbatim for the arm that has no key (`sentence`). That arm is
  * rendered through `<OutageText>`, which swaps in the write-outage twin and shows anything else in
  * English rather than guessing at Burmese. `signin` is not a message: the board leaves for
  * /staff/login, the honest surface (K10), instead of wearing a five-second banner in the wrong
  * language.
  *
+ * The 86 has its own mapper (`eightySixOutcome`): its refusals come from `setItemSoldOut`, whose
+ * codes are the menu's (`gone` · `stale`), not the ticket's.
+ *
  * Pure so a value falsifies it: the board's suite only pins the WIRING (a refusal reaches the
- * region marked `lang="my"`).
+ * region marked `lang="my"`, a twin-less sentence reaches it unmarked).
  */
-export type KdsAct = "bump" | "fire" | "recall" | "line" | "86";
+export type KdsAct = "bump" | "fire" | "recall" | "line";
 
 /** What the region holds: a dictionary key with its slots, or a server sentence. */
 export type KdsMsg = { k: StaffKey; vars?: Record<string, string | number> } | string;
@@ -28,7 +32,6 @@ const FAILED: Record<KdsAct, StaffKey> = {
   fire: "kds.err.fire",
   recall: "kds.err.recall",
   line: "kds.err.line",
-  "86": "kds.err.86",
 };
 
 export function kitchenErrOutcome(
@@ -39,7 +42,7 @@ export function kitchenErrOutcome(
   switch (res.code) {
     case "signin":
       return { kind: "leave", href: "/staff/login" };
-    case "gate":
+    case "sentence":
       return { kind: "show", msg: res.error };
     case "invalid":
       return { kind: "show", msg: { k: "kds.err.invalid" } };
@@ -51,6 +54,20 @@ export function kitchenErrOutcome(
       return { kind: "show", msg: { k: "kds.err.fire.live", vars: { x } } };
     case "failed":
       return { kind: "show", msg: { k: FAILED[act], vars: { x } } };
+  }
+}
+
+/** The 86 and its undo: `setItemSoldOut`'s refusal, said about the dish the cook sees. */
+export function eightySixOutcome(res: { error: string; code: SoldOutErrCode }, x: string): KdsMsg {
+  switch (res.code) {
+    case "sentence":
+      return res.error;
+    case "invalid":
+      return { k: "kds.err.invalid" };
+    case "gone":
+      return { k: "kds.err.86.gone", vars: { x } };
+    case "stale":
+      return { k: "kds.err.stale", vars: { x } };
   }
 }
 

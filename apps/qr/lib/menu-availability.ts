@@ -34,21 +34,31 @@ import { staffGate } from "./staff";
  * every surface that shows the flag should show the stamp too.
  */
 
-export type SetItemSoldOutResult = { ok: true; soldOut: boolean } | { ok: false; error: string };
+/**
+ * kitchen-3 — the refusal carries a code beside its sentence so the KDS can say it in the device
+ * language (`lib/kds-errors.ts`). `sentence` = show the words as they are (the gate, the outage,
+ * the unlogged-change verdict); `gone` = the dish left the menu; `stale` = the compare-and-swap
+ * refused because someone else moved it first.
+ */
+export type SoldOutErrCode = "sentence" | "invalid" | "gone" | "stale";
+export type SetItemSoldOutResult =
+  | { ok: true; soldOut: boolean }
+  | { ok: false; error: string; code: SoldOutErrCode };
 
 const AVAILABILITY_OUTAGE =
   "Can’t reach the menu right now — nothing changed. Try again in a moment.";
 
 export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult> {
   const parsed = setItemSoldOutInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Couldn’t read that request — nothing changed." };
+  if (!parsed.success)
+    return { ok: false, error: "Couldn’t read that request — nothing changed.", code: "invalid" };
   const { menuItemId, soldOut, expectedSoldOut } = parsed.data;
 
   // Server Actions are public POST endpoints — the console's UI gating is cosmetic and this is the
   // authority. staffGate distinguishes outage from sign-in from role, so a cook mid-outage is told
   // the truth instead of being sent to a login screen mid-service.
   const gate = await staffGate("server", AVAILABILITY_OUTAGE);
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return { ok: false, error: gate.error, code: "sentence" };
 
   // Service client AFTER the gate — authz proven before elevation. `menu_items` has no staff write
   // policy (public-read only), so the elevated client is the only way to write it; keeping the write
@@ -66,9 +76,9 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
   // destructure would answer "no such dish" for a network blip. Split the two.
   if (readErr) {
     console.error("[menu-availability] read failed", readErr.message);
-    return { ok: false, error: AVAILABILITY_OUTAGE };
+    return { ok: false, error: AVAILABILITY_OUTAGE, code: "sentence" };
   }
-  if (!before) return { ok: false, error: "That dish is no longer on the menu." };
+  if (!before) return { ok: false, error: "That dish is no longer on the menu.", code: "gone" };
 
   // The tap is only valid against the state the staff member SAW. On a busy console the
   // render-to-confirm window is minutes, and two people can be looking at the same dish.
@@ -76,6 +86,7 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
     return {
       ok: false,
       error: `Someone else already marked ${before.name_en} ${before.is_sold_out ? "sold out" : "available"} — nothing changed.`,
+      code: "stale",
     };
   // Already in the requested state: a no-op, and deliberately no ledger row. Two cooks tapping "86"
   // on the same empty pan should not read as two decisions.
@@ -103,7 +114,7 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
     .maybeSingle();
   if (writeErr) {
     console.error("[menu-availability] write failed", writeErr.message);
-    return { ok: false, error: AVAILABILITY_OUTAGE };
+    return { ok: false, error: AVAILABILITY_OUTAGE, code: "sentence" };
   }
   // `.update()` returns no row count — the `.select("id")` is what makes a zero-row update visible
   // instead of a silent success over a write that matched nothing. Zero rows means the dish is gone
@@ -117,12 +128,14 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
       .maybeSingle();
     if (nowErr) {
       console.error("[menu-availability] re-read failed", nowErr.message);
-      return { ok: false, error: AVAILABILITY_OUTAGE };
+      return { ok: false, error: AVAILABILITY_OUTAGE, code: "sentence" };
     }
-    if (now == null) return { ok: false, error: "That dish is no longer on the menu." };
+    if (now == null)
+      return { ok: false, error: "That dish is no longer on the menu.", code: "gone" };
     return {
       ok: false,
       error: `Someone else already marked ${before.name_en} ${now.is_sold_out ? "sold out" : "available"} — nothing changed.`,
+      code: "stale",
     };
   }
 
@@ -154,6 +167,7 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
     return {
       ok: false,
       error: `${before.name_en} is ${soldOut ? "off the menu" : "back on"}, but the change wasn’t logged — tell the owner it was you.`,
+      code: "sentence",
     };
   }
   return { ok: true, soldOut };

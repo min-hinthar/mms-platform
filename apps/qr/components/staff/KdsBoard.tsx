@@ -38,6 +38,7 @@ import { KDS_SIZE_KEY, type KdsSize, kdsPageSize, parseKdsSize } from "@/lib/kds
 import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
 import {
   actionErrorStale,
+  eightySixOutcome,
   ERR_DWELL_MS,
   kitchenErrOutcome,
   type KdsAct,
@@ -493,7 +494,15 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const onBumped = useCallback(
     (entry: RecallEntry, label: string) => {
       setRecall((prev) => [entry, ...prev].slice(0, 5)); // last 5 (SPEC-KDS §4)
-      setUndo({ kind: "bump", ...entry, expiresAt: Date.now() + UNDO_MS });
+      // ONE slot, two kinds — and only the bump has a rail behind it. A bump landing inside an 86's
+      // six seconds (the tap beside it, mid-rush — K22's own scenario) must not evict the dish's
+      // only way back: the 86 keeps the bar until it expires, and this bump is reachable from the
+      // recall rail the whole two minutes. The reverse (an 86 after a bump) may take the slot.
+      setUndo((prev) =>
+        prev?.kind === "eighty6" && prev.expiresAt > Date.now()
+          ? prev
+          : { kind: "bump", ...entry, expiresAt: Date.now() + UNDO_MS },
+      );
       setNotice(tf(lang, "kds.live.bumped", { x: label }));
       void refresh();
     },
@@ -528,7 +537,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           expectedSoldOut: true,
         });
         if (!res.ok) {
-          showErr(res.error); // a menu-availability sentence — verbatim, through OutageText
+          showErr(eightySixOutcome(res, entry.label));
           return;
         }
         setUndo(null);
@@ -997,7 +1006,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           <button
             type="button"
             onClick={() => (undo.kind === "bump" ? doRecall(undo) : undoEightySix(undo))}
-            aria-disabled={recallPending || undo86Pending || undefined}
+            // §17: the attribute is a STATEMENT about the handler behind it — exactly the transition
+            // this entry's handler refuses on, never both (a rail recall in flight must not dim the
+            // 86's only undo while the tap still acts, or the reverse).
+            aria-disabled={(undo.kind === "bump" ? recallPending : undo86Pending) || undefined}
             aria-label={al(lang, { kind: "undo", label: undo.label }).aria}
           >
             <Chrome lang={lang} k="kds.undo" />
@@ -1112,7 +1124,7 @@ function TicketCard({
       </header>
 
       {ticket.held && ticket.pickupSlot && (
-        <p className="kds-slot">
+        <p className="kds-slot" id={`kds-slot-${ticket.cartId}`}>
           <Chrome lang={lang} k="kds.slot" vars={{ t: fmtSlot(ticket.pickupSlot) }} echo="stack" />
         </p>
       )}
@@ -1124,6 +1136,9 @@ function TicketCard({
             key={l.id}
             line={l}
             held={ticket.held}
+            // Only when the slot line actually renders (held AND a pickup slot) — a description
+            // pointing at a missing id is a broken promise, not a name.
+            slotId={ticket.held && ticket.pickupSlot ? `kds-slot-${ticket.cartId}` : undefined}
             onEightySixed={onEightySixed}
             onError={onError}
             onRefused={onRefused}
@@ -1167,6 +1182,7 @@ function TicketCard({
 function KdsLineRow({
   line,
   held,
+  slotId,
   onEightySixed,
   onError,
   onRefused,
@@ -1174,6 +1190,8 @@ function KdsLineRow({
 }: {
   line: KitchenLine;
   held: boolean;
+  /** The ticket's slot line (`.kds-slot`), present only on a held ticket — names WHY a line refuses. */
+  slotId?: string;
   onEightySixed: (entry: { menuItemId: string; label: string }) => void;
   onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
@@ -1202,8 +1220,9 @@ function KdsLineRow({
         expectedSoldOut: line.soldOut,
       });
       // A refusal here is usually "someone already 86'd it", which is a success from the cook's point
-      // of view — but say what the server said rather than inventing a cheerful verdict.
-      if (!res.ok) onError(res.error);
+      // of view — say what the server said, in the device language, rather than inventing a
+      // cheerful verdict.
+      if (!res.ok) onError(eightySixOutcome(res, dishVisible(lang, line.name, line.nameMy)));
       else {
         // K22 — the undo bar takes it from here: the dish as the cook sees it (Burmese-first, the
         // same rule the accessible name uses), and the id the reverse swap needs.
@@ -1245,6 +1264,10 @@ function KdsLineRow({
         data-state={line.state}
         onClick={tap}
         aria-disabled={pending || held || undefined}
+        aria-busy={pending || undefined}
+        // A held line is refused (the kitchen has not been handed it), and the ticket's slot line
+        // says why — "fires at 5:48 PM" rides the name instead of a bare no-op with an action verb.
+        aria-describedby={held ? slotId : undefined}
         aria-label={
           al(lang, {
             kind: "line",

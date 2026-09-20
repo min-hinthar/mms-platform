@@ -10255,7 +10255,8 @@ html[data-fx="lite"] .mms-scrim {
     transform var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-base) var(--ease-out);
 }
-.staff-press:active {
+/* A refused tap (§17 `aria-disabled`) gets no commit sheen — the press says "you committed". */
+.staff-press:active:not([aria-disabled="true"]) {
   transform: scale(0.985);
 }
 .staff-press::after {
@@ -10267,7 +10268,7 @@ html[data-fx="lite"] .mms-scrim {
   transform: translateX(-120%);
   opacity: 0;
 }
-.staff-press:active::after {
+.staff-press:active:not([aria-disabled="true"])::after {
   opacity: 1;
   animation: staffSheen var(--dur-base) var(--ease-out) forwards;
 }

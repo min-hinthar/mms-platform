@@ -1,10 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { STAFF } from "./i18n/staff";
 import type { KitchenErrCode } from "./kitchen-types";
-import { actionErrorStale, ERR_DWELL_MS, kitchenErrOutcome, type KdsAct } from "./kds-errors";
+import type { SoldOutErrCode } from "./menu-availability";
+import {
+  actionErrorStale,
+  eightySixOutcome,
+  ERR_DWELL_MS,
+  kitchenErrOutcome,
+  type KdsAct,
+} from "./kds-errors";
 
 const CODES: readonly KitchenErrCode[] = [
-  "gate",
+  "sentence",
   "signin",
   "invalid",
   "failed",
@@ -12,7 +19,7 @@ const CODES: readonly KitchenErrCode[] = [
   "recall-window",
   "already-live",
 ];
-const ACTS: readonly KdsAct[] = ["bump", "fire", "recall", "line", "86"];
+const ACTS: readonly KdsAct[] = ["bump", "fire", "recall", "line"];
 
 describe("kitchenErrOutcome — a refused kitchen action speaks the device language (kitchen-3)", () => {
   it("every code except sign-in resolves to something the region can hold, and sign-in leaves", () => {
@@ -23,9 +30,9 @@ describe("kitchenErrOutcome — a refused kitchen action speaks the device langu
     }
   });
 
-  it("the gate arm is the ONE sentence shown verbatim — the outage twin lives in OutageText", () => {
+  it("`sentence` is shown verbatim — the outage twin lives in OutageText", () => {
     const out = kitchenErrOutcome(
-      { error: "That needs a manager — ask one to step in.", code: "gate" },
+      { error: "That needs a manager — ask one to step in.", code: "sentence" },
       "line",
       "Mohinga",
     );
@@ -50,7 +57,7 @@ describe("kitchenErrOutcome — a refused kitchen action speaks the device langu
     });
   });
 
-  it("`failed` picks the sentence for the ACT that failed — five acts, five distinct keys", () => {
+  it("`failed` picks the sentence for the ACT that failed — four acts, four distinct keys", () => {
     const keys = ACTS.map((act) => {
       const out = kitchenErrOutcome({ error: "x", code: "failed" }, act, "T4");
       expect(out.kind).toBe("show");
@@ -59,13 +66,28 @@ describe("kitchenErrOutcome — a refused kitchen action speaks the device langu
       return typeof msg === "object" && msg ? msg.k : "";
     });
     expect(new Set(keys).size).toBe(ACTS.length);
-    expect(keys).toEqual([
-      "kds.err.bump",
-      "kds.err.fire",
-      "kds.err.recall",
-      "kds.err.line",
-      "kds.err.86",
-    ]);
+    expect(keys).toEqual(["kds.err.bump", "kds.err.fire", "kds.err.recall", "kds.err.line"]);
+  });
+});
+
+describe("eightySixOutcome — the menu's refusal, said about the dish (kitchen-3, the 86 arm)", () => {
+  it("every menu code resolves, keyed arms name the dish in both tongues, sentence stays verbatim", () => {
+    const codes: readonly SoldOutErrCode[] = ["sentence", "invalid", "gone", "stale"];
+    for (const code of codes)
+      expect(eightySixOutcome({ error: "s", code }, "မုန့်ဟင်းခါး")).toBeTruthy();
+    expect(
+      eightySixOutcome({ error: "Can’t reach the menu right now.", code: "sentence" }, "x"),
+    ).toBe("Can’t reach the menu right now.");
+    expect(eightySixOutcome({ error: "s", code: "gone" }, "Mohinga")).toEqual({
+      k: "kds.err.86.gone",
+      vars: { x: "Mohinga" },
+    });
+    expect(eightySixOutcome({ error: "s", code: "stale" }, "Mohinga")).toEqual({
+      k: "kds.err.stale",
+      vars: { x: "Mohinga" },
+    });
+    expect(STAFF["kds.err.86.gone"].en).toContain("{x}");
+    expect(STAFF["kds.err.86.gone"].my).toContain("{x}");
   });
 });
 

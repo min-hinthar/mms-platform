@@ -2382,3 +2382,31 @@ shipped line. And a python edit to `docs/OPEN-ITEMS.md` used `parts[-2]` for the
 landed `closed` in the **Source** column and destroyed that row's provenance while leaving Status
 `open`; the row stayed counted as an open high money item. **Index a markdown table by measuring the
 neighbours' cells, never by counting from the end** — and re-read the row you just wrote.
+
+## #123 — `check:docs` counts TRACKED files: run it after `git add`, never before (2026-09-20, #291)
+
+The docs guard measures "N tracked docs files" with `git ls-files`. A new `docs/*.md` written in
+the working tree is NOT tracked until it is staged, so a local `check:docs` run before `git add`
+reads one short — and every count line in HANDOFF/README that quotes it is then one short too.
+CI checks out the commit, where the file IS tracked, and `check:docs` is step ONE of the fast lane
+under `bash -e`: the whole `build` job stopped on `HANDOFF.md:810 — says 99 tracked docs files,
+measured 100` two minutes after a push that was green on every local gate. The fix cost a commit; the
+rule costs nothing: stage first, then measure — or measure with the same command the guard runs.
+
+## #124 — One slot, two kinds, and only one of them has a rail behind it (2026-09-20, #291)
+
+K22 widened the KDS undo bar from one entry kind (a bump) to two (a bump or an 86) and kept ONE slot,
+because the bar had always been a single toast. The bump did not need the slot: it has a two-minute
+recall rail underneath it. The 86 had NOTHING else — the bar was its only way back — and the most
+common next tap on the board (the 64px bump beside the 86 control, mid-rush, K22's own scenario)
+overwrote the slot inside the six-second window with no notice. The blind pass caught it; every
+in-context read had not, because "same bar, same window, same key" reads as symmetry and the
+asymmetry is in what sits BEHIND each kind. When a shared slot gains a second occupant, ask which
+occupant has no other exit — that one holds the slot until it expires.
+
+The same review found the bar's `aria-disabled` OR'ing BOTH transitions (`recallPending ||
+undo86Pending`) while each handler refused on only one, so a rail recall in flight dimmed an 86
+undo that still acted, and a screen-reader cook who "waited for the busy to clear" watched the six
+seconds run out. §17's sentence is exact: the attribute is a statement about the handler behind it.
+Derive it from the SAME predicate the handler gates on — one binding, both readers — never a superset
+that merely includes it.
