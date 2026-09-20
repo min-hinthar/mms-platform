@@ -1242,16 +1242,47 @@ if (staffPages.length < 9)
  * ⚠️ EMPTY, AND THAT IS THE FINISHED STATE — same contract, same warning as ARIA_TODO above.
  *
  * PR A converted `/staff/login` and the KDS and listed the thirteen pages with no language control
- * at all; PR B mounted every one, and rule 4 now holds all fifteen. A page added back here is a
+ * at all; PR B mounted every one, and rule 4 now holds every one of them. A page added back here is a
  * person who cannot read English arriving on a staff screen with no way to change it — which is the
  * exact failure the rule was written for, so it does not get to be a TODO.
  *
  * `SWITCH_WALK_EXCLUDED` above is the one thing that still needs care: `StaffOutageShell` reaches
  * the control (through `<StaffBar>` since signin-5) and every page imports it, so the walk must not
- * follow that import or all fifteen pages would answer "reachable" on the strength of a screen that
+ * follow that import or every page would answer "reachable" on the strength of a screen that
  * only exists during an outage.
  */
 const SWITCH_TODO = new Set([].map((f) => join(QR, f)));
+
+/**
+ * Is this JSX element parked in a literal-dead branch — `{false && <X/>}` or `{0 && <X/>}`?
+ *
+ * ⚠️ THIS USED TO BE A 40-CHARACTER RAW-TEXT REGEX (`/\{\s*(false|0)\s*&&\s*$/` over the source
+ * before the tag), and a pre-merge blind pass showed exactly what that costs: write the same dead
+ * branch across lines — which is what prettier emits past the print width —
+ *
+ *     {false && (
+ *       <StaffLangSwitch lang={lang} />
+ *     )}
+ *
+ * and the preceding 40 characters end in `(` + newline + indent, the regex misses, and the page is
+ * reported as REACHING a live control while shipping nothing. That is the hole rule 4 was rewritten
+ * to close, reopened by the exclusion meant to narrow it — and the guard's own header claims all
+ * its rules parse. Walking parents costs nothing and cannot be defeated by a line break. Module
+ * scope since signin-5: the excluded shell's self-check needs it for `<StaffBar>` too.
+ */
+function inDeadBranch(node) {
+  for (let n = node.parent; n; n = n.parent) {
+    if (
+      ts.isBinaryExpression(n) &&
+      n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
+      (n.left.kind === ts.SyntaxKind.FalseKeyword ||
+        (ts.isNumericLiteral(n.left) && n.left.text === "0"))
+    )
+      return true;
+    if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) break;
+  }
+  return false;
+}
 
 /** Does this module's own JSX mount a live `<StaffLangSwitch>`? */
 function mountsSwitchHere(file, srcOverride) {
@@ -1262,36 +1293,6 @@ function mountsSwitchHere(file, srcOverride) {
     return false;
   }
   let found = false;
-
-  /**
-   * Is this element parked in a literal-dead branch — `{false && <X/>}` or `{0 && <X/>}`?
-   *
-   * ⚠️ THIS USED TO BE A 40-CHARACTER RAW-TEXT REGEX (`/\{\s*(false|0)\s*&&\s*$/` over the source
-   * before the tag), and a pre-merge blind pass showed exactly what that costs: write the same dead
-   * branch across lines — which is what prettier emits past the print width —
-   *
-   *     {false && (
-   *       <StaffLangSwitch lang={lang} />
-   *     )}
-   *
-   * and the preceding 40 characters end in `(` + newline + indent, the regex misses, and the page is
-   * reported as REACHING a live control while shipping nothing. That is the hole rule 4 was rewritten
-   * to close, reopened by the exclusion meant to narrow it — and the guard's own header claims all
-   * its rules parse. Walking parents costs nothing and cannot be defeated by a line break.
-   */
-  function inDeadBranch(node) {
-    for (let n = node.parent; n; n = n.parent) {
-      if (
-        ts.isBinaryExpression(n) &&
-        n.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken &&
-        (n.left.kind === ts.SyntaxKind.FalseKeyword ||
-          (ts.isNumericLiteral(n.left) && n.left.text === "0"))
-      )
-        return true;
-      if (ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n)) break;
-    }
-    return false;
-  }
 
   function visit(node) {
     if (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) {
@@ -1312,7 +1313,7 @@ function mountsSwitchHere(file, srcOverride) {
  * then, through the shared `<StaffBar>` since signin-5 — because it is the surface with the
  * strongest claim on it: it replaces the page during an outage and takes the page's own control
  * with it. Every staff page imports the shell for its unknowable-gate branch. So a walk that
- * followed this import would answer "yes, reachable" for all fifteen pages the moment the shell was
+ * followed this import would answer "yes, reachable" for every page the moment the shell was
  * converted, and rule 4 would go green over every page that has NO control in its normal render —
  * re-opening, in a new form, the exact hole the rule was rewritten to close (it used to accept the
  * shell's TAG as evidence while the shell mounted nothing).
@@ -1350,15 +1351,64 @@ function reachesSwitch(root) {
   return switchMounts(root).length > 0;
 }
 
+/**
+ * The apps/qr modules this file's LIVE JSX mounts: every `<Tag …>` outside a literal-dead branch
+ * whose tag is an import from a module under apps/qr, resolved. Parsed, not walked (LEARNINGS #60):
+ * an import EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing, and
+ * `{false && <StaffBar/>}` reaches nothing — so a self-check built on `importsOf` alone would pass
+ * both (a blind pass wrote the second one down). Member tags (`<Foo.Bar>`) are not imports of a
+ * component and are not counted.
+ */
+function liveMountedModules(file) {
+  let sf;
+  try {
+    sf = parse(file);
+  } catch {
+    return [];
+  }
+  const byLocal = new Map();
+  const tags = new Set();
+  function visit(node) {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const resolved = resolveSpecifier(node.moduleSpecifier.text, file);
+      const clause = node.importClause;
+      if (resolved && clause) {
+        if (clause.name) byLocal.set(clause.name.text, resolved);
+        if (clause.namedBindings && ts.isNamedImports(clause.namedBindings))
+          for (const el of clause.namedBindings.elements) byLocal.set(el.name.text, resolved);
+      }
+    }
+    if (
+      (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+      ts.isIdentifier(node.tagName) &&
+      !inDeadBranch(node)
+    )
+      tags.add(node.tagName.text);
+    ts.forEachChild(node, (c) => {
+      visit(c);
+    });
+  }
+  visit(sf);
+  return [...tags].map((t) => byLocal.get(t)).filter((m) => m && m.startsWith(QR));
+}
+
+/** Does this module reach a live switch — mounted in its own live JSX, or through a component its
+ *  live JSX mounts (the shell's `<StaffBar>` since signin-5)? */
+function reachesSwitchLive(file) {
+  if (mountsSwitchHere(file)) return true;
+  return liveMountedModules(file).some((m) => switchMounts(m).length > 0);
+}
+
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
-// in its own JSX or through a module it imports (the shell's is `<StaffBar>`'s since signin-5). If
-// the shell ever stops reaching one, this set is silently hiding nothing and the next reader would
-// trust a comment that has stopped being true. Its own walk is unaffected by the exclusion (the root
-// is seeded, never filtered), so the question is answered by the same walk the pages get.
+// in its own LIVE JSX or through a component that JSX mounts (the shell's is `<StaffBar>`'s since
+// signin-5). If the shell ever stops reaching one, this set is silently hiding nothing and the next
+// reader would trust a comment that has stopped being true. Live JSX, never the import graph: the
+// walk the pages get follows every import, which is right for "does this page reach a control"
+// and wrong for "does this module still mount one" — an unused import or a dead branch would pass.
 for (const f of SWITCH_WALK_EXCLUDED)
-  if (switchMounts(f).length === 0)
+  if (!reachesSwitchLive(f))
     failures.push(
-      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
+      `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but its LIVE JSX no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
     );
 
 for (const file of staffPages) {

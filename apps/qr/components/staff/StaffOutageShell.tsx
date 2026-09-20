@@ -17,7 +17,7 @@ type WhatKey = Extract<StaffKey, `what.${string}`>;
  *
  * P2 · OPEN-ITEMS P2h — it speaks the device language, and it MOUNTS THE LANGUAGE CONTROL. This
  * shell is a full-page takeover: it REPLACES the page, so whatever control that page had is gone
- * with it, on the fourteen pages that render it, during the outage it exists to explain. It has the
+ * with it, on every staff page that renders it, during the outage it exists to explain. It has the
  * strongest claim on the switch of any surface in the console — `setStaffLang` is deliberately
  * UNGATED (see its docblock) precisely so it still works when `getStaffAuth()` answers
  * `unavailable`, and here nothing else on the screen does.

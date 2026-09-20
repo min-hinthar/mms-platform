@@ -1,5 +1,6 @@
 import { Card, Icon } from "@mms/ui";
 import type { HelpDoorScreen } from "@/lib/help";
+import type { KdsSize } from "@/lib/kds-size";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import { FloorStatusChip } from "./FloorStatusChip";
@@ -21,23 +22,28 @@ import { START_ARM } from "./register-stage";
  * sentence carries the meaning. Under Burmese the replica's label comes through <Chrome> like the
  * original's, so it is marked and in the right face.
  *
- * help-1 — a `help-pic-*` class is LAYOUT ONLY (where a replica sits, what box it gets), never a
- * size, a colour or a border: `HelpPicture.test.tsx` parses the stylesheet and refuses any paint on
- * one. The board's `--kfs-*` tier is declared on `.help-pic` too (the Help sheet is portaled outside
- * `.kds-root`, so the bump's `--kfs-clock` used to resolve to nothing and a copy-class sized it), so
- * every kitchen replica is the control at the board's own size.
+ * help-1 — a `help-pic-*` class is PLACEMENT ONLY (where a replica sits), never a size, a colour
+ * or a border: `HelpPicture.test.tsx` parses the stylesheet and refuses any paint on one. The
+ * board's `--kfs-*` tier is declared on `.help-pic` too, and each dial stop is restated for
+ * `.help-pic[data-size]` (the Help sheet is portaled outside `.kds-root`, so the bump's
+ * `--kfs-clock` used to resolve to nothing and a copy-class sized it; and a picture that only knew
+ * Small sat beside a board dialed to Large). The board's size arrives as `size` and is stamped on
+ * the picture, so every kitchen replica is the control at the size the board is drawing.
  */
 export function HelpPicture({
   screen,
   n,
   lang,
+  size,
 }: {
   screen: HelpDoorScreen;
   n: number;
   lang: StaffLang;
+  /** The board's text size, when the screen has a dial — the kitchen replicas follow it. */
+  size?: KdsSize;
 }) {
   return (
-    <div className="help-pic" aria-hidden>
+    <div className="help-pic" aria-hidden data-size={size}>
       {screen === "kitchen" && n === 1 && (
         <span className="kds-bump help-pic-bump">
           <Chrome lang={lang} k="kds.bump" echo="stack" />{" "}

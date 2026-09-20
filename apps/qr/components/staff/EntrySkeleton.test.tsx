@@ -52,6 +52,7 @@ describe("EntrySkeleton", () => {
     const sk = mount(<EntrySkeleton what="what.console" />);
     const main = sk.querySelector("main.staff-main")!;
     expect(main).not.toBeNull();
+    expect(main.getAttribute("aria-busy")).toBe("true"); // a fallback says it is loading
     const band = main.querySelector("[aria-hidden] > .staff-bar")!;
     expect(band).not.toBeNull();
     expect(band.querySelector(":scope > .staff-bar-tail")).not.toBeNull();

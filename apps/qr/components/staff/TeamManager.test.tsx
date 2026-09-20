@@ -151,8 +151,27 @@ describe("§17 on the roster's three controls", () => {
     fireEvent.submit(form());
     expect(region().textContent).toBe(STAFF["floor.team.err.email"].en);
     expect(document.activeElement).toBe(document.getElementById("ts-email"));
+    // A MALFORMED address (long enough, no domain) is the platform's `type="email"` grammar's to
+    // refuse — under noValidate the handler reads `validity` itself, so the server's English
+    // sentence is never the first thing a Burmese manager hears (blind pass, CRITICAL).
+    fill("Daw Hla", "hla@");
+    fireEvent.submit(form());
+    expect(region().textContent).toBe(STAFF["floor.team.err.email"].en);
+    expect(document.activeElement).toBe(document.getElementById("ts-email"));
     expect(provisionStaff).not.toHaveBeenCalled();
     expect(submitBtn().getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("two submits in ONE frame post once — the latch is a ref, not a render-lagged flag", () => {
+    provisionStaff.mockReturnValue(new Promise(() => {}));
+    mount([ROW]);
+    fill("Daw Hla", "hla@example.com");
+    const f = form();
+    act(() => {
+      f.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+      f.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    });
+    expect(provisionStaff).toHaveBeenCalledTimes(1);
   });
 
   it("the submit is aria-disabled (never native) while the write is held, keeps focus, refuses a second submit, and releases on a THROW with the pair kept", async () => {

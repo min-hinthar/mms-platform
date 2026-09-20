@@ -394,7 +394,7 @@ export function HelpButton(props: HelpProps) {
         {view === "how" && (
           <div className="help-how">
             <div className="help-card card card-textured" role="group" aria-labelledby="help-lede">
-              <HelpPicture screen={screen} n={step} lang={lang} />
+              <HelpPicture screen={screen} n={step} lang={lang} size={size?.value} />
               <p
                 id="help-lede"
                 ref={ledeRef}

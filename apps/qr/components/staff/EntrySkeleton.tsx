@@ -9,13 +9,15 @@ import { LoadingLine } from "./LoadingLine";
  * layout. This mirrors the pages: the bar (a static circle, the title block, the switch's pair of
  * circles in the tail), then `.staff-col.entry-col` with the one textured card — its brand line,
  * the heading, two 52px fields, the primary pill. Every gap is the class the live page wears or a
- * `--s*` token; the one announced line is the dictionary's, in the console's tongue (`LoadingLine`
- * reads the layout's provider, so the fallback stays synchronous — never an async `loading.tsx`,
- * which would defeat the instant paint the boundary exists for).
+ * `--s*` token; the root says `aria-busy`, and the one line it offers assistive tech (sr-only, no
+ * live semantics — a fallback that mounts already holding its text is not an announcement, and the
+ * page's own h1 is what the route announcer reads once the navigation lands) is the dictionary's,
+ * in the console's tongue (`LoadingLine` reads the layout's provider, so the fallback stays
+ * synchronous — never an async `loading.tsx`, which would defeat the instant paint).
  */
 export function EntrySkeleton({ what }: { what: WhatKey }) {
   return (
-    <main className="staff-main">
+    <main className="staff-main" aria-busy>
       <LoadingLine what={what} />
       <div aria-hidden>
         <div className="staff-bar">

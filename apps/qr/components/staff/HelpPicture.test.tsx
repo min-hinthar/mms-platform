@@ -167,9 +167,9 @@ describe("help-1 — pictures are declarations, never drawings", () => {
       .filter(Boolean),
     body: m[2]!,
   }));
-  // Placement and box — never a height (a control's height is its own declaration), a font, a
-  // colour, a border, a radius, a shadow or an opacity.
-  const LAYOUT = new Set([
+  // PLACEMENT — where a replica sits. Never a size, a font, a colour, a border, a radius, a
+  // shadow or an opacity: a control's box is its own declaration.
+  const PLACEMENT = new Set([
     "display",
     "align-items",
     "align-self",
@@ -187,11 +187,6 @@ describe("help-1 — pictures are declarations, never drawings", () => {
     "margin-right",
     "margin-bottom",
     "margin-left",
-    "padding",
-    "padding-top",
-    "padding-right",
-    "padding-bottom",
-    "padding-left",
     "position",
     "inset",
     "top",
@@ -200,30 +195,89 @@ describe("help-1 — pictures are declarations, never drawings", () => {
     "left",
     "transform",
     "z-index",
-    "width",
-    "min-width",
-    "max-width",
     "box-sizing",
     "overflow",
+  ]);
+  // A BOX property is a re-size, and a re-size is the drift this guard exists for — so each one is
+  // admitted by selector, with its reason: a <span> standing in for a <button> gets the button's
+  // box (`.help-pic-stage`), and a ticket shell outside the grid that would size it gets a width
+  // (`.help-pic-ticket`). Anything else re-sizing a replica is red.
+  const BOX_BY_SELECTOR = new Map<string, Set<string>>([
+    [".help-pic-stage", new Set(["padding"])],
+    [".help-pic-ticket", new Set(["min-width"])],
   ]);
   // The picture's OWN furniture, not a replica of any control: the arrow between two stages.
   const OWN = new Set([".help-pic-arrow"]);
   const props = (body: string) => [...body.matchAll(/(?:^|;)\s*([a-z-]+)\s*:/g)].map((m) => m[1]!);
 
-  it("every rule that belongs to a help-pic-* class ALONE declares placement only", () => {
+  it("every rule whose EVERY selector names a help-pic-* class declares placement only — compound selectors included", () => {
+    // Every selector, in any position (`.help-pic > .help-pic-bump` is as much the picture's own
+    // rule as `.help-pic-bump`); a rule that ALSO names a real control (`.kds-undo button, .kds-undo
+    // .help-pic-undo-btn`) is the sharing idiom and declares the control, so it is not subject.
     const own = rules.filter(
       (r) =>
         r.selectors.length > 0 &&
-        r.selectors.every((s) => /^\.help-pic-[a-z0-9-]+$/.test(s)) &&
+        r.selectors.every((s) => /\.help-pic-[a-z0-9-]+/.test(s)) &&
         !r.selectors.some((s) => OWN.has(s)),
     );
     expect(own.length).toBeGreaterThanOrEqual(4);
     for (const r of own) {
       const declared = props(r.body);
       expect(declared.length, r.selectors.join()).toBeGreaterThan(0);
-      for (const p of declared)
-        expect(LAYOUT.has(p), `${r.selectors.join()} declares ${p}`).toBe(true);
+      for (const p of declared) {
+        if (PLACEMENT.has(p)) continue;
+        const admitted = r.selectors.every((s) => BOX_BY_SELECTOR.get(s)?.has(p));
+        expect(admitted, `${r.selectors.join()} declares ${p}`).toBe(true);
+      }
     }
+  });
+
+  it("the dial reaches the pictures: each `--kfs-*` stop is declared for .help-pic[data-size] in the SAME block as .kds-root[data-size], and the picture stamps the size it is given", () => {
+    const stops = rules.filter((r) => /--kfs-clock:/.test(r.body));
+    expect(stops.length).toBe(3);
+    for (const r of stops) {
+      const sizes = r.selectors.map((s) => s.match(/\[data-size="([sml])"\]/)?.[1] ?? "");
+      expect(
+        r.selectors.some((s) => /^\.help-pic/.test(s)),
+        r.selectors.join(),
+      ).toBe(true);
+      expect(
+        r.selectors.some((s) => /^\.kds-root/.test(s)),
+        r.selectors.join(),
+      ).toBe(true);
+      expect(new Set(sizes).size, r.selectors.join()).toBe(1); // one stop, both hosts
+    }
+    const { container } = render(<HelpPicture screen="kitchen" n={1} lang="en" size="l" />);
+    expect(container.querySelector('.help-pic[data-size="l"]')).not.toBeNull();
+    cleanup();
+    expect(pic("kitchen", 1).getAttribute("data-size")).toBeNull();
+  });
+
+  it("HelpButton hands the board's size to the picture (parsed off its JSX)", () => {
+    const src = readFileSync(join(__dirname, "HelpButton.tsx"), "utf8");
+    const sf = ts.createSourceFile("HelpButton.tsx", src, ts.ScriptTarget.Latest, true);
+    let bound = false;
+    const visit = (node: ts.Node) => {
+      if (
+        (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
+        node.tagName.getText() === "HelpPicture"
+      ) {
+        const size = node.attributes.properties
+          .filter(ts.isJsxAttribute)
+          .find((a) => a.name.getText() === "size");
+        if (
+          size?.initializer &&
+          ts.isJsxExpression(size.initializer) &&
+          size.initializer.expression?.getText() === "size?.value"
+        )
+          bound = true;
+      }
+      ts.forEachChild(node, (c) => {
+        visit(c);
+      });
+    };
+    visit(sf);
+    expect(bound).toBe(true);
   });
 
   it("the held card is the REAL ticket shell — dashed and dimmed by the board's own rule — with no drawing of its own", () => {

@@ -116,7 +116,13 @@ export function TeamManager({
       nameRef.current?.focus();
       return;
     }
-    if (email.trim().length < 3) {
+    // The address's SHAPE too, by the platform's own `type="email"` grammar (constraint validation
+    // still computes `validity` under `noValidate`; only the browser's bubble is off): a malformed
+    // address used to be stopped by that bubble, and letting it reach the server would come back as
+    // the server's English sentence under the Burmese switch (blind pass, CRITICAL). The server's
+    // zod `.email()` is the stricter rule and stays the backstop for the rare address the two
+    // grammars disagree on — that sentence is P2m's, not this file's.
+    if (email.trim().length < 3 || emailRef.current?.validity.valid === false) {
       say({ ok: false, m: { k: "floor.team.err.email" } });
       emailRef.current?.focus();
       return;
@@ -222,7 +228,8 @@ export function TeamManager({
           </p>
           {/* noValidate: the browser's own bubble would pre-empt the said refusal above, in the
               browser's language, with focus it moves itself. The fields stay `required` for what
-              they ARE (spoken as such); the handler decides what is said. */}
+              they ARE (spoken as such) and `type="email"` for its grammar, which the handler reads
+              off `validity`; the handler decides what is said. */}
           <form onSubmit={add} noValidate className="card team-form" aria-labelledby="add-staff-h">
             <h2 id="add-staff-h" className="team-form-h">
               Add a staff member

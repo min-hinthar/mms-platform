@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF } from "@/lib/i18n/staff";
 
@@ -35,6 +35,23 @@ beforeEach(() => {
 });
 
 const circle = () => screen.getByRole("button", { name: /Lock this tablet|Locking…/ });
+/** Every `@media <query> { … }` block's body, brace-walked (a block holds nested rules). */
+function mediaBlocks(css: string, query: string): string[] {
+  const out: string[] = [];
+  let i = css.indexOf(query);
+  while (i !== -1) {
+    const open = css.indexOf("{", i);
+    let depth = 0;
+    let j = open;
+    for (; j < css.length; j++) {
+      if (css[j] === "{") depth++;
+      else if (css[j] === "}" && --depth === 0) break;
+    }
+    out.push(css.slice(open + 1, j));
+    i = css.indexOf(query, j);
+  }
+  return out;
+}
 
 describe("LockButton", () => {
   it("speaks busy through its name, is never natively disabled, refuses a second tap while held, then locks", async () => {
@@ -106,6 +123,19 @@ describe("LockButton", () => {
     render(<LockButton lang="en" />);
     expect(circle().className).toBe("staff-circ staff-press");
   });
+
+  it("two taps in ONE frame post once — the latch is a ref, not a render-lagged flag", () => {
+    lockConsole.mockReturnValue(new Promise(() => {}));
+    render(<LockButton lang="en" />);
+    const b = circle();
+    // One act: React batches the state the first tap sets, so the second tap reads the SAME render.
+    act(() => {
+      b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      b.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    expect(lockConsole).toHaveBeenCalledTimes(1);
+    expect(haptic).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("the refusal line's CSS", () => {
@@ -118,5 +148,18 @@ describe("the refusal line's CSS", () => {
     expect(rule).not.toBeNull();
     expect(rule![1]).toMatch(/flex-basis:\s*100%/);
     expect(rule![1]).toMatch(/order:\s*[1-9]/);
+  });
+  it("on a phone, where the tail is nowrap, a tail that HOLDS the line wraps it beneath the circles — in that same block", () => {
+    // The blind pass: R1's `flex-wrap: nowrap` on the tail at ≤720px kept a 100%-basis child on the
+    // circles' row, pushing them left under the thumb. The wrap is granted only to a tail holding
+    // the line, and it must live INSIDE the block that sets nowrap, or the cascade decides by order.
+    const phone = mediaBlocks(css, "@media (max-width: 720px)").find((b) =>
+      /(^|\s)\.staff-bar-tail\s*\{[^}]*flex-wrap:\s*nowrap/.test(b),
+    );
+    expect(phone).toBeDefined();
+    const has = phone!.match(/\.staff-bar-tail:has\(> \.staff-bar-msg\)\s*\{([^}]*)\}/);
+    expect(has).not.toBeNull();
+    expect(has![1]).toMatch(/flex-wrap:\s*wrap/);
+    expect(phone!).toMatch(/\.staff-bar-tail > \.staff-bar-msg\s*\{[^}]*max-width:/);
   });
 });

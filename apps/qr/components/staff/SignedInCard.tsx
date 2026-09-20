@@ -58,6 +58,12 @@ export function SignedInCard({
   const [busy, setBusy] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  // §17 — each latch is a REF read at tap time (LEARNINGS #126: two taps in one frame both read the
+  // same stale render, so a state flag lets both post); the state beside it only says
+  // `aria-disabled` and swaps the label. Set together, released together.
+  const busyRef = useRef(false);
+  const removingRef = useRef(false);
+  const signingOutRef = useRef(false);
   const [msg, setMsg] = useState<{ ok: boolean; m: StaffMsg } | null>(null);
   const pinRef = useRef<HTMLInputElement>(null);
   const confirmRef = useRef<HTMLInputElement>(null);
@@ -77,7 +83,7 @@ export function SignedInCard({
 
   async function save(e: FormEvent) {
     e.preventDefault();
-    if (busy) return; // re-entry refused here, never by `disabled`
+    if (busyRef.current) return; // re-entry refused here, never by `disabled`
     say(null);
     if (!lengthOk) {
       say({ ok: false, m: { k: "entry.pin.err.length", vars: bounds } });
@@ -89,6 +95,7 @@ export function SignedInCard({
       confirmRef.current?.focus();
       return;
     }
+    busyRef.current = true;
     setBusy(true);
     // ⚠️ THE BUSY LATCH CLEARS IN `finally`. A Server Action's promise REJECTS on a lost connection,
     // a transport failure or an uncaught server exception — none of which produce an `{ ok: false }`
@@ -104,6 +111,7 @@ export function SignedInCard({
       say({ ok: false, m: { k: "entry.pin.err.outage" } });
       return;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
     if (!res.ok) {
@@ -129,7 +137,8 @@ export function SignedInCard({
   }
 
   async function remove() {
-    if (removing) return;
+    if (removingRef.current) return;
+    removingRef.current = true;
     setRemoving(true);
     say(null);
     let res: Awaited<ReturnType<typeof removePin>>;
@@ -140,6 +149,7 @@ export function SignedInCard({
       say({ ok: false, m: { k: "entry.pin.err.outage" } });
       return;
     } finally {
+      removingRef.current = false;
       setRemoving(false);
     }
     if (!res.ok) {
@@ -166,7 +176,8 @@ export function SignedInCard({
   // session — say what happened and stay put. No lock to release here: this state renders only on
   // an UNLOCKED tablet (a locked one is sent to `/staff/lock` before the card exists).
   async function signOut() {
-    if (signingOut) return;
+    if (signingOutRef.current) return;
+    signingOutRef.current = true;
     setSigningOut(true);
     say(null);
     // The same latch shape as the two writes above, one control down (Codex round 2 on #284):
@@ -180,11 +191,13 @@ export function SignedInCard({
       ({ error } = await browserClient().auth.signOut());
     } catch (e) {
       console.error("[sign-in] signOut rejected", e);
+      signingOutRef.current = false;
       setSigningOut(false);
       say({ ok: false, m: { k: "entry.err.signOut" } });
       return;
     }
     if (error) {
+      signingOutRef.current = false;
       setSigningOut(false);
       say({
         ok: false,
