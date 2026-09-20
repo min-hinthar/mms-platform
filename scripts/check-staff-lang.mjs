@@ -1351,28 +1351,23 @@ function reachesSwitch(root) {
   return switchMounts(root).length > 0;
 }
 
+/** The one module whose export IS the control — reached by MODULE identity, never by a tag name. */
+const SWITCH_MODULE = join(QR, "components/staff/StaffLangSwitch.tsx");
+
 /**
- * The apps/qr modules this file's EXPORTED components mount in LIVE JSX: starting from every
- * exported function component (a `function` declaration, or a `const` initialised with an arrow
- * or function expression, carrying `export` — `default` included), walk its body; a `<Tag …>`
- * outside a literal-dead branch whose tag is a component declared in THIS file is followed into
- * that component (once), and one whose tag is an import from a module under apps/qr is a mount of
- * that module. Parsed, not walked (LEARNINGS #60), and traced from the EXPORTS rather than over
- * the whole file (Codex round 2 on #298, P2): an import EDGE is not a mount — `import { StaffBar }`
- * with no `<StaffBar>` reaches nothing; `{false && <StaffBar/>}` reaches nothing; and an uncalled
- * `function Example() { return <StaffBar/>; }` left in the file reaches nothing either, because
- * nothing exported renders it. Member tags (`<Foo.Bar>`) are not imports of a component and are
- * not counted.
+ * What the export-rooted walk needs from a module: imports by local name (resolved), the component
+ * bodies declared in the file by name (a `function` declaration, or a `const` initialised with an
+ * arrow or function expression), and which of those carry `export` (`default` included).
  */
-function liveMountedModules(file) {
+function componentGraph(file) {
   let sf;
   try {
     sf = parse(file);
   } catch {
-    return [];
+    return null;
   }
-  const byLocal = new Map(); // imported local name → resolved module
-  const locals = new Map(); // component name declared in this file → its body node
+  const byLocal = new Map();
+  const locals = new Map();
   const exported = [];
   const isExported = (node) =>
     !!node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
@@ -1398,24 +1393,51 @@ function liveMountedModules(file) {
         }
     }
   }
-  const modules = new Set();
-  const seen = new Set();
+  return { byLocal, locals, exported };
+}
+
+/**
+ * Does an EXPORTED component of `file` reach a live `<StaffLangSwitch>` through live JSX at EVERY
+ * hop? From each exported component's body: a `<Tag …>` outside a literal-dead branch that is a
+ * component declared in this file is followed into that component (once); one that is an import of
+ * the switch's own module IS the control; one that is an import of another apps/qr module is
+ * followed into THAT module's exported components (once per module), by the same rule. Parsed, not
+ * walked (LEARNINGS #60), and export-rooted at every hop (Codex rounds 2 and 3 on #298): an import
+ * EDGE is not a mount — `import { StaffBar }` with no `<StaffBar>` reaches nothing; `{false &&
+ * <StaffBar/>}` reaches nothing; an uncalled `function Example() { return <StaffBar/>; }` reaches
+ * nothing because nothing exported renders it; a mounted bar that merely IMPORTS the switch, or
+ * holds it only in an uncalled helper, reaches nothing either — the first cut fell back to a
+ * file-wide tag scan on the excluded module and to the import graph after the first hop, and both
+ * of those pass exactly those shapes. Member tags (`<Foo.Bar>`) are not imports of a component and
+ * are not counted; the tag is identified by the MODULE its import resolves to, so an alias
+ * (`import { StaffLangSwitch as S }`) counts and a same-named local does not.
+ */
+function reachesSwitchFromExports(file, seenModules = new Set()) {
+  if (seenModules.has(file)) return false;
+  seenModules.add(file);
+  const g = componentGraph(file);
+  if (!g) return false;
+  const seenLocal = new Set();
   function walk(name) {
-    if (seen.has(name)) return;
-    seen.add(name);
-    const body = locals.get(name);
-    if (!body) return;
+    if (seenLocal.has(name)) return false;
+    seenLocal.add(name);
+    const body = g.locals.get(name);
+    if (!body) return false;
+    let hit = false;
     function visit(node) {
+      if (hit) return;
       if (
         (ts.isJsxSelfClosingElement(node) || ts.isJsxOpeningElement(node)) &&
         ts.isIdentifier(node.tagName) &&
         !inDeadBranch(node)
       ) {
         const tag = node.tagName.text;
-        if (locals.has(tag)) walk(tag);
-        else {
-          const m = byLocal.get(tag);
-          if (m && m.startsWith(QR)) modules.add(m);
+        if (g.locals.has(tag)) {
+          if (walk(tag)) hit = true;
+        } else {
+          const m = g.byLocal.get(tag);
+          if (m === SWITCH_MODULE) hit = true;
+          else if (m && m.startsWith(QR) && reachesSwitchFromExports(m, seenModules)) hit = true;
         }
       }
       ts.forEachChild(node, (c) => {
@@ -1423,27 +1445,20 @@ function liveMountedModules(file) {
       });
     }
     visit(body);
+    return hit;
   }
-  for (const name of exported) walk(name);
-  return [...modules];
-}
-
-/** Does this module reach a live switch — mounted in its own live JSX, or through a component an
- *  EXPORTED component's live JSX mounts (the shell's `<StaffBar>` since signin-5)? */
-function reachesSwitchLive(file) {
-  if (mountsSwitchHere(file)) return true;
-  return liveMountedModules(file).some((m) => switchMounts(m).length > 0);
+  return g.exported.some((n) => walk(n));
 }
 
 // Self-check: the exclusion is only meaningful while the excluded module ACTUALLY reaches a switch —
-// in its own LIVE JSX or through a component that JSX mounts, traced from its EXPORTS (the shell's
-// is `<StaffBar>`'s since signin-5). If the shell ever stops reaching one, this set is silently
-// hiding nothing and the next reader would trust a comment that has stopped being true. Live JSX
-// from the exports, never the import graph: the walk the pages get follows every import, which is
-// right for "does this page reach a control" and wrong for "does this module still mount one" —
-// an unused import, a dead branch or an uncalled helper would each pass.
+// through live JSX from its EXPORTS at every hop (the shell's is `<StaffBar>`'s since signin-5,
+// and the bar's is its own `<StaffLangSwitch>`). If the shell ever stops reaching one, this set is
+// silently hiding nothing and the next reader would trust a comment that has stopped being true.
+// Never the import graph, never a file-wide scan: the walk the pages get follows every import,
+// which is right for "does this page reach a control" and wrong for "does this module still mount
+// one" — an unused import, a dead branch or an uncalled helper, at either hop, would each pass.
 for (const f of SWITCH_WALK_EXCLUDED)
-  if (!reachesSwitchLive(f))
+  if (!reachesSwitchFromExports(f))
     failures.push(
       `rule 4: ${relative(ROOT, f)} is excluded from the switch walk but its LIVE JSX no longer reaches <StaffLangSwitch>. Delete the exclusion, or restore the mount.`,
     );

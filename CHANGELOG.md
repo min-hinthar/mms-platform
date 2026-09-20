@@ -58,8 +58,9 @@ var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the r
   switch in the tail's fixed slot) over `.staff-col.entry-col`; the card's heading is an h2 that
   still takes focus. `check-staff-lang.mjs`'s self-check now asks whether the excluded shell still
   REACHES a switch (through the bar), not whether it mounts one in its own JSX — traced from the
-  shell's EXPORTED component through live JSX, so an unused import, a dead branch or an uncalled
-  helper holding the bar each fail it (the blind pass and Codex round 2, one evasion each).
+  shell's EXPORTED component through live JSX at EVERY hop, the switch identified by its module, so
+  an unused import, a dead branch or an uncalled helper holding the bar — or a mounted bar that
+  only imports the switch — each fail it (the blind pass and Codex rounds 2 and 3, one evasion each).
 - **The front door's own skeleton (signin-1).** `/staff/login` and `/staff/lock` fell back to the
   floor's 1080 three-zone skeleton. `EntrySkeleton` mirrors the pages — the bar band, then the
   pages' own `staff-col entry-col` (read off their SOURCE, parsed) holding one entry card in EACH

@@ -109,8 +109,9 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > is asserted INSIDE that `@media` block (brace-walk it — `[^{}]` regexes cannot). (2) A guard
 > about "does this module still mount X" must read LIVE JSX, never the import graph: an import
 > edge alone and `{false && <X/>}` both pass a walk (`check-staff-lang.mjs`'s self-check now parses
-> the excluded shell's live tags and resolves them — from its EXPORTS, since Codex round 2 showed an
-> uncalled helper holding the tag would pass a whole-file walk). (3) Run `tsc` AFTER the last test
+> the excluded shell's live tags and resolves them — from its EXPORTS at EVERY hop, since Codex
+> rounds 2 and 3 showed an uncalled helper holding the tag, or a mounted bar that only imports the
+> switch, would pass a whole-file scan or an import walk). (3) Run `tsc` AFTER the last test
 > edit — vitest does not typecheck, and CI's `typecheck` caught a fixture the suite happily ran.
 > (4) A provider that announces for other components stores the MESSAGE, never a rendered node: a
 > language switch is a `router.refresh()` that keeps client state, so a node built with the old
