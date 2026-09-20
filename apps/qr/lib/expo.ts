@@ -4,10 +4,10 @@ import { queueEmptiness, queueFloorIso } from "./queue-window";
 import { after } from "next/server";
 import { serviceClient } from "@mms/db/server";
 import { setTogoStatusInput } from "@mms/db/schemas";
-import { getStaffAuth, staffGate } from "./staff";
+import { getStaffAuth, STAFF_SIGNIN_REQUIRED, staffGate } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
-import type { ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
+import type { ExpoErrCode, ExpoLine, ExpoPoll, ExpoTicket } from "./expo-types";
 import { compareExpoTickets, kitchenStateOf, type KitchenLineRow } from "./expo-rules";
 import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import { loadLineNames } from "./line-names";
@@ -221,7 +221,7 @@ export async function getExpoQueue(): Promise<ExpoPoll> {
   return { ok: true, queue: { tickets, serverNow: nowIso } };
 }
 
-export type ExpoActionResult = { ok: true } | { ok: false; error: string };
+export type ExpoActionResult = { ok: true } | { ok: false; error: string; code: ExpoErrCode };
 
 /**
  * Advance an order's takeaway status (S4.3a): preparing → ready (bagged, tell the diner) → picked_up
@@ -233,10 +233,15 @@ export type ExpoActionResult = { ok: true } | { ok: false; error: string };
  */
 export async function setTogoStatus(raw: unknown): Promise<ExpoActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok)
+    return {
+      ok: false,
+      error: gate.error,
+      code: gate.error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence",
+    };
   const caller = gate.caller;
   const parsed = setTogoStatusInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { orderId, to } = parsed.data;
 
   const { data, error } = await serviceClient().rpc("mms_set_togo_status", {
@@ -245,9 +250,10 @@ export async function setTogoStatus(raw: unknown): Promise<ExpoActionResult> {
   });
   if (error) {
     console.error("[expo] mms_set_togo_status failed", { orderId, to, message: error.message });
-    return { ok: false, error: "Couldn’t update that bag. Try again." };
+    return { ok: false, error: "Couldn’t update that bag. Try again.", code: "failed" };
   }
-  if (data !== "ok") return { ok: false, error: "That bag was already updated — refreshing." }; // 'stale'/'bad_status'
+  if (data !== "ok")
+    return { ok: false, error: "That bag was already updated — refreshing.", code: "stale" }; // 'stale'/'bad_status'
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {
     after(async () => {

@@ -786,6 +786,60 @@ export const STAFF = {
   "expo.verb.verified": { en: "Verified", my: "စစ်ဆေးပြီး" },
   "expo.verb.bagged": { en: "Bagged & ready", my: "ထုပ်ပြီး၊ ယူလို့ရပြီ" }, // grounded: kds.line.bagit (ထုပ်), board.status (ယူလို့ရပြီ)
   "expo.verb.handedOver": { en: "Handed over", my: "လွှဲပေးပြီး" },
+  // counter-6 / P2q — the card itself, in the device language: the tags, the pickup line, the
+  // scan-and-go note, the destination chips. `{t}` and `{id}` are Latin-always slots (a clock, a
+  // tent-card number); `{x}` is a name or a code, never a word.
+  "expo.tag.here": { en: "Here now", my: "ရောက်နေပြီ" },
+  "expo.tag.ready": { en: "Ready", my: "အဆင်သင့်" },
+  "expo.tag.verified": { en: "Verified", my: "စစ်ဆေးပြီး" },
+  "expo.pickup": { en: "Pickup {t}", my: "လာယူချိန် {t}" },
+  // The product name rides `{x}` so <Chrome> marks it Latin inside the Burmese run.
+  "expo.grocery.note": {
+    en: "{x} — verify the exit pass; nothing to bag.",
+    my: "{x} — ထွက်ခွင့်လက်မှတ်ကို စစ်ပါ၊ ထုပ်စရာ မရှိပါ။",
+  },
+  "expo.dest.togo": { en: "To-go", my: "ပါဆယ်" },
+  "expo.dest.grocery": { en: "Grocery", my: "ကုန်စုံ" },
+  // counter-1 — the picked-up window: the card's posture, the one way back, and what the region says.
+  "expo.picked.pending": { en: "Picked up — undo?", my: "ယူသွားပြီ — ပြန်ဖျက်မလား" },
+  "expo.live.picked": {
+    en: "{x} picked up — undo available.",
+    my: "{x} ယူသွားပြီ — ပြန်ဖျက်နိုင်သေးသည်။",
+  },
+  "expo.live.pickedTable": {
+    en: "Table {id} picked up — undo available.",
+    my: "စားပွဲ {id} ယူသွားပြီ — ပြန်ဖျက်နိုင်သေးသည်။",
+  },
+  "expo.live.pickedUndone": { en: "{x} is back on the counter.", my: "{x} ကောင်တာမှာ ပြန်ရှိပြီ။" },
+  "expo.live.pickedUndoneTable": {
+    en: "Table {id} is back on the counter.",
+    my: "စားပွဲ {id} ကောင်တာမှာ ပြန်ရှိပြီ။",
+  },
+  // counter-6 / P2p — the lane's refusals, keyed per SUBJECT shape (see `lib/expo-errors.ts`).
+  "expo.err.bagTable": {
+    en: "Couldn’t update the bag for Table {id} — try again.",
+    my: "စားပွဲ {id} အတွက် ထုပ်ကို မပြင်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  "expo.err.bagFor": {
+    en: "Couldn’t update the bag for {x} — try again.",
+    my: "{x} အတွက် ထုပ်ကို မပြင်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  "expo.err.verify": {
+    en: "Couldn’t update {x} — try again.",
+    my: "{x} ကို မပြင်နိုင်ပါ — ထပ်စမ်းပါ။",
+  },
+  "expo.err.stale": {
+    en: "{x} was already updated — refreshing.",
+    my: "{x} ကို ပြောင်းပြီးသားပါ — ပြန်ဖတ်နေသည်။",
+  },
+  "expo.err.staleTable": {
+    en: "Table {id} was already updated — refreshing.",
+    my: "စားပွဲ {id} ကို ပြောင်းပြီးသားပါ — ပြန်ဖတ်နေသည်။",
+  },
+  "expo.err.invalid": {
+    en: "That request didn’t make sense — reload the screen.",
+    my: "တောင်းဆိုချက် မမှန်ပါ — စခရင်ကို ပြန်ဖွင့်ပါ။",
+  },
   "expo.verb.pickedUp": { en: "Picked up", my: "ယူသွားပြီ" },
 
   // ═══ P2 PR B · home ═══════════════════════════════════════════════════════════

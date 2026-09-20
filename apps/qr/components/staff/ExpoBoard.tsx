@@ -9,6 +9,12 @@ import {
   type CSSProperties,
 } from "react";
 import { getExpoQueue, setTogoStatus } from "@/lib/expo";
+import { expoAge, pickedUndoArmed, pickedUndoOpen } from "@/lib/expo-rules";
+import { expoErrOutcome, expoFailedMsg, type ExpoMsg, type ExpoSubject } from "@/lib/expo-errors";
+import { actionErrorStale, ERR_DWELL_MS } from "@/lib/kds-errors";
+import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
+import { haptic } from "@/lib/haptics";
+import type { ExpoErrCode } from "@/lib/expo-types";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
 import { useFloorRealtime } from "@/lib/useFloorRealtime";
 import { useWakeLock } from "@/lib/useWakeLock";
@@ -17,14 +23,14 @@ import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import { ExpoLineMy } from "./TicketText";
-import { RelativeTime } from "./RelativeTime";
+import { MsgText } from "./StaffMsg";
 import { StaggerList } from "./StaggerList";
 import { Badge, EmptyState, Icon } from "@mms/ui";
 import { useLiveBoardState, useReportLive } from "./LiveConnection";
 import { ts } from "@/lib/i18n/staff";
 import { useStaffLang } from "./StaffLangProvider";
-import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
-import { Chrome, OutageText } from "./Chrome";
+import { bumpBtn, pickedBtn, readyBtn, undoBtn } from "./expo-stage";
+import { Chrome } from "./Chrome";
 
 /**
  * Expo / bagging station (S4.3a, W3a) — the takeaway counterpart to the KDS. Server-rendered initial
@@ -55,19 +61,72 @@ export function ExpoBoard({
   // thing on this board to speak it; the rest of the chrome follows in its own commit.
   const lang = useStaffLang();
   const [snap, setSnap] = useState(initial);
-  const [err, setErr] = useState<string | null>(null);
+  // The lane's ONE region: a KEY with its slots or a server sentence, never only a string (§17,
+  // the KDS's kitchen-3 — the same wall stood here as P2p).
+  const [err, setErr] = useState<ExpoMsg | null>(null);
+  const [notice, setNotice] = useState<ExpoMsg | null>(null); // one-shot (the picked-up window)
+  // kitchen-10's dwell, on the lane too: a refusal outlives the poll that follows it.
+  const errSince = useRef<number | null>(null);
+  const showErr = useCallback((m: ExpoMsg | null) => {
+    errSince.current = m ? Date.now() : null;
+    setErr(m);
+  }, []);
+  const onRefused = useCallback(
+    (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => {
+      const out = expoErrOutcome(res, subject);
+      if (out.kind === "leave") {
+        window.location.assign(out.href);
+        return;
+      }
+      showErr(out.msg);
+    },
+    [showErr],
+  );
   // W10b — one degraded state carrying WHEN it started and WHY (see KdsBoard for the full note).
   // `since` and `nowMs` are BOTH the device clock here, so the elapsed driving the paper-flow
   // escalation is measured in one domain — a skewed tablet can't shorten or extend it.
+  // SERVER-space clock (the KDS pattern, counter-7): seeded from the snapshot's own stamp — pure
+  // in render — and advanced every second in a callback as `Date.now() + offset`, the offset taken
+  // whenever a snapshot lands. Ages, the picked-up windows and the escalation all read the one
+  // clock, and every `since` is stamped in the same space, so a skewed tablet can neither age a
+  // bag early nor shorten the paper-flow escalation.
+  const [nowMs, setNowMs] = useState(() => Date.parse(initial.serverNow));
+  const clockOffset = useRef<number | null>(null);
+  // The offset is taken AT MOUNT (the KDS's line) — a first tick a second later would seed it a
+  // second short and every age would read one second young for the rest of the shift.
+  useEffect(() => {
+    clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
+    // initial.serverNow is a mount-time snapshot — the prop never changes meaningfully.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const stampNow = useCallback(() => {
+    // ASSIGN the mount-time offset once (`??=`, the KDS's line) — a fallback that recomputed
+    // `Date.parse(initial.serverNow) - Date.now()` on every call collapses to the constant
+    // `Date.parse(initial.serverNow)`, and a lane that mounts into an outage then never advances:
+    // no age, no escalation, "reconnecting" forever (blind pass, critical 1).
+    clockOffset.current ??= Date.parse(initial.serverNow) - Date.now();
+    return Date.now() + clockOffset.current;
+    // initial.serverNow is a mount-time snapshot — the prop never changes meaningfully.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [degraded, setDegraded] = useState<StaffDegraded | null>(() =>
-    initialOutage ? nextDegraded(null, "outage", Date.now()) : null,
+    initialOutage ? nextDegraded(null, "outage", Date.parse(initial.serverNow)) : null,
   );
-  // Clock for the escalation only (no 1s ticker here like the KDS): Date.now() in render is impure
-  // under the compiler, so it advances in the failure callbacks and a slow tick while degraded.
-  const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlight = useRef(false);
+  // counter-1 — the picked-up windows, keyed by ORDER in the lane (a card re-renders from `snap`
+  // on every poll and would lose its own state): when each was tapped, and the subject its
+  // sentences name. See the tick below and `PICKED_UNDO_MS`.
+  const [picked, setPicked] = useState<
+    ReadonlyMap<string, { at: number; subject: ExpoSubject; committing: boolean }>
+  >(() => new Map());
+  // A mirror for the two readers that run outside render and outside the tick's closure: the
+  // poll's redirect and the unmount flush. Written in an effect, never during render.
+  const pickedRef = useRef(picked);
+  useEffect(() => {
+    pickedRef.current = picked;
+  }, [picked]);
 
   useWakeLock(); // O-F: the bagging tablet is always-on too
 
@@ -81,35 +140,145 @@ export function ExpoBoard({
         // W10b (M32): outage ≠ signed out — keep the last-known bags instead of redirecting the
         // counter to login mid-service.
         if (res.reason === "outage") {
-          setNowMs(Date.now());
-          setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          setNowMs(stampNow());
+          setDegraded((d) => nextDegraded(d, "outage", stampNow()));
           return;
         }
+        // A window still open when the console is leaving (a lock, an expired cookie) is a bag the
+        // counter already handed over: send its write NOW, then go. A refused write (the cookie
+        // really is gone) leaves the bag "ready", which is the honest state for a bag whose pick
+        // was never recorded — the same outcome, minus the silence.
+        await Promise.allSettled(
+          [...pickedRef.current]
+            .filter(([, p]) => !p.committing)
+            .map(([orderId]) => setTogoStatus({ orderId, to: "picked_up" })),
+        );
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
         return;
       }
       setSnap(res.queue);
-      setErr(null);
+      clockOffset.current = Date.parse(res.queue.serverNow) - Date.now();
+      // A bag that left the queue under an open picked-up window (someone else's tap, a refund)
+      // takes its window with it — writing picked_up to a gone order would only earn a "stale"
+      // banner. Pruned HERE, in the poll's own callback, never in an effect on `snap`.
+      const live = new Set(res.queue.tickets.map((t) => t.orderId));
+      setPicked((prev) =>
+        [...prev.keys()].every((id) => live.has(id))
+          ? prev
+          : new Map([...prev].filter(([id]) => live.has(id))),
+      );
+      if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
+        errSince.current = null;
+        setErr(null);
+      }
       fails.current = 0;
       setDegraded(null);
     } catch (e) {
       // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
-      setNowMs(Date.now());
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+      setNowMs(stampNow());
+      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", stampNow()));
       console.error("[ExpoBoard] refresh failed", e);
     } finally {
       inFlight.current = false;
     }
-  }, []);
+  }, [stampNow]);
 
-  // Slow escalation tick while frozen/stale — the banner's ≥2min flip needs a re-render even if
-  // every poll keeps failing silently.
+  // counter-1 — the deferred write. The 1 s tick below closes windows on the LOCAL clock and sends
+  // it — the same tick that expires the KDS's undo. A tab closed inside the window loses the write,
+  // and the bag stays "ready": the safe direction.
+  const dropPicked = useCallback((orderId: string) => {
+    setPicked((prev) => {
+      if (!prev.has(orderId)) return prev;
+      const next = new Map(prev);
+      next.delete(orderId);
+      return next;
+    });
+  }, []);
+  // The deferred write. The entry STAYS in the map, marked `committing`, for the whole round trip:
+  // the card keeps its picked posture (Undo inert) until the refetch drops the bag from the queue
+  // — dropping the entry first flipped the card back to a live "Picked up" for the write + poll
+  // round trip on every single pick (blind pass, critical 2). A refusal or a throw drops the entry:
+  // the bag is back, honestly, with the sentence beside it.
+  const commitPicked = useCallback(
+    async (orderId: string, subject: ExpoSubject) => {
+      try {
+        const res = await setTogoStatus({ orderId, to: "picked_up" });
+        if (!res.ok) {
+          onRefused(res, subject);
+          dropPicked(orderId);
+        } else await refresh(); // the poll's prune removes the entry with the bag
+      } catch {
+        showErr(expoFailedMsg(subject));
+        dropPicked(orderId);
+      }
+    },
+    [dropPicked, onRefused, refresh, showErr],
+  );
+  // The interval is re-armed when the map changes (a tap, an undo, a bag leaving) so the tick
+  // always reads the live windows without a ref written during render.
   useEffect(() => {
-    if (!degraded) return;
-    const id = setInterval(() => setNowMs(Date.now()), 15_000);
+    const id = setInterval(() => {
+      const localNow = Date.now();
+      setNowMs(stampNow());
+      const due = [...picked].filter(([, p]) => !p.committing && !pickedUndoOpen(p.at, localNow));
+      if (due.length === 0) return;
+      setPicked((prev) => {
+        const next = new Map(prev);
+        for (const [orderId, p] of due) next.set(orderId, { ...p, committing: true });
+        return next;
+      });
+      for (const [orderId, p] of due) void commitPicked(orderId, p.subject);
+    }, 1000);
     return () => clearInterval(id);
-  }, [degraded]);
+  }, [picked, commitPicked, stampNow]);
+  // The lane leaving with windows open (a route change, a remount) sends their writes at once —
+  // the counter saw "picked up" and handed the bag over; the undo affordance is what is gone, not
+  // the pick. Fire-and-forget: a server action outlives the component that called it.
+  useEffect(
+    () => () => {
+      for (const [orderId, p] of pickedRef.current)
+        if (!p.committing) void setTogoStatus({ orderId, to: "picked_up" });
+    },
+    [],
+  );
+  const onPicked = useCallback(
+    (orderId: string, subject: ExpoSubject) => {
+      haptic("commit");
+      showErr(null); // a user action replaces a standing refusal — the region must say THIS
+      setPicked((prev) =>
+        new Map(prev).set(orderId, { at: Date.now(), subject, committing: false }),
+      );
+      setNotice(
+        subject.kind === "table"
+          ? { k: "expo.live.pickedTable", vars: { id: subject.id } }
+          : { k: "expo.live.picked", vars: { x: subject.x } },
+      );
+    },
+    [showErr],
+  );
+  const onUndoPicked = useCallback(
+    (orderId: string, subject: ExpoSubject) => {
+      const entry = picked.get(orderId);
+      // Inert while the write is in flight, and for the arm after the pick: the second tap of a
+      // double-tap lands here (same slot, same node) and is not a change of mind.
+      if (!entry || entry.committing || !pickedUndoArmed(entry.at, Date.now())) return;
+      haptic("commit");
+      showErr(null);
+      dropPicked(orderId);
+      setNotice(
+        subject.kind === "table"
+          ? { k: "expo.live.pickedUndoneTable", vars: { id: subject.id } }
+          : { k: "expo.live.pickedUndone", vars: { x: subject.x } },
+      );
+    },
+    [picked, dropPicked, showErr],
+  );
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(null), 4000);
+    return () => clearTimeout(id);
+  }, [notice]);
 
   const onChange = useCallback(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -207,10 +376,13 @@ export function ExpoBoard({
             above). The visible count/freeze line beneath stays plain text — one voice per fact. */}
         <p role="status" className={err ? "expo-status expo-status-warn" : "expo-status"}>
           {err !== null ? (
-            // P2 — a server error reaches the DOM here, so it goes through <OutageText>: it swaps the
-            // ONE sentence that has an authored Burmese twin (the write outage — the sentence a
-            // counter reads when a bump did not save) and passes every other error through verbatim.
-            <OutageText lang={lang} error={err} />
+            // A keyed refusal arrives marked through <Chrome>; a server sentence goes through
+            // <OutageText>, which swaps the one twin it owns and shows anything else verbatim — and
+            // the mark rides the branch, never the region (a twin-less sentence must not be
+            // announced as Burmese).
+            <MsgText lang={lang} msg={err} />
+          ) : notice !== null ? (
+            <MsgText lang={lang} msg={notice} />
           ) : (
             <span className="sr-only" lang={lang}>
               {announced}
@@ -289,7 +461,17 @@ export function ExpoBoard({
           ariaLabel={sx(lang, "expo.a11y.bags")}
           style={grid}
           renderItem={(t) => (
-            <ExpoCard ticket={t} serverNow={snap.serverNow} onBumped={refresh} onError={setErr} />
+            <ExpoCard
+              ticket={t}
+              nowMs={nowMs}
+              picked={picked.has(t.orderId)}
+              committing={picked.get(t.orderId)?.committing ?? false}
+              onBumped={refresh}
+              onError={showErr}
+              onRefused={onRefused}
+              onPicked={onPicked}
+              onUndoPicked={onUndoPicked}
+            />
           )}
         />
       )}
@@ -299,17 +481,31 @@ export function ExpoBoard({
 
 function ExpoCard({
   ticket,
-  serverNow,
+  nowMs,
+  picked,
+  committing,
   onBumped,
   onError,
+  onRefused,
+  onPicked,
+  onUndoPicked,
 }: {
   ticket: ExpoTicket;
-  serverNow: string;
+  /** Server-space now (the lane's tick + its offset) — the age clock and its tone read it. */
+  nowMs: number;
+  /** counter-1 — this bag's picked-up write is waiting on its undo window. */
+  picked: boolean;
+  /** …and the window has closed: the write is in flight, Undo is inert, the bag is leaving. */
+  committing: boolean;
   onBumped: () => void | Promise<void>;
-  onError: (msg: string | null) => void;
+  onError: (msg: ExpoMsg | null) => void;
+  onRefused: (res: { error: string; code: ExpoErrCode }, subject: ExpoSubject) => void;
+  onPicked: (orderId: string, subject: ExpoSubject) => void;
+  onUndoPicked: (orderId: string, subject: ExpoSubject) => void;
 }) {
   const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
+  const age = expoAge(ticket, nowMs);
   // The stage this card is AT, named once: it decides the next status, the button's word, the
   // button's tint and the card's own name. Four separate `=== "preparing"` tests were four chances
   // for one of them to drift.
@@ -330,15 +526,10 @@ function ExpoCard({
   // The identifier half of the call-out — the diner's own name, else the short code. Neither is a
   // WORD, so it is the same string in both tongues and is derived once for both call-outs below.
   const whoElse = ticket.customerName ?? `#${ticket.shortCode}`;
-  const callOut = ticket.tableNumber != null ? `Table ${ticket.tableNumber}` : whoElse;
-  // The same call-out for the EAR, with the one word in it taken from the dictionary. `callOut`
-  // above is the visible header and stays as authored — the expo board's chips are still English
-  // and converting one word of it alone would read as a half-translated line (OPEN-ITEMS P2q). A
-  // NAME is different: it is the whole sentence a Burmese staffer hears, and splicing an English
-  // word the console already owns into it ("Table 7 အတွက် ပါဆယ်ထုပ်") is the defect the ARIA ratchet
-  // exists for. `floor.table`'s `{id}` is a Latin-always slot, so the tent-card number stays Latin,
-  // which is what is printed on the card. A diner's own name and a short code are identifiers, not
-  // words, and pass through as given.
+  // The call-out for the EAR — and, since P2q closed, for the eye too: the visible header renders
+  // `floor.table` through <Chrome>, the same key. `floor.table`'s `{id}` is a Latin-always slot, so
+  // the tent-card number stays Latin, which is what is printed on the card. A diner's own name and
+  // a short code are identifiers, not words, and pass through as given.
   const callOutAria =
     ticket.tableNumber != null
       ? tf(lang, "floor.table", { id: String(ticket.tableNumber) })
@@ -357,27 +548,32 @@ function ExpoCard({
       ? "expo.a11y.cardVerify"
       : "expo.a11y.cardHandOver"
     : "expo.a11y.cardBag";
+  // P2p — the SUBJECT of every sentence about this bag, as a shape: a table's number rides a
+  // Latin-always `{id}` slot (its value would otherwise be the bilingual "စားပွဲ 7", which the slot
+  // rule wraps whole as Latin); a name or a code is an identifier and rides `{x}` as given.
+  const subject: ExpoSubject = grocery
+    ? { kind: "verify", x: verifyWho }
+    : ticket.tableNumber != null
+      ? { kind: "table", id: ticket.tableNumber }
+      : { kind: "bag", x: whoElse };
 
   const bump = () => {
+    if (pending) return; // §17 — the handler refuses re-entry; the button is never natively disabled
+    // counter-1 — the SECOND stage drops the bag off the tracker and the wall with no reverse edge:
+    // it flips the card and waits on the lane's undo window instead of writing now.
+    if (!firstStage) {
+      onPicked(ticket.orderId, subject);
+      return;
+    }
+    haptic("commit");
     onError(null);
     startTransition(async () => {
       try {
         const res = await setTogoStatus({ orderId: ticket.orderId, to });
-        if (!res.ok) onError(res.error);
+        if (!res.ok) onRefused(res, subject);
         else await onBumped(); // pending covers the refetch — no stale-label flicker
       } catch {
-        // ⚠️ STILL ENGLISH, DELIBERATELY — OPEN-ITEMS P2p, not an oversight. The obvious conversion
-        // (`tf(lang, "expo.err.bag", { x: callOutAria })`) is WRONG here twice over: this string is
-        // rendered through `<OutageText>`, whose passthrough arm returns a bare text node, so a
-        // Burmese sentence would land unmarked — Latin face, announced as English, the exact defect
-        // rule 5 exists for; and the slot value a bilingual sentence needs is ITSELF bilingual
-        // ("စားပွဲ 7"), which `<Chrome>`'s slot rule would wrap whole in `lang="en"`. Doing it right
-        // means a branched notice plus a table/non-table key per stage. Filed, not guessed.
-        onError(
-          grocery
-            ? `Couldn’t update ${verifyWho} — try again.`
-            : `Couldn’t update the bag for ${callOut} — try again.`,
-        );
+        onError(expoFailedMsg(subject));
       }
     });
   };
@@ -386,21 +582,32 @@ function ExpoCard({
     <article
       className="card card-textured"
       style={cardStyle}
+      data-picked={picked || undefined}
       // The card's name tracks its CURRENT stage — a ready grocery ticket was already verified, so
       // announcing "Verify" for it would read the previous workflow step to an SR staffer (Codex).
       aria-label={tf(lang, cardNameKey, { x: grocery ? verifyWho : callOutAria })}
     >
-      <header style={cardHead}>
+      {/* counter-7 — the header carries the bag's due-ness as a tone; the text keeps its ink. */}
+      <header className="expo-head" data-tone={age.tone === "ok" ? undefined : age.tone}>
         <span style={tableLabel}>
-          {callOut}
+          {ticket.tableNumber != null ? (
+            <Chrome lang={lang} k="floor.table" vars={{ id: String(ticket.tableNumber) }} />
+          ) : (
+            whoElse
+          )}
           {ticket.tableNumber == null && ticket.customerName && (
             <span style={codeSuffix}> #{ticket.shortCode}</span>
           )}
         </span>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--s2)" }}>
           {/* J5: the diner tapped "I'm here" on /track (qr_orders.arrived_at) — a waiting HUMAN
-              outranks bag age; hand this one over first. Rendered only from the real stamp. */}
-          {ticket.arrivedAt && <span style={hereTag}>Here now</span>}
+              outranks bag age; hand this one over first. Rendered only from the real stamp, and as
+              a bordered accent chip (counter-7): it was the smallest text on the card. */}
+          {ticket.arrivedAt && (
+            <Badge tone="accent" bordered>
+              <Chrome lang={lang} k="expo.tag.here" />
+            </Badge>
+          )}
           {/* A4·2 · K30 (B): the kitchen has bumped every to-go food line on this bag — bag it now.
               Advisory (derived from the cart's lines, `unknown` draws nothing), and only on a FOOD
               bag still at the first stage: a bagged one is past it, a scan-and-go basket was never
@@ -413,24 +620,40 @@ function ExpoCard({
               <Chrome lang={lang} k="expo.kitchenDone" />
             </Badge>
           )}
-          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly. */}
-          {ticket.status === "ready" && (
-            <span style={readyTag}>{grocery ? "Verified" : "Ready"}</span>
+          {/* Grocery's ready-stage means "pass checked", not "food ready" — tag it honestly.
+              counter-1: while the pick waits on its window the tag says THAT instead. */}
+          {picked ? (
+            <span style={readyTag} lang={lang}>
+              {ts(lang, "expo.picked.pending")}
+            </span>
+          ) : (
+            ticket.status === "ready" && (
+              <span style={readyTag} lang={lang}>
+                {ts(lang, grocery ? "expo.tag.verified" : "expo.tag.ready")}
+              </span>
+            )
           )}
-          <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-            <RelativeTime iso={ticket.createdAt} serverNow={serverNow} />
-          </span>
+          {/* counter-7 — how long this bag has been DUE (from the guest's arrival, else the slot,
+              else payment): nothing before that moment, a clock after it, spoken as a sentence. */}
+          {age.sinceMs > 0 && (
+            <span className="expo-age">
+              <span aria-hidden="true">{fmtElapsed(age.sinceMs)}</span>
+              <span className="sr-only" lang={lang}>
+                {spokenElapsed(lang, age.sinceMs)}
+              </span>
+            </span>
+          )}
         </span>
       </header>
       {ticket.pickupSlot && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          Pickup {formatSlotLong(ticket.pickupSlot)}
+        <p style={secondaryLine}>
+          <Chrome lang={lang} k="expo.pickup" vars={{ t: formatSlotLong(ticket.pickupSlot) }} />
         </p>
       )}
       {/* W21 — the pickup contact the checkout REQUIRED, finally readable where it's needed: a
           tel: link so the counter phone dials in one tap. Staff-gated surface; never public. */}
       {ticket.customerPhone && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+        <p style={secondaryLine}>
           <a
             href={`tel:${ticket.customerPhone.replace(/[^0-9+]/g, "")}`}
             style={{ color: "inherit", fontWeight: 700, minHeight: 44, display: "inline-block" }}
@@ -443,8 +666,8 @@ function ExpoCard({
       {/* W9d — the honest job description: the shopper already holds these items, so the counter's
           work is the exit-pass check, not bagging. */}
       {grocery && (
-        <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-          Scan &amp; Go — verify the exit pass; nothing to bag.
+        <p style={secondaryLine}>
+          <Chrome lang={lang} k="expo.grocery.note" vars={{ x: "Scan & Go" }} />
         </p>
       )}
       {/* `listStyle: none` strips the list semantics a screen reader would otherwise announce, so
@@ -466,61 +689,79 @@ function ExpoCard({
           visible label through `chromeVisible(lang, key, echo)` — pass different echoes at the two
           ends and the name silently drops half the visible label (WCAG 2.5.3). The rendered text is
           pinned against that derivation in `Chrome.test.tsx`, which is the only place it can be. */}
-      <button
-        type="button"
-        onClick={bump}
-        disabled={pending}
-        aria-label={
-          grocery
-            ? firstStage
-              ? al(lang, {
-                  kind: "verb",
-                  echo: "stack",
-                  verb: "expo.verb.verified",
-                  subject: verifyWho,
-                }).aria
-              : al(lang, {
-                  kind: "verb",
-                  echo: "stack",
-                  verb: "expo.verb.handedOver",
-                  subject: verifyWho,
-                }).aria
-            : firstStage
-              ? al(lang, {
-                  kind: "verb",
-                  echo: "stack",
-                  verb: "expo.verb.bagged",
-                  subject: callOutAria,
-                }).aria
-              : al(lang, {
-                  kind: "verb",
-                  echo: "stack",
-                  verb: "expo.verb.pickedUp",
-                  subject: callOutAria,
-                }).aria
-        }
-        className="staff-btn"
-        style={{ ...bumpBtn, ...(firstStage ? readyBtn : pickedBtn) }}
-      >
-        {pending ? (
-          "…"
-        ) : grocery ? (
-          firstStage ? (
-            <Chrome lang={lang} k="expo.verb.verified" echo="stack" />
+      {picked ? (
+        // counter-1 — the picked posture: the write is waiting on the window, and this is the way
+        // back. Same control slot, same height; the name says what Undo undoes.
+        <button
+          type="button"
+          onClick={() => onUndoPicked(ticket.orderId, subject)}
+          aria-disabled={committing || undefined}
+          aria-busy={committing || undefined}
+          aria-label={al(lang, { kind: "undo", label: grocery ? verifyWho : callOutAria }).aria}
+          className="staff-btn staff-press"
+          style={{ ...bumpBtn, ...undoBtn }}
+        >
+          <Chrome lang={lang} k="kds.undo" />
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={bump}
+          aria-disabled={pending || undefined}
+          aria-busy={pending || undefined}
+          aria-label={
+            grocery
+              ? firstStage
+                ? al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    verb: "expo.verb.verified",
+                    subject: verifyWho,
+                  }).aria
+                : al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    verb: "expo.verb.handedOver",
+                    subject: verifyWho,
+                  }).aria
+              : firstStage
+                ? al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    verb: "expo.verb.bagged",
+                    subject: callOutAria,
+                  }).aria
+                : al(lang, {
+                    kind: "verb",
+                    echo: "stack",
+                    verb: "expo.verb.pickedUp",
+                    subject: callOutAria,
+                  }).aria
+          }
+          className="staff-btn staff-press"
+          style={{ ...bumpBtn, ...(firstStage ? readyBtn : pickedBtn) }}
+        >
+          {/* The label STAYS through the round trip (§17): busy is the attribute plus the dim, never
+            an ellipsis that shrinks the zone under the thumb and renames the control "…". */}
+          {grocery ? (
+            firstStage ? (
+              <Chrome lang={lang} k="expo.verb.verified" echo="stack" />
+            ) : (
+              <Chrome lang={lang} k="expo.verb.handedOver" echo="stack" />
+            )
+          ) : firstStage ? (
+            <Chrome lang={lang} k="expo.verb.bagged" echo="stack" />
           ) : (
-            <Chrome lang={lang} k="expo.verb.handedOver" echo="stack" />
-          )
-        ) : firstStage ? (
-          <Chrome lang={lang} k="expo.verb.bagged" echo="stack" />
-        ) : (
-          <Chrome lang={lang} k="expo.verb.pickedUp" echo="stack" />
-        )}
-      </button>
+            <Chrome lang={lang} k="expo.verb.pickedUp" echo="stack" />
+          )}
+        </button>
+      )}
     </article>
   );
 }
 
 function ExpoLineRow({ line }: { line: ExpoLine }) {
+  const lang = useStaffLang();
   return (
     <li style={lineRow}>
       <span aria-hidden="true" style={qtyBadge}>
@@ -537,7 +778,9 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
         {/* W3b: the allergy/request note rides to the bag too — pack the sauce separately, etc. */}
         {line.notes && <span style={noteInline}>“{line.notes}”</span>}
       </span>
-      <span style={destTag}>{line.fulfillment === "grocery" ? "Grocery" : "To-go"}</span>
+      <span style={destTag} lang={lang}>
+        {ts(lang, line.fulfillment === "grocery" ? "expo.dest.grocery" : "expo.dest.togo")}
+      </span>
     </li>
   );
 }
@@ -559,14 +802,11 @@ const grid: CSSProperties = {
   gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 320px), 1fr))",
 };
 const cardStyle: CSSProperties = { padding: "var(--s4)", display: "grid", gap: "var(--s3)" };
-const cardHead: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  justifyContent: "space-between",
-  gap: "var(--s3)",
-};
-const tableLabel: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-body)" };
+// K27 (the counter half) — the call-out at the heading tier; the header's layout is `.expo-head`.
+const tableLabel: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-h2)" };
 const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+// K27 — the pickup slot, the phone and the scan-and-go note at body size: read at arm's length.
+const secondaryLine: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", color: "var(--t2)" };
 // The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
 const noteInline: CSSProperties = { display: "block", fontWeight: 700, color: "var(--tx)" };
 const readyTag: CSSProperties = {
@@ -575,14 +815,6 @@ const readyTag: CSSProperties = {
   textTransform: "uppercase",
   letterSpacing: "0.04em",
   color: "var(--ok)",
-};
-// "Here now" (J5) — accent, not success-green: it flags a waiting person, not a completed step.
-const hereTag: CSSProperties = {
-  fontSize: "var(--fs-xs)",
-  fontWeight: 800,
-  textTransform: "uppercase",
-  letterSpacing: "0.04em",
-  color: "var(--ac-strong)",
 };
 const lineList: CSSProperties = {
   listStyle: "none",
@@ -597,7 +829,7 @@ const lineRow: CSSProperties = {
   // tall, and the 2× badge and the destination tag belong on the FIRST line's baseline.
   alignItems: "baseline",
   gap: "var(--s2)",
-  fontSize: "var(--fs-sm)",
+  fontSize: "var(--fs-body)", // K27 — the bag line at body size, where the ticket beside it is 30px
 };
 const qtyBadge: CSSProperties = { fontWeight: 800, color: "var(--ac-strong)", flex: "none" };
 const destTag: CSSProperties = {

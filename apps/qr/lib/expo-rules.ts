@@ -62,3 +62,64 @@ export function compareExpoTickets(a: ExpoOrderKey, b: ExpoOrderKey): number {
   if (dueA !== dueB) return dueA - dueB;
   return a.orderId.localeCompare(b.orderId);
 }
+
+/**
+ * counter-7 (K27 · O-B · O-G) — the lane's clock is DUE-NESS, not paid-age. A noon-paid 6 pm
+ * pickup read "5h ago" in grey; a bag whose slot is still ahead is not late, and a guest who has
+ * announced themselves at the counter is waiting NOW whatever the slot says. The moment a bag's
+ * age counts from, by precedence: the guest's "I'm here" stamp, else the pickup slot, else when it
+ * was paid. `sinceMs` is 0 before that moment (nothing to count yet) and the tone follows two
+ * thresholds — a config constant here until the counter has a settings row of its own.
+ */
+export const EXPO_TONE_MIN = { warn: 10, late: 20 } as const;
+
+export type ExpoTone = "ok" | "warn" | "late";
+
+export function expoAge(
+  t: { arrivedAt: string | null; pickupSlot: string | null; createdAt: string },
+  nowMs: number,
+): { sinceMs: number; tone: ExpoTone } {
+  const from = Date.parse(t.arrivedAt ?? t.pickupSlot ?? t.createdAt);
+  const sinceMs = Math.max(0, nowMs - from);
+  const min = sinceMs / 60_000;
+  const tone: ExpoTone =
+    min >= EXPO_TONE_MIN.late ? "late" : min >= EXPO_TONE_MIN.warn ? "warn" : "ok";
+  return { sinceMs, tone };
+}
+
+/**
+ * counter-1 (O-E) — "Picked up" drops the bag off the diner's tracker and the wall, and the SQL
+ * machine (`mms_set_togo_status`) has no reverse edge: preparing → ready → picked_up, nothing back.
+ * The KDS bump has a six-second undo and a two-minute rail; this tap had nothing. Without a
+ * migration the only honest second chance is to WAIT: the card flips to its picked posture at once
+ * and the write goes out when the window closes unless the counter undoes it. A tab closed inside
+ * the window loses the write — the bag simply stays "ready", which is the safe direction. The
+ * tracker and the wall lag by the window; a diner walking away with their bag does not notice.
+ */
+export const PICKED_UNDO_MS = 6_000;
+
+/** Is the deferred picked-up write still undoable at `nowMs`? */
+export function pickedUndoOpen(
+  startedMs: number,
+  nowMs: number,
+  windowMs = PICKED_UNDO_MS,
+): boolean {
+  return nowMs - startedMs < windowMs;
+}
+
+/**
+ * The Undo control takes the SAME 64px slot the "Picked up" button held (the lane has no bar of its
+ * own), and React reuses the node — so a double-tap "to make sure" would land its second tap on
+ * Undo and silently cancel the pick. Undo is inert for the first moments of the window: a tap
+ * younger than the arm is the same gesture, not a change of mind.
+ */
+export const PICKED_UNDO_ARM_MS = 400;
+
+/** Has the undo control armed — is this tap a change of mind rather than the pick's own echo? */
+export function pickedUndoArmed(
+  startedMs: number,
+  nowMs: number,
+  armMs = PICKED_UNDO_ARM_MS,
+): boolean {
+  return nowMs - startedMs >= armMs;
+}

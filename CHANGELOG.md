@@ -4,6 +4,69 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### counter-1 · P2p · P2q + the counter half of K27 — the takeaway lane (2026-09-20)
+
+**Slice 2a of the staff-console polish: the counter's bagging lane, from the audit's verified
+findings** (`docs/STAFF_POLISH_AUDIT.md` → Counter & tables).
+
+- **"Picked up" waits on an undo window (counter-1, O-E).** The second-stage tap dropped a bag off
+  the diner's tracker and the wall with one 44px tap and no way back — `mms_set_togo_status` has no
+  reverse edge (preparing → ready → picked_up, nothing back), so a mis-tap was unrecoverable from
+  any surface. The card flips to its picked posture at once and the write goes out when a
+  six-second window closes unless the counter taps Undo; the windows are keyed by ORDER in the lane
+  (a card re-renders from every poll), closed by the lane's 1 s tick on the local clock, and a bag
+  that leaves the queue under an open window takes its window with it. A tab closed inside the
+  window loses the write and the bag stays "ready" — the safe direction. Pure `pickedUndoOpen` in
+  `lib/expo-rules.ts` with a mutant; the stage button shares the KDS bump's height through one
+  token (`--tap-bump`).
+- **Due-ness, not paid-age (counter-7 · K27 · O-B/O-G).** The card's clock was `RelativeTime` on
+  the payment stamp: a noon-paid 6 pm pickup read "5h ago" in 13px grey. Pure `expoAge` counts from
+  the guest's "I'm here" stamp, else the pickup slot, else payment — nothing before that moment, a
+  clock at `--fs-h3` after it, spoken as a sentence — and the header wears the tone (`--warnb` at
+  10 min, a warn rule at 20) while the text keeps its ink (SPEC-KDS §1). "Here now" is a bordered
+  accent chip instead of the smallest text on the card; the call-out sits at `--fs-h2`, the bag
+  lines at `--fs-body`. Two mutants on the precedence and the threshold.
+- **The card speaks the device language (P2q), and so do its refusals (P2p).** Nine English
+  strings inside a Burmese lane — the tags, the pickup line, the scan-and-go note, the destination
+  chips and the visible `Table 7` — are the dictionary's now (the product name "Scan & Go" rides a
+  slot so `<Chrome>` marks it Latin). P2p's measured objection stands answered by a SHAPE: the
+  subject of a sentence about a bag is a table's number on a Latin-always `{id}` slot, or a name or
+  code on `{x}` — never the bilingual "စားပွဲ 7" the slot rule would wrap whole. `setTogoStatus`
+  carries a code (`sentence` · `signin` · `invalid` · `failed` · `stale`) and `lib/expo-errors.ts`
+  turns it into the sentence; `sentence` goes through `OutageText`, `signin` leaves for
+  /staff/login. The lane's region holds a key or a sentence, never only a string, with the KDS's
+  8-second dwell.
+- **§17 on the bump (counter-2).** `aria-disabled` + `aria-busy` with the handler refusing re-entry
+  and the label kept (the "…" swap collapsed the zone); `.staff-btn`'s hover/active feedback is
+  keyed on `[aria-disabled]` too, so a refused tap gets no brightness or scale.
+- **The blind pass (REJECT, closed in the same PR).** Six criticals, all real. Three were the
+  deferred write lying about the bag: the tick DROPPED the window before issuing the write, so the
+  card flipped back to a live "Picked up" for the whole write + poll round trip on every pick (the
+  entry stays, marked `committing`, until the refetch drops the bag — Undo inert meanwhile); the
+  Undo control takes the SAME slot and node, so a double-tap "to make sure" cancelled the pick
+  (`pickedUndoArmed` — Undo is inert for 400 ms; the posture is a dashed ghost, not the stage
+  look); and a lock/sign-in redirect or an unmount inside the window silently lost the write (open
+  windows are flushed before the redirect and on unmount — the counter already handed the bag
+  over). The fourth froze the lane's clock: a fallback offset RECOMPUTED on every call is the
+  constant `parse(serverNow)`, so a lane that mounts into an outage never advanced an age or the
+  paper-flow escalation (the offset is `??=`-assigned at mount, the KDS's line). The fifth let a
+  standing refusal mask the pick's own announcement (a user action clears the region first). The
+  sixth used `--r-md`, a token LEARNINGS already records as nonexistent — square strip corners
+  over a 20 px card (`--r-card`). It also caught K27 "closed" with three of its four sites
+  untouched (all four at `--fs-body` now), a transcribed "seventeen" for eighteen keys with one
+  dead (`expo.picked.pending` renders as the tag while the window is open), and a Burmese-card
+  case proven on one posture (a preparing bag joins the fixture).
+- **Guards:** `expo-rules.test.ts` (+7) · `expo-errors.test.ts` (2) · the lane's first component
+  suite, `ExpoBoard.test.tsx` (11: the window writes once at 6 s and never before and the card
+  holds its posture through the round trip, an undo cancels it, a double-tap does not, a gone bag
+  drops its window, a standing refusal yields to the pick's notice, the unmount flush, §17 focus +
+  label, the Burmese card on three postures, a refusal marked through the region, the header tone,
+  the clock advancing from an outage mount) — twelve mutations induced against the component, four
+  new `verify:slice` mutants on the rules, every one watched red.
+- **New Burmese (K15):** eighteen machine drafts — `expo.tag.*` (3), `expo.pickup`,
+  `expo.grocery.note`, `expo.dest.*` (2), `expo.picked.pending`, `expo.live.picked*` (4),
+  `expo.err.*` (6).
+
 ### K22 · K28 · P6f + the KDS halves of K27 · K29 — the kitchen board at the pass (2026-09-20)
 
 **The owner asked for production polish on the staff console; the kitchen board is where the staff

@@ -9,7 +9,7 @@ import type { CSSProperties } from "react";
  * inverted, two looks the board has never had, under a docblock promising the opposite.
  */
 export const bumpBtn: CSSProperties = {
-  minHeight: 44,
+  minHeight: "var(--tap-bump)", // O-E — the KDS bump's height, ONE token (counter-1)
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
   fontWeight: 700,
@@ -22,3 +22,10 @@ export const readyBtn: CSSProperties = {
   borderColor: "var(--ac)",
 };
 export const pickedBtn: CSSProperties = { background: "var(--cd)", color: "var(--tx)" };
+/** counter-1 — the Undo posture in the same slot: a hairline ghost, unmistakably not a stage. */
+export const undoBtn: CSSProperties = {
+  background: "var(--sf)",
+  color: "var(--tx)",
+  borderColor: "var(--ac)",
+  borderStyle: "dashed",
+};

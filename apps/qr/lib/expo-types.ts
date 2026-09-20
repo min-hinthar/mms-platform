@@ -70,3 +70,11 @@ export type ExpoQueue = {
 export type ExpoPoll =
   | { ok: true; queue: ExpoQueue }
   | { ok: false; reason: "signin" | "locked" | "outage" };
+
+/**
+ * counter-6 / P2p — a refused lane ACTION answers with a code beside its English sentence, so the
+ * lane can say it in the device language (`lib/expo-errors.ts`). `sentence` = no key, show the
+ * words (the gate's refusals; the write-outage twin lives in `OutageText`); `signin` leaves for
+ * /staff/login (K10); `stale` = the bag already moved (someone else's tap, or a raced edge).
+ */
+export type ExpoErrCode = "sentence" | "signin" | "invalid" | "failed" | "stale";
