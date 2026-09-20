@@ -35,7 +35,7 @@ AA). Every new guard was watched fail first: 34 mutants, every one red (`mutate-
   mid-tap on. `auth` re-gates instead of explaining. The circle wears `.staff-press` and buzzes a
   commit like every other bar circle; a THROWN action releases the latch and says the outage.
 - **The field floor is a token (signin-4 / M78, staff half).** `--fs-field: max(1rem,
-  var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the roster's fields
+var(--fs-body))` in `tokens.css`; `.entry-input`, `.help-report-field` and the roster's fields
   and role select read it. The 13px role select that zoomed a manager's phone is gone with the
   roster's inline styles — every size is a `.team-*` class on tokens now.
 - **The takeovers wear the bar (signin-5).** `StaffOutageShell` and `app/staff/error.tsx` used to
