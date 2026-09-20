@@ -5,7 +5,7 @@ import { Chrome } from "./Chrome";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { tableCardStyle } from "./TableCard";
 import { bumpBtn, pickedBtn, readyBtn } from "./expo-stage";
-import { startBtn } from "./register-stage";
+import { START_ARM } from "./register-stage";
 
 /**
  * P7·3 — the "picture" on each help card: a STATIC replica of the real control in the real
@@ -63,16 +63,17 @@ export function HelpPicture({
         </span>
       )}
       {screen === "counter" && n === 1 && (
-        // A4·2 — the Start zone's three buttons, in the zone's own exported style
-        // (`register-stage.ts`), the way `RegisterStart` renders them.
+        // A4·2 — the Start zone's three arms, in the zone's own exported CLASS
+        // (`register-stage.ts` → `.staff-arm`), the way `RegisterStart` renders them; no press on
+        // a picture, and none of the three is open, so none wears the cap.
         <span className="help-pic-pair">
-          <span className="help-pic-stage" style={startBtn}>
+          <span className={`help-pic-stage ${START_ARM}`}>
             <Chrome lang={lang} k="reg.start.walkup" echo="stack" />
           </span>
-          <span className="help-pic-stage" style={startBtn}>
+          <span className={`help-pic-stage ${START_ARM}`}>
             <Chrome lang={lang} k="reg.start.phone" echo="stack" />
           </span>
-          <span className="help-pic-stage" style={startBtn}>
+          <span className={`help-pic-stage ${START_ARM}`}>
             <Chrome lang={lang} k="reg.start.table" echo="stack" />
           </span>
         </span>

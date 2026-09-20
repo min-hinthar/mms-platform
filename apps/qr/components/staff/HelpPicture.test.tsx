@@ -47,11 +47,18 @@ describe("HelpPicture — the real control, inert", () => {
     expect(circ).not.toBeNull();
     expect(circ.className).not.toContain("staff-circ-here");
     cleanup();
-    // A4·2 — three buttons in `startBtn` (`register-stage.ts`), the real zone's declaration: jsdom
-    // keeps `var()` values on inline styles, so the spread can be read back.
+    // A4·2 / counter-4 — three arms in the zone's own CLASS (`register-stage.ts` → `.staff-arm`),
+    // the real control's declaration: the class must be LIVE in the stylesheet (a rest rule) and
+    // the cap must be declared for its open state — a replica in a class nothing draws is the
+    // drift this file exists to catch. None of the three is open, so none wears `aria-expanded`.
     const starts = pic("counter", 1).querySelectorAll(".help-pic-stage");
     expect(starts.length).toBe(3);
-    for (const b of starts) expect((b as HTMLElement).style.background).toBe("var(--sf)");
+    for (const b of starts) {
+      expect(b.classList.contains("staff-arm")).toBe(true);
+      expect(b.getAttribute("aria-expanded")).toBeNull();
+    }
+    expect(css).toMatch(/(^|[\s,])\.staff-arm\s*\{/m);
+    expect(css).toMatch(/\.staff-arm\[aria-expanded="true"\]/);
     expect(pic("counter", 1).textContent).toContain("Walk-up");
     cleanup();
     const table = pic("counter", 2);

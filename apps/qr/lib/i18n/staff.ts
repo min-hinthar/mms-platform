@@ -116,6 +116,10 @@ export const STAFF = {
   // again" — the tap that gets the shift back. `packages/ui` now takes both as ReactNodes so the
   // shell can pass <Chrome>.
   "out.shell.retry": { en: "Try again", my: "ထပ်စမ်းပါ" },
+  // counter-9 — what a loading skeleton says (`app/staff/**/loading.tsx`): one sentence, the
+  // `{what}` a dictionary value like the outage shell's, so the counter and the kitchen never fork
+  // an English "Loading…" of their own.
+  "shell.loading": { en: "Loading {what}…", my: "{what} ဖွင့်နေပါတယ်…" },
   "out.shell.retrying": { en: "Trying…", my: "စမ်းနေပါတယ်…" },
 
   // ── KDS: identity ──────────────────────────────────────────────────────────
@@ -617,8 +621,9 @@ export const STAFF = {
   "table.detail.unregisteredBadge": { en: "Unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
   "table.detail.tabOpen": { en: "Tab open", my: "စာရင်း ဖွင့်ထား" },
   // A1 — the drill-down's ask banner, above the settle controls. Present tense, the table's own
-  // voice: they asked, they are waiting, the register acts. The relative time ("2 min ago") is
-  // rendered beside `counterAsked` by <RelativeTime>, English-only, outside the Burmese span.
+  // voice: they asked, they are waiting, the register acts. The relative time ("2m ago") is rendered
+  // beside `counterAsked` by <RelativeTime> — since counter-8 through the `time.*` keys below, so
+  // under `my` it arrives as its own marked Burmese run.
   "table.detail.counterAsk": {
     en: "They’d like to pay here at the counter",
     my: "ကောင်တာမှာ ငွေရှင်းချင်ပါတယ်",
@@ -626,10 +631,19 @@ export const STAFF = {
   "table.detail.counterAsked": { en: "asked", my: "တောင်းဆိုတာ" },
   "table.detail.guest.one": { en: "{n} guest", my: "ဧည့်သည် {n} ယောက်" },
   "table.detail.guest.many": { en: "{n} guests", my: "ဧည့်သည် {n} ယောက်" },
-  // Each of these leads an English RelativeTime node ("5m ago") that this slice does not own, so the
-  // label is a PREFIX rather than a sentence with a {t} slot.
+  // Each of these leads a <RelativeTime> node ("5m ago" · "၅ မိနစ်က"). It stays a PREFIX on purpose,
+  // not a sentence with a slot: `{t}` is a Latin clock by contract (fill.ts), and the age is PROSE
+  // in the reader's tongue — a marked run of its own, which no string slot can carry.
   "table.detail.tabOpened": { en: "tab opened", my: "စာရင်းဖွင့်တာ" },
   "table.detail.lastActivity": { en: "last activity", my: "နောက်ဆုံး လှုပ်ရှားမှု" },
+
+  // ── counter-8 · the relative age (`<RelativeTime>`, `lib/relative-time.ts`) ─────────────────
+  // Prose counts, so `{n}` — Burmese numerals under `my`. Read after a prefix ("last activity ·
+  // 5m ago") on a card at `--fs-sm`, which is why the English keeps its terse card form.
+  "time.justNow": { en: "just now", my: "အခုလေးတင်" },
+  "time.minAgo": { en: "{n}m ago", my: "{n} မိနစ်က" },
+  "time.hrAgo": { en: "{n}h ago", my: "{n} နာရီက" },
+  "time.dayAgo": { en: "{n}d ago", my: "{n} ရက်က" },
 
   // ── the two advisory banners (server-discretion, S3.3) ────────────────────────────────────
   // TWO keys for one sentence because it carries TWO money figures and `{m}` fills globally: the
@@ -843,31 +857,32 @@ export const STAFF = {
   "expo.verb.pickedUp": { en: "Picked up", my: "ယူသွားပြီ" },
 
   // ═══ P2 PR B · home ═══════════════════════════════════════════════════════════
-  // ── the console home: the tool nav (app/staff/page.tsx) ───────────────────
-  // Ten 44px pills, so every one renders `echo={false}` — two scripts cannot legibly stack in a
-  // chip. The `→` lives INSIDE the value, the way `floor.back`/`kds.back` carry their `←`: it is
-  // part of the label a person reads, not a decorative glyph beside it.
+  // ── the console home: the More rows (lib/staff-more.ts → StaffDoors.tsx) ───────────────────
+  // Since P7·1b these are 62px inset ROWS with an `aria-hidden` disclosure chevron, not pills, and
+  // since counter-10 the values carry NO trailing `→`: the chevron is the disclosure, a screen
+  // reader spoke the glyph as "right arrow" inside the bar circle's name (`floor.nav.approvals*`),
+  // and the row read "Kitchen → ›". (`*.back` keys still carry their `←` — OPEN-ITEMS P2o.)
   //
   // Vocabulary is reused, never re-invented: ကောင်တာ from `floor.counter.chip`, မီးဖိုချောင် from
   // `kds.title` (owner-verified W21), ထုတ်ပေးရေး from `kds.station.expo` where it still applies, ခွင့်ပြုချက်များ from
   // `what.approvals`, ဧည့်သည် မှတ်ချက် from `floor.fb.title`, အပိုကြေး from `what.tips`, and
   // မီနူး ဈေးနှုန်း / မီနူး ရနိုင်မှု verbatim from `browse.price.title`/`titleAvail` — the pill and
   // the page it opens must not read as two different screens.
-  "floor.nav.kitchen": { en: "Kitchen →", my: "မီးဖိုချောင် →" },
+  "floor.nav.kitchen": { en: "Kitchen", my: "မီးဖိုချောင်" },
   // TWO keys rather than a count concatenated onto one label: the badge is a COUNT in prose, so it
   // rides an `{n}` slot and becomes Burmese numerals at render. NOT a `.one`/`.many` pair — English
   // reads "Approvals (1)" and "Approvals (3)" identically; the fork is has-a-count vs has-none.
-  "floor.nav.approvals": { en: "Approvals →", my: "ခွင့်ပြုချက်များ →" },
-  "floor.nav.approvalsCount": { en: "Approvals ({n}) →", my: "ခွင့်ပြုချက်များ ({n}) →" },
+  "floor.nav.approvals": { en: "Approvals", my: "ခွင့်ပြုချက်များ" },
+  "floor.nav.approvalsCount": { en: "Approvals ({n})", my: "ခွင့်ပြုချက်များ ({n})" },
   // A4·3 — the zone's own heading (`floor.settled.head`) with an arrow: `reg.day.refunded.*` /
   // `reg.day.note` point staff at "Settled today" — the tile, the heading and the pointer are one name.
-  "floor.nav.menuPrices": { en: "Menu prices →", my: "မီနူး ဈေးနှုန်း →" },
-  "floor.nav.menuAvailability": { en: "Menu availability →", my: "မီနူး ရနိုင်မှု →" },
-  "floor.nav.tips": { en: "Tips today →", my: "ဒီနေ့ အပိုကြေး →" },
+  "floor.nav.menuPrices": { en: "Menu prices", my: "မီနူး ဈေးနှုန်း" },
+  "floor.nav.menuAvailability": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
+  "floor.nav.tips": { en: "Tips today", my: "ဒီနေ့ အပိုကြေး" },
   // "PIN" is ပင်နံပါတ် — a bare Latin run inside a MY value is unmarkable (`Chrome` marks only
   // INTERPOLATED values; strings.test.ts pins that). Same word as `table.appr.confirm.*`.
-  "floor.nav.pin": { en: "Your PIN →", my: "ကိုယ့် ပင်နံပါတ် →" },
-  "floor.nav.pinSet": { en: "Set a tablet PIN →", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ် →" },
+  "floor.nav.pin": { en: "Your PIN", my: "ကိုယ့် ပင်နံပါတ်" },
+  "floor.nav.pinSet": { en: "Set a tablet PIN", my: "တက်ဘလက် ပင်နံပါတ် သတ်မှတ်" },
   // ── P7 — the two DOORS `/staff` opens on, and the More grid beneath them ──────────────────────
   // The kitchen door's title is `kds.title` itself (မီးဖိုချောင်, owner-verified in W21): the wall,
   // the pass and the door must say ONE word for the kitchen, so no second key exists for it. The

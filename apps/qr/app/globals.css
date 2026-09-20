@@ -3325,10 +3325,12 @@ html[data-fx="off"] .pa-pause {
 .staff-btn:not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(0.97);
 }
-.staff-btn[aria-disabled="true"] {
+.staff-btn[aria-disabled="true"],
+.staff-arm[aria-disabled="true"] {
   opacity: 0.6;
 }
-.staff-btn[aria-busy="true"] {
+.staff-btn[aria-busy="true"],
+.staff-arm[aria-busy="true"] {
   cursor: progress;
 }
 
@@ -7452,7 +7454,8 @@ a .chrome-en {
    station track it was not even visible: `.staff-seg > .kds-chip` at (0,2,1) out-specifies
    `.kds-chip[aria-pressed]` at (0,2,0) and paints the fill transparent, so the pressed station was
    a faint sheen ring — the "grey disc" two reviewers saw. Listed explicitly at (0,3,1) so the track
-   can never swallow it again. The language switch and the Help sheet's size rows share this rule
+   can never swallow it again. The language switch, the Help sheet's size rows and (counter-4) the
+   register's OPEN arm — `aria-expanded`, the state it already carries — share this rule
    rather than carrying copies (the switch's copy claimed to be "lifted from `.kds-chip`" and was
    not — it had no sheen and no halo). `.staff-door[aria-current]` is deliberately NOT here: a door
    is where you ARE, not a candidate you pick, and it keeps the gold "you are here" indicator with
@@ -7466,7 +7469,8 @@ a .chrome-en {
 .kds-chip[aria-pressed="true"],
 .staff-seg > .kds-chip[aria-pressed="true"],
 .staff-lang-btn[aria-pressed="true"],
-.help-size-row[aria-pressed="true"] {
+.help-size-row[aria-pressed="true"],
+.staff-arm[aria-expanded="true"] {
   border-color: transparent;
   background: var(--ac);
   color: var(--oa);
@@ -9819,7 +9823,10 @@ html[data-fx="lite"] .mms-scrim {
 .staff-door {
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  /* K29(b) — top-anchored: with `space-between` the door this tablet walked through (one more
+     line, "opens here") set its 38px title a line HIGHER than its neighbour's. The icon and the
+     title now sit at one height on both doors; the sub-line alone takes the slack (below). */
+  justify-content: flex-start;
   gap: var(--s4);
   min-height: 240px;
   padding: var(--s6) 28px;
@@ -9855,6 +9862,7 @@ html[data-fx="lite"] .mms-scrim {
 .staff-door-name {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   gap: 2px;
   font-size: var(--fs-h1);
   font-weight: 800;
@@ -9873,7 +9881,7 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--t2);
 }
 .staff-door-sub {
-  margin: 0;
+  margin: auto 0 0;
   font-size: var(--fs-sm);
   font-weight: 500;
   line-height: 1.4;
@@ -9953,6 +9961,22 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-h3);
   font-weight: 700;
   line-height: var(--lh-snug);
+}
+/* counter-4 — the Start zone's three arms (Walk-up · Phone order · Start a table; `register-stage.ts`
+   names the class, `RegisterStart` and the help card wear it). A hairline pill at rest; the press
+   rides `.staff-press`; the OPEN arm wears the console's one lit cap through the shared pressed
+   rule beside the KDS chips (`.staff-arm[aria-expanded="true"]`, §2/§17) — never the accent
+   outline it wore until 2026-09-20, K29's second vocabulary. Busy is `.staff-btn`'s §17 dim. */
+.staff-arm {
+  min-height: 48px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font-size: var(--fs-body);
+  font-weight: 700;
+  cursor: pointer;
 }
 /* The approvals circle in the counter's bar carries its count as a small badge on the ring. */
 .staff-circ-count-host {
@@ -10347,8 +10371,10 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: 700;
   line-height: 1.35;
 }
+/* counter-10 — the echo at `--fs-sm`, the bar title's own echo size: 11px under 19px Padauk on a
+   62px row read at arm's length was K29's "12px echo", one step smaller still. */
 .staff-row-name > .chrome-pair > .chrome-en {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   font-weight: 600;
   color: var(--t2);
 }

@@ -251,9 +251,10 @@ describe("the dictionary guards", () => {
     // a station chip AND a browser category; `Pickup` is a channel, a floor mode and a slot. A flat
     // key would silently collapse them. A segment may LEAD with a digit — `kds.86` is the kitchen
     // verb, not a number — which is why the rule is about the surface prefix, not about looking
-    // like an identifier.
+    // like an identifier. `time` is the one cross-surface VOCABULARY beside `what`/`out`: the age
+    // every surface's card prints through <RelativeTime> (counter-8), one set of words, not a screen.
     const SURFACES =
-      /^(shell|out|what|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report)$/;
+      /^(shell|out|what|time|kds|expo|floor|table|reg|settle|browse|board|promo|pilot|entry|pin|help|report)$/;
     const bad = Object.keys(STAFF).filter((k) => {
       const parts = k.split(".");
       return (

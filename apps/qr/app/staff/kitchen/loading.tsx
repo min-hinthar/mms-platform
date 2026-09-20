@@ -1,12 +1,14 @@
 import { Skeleton } from "@mms/ui";
+import { LoadingLine } from "@/components/staff/LoadingLine";
 
 /** Instant skeleton for the KDS — full-bleed Night board: header strip then the ticket grid (matches
- *  the W3 kds-root geometry so the swap to live tickets doesn't jump). */
+ *  the W3 kds-root geometry so the swap to live tickets doesn't jump). The one announced line is the
+ *  dictionary's (counter-9, `<LoadingLine>`), like the counter's skeleton beside it. */
 export default function ConsoleLoading() {
   return (
     <main>
       <div className="kds-root dark">
-        <span className="sr-only">Loading the kitchen queue…</span>
+        <LoadingLine what="what.kitchen" />
         <div aria-hidden>
           <div
             style={{

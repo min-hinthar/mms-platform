@@ -267,8 +267,8 @@ export function FloorDetailLive({
             {/* P2 — four fragments on one middot-separated line, so every one of them takes
               `echo={false}`: an English echo per fragment would double a line already at its width
               budget and the middots would stop reading as separators. The relative time beside them
-              is still English (`RelativeTime` is not in this slice) and sits OUTSIDE the Burmese
-              spans, so it keeps the body face rather than being typeset in Padauk. */}
+              is the dictionary's too since counter-8 (`<RelativeTime>` → `time.*` through
+              <Chrome>), its own marked run after the prefix. */}
             <p style={sub}>
               <Chrome lang={lang} k={MODE_KEY[detail.mode]} /> ·{" "}
               <Chrome

@@ -5,68 +5,66 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — built, gated and on draft PR #292 from `claude/qr-app-backlog-cj2t0m`; slices 2b–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish: slice 1 — the KITCHEN — MERGED as `c630db6` (#291); slice 2a — the takeaway LANE — MERGED as `50c0f16` (#292); slice 2b — the REGISTER + the floor's chrome — built, gated, blind-pass-closed and on draft PR #293 from `claude/qr-app-backlog-cj2t0m`; slices 3–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
 >
 > **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
 > pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
 > kitchen went first because it is where the staff actually are (21 bumps in 30 days against ≤3
-> views on any other screen). What shipped is the `### K22 · K28 · P6f …` entry in `CHANGELOG.md`;
-> the short list: an undoable 86 · the `1d+` clock and the spoken age from the dictionary · every
-> action button `aria-disabled` (§17) with busy keeping its label · one lit-cap rule for the four
-> pressed selectors (K29's mechanism) · refusals in the device language through `lib/kds-errors.ts` ·
-> an 8-second error dwell · the pager in the head · the chime remembered across reloads · press +
-> haptic on the bump · the dial restating every `--kfs-*` tier · every list named.
+> views on any other screen); the counter's lane second; the counter's register and chrome third.
+> Each is one `###` entry at the top of `CHANGELOG.md` — read those three before touching a staff
+> surface; they are the as-built.
 >
 > **How the backlog was made, and where it is.** A seven-surface Workflow (one auditor per surface,
 > one adversarial verifier per surface) ran against RUBRIC + the O-axes + QA §A + DESIGN-LANGUAGE
 > §17/§19 + SPEC-KDS + the 25 filed rows. Its digest is **`docs/STAFF_POLISH_AUDIT.md`** — every
-> finding with anchor, fix, effort, filed row and the verifier's verdict. Two cautions the file
-> repeats: the kitchen auditor read `main` while the working tree held four of its fixes (re-verify
-> anchors before acting — the verifier caught it), and the cross-cutting CSS/motion surface has NO
-> verdicts (its verifier died on the model quota mid-run), so treat those findings as unverified.
+> finding with anchor, fix, effort, filed row and the verifier's verdict, and now a `✅ closed in
+slice …` marker on each row a slice shipped. Two cautions the file repeats: the kitchen auditor
+> read `main` while the working tree held four of its fixes (re-verify anchors before acting), and
+> the cross-cutting CSS/motion surface has NO verdicts (its verifier died on the model quota
+> mid-run), so treat those findings as unverified.
 >
-> **Slice 2a (the lane) is the `### counter-1 · P2p · P2q …` CHANGELOG entry:** the picked-up undo
-> window (`pickedUndoOpen`, keyed by order in the lane, closed by its 1 s tick), due-ness with a
-> header tone (`expoAge`), the card and its refusals in the device language (`lib/expo-errors.ts`
-> — the subject is a SHAPE, which is what P2p was waiting for), §17 on the bump. Its blind pass
-> returned REJECT with six real criticals — four in the deferred write (revert-before-write,
-> same-slot double-tap, redirect/unmount drop, a frozen fallback clock), LEARNINGS #125 has the
-> shapes — closed on the PR. **Slice 2b is the
-> rest of the counter list below**: counter-3/4/5 (RegisterStart), counter-8 (`RelativeTime`),
-> counter-9 (the skeleton), counter-10 (the `→` values) and K29(b).
+> **Slice 2b is the `### counter-3 · counter-4 · counter-5 · counter-8 · counter-9 · counter-10 …`
+> entry:** §17 on the register's five controls with the busy predicate read at TAP time through the
+> in-flight ref (LEARNINGS #126 — the render-time `busy` constant minted twice under the suite's
+> two-taps case), the open arm as the FIFTH selector in the console's one pressed rule
+> (`.staff-arm`, `register-stage.ts` is a class name now), `autoFocus` + `enterKeyHint="go"` +
+> the notice cleared on an arm switch, `RelativeTime` speaking the console's tongue through four
+> `time.*` keys (`lib/relative-time.ts` is the pure half; the `table.detail.*` labels stay
+> prefixes on purpose — `{t}` is a Latin clock by contract), the floor's skeleton in the page's own
+> geometry with `shell.loading` announced through `<LoadingLine>` (a client component reading the
+> layout's provider, so the fallback stays synchronous — the kitchen's too), the eight
+> `floor.nav.*` values without their ` →` and the More echo at `--fs-sm`, the doors top-anchored,
+> TableCard's gaps on tokens. **The counter list's one leftover is K29(b)'s inline cash-settle
+> confirm** — not a one-line sheet move (the group owns its focus in/out and the tender + tip
+> wiring), filed to ride with the manager rails' pass beside the two vocabulary slips the audit
+> named there (`reasonBtnOn`'s tint, `tipChipOn`'s ring).
 >
-> **Slice order, by where staff are and by verified severity:**
+> **Slice order, by where staff are and by verified severity — what is LEFT:**
 >
-> 1. **Counter & tables (POS)** — counter-1 (the to-go lane's Picked-up is one tap with no reverse
->    edge in SQL: a deferred commit + undo, the KDS's shape; `--tap-bump` does not exist, add it),
->    counter-2/3 (§17 on ExpoBoard + RegisterStart; `.staff-btn:not(:disabled)` needs an
->    `[aria-disabled]` twin), counter-4 (the register pills wear the door cap, `HelpPicture.test`'s
->    `style.background` assertion moves to the class), counter-5 (autoFocus + `enterKeyHint` +
->    clearing the notice on arm switch), counter-6 (P2q — the expo card's seven English literals),
->    counter-7 (`expoAge` from the SLOT, header-strip tone only — never the body), counter-8
->    (`RelativeTime` speaks the device language: four `time.*` keys with a `{n}` COUNT slot),
->    counter-9 (the floor skeleton draws the bar + column), counter-10 (the `→` in eight
->    `floor.nav.*` VALUES). K27(b) · K29(b) · M79 · M34 ride along.
-> 2. **Manager rails + table drill-down** and 3. **`/board`** (K28(b): the Ready shelf's raw
->    `readyMinutes` gets `fmtElapsed`; `.orb-status` size) — read their sections.
-> 3. **Menu · Tips · Glossary**, 5. **Sign-in + chrome**, then the cross-cutting CSS/motion list
->    once someone has verified it (M76's sheet exit animation is the known real one).
+> 1. **Manager rails + table drill-down** — read the audit's section; K29(b)'s cash-settle confirm
+>    → `Sheet` rides here, with `reasonBtnOn` / `tipChipOn` adopting the shared pressed rule.
+> 2. **`/board`** (K28(b): the Ready shelf's raw `readyMinutes` gets `fmtElapsed`; `.orb-status`
+>    size).
+> 3. **Menu · Tips · Glossary**, then **Sign-in + chrome** (K35's 40 native `disabled` sites in 18
+>    components — measure native-only, the row's old count read `aria-disabled=` as native), then
+>    the cross-cutting CSS/motion list once someone has verified it (M76's sheet exit animation is
+>    the known real one).
 >
-> **Mechanics that bit this slice:** a `verify:slice` mutation loop that asserts before its final
-> restore leaves a MUTANT on disk — keep a scratchpad backup and `cmp` after every loop; `fill()`
-> localizes only `n`/`total` to Burmese numerals, so a spoken sentence's other slots need
-> `localizeCount` at the call site; a jsdom suite importing a Client Component that imports a
-> server action needs the three mocks `StaffBar.test.tsx` mounts; `HelpPicture.test`'s undo guard
-> takes the FIRST `.kds-undo button` block in the stylesheet, so a twin selector must not contain
-> that substring (it is `.kds-undo > button[aria-disabled]`); `K15-HIGH` markers must match
-> `STAFF_K15_HIGH` (autonyms.test); and **`check:docs` counts TRACKED docs files** — run it after
-> `git add`, or a new doc reads one short locally and CI's step one goes red (it did, LEARNINGS #123).
-> The blind pass on this slice returned REJECT with two real criticals in the UNDO BAR (one slot, two
-> kinds, only one with a rail behind it; an attribute OR'ing two transitions while each handler gated
-> on one) — both closed here, LEARNINGS #124 has the shape.
+> **Mechanics that bit these slices:** a `verify:slice` mutation loop that asserts before its final
+> restore leaves a MUTANT on disk — keep a scratchpad backup and `cmp` after every loop, and NEVER
+> `git checkout --` a file you rewrote in the same session to "restore" it after a red-first
+> mutation (it restores HEAD, i.e. the OLD file — slice 2b lost `register-stage.ts` that way and
+> re-wrote it); `fill()` localizes only `n`/`total` to Burmese numerals, so a spoken sentence's
+> other slots need `localizeCount` at the call site; a jsdom suite importing a Client Component
+> that imports a server action needs the three mocks `StaffBar.test.tsx` mounts; `HelpPicture.test`'s
+> undo guard takes the FIRST `.kds-undo button` block in the stylesheet, so a twin selector must not
+> contain that substring; `K15-HIGH` markers must match `STAFF_K15_HIGH` (autonyms.test); the
+> dictionary's namespace guard (`strings.test.ts`) enumerates the surface prefixes — a new
+> cross-surface vocabulary (`time.*`) is admitted THERE, by name, not by renaming it into `shell.*`;
+> and **`check:docs` counts TRACKED docs files** — run it after `git add` (LEARNINGS #123).
 >
-> **Codex quota is exhausted** (the #283/#290 precedent): if it still refuses on this PR, record the
-> override in the PR comment and merge on the standing go once CI is green.
+> **Codex quota is exhausted** (the #283/#290/#291/#292 precedent): if it still refuses on this PR,
+> record the override in the PR comment and merge on the standing go once CI is green.
 
 > ## ⏭️ (2026-09-18 · M225 · M226(c) MERGED as `e798475` (#288); the /cart refusal slice (M224 · M227 · half of M230) shipped as `f82545a` (#289))
 >
@@ -1289,7 +1287,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2711 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (741 today)**, **1372 qr + 138 ui tests at the time (2725 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2181,7 +2179,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2711 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 741 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 2725 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
