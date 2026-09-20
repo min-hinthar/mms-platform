@@ -73,6 +73,31 @@ export function getKdsVolume(): number {
   }
 }
 
+/**
+ * kitchen-8 — "this device wanted sound". Browsers only arm audio inside a gesture, so a deploy, an
+ * auth redirect or a slept tablet remounts the board MUTE with nothing to say so. The flag is set
+ * when an arm succeeds (and cleared by an explicit mute at volume 0), so the next mount can wear the
+ * warn chip and re-arm off the first tap of the shift instead of a detour to the chip.
+ */
+const SOUND_KEY = "mms.kds.sound";
+
+export function getKdsSoundWanted(): boolean {
+  try {
+    return localStorage.getItem(SOUND_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function setKdsSoundWanted(wanted: boolean): void {
+  try {
+    if (wanted) localStorage.setItem(SOUND_KEY, "1");
+    else localStorage.removeItem(SOUND_KEY);
+  } catch {
+    /* private mode — the chip is asked again next shift */
+  }
+}
+
 export function setKdsVolume(v: number): void {
   try {
     localStorage.setItem(VOLUME_KEY, String(Math.min(1, Math.max(0, v))));

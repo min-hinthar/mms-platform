@@ -1,9 +1,58 @@
-# Session Handoff — MMS Platform (2026-09-07)
+# Session Handoff — MMS Platform (2026-09-20)
 
 The originating chat context does not carry across sessions — **this file is the durable pickup point.**
 Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — decisions, QA gate, rubric,
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
+
+> ## ⏭️ NEXT SESSION — start here (2026-09-20 · staff-console polish, slice 1 — the KITCHEN — built, gated and on a draft PR from `claude/qr-app-backlog-cj2t0m`; slices 2–5 are the verified backlog in `docs/STAFF_POLISH_AUDIT.md`)
+>
+> **The owner's ask: "production world class polish UI/UX quality of life improvements for /staff
+> pages kitchen, manager, pos, tv board, etc."** — and the standing "merge when ready" go. The
+> kitchen went first because it is where the staff actually are (21 bumps in 30 days against ≤3
+> views on any other screen). What shipped is the `### K22 · K28 · P6f …` entry in `CHANGELOG.md`;
+> the short list: an undoable 86 · the `1d+` clock and the spoken age from the dictionary · every
+> action button `aria-disabled` (§17) with busy keeping its label · one lit-cap rule for the four
+> pressed selectors (K29's mechanism) · refusals in the device language through `lib/kds-errors.ts` ·
+> an 8-second error dwell · the pager in the head · the chime remembered across reloads · press +
+> haptic on the bump · the dial restating every `--kfs-*` tier · every list named.
+>
+> **How the backlog was made, and where it is.** A seven-surface Workflow (one auditor per surface,
+> one adversarial verifier per surface) ran against RUBRIC + the O-axes + QA §A + DESIGN-LANGUAGE
+> §17/§19 + SPEC-KDS + the 25 filed rows. Its digest is **`docs/STAFF_POLISH_AUDIT.md`** — every
+> finding with anchor, fix, effort, filed row and the verifier's verdict. Two cautions the file
+> repeats: the kitchen auditor read `main` while the working tree held four of its fixes (re-verify
+> anchors before acting — the verifier caught it), and the cross-cutting CSS/motion surface has NO
+> verdicts (its verifier died on the model quota mid-run), so treat those findings as unverified.
+>
+> **Slice order, by where staff are and by verified severity:**
+>
+> 1. **Counter & tables (POS)** — counter-1 (the to-go lane's Picked-up is one tap with no reverse
+>    edge in SQL: a deferred commit + undo, the KDS's shape; `--tap-bump` does not exist, add it),
+>    counter-2/3 (§17 on ExpoBoard + RegisterStart; `.staff-btn:not(:disabled)` needs an
+>    `[aria-disabled]` twin), counter-4 (the register pills wear the door cap, `HelpPicture.test`'s
+>    `style.background` assertion moves to the class), counter-5 (autoFocus + `enterKeyHint` +
+>    clearing the notice on arm switch), counter-6 (P2q — the expo card's seven English literals),
+>    counter-7 (`expoAge` from the SLOT, header-strip tone only — never the body), counter-8
+>    (`RelativeTime` speaks the device language: four `time.*` keys with a `{n}` COUNT slot),
+>    counter-9 (the floor skeleton draws the bar + column), counter-10 (the `→` in eight
+>    `floor.nav.*` VALUES). K27(b) · K29(b) · M79 · M34 ride along.
+> 2. **Manager rails + table drill-down** and 3. **`/board`** (K28(b): the Ready shelf's raw
+>    `readyMinutes` gets `fmtElapsed`; `.orb-status` size) — read their sections.
+> 3. **Menu · Tips · Glossary**, 5. **Sign-in + chrome**, then the cross-cutting CSS/motion list
+>    once someone has verified it (M76's sheet exit animation is the known real one).
+>
+> **Mechanics that bit this slice:** a `verify:slice` mutation loop that asserts before its final
+> restore leaves a MUTANT on disk — keep a scratchpad backup and `cmp` after every loop; `fill()`
+> localizes only `n`/`total` to Burmese numerals, so a spoken sentence's other slots need
+> `localizeCount` at the call site; a jsdom suite importing a Client Component that imports a
+> server action needs the three mocks `StaffBar.test.tsx` mounts; `HelpPicture.test`'s undo guard
+> takes the FIRST `.kds-undo button` block in the stylesheet, so a twin selector must not contain
+> that substring (it is `.kds-undo > button[aria-disabled]`); and `K15-HIGH` markers must match
+> `STAFF_K15_HIGH` (autonyms.test).
+>
+> **Codex quota is exhausted** (the #283/#290 precedent): if it still refuses on this PR, record the
+> override in the PR comment and merge on the standing go once CI is green.
 
 > ## ⏭️ (2026-09-18 · M225 · M226(c) MERGED as `e798475` (#288); the /cart refusal slice (M224 · M227 · half of M230) shipped as `f82545a` (#289))
 >
@@ -59,7 +108,7 @@ red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md
 > barrier — a lib-level shape change that earns its own red-first slice, and is easier now the suite
 > exists).
 
-> ## ⏭️ NEXT SESSION — start here (2026-09-19 · M186 MERGED as PR #290; the /grocery QoL slice's second half, M187, is NOT started and is the obvious pickup)
+> ## ⏭️ (2026-09-19 · M186 MERGED as PR #290; the /grocery QoL slice's second half, M187, is NOT started and is the obvious pickup)
 >
 > **The reusable thing this slice bought is a rule about what a signal can and cannot answer.**
 > M186 said scan-and-go billed one item twice. The obvious fix — make the quiet window measure time
@@ -1226,7 +1275,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (737 today)**, **1372 qr + 138 ui tests at the time (2658 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
+> **334 mutants at the time (737 today)**, **1372 qr + 138 ui tests at the time (2686 + 142 today)**, 69 target modules at the time (111 under `apps/qr/lib` today, 127 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2118,7 +2167,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 737 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2658 qr tests + 142 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 737 `verify:slice` mutants green · `pnpm check:docs` clean (99 files, 2686 qr tests + 142 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

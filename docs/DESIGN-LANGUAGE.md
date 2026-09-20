@@ -648,14 +648,25 @@ built.
   opacity only). A door is `haptic("commit")`; a station, a size or a language is `haptic("pick")`.
   Each ships its visible half — the press, the moving gold cap, the sheet — never the buzz alone
   (§12). The doors premiere once per session (`mms-stagger`, J1's SurfaceMemory zeroes the revisit).
-- **The segmented control** (`.staff-seg`) is one track; the chosen segment wears the gold cap — the
-  same selection vocabulary as everywhere (§2), never a second one. That rule now reaches EVERY
-  pressed `.kds-chip` (the all-day rail, the sizes in the sheet): the accent-filled pressed chip the
-  board used before was a second vocabulary, and the first 1b draft had both on one screen.
+- **The segmented control** (`.staff-seg`) is one track; the chosen segment wears the lit cap — the
+  §2 recipe AS BUILT (an accent fill, on-accent ink, the inset sheen, a gold halo; Night's accent is
+  gold-adjacent by design, so on the Night-forced board it reads as gold), never a second one. That
+  rule reaches EVERY pressed `.kds-chip` (the all-day rail, the sizes in the sheet) and the language
+  switch beside it, through ONE shared rule in `globals.css`. ⚠️ Until 2026-09-20 this sentence said
+  "gold cap" and the chip wore a 20% gold-TINT gradient while the switch wore a solid accent fill —
+  two vocabularies in one bar — and inside `.staff-seg` the tint was not even visible: the track's
+  `.staff-seg > .kds-chip` (0,2,1) out-specified `.kds-chip[aria-pressed]` (0,2,0) and painted the
+  fill transparent, leaving a sheen ring (K29's "grey disc"). `KdsBoard.test.tsx` parses the
+  stylesheet and reddens the moment any of the four pressed selectors grows a second fill.
   Segments never drop under 44px (O-E): the thumb IS the target.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
+  The kitchen board's eight action buttons — bump · fire · the line · 86 · undo · recall · the pager
+  — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; 64 native
+  `disabled` sites remain across 27 other staff components (K35). Busy is the attribute (`aria-busy`) plus a dim, never a label swap: `{pending ? "…" : label}` on a
+  button with no `aria-label` makes its accessible name literally "…" for the round trip, and a 64px
+  zone that collapses to an ellipsis moves under the thumb.
 - **Inset grouped rows** (`.staff-inset` · `.staff-row`) are the Settings idiom, Burmese first, a
   tinted glyph square, a disclosure chevron, hairlines drawn once per edge. Still one `role="list"`
   of real links, named by its visible heading.
@@ -678,7 +689,11 @@ built.
   state is a wall against localization — the region can only ever show text, so nothing can hand it
   Burmese — and that is exactly how the PIN failures stayed English under a Burmese switch for two
   slices. Refusals are `aria-disabled` here as everywhere; a lockout makes a field `readOnly`, not
-  `disabled`, because `submit` just moved focus into it.
+  `disabled`, because `submit` just moved focus into it. The KDS was the last board holding an
+  `err: string` (2026-09-20): `KitchenActionResult`'s failure arm carries a `code` beside its
+  sentence, `lib/kds-errors.ts` turns the code into the dictionary's sentence about the thing that
+  was tapped, and **the mark rides each branch, never the region** — a `lang` on the `<p role="status">`
+  itself announced every twin-less server sentence as Burmese.
 - **The Help door is ONE gold circle and ONE sheet** (P7·3). The circle rides the bar's `help` slot
   — before the language switch, after the page's own utilities — on the screens that have something
   to explain (the board, the counter, the takeaway board), and nowhere else: a page passes the node

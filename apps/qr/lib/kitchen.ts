@@ -10,13 +10,14 @@ import {
   recallTicketInput,
   staffFireInput,
 } from "@mms/db/schemas";
-import { getStaffAuth, staffGate, STAFF_WRITE_OUTAGE } from "./staff";
+import { getStaffAuth, staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type {
   KdsStats,
   KdsThresholds,
   KitchenChannel,
+  KitchenErrCode,
   KitchenLine,
   KitchenPoll,
   KitchenStation,
@@ -333,7 +334,12 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   return await withServed({ tickets, serverNow: nowIso, thresholds, stats });
 }
 
-export type KitchenActionResult = { ok: true } | { ok: false; error: string };
+export type KitchenActionResult = { ok: true } | { ok: false; error: string; code: KitchenErrCode };
+
+/** The gate's refusal, coded: the sign-in ask is a redirect on the board, everything else a sentence. */
+function gateRefusal(error: string): KitchenActionResult {
+  return { ok: false, error, code: error === STAFF_SIGNIN_REQUIRED ? "signin" : "gate" };
+}
 
 /**
  * Bump a fired line along its kitchen life: 'in_progress' (Start) or 'served' (Ready). The legal-edge
@@ -344,10 +350,10 @@ export type KitchenActionResult = { ok: true } | { ok: false; error: string };
  */
 export async function bumpLine(raw: unknown): Promise<KitchenActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return gateRefusal(gate.error);
   const caller = gate.caller;
   const parsed = bumpLineInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { lineId, to } = parsed.data;
 
   const { data: affected, error } = await serviceClient().rpc("mms_line_transition", {
@@ -356,9 +362,9 @@ export async function bumpLine(raw: unknown): Promise<KitchenActionResult> {
   });
   if (error) {
     console.error("[kitchen] mms_line_transition failed", { lineId, to, message: error.message });
-    return { ok: false, error: "Couldn’t update that ticket. Try again." };
+    return { ok: false, error: "Couldn’t update that ticket. Try again.", code: "failed" };
   }
-  if (!affected) return { ok: false, error: "That item was already updated." };
+  if (!affected) return { ok: false, error: "That item was already updated.", code: "stale" };
 
   captureKitchenEvent(caller.staffId, "kds_bump_line", { role: caller.role, to });
   revalidatePath("/staff/kitchen");
@@ -374,10 +380,10 @@ export async function bumpLine(raw: unknown): Promise<KitchenActionResult> {
  */
 export async function bumpTicket(raw: unknown): Promise<KitchenActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return gateRefusal(gate.error);
   const caller = gate.caller;
   const parsed = bumpTicketInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { cartId, lineIds } = parsed.data;
 
   const { data: bumped, error } = await serviceClient().rpc("mms_bump_ticket", {
@@ -386,9 +392,9 @@ export async function bumpTicket(raw: unknown): Promise<KitchenActionResult> {
   });
   if (error) {
     console.error("[kitchen] mms_bump_ticket failed", { cartId, message: error.message });
-    return { ok: false, error: "Couldn’t bump that ticket. Try again." };
+    return { ok: false, error: "Couldn’t bump that ticket. Try again.", code: "failed" };
   }
-  if (!bumped) return { ok: false, error: "That ticket was already updated." };
+  if (!bumped) return { ok: false, error: "That ticket was already updated.", code: "stale" };
 
   captureKitchenEvent(caller.staffId, "kds_bump_ticket", { role: caller.role, lines: bumped });
   revalidatePath("/staff/kitchen");
@@ -401,10 +407,10 @@ export async function bumpTicket(raw: unknown): Promise<KitchenActionResult> {
  */
 export async function recallTicket(raw: unknown): Promise<KitchenActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return gateRefusal(gate.error);
   const caller = gate.caller;
   const parsed = recallTicketInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { cartId, lineIds } = parsed.data;
 
   const { data: restored, error } = await serviceClient().rpc("mms_recall_ticket", {
@@ -413,9 +419,14 @@ export async function recallTicket(raw: unknown): Promise<KitchenActionResult> {
   });
   if (error) {
     console.error("[kitchen] mms_recall_ticket failed", { cartId, message: error.message });
-    return { ok: false, error: "Couldn’t recall that ticket. Try again." };
+    return { ok: false, error: "Couldn’t recall that ticket. Try again.", code: "failed" };
   }
-  if (!restored) return { ok: false, error: "The recall window has passed for that ticket." };
+  if (!restored)
+    return {
+      ok: false,
+      error: "The recall window has passed for that ticket.",
+      code: "recall-window",
+    };
 
   captureKitchenEvent(caller.staffId, "kds_recall_ticket", { role: caller.role, lines: restored });
   revalidatePath("/staff/kitchen");
@@ -429,10 +440,10 @@ export async function recallTicket(raw: unknown): Promise<KitchenActionResult> {
  */
 export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return gateRefusal(gate.error);
   const caller = gate.caller;
   const parsed = fireTicketNowInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { cartId } = parsed.data;
 
   const { data: fired, error } = await serviceClient().rpc("mms_fire_ticket_now", {
@@ -440,9 +451,9 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
   });
   if (error) {
     console.error("[kitchen] mms_fire_ticket_now failed", { cartId, message: error.message });
-    return { ok: false, error: "Couldn’t fire that ticket. Try again." };
+    return { ok: false, error: "Couldn’t fire that ticket. Try again.", code: "failed" };
   }
-  if (!fired) return { ok: false, error: "That ticket is already live." };
+  if (!fired) return { ok: false, error: "That ticket is already live.", code: "already-live" };
 
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
@@ -457,10 +468,10 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
  */
 export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok) return gateRefusal(gate.error);
   const caller = gate.caller;
   const parsed = staffFireInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
   const { sessionId } = parsed.data;
 
   const db = serviceClient();
@@ -472,16 +483,21 @@ export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> 
     .maybeSingle();
   // W10b — an unread cart is not "no open order": that verdict sends staff hunting a phantom problem
   // at the table while the real one is the platform.
-  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE };
-  if (!cart) return { ok: false, error: "This table has no open order." };
+  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "gate" };
+  if (!cart) return { ok: false, error: "This table has no open order.", code: "stale" };
 
   const { data: fireRows, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });
   if (error) {
     console.error("[kitchen] mms_fire_cart failed", { sessionId, message: error.message });
-    return { ok: false, error: "Couldn’t send that order. Try again." };
+    return { ok: false, error: "Couldn’t send that order. Try again.", code: "failed" };
   }
   const fired = fireRows?.[0]?.fired ?? 0; // mms_fire_cart returns (fired, batch, fire_deadline) (S4-audit P1-3)
-  if (!fired) return { ok: false, error: "Nothing new to send — it’s all in the kitchen already." };
+  if (!fired)
+    return {
+      ok: false,
+      error: "Nothing new to send — it’s all in the kitchen already.",
+      code: "already-live",
+    };
 
   captureKitchenEvent(caller.staffId, "staff_fire_cart", {
     role: caller.role,
