@@ -12,10 +12,15 @@ import { useActiveOrder } from "./ActiveOrderProvider";
 export function CartPublisher() {
   // Phase 1a — the COUNT travels with the id: the header offers "Your order · N" only for a cart
   // with something in it (merely viewing the menu used to light "Cart" everywhere else).
-  const { cartId, count } = useCart();
+  // Blind pass on #300: `items` starts EMPTY and fills only when the first view lands, so a count
+  // published on `cartId` alone wrote a ZERO nobody observed — and a failed or abandoned first read
+  // left it there, hiding a cart with dishes in it on every other page. `totals` is null until a view
+  // has been applied, so until then the count is honestly unknown.
+  const { cartId, count, totals } = useCart();
   const { publishCart } = useActiveOrder();
+  const known = totals !== null;
   useEffect(() => {
-    if (cartId) publishCart(cartId, count);
-  }, [cartId, count, publishCart]);
+    if (cartId) publishCart(cartId, known ? count : null);
+  }, [cartId, count, known, publishCart]);
   return null;
 }

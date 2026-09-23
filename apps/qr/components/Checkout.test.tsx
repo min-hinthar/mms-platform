@@ -43,6 +43,7 @@ function deferred<T>() {
 }
 
 const h = vi.hoisted(() => ({
+  publishCart: vi.fn(),
   getCartView: vi.fn(),
   setQty: vi.fn(),
   setLineFulfillment: vi.fn(),
@@ -99,6 +100,7 @@ vi.mock("./PaperAmbient", () => ({ PaperAmbient: () => null }));
 vi.mock("./WalletChip", () => ({ WalletChip: () => null }));
 vi.mock("./menu/BlurUpImage", () => ({ BlurUpImage: () => null }));
 vi.mock("./menu/PhotoPlaceholder", () => ({ PhotoPlaceholder: () => null }));
+vi.mock("./ActiveOrderProvider", () => ({ usePublishCart: () => h.publishCart }));
 
 const { Checkout } = await import("./Checkout");
 
@@ -1241,5 +1243,22 @@ describe("§17 (K35) — the stepper under a peer's lock", () => {
     frozen[1]!.focus();
     frozen[1]!.click();
     expect(document.activeElement).toBe(frozen[1]);
+  });
+});
+
+describe("#300 — /cart keeps the header's count honest", () => {
+  it("publishes the CONFIRMED count, and a server-emptied cart publishes zero", async () => {
+    // MUTATION: drop Checkout's publish effect — the header keeps claiming the count /menu last saw
+    // after every line was removed here; red.
+    mount({
+      initialItems: [
+        { ...ITEM, qty: 2 },
+        { ...ITEM, id: "line-two", qty: 3 },
+      ],
+    });
+    expect(h.publishCart).toHaveBeenLastCalledWith(CART, 5);
+    h.getCartView.mockResolvedValue(view({ items: [] }));
+    await syncFromServer();
+    await waitFor(() => expect(h.publishCart).toHaveBeenLastCalledWith(CART, 0));
   });
 });

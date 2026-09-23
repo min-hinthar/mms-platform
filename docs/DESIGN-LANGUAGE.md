@@ -895,3 +895,11 @@ a 390×844 opening screen.
 - **Rows tell you what the dish is** (a two-line description) and end in one round **+**.
 - **One noun for the open cart**: "order" at the restaurant, "basket" at the market
   (`lib/order-noun.ts`).
+- **A count is a claim** (the honesty rule, applied to a badge): publish one only from a view that
+  SAW the cart (never an initial empty list), and never for a SHARED cart — a dine-in table's count
+  is a tablemate's tap away from wrong, so the slot names it without a number.
+- **An action is not a toggle.** A pill that does something each press (Surprise / Shuffle) wears the
+  lit cap while its result shows but carries no `aria-pressed`, and hands focus to what it produced.
+- **Horizontal scrollers bleed into the gutter** (`margin-inline: -gutter; padding-inline: gutter;
+scroll-padding-inline: gutter`): a lit pill's lift shadow is otherwise sliced square at the
+  scroller's edge, and a mandatory-snap rail snaps its first card flush to the screen.

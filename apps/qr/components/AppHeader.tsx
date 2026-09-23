@@ -15,7 +15,7 @@ import { WalletChip } from "./WalletChip";
 import { OrdersTray } from "./OrdersTray";
 import { LiveOrderRow } from "./LiveOrderRow";
 import { buildLiveOrderPanel } from "@/lib/live-order-panel";
-import { orderSlot, showOrderSlot } from "@/lib/order-noun";
+import { orderSlot, showOrderSlot, slotCount } from "@/lib/order-noun";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -143,9 +143,15 @@ export function AppHeader() {
   }
 
   // Cart affordance yields to ANY order pill (single or tray) — an order supersedes its now-placed cart.
+  // The count it may CLAIM: never for a shared dine-in cart (lib/order-noun.ts `slotCount`).
+  const claimedCount = slotCount(activeMode, cartCount);
   const showCart =
-    showOrderSlot(cartId, cartCount) && !showSingle && !showTray && !onMenu && pathname !== "/cart";
-  const slot = orderSlot(activeMode, cartCount);
+    showOrderSlot(cartId, claimedCount) &&
+    !showSingle &&
+    !showTray &&
+    !onMenu &&
+    pathname !== "/cart";
+  const slot = orderSlot(activeMode, claimedCount);
 
   // ── W22b · the chip's disclosure behaviour ─────────────────────────────────────────────────────
   // Panel content is built in `lib/live-order-panel.ts`. Since M46 a `.test.tsx` DOES run (jsdom,
@@ -348,9 +354,9 @@ export function AppHeader() {
           >
             <Icon name="cart" size={18} />
             <span>{slot.label}</span>
-            {cartCount !== null && cartCount > 0 && (
+            {claimedCount !== null && claimedCount > 0 && (
               <span className="app-header-count" aria-hidden>
-                {cartCount}
+                {claimedCount}
               </span>
             )}
           </Link>

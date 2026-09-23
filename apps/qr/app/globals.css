@@ -1377,6 +1377,12 @@ html[data-fx="off"] .pa-mid {
      2px margin + 6px padding-top preserves the 8px gap from the search field above. */
   margin-top: 2px;
   padding-block: 6px;
+  /* Bleed into the toolbar's 20px gutter so the active pill's lift shadow is not sliced into a
+     square at the scroller's edge, and the last pill runs to the screen edge (reads as "more →")
+     instead of stopping dead at the gutter. scroll-padding keeps snapping on the gutter line. */
+  margin-inline: calc(-1 * var(--s5));
+  padding-inline: var(--s5);
+  scroll-padding-inline: var(--s5);
   scroll-snap-type: x proximity;
 }
 .menu-rail::-webkit-scrollbar {
@@ -11552,13 +11558,18 @@ html[data-fx="lite"] .mms-scrim {
      history-swipe) — the overscroll contract pins this on every rail. */
   overscroll-behavior-x: contain;
   scrollbar-width: none;
-  padding-bottom: var(--s2);
+  /* Same bleed as .menu-rail — the lit pill's lift shadow needs room on every side. */
+  margin: calc(-1 * var(--s1)) calc(-1 * var(--s5)) 0;
+  padding: var(--s1) var(--s5) var(--s2);
 }
 .picks-lenses::-webkit-scrollbar {
   display: none;
 }
 .picks-rail {
   scroll-snap-type: x mandatory;
+  /* Mandatory snap aligns a card's start to the SCROLLPORT edge unless told otherwise — without
+     this the first card snaps flush to the screen edge, off the 20px gutter everything else sits on. */
+  scroll-padding-inline: var(--s5);
 }
 .picks-rail > li {
   scroll-snap-align: start;

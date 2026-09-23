@@ -869,8 +869,8 @@ export function MenuBrowser({
                             {i.name_my}
                           </span>
                         )}
-                        {/* Phase 1a — every dish has a description (97/97 in prod) and the row never
-                            showed it; two lines, clamped, so the guest knows what they are ordering
+                        {/* Phase 1a — the row never showed a dish's description (when it has one) —
+                            two lines, clamped, so the guest knows what they are ordering
                             without opening the sheet (v7.2's `.desc`). */}
                         {i.description_en && (
                           <span className="menu-row-desc">{i.description_en}</span>

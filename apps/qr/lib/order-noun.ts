@@ -26,3 +26,28 @@ export function orderSlot(
 export function showOrderSlot(cartId: string | null, count: number | null): boolean {
   return !!cartId && count !== 0;
 }
+
+/**
+ * Blind pass on #300 — the count the header may CLAIM. A dine-in cart is SHARED: every seat edits it,
+ * and this device's last-seen count goes stale the moment a tablemate adds a dish while this phone is
+ * on /account. So for dine-in the count is unknown (no number, and never hidden as "empty"); only a
+ * single-device cart (pickup, scan-and-go) can state one.
+ */
+export function slotCount(mode: string | null | undefined, count: number | null): number | null {
+  return mode === "dinein" ? null : count;
+}
+
+/** The stored `<cartId>:<count>` pair. A count belongs to ONE cart id; anything malformed, negative,
+ *  fractional or for another cart is unknown (null), never zero. */
+export function decodeCartCount(raw: string | null, cartId: string | null): number | null {
+  if (!raw || !cartId) return null;
+  const at = raw.lastIndexOf(":");
+  if (at <= 0 || raw.slice(0, at) !== cartId) return null;
+  const tail = raw.slice(at + 1);
+  if (!/^\d+$/.test(tail)) return null;
+  return Number(tail);
+}
+
+export function encodeCartCount(cartId: string, count: number): string {
+  return `${cartId}:${count}`;
+}

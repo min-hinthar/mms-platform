@@ -20,12 +20,23 @@ auto-scrolling rows with a pause button, and a "taste buds" panel — the search
 - **At a table, the door eyebrow is the table's control** ("At the table ⌄" → `TableOptions`): the
   two exits that sat as tiles above the food ("Back to the start", "Leave this table") live in its
   sheet, with the same promises. The arrival card is a greeting line.
-- **Every dish row shows its description** (two lines, clamped — 97/97 dishes carry one) and ends in
+- **Every dish row shows its description** (two lines, clamped; a dish without one shows none) and ends in
   the v7.2 round **+** — one shape for Add and for Choose, so the right edge stops zig-zagging.
 - **"Check the menu" → "Refresh"** with the refresh glyph (it read as a link to the page it sat on).
 - **The header's order slot** says "Your order" / "Your basket" (`lib/order-noun.ts`) with the item
   count, and only for a cart that has something in it — merely viewing the menu used to publish an
   empty cart and light "Cart" on every other page (`showOrderSlot`, red-first).
+- **Blind pass (REJECT → fixed).** The count is a CLAIM, so it is published only from views that
+  saw the cart: the menu publishes "unknown" until its first view lands (it used to write the empty
+  initial list as a confirmed 0, hiding a full cart after a failed read); /cart now publishes its
+  confirmed lines (removing everything there left the header claiming the old number); and a dine-in
+  cart never states one at all — tablemates edit it, so the header names it without a number and never
+  hides it (`slotCount` · `decodeCartCount`, red-first; `CartPublisher.test` · a `Checkout.test` case).
+  "Leave this table" now forgets the table's cart pointer too. Surprise is an action, not a toggle
+  (no `aria-pressed`), and a draw moves focus to what it produced; Refresh's accessible name starts
+  with its visible word (WCAG 2.5.3); the picks row pins its opening lens so a first heart never swaps
+  it mid-browse (`resolveLens`). Rails bleed into the gutter so the lit pill's shadow is not sliced
+  square, and the picks rail snaps on the 20px gutter instead of the screen edge.
 
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 

@@ -61,6 +61,7 @@ import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
 import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
 import { useAnonSession } from "@/lib/useAnonSession";
+import { usePublishCart } from "./ActiveOrderProvider";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { useCartRealtime } from "@/lib/realtime";
 import { useCoalescedRefresh } from "@/lib/echo-refresh";
@@ -259,6 +260,15 @@ export function Checkout({
   asapAvailable?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
+  // Blind pass on #300 — the header's "Your order · N" is only as fresh as its last publisher, and
+  // /cart is where lines are removed: without this, emptying the cart here left the header claiming
+  // the old count on every other page. `items` is the server-CONFIRMED base (the page renders this
+  // component only after a successful view read), never the optimistic overlay.
+  const publishCart = usePublishCart();
+  const confirmedCount = items.reduce((n, i) => n + i.qty, 0);
+  useEffect(() => {
+    publishCart(cartId, confirmedCount);
+  }, [cartId, confirmedCount, publishCart]);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth
   // (React 19 useOptimistic). Render reads `viewItems`; `items`/`setItems` stay the reconciliation base.

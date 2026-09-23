@@ -1,12 +1,12 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MenuItem } from "./MenuBrowser";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { Rail } from "../Rail";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { refillSurprise, surpriseMe, TASTE_ROW_MAX } from "@/lib/menu/taste";
-import { picksLenses, type PicksLens } from "@/lib/menu/picks";
+import { picksLenses, resolveLens, type PicksLens } from "@/lib/menu/picks";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -24,9 +24,13 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * Static, not a marquee: a row that moves on its own owed a pause button and clipped whichever card
  * sat at the edge. The Rail snaps to card starts and fades its edges, so nothing reads as cut off.
  *
- * a11y: a labelled region; the lens pills are toggles (`aria-pressed`) in a named group; the
- * Surprise pill describes its own outcome (`aria-describedby`), announced by the tap that changed it
- * — no second live region on the menu (QA §A). Every card is one ≥44px button that opens the sheet.
+ * a11y: a labelled region; the two VIEW lenses are toggles (`aria-pressed`) in a named group. Surprise
+ * is an ACTION, not a toggle (pressing it again reshuffles), so it carries no pressed state. A draw
+ * MOVES FOCUS to what it produced — the first picked card (its list is named "Picked for you — N
+ * dishes"), or the empty line when there was nothing new — because a description that changes on a
+ * button that already has focus is not reliably re-read (blind pass on #300; the removed TasteBand
+ * moved focus for exactly this reason). No second live region on the menu (QA §A). Every card is one
+ * ≥44px button that opens the sheet.
  */
 export function PicksRow({
   items,
@@ -63,11 +67,20 @@ export function PicksRow({
     popular: fits(popular).length,
     pool: pool.length,
   });
-  const [chosen, setChosen] = useState<PicksLens | null>(null);
+  // Seeded with the opening lens so it is PINNED: a first heart adds a Favorites pill but never
+  // swaps the row out from under the diner (lib/menu/picks.ts `resolveLens`).
+  const [chosen, setChosen] = useState<PicksLens | null>(() => lenses[0] ?? null);
   const [drawn, setDrawn] = useState<MenuItem[]>([]);
-  // The chosen lens survives only while it still has something to show; otherwise the first one
-  // that does (favorites → most ordered → surprise) — never a stuck empty lens after a filter.
-  const lens: PicksLens | null = chosen && lenses.includes(chosen) ? chosen : (lenses[0] ?? null);
+  const [draws, setDraws] = useState(0);
+  const resultRef = useRef<HTMLDivElement>(null);
+  const lens = resolveLens(chosen, lenses);
+
+  // After a draw (never on mount), hand focus to its result — see the a11y note above.
+  useEffect(() => {
+    if (draws === 0) return;
+    const target = resultRef.current?.querySelector<HTMLElement>(".start-here-card, .picks-empty");
+    target?.focus({ preventScroll: true });
+  }, [draws]);
 
   const surprise = useMemo(() => {
     if (drawn.length === 0) return [];
@@ -84,6 +97,7 @@ export function PicksRow({
   const draw = () => {
     setChosen("surprise");
     setDrawn(surpriseMe(pool, heartedIds, TASTE_ROW_MAX, popularIds));
+    setDraws((n) => n + 1);
   };
 
   const outcome =
@@ -114,7 +128,7 @@ export function PicksRow({
               key={l}
               type="button"
               className={`menu-tab${on ? " menu-tab-on" : ""}`}
-              aria-pressed={on}
+              aria-pressed={l === "surprise" ? undefined : on}
               aria-describedby={l === "surprise" ? "picks-outcome" : undefined}
               onClick={l === "surprise" ? draw : () => setChosen(l)}
             >
@@ -128,44 +142,46 @@ export function PicksRow({
         {outcome}
       </span>
 
-      {shown.length > 0 ? (
-        <Rail
-          as="ul"
-          role="list"
-          className="start-here-rail picks-rail"
-          aria-label={`${lens === "surprise" ? "Picked for you" : label(lens)} — ${shown.length} ${shown.length === 1 ? "dish" : "dishes"}`}
-        >
-          {shown.map((i, n) => (
-            <li key={`${lens}-${i.id}`} style={{ ["--i" as string]: n }}>
-              <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
-                <span className="start-here-photo" aria-hidden>
-                  <BlurUpImage
-                    src={i.image_url}
-                    alt=""
-                    width={160}
-                    height={120}
-                    sizes="166px"
-                    fallback={<PhotoPlaceholder category={i.category} />}
-                  />
-                </span>
-                <span className="start-here-name">{i.name_en}</span>
-                {i.name_my && (
-                  <span lang="my" className="start-here-my">
-                    {i.name_my}
+      <div ref={resultRef}>
+        {shown.length > 0 ? (
+          <Rail
+            as="ul"
+            role="list"
+            className="start-here-rail picks-rail"
+            aria-label={`${lens === "surprise" ? "Picked for you" : label(lens)} — ${shown.length} ${shown.length === 1 ? "dish" : "dishes"}`}
+          >
+            {shown.map((i, n) => (
+              <li key={`${lens}-${i.id}`} style={{ ["--i" as string]: n }}>
+                <button type="button" className="start-here-card" onClick={() => onSelect(i)}>
+                  <span className="start-here-photo" aria-hidden>
+                    <BlurUpImage
+                      src={i.image_url}
+                      alt=""
+                      width={160}
+                      height={120}
+                      sizes="166px"
+                      fallback={<PhotoPlaceholder category={i.category} />}
+                    />
                   </span>
-                )}
-                <span className="start-here-price">{dollars(i.base_price_cents)}</span>
-              </button>
-            </li>
-          ))}
-        </Rail>
-      ) : (
-        <p className="picks-empty">
-          {lens === "surprise" && drawn.length === 0
-            ? "Tap Surprise me and we’ll pick a few dishes."
-            : outcome}
-        </p>
-      )}
+                  <span className="start-here-name">{i.name_en}</span>
+                  {i.name_my && (
+                    <span lang="my" className="start-here-my">
+                      {i.name_my}
+                    </span>
+                  )}
+                  <span className="start-here-price">{dollars(i.base_price_cents)}</span>
+                </button>
+              </li>
+            ))}
+          </Rail>
+        ) : (
+          <p className="picks-empty" tabIndex={-1}>
+            {lens === "surprise" && drawn.length === 0
+              ? "Tap Surprise me and we’ll pick a few dishes."
+              : outcome}
+          </p>
+        )}
+      </div>
     </section>
   );
 }

@@ -4,6 +4,7 @@ import { Sheet, buttonClass } from "@mms/ui";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav";
 import { menuHref } from "@/lib/menu-href";
 import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
+import { useForgetCart } from "@/components/ActiveOrderProvider";
 
 /**
  * Phase 1a — the dine-in eyebrow IS the table's control. "At the table ⌄" opens this sheet, which
@@ -13,12 +14,14 @@ import { forgetDineinOnThisDevice } from "@/lib/useTableSession";
  *  · Back to the start — a NAVIGATION to the door picker; the party's session and cart survive
  *    untouched (4h sliding TTL). `menuHref(null)` = the door picker.
  *  · Leave this table — forgets the table ON THIS PHONE only (the storage clear runs in the click,
- *    before the navigation); never a server "close table".
+ *    before the navigation); never a server "close table". It forgets the table's CART pointer too
+ *    (blind pass on #300): otherwise the header kept offering "Your order" for the table just left.
  *
  * The same words the tiles carried, one tap further from the menu — where an exit belongs.
  */
 export function TableOptions({ label }: { label: string }) {
   const [open, setOpen] = useState(false);
+  const forgetCart = useForgetCart();
   return (
     <>
       <button
@@ -43,7 +46,7 @@ export function TableOptions({ label }: { label: string }) {
           >
             <span className="table-options-label">
               Back to the start
-              <span className="table-options-note">keeps your table — come back any time</span>
+              <span className="table-options-note">keeps your table</span>
             </span>
           </Link>
           <Link
@@ -51,6 +54,7 @@ export function TableOptions({ label }: { label: string }) {
             className={buttonClass({ variant: "danger", size: "lg", block: true })}
             onClick={() => {
               forgetDineinOnThisDevice();
+              forgetCart();
               setOpen(false);
             }}
           >

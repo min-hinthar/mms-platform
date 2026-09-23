@@ -251,19 +251,16 @@ export function PullToRefresh({
       {/* The pointer-gesture alternative (WCAG 2.5.1 / 2.1.1) — see the header. Deliberately a plain
           button in the header's flow: it is the mechanism, and the pull is the shortcut. No live
           region of its own; the outcome speaks through the page's single announcer. */}
-      <button
-        type="button"
-        className="ptr-btn"
-        onClick={() => fire("asked")}
-        disabled={pending}
-        aria-label="Check the menu for updates"
-      >
+      <button type="button" className="ptr-btn" onClick={() => fire("asked")} disabled={pending}>
         {/* Phase 1a — "Check the menu" read as a navigation link ON the menu; the control says what
             it does, with the one glyph that means it. */}
         <span aria-hidden className={pending && shouldAnimate ? "ptr-star-spin" : undefined}>
           <Icon name="refresh" size={14} />
         </span>
+        {/* The name STARTS with the visible word (WCAG 2.5.3 — "tap Refresh" must match); the sr-only
+            tail says what is refreshed. */}
         {pending ? "Checking…" : "Refresh"}
+        <span className="sr-only"> the menu</span>
       </button>
       {(shown > 0 || pending) && (
         // Decorative + inert: the OUTCOME is announced through the page's existing single live

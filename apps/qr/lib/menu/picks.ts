@@ -22,3 +22,13 @@ export function picksLenses(counts: {
   if (counts.pool > 0) out.push("surprise");
   return out;
 }
+
+/**
+ * The lens the row shows. The diner's choice holds while it still has something to show; otherwise
+ * the first offered lens — so a dietary filter that empties the chosen lens never strands the row on
+ * nothing. The row PINS its opening lens at mount (the component seeds `chosen` with it), so a first
+ * heart mid-browse adds a Favorites pill without yanking the row out from under the diner.
+ */
+export function resolveLens(chosen: PicksLens | null, offered: PicksLens[]): PicksLens | null {
+  return chosen && offered.includes(chosen) ? chosen : (offered[0] ?? null);
+}
