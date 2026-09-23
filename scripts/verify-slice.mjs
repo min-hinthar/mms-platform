@@ -262,8 +262,16 @@ const MUTANTS = [
     file: "apps/qr/lib/checkout-stage.ts",
     suite: "lib/checkout-stage.test.ts",
     why: "Phase 1b — the gate is a DINE-IN rule. Pickup and scan-and-go have no send step (paying IS ordering), so dropping the mode check refuses every pickup and market payment at create-intent: a revenue outage behind a rule that was only ever meant for tables",
-    find: '  return mode === "dinein" && kitchenDraftUnits > 0;',
-    replace: "  return kitchenDraftUnits > 0;",
+    find: '  return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;',
+    replace: "  return hostPresent && kitchenDraftUnits > 0;",
+  },
+  {
+    id: "checkout-stage/pay-gate-strands-a-hostless-table",
+    file: "apps/qr/lib/checkout-stage.ts",
+    suite: "lib/checkout-stage.test.ts",
+    why: "Phase 1b blind pass — only the host can send, and a staff-started table whose diners all arrived by invite link has NO host. Gating it leaves nobody able to send and so nobody able to pay by card: the table is stranded at the Pay button with staff as the only way out",
+    find: '  return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;',
+    replace: '  return mode === "dinein" && kitchenDraftUnits > 0;',
   },
   {
     id: "checkout-stage/pay-gate-counts-unsendable-lines",

@@ -336,6 +336,7 @@ export function Checkout({
   // host too). Server re-enforces host + dine-in + cart-open; this is the affordance.
   const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
   // Phase 1b — the host's name for a guest's "who sends" line (lib/confirm-copy `hostSendsCopy`).
+  const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
   const hostName = splitContext?.members.find((m) => m.role === "host")?.name?.trim() || null;
   const hostNote = hostSendsCopy(hostName);
   const [promo, setPromo] = useState("");
@@ -2103,7 +2104,12 @@ export function Checkout({
     if (normalizeHash(window.location.hash) === "#bill") window.history.back();
     else flipStage("order");
   }
+  // Set synchronously: two Backs before a re-render must not start two leaves (the pop handler's
+  // `busy` reads last render's `leavingPay`).
+  const leavingRef = useRef(false);
   function runLeavePay() {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
     setLeavingPay(true);
     void editOrder()
       .then((left) => {
@@ -2111,7 +2117,10 @@ export function Checkout({
         // instead of leaving /cart with the screen still on Pay.
         if (!left) pushHash("#pay");
       })
-      .finally(() => setLeavingPay(false));
+      .finally(() => {
+        leavingRef.current = false;
+        setLeavingPay(false);
+      });
   }
   function leavePay() {
     if (paying || leavingPay) return;
@@ -2137,8 +2146,11 @@ export function Checkout({
         // Put the URL back where the screen is (a forward into Pay, a Back mid-charge).
         const { pathname, search } = window.location;
         const here: CheckoutHash = step === "pay" ? "#pay" : stage === "bill" ? "#bill" : "";
+        // REPLACE, never push (blind pass on #301): a push here, after a Forward onto a stale #pay,
+        // stacked #bill over #pay so every Back landed on #pay and pushed again — a trap that also
+        // killed the in-page "Back to your order". Replacing costs at most a duplicate entry.
         if (hash !== here)
-          window.history.pushState(window.history.state, "", `${pathname}${search}${here}`);
+          window.history.replaceState(window.history.state, "", `${pathname}${search}${here}`);
       }
     };
   });
@@ -2280,7 +2292,11 @@ export function Checkout({
   // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
   // (`payBlockedByUnsent`, the SAME binding create-intent refuses on — this is the courtesy, that is
   // the gate). Only dine-in has a send step.
-  const sendBlocksPay = payBlockedByUnsent(isDineIn ? "dinein" : sessionMode, kitchenDraftQty);
+  const sendBlocksPay = payBlockedByUnsent(
+    isDineIn ? "dinein" : sessionMode,
+    kitchenDraftQty,
+    hostPresent,
+  );
   const noteQty = sendBlocksPay ? kitchenDraftQty : unsentQty;
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
@@ -2437,6 +2453,8 @@ export function Checkout({
               totals={payTotals}
               unsentCount={unsentQty}
               onEdit={leavePay}
+              // While a leave is releasing the pay-window lock, the charge must not start under it.
+              hold={leavingPay}
               onPayingChange={setPaying}
             />
           </>
@@ -3471,14 +3489,18 @@ export function Checkout({
             {/* Phase 1b — a guest who is not the host sees WHO sends, where the host sees Send. Only
                 the host fires the table; before this a guest's Order moment had no verb and no word
                 about how their dishes reach the kitchen. Plain content, not a live region. */}
-            {showLineCards && staged && !canSendToKitchen && kitchenDraftQty > 0 && (
-              <p className="checkout-host-note">
-                {hostNote.en}
-                <span lang="my" className="checkout-host-note-my">
-                  {hostNote.my}
-                </span>
-              </p>
-            )}
+            {showLineCards &&
+              staged &&
+              splitContext?.myRole === "guest" &&
+              hostPresent &&
+              kitchenDraftQty > 0 && (
+                <p className="checkout-host-note">
+                  {hostNote.en}
+                  <span lang="my" className="checkout-host-note-my">
+                    {hostNote.my}
+                  </span>
+                </p>
+              )}
 
             {/* W12 — the Order moment's quiet door to the Pay moment: the live bill total, always
                 visible, never dominating. Promoted to the filled CTA once everything is with the

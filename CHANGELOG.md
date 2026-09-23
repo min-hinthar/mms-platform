@@ -32,6 +32,13 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 - **A guest who is not the host is told who sends** ("Aung sends the table's order to the kitchen —
   your dishes go with it."), where the host sees Send — before, a guest's Order moment had no verb.
 - **The bill says which table it is** ("Table 7" eyebrow on /cart).
+- **Blind pass (REJECT → fixed).** A Forward onto a stale `#pay` entry used to PUSH the correcting
+  entry, trapping every later Back on the Bill; it now REPLACES. The pay gate applies only when the
+  table HAS a host — a staff-started table whose diners all came by invite link has nobody who can
+  send, and would otherwise never be able to pay. A refusal the screen cannot act on (the split read
+  missed, so no Send shows) now says to reload. Two Backs cannot start two leaves; the Pay button
+  (card and wallet) holds while a leave releases the lock. The "who sends" note shows only to a real
+  guest at a table with a host.
 
 ### Phase 1a — the menu's first screen, and one name for the open order (2026-09-23)
 

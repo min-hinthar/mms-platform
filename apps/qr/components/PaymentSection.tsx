@@ -26,6 +26,7 @@ export function PaymentSection({
   unsentCount = 0,
   onEdit,
   onPayingChange,
+  hold = false,
 }: {
   cartId: string;
   clientSecret: string;
@@ -39,6 +40,9 @@ export function PaymentSection({
    *  review" can disable itself while a PaymentIntent is being confirmed. Editing then would release
    *  the pay-window lock out from under a live authorization. */
   onPayingChange?: (paying: boolean) => void;
+  /** Phase 1b — true while the parent is leaving the pay step (releasing the pay-window lock): no
+   *  charge may start under a lock that is being released. */
+  hold?: boolean;
 }) {
   const stripePromise = getStripePromise();
 
@@ -66,6 +70,7 @@ export function PaymentSection({
         unsentCount={unsentCount}
         onEdit={onEdit}
         onPayingChange={onPayingChange}
+        hold={hold}
       />
     </Elements>
   );
@@ -77,12 +82,14 @@ function PayForm({
   unsentCount = 0,
   onEdit,
   onPayingChange,
+  hold = false,
 }: {
   cartId: string;
   totals: CartTotals;
   unsentCount?: number;
   onEdit: () => void;
   onPayingChange?: (paying: boolean) => void;
+  hold?: boolean;
 }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -98,6 +105,7 @@ function PayForm({
   // (validation / declined-inline) error returns here, and `error.message` is user-facing + safe to show.
   async function confirm() {
     if (!stripe || !elements) return; // Stripe.js still loading
+    if (hold) return; // the parent is releasing the pay-window lock — never charge under it
     setSubmitting(true);
     onPayingChange?.(true); // W9b — freeze the pay step's back control for the confirm round-trip
     setError(null);
@@ -122,7 +130,7 @@ function PayForm({
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     // Guard `elements` too, not just `stripe`: `confirm()` early-returns when either is still null.
-    if (!stripe || !elements || submitting) return;
+    if (!stripe || !elements || submitting || hold) return;
     void confirm();
   }
 
@@ -179,7 +187,7 @@ function PayForm({
       )}
       <button
         type="submit"
-        disabled={!stripe || submitting}
+        disabled={!stripe || submitting || hold}
         aria-busy={submitting}
         className="checkout-cta"
         style={{

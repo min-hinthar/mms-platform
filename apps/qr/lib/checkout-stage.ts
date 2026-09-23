@@ -60,15 +60,21 @@ export function unsentFoodQty(
  * line that blocks Pay is a line the host can clear with one tap. To-go drafts at a dine-in table
  * are not sendable (they fire at checkout) and so never block.
  *
- * ONE binding for both halves: `create-intent` / `create-share-intent` refuse on it server-side, and
- * the Bill's Pay control reads it to say why before the diner taps. Pickup and scan-and-go have no
- * send step — paying IS ordering — so it never applies there.
+ * ⚠️ ONLY WHEN SOMEONE CAN SEND (blind pass on #301). Only the host fires the table, and a table can
+ * have NO host: a staff-started session mints `host_seat: null`, and a diner arriving by invite link
+ * (`joinOnly`) never claims it. Gating that table would leave nobody able to send and so nobody able
+ * to pay. Without a host the pre-1b behaviour stands: pay, and the drafts fire when it lands.
+ *
+ * The same binding on both sides: `create-intent` (and `openSettlement`) refuse on it server-side,
+ * and the Bill's Pay control reads it to say why before the diner taps. Pickup and scan-and-go have
+ * no send step — paying IS ordering — so it never applies there.
  */
 export function payBlockedByUnsent(
   mode: string | null | undefined,
   kitchenDraftUnits: number,
+  hostPresent: boolean,
 ): boolean {
-  return mode === "dinein" && kitchenDraftUnits > 0;
+  return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;
 }
 
 /** The same count from raw `qr_cart_items` rows (`state`, not the view's `lineState`) — the server

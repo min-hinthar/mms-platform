@@ -244,9 +244,12 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     if (sess.mode !== "dinein") throw new Error("Splitting the bill is for dine-in tables.");
   }
   // Phase 1b — "Everything sent": a split is a way to PAY, so it opens only once the table's bill is
-  // final (`payBlockedByUnsent`, the same binding create-intent refuses on). Fail-open read — see
-  // lib/unsent-read.ts for why that direction is safe here.
-  if (payBlockedByUnsent("dinein", await kitchenDraftUnits(id)))
+  // final (`payBlockedByUnsent`, the same binding create-intent refuses on; the caller IS the host,
+  // so a host is present). Fail-open read — see lib/unsent-read.ts for why that direction is safe.
+  // ⚠️ Read BEFORE `acquireSettlement` freezes the cart, so a tablemate's add landing in between is
+  // not seen (blind pass on #301). Accepted while the self-serve split is PARKED (the surface gate
+  // above refuses first); filed with M235 to move after the freeze when the door reopens.
+  if (payBlockedByUnsent("dinein", await kitchenDraftUnits(id), true))
     throw new Error("Send everything to the kitchen first — then you can split the bill.");
   await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 

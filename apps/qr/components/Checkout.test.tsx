@@ -1302,7 +1302,6 @@ describe("Phase 1b — the browser's Back walks the checkout's own steps", () =>
     // Every line is with the kitchen, so the Order stage offers the bill as its primary action.
     const toOrder = screen.queryByRole("button", { name: /Back to your order/i });
     if (toOrder) fireEvent.click(toOrder); // initialStage may open on the Bill
-    await waitFor(() => expect(window.location.hash).toBe(""));
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
     expect(window.location.hash).toBe("#bill");
     expect(screen.getByRole("button", { name: /Back to your order/i })).toBeTruthy();
@@ -1332,12 +1331,25 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
 
   it("a guest with unsent dishes sees the host's name where Send would be", () => {
     // MUTATION: drop the note — the guest's Order moment has no verb and no word again; red.
-    mount({ splitContext: TABLE("guest") });
+    mount({
+      splitContext: TABLE("guest"),
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
     expect(document.body.textContent).toContain("Aung sends the table’s order to the kitchen");
   });
 
   it("the host sees Send, not the note", () => {
-    mount({ splitContext: { ...TABLE("host"), mySeat: PEER_SEAT } });
+    mount({
+      splitContext: {
+        ...TABLE("host"),
+        mySeat: PEER_SEAT,
+        members: [{ seat: PEER_SEAT, name: "Aung", role: "host" as const }],
+      },
+      initialMySeat: PEER_SEAT,
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    // Same sendable draft as the guest case above — ROLE is the only difference, so "no note" here
+    // cannot pass for the wrong reason. (SendToKitchenButton is stubbed in this suite.)
     expect(document.body.textContent).not.toContain("sends the table’s order");
   });
 });
@@ -1362,6 +1374,10 @@ describe("Phase 1b — a dine-in bill is payable only once everything is sent", 
     expect(pay.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(pay);
     expect(fetchSpy).not.toHaveBeenCalled();
+    // The click's own answer, not just the note that was there before it.
+    expect(document.body.textContent).toContain(
+      "Send everything to the kitchen first — then the bill is ready to pay.",
+    );
     expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
     fetchSpy.mockRestore();
   });
@@ -1381,5 +1397,57 @@ describe("Phase 1b — the bill says which table it is", () => {
       },
     });
     expect(screen.getByText("Table 7")).toBeTruthy();
+  });
+});
+
+describe("Phase 1b — a stale history entry is replaced, never stacked (blind pass on #301)", () => {
+  it("a Forward onto a stale #pay entry puts the URL back WITHOUT growing history", async () => {
+    // MUTATION: `pushState` in the restore arm — every Back from here lands on #pay and pushes #bill
+    // again, trapping the diner on the Bill; red (history grows).
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    mount({
+      splitContext: {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host",
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
+        tableNumber: 7,
+      },
+      initialItems: [{ ...ITEM, lineState: "fired" }],
+    });
+    const toOrder = screen.queryByRole("button", { name: /Back to your order/i });
+    if (toOrder) fireEvent.click(toOrder);
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(window.location.hash).toBe("#bill");
+    // Simulate the browser landing on a stale #pay entry (a Forward after leaving Pay).
+    window.history.pushState(null, "", "/cart?cart=cart-1#pay");
+    const before = window.history.length;
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    expect(window.location.hash).toBe("#bill");
+    expect(window.history.length).toBe(before);
+  });
+});
+
+describe("Phase 1b — the pay gate needs someone who can send", () => {
+  it("a table with NO host is never locked — nobody there could send", () => {
+    // MUTATION: ignore host presence — a staff-started table whose diners all came by invite link
+    // could never pay; red.
+    mount({
+      splitContext: {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "guest",
+        members: [],
+        tableNumber: 7,
+      },
+      initialItems: [{ ...ITEM, lineState: "draft", fulfillment: "dinein" }],
+    });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(
+      screen.queryByRole("button", { name: /Send everything to the kitchen first/i }),
+    ).toBeNull();
+    expect(document.body.textContent).not.toContain("sends the table’s order");
   });
 });

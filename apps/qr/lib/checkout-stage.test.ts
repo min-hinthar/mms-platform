@@ -82,11 +82,17 @@ describe("payBlockedByUnsent — a dine-in bill is payable only once everything 
   it("blocks a dine-in bill with anything unsent, and only a dine-in one", () => {
     // MUTATION: drop the mode check — pickup / scan-and-go (no send step: paying IS ordering) can
     // never pay at all; red.
-    expect(payBlockedByUnsent("dinein", 2)).toBe(true);
-    expect(payBlockedByUnsent("pickup", 2)).toBe(false);
-    expect(payBlockedByUnsent("scango", 2)).toBe(false);
+    expect(payBlockedByUnsent("dinein", 2, true)).toBe(true);
+    expect(payBlockedByUnsent("pickup", 2, true)).toBe(false);
+    expect(payBlockedByUnsent("scango", 2, true)).toBe(false);
     // MUTATION: `>= 0` — a fully sent table can never pay; red.
-    expect(payBlockedByUnsent("dinein", 0)).toBe(false);
+    expect(payBlockedByUnsent("dinein", 0, true)).toBe(false);
+  });
+
+  it("never blocks a table with no host — nobody there could send", () => {
+    // MUTATION: drop `hostPresent` — a staff-started table whose diners all came by invite link has
+    // no one who can send, so it could never pay at all; red.
+    expect(payBlockedByUnsent("dinein", 2, false)).toBe(false);
   });
 
   it("counts exactly what Send can clear — dinein drafts, never to-go or fired lines", () => {

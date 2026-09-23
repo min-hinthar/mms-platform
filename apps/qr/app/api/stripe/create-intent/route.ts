@@ -150,7 +150,7 @@ export async function POST(req: NextRequest) {
     // validated, no contact stored. An unreadable session refuses the payment instead.
     const { data: sess, error: sessErr } = await db
       .from("table_sessions")
-      .select("mode")
+      .select("mode,host_seat")
       .eq("id", sessionId)
       .single();
     if (sessErr || !sess) {
@@ -206,10 +206,18 @@ export async function POST(req: NextRequest) {
     // POST-able — the button is the courtesy, this is the gate. Placed with the other pre-mint
     // refusals: the lock is released and no slot or Stripe state is touched. The read fails OPEN
     // (lib/unsent-read.ts) — a charge that slips past is today's behaviour, drafts fired on landing.
-    if (payBlockedByUnsent(sess.mode, await kitchenDraftUnits(cartId))) {
+    // Only a table WITH a host is gated: nobody else can send (see the rule's docblock).
+    //
+    // The copy names a recovery (blind pass on #301): this refusal can reach a screen that shows no
+    // Send control — /cart renders it from the split context, and that read can miss while this
+    // route's own session read, which fails closed, still knows the table is dine-in.
+    if (payBlockedByUnsent(sess.mode, await kitchenDraftUnits(cartId), sess.host_seat != null)) {
       await freeLock();
       return NextResponse.json(
-        { error: "Send everything to the kitchen first — then the bill is ready to pay." },
+        {
+          error:
+            "Send everything to the kitchen first — then the bill is ready to pay. Don’t see Send? Reload this page.",
+        },
         { status: 409 },
       );
     }
