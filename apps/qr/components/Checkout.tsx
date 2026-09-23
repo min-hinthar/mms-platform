@@ -266,10 +266,13 @@ export function Checkout({
   // component only after a successful view read), never the optimistic overlay.
   const publishCart = usePublishCart();
   const confirmedCount = items.reduce((n, i) => n + i.qty, 0);
-  // The session's own mode rides along (Codex round 3): /grocery's URL carries no `?mode=`.
+  // The session's own mode rides along (Codex round 3): /grocery's URL carries no `?mode=`. When the
+  // split read failed the mode is UNKNOWN, and so is what the count may claim (Codex round 4): a
+  // number published under a stale door could be withheld as a shared table's, or badge a basket
+  // as an order — so the count goes out unknown too, and the header names the cart without one.
   const publishedMode = splitContext?.mode || undefined;
   useEffect(() => {
-    publishCart(cartId, confirmedCount, publishedMode);
+    publishCart(cartId, publishedMode ? confirmedCount : null, publishedMode);
   }, [cartId, confirmedCount, publishedMode, publishCart]);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth

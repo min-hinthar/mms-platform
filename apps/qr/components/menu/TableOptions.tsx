@@ -20,8 +20,20 @@ import { useCart } from "@/components/TableCartProvider";
  *
  * The same words the tiles carried, one tap further from the menu — where an exit belongs.
  */
-export function TableOptions({ label }: { label: string }) {
-  const [open, setOpen] = useState(false);
+export function TableOptions({
+  label,
+  onOpenChange,
+}: {
+  label: string;
+  /** Codex round 4: the parent suspends pull-to-refresh while this sheet is open — both read the
+   *  same window touch stream, so dragging the sheet down to dismiss also armed a refresh. */
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const [open, setOpenState] = useState(false);
+  const setOpen = (next: boolean) => {
+    setOpenState(next);
+    onOpenChange?.(next);
+  };
   const forgetCart = useForgetCart();
   // Codex round 3: the table's NUMBER lives here now that the arrival card is gone — GuestList's
   // lock/settle banners return before its own "Table N", so without this the menu stopped saying

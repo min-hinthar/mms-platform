@@ -54,6 +54,11 @@ auto-scrolling rows with a pause button, and a "taste buds" panel — the search
   stale door, or withhold its count as if it were a shared table cart. And the table's number moved
   into the eyebrow ("At table 7 ⌄", sheet titled "Table 7") — the arrival card that carried it is
   gone, and GuestList's lock/settle banners return before their own "Table N".
+- **Codex round 4.** /grocery publishes its basket to the header from every APPLIED server read (never
+  the stepper's optimistic lines), with mode `scango` — closes F24, and stops a badge published once
+  from /cart going stale after edits in the market. /cart claims no count when its split read failed
+  and the mode is unknown. Pull-to-refresh is suspended while the table sheet is open (dragging the
+  sheet down to dismiss also armed a refresh).
 
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 

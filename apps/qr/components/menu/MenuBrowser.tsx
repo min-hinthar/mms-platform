@@ -133,6 +133,7 @@ export function MenuBrowser({
   const [activeCat, setActiveCat] = useState<string | null>(null);
   // R6b: the item whose detail sheet is open (null = closed). Radix restores focus to the trigger row on close.
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
+  const [tableSheetOpen, setTableSheetOpen] = useState(false);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -630,14 +631,14 @@ export function MenuBrowser({
           {/* Phase 1a — at a table the door eyebrow IS the table's control: the two exits the arrival
               card used to show as tiles above the food live in its sheet now. */}
           {mode === "dinein" ? (
-            <TableOptions label={doorFor(mode).label} />
+            <TableOptions label={doorFor(mode).label} onOpenChange={setTableSheetOpen} />
           ) : (
             <p className="eyebrow">{doorFor(mode).label}</p>
           )}
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
-            disabled={!!sheetItem}
+            disabled={!!sheetItem || tableSheetOpen}
           />
         </div>
         <h1 ref={menuHeadingRef} tabIndex={-1} className="menu-title" style={{ outline: "none" }}>
