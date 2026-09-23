@@ -4,8 +4,7 @@ import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
-import { confirmCopy } from "@/lib/confirm-copy";
-import { ConfirmSwap } from "./ConfirmSwap";
+import { sentCopy } from "@/lib/confirm-copy";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
 // example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
@@ -75,12 +74,13 @@ export function SendToKitchenButton({
   onChanged: () => void;
 }) {
   const [pending, startTransition] = useTransition();
-  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
-  // W16c — the confirm step sits between the tap and send(). It stays LOCAL: unlike the undo
-  // grace (mirrored to the parent so the View-bill door refuses), an open confirm is safely
-  // discarded by a stage flip — nothing was committed.
-  const [confirming, setConfirming] = useState(false);
-  const sendBtnRef = useRef<HTMLButtonElement>(null);
+  // `my` — the Burmese half of an outcome line, where one exists (the send's success line carries the
+  // owner's own words; see lib/confirm-copy `sentCopy`).
+  const [msg, setMsg] = useState<{ kind: "ok" | "err"; text: string; my?: string } | null>(null);
+  // Phase 1b (owner, 2026-09-23: "Drop both") — the W16c confirm step is RETIRED: one tap sends.
+  // The server-clocked undo below is the safety net for a mis-tap AND a changed mind, the way a
+  // sent email offers Undo instead of asking "are you sure?" first — and a table that orders in
+  // rounds paid for that second tap on every round.
   // Client-local undo deadline (epoch ms, = receipt + server-measured grace) + a tick so the countdown
   // re-renders each second.
   const [undoUntil, setUndoUntil] = useState<number | null>(null);
@@ -132,34 +132,12 @@ export function SendToKitchenButton({
   const wasFrozen = useRef(frozen);
   useEffect(() => {
     if (wasFrozen.current && !frozen) setMsg((m) => (m?.text === FROZEN_NOTE ? null : m));
-    // ⚠️ AND CLOSE AN OPEN CONFIRM WHEN THE FREEZE ARRIVES (Codex round 6 on #247). `ConfirmSwap`
-    // takes only `busy`, so a confirm opened while editable keeps a Proceed button that looks and
-    // reads as live after a peer takes the lock — the handler refuses, but one interaction too
-    // late, which is precisely the "refuse at the door" rule the trigger below already follows.
-    // Closing it returns the diner to the (now dimmed, `aria-disabled`) Send trigger and says why.
-    if (!wasFrozen.current && frozen && confirming) {
-      setConfirming(false);
-      setMsg({ kind: "err", text: FROZEN_NOTE });
-    }
     wasFrozen.current = frozen;
-  }, [frozen, confirming]);
-
-  // Focus back to the Send trigger when the confirm closes WITHOUT sending (B4 / the staff idiom).
-  // After a confirmed send the trigger unmounts and the existing undo-focus effect takes over.
-  const wasConfirming = useRef(false);
-  useEffect(() => {
-    if (!confirming && wasConfirming.current) sendBtnRef.current?.focus();
-    wasConfirming.current = confirming;
-  }, [confirming]);
+  }, [frozen]);
 
   const send = () => {
     if (frozen) {
-      // ⚠️ CLOSE THE CONFIRM ON THIS PATH TOO. Returning without it stranded the diner on an open
-      // confirm whose Proceed can only refuse and whose only escape is Cancel — exactly what the
-      // `setConfirming(false)` below is commented as preventing. The freeze can arrive between
-      // opening the confirm and pressing Proceed, so this is reachable.
-      setConfirming(false);
-      // Say why rather than dying quietly — this is the one control the diner came here to press.
+      // Refuse at the DOOR, and say why rather than dying quietly — this is the one control the diner came here to press.
       setMsg({ kind: "err", text: FROZEN_NOTE });
       return;
     }
@@ -167,19 +145,14 @@ export function SendToKitchenButton({
     startTransition(async () => {
       try {
         const res = await sendToKitchen(cartId);
-        // Close the confirm on EVERY outcome — a refusal must return the diner to a live trigger
-        // they can retry from, not strand them on a confirm whose proceed already fired.
-        setConfirming(false);
         if (res.ok) {
           // W22f — the service bell, on the SUCCESS arm only. Silent unless the diner asked for it,
           // and the visible half (this message + W22a·depth's paper settle) carries the moment for
           // everyone else. Deliberately not in the refusal branch below: a sound on failure turns a
           // recoverable problem into a public one — the whole table looks over.
           chime("sent");
-          setMsg({
-            kind: "ok",
-            text: `Sent to the kitchen — ${res.fired} ${res.fired === 1 ? "item" : "items"} on the way.`,
-          });
+          const sent = sentCopy(res.fired);
+          setMsg({ kind: "ok", text: sent.en, my: sent.my });
           // Open the undo window for the server-MEASURED grace, counted from THIS client's receipt:
           // graceMs = undoUntil(server) − serverNow(server), then a client-local deadline of
           // now()+graceMs. Using the measured DURATION (not the absolute server timestamp) keeps the
@@ -200,7 +173,6 @@ export function SendToKitchenButton({
         }
       } catch {
         // assertCartMember (not a member / session closed) throws; Next redacts the message in prod.
-        setConfirming(false);
         setMsg({ kind: "err", text: "Couldn’t send that just now — please try again." });
       }
     });
@@ -283,34 +255,11 @@ export function SendToKitchenButton({
         >
           {pending ? "Bringing it back…" : `Undo — ${remaining}s`}
         </button>
-      ) : hasDraft && confirming ? (
-        // W16c — the decision step. The 10s server-clocked undo BELOW stays: the two guard
-        // different failure modes (a mis-tap before, a changed mind after), so neither replaces
-        // the other.
-        <ConfirmSwap
-          copy={confirmCopy({ kind: "sendToKitchen", itemCount: draftCount })}
-          busy={pending}
-          busyLabel={T("sending")}
-          onCancel={() => setConfirming(false)}
-          onProceed={send}
-        />
       ) : hasDraft ? (
         <button
-          ref={sendBtnRef}
           type="button"
-          // Refuse at the DOOR, not two taps in. Opening the confirm under a freeze would walk the
-          // diner through a decision step whose Proceed can only refuse — `send()` still guards
-          // (that is the gate; this is the courtesy), but the dead end is avoidable so avoid it.
-          onClick={() => {
-            if (frozen) {
-              setMsg({
-                kind: "err",
-                text: FROZEN_NOTE,
-              });
-              return;
-            }
-            setConfirming(true);
-          }}
+          // One tap sends (Phase 1b). `send()` refuses at the door under a freeze and says why.
+          onClick={send}
           disabled={pending}
           aria-disabled={frozen || undefined}
           aria-busy={pending}
@@ -388,6 +337,11 @@ export function SendToKitchenButton({
         }}
       >
         {msg?.text ?? ""}
+        {msg?.my && (
+          <span lang="my" style={{ display: "block", fontFamily: "var(--font-my)" }}>
+            {msg.my}
+          </span>
+        )}
       </p>
     </div>
   );

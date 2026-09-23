@@ -87,9 +87,12 @@ import {
 import {
   initialStage,
   kitchenDraftQty as deriveKitchenDraftQty,
+  payBlockedByUnsent,
   unsentFoodQty,
   type CheckoutStage,
 } from "@/lib/checkout-stage";
+import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
+import { hostSendsCopy } from "@/lib/confirm-copy";
 import { t, type DictKey } from "@/lib/i18n";
 
 // W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
@@ -332,6 +335,10 @@ export function Checkout({
   // Dine-in "Send to kitchen" (S2.1b): a table-level fire, so the HOST sends the batch (solo dine-in is
   // host too). Server re-enforces host + dine-in + cart-open; this is the affordance.
   const canSendToKitchen = splitContext?.mode === "dinein" && splitContext.myRole === "host";
+  // Phase 1b — the host's name for a guest's "who sends" line (lib/confirm-copy `hostSendsCopy`).
+  const hostPresent = !!splitContext?.members.some((m) => m.role === "host");
+  const hostName = splitContext?.members.find((m) => m.role === "host")?.name?.trim() || null;
+  const hostNote = hostSendsCopy(hostName);
   const [promo, setPromo] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -1865,6 +1872,7 @@ export function Checkout({
       setPayTotals(data.totals);
       setStepDir("forward"); // W13 — the pay step is the deepest cut
       setStep("pay");
+      pushHash("#pay");
     } catch {
       setPayError("Couldn’t start checkout — please try again.");
     } finally {
@@ -2021,7 +2029,8 @@ export function Checkout({
       setPayError((prev) => prev ?? "Couldn’t re-check the order — try again in a moment.");
   }
 
-  async function editOrder() {
+  /** Leaves the pay step; resolves `true` when it did, `false` when it stayed (a superseded tab). */
+  async function editOrder(): Promise<boolean> {
     // Release the pay-window lock we took at create-intent (P3.2-lock) so the table can edit again,
     // then re-sync. Best-effort — the TTL is the backstop if the release call fails.
     let releasedLock = false;
@@ -2051,7 +2060,7 @@ export function Checkout({
         setPayError(
           "Another tab took over this checkout — that one is paying. Reopen the order to edit it.",
         );
-        return;
+        return false;
       }
     } catch {
       // non-fatal; the lock auto-expires via its TTL
@@ -2070,7 +2079,97 @@ export function Checkout({
     if (releasedLock) setPayAttempt(null);
     setPayTotals(null);
     await refresh();
+    return true;
   }
+
+  // ── Phase 1b — the browser's Back walks Order → Bill → Pay (lib/checkout-history.ts) ─────────
+  // Each step pushes a HASH entry; a pop is decided by `onHistoryPop` and runs the SAME handlers the
+  // in-page back controls do, so leaving Pay always releases the pay-window lock through `editOrder`.
+  // The in-page controls go through `history.back()` when their entry exists, so the stack never
+  // holds a step the screen has already left.
+  function pushHash(h: CheckoutHash) {
+    if (normalizeHash(window.location.hash) === h) return;
+    const { pathname, search } = window.location;
+    window.history.pushState(window.history.state, "", `${pathname}${search}${h}`);
+  }
+  function replaceHash(h: CheckoutHash) {
+    const { pathname, search } = window.location;
+    window.history.replaceState(window.history.state, "", `${pathname}${search}${h}`);
+  }
+  function goBill() {
+    flipStage("bill");
+    pushHash("#bill");
+  }
+  function backToOrder() {
+    if (normalizeHash(window.location.hash) === "#bill") window.history.back();
+    else flipStage("order");
+  }
+  // Set synchronously: two Backs before a re-render must not start two leaves (the pop handler's
+  // `busy` reads last render's `leavingPay`).
+  const leavingRef = useRef(false);
+  function runLeavePay() {
+    if (leavingRef.current) return;
+    leavingRef.current = true;
+    setLeavingPay(true);
+    void editOrder()
+      .then((left) => {
+        // Stayed on Pay (a superseded tab): put the entry back so the next Back is judged again
+        // instead of leaving /cart with the screen still on Pay.
+        if (!left) pushHash("#pay");
+      })
+      .finally(() => {
+        leavingRef.current = false;
+        setLeavingPay(false);
+      });
+  }
+  function leavePay() {
+    if (paying || leavingPay) return;
+    if (normalizeHash(window.location.hash) === "#pay") window.history.back();
+    else runLeavePay();
+  }
+  // The pop handler reads THIS render's state; the listener is bound once and calls the latest.
+  const onPopRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    onPopRef.current = () => {
+      const hash = normalizeHash(window.location.hash);
+      const action = onHistoryPop({
+        hash,
+        stage,
+        step,
+        busy: paying || leavingPay,
+        canBill: !undoOpen,
+      });
+      if (action === "toOrder") flipStage("order");
+      else if (action === "toBill") flipStage("bill");
+      else if (action === "leavePay") runLeavePay();
+      else if (action === "restore") {
+        // Put the URL back where the screen is (a forward into Pay, a Back mid-charge).
+        const { pathname, search } = window.location;
+        const here: CheckoutHash = step === "pay" ? "#pay" : stage === "bill" ? "#bill" : "";
+        // REPLACE, never push (blind pass on #301): a push here, after a Forward onto a stale #pay,
+        // stacked #bill over #pay so every Back landed on #pay and pushed again — a trap that also
+        // killed the in-page "Back to your order". Replacing costs at most a duplicate entry.
+        if (hash !== here)
+          window.history.replaceState(window.history.state, "", `${pathname}${search}${here}`);
+      }
+    };
+  });
+  // Where the screen OPENED (read once, in the mount effect below).
+  const openedOnBill = useRef(stage === "bill" && staged);
+  useEffect(() => {
+    // Codex round 1 on #301 — a table whose dishes are all sent OPENS on the Bill, and the in-page
+    // "Back to your order" says the Order stage is behind it; browser Back must agree. So the entry
+    // the page loaded on becomes the Order step and a #bill entry is pushed over it. A reload on
+    // #bill keeps the stack it already built (the Order entry is still beneath it).
+    // A stale #pay cannot resume (the intent lives in memory) — it folds into where the screen IS.
+    const here: CheckoutHash = openedOnBill.current ? "#bill" : "";
+    const now = normalizeHash(window.location.hash);
+    if (openedOnBill.current && now === "") pushHash("#bill");
+    else if (now !== here) replaceHash(here);
+    const onPop = () => onPopRef.current();
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   if (viewItems.length === 0) {
     // W2d — designed empty-cart state. The menu link carries the session mode: a bare /menu defaults
@@ -2198,6 +2297,15 @@ export function Checkout({
   // at pay and fired by mms_fire_pending_food when the payment lands. Deliberately broader than
   // kitchenDraftQty (see lib/checkout-stage).
   const unsentQty = unsentFoodQty(viewItems);
+  // Phase 1b — "Everything sent": the Bill is payable only once every sendable dish has gone
+  // (`payBlockedByUnsent`, the SAME binding create-intent refuses on — this is the courtesy, that is
+  // the gate). Only dine-in has a send step.
+  const sendBlocksPay = payBlockedByUnsent(
+    isDineIn ? "dinein" : sessionMode,
+    kitchenDraftQty,
+    hostPresent,
+  );
+  const noteQty = sendBlocksPay ? kitchenDraftQty : unsentQty;
 
   // (W16a: the SB-1524 service charge — and its disclosure element — are RETIRED. Service margin
   // now lives in the mode-derived line prices; historical receipts keep their stored rows via
@@ -2231,6 +2339,9 @@ export function Checkout({
       {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
           outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
           diner's wallet chip rides beside the heading (recognition at the pay moment; hidden for anon). */}
+      {/* Phase 1b — table context on the bill, the same eyebrow the menu wears ("At table 7"): at a
+          shared table the one fact every screen should answer is WHICH table this is. */}
+      {isDineIn && tableNumber != null && <p className="eyebrow">Table {tableNumber}</p>}
       <div
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}
       >
@@ -2293,11 +2404,7 @@ export function Checkout({
               className="nav-link"
               aria-disabled={paying || leavingPay || undefined}
               aria-busy={leavingPay}
-              onClick={() => {
-                if (paying || leavingPay) return;
-                setLeavingPay(true);
-                void editOrder().finally(() => setLeavingPay(false));
-              }}
+              onClick={leavePay}
               style={{
                 background: "none",
                 border: "none",
@@ -2353,7 +2460,9 @@ export function Checkout({
               clientSecret={clientSecret}
               totals={payTotals}
               unsentCount={unsentQty}
-              onEdit={editOrder}
+              onEdit={leavePay}
+              // While a leave is releasing the pay-window lock, the charge must not start under it.
+              hold={leavingPay}
               onPayingChange={setPaying}
             />
           </>
@@ -2391,7 +2500,7 @@ export function Checkout({
               <button
                 type="button"
                 className="nav-link"
-                onClick={() => flipStage("order")}
+                onClick={backToOrder}
                 style={{ background: "none", border: "none", marginBottom: 4, cursor: "pointer" }}
               >
                 <span aria-hidden className="nav-arrow nav-arrow-back">
@@ -2788,14 +2897,14 @@ export function Checkout({
                 payment lands — money is safe, timing is the surprise). The host gets the way back;
                 a guest cannot send, so for them the sentence alone is the honest whole story.
                 Plain content, not a live region — this view keeps its one. */}
-            {!settledClose && staged && stage === "bill" && unsentQty > 0 && (
+            {!settledClose && staged && stage === "bill" && noteQty > 0 && (
               <div className="card checkout-unsent-note mms-rise">
                 <p
                   style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
                 >
-                  {unsentQty === 1
+                  {noteQty === 1
                     ? "1 item hasn’t gone to the kitchen yet"
-                    : `${unsentQty} items haven’t gone to the kitchen yet`}
+                    : `${noteQty} items haven’t gone to the kitchen yet`}
                   <span
                     style={{
                       display: "block",
@@ -2804,8 +2913,10 @@ export function Checkout({
                       marginTop: 2,
                     }}
                   >
-                    {canSendToKitchen
-                      ? "Send them now, or pay — they’ll be sent the moment you do."
+                    {sendBlocksPay
+                      ? canSendToKitchen
+                        ? "Send them to the kitchen, then pay the bill."
+                        : `${hostName ?? "Your host"} sends them — then the bill is ready to pay.`
                       : "They’ll be sent to the kitchen the moment you pay."}
                   </span>
                   <span
@@ -2818,7 +2929,9 @@ export function Checkout({
                       marginTop: 2,
                     }}
                   >
-                    မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်ဆီ ရောက်သွားပါမယ်နော်
+                    {sendBlocksPay
+                      ? "မပို့ရသေးတဲ့ ဟင်းတွေကို မီးဖိုချောင်ဆီ အရင်ပို့ပြီးမှ ငွေရှင်းလို့ ရပါမယ်"
+                      : "မပို့ရသေးတဲ့ ဟင်းတွေ — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်ဆီ ရောက်သွားပါမယ်နော်"}
                   </span>
                 </p>
                 {canSendToKitchen && (
@@ -2826,7 +2939,7 @@ export function Checkout({
                     type="button"
                     className="nav-link"
                     style={{ marginTop: 4 }}
-                    onClick={() => flipStage("order")}
+                    onClick={backToOrder}
                   >
                     <span aria-hidden className="nav-arrow nav-arrow-back">
                       ←
@@ -3381,6 +3494,22 @@ export function Checkout({
               />
             )}
 
+            {/* Phase 1b — a guest who is not the host sees WHO sends, where the host sees Send. Only
+                the host fires the table; before this a guest's Order moment had no verb and no word
+                about how their dishes reach the kitchen. Plain content, not a live region. */}
+            {showLineCards &&
+              staged &&
+              splitContext?.myRole === "guest" &&
+              hostPresent &&
+              kitchenDraftQty > 0 && (
+                <p className="checkout-host-note">
+                  {hostNote.en}
+                  <span lang="my" className="checkout-host-note-my">
+                    {hostNote.my}
+                  </span>
+                </p>
+              )}
+
             {/* W12 — the Order moment's quiet door to the Pay moment: the live bill total, always
                 visible, never dominating. Promoted to the filled CTA once everything is with the
                 kitchen (the ordering verb is spent — viewing the bill IS the next thing). */}
@@ -3398,7 +3527,7 @@ export function Checkout({
                     setStatus("Hold on — you can still undo that send for a few seconds.");
                     return;
                   }
-                  flipStage("bill");
+                  goBill();
                 }}
                 className={
                   kitchenDraftQty === 0 && !undoOpen ? "checkout-cta" : "checkout-viewbill"
@@ -3451,9 +3580,16 @@ export function Checkout({
             {showPayControls && (
               <button
                 type="button"
-                aria-disabled={payFrozen || undefined}
+                aria-disabled={payFrozen || sendBlocksPay || undefined}
                 onClick={() => {
                   if (payFrozen) return;
+                  if (sendBlocksPay) {
+                    // The note above says why; the status line repeats it for a tap that missed it.
+                    setStatus(
+                      "Send everything to the kitchen first — then the bill is ready to pay.",
+                    );
+                    return;
+                  }
                   void continueToPayment();
                 }}
                 disabled={loadingPay}
@@ -3467,8 +3603,8 @@ export function Checkout({
                   border: "none",
                   fontWeight: "var(--fw-heavy)",
                   fontSize: "var(--fs-body)",
-                  cursor: loadingPay || payFrozen ? "default" : "pointer",
-                  opacity: loadingPay ? 0.7 : payFrozen ? 0.55 : 1,
+                  cursor: loadingPay || payFrozen || sendBlocksPay ? "default" : "pointer",
+                  opacity: loadingPay ? 0.7 : payFrozen || sendBlocksPay ? 0.55 : 1,
                 }}
               >
                 {/* The label rides above the ::after shine sweep on its own relative layer. W2d: the CTA
@@ -3480,6 +3616,8 @@ export function Checkout({
                     "Starting checkout…"
                   ) : payFrozen ? (
                     `Waiting for ${lockedByName} to finish`
+                  ) : sendBlocksPay ? (
+                    "Send everything to the kitchen first"
                   ) : (
                     <>
                       {isGroup

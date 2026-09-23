@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   Elements,
   ExpressCheckoutElement,
@@ -10,8 +10,7 @@ import {
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
 import type { CartTotals } from "@mms/db";
 import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
-import { confirmCopy } from "@/lib/confirm-copy";
-import { ConfirmSwap } from "./ConfirmSwap";
+import { payProceedLabel, unsentPayNote } from "@/lib/confirm-copy";
 
 /**
  * The pay step (P1.3). PAN never touches our code — it lives only inside the Payment Element iframe
@@ -27,18 +26,23 @@ export function PaymentSection({
   unsentCount = 0,
   onEdit,
   onPayingChange,
+  hold = false,
 }: {
   cartId: string;
   clientSecret: string;
   totals: CartTotals;
-  /** W19 — qty units of still-draft food in this charge (lib/checkout-stage unsentFoodQty). The
-   *  charge confirm names them, so paying-with-unsent is an informed choice. */
+  /** W19 — qty units of still-draft food in this charge (lib/checkout-stage unsentFoodQty). A note
+   *  above the Pay button names them (Phase 1b — it rode the retired charge confirm), so
+   *  paying-with-unsent is an informed choice. */
   unsentCount?: number;
   onEdit: () => void;
   /** W9b — mirror the in-flight confirm up to Checkout, so the pay step's new top-of-view "Back to
    *  review" can disable itself while a PaymentIntent is being confirmed. Editing then would release
    *  the pay-window lock out from under a live authorization. */
   onPayingChange?: (paying: boolean) => void;
+  /** Phase 1b — true while the parent is leaving the pay step (releasing the pay-window lock): no
+   *  charge may start under a lock that is being released. */
+  hold?: boolean;
 }) {
   const stripePromise = getStripePromise();
 
@@ -66,6 +70,7 @@ export function PaymentSection({
         unsentCount={unsentCount}
         onEdit={onEdit}
         onPayingChange={onPayingChange}
+        hold={hold}
       />
     </Elements>
   );
@@ -77,26 +82,19 @@ function PayForm({
   unsentCount = 0,
   onEdit,
   onPayingChange,
+  hold = false,
 }: {
   cartId: string;
   totals: CartTotals;
   unsentCount?: number;
   onEdit: () => void;
   onPayingChange?: (paying: boolean) => void;
+  hold?: boolean;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // W16c — the finalize confirm step (card path only; see onSubmit).
-  const [confirming, setConfirming] = useState(false);
-  const payBtnRef = useRef<HTMLButtonElement>(null);
-  const wasConfirming = useRef(false);
-  // Focus back to the Pay trigger when the confirm closes without charging (the staff idiom).
-  useEffect(() => {
-    if (!confirming && wasConfirming.current) payBtnRef.current?.focus();
-    wasConfirming.current = confirming;
-  }, [confirming]);
   // W2d — whether the browser/domain surfaced any wallet (Apple/Google Pay/Link). Drives the "or pay
   // with card" divider; false ⇒ the Express element rendered nothing and the card flow stands alone.
   const [walletReady, setWalletReady] = useState(false);
@@ -107,6 +105,7 @@ function PayForm({
   // (validation / declined-inline) error returns here, and `error.message` is user-facing + safe to show.
   async function confirm() {
     if (!stripe || !elements) return; // Stripe.js still loading
+    if (hold) return; // the parent is releasing the pay-window lock — never charge under it
     setSubmitting(true);
     onPayingChange?.(true); // W9b — freeze the pay step's back control for the confirm round-trip
     setError(null);
@@ -118,30 +117,24 @@ function PayForm({
     });
     if (payErr) {
       setError(payErr.message ?? "Payment couldn’t be completed. Please try another card.");
-      setSubmitting(false);
-      // Return to the live Pay button so a declined card can be retried — never strand the diner
-      // on a confirm whose proceed already fired. (Success redirects away, so this is failure-only.)
-      setConfirming(false);
+      setSubmitting(false); // the live Pay button returns, so a declined card can be retried
       onPayingChange?.(false); // only an INLINE failure lands here; success redirects away
     }
   }
 
-  // W16c — the finalize confirm gates the CARD path only (owner: "finalize pay bill should ask to
-  // confirm decision"). It sits HERE, on the charge, not on the review step's "Pay · $X" (which
-  // only mints the intent and is reversible via "Edit order"). The WALLET path is deliberately
-  // exempt: Apple/Google Pay already interpose the OS payment sheet — an app-level pre-ask would
-  // be a double confirm, and stalling ExpressCheckoutElement's onConfirm can expire the wallet
-  // session outright.
+  // Phase 1b (owner, 2026-09-23: "Drop both") — the W16c charge confirm is RETIRED. The review
+  // step's "Pay · $X" already asked, this button names the sum it charges (`payProceedLabel`), and
+  // Stripe's own sheet or 3-D Secure step interposes where a bank wants one: a second "Pay $X?"
+  // asked the same question a third time at the one moment every extra tap costs conversions. What
+  // it carried beyond the amount — the W19 unsent-dishes disclosure — now stands ABOVE this button.
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    // Guard `elements` too, not just `stripe`: `confirm()` early-returns when either is still
-    // null, so opening the confirm on a half-loaded Stripe.js would park the diner on a card whose
-    // proceed button silently does nothing (the button's own disabled check only ever saw `stripe`).
-    if (!stripe || !elements || submitting) return;
-    setConfirming(true);
+    // Guard `elements` too, not just `stripe`: `confirm()` early-returns when either is still null.
+    if (!stripe || !elements || submitting || hold) return;
+    void confirm();
   }
 
-  const dollars = `$${(totals.totalCents / 100).toFixed(2)}`;
+  const unsent = unsentPayNote(unsentCount);
 
   return (
     <form onSubmit={onSubmit}>
@@ -181,40 +174,40 @@ function PayForm({
         {error}
       </p>
 
-      {confirming ? (
-        <ConfirmSwap
-          copy={confirmCopy({ kind: "pay", amountCents: totals.totalCents, unsentCount })}
-          busy={submitting}
-          busyLabel="Processing…"
-          onCancel={() => setConfirming(false)}
-          onProceed={() => void confirm()}
-        />
-      ) : (
-        <button
-          ref={payBtnRef}
-          type="submit"
-          disabled={!stripe || submitting}
-          aria-busy={submitting}
-          className="checkout-cta"
-          style={{
-            width: "100%",
-            marginTop: 12,
-            minHeight: 50,
-            borderRadius: 12,
-            border: "none",
-            // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
-            // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
-            fontWeight: "var(--fw-heavy)",
-            fontSize: "var(--fs-body)",
-            cursor: !stripe || submitting ? "default" : "pointer",
-            opacity: !stripe || submitting ? 0.7 : 1,
-          }}
-        >
-          <span style={{ position: "relative", zIndex: 1 }}>
-            {submitting ? "Processing…" : `Pay ${dollars}`}
+      {unsent && (
+        // W19 via Phase 1b — read BEFORE the tap. Not a live region: it is standing context for the
+        // decision, present from the first render of the pay step (the error line above is the one
+        // status this form announces).
+        <p className="card checkout-unsent-note" style={{ fontSize: "var(--fs-sm)" }}>
+          {unsent.en}
+          <span lang="my" className="checkout-pay-unsent-my">
+            {unsent.my}
           </span>
-        </button>
+        </p>
       )}
+      <button
+        type="submit"
+        disabled={!stripe || submitting || hold}
+        aria-busy={submitting}
+        className="checkout-cta"
+        style={{
+          width: "100%",
+          marginTop: 12,
+          minHeight: 50,
+          borderRadius: 12,
+          border: "none",
+          // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
+          // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
+          fontWeight: "var(--fw-heavy)",
+          fontSize: "var(--fs-body)",
+          cursor: !stripe || submitting ? "default" : "pointer",
+          opacity: !stripe || submitting ? 0.7 : 1,
+        }}
+      >
+        <span style={{ position: "relative", zIndex: 1 }}>
+          {submitting ? "Processing…" : payProceedLabel(totals.totalCents)}
+        </span>
+      </button>
 
       <button
         type="button"

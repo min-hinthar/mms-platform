@@ -51,3 +51,38 @@ export function unsentFoodQty(
     .filter((i) => i.lineState === "draft" && i.fulfillment !== "grocery")
     .reduce((a, i) => a + i.qty, 0);
 }
+
+/**
+ * Phase 1b (owner, 2026-09-23: "only fulfilled orders on the bill should be payable … customers
+ * should only checkout after bill is finalized" → "Everything sent") — at a dine-in table the bill
+ * can be paid only once every dish the table can SEND has gone to the kitchen. Binds to the same
+ * predicate as the Send CTA (`kitchenDraftQty`: dinein drafts, what `mms_fire_cart` fires), so every
+ * line that blocks Pay is a line the host can clear with one tap. To-go drafts at a dine-in table
+ * are not sendable (they fire at checkout) and so never block.
+ *
+ * ⚠️ ONLY WHEN SOMEONE CAN SEND (blind pass on #301). Only the host fires the table, and a table can
+ * have NO host: a staff-started session mints `host_seat: null`, and a diner arriving by invite link
+ * (`joinOnly`) never claims it. Gating that table would leave nobody able to send and so nobody able
+ * to pay. Without a host the pre-1b behaviour stands: pay, and the drafts fire when it lands.
+ *
+ * The same binding on both sides: `create-intent` (and `openSettlement`) refuse on it server-side,
+ * and the Bill's Pay control reads it to say why before the diner taps. Pickup and scan-and-go have
+ * no send step — paying IS ordering — so it never applies there.
+ */
+export function payBlockedByUnsent(
+  mode: string | null | undefined,
+  kitchenDraftUnits: number,
+  hostPresent: boolean,
+): boolean {
+  return mode === "dinein" && hostPresent && kitchenDraftUnits > 0;
+}
+
+/** The same count from raw `qr_cart_items` rows (`state`, not the view's `lineState`) — the server
+ *  gate's input. */
+export function kitchenDraftUnitsFromRows(
+  rows: ReadonlyArray<{ state: string; fulfillment: string; qty: number }>,
+): number {
+  return rows
+    .filter((r) => r.state === "draft" && r.fulfillment === "dinein")
+    .reduce((a, r) => a + r.qty, 0);
+}
