@@ -18,6 +18,10 @@ import type { BoardPulse, PulseDish, PulseTable } from "@/lib/board-pulse";
 import type { StaffLang } from "@/lib/staff-lang";
 import type React from "react";
 import { KdsChime } from "@/lib/kds-sound";
+import { buttonClass } from "@mms/ui";
+
+/** Where an unlinked wall sends its manager — back to this board once signed in. */
+const BOARD_SIGNIN_PATH = "/staff/login?next=/board";
 
 /**
  * W3e: the order-ready board client — Preparing | Ready on any smart-TV browser. Polls the sanitized
@@ -239,7 +243,7 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
 
   if (state.kind === "unlinked") {
     return (
-      <div className="orb-root dark">
+      <div className="orb-root dark orb-setup">
         <header className="orb-head">
           <h1 className="orb-title">{BRAND_NAME}</h1>
         </header>
@@ -252,11 +256,18 @@ export function ReadyBoard({ token, lang }: { token: string; lang: StaffLang }) 
         <p className="orb-empty" lang={lang === "my" ? "my" : undefined}>
           {state.reason === "denied" ? ts(lang, "board.denied") : ts(lang, "board.notConfigured")}
         </p>
-        {/* board-5 — through the dictionary, under the refusal it follows: this was a bare English
-            sentence on a Burmese screen. The Latin path rides the `{x}` slot, which <Chrome> marks
-            `lang="en"` inside the Burmese run. */}
-        <p className="orb-empty">
-          <Chrome lang={lang} k="board.signin" vars={{ x: "/staff/login?next=/board" }} />
+        {/* Phase 0 — the unlinked wall's ONE action is a real link (it was a path printed as prose,
+            which nobody can follow on a TV with a remote). The path stays beneath it as the fallback
+            for a manager typing it on another device; it rides the `{x}` slot, which <Chrome> marks
+            `lang="en"` inside the Burmese run (board-5). */}
+        <a
+          href={BOARD_SIGNIN_PATH}
+          className={buttonClass({ size: "xl", className: "orb-setup-cta" })}
+        >
+          <Chrome lang={lang} k="board.signin.cta" />
+        </a>
+        <p className="orb-empty orb-setup-hint">
+          <Chrome lang={lang} k="board.signin" vars={{ x: BOARD_SIGNIN_PATH }} />
         </p>
       </div>
     );

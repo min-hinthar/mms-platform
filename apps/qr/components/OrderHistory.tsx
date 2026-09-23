@@ -105,7 +105,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
         <section key={g.label}>
           <h3 className="history-month">
             {g.label}
-            <span aria-hidden style={{ color: "var(--t3)", fontWeight: 700 }}>
+            <span aria-hidden style={{ color: "var(--t3)", fontWeight: "var(--fw-bold)" }}>
               {g.orders.length}
             </span>
           </h3>
@@ -149,7 +149,7 @@ export function OrderHistory({ entries }: { entries: OrderHistoryEntry[] }) {
                         </span>
                         <div style={summaryCol}>
                           <div style={rowTop}>
-                            <span style={{ fontWeight: 700, color: "var(--tx)" }}>
+                            <span style={{ fontWeight: "var(--fw-bold)", color: "var(--tx)" }}>
                               {day} <span style={codeStyle}>#{o.code}</span>
                             </span>
                             <span style={totalStyle}>{dollars(o.totalCents)}</span>
@@ -348,8 +348,8 @@ const card: CSSProperties = { padding: "var(--s5)", marginBottom: "var(--s4)" };
 const cardH: CSSProperties = {
   margin: "0 0 4px",
   fontSize: "var(--fs-sm)",
-  fontWeight: 800,
-  letterSpacing: 0.3,
+  fontWeight: "var(--fw-heavy)",
+  letterSpacing: "var(--track-snug)",
   textTransform: "uppercase",
   color: "var(--t2)",
 };
@@ -359,8 +359,8 @@ const cardHMy: CSSProperties = {
   fontFamily: "var(--font-my)",
   // W16e — was fs-xs (11px), the exact size the W12 bill review rejected for stacked Burmese.
   fontSize: "var(--fs-sm)",
-  fontWeight: 400,
-  letterSpacing: 0,
+  fontWeight: "var(--fw-regular)",
+  letterSpacing: "normal",
   textTransform: "none",
   color: "var(--t3)",
 };
@@ -387,16 +387,16 @@ const rowTop: CSSProperties = {
   gap: 10,
 };
 const totalStyle: CSSProperties = {
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
   fontVariantNumeric: "tabular-nums",
 };
 const codeStyle: CSSProperties = {
   fontFamily: "var(--font-body)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   fontSize: "var(--fs-xs)",
   color: "var(--t3)",
-  letterSpacing: 0.4,
+  letterSpacing: "var(--track-snug)",
 };
 const rowMid: CSSProperties = {
   display: "flex",
@@ -419,7 +419,7 @@ const linePrice: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tabu
 const droppedHeadingStyle: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
 };
 const detailMeta: CSSProperties = {
@@ -430,7 +430,7 @@ const detailMeta: CSSProperties = {
 const emptyTitle: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-body)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
 };
 const emptySub: CSSProperties = {

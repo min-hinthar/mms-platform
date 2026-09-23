@@ -21,6 +21,14 @@ export { Avatar } from "./avatar";
 export { Skeleton } from "./skeleton";
 export { Stepper } from "./stepper";
 export { Card } from "./card";
+// Interaction primitives (Phase 0) — styled by `@mms/ui/primitives.css` (.ui-*)
+export { Button, buttonClass } from "./button";
+export type { ButtonVariant, ButtonSize } from "./button";
+export { Toast } from "./toast";
+export type { ToastMessage } from "./toast";
+export { Field } from "./field";
+export type { FieldControlProps } from "./field";
+export { PageMasthead, Kicker } from "./masthead";
 // Brand icon set (W2b) — curated lucide glyphs at one stroke weight; retires emoji-as-chrome
 export { Icon, categoryIconName } from "./icon";
 export type { IconName } from "./icon";

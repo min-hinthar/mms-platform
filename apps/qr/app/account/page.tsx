@@ -1,3 +1,4 @@
+import { PageMasthead } from "@mms/ui";
 import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { getRewardsState, getOrderHistory, getWelcomeBack, ensureProfile } from "@/lib/rewards";
@@ -46,43 +47,24 @@ export default async function Account() {
           celebrates the carried-over Stars. Renders null until a merge actually lands — mounted for both
           the anon and upgraded views so it catches the sign-in transition either way. */}
       <MergeRedeemer />
-      <header className="account-masthead">
-        <p className="eyebrow" style={{ margin: 0 }}>
-          <span aria-hidden>✦ </span>Mandalay Morning Star
-        </p>
-        <h1
-          style={{
-            fontSize: "var(--fs-h1)",
-            fontWeight: 900,
-            margin: "2px 0 0",
-            color: "var(--tx)",
-          }}
-        >
-          Rewards &amp; account
-          {/* W14 — the bilingual heading accent (the W12/W13 idiom: lang="my" + Padauk; K15
-              flags every new Burmese string for Min's native check). */}
-          <span
-            lang="my"
-            style={{
-              display: "block",
-              fontFamily: "var(--font-my)",
-              fontSize: "var(--fs-sm)",
-              fontWeight: 400,
-              color: "var(--t2)",
-              marginTop: 2,
-            }}
-          >
-            ဆုလက်ဆောင်နှင့် အကောင့်
-          </span>
-        </h1>
+      {/* Phase 0 — the shared page heading (`@mms/ui` PageMasthead): kicker → display title at the
+          ONE heading weight (this page alone said 900, inline) → the Burmese line → the lede. The
+          recognition line and the gold rule ride in the masthead's slot. */}
+      <PageMasthead
+        kicker="Mandalay Morning Star"
+        kickerMark
+        title="Rewards & account"
+        titleMy="ဆုလက်ဆောင်နှင့် အကောင့်"
+        lede="Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards."
+      >
         {/* W14 — recognition, not decoration: this line renders ONLY when we truly know something
             (a saved name / a repeat month) — J-F's "visit N ≠ visit 1" without a hollow greeting. */}
         {(firstName || repeatMonth) && (
           <p
             style={{
-              margin: "6px 0 0",
+              margin: 0,
               fontSize: "var(--fs-sm)",
-              fontWeight: 700,
+              fontWeight: "var(--fw-bold)",
               color: "var(--ac-strong)",
             }}
           >
@@ -90,18 +72,8 @@ export default async function Account() {
             {repeatMonth ? ` · ${welcome?.ordersThisMonth} orders this month` : ""}
           </p>
         )}
-        <p
-          style={{
-            margin: "6px 0 0",
-            fontSize: "var(--fs-sm)",
-            color: "var(--t2)",
-            lineHeight: 1.5,
-          }}
-        >
-          Earn Stars as you order — climb the gem tiers and unlock Kyay-Zu-Par! rewards.
-        </p>
         <div className="account-masthead-rule" aria-hidden />
-      </header>
+      </PageMasthead>
 
       {/* W9c — the alert is now a BANNER, not a replacement. Making `getRewardsState` fail loudly was
           right, but gating the whole page on it meant one failed rewards RPC also hid the order

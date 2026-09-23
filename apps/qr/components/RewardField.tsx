@@ -452,7 +452,9 @@ export function RewardField({
                   className="checkout-reward-add"
                   style={{ ...couponBtn, ...(frozen ? { opacity: 0.55 } : null) }}
                 >
-                  <span style={{ fontWeight: 800 }}>{dollars(c.amountCents)} off</span>
+                  <span style={{ fontWeight: "var(--fw-heavy)" }}>
+                    {dollars(c.amountCents)} off
+                  </span>
                   {/* "good through", not "expires" — the hospitable way round. But `expires_at` is
                       a mid-day TIMESTAMP (mint + N days) and redemption needs `> now()`, so naming
                       the expiry DATE would promise up to a day the redeem predicate refuses
@@ -502,7 +504,7 @@ const applyBtn: CSSProperties = {
   border: "1px dashed var(--ac)",
   background: "color-mix(in srgb, var(--ac) 6%, transparent)",
   color: "var(--ac)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -531,7 +533,7 @@ const linkBtn: CSSProperties = {
   border: "none",
   background: "transparent",
   color: "var(--t2)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

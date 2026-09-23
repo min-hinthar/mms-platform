@@ -12,7 +12,7 @@ export const bumpBtn: CSSProperties = {
   minHeight: "var(--tap-bump)", // O-E — the KDS bump's height, ONE token (counter-1)
   borderRadius: "var(--r-sm)",
   border: "1px solid var(--bd)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

@@ -5,7 +5,7 @@ import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 import posthog from "posthog-js";
-import { Icon, NumberFlow } from "@mms/ui";
+import { Icon, NumberFlow, Toast } from "@mms/ui";
 import { BarcodeScanner } from "@/components/BarcodeScanner";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
@@ -756,7 +756,7 @@ export default function Grocery() {
 
   return (
     // W22a — the paper ambient behind the aisle (no isolation: the page ground lives on <html>,
-    // so the fixed z:-1 layer is visible without trapping the .grocery-toast under the sheet).
+    // so the fixed z:-1 layer is visible without trapping the toast (.ui-toast-region) under the sheet).
     <main className="page-col" style={{ padding: 20, paddingBottom: 120 }}>
       <PaperAmbient />
       {/* W4g — editorial masthead: display-serif title + one quiet subline. The EBT disclaimer
@@ -797,7 +797,7 @@ export default function Grocery() {
           adding needs the cart, and every add path already refuses without one. */}
       {sessionError ? (
         <div className="card" role="alert" style={{ padding: 16, marginTop: 4 }}>
-          <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
+          <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: "var(--fw-semibold)" }}>
             Couldn’t start your grocery basket — this one’s usually on our end, and adding needs it
             working. Browsing may be spotty too.
           </p>
@@ -818,7 +818,7 @@ export default function Grocery() {
           on a cart they can no longer see. */}
       {cartGone && (
         <div className="card" style={{ padding: 16, marginTop: 4 }}>
-          <p style={{ margin: "0 0 4px", fontWeight: 700 }}>
+          <p style={{ margin: "0 0 4px", fontWeight: "var(--fw-bold)" }}>
             {cartGone === "paid"
               ? "This basket’s been paid for"
               : cartGone === "cancelled"
@@ -954,8 +954,18 @@ export default function Grocery() {
                 >
                   <span style={{ minWidth: 0 }}>
                     {h.name}{" "}
-                    {h.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
-                    <small style={{ display: "block", color: "var(--t3)", fontWeight: 500 }}>
+                    {h.ebt && (
+                      <small style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>
+                        EBT
+                      </small>
+                    )}
+                    <small
+                      style={{
+                        display: "block",
+                        color: "var(--t3)",
+                        fontWeight: "var(--fw-medium)",
+                      }}
+                    >
                       {/* Burmese name carries lang="my" so a screen reader picks the right voice;
                           the roman meta (brand · size) is appended outside the tag. */}
                       {h.nameMy && <span lang="my">{h.nameMy}</span>}
@@ -986,9 +996,12 @@ export default function Grocery() {
                       // wallpaper this slice removed).
                       return (
                         <>
-                          <small aria-hidden style={{ color: "var(--ac-strong)", fontWeight: 700 }}>
+                          <small
+                            aria-hidden
+                            style={{ color: "var(--ac-strong)", fontWeight: "var(--fw-bold)" }}
+                          >
                             Compare at{" "}
-                            <s style={{ color: "var(--t3)", fontWeight: 500 }}>
+                            <s style={{ color: "var(--t3)", fontWeight: "var(--fw-medium)" }}>
                               ${(s.compareAtCents / 100).toFixed(2)}
                             </s>
                           </small>
@@ -1216,8 +1229,10 @@ export default function Grocery() {
               />
             </span>
             <span style={{ minWidth: 0, flex: 1 }}>
-              <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
-              {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
+              <span style={{ fontWeight: "var(--fw-bold)" }}>{l.name}</span>{" "}
+              {l.ebt && (
+                <small style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>EBT</small>
+              )}
               <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
                 {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
               </small>
@@ -1239,7 +1254,9 @@ export default function Grocery() {
               >
                 <span aria-hidden>−</span>
               </button>
-              <span style={{ minWidth: 18, textAlign: "center", fontWeight: 800 }}>{l.qty}</span>
+              <span style={{ minWidth: 18, textAlign: "center", fontWeight: "var(--fw-heavy)" }}>
+                {l.qty}
+              </span>
               <button
                 type="button"
                 className="grocery-step-btn"
@@ -1260,22 +1277,12 @@ export default function Grocery() {
         )}
       </ul>
 
-      {/* ALWAYS-mounted live region (adversarial MED-6): several SR/browser pairs skip a region
-          born WITH its text — the container persists, only the text swaps; visibility hides the
-          empty pill without removing it from the accessibility tree's region registry.
-          The explicit aria-live is NOT the usual role="status" redundancy (QA §A): it's what keeps
-          this region OUT of Radix's modal aria-hidden sweep — the aria-hidden lib exempts only
-          `[aria-live]` nodes, so without the attribute a terminal answer landing while the basket
-          sheet is open would flash into a hidden node and re-enter the tree "born with" its text
-          (the exact class MED-6 fixed). Deliberate; keep it. */}
-      <div
-        role="status"
-        aria-live="polite"
-        className="grocery-toast"
-        style={toast ? undefined : { visibility: "hidden" }}
-      >
-        {toast}
-      </div>
+      {/* Phase 0 — the ONE diner toast (`@mms/ui` Toast). The primitive carries this surface's own
+          hard-won rules: the region is ALWAYS mounted (adversarial MED-6 — several SR/browser pairs
+          skip a region born with its text) and carries an explicit aria-live, which is what keeps it
+          OUT of Radix's modal aria-hidden sweep while the basket sheet is open. It docks on the
+          published band height (`--cta-dock-h`, written by useCtaDock below). */}
+      <Toast message={toast ? { key: toast, text: toast } : null} />
 
       {lines.length > 0 && cartId && (
         // W9d — the pinned bar: basket-review trigger + checkout CTA. The Browse door (the DEFAULT)

@@ -327,7 +327,7 @@ const payBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -338,7 +338,7 @@ const cancelBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
   alignSelf: "flex-start",
 };
@@ -349,7 +349,11 @@ const panel: CSSProperties = {
   flexDirection: "column",
   gap: "var(--s3)",
 };
-const panelTitle: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", fontWeight: 700 };
+const panelTitle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-body)",
+  fontWeight: "var(--fw-bold)",
+};
 const panelSub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const hint: CSSProperties = {
   margin: "8px 0 0",

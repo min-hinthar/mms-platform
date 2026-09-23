@@ -656,7 +656,12 @@ function ExpoCard({
         <p style={secondaryLine}>
           <a
             href={`tel:${ticket.customerPhone.replace(/[^0-9+]/g, "")}`}
-            style={{ color: "inherit", fontWeight: 700, minHeight: 44, display: "inline-block" }}
+            style={{
+              color: "inherit",
+              fontWeight: "var(--fw-bold)",
+              minHeight: 44,
+              display: "inline-block",
+            }}
           >
             <span aria-hidden>☎ </span>
             {ticket.customerPhone}
@@ -803,17 +808,25 @@ const grid: CSSProperties = {
 };
 const cardStyle: CSSProperties = { padding: "var(--s4)", display: "grid", gap: "var(--s3)" };
 // K27 (the counter half) — the call-out at the heading tier; the header's layout is `.expo-head`.
-const tableLabel: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-h2)" };
-const codeSuffix: CSSProperties = { fontWeight: 700, fontSize: "var(--fs-sm)", color: "var(--t2)" };
+const tableLabel: CSSProperties = { fontWeight: "var(--fw-bold)", fontSize: "var(--fs-h2)" };
+const codeSuffix: CSSProperties = {
+  fontWeight: "var(--fw-bold)",
+  fontSize: "var(--fs-sm)",
+  color: "var(--t2)",
+};
 // K27 — the pickup slot, the phone and the scan-and-go note at body size: read at arm's length.
 const secondaryLine: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", color: "var(--t2)" };
 // The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
-const noteInline: CSSProperties = { display: "block", fontWeight: 700, color: "var(--tx)" };
+const noteInline: CSSProperties = {
+  display: "block",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--tx)",
+};
 const readyTag: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--ok)",
 };
 const lineList: CSSProperties = {
@@ -831,12 +844,16 @@ const lineRow: CSSProperties = {
   gap: "var(--s2)",
   fontSize: "var(--fs-body)", // K27 — the bag line at body size, where the ticket beside it is 30px
 };
-const qtyBadge: CSSProperties = { fontWeight: 800, color: "var(--ac-strong)", flex: "none" };
+const qtyBadge: CSSProperties = {
+  fontWeight: "var(--fw-heavy)",
+  color: "var(--ac-strong)",
+  flex: "none",
+};
 const destTag: CSSProperties = {
   flex: "none",
   fontSize: "var(--fs-xs)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--t2)",
 };

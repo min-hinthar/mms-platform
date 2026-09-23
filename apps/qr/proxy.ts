@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { needsStaffSession, withRefreshedStaffSession } from "@/lib/proxy-session";
+import { bareMenuRedirect } from "@/lib/menu-entry";
 
 /**
  * Per-request nonce CSP (M1·P1.6). A fresh nonce on every response lets us drop `script-src
@@ -29,6 +30,13 @@ function supabaseOrigins(): { https: string; wss: string } {
 }
 
 export async function proxy(request: NextRequest) {
+  // Phase 0 / F9 — a mode-less /menu is a real 307 here, BEFORE anything renders. The page repeats
+  // the same rule (lib/menu-entry.ts) as the belt, but by then its loading skeleton has already
+  // streamed, so on its own the guest would see the menu flash and a client-side hop to `/`.
+  if (request.nextUrl.pathname === "/menu") {
+    const dest = bareMenuRedirect(Object.fromEntries(request.nextUrl.searchParams));
+    if (dest) return NextResponse.redirect(new URL(dest, request.url), 307);
+  }
   const nonce = btoa(crypto.randomUUID());
   // `next dev` (React's dev runtime + Turbopack HMR) evaluates code via eval(), which 'strict-dynamic'
   // + a nonce can't authorize — only 'unsafe-eval' does. Add it in development ONLY; production never

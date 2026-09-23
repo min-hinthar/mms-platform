@@ -65,8 +65,8 @@ const card: CSSProperties = { padding: "var(--s5)", marginBottom: "var(--s4)" };
 const cardH: CSSProperties = {
   margin: "0 0 8px",
   fontSize: "var(--fs-sm)",
-  fontWeight: 800,
-  letterSpacing: 0.3,
+  fontWeight: "var(--fw-heavy)",
+  letterSpacing: "var(--track-snug)",
   textTransform: "uppercase",
   color: "var(--t2)",
 };
@@ -81,7 +81,7 @@ const row: CSSProperties = { display: "flex", alignItems: "center", gap: "var(--
 const dishName: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   color: "var(--tx)",
   overflow: "hidden",
   textOverflow: "ellipsis",

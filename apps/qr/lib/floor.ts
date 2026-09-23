@@ -90,6 +90,15 @@ export async function getFloorView(): Promise<FloorPoll> {
       .from("table_sessions")
       .select("id,qr_code,table_number,mode,host_seat,created_at")
       .eq("status", "active")
+      // K21 (Phase 0) — the floor is the ROOM: dine-in sessions only. A to-go or scan-&-go phone
+      // mints its own session (`pickup-<uuid>` / `scango-<uuid>`) the moment a diner opens the menu,
+      // and those were drawn as table cards titled with the raw code — measured 27 of 33 cards on
+      // one evening, so "19 tables in use" was false and a server could act on none of them. Paid
+      // to-go orders reach staff through the counter lane, not the floor; the pay-at-counter ask is
+      // dine-in by construction (`counterPayRefusal` refuses every other mode); and the kiosk's
+      // pickup orders ride the register queue. Filtered in the QUERY, so phones cannot eat the
+      // session cap either. (`mode` is NOT NULL with a CHECK of exactly three values.)
+      .eq("mode", "dinein")
       .gt("expires_at", nowIso)
       // W6a: counter orders (`reg-` sessions, table-less by design) are `snapshot.counter` —
       // on the floor they'd pile up labelled with raw codes and eat the session cap.
@@ -103,12 +112,9 @@ export async function getFloorView(): Promise<FloorPoll> {
   if (sessionsError || !counter.ok) return { ok: false, reason: "outage" };
 
   // W6b: kiosk COUNTER orders (kiosk- + pickup) live on the register queue like reg- rows; a kiosk
-  // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. TS-side
-  // because the prefix+mode conjunction doesn't fit one postgrest not-filter; the settle/reset close
-  // these sessions promptly, so they never crowd the cap.
-  const floorSessions = (sessions ?? []).filter(
-    (s) => !(s.qr_code.startsWith("kiosk-") && s.mode === "pickup"),
-  );
+  // DINE-IN claim keeps its floor card — that is where staff serve and settle the table. Since K21
+  // the query above admits dine-in only, so a kiosk pickup can no longer reach this list at all.
+  const floorSessions = sessions ?? [];
   const sessionIds = floorSessions.map((s) => s.id);
   if (sessionIds.length === 0)
     return {

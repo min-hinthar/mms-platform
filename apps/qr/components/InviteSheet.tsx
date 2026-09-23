@@ -87,12 +87,18 @@ export function InviteSheet({
             aria-label={`Copy table code, ${joinCode.split("").join(" ")}`}
             style={codeBtn}
           >
-            <span style={{ fontSize: "var(--fs-h1)", fontWeight: 800, letterSpacing: ".14em" }}>
+            <span
+              style={{
+                fontSize: "var(--fs-h1)",
+                fontWeight: "var(--fw-heavy)",
+                letterSpacing: "var(--track-eyebrow)",
+              }}
+            >
               {joinCode}
             </span>
             <span
               aria-hidden
-              style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+              style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: "var(--fw-bold)" }}
             >
               Tap to copy
             </span>
@@ -108,7 +114,9 @@ export function InviteSheet({
         <label htmlFor={nameId} style={fieldLabel}>
           Your name{" "}
           {me ? (
-            <span style={{ color: "var(--t3)", fontWeight: 600 }}>· shows as “{me.name}”</span>
+            <span style={{ color: "var(--t3)", fontWeight: "var(--fw-semibold)" }}>
+              · shows as “{me.name}”
+            </span>
           ) : null}
         </label>
         <div style={{ display: "flex", gap: 8 }}>
@@ -155,8 +163,8 @@ const codeCard: CSSProperties = {
 };
 const codeLabel: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
-  letterSpacing: ".08em",
+  fontWeight: "var(--fw-heavy)",
+  letterSpacing: "var(--track-wide)",
   textTransform: "uppercase",
   color: "var(--t3)",
 };
@@ -180,13 +188,13 @@ const primaryBtn: CSSProperties = {
   border: "none",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
 const fieldLabel: CSSProperties = {
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   display: "block",
   marginBottom: 6,
 };
@@ -208,7 +216,7 @@ const saveBtn: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -217,6 +225,6 @@ const statusLine: CSSProperties = {
   marginTop: 12,
   marginBottom: 0,
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--ac)",
 };

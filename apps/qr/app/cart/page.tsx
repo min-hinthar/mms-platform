@@ -7,6 +7,7 @@ import { getPrepMinutes, getPickupAsapOk } from "@/lib/pickup";
 import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { EmptyState, Icon, buttonClass } from "@mms/ui";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
@@ -65,41 +66,53 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
       </main>
     );
 
+  // Phase 0 — ONE empty-page grammar (`@mms/ui` EmptyState, layout="page"), the same slip /track
+  // shows: icon medallion → one heading → one sentence → one way forward. The old version said
+  // "Start from the menu" above a button that went to the door picker; the sentence now names the
+  // destination the button actually takes (`menuHref(null)` — with no readable cart there is no mode
+  // to carry, and a bare `/menu` would drop the diner into a grocery session, W9a).
   if (!cart || !view)
     return (
       <main className="page-col page-col-narrow" style={{ padding: 24 }}>
-        <h1 style={{ fontSize: "var(--fs-h1)" }}>
-          {mine ? "This order is complete" : "Your order"}
-        </h1>
-        <p style={{ color: "var(--t2)" }}>
-          {mine
-            ? "It’s already paid for — there’s nothing left to check out here."
-            : "This order isn’t available on this device. Start from the menu."}
-        </p>
-        {/* ⚠️ `mine` is also true for a SPLIT payer, whom `getOrderHistory` (earned_by-scoped) will NOT
-            find — so this says "see it" rather than promising a receipt, and the split gap is tracked
-            as OPEN-ITEMS M29. The headline above is true for both: they did pay, and it is complete. */}
-        {mine && (
-          <p style={{ margin: "0 0 14px" }}>
-            <Link href="/account" className="nav-link">
-              See it in your account
-              <span aria-hidden className="nav-arrow nav-arrow-fwd">
-                {" "}
-                →
-              </span>
-            </Link>
-          </p>
+        {mine ? (
+          // ⚠️ `mine` is also true for a SPLIT payer, whom `getOrderHistory` (earned_by-scoped) will
+          // NOT find — so this says "see it" rather than promising a receipt (OPEN-ITEMS M29). The
+          // headline is true for both: they did pay, and it is complete.
+          <EmptyState
+            layout="page"
+            icon={<Icon name="check" size={28} />}
+            title="This order is complete"
+            subtitle="It’s already paid for — there’s nothing left to check out here."
+            action={
+              <div style={{ display: "grid", gap: "var(--s2)", justifyItems: "center" }}>
+                <Link href="/account" className={buttonClass({ size: "lg" })}>
+                  See it in your account{" "}
+                  <span aria-hidden className="ui-btn-arrow-fwd">
+                    →
+                  </span>
+                </Link>
+                <Link href={menuHref(null)} className={buttonClass({ variant: "quiet" })}>
+                  {menuLinkText(null)}
+                </Link>
+              </div>
+            }
+          />
+        ) : (
+          <EmptyState
+            layout="page"
+            icon={<Icon name="receipt" size={28} />}
+            title="No order on this device yet"
+            subtitle="Choose dine-in, to-go or the market, and your order will show up here."
+            action={
+              <Link href={menuHref(null)} className={buttonClass({ size: "lg" })}>
+                {menuLinkText(null)}{" "}
+                <span aria-hidden className="ui-btn-arrow-fwd">
+                  →
+                </span>
+              </Link>
+            }
+          />
         )}
-        {/* W9a — the exit used to be a bare `/menu`, which defaults to scan-&-go: a diner who
-            back-navigated here from /track was dropped into a grocery session. With no readable cart
-            there is no mode to carry, so route to the door picker. Promoted from an inline-styled
-            ~20px link to the shared `nav-link-strong` primitive (≥44px, QA §A). */}
-        <Link href={menuHref(null)} className="nav-link-strong">
-          <span aria-hidden className="nav-arrow nav-arrow-back">
-            ←
-          </span>{" "}
-          {menuLinkText(null)}
-        </Link>
       </main>
     );
 
@@ -143,7 +156,7 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
         <Link
           href={`/cart?cart=${encodeURIComponent(cart)}`}
           replace
-          style={{ color: "var(--ac)", fontWeight: 700 }}
+          style={{ color: "var(--ac)", fontWeight: "var(--fw-bold)" }}
         >
           Reload the split
         </Link>

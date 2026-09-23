@@ -364,7 +364,11 @@ const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 // P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const h2: CSSProperties = { fontSize: "var(--fs-h3)", margin: "0 0 var(--s3)" };
 const totalCard: CSSProperties = { padding: "var(--s5)" };
-const bigNumber: CSSProperties = { fontSize: "var(--fs-h1)", fontWeight: 800, margin: 0 };
+const bigNumber: CSSProperties = {
+  fontSize: "var(--fs-h1)",
+  fontWeight: "var(--fw-heavy)",
+  margin: 0,
+};
 const list: CSSProperties = {
   listStyle: "none",
   padding: 0,
@@ -379,9 +383,9 @@ const row: CSSProperties = {
   gap: "var(--s3)",
   padding: "var(--s3) var(--s4)",
 };
-const name: CSSProperties = { margin: 0, fontWeight: 700, fontSize: "var(--fs-body)" };
-const youTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: 600 };
-const amount: CSSProperties = { fontWeight: 800, fontSize: "var(--fs-body)" };
+const name: CSSProperties = { margin: 0, fontWeight: "var(--fw-bold)", fontSize: "var(--fs-body)" };
+const youTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: "var(--fw-semibold)" };
+const amount: CSSProperties = { fontWeight: "var(--fw-heavy)", fontSize: "var(--fs-body)" };
 const muted: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--fs-sm)" };
 const sub: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 // Surface comes from `.card` via <Card>; this is layout only (borderColor is overridden per-row).
@@ -391,12 +395,12 @@ const rowCard: CSSProperties = {
 const orderRef: CSSProperties = {
   margin: "var(--s2) 0 0",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
 };
 const followChip: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--warn)",
   border: "1px solid var(--warn)",
   borderRadius: "var(--r-full)",

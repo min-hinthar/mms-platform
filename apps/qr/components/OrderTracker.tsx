@@ -542,7 +542,7 @@ export function OrderTracker({
               <div
                 style={{
                   marginTop: 6,
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   color: "var(--ac)",
                   fontSize: "var(--fs-sm)",
                 }}
@@ -726,14 +726,16 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--warn)", margin: 0 }}>
             Refunded
           </p>
-          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>Your money is on its way back.</p>
+          <p style={{ margin: "6px 0 0", fontWeight: "var(--fw-heavy)" }}>
+            Your money is on its way back.
+          </p>
           <p style={{ margin: "6px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             This order was refunded to your original payment method — banks typically post it within
             5–10 business days.
           </p>
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
-            <strong style={{ color: "var(--tx)", letterSpacing: "0.04em" }}>
+            <strong style={{ color: "var(--tx)", letterSpacing: "var(--track-caps)" }}>
               #{order.id.slice(-6).toUpperCase()}
             </strong>{" "}
             — questions? Ask us at the counter or call (626) 665-5317.
@@ -776,7 +778,7 @@ export function OrderTracker({
           <p className="eyebrow" style={{ color: "var(--ok)", margin: 0 }}>
             Paid
           </p>
-          <p style={{ margin: "6px 0 0", fontWeight: 800 }}>Paid in full.</p>
+          <p style={{ margin: "6px 0 0", fontWeight: "var(--fw-heavy)" }}>Paid in full.</p>
           {/* Deliberately does NOT say the meal is over. A dine-in diner can pay BEFORE sending food
               to the kitchen — `mms_fire_pending_food` fires their still-draft dine-in lines at
               settlement — so "thanks for dining with us" would be a goodbye delivered before the
@@ -788,7 +790,7 @@ export function OrderTracker({
           </p>
           <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
             Order reference{" "}
-            <strong style={{ color: "var(--tx)", letterSpacing: "0.04em" }}>
+            <strong style={{ color: "var(--tx)", letterSpacing: "var(--track-caps)" }}>
               #{order.id.slice(-6).toUpperCase()}
             </strong>
           </p>
@@ -851,7 +853,7 @@ export function OrderTracker({
                 <div style={{ paddingBottom: 18 }}>
                   <div
                     style={{
-                      fontWeight: 700,
+                      fontWeight: "var(--fw-bold)",
                       fontSize: "var(--fs-body)",
                       color: state === "pending" ? "var(--t3)" : "var(--tx)",
                     }}
@@ -892,7 +894,7 @@ export function OrderTracker({
         >
           <div
             style={{
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               fontSize: "var(--fs-body)",
               display: "flex",
               alignItems: "center",
@@ -911,7 +913,9 @@ export function OrderTracker({
               inline AND through the tracker's single role="status" region above (one live region). */}
           {isPickup &&
             (announced ? (
-              <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)", marginTop: 10 }}>
+              <div
+                style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-sm)", marginTop: 10 }}
+              >
                 <span aria-hidden>✦ </span>The counter knows you’re here — hang tight.
               </div>
             ) : (
@@ -928,7 +932,7 @@ export function OrderTracker({
                     border: "1px solid var(--ok)",
                     background: "var(--cd)",
                     color: "var(--tx)",
-                    fontWeight: 800,
+                    fontWeight: "var(--fw-heavy)",
                     fontSize: "var(--fs-sm)",
                     cursor: arriveBusy ? "default" : "pointer",
                   }}
@@ -960,7 +964,7 @@ export function OrderTracker({
             background: "var(--warnb)",
           }}
         >
-          <div style={{ fontWeight: 700, fontSize: "var(--fs-sm)" }}>
+          <div style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-sm)" }}>
             {sharePayer
               ? "Your share is paid"
               : weDown
@@ -1021,8 +1025,8 @@ export function OrderTracker({
                 aria-hidden={counterRef.spellOut || undefined}
                 style={{
                   fontSize: "var(--fs-xs)",
-                  fontWeight: 700,
-                  letterSpacing: "0.06em",
+                  fontWeight: "var(--fw-bold)",
+                  letterSpacing: "var(--track-caps)",
                   textTransform: "uppercase",
                   color: "var(--t3)",
                 }}
@@ -1035,7 +1039,11 @@ export function OrderTracker({
                   loses the very thing that makes it searchable, so it is left as readable text. */}
               <strong
                 aria-hidden={counterRef.spellOut || undefined}
-                style={{ fontSize: "var(--fs-body)", letterSpacing: "0.06em", color: "var(--tx)" }}
+                style={{
+                  fontSize: "var(--fs-body)",
+                  letterSpacing: "var(--track-caps)",
+                  color: "var(--tx)",
+                }}
               >
                 {counterRef.value}
               </strong>
@@ -1069,7 +1077,7 @@ export function OrderTracker({
                   border: "1px solid var(--bd)",
                   background: "var(--cd)",
                   color: "var(--tx)",
-                  fontWeight: 700,
+                  fontWeight: "var(--fw-bold)",
                   cursor: "pointer",
                 }}
               >
@@ -1140,7 +1148,7 @@ export function OrderTracker({
                 border: "1px solid var(--bd)",
                 background: "var(--cd)",
                 color: "var(--tx)",
-                fontWeight: 700,
+                fontWeight: "var(--fw-bold)",
                 cursor: "pointer",
               }}
             >
@@ -1193,7 +1201,7 @@ export function OrderTracker({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div
                     style={{
-                      fontWeight: 700,
+                      fontWeight: "var(--fw-bold)",
                       fontSize: "var(--fs-sm)",
                       fontVariantNumeric: "tabular-nums",
                     }}
@@ -1225,8 +1233,8 @@ export function OrderTracker({
                     aria-hidden
                     style={{
                       fontSize: "var(--fs-xs)",
-                      fontWeight: 700,
-                      letterSpacing: "0.06em",
+                      fontWeight: "var(--fw-bold)",
+                      letterSpacing: "var(--track-caps)",
                       textTransform: "uppercase",
                       color: "var(--t3)",
                     }}
@@ -1236,9 +1244,9 @@ export function OrderTracker({
                   <div
                     aria-hidden
                     style={{
-                      fontWeight: 800,
+                      fontWeight: "var(--fw-heavy)",
                       fontSize: "var(--fs-sm)",
-                      letterSpacing: "0.04em",
+                      letterSpacing: "var(--track-caps)",
                       color: "var(--tx)",
                     }}
                   >
@@ -1264,8 +1272,8 @@ export function OrderTracker({
                           style={{
                             margin: "8px 0 0",
                             fontSize: "var(--fs-xs)",
-                            fontWeight: 800,
-                            letterSpacing: "0.07em",
+                            fontWeight: "var(--fw-heavy)",
+                            letterSpacing: "var(--track-wide)",
                             textTransform: "uppercase",
                             color: "var(--t3)",
                           }}
@@ -1310,7 +1318,7 @@ export function OrderTracker({
                                   style={{
                                     display: "block",
                                     fontSize: "var(--fs-xs)",
-                                    fontWeight: 700,
+                                    fontWeight: "var(--fw-bold)",
                                     color: "var(--warn)",
                                     fontVariantNumeric: "tabular-nums",
                                     marginTop: 1,
@@ -1392,7 +1400,7 @@ export function OrderTracker({
                         id="track-dropped-label"
                         style={{
                           fontSize: "var(--fs-xs)",
-                          fontWeight: 800,
+                          fontWeight: "var(--fw-heavy)",
                           color: "var(--tx)",
                           margin: 0,
                         }}
@@ -1563,7 +1571,7 @@ export function OrderTracker({
 
 const chip: CSSProperties = {
   fontSize: "var(--fs-sm)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   padding: "5px 10px",
   borderRadius: 999,
   whiteSpace: "nowrap",

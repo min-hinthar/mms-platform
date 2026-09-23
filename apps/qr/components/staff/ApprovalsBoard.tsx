@@ -455,7 +455,7 @@ function RequestCard({
       aria-label={tf(lang, cardKey, { x: request.lineName })}
     >
       <header style={cardHead}>
-        <span style={{ fontWeight: 700, fontSize: "var(--fs-body)" }}>
+        <span style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-body)" }}>
           {/* A counter/kiosk request carries no tent card, so the fallback is the bare noun. */}
           {request.tableLabel ? (
             <Chrome lang={lang} k="floor.table" vars={{ id: request.tableLabel }} />
@@ -478,7 +478,7 @@ function RequestCard({
         {request.qty}× {request.lineName}
         <span style={{ color: "var(--t2)" }}> · {fmt(request.amountCents)}</span>
         {request.cooked && (
-          <span style={{ color: "var(--warn)", fontWeight: 700 }}>
+          <span style={{ color: "var(--warn)", fontWeight: "var(--fw-bold)" }}>
             {" · "}
             <Chrome lang={lang} k="table.appr.cooked" />
           </span>
@@ -541,7 +541,11 @@ function RequestCard({
         >
           <p
             id={`appr-q-${request.id}`}
-            style={{ margin: "0 0 8px", fontSize: "var(--fs-sm)", fontWeight: 600 }}
+            style={{
+              margin: "0 0 8px",
+              fontSize: "var(--fs-sm)",
+              fontWeight: "var(--fw-semibold)",
+            }}
           >
             <Chrome lang={lang} k={confirmKey} echo="stack" />
           </p>
@@ -631,9 +635,9 @@ const cardHead: CSSProperties = {
 };
 const kindBadge: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--ac-strong)",
 };
 const btnRow: CSSProperties = { display: "flex", gap: 8, marginTop: 10 };
@@ -643,7 +647,7 @@ const actionBtn: CSSProperties = {
   borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const approveBtn: CSSProperties = {

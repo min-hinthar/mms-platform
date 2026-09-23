@@ -204,7 +204,7 @@ function PayForm({
             border: "none",
             // bg/color come from .checkout-cta (gold-warmed gradient + sheen + one-sweep shine) — parity
             // with the review step's "Pay · $X" CTA. The label rides above the ::after sweep on its own layer.
-            fontWeight: 800,
+            fontWeight: "var(--fw-heavy)",
             fontSize: "var(--fs-body)",
             cursor: !stripe || submitting ? "default" : "pointer",
             opacity: !stripe || submitting ? 0.7 : 1,
@@ -229,7 +229,7 @@ function PayForm({
           border: "none",
           background: "transparent",
           // color lives in .checkout-cta-ghost so the :hover brighten isn't outranked by an inline color.
-          fontWeight: 700,
+          fontWeight: "var(--fw-bold)",
           cursor: submitting ? "default" : "pointer",
         }}
       >

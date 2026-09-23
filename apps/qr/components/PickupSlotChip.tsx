@@ -32,14 +32,14 @@ export function PickupSlotChip() {
         borderRadius: 999,
         background: "var(--cd)",
         color: "var(--tx)",
-        fontWeight: 700,
+        fontWeight: "var(--fw-bold)",
         fontSize: "var(--fs-sm)",
         cursor: "pointer",
       }}
     >
       <Icon name="bag" size={16} />
       {pickupSlot ? `Pickup · ${formatSlotLong(pickupSlot)}` : "Pickup · ASAP"}
-      <span aria-hidden style={{ color: "var(--ac)", fontWeight: 800 }}>
+      <span aria-hidden style={{ color: "var(--ac)", fontWeight: "var(--fw-heavy)" }}>
         {pickupSlot ? "Change" : "Schedule ›"}
       </span>
     </button>

@@ -123,7 +123,7 @@ const clearBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--warn)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -134,7 +134,7 @@ const cancelBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 const confirmRow: CSSProperties = {

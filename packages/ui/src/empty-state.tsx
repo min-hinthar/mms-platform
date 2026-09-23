@@ -1,65 +1,56 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Card } from "./card";
 
 /**
- * EmptyState — the "nothing here yet" card (P5.4). Pure presentational (no hooks → Server-Component
- * safe). Composes the shared `<Card>` surface (single source of truth — no re-inlined `.card` recipe)
- * + a bold title, optional muted subtitle, optional decorative icon, and an optional action slot.
+ * EmptyState — the "nothing here yet" card (P5.4), and since Phase 0 the "nothing here" PAGE.
+ * Pure presentational (no hooks → Server-Component safe). Styling lives in `primitives.css`
+ * (`.ui-empty*`) on the shared `<Card>` surface.
  *
- * a11y: the icon is decorative (`aria-hidden`); the title carries the meaning. Default `titleAs="p"`
- * is right when the EmptyState sits INSIDE a region a heading already names (e.g. a board `<h2>`). For a
- * STANDALONE empty region (no surrounding heading), pass `titleAs="h2"`/`"h3"` so screen-reader users
- * get a discoverable heading. For content that *becomes* empty dynamically, pair with a live region
- * (the staff boards already own a polite `role="status"` that announces "All clear").
+ * Two layouts, one grammar (icon → one heading → one sentence → one way forward):
+ *  · `card` (default) sits INSIDE a region a heading already names (a staff board): body-font
+ *    title, left-aligned, `titleAs="p"`.
+ *  · `page` IS the page's content (an empty /cart, a /track visit with no order): centred slip, the
+ *    icon in a medallion, a display-face `h1`. Before Phase 0 those two pages had two different
+ *    designs and /cart's copy promised the menu while its button went to the door picker.
+ *
+ * a11y: the icon is decorative (`aria-hidden`); the title carries the meaning. For content that
+ * *becomes* empty dynamically, pair with the view's live region (the staff boards already own a
+ * polite `role="status"` that announces "All clear").
  */
 export function EmptyState({
   title,
   subtitle,
   icon,
   action,
-  titleAs: TitleTag = "p",
+  titleAs,
   tone = "empty",
+  layout = "card",
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
-  /** Decorative glyph/emoji — rendered `aria-hidden`. */
+  /** Decorative glyph — rendered `aria-hidden` (in a medallion on the `page` layout). */
   icon?: ReactNode;
   /** Optional CTA (e.g. a retry button) rendered below the copy. */
   action?: ReactNode;
-  /** Title element — `"p"` (default) when inside an already-named region; a heading when standalone. */
-  titleAs?: "p" | "h2" | "h3";
+  /** Title element. Defaults to `p` for a card (inside an already-named region), `h1` for a page. */
+  titleAs?: "p" | "h1" | "h2" | "h3";
   /** W10a — "nothing here" vs "we couldn't LOOK": `error` marks a FAILED read (warn hairline; pair
    *  with a RetryButton in `action`), so read-failure states stop being dressed as empties — the
    *  outage audit found four surfaces rendering an outage as "all done"/"catalog is empty". */
   tone?: "empty" | "error";
+  layout?: "card" | "page";
 }) {
+  const TitleTag = titleAs ?? (layout === "page" ? "h1" : "p");
   return (
-    <Card style={{ padding: "var(--s6)", ...(tone === "error" ? errorCard : null) }}>
+    <Card className="ui-empty" textured={layout === "page"} data-layout={layout} data-tone={tone}>
       {icon ? (
-        <div aria-hidden style={iconRow}>
+        <div aria-hidden className="ui-empty-icon">
           {icon}
         </div>
       ) : null}
-      <TitleTag style={titleStyle}>{title}</TitleTag>
-      {subtitle ? <p style={subtitleStyle}>{subtitle}</p> : null}
-      {action ? <div style={{ marginTop: "var(--s4)" }}>{action}</div> : null}
+      <TitleTag className="ui-empty-title">{title}</TitleTag>
+      {subtitle ? <p className="ui-empty-sub">{subtitle}</p> : null}
+      {action ? <div className="ui-empty-action">{action}</div> : null}
     </Card>
   );
 }
-
-const errorCard: CSSProperties = { borderColor: "var(--warn)" };
-
-const iconRow: CSSProperties = { fontSize: 28, marginBottom: "var(--s2)", lineHeight: 1 };
-// Body font + weight 600 regardless of element, so a heading `titleAs` doesn't pull the display serif.
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontFamily: "var(--font-body)",
-  fontWeight: 600,
-  fontSize: 16,
-};
-const subtitleStyle: CSSProperties = {
-  margin: "4px 0 0",
-  fontSize: 14,
-  color: "var(--t2)",
-  lineHeight: 1.5,
-};

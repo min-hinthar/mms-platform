@@ -5234,6 +5234,14 @@ const MUTANTS = [
       '      .select(\n        "id,locked,locked_at,settle_at,counter_requested_at,tab_type,tab_opened_at,intended_tip_cents,promo_code",\n      )\n      .eq("session_id", sessionId)\n      .eq("status", "paid")\n      .maybeSingle(),',
   },
   {
+    id: "floor/k21-phones-back-on-the-floor",
+    file: "apps/qr/lib/floor.ts",
+    suite: "lib/floor-dinein-only.test.ts",
+    why: "K21 (Phase 0) \u2014 the floor is the ROOM. A to-go or scan-&-go phone mints a session the moment a diner opens the menu, and without the mode guard every one of them is drawn as a table card titled with its raw `pickup-<uuid>` code (27 of 33 cards, measured): the table count lies and the phones eat the session cap. The suite's fake EVALUATES `.eq()` on the session list, so the phones come back in the OUTCOME",
+    find: '      .eq("mode", "dinein")\n      .gt("expires_at", nowIso)',
+    replace: '      .gt("expires_at", nowIso)',
+  },
+  {
     id: "i18n/money-amount-hardcoded-in-the-dictionary",
     file: "apps/qr/lib/i18n/staff.ts",
     suite: "lib/i18n/strings.test.ts",

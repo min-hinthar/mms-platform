@@ -146,7 +146,7 @@ export function RefundsNeededStrip({
           const marking = pending && markingId === r.id;
           return (
             <li key={r.id} style={refundsRow}>
-              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+              <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: "var(--fw-bold)" }}>
                 {r.amountCents != null ? (
                   fmt(r.amountCents)
                 ) : (
@@ -170,7 +170,7 @@ export function RefundsNeededStrip({
                   aria-label={tf(lang, "table.appr.a11y.confirmRefunded", { x: r.paymentIntent })}
                   style={{ ...confirmRow, outline: "none" }}
                 >
-                  <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+                  <span style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}>
                     {/* Inline echo, not stacked: a flex line with the two buttons beside it. */}
                     {r.amountCents != null ? (
                       <Chrome
@@ -275,7 +275,7 @@ const resolveBtn: CSSProperties = {
   border: "1px solid var(--warn)",
   background: "transparent",
   color: "var(--warn)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -285,7 +285,7 @@ const cancelBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--cd)",
   color: "var(--tx)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 const confirmRow: CSSProperties = {

@@ -209,10 +209,16 @@ export function StaffLineEditor({
   return (
     <li style={{ ...row, flexWrap: "wrap" }}>
       <span style={{ minWidth: 0, flex: 1 }}>
-        <span style={{ fontWeight: 600 }}>{qty}×</span> {line.name}
+        <span style={{ fontWeight: "var(--fw-semibold)" }}>{qty}×</span> {line.name}
         {mods}
         {line.soldOut && (
-          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 400 }}>
+          <span
+            style={{
+              color: "var(--t3)",
+              fontSize: "var(--fs-sm)",
+              fontWeight: "var(--fw-regular)",
+            }}
+          >
             {" · "}
             <Chrome lang={lang} k="table.line.soldOut" />
           </span>
@@ -332,18 +338,22 @@ const lossBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--warn)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
   whiteSpace: "nowrap",
 };
 const badge: CSSProperties = {
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
   whiteSpace: "nowrap",
 };
 // The saved note reads at FULL text color (safety-adjacent, never muted) in the diner's own words.
-const noteText: CSSProperties = { display: "block", fontSize: "var(--fs-sm)", fontWeight: 600 };
+const noteText: CSSProperties = {
+  display: "block",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-semibold)",
+};
 const noteBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 12px",
@@ -352,7 +362,7 @@ const noteBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
   whiteSpace: "nowrap",
 };
@@ -382,6 +392,6 @@ const noteSave: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };

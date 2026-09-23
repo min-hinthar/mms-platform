@@ -175,7 +175,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
                 border: "1.5px solid var(--bd)",
                 background: "var(--cd)",
                 color: "var(--tx)",
-                fontWeight: 800,
+                fontWeight: "var(--fw-heavy)",
                 fontSize: "var(--fs-sm)",
                 cursor: held ? "default" : "pointer",
                 opacity: held && !on ? 0.5 : 1,
@@ -208,7 +208,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
               background: "none",
               border: "none",
               color: "var(--warn)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               textDecoration: "underline",
               cursor: "pointer",
             }}
@@ -410,7 +410,7 @@ function ShareForm({
             background: "none",
             border: "none",
             color: "var(--ac-strong)",
-            fontWeight: 800,
+            fontWeight: "var(--fw-heavy)",
             textDecoration: "underline",
             cursor: rechecking ? "default" : "pointer",
           }}
@@ -443,7 +443,7 @@ function ShareForm({
             minHeight: 50,
             borderRadius: 12,
             border: "none",
-            fontWeight: 800,
+            fontWeight: "var(--fw-heavy)",
             fontSize: "var(--fs-body)",
             cursor: !stripe || submitting ? "default" : "pointer",
             // Pre-PR review — the dimmed-disabled treatment is for a control you're waiting on. Once

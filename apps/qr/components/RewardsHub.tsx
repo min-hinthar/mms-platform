@@ -74,9 +74,18 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             {current.emoji}
           </span>
           <div style={{ minWidth: 0, flex: 1 }}>
-            <p style={{ margin: 0, fontSize: "var(--fs-h2)", fontWeight: 800, color: "var(--tx)" }}>
+            <p
+              style={{
+                margin: 0,
+                fontSize: "var(--fs-h2)",
+                fontWeight: "var(--fw-heavy)",
+                color: "var(--tx)",
+              }}
+            >
               {current.name}{" "}
-              <span style={{ color: "var(--t2)", fontWeight: 600 }}>· {current.english}</span>
+              <span style={{ color: "var(--t2)", fontWeight: "var(--fw-semibold)" }}>
+                · {current.english}
+              </span>
             </p>
             <p style={{ margin: "2px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
               {nxt
@@ -96,7 +105,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
         >
           <span
             aria-hidden
-            style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 700 }}
+            style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: "var(--fw-bold)" }}
           >
             Lifetime spend
           </span>
@@ -104,7 +113,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
             aria-hidden
             style={{
               fontSize: "var(--fs-body)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               color: "var(--tx)",
               fontVariantNumeric: "tabular-nums",
             }}
@@ -142,7 +151,13 @@ export function RewardsHub({ state }: { state: RewardsState }) {
                 <span aria-hidden style={{ fontSize: "var(--fs-h3)" }}>
                   {t.emoji}
                 </span>
-                <span style={{ fontSize: "var(--fs-xs)", color: "var(--t2)", fontWeight: 700 }}>
+                <span
+                  style={{
+                    fontSize: "var(--fs-xs)",
+                    color: "var(--t2)",
+                    fontWeight: "var(--fw-bold)",
+                  }}
+                >
                   {t.english}
                 </span>
               </li>
@@ -210,7 +225,7 @@ export function RewardsHub({ state }: { state: RewardsState }) {
                   🎁
                 </span>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: 800, color: "var(--tx)" }}>
+                  <p style={{ margin: 0, fontWeight: "var(--fw-heavy)", color: "var(--tx)" }}>
                     {dollars(c.amountCents)} reward
                   </p>
                   <p style={{ margin: "1px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
@@ -237,8 +252,8 @@ const card: CSSProperties = {
 const cardH: CSSProperties = {
   margin: "0 0 12px",
   fontSize: "var(--fs-sm)",
-  fontWeight: 800,
-  letterSpacing: 0.3,
+  fontWeight: "var(--fw-heavy)",
+  letterSpacing: "var(--track-snug)",
   textTransform: "uppercase",
   color: "var(--t2)",
 };
@@ -284,7 +299,7 @@ const benefitE: CSSProperties = {
 };
 const benefitN: CSSProperties = {
   margin: 0,
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   color: "var(--tx)",
 };

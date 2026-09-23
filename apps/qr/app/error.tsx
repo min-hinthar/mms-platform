@@ -102,7 +102,7 @@ export default function Error({
             border: "none",
             background: "var(--ac)",
             color: "var(--oa)",
-            fontWeight: 800,
+            fontWeight: "var(--fw-heavy)",
             fontSize: "var(--fs-h3)",
             cursor: "pointer",
           }}

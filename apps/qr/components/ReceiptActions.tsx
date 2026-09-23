@@ -176,7 +176,7 @@ const ask: CSSProperties = {
 const label: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
   margin: "0 0 4px",
 };
@@ -197,7 +197,7 @@ const sendBtn: CSSProperties = {
   border: "1.5px solid var(--ac)",
   background: "transparent",
   color: "var(--ac)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -208,7 +208,7 @@ const cancelBtn: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

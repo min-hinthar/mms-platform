@@ -31,7 +31,8 @@
     "check:types-sorted": "node scripts/check-generated-types-sorted.mjs",
     "check:echo-coalesce": "node scripts/check-echo-coalesce.mjs",
     "check:scan-repeat": "node scripts/check-scan-repeat.mjs",
-    "check:mutant-anchors": "node scripts/check-mutant-anchors.mjs"
+    "check:mutant-anchors": "node scripts/check-mutant-anchors.mjs",
+    "check:style-literals": "node scripts/check-style-literals.mjs"
   },
   "devDependencies": {
     "@mms/config": "workspace:*",

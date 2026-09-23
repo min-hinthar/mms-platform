@@ -49,7 +49,10 @@ export function PayAtCounterButton({
       <Icon name="receipt" size={16} />
       <span>
         {busy ? "One moment…" : TX("payAtCounter")}
-        <span lang="my" style={{ display: "block", fontSize: "var(--fs-xs)", fontWeight: 600 }}>
+        <span
+          lang="my"
+          style={{ display: "block", fontSize: "var(--fs-xs)", fontWeight: "var(--fw-semibold)" }}
+        >
           {t("my", "payAtCounter")}
         </span>
       </span>
@@ -173,7 +176,7 @@ const ghost: CSSProperties = {
   alignItems: "center",
   justifyContent: "center",
   gap: 8,
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-body)",
   textAlign: "left",
 };
@@ -181,8 +184,8 @@ const card: CSSProperties = { marginTop: 14, padding: "18px 18px 16px", display:
 const eyebrow: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-xs)",
-  fontWeight: 700,
-  letterSpacing: "0.04em",
+  fontWeight: "var(--fw-bold)",
+  letterSpacing: "var(--track-caps)",
   textTransform: "uppercase",
   color: "var(--t3)",
   display: "flex",
@@ -193,14 +196,14 @@ const title: CSSProperties = {
   margin: 0,
   fontFamily: "var(--font-display)",
   fontSize: "var(--fs-h2)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   lineHeight: 1.15,
 };
 const titleMy: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   color: "var(--t2)",
   marginTop: 4,
 };
@@ -226,12 +229,12 @@ const amountRow: CSSProperties = {
   paddingTop: 10,
   borderTop: "1px solid var(--bd)",
 };
-const amountLabel: CSSProperties = { fontWeight: 800, fontSize: "var(--fs-body)" };
+const amountLabel: CSSProperties = { fontWeight: "var(--fw-heavy)", fontSize: "var(--fs-body)" };
 const amount: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
   fontFamily: "var(--font-display)",
   fontSize: "var(--fs-h2)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
 };
 const note: CSSProperties = {
   margin: 0,

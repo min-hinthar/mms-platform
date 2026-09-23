@@ -1,4 +1,5 @@
 "use client";
+import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import {
   useCallback,
   useEffect,
@@ -239,6 +240,11 @@ export function FloorDetailLive({
         lang={lang}
         title={isCounter ? "floor.counter" : "floor.table"}
         titleVars={isCounter ? undefined : { id: tableDisplay(detail).text }}
+        // Phase 0 — a sub-page's leading control is the way back UP (DESIGN-LANGUAGE §17), and this
+        // page's own exits already promised "← Floor". It used to wear the default Screens circle,
+        // so every settle hand-off left through the doors. `STAFF_DOOR_TARGET.counter` is the floor
+        // WITHOUT re-dooring the tablet (the cookie is written only by a door tap).
+        leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
         lock={hasPin}
       />
       <div className="staff-col" style={wrap}>
@@ -471,7 +477,7 @@ export function FloorDetailLive({
                 return (
                   <li key={l.id} style={lineRow}>
                     <span style={{ minWidth: 0, opacity: l.state === "voided" ? 0.55 : 1 }}>
-                      <span style={{ fontWeight: 600 }}>{l.qty}×</span> {l.name}
+                      <span style={{ fontWeight: "var(--fw-semibold)" }}>{l.qty}×</span> {l.name}
                       {/* K33 — the options the guest chose. The floor was the one staff surface that
                           never showed them, so a server reading a table back could not tell a
                           no-egg Mohinga from a plain one. Server-priced labels, rendered verbatim. */}
@@ -538,7 +544,7 @@ export function FloorDetailLive({
           <div style={totalRow}>
             {detail.itemCount > 0 && (
               <span>
-                <span style={{ fontWeight: 700 }}>
+                <span style={{ fontWeight: "var(--fw-bold)" }}>
                   <LiveMoney cents={detail.runningSubtotalCents} />
                 </span>{" "}
                 {/* The AMOUNT is untouched — `LiveMoney` still renders the server-derived cents. Only
@@ -556,7 +562,7 @@ export function FloorDetailLive({
             )}
             {detail.paidTotalCents != null &&
               (detail.refund == null || detail.refund.state === "none" ? (
-                <span style={{ color: "var(--ok)", fontWeight: 700 }}>
+                <span style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>
                   <Chrome
                     lang={lang}
                     k="table.detail.paid"
@@ -569,7 +575,7 @@ export function FloorDetailLive({
                    subtraction done here: `netPaidCents` already accounts for a status flip and a
                    column bump disagreeing for a beat. Attention tone rather than success, because a
                    cashier scanning this row for a number needs the state to reach them first. */
-                <span style={{ color: "var(--warn)", fontWeight: 700 }}>
+                <span style={{ color: "var(--warn)", fontWeight: "var(--fw-bold)" }}>
                   {detail.refund.state === "full" ? (
                     <Chrome
                       lang={lang}
@@ -789,8 +795,8 @@ export function FloorDetailLive({
                 margin: 0,
                 fontFamily: "var(--font-display)",
                 fontSize: "var(--fs-h1)",
-                fontWeight: 800,
-                letterSpacing: "0.06em",
+                fontWeight: "var(--fw-heavy)",
+                letterSpacing: "var(--track-caps)",
               }}
             >
               #{handoff.orderId.slice(-6).toUpperCase()}
@@ -850,7 +856,7 @@ const addLink: CSSProperties = {
   alignItems: "center",
   color: "var(--ac)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   textDecoration: "none",
 };
 
@@ -921,7 +927,7 @@ const askTitle: CSSProperties = {
   display: "flex",
   alignItems: "center",
   gap: 8,
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-body)",
   color: "var(--warn)",
 };
@@ -949,7 +955,11 @@ const lineRow: CSSProperties = {
   borderTop: "1px solid var(--bd)",
   fontSize: "var(--fs-sm)",
 };
-const offBadge: CSSProperties = { color: "var(--t3)", fontSize: "var(--fs-sm)", fontWeight: 700 };
+const offBadge: CSSProperties = {
+  color: "var(--t3)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+};
 const totalRow: CSSProperties = {
   display: "flex",
   alignItems: "center",

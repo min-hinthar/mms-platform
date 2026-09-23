@@ -309,7 +309,7 @@ export function PickupWhenChoice({
 
 const labelStyle: CSSProperties = {
   display: "block",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   marginBottom: 6,
 };
@@ -324,7 +324,7 @@ const segStyle: CSSProperties = {
 };
 // Font-size only — color INHERITS the pill's (t2 idle / cream --oa selected) so the sub can't drop
 // below the pill's own contrast on the gold cap.
-const subStyle: CSSProperties = { fontSize: "var(--fs-xs)", fontWeight: 700 };
+const subStyle: CSSProperties = { fontSize: "var(--fs-xs)", fontWeight: "var(--fw-bold)" };
 const hintStyle: CSSProperties = {
   margin: "6px 2px 0",
   fontSize: "var(--fs-sm)",

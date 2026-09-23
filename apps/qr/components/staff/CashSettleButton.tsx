@@ -241,7 +241,10 @@ export function CashSettleButton({
               figure. Shown on every cash settle, not just the counter handoff: a table pays cash
               too, and its tip was equally unrecorded until now. */}
             <div style={{ display: "grid", gap: 4 }}>
-              <label htmlFor="cash-tip" style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+              <label
+                htmlFor="cash-tip"
+                style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
+              >
                 <Chrome lang={lang} k="settle.cash.tipLabel" echo="stack" />
               </label>
               {/* W17c-3 — the house ladder as one-tap chips, so a cashier is not doing percentage
@@ -353,7 +356,7 @@ export function CashSettleButton({
               <div style={{ display: "grid", gap: 4 }}>
                 <label
                   htmlFor="cash-tendered"
-                  style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}
+                  style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
                 >
                   <Chrome lang={lang} k="settle.cash.tenderedLabel" echo="stack" />
                 </label>
@@ -456,7 +459,7 @@ const payBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -467,7 +470,7 @@ const cancelBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 // Layout only — the surface, the head and the horizontal inset are the sheet's.

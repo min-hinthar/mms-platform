@@ -354,7 +354,7 @@ function OrderCard({
         style={orderHead}
       >
         <span style={{ display: "grid", gap: 2, textAlign: "left" }}>
-          <span style={{ fontWeight: 700 }}>
+          <span style={{ fontWeight: "var(--fw-bold)" }}>
             {o.tableNumber !== null ? (
               <Chrome lang={lang} k="floor.table" vars={{ id: o.tableNumber }} />
             ) : o.customerName ? (
@@ -396,7 +396,7 @@ function OrderCard({
               <Chrome lang={lang} k={chip} />
             </span>
           )}
-          <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+          <span style={{ fontWeight: "var(--fw-bold)", fontVariantNumeric: "tabular-nums" }}>
             {dollars(o.totalCents)}
           </span>
           <Icon
@@ -509,7 +509,7 @@ function LineRow({
   return (
     <li style={lineRow}>
       <span style={{ flex: 1, minWidth: 0 }}>
-        <span aria-hidden style={{ fontWeight: 700, color: "var(--ac-strong)" }}>
+        <span aria-hidden style={{ fontWeight: "var(--fw-bold)", color: "var(--ac-strong)" }}>
           {l.qty}×
         </span>{" "}
         {l.name}
@@ -571,7 +571,7 @@ const refreshBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "transparent",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -582,7 +582,7 @@ const confirmBanner: CSSProperties = {
   minHeight: 18,
   margin: 0,
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--ac-strong)",
 };
 const orderHead: CSSProperties = {
@@ -602,9 +602,9 @@ const meta: CSSProperties = { fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const chipStyle: CSSProperties = {
   flex: "none",
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--t2)",
 };
 const body: CSSProperties = {
@@ -614,13 +614,17 @@ const body: CSSProperties = {
   display: "grid",
   gap: 8,
 };
-const statusLine: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", fontWeight: 700 };
+const statusLine: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+};
 const groupHead: CSSProperties = {
   margin: "4px 0 0",
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   textTransform: "uppercase",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--t2)",
 };
 const lineList: CSSProperties = {
@@ -637,7 +641,7 @@ const lineRow: CSSProperties = {
   fontSize: "var(--fs-sm)",
 };
 const muted: CSSProperties = { color: "var(--t2)" };
-const markStyle: CSSProperties = { color: "var(--warn)", fontWeight: 700 };
+const markStyle: CSSProperties = { color: "var(--warn)", fontWeight: "var(--fw-bold)" };
 const noteStyle: CSSProperties = { display: "block", color: "var(--t2)", fontStyle: "italic" };
 const rowList: CSSProperties = {
   listStyle: "none",
@@ -649,7 +653,7 @@ const rowList: CSSProperties = {
   fontSize: "var(--fs-sm)",
 };
 const row: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 10 };
-const rowGrand: CSSProperties = { ...row, fontWeight: 800 };
+const rowGrand: CSSProperties = { ...row, fontWeight: "var(--fw-heavy)" };
 const pathNote: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" };
 const refundBtn: CSSProperties = {
   flex: "none",
@@ -659,7 +663,7 @@ const refundBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "transparent",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

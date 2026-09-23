@@ -744,12 +744,12 @@ const row: CSSProperties = {
   padding: "var(--s3) var(--s4)",
   flexWrap: "wrap",
 };
-const name: CSSProperties = { margin: 0, fontWeight: 700, fontSize: "var(--fs-body)" };
+const name: CSSProperties = { margin: 0, fontWeight: "var(--fw-bold)", fontSize: "var(--fs-body)" };
 const nameMy: CSSProperties = { margin: 0, color: "var(--t2)", fontSize: "var(--fs-sm)" };
 const cat: CSSProperties = { margin: "2px 0 0", color: "var(--t3)", fontSize: "var(--fs-xs)" };
-const soldOutTag: CSSProperties = { color: "var(--t3)", fontWeight: 400 };
+const soldOutTag: CSSProperties = { color: "var(--t3)", fontWeight: "var(--fw-regular)" };
 /** menu-4 — a flag from another service day: the warn ink, pre-attentive across the list. */
-const soldOutTagOld: CSSProperties = { color: "var(--warn)", fontWeight: 600 };
+const soldOutTagOld: CSSProperties = { color: "var(--warn)", fontWeight: "var(--fw-semibold)" };
 const eightySixBtn: CSSProperties = {
   minHeight: 44,
   padding: "0 12px",
@@ -757,7 +757,7 @@ const eightySixBtn: CSSProperties = {
   border: "1px solid color-mix(in oklab, var(--warn) 40%, var(--bd))",
   background: "var(--warnb)",
   color: "var(--warn)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -768,15 +768,15 @@ const restoreBtn: CSSProperties = {
   border: "1px solid color-mix(in oklab, var(--ok) 40%, var(--bd))",
   background: "var(--okb)",
   color: "var(--ok)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
-const price: CSSProperties = { fontWeight: 800, fontSize: "var(--fs-body)" };
+const price: CSSProperties = { fontWeight: "var(--fw-heavy)", fontSize: "var(--fs-body)" };
 const label: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   marginBottom: "var(--s2)",
 };
 const searchRow: CSSProperties = {
@@ -811,7 +811,7 @@ const ghostBtn: CSSProperties = {
   background: "var(--sf)",
   color: "var(--tx)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 const saveBtn: CSSProperties = {
@@ -819,7 +819,7 @@ const saveBtn: CSSProperties = {
   border: "none",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
 };
 const confirmCard: CSSProperties = {
   border: "1px solid var(--ac)",
@@ -834,10 +834,14 @@ const confirmCard: CSSProperties = {
 const confirmLead: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--t2)",
 };
-const confirmQ: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", fontWeight: 700 };
+const confirmQ: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+};
 const confirmDetail: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-xs)",

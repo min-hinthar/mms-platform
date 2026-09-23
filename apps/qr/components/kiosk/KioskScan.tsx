@@ -129,7 +129,7 @@ export function KioskScan({
             <span>
               {l.qty} × {l.name}
             </span>
-            <span style={{ fontWeight: 800 }}>
+            <span style={{ fontWeight: "var(--fw-heavy)" }}>
               ${((l.qty * l.unitPriceCents) / 100).toFixed(2)}
             </span>
           </li>

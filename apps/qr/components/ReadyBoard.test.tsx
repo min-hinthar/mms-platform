@@ -751,6 +751,15 @@ describe("board-2 · board-5 · board-7 — the tell, the tongue, the ceiling", 
     );
   });
 
+  it("the unlinked wall's one action is a real sign-in link back to this board, not a printed path", async () => {
+    await renderBoard("en", { status: 401, body: { reason: "denied", error: "no" } });
+    // MUTATION: the CTA back to a `<p>` of prose (the pre-Phase-0 screen) — no link by that name; red.
+    const cta = await screen.findByRole("link", { name: "Sign in to set up this screen" });
+    expect(cta.getAttribute("href")).toBe("/staff/login?next=/board");
+    // The typed-path fallback stays beneath it for a manager on another device.
+    expect(screen.getByText(/Or open \/staff\/login\?next=\/board on this screen/)).toBeTruthy();
+  });
+
   it('the mirror property: under an English board every Burmese run sits inside a `lang="my"` element', async () => {
     // The first block asserts no Latin under a Burmese mark; this is the other direction, so the
     // fix cannot regress into the mirror-image defect — a Myanmar-script text node with no

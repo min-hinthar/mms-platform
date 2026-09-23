@@ -100,7 +100,10 @@ export function TierUpCelebration({ tierId }: { tierId: string }) {
         </span>
         <div className="tier-up-kicker">Tier unlocked</div>
         <div className="tier-up-name">
-          {meta.name} <span style={{ color: "var(--t2)", fontWeight: 600 }}>· {meta.english}</span>
+          {meta.name}{" "}
+          <span style={{ color: "var(--t2)", fontWeight: "var(--fw-semibold)" }}>
+            · {meta.english}
+          </span>
         </div>
         <p className="tier-up-sub">You’ve climbed the gem tiers — kyay-zu tin ba deh.</p>
         <button

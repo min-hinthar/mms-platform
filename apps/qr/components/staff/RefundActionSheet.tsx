@@ -280,7 +280,7 @@ const lineSummary: CSSProperties = { margin: 0, fontSize: "var(--fs-sm)", color:
 const noteStyle: CSSProperties = { display: "block", fontStyle: "italic" };
 const amountLine: CSSProperties = {
   margin: "8px 0 0",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-h2)",
   fontVariantNumeric: "tabular-nums",
 };
@@ -288,7 +288,7 @@ const lbl: CSSProperties = {
   display: "block",
   margin: "14px 0 4px",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
 };
 const field: CSSProperties = {
@@ -308,7 +308,7 @@ const primaryBtn: CSSProperties = {
   border: "none",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const secondaryBtn: CSSProperties = {
@@ -319,6 +319,6 @@ const secondaryBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "transparent",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };

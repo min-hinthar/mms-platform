@@ -856,7 +856,11 @@ export function MenuBrowser({
                             column once the stepper (110px) is in it: the li shrinks (`.menu-list
                             > li { min-width: 0 }`) and the name wraps. */}
                         <span
-                          style={{ fontWeight: 600, display: "block", overflowWrap: "anywhere" }}
+                          style={{
+                            fontWeight: "var(--fw-semibold)",
+                            display: "block",
+                            overflowWrap: "anywhere",
+                          }}
                         >
                           {i.name_en}
                           {/* R1 — the space is OUTSIDE the suffix and the suffix cannot break, so a
@@ -869,7 +873,7 @@ export function MenuBrowser({
                               <span
                                 style={{
                                   color: "var(--t3)",
-                                  fontWeight: 400,
+                                  fontWeight: "var(--fw-regular)",
                                   whiteSpace: "nowrap",
                                 }}
                               >
@@ -904,7 +908,9 @@ export function MenuBrowser({
                             ))}
                           </span>
                         )}
-                        <span style={{ fontWeight: 800, marginTop: 6, display: "block" }}>
+                        <span
+                          style={{ fontWeight: "var(--fw-heavy)", marginTop: 6, display: "block" }}
+                        >
                           {dollars(i.base_price_cents)}
                         </span>
                       </span>
@@ -941,7 +947,7 @@ export function MenuBrowser({
           <p
             style={{
               fontSize: "var(--fs-h2)",
-              fontWeight: 700,
+              fontWeight: "var(--fw-bold)",
               marginBottom: 4,
               display: "flex",
               alignItems: "center",
@@ -971,7 +977,7 @@ export function MenuBrowser({
                 border: "1px solid var(--bd)",
                 background: "var(--sf)",
                 color: "var(--tx)",
-                fontWeight: 700,
+                fontWeight: "var(--fw-bold)",
                 cursor: "pointer",
               }}
             >

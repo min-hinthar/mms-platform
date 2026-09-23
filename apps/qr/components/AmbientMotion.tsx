@@ -1,39 +1,29 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 /**
  * M126 — the JS half of the page atmosphere (`.paper-ambient`, globals.css § THE ROOM).
  *
- * Two jobs, and nothing else:
- *  1. On a FINE pointer, write `--pa-px`/`--pa-py` (unitless −1…1) so the far and mid planes sway
- *     under the cursor. rAF-throttled to one style write per frame, and it writes only custom
- *     properties that drive `translate`, so it never triggers layout or paint.
- *  2. On a NON-FINE pointer — where there is no cursor and the planes drift on a clock instead —
- *     render the visible pause control WCAG 2.2.2 requires. Desktop never sees it, because there
- *     the ambient moves only under the user's own hand, which is not auto-motion.
- *     ⚠️ `!fine.matches` is broader than the CSS `@media (pointer: coarse)` that starts the drift:
- *     `pointer: none` (a TV remote, some assistive setups) satisfies neither, so the control can
- *     render with nothing to stop. That is the safe direction of the two — an unnecessary stop
- *     button is noise, a missing one is a WCAG failure — but it is a mismatch, not a match, and
- *     saying otherwise would be the kind of comment this milestone spent a review round removing.
+ * One job: on a FINE pointer, write `--pa-px`/`--pa-py` (unitless −1…1) so the far and mid planes
+ * sway under the cursor. rAF-throttled to one style write per frame, and it writes only custom
+ * properties that drive `translate`, so it never triggers layout or paint.
  *
- * Under reduced motion neither happens: no listener is attached, `--pa-px`/`--pa-py` are never
- * written (so the CSS defaults of 0 hold even if the RM block were somehow missed), and the control
- * does not render. The media queries are re-read on `change`, so a user who turns reduced motion on
- * mid-session gets the listener torn down and the button unmounted rather than a frozen animation
- * and a dead control.
+ * Phase 0 retired the second job — the clock-driven drift on phones and the fixed pause coin WCAG
+ * 2.2.2 then required. The coin sat over dish photos and section headings at ordinary scroll
+ * positions (OPEN-ITEMS F11), and a background that moves on its own is the least useful motion on
+ * a screen whose job is ordering food. Motion under the diner's own hand is not auto-motion, so no
+ * stop control is owed; if a clock-driven drift ever returns, its pause control returns with it.
+ *
+ * Under reduced motion no listener is attached and `--pa-px`/`--pa-py` are never written (so the
+ * CSS defaults of 0 hold even if the RM block were somehow missed). The media queries are re-read on `change`, so a user who turns reduced motion on
+ * mid-session gets the listener torn down.
  *
  * NO GYRO, deliberately: DeviceOrientation needs a permission prompt on iOS 13+, and a modal
  * permission dialog for a decorative layer is a bad trade. NO SCROLL COUPLING: the repo's ban on
  * scroll-driven background parallax (motion sickness) stands, and nothing here reads scrollTop.
  */
 export function AmbientMotion() {
-  // True only when the coarse-pointer drift can actually run — i.e. when there IS something to
-  // stop. Mirrors `.start-here-pause`: a stop button for still content is noise, not compliance.
-  const [drift, setDrift] = useState(false);
-  const [paused, setPaused] = useState(false);
-
   useEffect(() => {
     const rm = window.matchMedia("(prefers-reduced-motion: reduce)");
     const fine = window.matchMedia("(pointer: fine)");
@@ -59,7 +49,6 @@ export function AmbientMotion() {
       // planes translating. `off` is an explicit "still the room", so it belongs here beside the OS
       // preference; the CSS block mirrors it as a belt.
       const motionOk = !rm.matches && root.dataset.fx !== "off";
-      setDrift(motionOk && !fine.matches);
       if (motionOk && fine.matches) {
         window.addEventListener("pointermove", onPointer, { passive: true });
       }
@@ -95,29 +84,5 @@ export function AmbientMotion() {
     };
   }, []);
 
-  useEffect(() => {
-    const root = document.documentElement;
-    if (paused) root.dataset.ambient = "paused";
-    else delete root.dataset.ambient;
-    return () => {
-      delete root.dataset.ambient;
-    };
-  }, [paused]);
-
-  if (!drift) return null;
-  return (
-    <button
-      type="button"
-      className="pa-pause"
-      // A CHANGING NAME, and deliberately NO `aria-pressed`. Carrying both inverts the announcement:
-      // once paused it reads "Play the background motion, pressed", and a PRESSED "Play" states that
-      // motion is playing — the opposite of the truth, on the one control WCAG 2.2.2 requires to be
-      // comprehensible. A toggle picks one mechanism: a stable name plus the state attribute, or a
-      // name that changes with the action. Play/pause is the canonical case for the latter.
-      aria-label={paused ? "Play the background motion" : "Pause the background motion"}
-      onClick={() => setPaused((p) => !p)}
-    >
-      <span aria-hidden>{paused ? "▶︎" : "❙❙"}</span>
-    </button>
-  );
+  return null;
 }

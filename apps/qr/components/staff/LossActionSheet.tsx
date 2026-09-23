@@ -473,7 +473,7 @@ export function LossActionSheet({
 const lineSummary: CSSProperties = {
   margin: "0 0 14px",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
 };
 const seg: CSSProperties = { display: "flex", gap: 6, marginBottom: 8 };
 const hint: CSSProperties = { margin: "0 0 6px", fontSize: "var(--fs-sm)", color: "var(--t2)" };
@@ -481,7 +481,7 @@ const fieldset: CSSProperties = { border: "none", padding: 0, margin: "12px 0 0"
 const legend: CSSProperties = {
   padding: 0,
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   marginBottom: 8,
 };
 const primaryBtn: CSSProperties = {
@@ -493,7 +493,7 @@ const primaryBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const secondaryBtn: CSSProperties = {
@@ -505,6 +505,6 @@ const secondaryBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--ac)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };

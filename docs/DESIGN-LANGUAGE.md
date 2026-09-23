@@ -858,3 +858,23 @@ offer the phone or nothing. The rules that came out of building the other door:
 - **Parking is a constant.** `lib/surfaces.ts` is where a door is switched off, read both where the
   door is drawn and where it is answered. A hidden button with a live action behind it is a door with
   the sign taken down, not a parked one.
+
+## 20 · The primitives — one button, one toast, one field, one heading (Phase 0)
+
+Every interaction primitive lives in `@mms/ui` and is styled once in `packages/ui/src/primitives.css`
+(`.ui-*`). Review them together on `/kit` (the preview, both themes).
+
+- **Button** — `primary` is the one action a section exists for (never two filled pills side by side;
+  the alternative is `secondary`, a paper card). `quiet` navigates or dismisses; `danger` is tinted,
+  never solid. 44px is a floor at every size; `xl` is the counter/kitchen tap (`--tap-bump`). Disabled
+  is `aria-disabled` and busy is `aria-busy` + a spinner at full ink — the component refuses the click.
+  A link that looks like a button takes `buttonClass()`.
+- **Toast** — confirmation only, bottom-centred above the CTA dock, inverted and opaque. Its action is
+  the pill's own ink, underlined (the pill inverts per theme, so a fixed accent fails on one of them).
+- **Field** — label above, one note line below that is the hint or the error, never both.
+- **PageMasthead** — kicker → display title at `--fw-semibold` → Burmese line → lede.
+- **EmptyState `page`** — icon medallion (accent ink on `--grad`) → one heading → one sentence that
+  names where the button goes → one button.
+- **Type/weight/tracking are tokens.** `check:style-literals` holds the remaining literals to a ratchet.
+- **The ambient room moves only under a pointer.** The phone drift is retired (F11); a clock-driven
+  motion on the page ground would owe a visible stop control again (WCAG 2.2.2).

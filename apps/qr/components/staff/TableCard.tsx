@@ -100,7 +100,7 @@ export function TableCard({
                 fontFamily: "var(--font-body)",
                 fontSize: "var(--fs-xs)",
                 color: "var(--warn)",
-                fontWeight: 700,
+                fontWeight: "var(--fw-bold)",
               }}
             >
               <Chrome lang={lang} k="floor.unregistered" />
@@ -146,12 +146,16 @@ export function TableCard({
       </div>
 
       <div style={bottomRow}>
-        <span style={{ fontWeight: 700, fontSize: "var(--fs-body)" }}>
+        <span style={{ fontWeight: "var(--fw-bold)", fontSize: "var(--fs-body)" }}>
           {showRunning ? (
             <>
               <LiveMoney cents={table.runningSubtotalCents} srHidden />{" "}
               <span
-                style={{ fontWeight: 500, color: "var(--t2)", fontSize: "var(--fs-sm)" }}
+                style={{
+                  fontWeight: "var(--fw-medium)",
+                  color: "var(--t2)",
+                  fontSize: "var(--fs-sm)",
+                }}
                 lang={lang === "my" ? "my" : undefined}
               >
                 <Chrome lang={lang} k="floor.card.soFarLabel" /> ·{" "}
@@ -173,7 +177,13 @@ export function TableCard({
                     ? table.refund.refundedCents
                     : table.refund.netPaidCents,
                 )}{" "}
-                <span style={{ fontWeight: 500, color: "var(--warn)", fontSize: "var(--fs-sm)" }}>
+                <span
+                  style={{
+                    fontWeight: "var(--fw-medium)",
+                    color: "var(--warn)",
+                    fontSize: "var(--fs-sm)",
+                  }}
+                >
                   <Chrome
                     lang={lang}
                     k={
@@ -187,13 +197,25 @@ export function TableCard({
             ) : (
               <>
                 {fmt(table.paidTotalCents)}{" "}
-                <span style={{ fontWeight: 500, color: "var(--ok)", fontSize: "var(--fs-sm)" }}>
+                <span
+                  style={{
+                    fontWeight: "var(--fw-medium)",
+                    color: "var(--ok)",
+                    fontSize: "var(--fs-sm)",
+                  }}
+                >
                   <Chrome lang={lang} k="floor.status.paid" />
                 </span>
               </>
             )
           ) : (
-            <span style={{ fontWeight: 500, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+            <span
+              style={{
+                fontWeight: "var(--fw-medium)",
+                color: "var(--t3)",
+                fontSize: "var(--fs-sm)",
+              }}
+            >
               <Chrome lang={lang} k="floor.card.empty" />
             </span>
           )}
@@ -225,7 +247,7 @@ const topRow: CSSProperties = {
 const label: CSSProperties = {
   fontFamily: "var(--font-display)",
   fontSize: "var(--fs-h2)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
 };
 const metaRow: CSSProperties = {
   display: "flex",

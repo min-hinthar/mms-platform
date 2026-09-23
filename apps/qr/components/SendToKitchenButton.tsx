@@ -324,7 +324,7 @@ export function SendToKitchenButton({
                   minHeight: 50,
                   borderRadius: 12,
                   border: "none",
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   fontSize: "var(--fs-body)",
                 }
               : btn),
@@ -347,7 +347,7 @@ export function SendToKitchenButton({
                 display: "block",
                 fontFamily: "var(--font-my)",
                 fontSize: "var(--fs-sm)",
-                fontWeight: 600,
+                fontWeight: "var(--fw-semibold)",
               }}
             >
               {pending
@@ -367,7 +367,7 @@ export function SendToKitchenButton({
               display: "block",
               fontFamily: "var(--font-my)",
               fontSize: "var(--fs-sm)",
-              fontWeight: 600,
+              fontWeight: "var(--fw-semibold)",
               color: "var(--t3)",
             }}
           >
@@ -424,6 +424,6 @@ const btn: CSSProperties = {
   width: "100%",
   minHeight: 50,
   borderRadius: 12,
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-body)",
 };

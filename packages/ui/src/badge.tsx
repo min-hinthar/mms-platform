@@ -79,9 +79,9 @@ const chip: CSSProperties = {
   gap: 6,
   padding: "3px 10px",
   borderRadius: "var(--r-full)",
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: "0.02em",
+  fontSize: "var(--fs-caption)",
+  fontWeight: "var(--fw-bold)",
+  letterSpacing: "var(--track-snug)",
   whiteSpace: "nowrap",
 };
 const dotStyle: CSSProperties = {

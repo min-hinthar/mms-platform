@@ -47,7 +47,12 @@ export function JoinTable() {
         <form onSubmit={submit}>
           <label
             htmlFor={id}
-            style={{ fontSize: "var(--fs-sm)", fontWeight: 700, display: "block", marginBottom: 6 }}
+            style={{
+              fontSize: "var(--fs-sm)",
+              fontWeight: "var(--fw-bold)",
+              display: "block",
+              marginBottom: 6,
+            }}
           >
             Table code
           </label>
@@ -81,7 +86,7 @@ const linkBtn: CSSProperties = {
   background: "none",
   border: "none",
   color: "var(--ac)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -95,7 +100,7 @@ const input: CSSProperties = {
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
   font: "inherit",
-  letterSpacing: ".08em",
+  letterSpacing: "var(--track-wide)",
   textTransform: "uppercase",
 };
 const joinBtn: CSSProperties = {
@@ -105,7 +110,7 @@ const joinBtn: CSSProperties = {
   border: "none",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-body)",
   cursor: "pointer",
 };

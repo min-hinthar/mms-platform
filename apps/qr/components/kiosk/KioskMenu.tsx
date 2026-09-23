@@ -133,7 +133,10 @@ export function KioskMenu({
                   {i.nameMy}
                 </span>
               )}
-              <span className="kiosk-door-hint" style={{ fontWeight: 800, color: "var(--tx)" }}>
+              <span
+                className="kiosk-door-hint"
+                style={{ fontWeight: "var(--fw-heavy)", color: "var(--tx)" }}
+              >
                 ${(i.priceCents / 100).toFixed(2)}
               </span>
             </button>

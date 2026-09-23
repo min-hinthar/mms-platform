@@ -81,8 +81,12 @@ export function GroceryBasketSheet({
                     />
                   </span>
                   <span style={{ minWidth: 0, flex: 1 }}>
-                    <span style={{ fontWeight: 700 }}>{l.name}</span>{" "}
-                    {l.ebt && <small style={{ color: "var(--ok)", fontWeight: 700 }}>EBT</small>}
+                    <span style={{ fontWeight: "var(--fw-bold)" }}>{l.name}</span>{" "}
+                    {l.ebt && (
+                      <small style={{ color: "var(--ok)", fontWeight: "var(--fw-bold)" }}>
+                        EBT
+                      </small>
+                    )}
                     <small style={{ display: "block", color: "var(--t3)", marginTop: 2 }}>
                       {l.qty} × ${(l.unitPriceCents / 100).toFixed(2)}
                     </small>
