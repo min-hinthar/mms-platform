@@ -7,7 +7,7 @@ import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { buildStartHereRows } from "@/lib/menu/startHereRows";
 import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
@@ -17,9 +17,8 @@ import { ArrivalBeat, doorFor } from "./ArrivalBeat";
 import { YourUsual } from "./YourUsual";
 import type { UsualOutcome } from "@/lib/menu/your-usual";
 import { MenuTimeline } from "@/components/TableTimeline";
-import { StartHereBand } from "./StartHereBand";
-import { TasteBand } from "./TasteBand";
-import { FavoritesRail } from "./FavoritesRail";
+import { PicksRow } from "./PicksRow";
+import { TableOptions } from "./TableOptions";
 import { useCart } from "@/components/TableCartProvider";
 import { PullToRefresh, type RefreshReason } from "@/components/PullToRefresh";
 import {
@@ -134,6 +133,7 @@ export function MenuBrowser({
   const [activeCat, setActiveCat] = useState<string | null>(null);
   // R6b: the item whose detail sheet is open (null = closed). Radix restores focus to the trigger row on close.
   const [sheetItem, setSheetItem] = useState<MenuItem | null>(null);
+  const [tableSheetOpen, setTableSheetOpen] = useState(false);
   const sectionRefs = useRef(new Map<string, HTMLElement>());
   const toolbarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -154,7 +154,8 @@ export function MenuBrowser({
   // the honesty rules live in lib/menu/startHereRows.ts where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
   const startHere = useMemo(
-    () => buildStartHereRows(items, favorites, popularIds),
+    // rowMin 1: the static picks row keeps a thin most-ordered set (the 3 was the marquee's floor).
+    () => buildStartHereRows(items, favorites, popularIds, 1),
     [items, favorites, popularIds],
   );
 
@@ -605,7 +606,7 @@ export function MenuBrowser({
       <PaperAmbient />
       {/* The persistent AppHeader now owns the notch clearance (it's sticky above this in-flow title), so
           this header must NOT add env(safe-area-inset-top) again — that double-counted the inset. */}
-      <header style={{ padding: "44px 20px 4px" }}>
+      <header className="menu-masthead">
         {/* W10a — the last-good catalog is on screen because the live read failed. Honest, quiet,
             and NOT a live region (server-rendered into the initial view — nothing to announce).
             Ordering stays safe: every add re-derives price/tax server-side at write time. */}
@@ -627,18 +628,20 @@ export function MenuBrowser({
           {/* The same DOOR vocabulary as the arrival card below it — one map, so the masthead can
               never contradict the greeting (the pass caught "TO-GO" over "SCAN & GO" on bare /menu,
               whose default mode is scango and whose branch this ternary used to lack). */}
-          <p className="eyebrow">{doorFor(mode).label}</p>
+          {/* Phase 1a — at a table the door eyebrow IS the table's control: the two exits the arrival
+              card used to show as tiles above the food live in its sheet now. */}
+          {mode === "dinein" ? (
+            <TableOptions label={doorFor(mode).label} onOpenChange={setTableSheetOpen} />
+          ) : (
+            <p className="eyebrow">{doorFor(mode).label}</p>
+          )}
           <PullToRefresh
             onRefresh={onRefreshStart}
             onSettled={onRefreshSettled}
-            disabled={!!sheetItem}
+            disabled={!!sheetItem || tableSheetOpen}
           />
         </div>
-        <h1
-          ref={menuHeadingRef}
-          tabIndex={-1}
-          style={{ fontSize: "var(--fs-display)", outline: "none" }}
-        >
+        <h1 ref={menuHeadingRef} tabIndex={-1} className="menu-title" style={{ outline: "none" }}>
           Menu
         </h1>
         {/* J2 arrival beat — the bilingual place-setting greeting; premieres once per session (J1's
@@ -674,56 +677,11 @@ export function MenuBrowser({
         )}
       </header>
 
-      {/* J2 "Start here" — the guided opening for browse mode only: hidden the moment the diner is
-          FINDING (search text or a diet filter active), when the band would be noise between them and
-          their result. Tapping a card opens the same item sheet as a row. */}
-      {/* J5 precedence: once the diner HAS favorites, their own shortlist replaces our guidance —
-          the start-here band is a first-timer's opening, not a permanent fixture. */}
-      {!q.trim() &&
-        diets.length === 0 &&
-        (favRail.length > 0 ? (
-          <div style={{ padding: "0 20px" }}>
-            <FavoritesRail items={favRail} onSelect={setSheetItem} />
-          </div>
-        ) : (
-          <div style={{ padding: "0 20px" }}>
-            <StartHereBand
-              rowA={startHere.rowA}
-              rowB={startHere.rowB}
-              dataBacked={startHere.dataBacked}
-              onSelect={setSheetItem}
-            />
-          </div>
-        ))}
-
-      {/* W21 → W22 → M137 — "Explore your Burmese taste buds", now ONE feature: Surprise. The
-          dietary pills are NOT here any more (M137 moved them into the toolbar's sheet), but the
-          band still renders while a diet is active, because the draw respects those filters and a
-          diner who has narrowed the menu is exactly who wants a pick from what is left. Only a
-          typed query hides it — that means the diner is FINDING, not exploring. */}
-      {!q.trim() && (
-        <div style={{ padding: "0 20px" }}>
-          <TasteBand
-            items={items}
-            popularIds={popularIds}
-            heartedIds={hearts}
-            diets={diets}
-            onSelect={setSheetItem}
-          />
-        </div>
-      )}
-
-      {/* M133 (owner: "Menu-toolbar should be positioned after taste-h before All-day breakfast so
-          customers can view the start-here and taste-h contents first"). It is `position: sticky`,
-          so moving it DOWN the document changes only where it starts: it still pins under the app
-          header the moment the diner scrolls past the bands, and every section's `scrollMarginTop`
-          is measured from the toolbar's real height rather than its position, so moving it does not
-          change the jump-nav offset. (That offset is the toolbar height ALONE — it does not add
-          `--header-height`, which the toolbar's own sticky `top` does. Unchanged by this move and
-          filed as M139; whether it under-shoots depends on whether the app header is retracted at
-          the moment of the tap, which needs a browser to settle, not a re-read.) When a search or a diet hides the bands above, the toolbar simply
-          becomes the first thing under the header again — which is the right place for it exactly
-          when the diner is FINDING rather than exploring. */}
+      {/* Phase 1a (owner, 2026-09-23: "Toolbar first" — reverses M133). Search, Dietary and the
+          categories come straight after the masthead, so the first category and the first Add land
+          on the opening screen instead of ~1,170px down. It is `position: sticky`, so it still pins
+          under the app header on scroll; every section's `scrollMarginTop` reads the toolbar's real
+          height. The picks (favorites · most ordered · surprise) follow it as ONE static row. */}
       <div className="menu-toolbar" ref={toolbarRef}>
         {/* M137 (owner: "dietary filters take too much space") — search and the dietary control share
             ONE 44px row. The toolbar is `position: sticky`, so every row it carries is a row the
@@ -785,6 +743,23 @@ export function MenuBrowser({
         )}
       </div>
 
+      {/* ONE row of picks under the toolbar — hidden while the diner is FINDING (a typed query),
+          when it would sit between them and their result. Diet filters narrow it instead. */}
+      {!q.trim() && (
+        <div className="menu-picks">
+          <PicksRow
+            items={items}
+            favorites={favRail}
+            popular={startHere.rowA}
+            dataBacked={startHere.dataBacked}
+            popularIds={popularIds}
+            heartedIds={hearts}
+            diets={diets}
+            onSelect={setSheetItem}
+          />
+        </div>
+      )}
+
       {cats.map((c) => (
         <section
           key={c}
@@ -829,6 +804,9 @@ export function MenuBrowser({
                       className="menu-row-open"
                       onClick={() => setSheetItem(i)}
                       aria-label={`${i.name_en}, ${dollars(i.base_price_cents)} — open to customize`}
+                      // Codex round 1 on #300 — the label stays concise; the newly visible
+                      // description reaches a screen reader as the button's DESCRIPTION.
+                      aria-describedby={i.description_en ? `row-desc-${i.id}` : undefined}
                     >
                       <span
                         style={{
@@ -896,6 +874,14 @@ export function MenuBrowser({
                             {i.name_my}
                           </span>
                         )}
+                        {/* Phase 1a — the row never showed a dish's description (when it has one) —
+                            two lines, clamped, so the guest knows what they are ordering
+                            without opening the sheet (v7.2's `.desc`). */}
+                        {i.description_en && (
+                          <span id={`row-desc-${i.id}`} className="menu-row-desc">
+                            {i.description_en}
+                          </span>
+                        )}
                         {badges.length > 0 && (
                           <span
                             style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}
@@ -921,7 +907,7 @@ export function MenuBrowser({
                     {i.modifierGroups.some((g) => g.minSelect >= 1) ? (
                       <button
                         type="button"
-                        className="menu-choose-btn"
+                        className="menu-choose-btn menu-add-plus"
                         data-soldout={i.is_sold_out || undefined}
                         onClick={() => setSheetItem(i)}
                         aria-label={
@@ -930,7 +916,7 @@ export function MenuBrowser({
                             : `Choose options for ${i.name_en}`
                         }
                       >
-                        {i.is_sold_out ? "Sold out" : "Choose"}
+                        {i.is_sold_out ? "Sold out" : <span aria-hidden>+</span>}
                       </button>
                     ) : (
                       <AddButton menuItemId={i.id} name={i.name_en} soldOut={i.is_sold_out} />

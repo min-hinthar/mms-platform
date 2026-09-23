@@ -62,17 +62,24 @@ export function buildStartHereRows<T extends StartHereRowItem>(
    * degrades to the row that shipped before, not to an empty one.
    */
   popularIds: readonly string[] = [],
+  /**
+   * Phase 1a (Codex round 1 on #300) — the fewest cards row A may show. The 3 was the deleted
+   * MARQUEE's floor (a loop of two reads as broken); the static picks row has no such need, and at
+   * 3 a thin or degraded catalog (two most-ordered dishes in stock) lost its whole Most-ordered lens.
+   * It also decides `dataBacked`: one in-stock export match is honest evidence for its own card.
+   */
+  rowMin: number = ROW_MIN,
 ): { rowA: T[]; rowB: T[]; dataBacked: boolean } {
   const byId = new Map(items.map((i) => [i.id, i]));
   const loved = favorites
     .map(({ id }) => byId.get(id))
     .filter((i): i is T => !!i && !i.is_sold_out);
-  const dataBacked = loved.length >= ROW_MIN;
+  const dataBacked = loved.length >= rowMin;
   const poolA = dataBacked
     ? loved
     : items.filter((i) => !i.is_sold_out && i.tags.includes("popular"));
   const rowA = poolA.slice(0, START_HERE_ROW_CAP);
-  if (rowA.length < ROW_MIN) return { rowA: [], rowB: [], dataBacked };
+  if (rowA.length < rowMin) return { rowA: [], rowB: [], dataBacked };
 
   // Row B — round-robin the categories (first-appearance order = the server's sort_order) over
   // what's left: lap 1 takes each category's first remaining dish, lap 2 its second, until the cap.

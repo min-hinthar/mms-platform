@@ -37,6 +37,7 @@ import { classifyScan } from "@/lib/scan-gate";
 import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
+import { usePublishCart } from "@/components/ActiveOrderProvider";
 
 // The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
 // Weee!-anatomy cards, one-tap add) and Scan (camera on shelf barcodes), with the shared name-search
@@ -90,10 +91,15 @@ export default function Grocery() {
   // later-issued read has already applied.
   const reqSeq = useRef(0);
   const appliedSeq = useRef(0);
+  // Codex round 4 on #300 — the header's "Your basket · N" counts only what a server read APPLIED
+  // (the stepper's optimistic `setLines` never passes through here, so a refused edit is never
+  // published as fact); the effect below publishes it, with the mode /grocery's URL does not carry.
+  const [confirmedQty, setConfirmedQty] = useState<number | null>(null);
   const applyLines = useCallback((seq: number, ls: GroceryLine[]) => {
     if (seq <= appliedSeq.current) return;
     appliedSeq.current = seq;
     setLines(ls);
+    setConfirmedQty(ls.reduce((n, l) => n + l.qty, 0));
   }, []);
   // The CURRENT cart, readable from any async continuation (the mountedRef pattern — written only
   // in its own effect, read in callbacks). The seq tickets only ORDER responses; they cannot prove
@@ -106,6 +112,10 @@ export default function Grocery() {
   useEffect(() => {
     cartIdRef.current = cartId;
   }, [cartId]);
+  const publishCart = usePublishCart();
+  useEffect(() => {
+    if (cartId) publishCart(cartId, confirmedQty, "scango");
+  }, [cartId, confirmedQty, publishCart]);
   useEffect(() => {
     linesRef.current = lines;
   }, [lines]);

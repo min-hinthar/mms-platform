@@ -4,11 +4,13 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { decodeCartCount, encodeCartCount } from "@/lib/order-noun";
 
 /**
  * Cross-route wayfinding memory (M-nav). QR screens are otherwise islands: `mode` is a URL param on `/menu`
@@ -38,16 +40,38 @@ type ActiveOrderCtx = {
   /** Drop the resumable order (the pill/card call this once its live status reads terminal). */
   clearOrder: () => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
-   *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit. */
-  publishCart: (id: string) => void;
+   *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
+   *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
+   *  has not SEEN the contents yet (the first view is still loading, or failed) — the stored count is
+   *  dropped rather than written as a zero it never observed. */
+  publishCart: (id: string, count: number | null, mode?: string) => void;
+  /** "Leave this table": forget the open cart pointer and its count on this device. */
+  forgetCart: () => void;
+  /** The published cart's item count; null when this device has not seen the cart's contents (a cart
+   *  reached by URL) — the header then names the object without claiming a number. */
+  cartCount: number | null;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
 const KEY_CART = "mms.qr.activeCart";
+const KEY_CART_COUNT = "mms.qr.activeCartCount";
 const KEY_ORDER = "mms.qr.activeOrder";
+const KNOWN_MODES = new Set(["dinein", "pickup", "scango"]);
 const ORDER_TTL_MS = 4 * 60 * 60 * 1000; // 4h — a resumable order self-expires
 
 const Ctx = createContext<ActiveOrderCtx | null>(null);
+
+const noop = () => {};
+
+/** For surfaces that may render outside the provider (Checkout's suites mount it bare): publishing is
+ *  best-effort wayfinding, never a reason to throw. */
+export function usePublishCart(): ActiveOrderCtx["publishCart"] {
+  return useContext(Ctx)?.publishCart ?? noop;
+}
+
+export function useForgetCart(): ActiveOrderCtx["forgetCart"] {
+  return useContext(Ctx)?.forgetCart ?? noop;
+}
 
 export function useActiveOrder(): ActiveOrderCtx {
   const ctx = useContext(Ctx);
@@ -76,6 +100,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<string | null>(null);
   const [cartId, setCartId] = useState<string | null>(null);
+  const [cartCount, setCartCount] = useState<number | null>(null);
   const [order, setOrder] = useState<ActiveOrder | null>(null);
   const hydrated = useRef(false);
 
@@ -87,11 +112,14 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
 
     let nextMode: string | null = null;
     let nextCart: string | null = null;
+    let nextCount: number | null = null;
     try {
       if (urlMode) localStorage.setItem(KEY_MODE, urlMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
       nextMode = urlMode ?? localStorage.getItem(KEY_MODE);
       nextCart = urlCart ?? localStorage.getItem(KEY_CART);
+      // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.
+      nextCount = decodeCartCount(localStorage.getItem(KEY_CART_COUNT), nextCart);
     } catch {
       nextMode = urlMode;
       nextCart = urlCart;
@@ -115,11 +143,13 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
         try {
           localStorage.setItem(KEY_ORDER, JSON.stringify(captured));
           localStorage.removeItem(KEY_CART); // the open cart is now a placed order
+          localStorage.removeItem(KEY_CART_COUNT);
         } catch {
           /* private mode — the pill just won't persist across a reload */
         }
         nextOrder = captured;
         nextCart = null; // drop the "back to cart" affordance — the cart became this order
+        nextCount = null;
       }
     }
     if (nextOrder === undefined && !hydrated.current) nextOrder = readStoredOrder();
@@ -128,6 +158,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     const raf = requestAnimationFrame(() => {
       setMode(nextMode);
       setCartId(nextCart);
+      setCartCount(nextCount);
       if (nextOrder !== undefined) setOrder(nextOrder);
     });
     return () => cancelAnimationFrame(raf);
@@ -143,17 +174,45 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  const publishCart = useCallback((id: string) => {
+  const publishCart = useCallback((id: string, count: number | null, mode?: string) => {
     if (!id) return;
+    // Codex round 3 on #300: the door a cart belongs to travels WITH it when the publisher knows it
+    // from the session (Checkout's split context). /grocery carries no `?mode=` in its URL, so the
+    // URL-observed mode could still name a market basket "Your order" — or a stale `dinein` could
+    // withhold its count as if it were a shared table cart.
+    const known = mode && KNOWN_MODES.has(mode) ? mode : null;
     try {
       localStorage.setItem(KEY_CART, id);
+      if (known) localStorage.setItem(KEY_MODE, known);
+      if (count === null) localStorage.removeItem(KEY_CART_COUNT);
+      else localStorage.setItem(KEY_CART_COUNT, encodeCartCount(id, count));
     } catch {
       /* ignore */
     }
-    requestAnimationFrame(() => setCartId(id)); // async setState (lint-safe), like clearOrder
+    requestAnimationFrame(() => {
+      setCartId(id); // async setState (lint-safe), like clearOrder
+      setCartCount(count);
+      if (known) setMode(known);
+    });
   }, []);
 
-  return (
-    <Ctx.Provider value={{ mode, cartId, order, clearOrder, publishCart }}>{children}</Ctx.Provider>
+  const forgetCart = useCallback(() => {
+    try {
+      localStorage.removeItem(KEY_CART);
+      localStorage.removeItem(KEY_CART_COUNT);
+    } catch {
+      /* ignore */
+    }
+    requestAnimationFrame(() => {
+      setCartId(null);
+      setCartCount(null);
+    });
+  }, []);
+
+  const value = useMemo(
+    () => ({ mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart }),
+    [mode, cartId, cartCount, order, clearOrder, publishCart, forgetCart],
   );
+
+  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

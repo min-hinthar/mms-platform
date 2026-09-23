@@ -1377,6 +1377,12 @@ html[data-fx="off"] .pa-mid {
      2px margin + 6px padding-top preserves the 8px gap from the search field above. */
   margin-top: 2px;
   padding-block: 6px;
+  /* Bleed into the toolbar's 20px gutter so the active pill's lift shadow is not sliced into a
+     square at the scroller's edge, and the last pill runs to the screen edge (reads as "more →")
+     instead of stopping dead at the gutter. scroll-padding keeps snapping on the gutter line. */
+  margin-inline: calc(-1 * var(--s5));
+  padding-inline: var(--s5);
+  scroll-padding-inline: var(--s5);
   scroll-snap-type: x proximity;
 }
 .menu-rail::-webkit-scrollbar {
@@ -8843,6 +8849,9 @@ a .chrome-en {
 }
 .ptr-btn {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   /* 44px target kept by padding rather than height, so the visible text still sits on the eyebrow's
      optical line instead of inflating the row (QA §A: the TARGET is 44, the ink need not be). */
   min-height: 44px;
@@ -11461,4 +11470,160 @@ html[data-fx="lite"] .mms-scrim {
   .split-parked-details > summary::after {
     transition: none;
   }
+}
+
+/* ── Phase 1a — the menu's first screen: masthead → toolbar → picks → dishes ─────────────────────
+   The owner reversed M133 ("Toolbar first", 2026-09-23). The masthead is now three quiet lines — the
+   door (a control at a table), the page title, one greeting — so the toolbar and the first dish land
+   on the opening screen of a 390×844 phone. */
+.menu-masthead {
+  padding: var(--s5) var(--s5) var(--s2);
+}
+.menu-title {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-h1);
+  line-height: var(--lh-tight);
+}
+.menu-greet {
+  margin-top: var(--s1);
+}
+.menu-greet-hello {
+  margin: 0;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  color: var(--ac-strong);
+}
+.menu-greet-line {
+  margin: 2px 0 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+/* The dine-in door eyebrow as a control: the eyebrow's own type, a full 44px target, a caret that
+   says "there is more here". It is the table's menu, so it reads as part of the heading block
+   rather than as a button competing with the food. */
+.menu-context-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  margin: 0 0 0 calc(-1 * var(--s2));
+  padding: 0 var(--s2);
+  border: none;
+  border-radius: var(--r-full);
+  background: none;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+.menu-context-caret {
+  font-size: var(--fs-sm);
+  line-height: 1;
+  transform: translateY(-2px);
+}
+@media (hover: hover) {
+  .menu-context-btn:hover {
+    background: color-mix(in oklab, var(--ac) 8%, transparent);
+  }
+}
+.table-options {
+  display: grid;
+  gap: var(--s3);
+  padding-bottom: var(--s2);
+}
+.table-options .ui-btn {
+  justify-content: flex-start;
+  text-align: left;
+}
+.table-options-label {
+  display: grid;
+  gap: 2px;
+}
+.table-options-note {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  letter-spacing: normal;
+  opacity: 0.85;
+}
+
+/* The picks row — lens pills on the menu's own selection vocabulary (.menu-tab / .menu-tab-on),
+   then a static, snapping rail. */
+.menu-picks {
+  padding: var(--s3) var(--s5) 0;
+}
+.picks-lenses {
+  display: flex;
+  gap: var(--s2);
+  overflow-x: auto;
+  /* A horizontal scroller must not hand its overscroll to the page (iOS back-swipe / Chrome
+     history-swipe) — the overscroll contract pins this on every rail. */
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  /* Same bleed as .menu-rail — the lit pill's lift shadow needs room on every side. */
+  margin: calc(-1 * var(--s1)) calc(-1 * var(--s5)) 0;
+  padding: var(--s1) var(--s5) var(--s2);
+}
+.picks-lenses::-webkit-scrollbar {
+  display: none;
+}
+.picks-rail {
+  scroll-snap-type: x mandatory;
+  /* Mandatory snap aligns a card's start to the SCROLLPORT edge unless told otherwise — without
+     this the first card snaps flush to the screen edge, off the 20px gutter everything else sits on. */
+  scroll-padding-inline: var(--s5);
+}
+.picks-rail > li {
+  scroll-snap-align: start;
+}
+.picks-empty {
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+
+/* A dish's description on its row — two lines, then an ellipsis; the sheet holds the rest. */
+.menu-row-desc {
+  display: -webkit-box;
+  margin-top: var(--s1);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--t2);
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* The v7.2 `.add`: one round "+" for every row's trailing control (Add AND Choose), accent fill,
+   a soft accent glow, the 44px target as its size. */
+.menu-add-plus {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: var(--r-full);
+  font-size: var(--fs-h2);
+  line-height: 1;
+  box-shadow: 0 2px 8px color-mix(in oklab, var(--ac) 40%, transparent);
+}
+.menu-add-plus[data-soldout] {
+  width: auto;
+  padding: 0 var(--s4);
+  font-size: var(--fs-body);
+  box-shadow: none;
+}
+
+/* Phase 1a — the header's order slot carries its count, in the cart bar's own capsule language. */
+.app-header-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
 }

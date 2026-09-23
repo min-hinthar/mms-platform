@@ -4,6 +4,62 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 1a — the menu's first screen, and one name for the open order (2026-09-23)
+
+**The owner reversed M133 ("Toolbar first") and asked for world-class design thinking on every
+decision.** The menu opened on a display-size title, a textured arrival card, two exit tiles, two
+auto-scrolling rows with a pause button, and a "taste buds" panel — the search and categories sat
+~1,170px down, the first Add ~1,530px. Now:
+
+- **Masthead → toolbar → picks → dishes.** A three-line masthead (the door, "Menu", one bilingual
+  greeting line); the sticky search / Dietary / categories straight after it; then ONE static row of
+  picks with three lenses on the menu's own selection pills — **Your favorites** (once there are any),
+  **Most ordered** (the POS set, M135), **✦ Surprise me** (the draw's honesty rules unchanged,
+  `lib/menu/taste.ts`). The lens order lives in `lib/menu/picks.ts` (a lens with nothing to show is
+  never offered). StartHereBand, TasteBand, FavoritesRail and MarqueeRail are deleted.
+- **At a table, the door eyebrow is the table's control** ("At the table ⌄" → `TableOptions`): the
+  two exits that sat as tiles above the food ("Back to the start", "Leave this table") live in its
+  sheet, with the same promises. The arrival card is a greeting line.
+- **Every dish row shows its description** (two lines, clamped; a dish without one shows none) and ends in
+  the v7.2 round **+** — one shape for Add and for Choose, so the right edge stops zig-zagging.
+- **"Check the menu" → "Refresh"** with the refresh glyph (it read as a link to the page it sat on).
+- **The header's order slot** says "Your order" / "Your basket" (`lib/order-noun.ts`) with the item
+  count, and only for a cart that has something in it — merely viewing the menu used to publish an
+  empty cart and light "Cart" on every other page (`showOrderSlot`, red-first).
+- **Blind pass (REJECT → fixed).** The count is a CLAIM, so it is published only from views that
+  saw the cart: the menu publishes "unknown" until its first view lands (it used to write the empty
+  initial list as a confirmed 0, hiding a full cart after a failed read); /cart now publishes its
+  confirmed lines (removing everything there left the header claiming the old number); and a dine-in
+  cart never states one at all — tablemates edit it, so the header names it without a number and never
+  hides it (`slotCount` · `decodeCartCount`, red-first; `CartPublisher.test` · a `Checkout.test` case).
+  "Leave this table" now forgets the table's cart pointer too. Surprise is an action, not a toggle
+  (no `aria-pressed`), and a draw moves focus to what it produced; Refresh's accessible name starts
+  with its visible word (WCAG 2.5.3); the picks row pins its opening lens so a first heart never swaps
+  it mid-browse (`resolveLens`). Rails bleed into the gutter so the lit pill's shadow is not sliced
+  square, and the picks rail snaps on the 20px gutter instead of the screen edge.
+- **Codex round 1.** Surprise is offered only when a draw could produce something (`surpriseEligible`
+  — the draw never picks a hearted dish, so an all-hearted pool was an empty lens); the static row keeps
+  a thin most-ordered set (`buildStartHereRows(…, rowMin)` — the 3-card floor was the deleted marquee's);
+  a row's description reaches a screen reader as the dish button's `aria-describedby`.
+- **Codex round 2.** The menu publishes the sum of its CONFIRMED lines, never the optimistic count (an
+  in-flight edit followed by an instant navigation could leave a refused number in storage); a Surprise
+  draw that a filter change emptied says "Those picks don't fit any more. Tap Shuffle for new ones."
+  instead of claiming there is nothing new.
+- **A KDS test that failed 1 run in 3 under load** (`KdsBoard.test` › kitchen-8 warn chip) now flushes
+  the preference's two-microtask hydration explicitly instead of racing `waitFor`'s 1s wall clock
+  against a cold jsdom render; 12/12 green under a concurrent mutation run, and both of its mutants
+  (the capture listener, the hydration write) still turn it red.
+- **Codex round 3.** /cart publishes the SESSION's mode with its cart (`publishCart(id, count, mode)`):
+  /grocery's URL carries no `?mode=`, so the header could call a market basket "Your order" off a
+  stale door, or withhold its count as if it were a shared table cart. And the table's number moved
+  into the eyebrow ("At table 7 ⌄", sheet titled "Table 7") — the arrival card that carried it is
+  gone, and GuestList's lock/settle banners return before their own "Table N".
+- **Codex round 4.** /grocery publishes its basket to the header from every APPLIED server read (never
+  the stepper's optimistic lines), with mode `scango` — closes F24, and stops a badge published once
+  from /cart going stale after edits in the market. /cart claims no count when its split read failed
+  and the mode is unknown. Pull-to-refresh is suspended while the table sheet is open (dragging the
+  sheet down to dismiss also armed a refresh).
+
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 
 **Why:** a side-by-side of the live QR and delivery apps found the gap was not detail craft (QR's item

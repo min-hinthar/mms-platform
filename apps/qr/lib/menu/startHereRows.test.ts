@@ -66,6 +66,20 @@ describe("buildStartHereRows", () => {
     expect(rowB).toEqual([]);
   });
 
+  it("the static picks row keeps a thin most-ordered set (rowMin 1)", () => {
+    // Codex round 1 on #300. MUTATION: ignore `rowMin` in the floor — two in-stock most-ordered
+    // dishes lose their whole lens again; red.
+    const items = [item("a", "Noodles"), item("b", "Curries"), item("c", "Curries")];
+    const thin = buildStartHereRows(items, [{ id: "a" }, { id: "b" }], [], 1);
+    expect(thin.rowA.map((i) => i.id)).toEqual(["a", "b"]);
+    // MUTATION: ignore `rowMin` in `dataBacked` — the two export-backed dishes fall to the tag
+    // fallback (here: nothing) and the label stops saying "Most ordered"; red.
+    expect(thin.dataBacked).toBe(true);
+    const tagged = buildStartHereRows([item("x", "Noodles", ["popular"])], [], [], 1);
+    expect(tagged.rowA.map((i) => i.id)).toEqual(["x"]);
+    expect(tagged.dataBacked).toBe(false);
+  });
+
   it("row B round-robins the categories over what row A left, in menu order", () => {
     const items = catalog({ Noodles: 4, Curries: 4, Desserts: 4 });
     // Row A takes the first 3 noodles (data-backed).

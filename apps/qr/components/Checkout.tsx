@@ -61,6 +61,7 @@ import { seatColor, seatInitial } from "@/lib/avatars";
 import { BlurUpImage } from "./menu/BlurUpImage";
 import { PhotoPlaceholder } from "./menu/PhotoPlaceholder";
 import { useAnonSession } from "@/lib/useAnonSession";
+import { usePublishCart } from "./ActiveOrderProvider";
 import { failureCopy, useConnectionTruth } from "@/lib/useConnectionTruth";
 import { useCartRealtime } from "@/lib/realtime";
 import { useCoalescedRefresh } from "@/lib/echo-refresh";
@@ -259,6 +260,20 @@ export function Checkout({
   asapAvailable?: boolean;
 }) {
   const [items, setItems] = useState<CartItem[]>(initialItems);
+  // Blind pass on #300 — the header's "Your order · N" is only as fresh as its last publisher, and
+  // /cart is where lines are removed: without this, emptying the cart here left the header claiming
+  // the old count on every other page. `items` is the server-CONFIRMED base (the page renders this
+  // component only after a successful view read), never the optimistic overlay.
+  const publishCart = usePublishCart();
+  const confirmedCount = items.reduce((n, i) => n + i.qty, 0);
+  // The session's own mode rides along (Codex round 3): /grocery's URL carries no `?mode=`. When the
+  // split read failed the mode is UNKNOWN, and so is what the count may claim (Codex round 4): a
+  // number published under a stale door could be withheld as a shared table's, or badge a basket
+  // as an order — so the count goes out unknown too, and the header names the cart without one.
+  const publishedMode = splitContext?.mode || undefined;
+  useEffect(() => {
+    publishCart(cartId, publishedMode ? confirmedCount : null, publishedMode);
+  }, [cartId, confirmedCount, publishedMode, publishCart]);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth
   // (React 19 useOptimistic). Render reads `viewItems`; `items`/`setItems` stay the reconciliation base.
