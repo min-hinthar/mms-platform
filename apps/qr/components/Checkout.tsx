@@ -2154,10 +2154,18 @@ export function Checkout({
       }
     };
   });
+  // Where the screen OPENED (read once, in the mount effect below).
+  const openedOnBill = useRef(stage === "bill" && staged);
   useEffect(() => {
-    // A reload lands on a stale step hash: Pay cannot resume (the intent lives in memory), and a
-    // Bill the screen has not opened is not a place to be. Fold it into where the screen IS.
-    if (normalizeHash(window.location.hash) !== "") replaceHash("");
+    // Codex round 1 on #301 — a table whose dishes are all sent OPENS on the Bill, and the in-page
+    // "Back to your order" says the Order stage is behind it; browser Back must agree. So the entry
+    // the page loaded on becomes the Order step and a #bill entry is pushed over it. A reload on
+    // #bill keeps the stack it already built (the Order entry is still beneath it).
+    // A stale #pay cannot resume (the intent lives in memory) — it folds into where the screen IS.
+    const here: CheckoutHash = openedOnBill.current ? "#bill" : "";
+    const now = normalizeHash(window.location.hash);
+    if (openedOnBill.current && now === "") pushHash("#bill");
+    else if (now !== here) replaceHash(here);
     const onPop = () => onPopRef.current();
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);

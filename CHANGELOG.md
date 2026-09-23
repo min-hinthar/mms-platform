@@ -39,6 +39,9 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
   missed, so no Send shows) now says to reload. Two Backs cannot start two leaves; the Pay button
   (card and wallet) holds while a leave releases the lock. The "who sends" note shows only to a real
   guest at a table with a host.
+- **Codex round 1.** A Bill the page OPENS on (every dish already sent) now has its Order step
+  behind it: the loaded entry becomes the Order step and `#bill` is pushed over it, so browser Back
+  agrees with the in-page "Back to your order" instead of leaving /cart.
 
 ### Phase 1a — the menu's first screen, and one name for the open order (2026-09-23)
 

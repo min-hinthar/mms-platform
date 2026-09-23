@@ -1299,9 +1299,13 @@ describe("Phase 1b — the browser's Back walks the checkout's own steps", () =>
     // MUTATION: flip the stage without pushing — the entry never exists, Back leaves /cart; red.
     window.history.replaceState(null, "", "/cart?cart=cart-1");
     mount({ splitContext: DINEIN, initialItems: [{ ...ITEM, lineState: "fired" }] });
-    // Every line is with the kitchen, so the Order stage offers the bill as its primary action.
-    const toOrder = screen.queryByRole("button", { name: /Back to your order/i });
-    if (toOrder) fireEvent.click(toOrder); // initialStage may open on the Bill
+    // Every line is with the kitchen, so the page OPENS on the Bill (with an Order entry beneath it).
+    // Step back to the Order stage first; that walk is itself the in-page control's history.back().
+    fireEvent.click(screen.getByRole("button", { name: /Back to your order/i }));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /View bill/i })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
     expect(window.location.hash).toBe("#bill");
     expect(screen.getByRole("button", { name: /Back to your order/i })).toBeTruthy();
@@ -1415,9 +1419,7 @@ describe("Phase 1b — a stale history entry is replaced, never stacked (blind p
       },
       initialItems: [{ ...ITEM, lineState: "fired" }],
     });
-    const toOrder = screen.queryByRole("button", { name: /Back to your order/i });
-    if (toOrder) fireEvent.click(toOrder);
-    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    // Opens on the Bill (every dish sent), which seeds #bill over the Order entry.
     expect(window.location.hash).toBe("#bill");
     // Simulate the browser landing on a stale #pay entry (a Forward after leaving Pay).
     window.history.pushState(null, "", "/cart?cart=cart-1#pay");
@@ -1449,5 +1451,53 @@ describe("Phase 1b — the pay gate needs someone who can send", () => {
       screen.queryByRole("button", { name: /Send everything to the kitchen first/i }),
     ).toBeNull();
     expect(document.body.textContent).not.toContain("sends the table’s order");
+  });
+});
+
+describe("Phase 1b — a bill the page OPENS on still has its Order step behind it (Codex round 1)", () => {
+  it("seeds #bill over the entry it loaded on, so Back walks to the Order stage, not off /cart", async () => {
+    // MUTATION: skip the seeding push — Back from an opening Bill leaves /cart (skipping the Order
+    // stage the in-page "Back to your order" promises); red.
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    const before = window.history.length;
+    mount({
+      splitContext: {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host",
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
+        tableNumber: 7,
+      },
+      initialItems: [{ ...ITEM, lineState: "fired" }],
+    });
+    expect(window.location.hash).toBe("#bill");
+    expect(window.history.length).toBe(before + 1);
+    await act(async () => {
+      window.history.back();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    // The Order stage: the bill door is back, the Bill's own back control is gone.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /Back to your order/i })).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: /View bill/i })).toBeTruthy();
+  });
+
+  it("an Order stage the page opens on pushes nothing", () => {
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    const before = window.history.length;
+    mount({
+      splitContext: {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host",
+        members: [{ seat: MY_SEAT, name: "Me", role: "host" }],
+        tableNumber: 7,
+      },
+      initialItems: [{ ...ITEM, lineState: "draft" }],
+    });
+    expect(window.location.hash).toBe("");
+    expect(window.history.length).toBe(before);
   });
 });
