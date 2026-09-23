@@ -293,7 +293,7 @@ export function SplitSection({
           Splitting the bill?
         </h2>
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: 0, lineHeight: 1.5 }}>
-          Pay as one bill here — or pay at the counter and our staff will split it for you.
+          Pay as one bill here — or ask at the counter, and our staff can split it for you.
         </p>
         <details className="split-parked-details">
           <summary>See each person’s share</summary>

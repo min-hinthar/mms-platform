@@ -16,6 +16,10 @@ describe("bareMenuRedirect — a mode-less /menu never becomes scan & go (F9)", 
     );
   });
 
+  it("reads a repeated key as its LAST value, the same as the proxy's URLSearchParams does", () => {
+    expect(bareMenuRedirect({ t: ["OLD", "NEW"] })).toBe("/menu?mode=dinein&t=NEW");
+  });
+
   it("honours an explicit mode, whatever it is", () => {
     for (const mode of ["dinein", "pickup", "scango"]) {
       expect(bareMenuRedirect({ mode, t: "x" })).toBeNull();

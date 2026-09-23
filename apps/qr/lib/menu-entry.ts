@@ -10,7 +10,13 @@
  *     (the `menuHref` rule, lib/menu-href.ts).
  * An EXPLICIT mode is always honoured — this only answers the question nobody asked.
  */
-export function bareMenuRedirect(params: Record<string, string | undefined>): string | null {
+export function bareMenuRedirect(
+  raw: Record<string, string | string[] | undefined>,
+): string | null {
+  // A repeated key (`?t=a&t=b`) arrives as an ARRAY in a page's searchParams but as its last value
+  // through the proxy's URLSearchParams — take the last value on both paths so they agree.
+  const params: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(raw)) params[k] = Array.isArray(v) ? v[v.length - 1] : v;
   if (params.mode) return null;
   if (!params.t && !params.j) return "/";
   const q = new URLSearchParams({ mode: "dinein" });

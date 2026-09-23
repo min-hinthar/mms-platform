@@ -247,10 +247,12 @@ describe("the responsive contract — the stylesheet half", () => {
     // Phase 0 retired the phone drift and its pause coin. If a clock-driven animation returns on
     // either plane, the WCAG 2.2.2 control must return with it — this pins the pair together.
     // MUTATION: re-add `@media (pointer: coarse) { .pa-far { animation: paFarDrift … } }` → red.
+    // Any animation property (the shorthand OR a longhand like `animation-name`) on ANY part of the
+    // room — the planes, the grain, the host itself — not just the two selectors it used to live on.
     const clocked = DECLS.filter(
       (d) =>
-        d.selector.split(",").some((s) => /(^|\s)\.pa-(far|mid)$/.test(s.trim())) &&
-        d.prop === "animation" &&
+        d.selector.split(",").some((s) => /(^|\s)\.(pa-[\w-]+|paper-ambient)$/.test(s.trim())) &&
+        /^animation(-name)?$/.test(d.prop) &&
         d.value !== "none",
     );
     expect(clocked.map((d) => `${d.media ?? ""} ${d.selector} { animation: ${d.value} }`)).toEqual(

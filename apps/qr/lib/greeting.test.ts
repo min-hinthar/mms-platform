@@ -19,4 +19,11 @@ describe("greetingFor — the restaurant's clock, not the server's", () => {
     expect(greetingFor(at("2026-09-22T19:00:00Z"))).toBe("Good afternoon"); // 12:00 PDT
     expect(greetingFor(at("2026-09-23T00:00:00Z"))).toBe("Good evening"); // 17:00 PDT
   });
+
+  it("follows the shop's clock across the DST change, not a fixed offset", () => {
+    // December is PST (UTC−8). 00:30 UTC is 16:30 in the shop — still afternoon — but a mutant that
+    // hard-codes the summer offset (UTC−7) reads 17:30 and says evening; red.
+    expect(greetingFor(at("2026-12-16T00:30:00Z"))).toBe("Good afternoon");
+    expect(greetingFor(at("2026-12-15T12:00:00Z"))).toBe("Good morning"); // 04:00 PST
+  });
 });

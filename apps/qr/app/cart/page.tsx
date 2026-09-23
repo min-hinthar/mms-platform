@@ -8,6 +8,7 @@ import { getSplitContext, type SplitContext } from "@/lib/split";
 import { Checkout } from "@/components/Checkout";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
 import { EmptyState, Icon, buttonClass } from "@mms/ui";
+import { CART_EMPTY_COPY, cartEmptyState } from "@/lib/cart-empty-copy";
 import { normalizePickupSlot } from "@/lib/pickup-slot";
 
 // Cart + checkout. The cartId comes from the URL (the cart bar links here with the server-issued
@@ -71,18 +72,19 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
   // "Start from the menu" above a button that went to the door picker; the sentence now names the
   // destination the button actually takes (`menuHref(null)` — with no readable cart there is no mode
   // to carry, and a bare `/menu` would drop the diner into a grocery session, W9a).
+  const emptyState = cartEmptyState(Boolean(cart), mine);
   if (!cart || !view)
     return (
       <main className="page-col page-col-narrow" style={{ padding: 24 }}>
-        {mine ? (
+        {emptyState === "complete" ? (
           // ⚠️ `mine` is also true for a SPLIT payer, whom `getOrderHistory` (earned_by-scoped) will
           // NOT find — so this says "see it" rather than promising a receipt (OPEN-ITEMS M29). The
           // headline is true for both: they did pay, and it is complete.
           <EmptyState
             layout="page"
             icon={<Icon name="check" size={28} />}
-            title="This order is complete"
-            subtitle="It’s already paid for — there’s nothing left to check out here."
+            title={CART_EMPTY_COPY.complete.title}
+            subtitle={CART_EMPTY_COPY.complete.subtitle}
             action={
               <div style={{ display: "grid", gap: "var(--s2)", justifyItems: "center" }}>
                 <Link href="/account" className={buttonClass({ size: "lg" })}>
@@ -98,11 +100,14 @@ export default async function Cart({ searchParams }: { searchParams: Promise<{ c
             }
           />
         ) : (
+          // `none` — no cart in the URL; `closed` — an order that exists but is not open HERE (a
+          // tablemate after the host paid, a counter-settled tab, a failed ownership read). The two
+          // must never share a sentence: lib/cart-empty-copy.ts.
           <EmptyState
             layout="page"
             icon={<Icon name="receipt" size={28} />}
-            title="No order on this device yet"
-            subtitle="Choose dine-in, to-go or the market, and your order will show up here."
+            title={CART_EMPTY_COPY[emptyState].title}
+            subtitle={CART_EMPTY_COPY[emptyState].subtitle}
             action={
               <Link href={menuHref(null)} className={buttonClass({ size: "lg" })}>
                 {menuLinkText(null)}{" "}

@@ -4,7 +4,7 @@
  *
  * The type scale, the weight scale and the tracking scale are tokens (`packages/ui/src/tokens.css`).
  * Before Phase 0 the stylesheet carried 267 literal font-weights (none tokenized), 162 literal px
- * font-sizes and 60 literal letter-spacings, plus 316 inline `fontWeight` numbers — which is how
+ * font-sizes and 60 literal letter-spacings, plus 323 inline `fontWeight` numbers — which is how
  * "bold" came to mean 600, 700 or 800 depending on who wrote the rule. The codemod took the exact
  * matches; what is left is real design debt (a 10px, a 0.18em) that a person has to decide.
  *
@@ -20,9 +20,15 @@
  *     commented-out style cannot satisfy or trip it. Tests, Satori image routes (which cannot read
  *     CSS variables) and emails (mail clients cannot either) are excluded.
  *
+ * NOT covered, stated rather than implied: a value reached through an identifier or a shorthand
+ * property (`fontWeight: W`, `{ fontWeight }`) — the AST cannot know it without type evaluation.
+ * Numeric inline weights are also banned outright by ESLint; the rest is review's job.
+ *
  * Red-first, each induced and watched fail, restored: a `font-weight: 700` added to globals.css; a
  * `fontWeight: 800` added to a component; a `letterSpacing: "0.04em"` in a conditional branch; a
- * literal INSIDE a comment (must stay green); a deleted literal (must ask for `--update`).
+ * literal INSIDE a comment (must stay green); a deleted literal (must ask for `--update`); and the
+ * blind pass's four evasions — `var(--nope, 13px)`, `font-weight: bold`, a THIRD stylesheet, and a
+ * literal in `packages/ui/src/icon.tsx` — each now raises a count.
  */
 import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
@@ -35,9 +41,16 @@ const ts = require(
 
 const ROOT = join(import.meta.dirname, "..");
 const BASELINE = join(ROOT, "scripts", "style-literals.baseline.json");
-const CSS_FILES = ["apps/qr/app/globals.css", "packages/ui/src/primitives.css"];
+// EVERY stylesheet under the app and the package (blind pass: a two-file list let a third sheet
+// ship literals unseen). tokens.css is the definition layer and the only exclusion.
+const CSS_ROOTS = ["apps/qr/app", "apps/qr/components", "packages/ui/src"];
+const CSS_EXCLUDE = /[/\\]tokens\.css$/;
 const TSX_ROOTS = ["apps/qr/app", "apps/qr/components", "apps/qr/lib", "packages/ui/src"];
-const EXCLUDE = /(\.test\.|__tests__|[/\\](opengraph-image|twitter-image|apple-icon|icon)\.tsx$)/;
+// The Satori image routes live under apps/qr/app ONLY — an `icon.tsx` anywhere else (the shared
+// `packages/ui/src/icon.tsx`) is ordinary UI and is counted (blind pass: a bare basename match
+// silently excluded it).
+const EXCLUDE =
+  /(\.test\.|__tests__|apps[/\\]qr[/\\]app[/\\](?:.*[/\\])?(opengraph-image|twitter-image|apple-icon|icon)\.tsx$)/;
 
 const PROPS_CSS = { "font-weight": "weight", "font-size": "size", "letter-spacing": "tracking" };
 const PROPS_TS = { fontWeight: "weight", fontSize: "size", letterSpacing: "tracking" };
@@ -45,10 +58,17 @@ const PROPS_TS = { fontWeight: "weight", fontSize: "size", letterSpacing: "track
 /** A value is a LITERAL when it carries a bare number/length and no token. Keywords (normal,
  *  inherit, bold) and functions over tokens (`var(…)`, `calc(var(…) …)`) are not literals; a
  *  `clamp(14px, …)` IS (a board tier written in numbers is exactly the debt this counts). */
-function isLiteral(value) {
+function isLiteral(value, kind) {
   const v = String(value).trim();
-  if (/var\(/.test(v) && !/\d(px|rem|em)\b/.test(v.replace(/var\([^)]*\)/g, ""))) return false;
-  return /(^|[\s(,])-?\d*\.?\d+(px|rem|em|%)?(?=$|[\s),])/.test(v);
+  // A keyword weight IS a hardcoded weight (`bold` is 700 by another name).
+  if (kind === "weight" && /^(bold|bolder|lighter|normal)$/i.test(v)) return true;
+  // Strip only a BARE token reference. A fallback (`var(--nope, 13px)`) still ships its number
+  // whenever the token is missing, so it stays in the string and is counted (blind pass).
+  const rest = v.replace(/var\(\s*--[\w-]+\s*\)/g, "").trim();
+  // A bare number is a literal for every property (`800`, `0.3`). Inside an expression only a LENGTH
+  // is: `calc(var(--x) * 0.62)` scales a token and ships no hardcoded size.
+  if (/^-?\d*\.?\d+$/.test(rest)) return true;
+  return /(^|[\s(,])-?\d*\.?\d+(px|rem|em|%)(?=$|[\s),])/.test(rest);
 }
 
 function cssLiterals(file) {
@@ -68,7 +88,7 @@ function cssLiterals(file) {
           .replace(/!important/, "")
           .trim();
         const kind = PROPS_CSS[prop];
-        if (kind && isLiteral(value))
+        if (kind && isLiteral(value, kind))
           out.push({ kind: `css-${kind}`, at: `${file}:${bufLine}`, value });
       }
       buf = "";
@@ -82,12 +102,12 @@ function cssLiterals(file) {
   return out;
 }
 
-function walkFiles(dir, acc = []) {
+function walkFiles(dir, acc = [], match = /\.tsx?$/) {
   for (const name of readdirSync(dir)) {
     if (name === "node_modules" || name === ".next") continue;
     const p = join(dir, name);
-    if (statSync(p).isDirectory()) walkFiles(p, acc);
-    else if (/\.tsx?$/.test(name) && !EXCLUDE.test(p)) acc.push(p);
+    if (statSync(p).isDirectory()) walkFiles(p, acc, match);
+    else if (match.test(name) && !EXCLUDE.test(p)) acc.push(p);
   }
   return acc;
 }
@@ -106,7 +126,10 @@ function tsLiterals(path) {
   const leaves = (n, kind) => {
     if (
       ts.isNumericLiteral(n) ||
-      ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && isLiteral(n.text))
+      ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
+        isLiteral(n.text, kind)) ||
+      // `${n}px` builds a length from a number — a literal by construction.
+      (ts.isTemplateExpression(n) && /(px|rem|em)\b/.test(n.getText(sf)))
     ) {
       const { line } = sf.getLineAndCharacterOfPosition(n.getStart(sf));
       out.push({ kind: `tsx-${kind}`, at: `${rel}:${line + 1}`, value: n.getText(sf) });
@@ -143,7 +166,10 @@ function tsLiterals(path) {
 
 export function measure() {
   const sites = [
-    ...CSS_FILES.flatMap(cssLiterals),
+    ...CSS_ROOTS.flatMap((r) => walkFiles(join(ROOT, r), [], /\.css$/))
+      .filter((p) => !CSS_EXCLUDE.test(p))
+      .map((p) => relative(ROOT, p).split(sep).join("/"))
+      .flatMap(cssLiterals),
     ...TSX_ROOTS.flatMap((r) => walkFiles(join(ROOT, r))).flatMap(tsLiterals),
   ];
   const counts = {};

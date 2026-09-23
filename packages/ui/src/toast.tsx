@@ -15,6 +15,10 @@ import type { CSSProperties, ReactNode } from "react";
  * outcomes it announces — do not pair it with a second.
  *
  * `action` renders a real button inside the pill (an Undo) — the only part that takes a pointer.
+ * ⚠️ WCAG 2.2.1: a caller that passes an `action` must not tear the message down on a fixed timer
+ * while that button has focus or the pointer is on the pill — pause the timer (or extend it) on
+ * focus/hover, or a keyboard and screen-reader user cannot reach Undo in time. No production caller
+ * passes one yet (F21 is the first); build that pause into the caller that does.
  */
 export type ToastMessage = {
   /** Changes whenever the message does — keys the pill so a replacement replays the entrance. */

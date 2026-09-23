@@ -49,6 +49,15 @@ recipes, three toasts, page titles at 400/600/900. And a handful of bugs a guest
 **Proof:** 5 new suites/cases (`menu-entry`, `greeting`, `floor-dinein-only`, the board's sign-in link, the
 retired-drift contract), each watched red first; mutant `floor/k21-phones-back-on-the-floor` (748).
 
+**The blind pass (REJECT, one critical) — all closed on the PR:** an unreadable `/cart` told a tablemate
+whose host had paid "No order on this device yet … will show up here" (now three states in
+`lib/cart-empty-copy.ts`: no id · not open HERE · complete); `/kit` is opt-in (preview/dev only); the
+ratchet now counts `var()` fallbacks, keyword weights, EVERY stylesheet, `${n}px` templates and the
+shared `packages/ui/src/icon.tsx` (its Satori exclusion is scoped to `apps/qr/app`); the F11 guard reads
+animation LONGHANDS on any part of the room; the greeting has a winter (PST) case that kills a
+fixed-offset mutant; the proxy's 307 has its own suite (`lib/proxy-menu.test.ts`); repeated query keys
+read as their last value on both paths; a Toast with an action must not time out under focus (WCAG 2.2.1).
+
 ### signin-1 · signin-2 · signin-3 · signin-4 · signin-5 · doors-1 · doors-2 · help-1 · chrome-1 — the sign-in screen and the shared chrome (2026-09-20)
 
 **Slice 7 of the staff-console polish: the front door and everything every screen shares, from the

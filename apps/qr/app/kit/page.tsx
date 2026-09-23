@@ -9,8 +9,9 @@ import { KitDemos } from "./KitDemos";
  * follows the OS, like every page) instead of hunted across twenty screens. It is the review surface
  * for visual PRs: open it on the Vercel preview, flip the OS theme.
  *
- * Never on the production host: a guest who wanders here gets the 404. `VERCEL_ENV` is `preview` on
- * PR deployments (where this page earns its keep) and unset locally.
+ * OPT-IN, never opt-out (blind pass on the Phase 0 PR): it renders only on a Vercel PREVIEW or a
+ * local `next dev`. Any other build — production, or a production build hosted somewhere that does not
+ * set `VERCEL_ENV` — gets the 404, so an unset variable can never publish it.
  */
 export const metadata: Metadata = {
   title: "Kit",
@@ -18,7 +19,8 @@ export const metadata: Metadata = {
 };
 
 export default function KitPage() {
-  if (process.env.VERCEL_ENV === "production") notFound();
+  const visible = process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development";
+  if (!visible) notFound();
   return (
     <main className="page-col" style={{ padding: "var(--s6) var(--s5) var(--s15)" }}>
       <PageMasthead

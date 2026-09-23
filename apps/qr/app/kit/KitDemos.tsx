@@ -72,7 +72,9 @@ function ToastDemo() {
   const show = (m: Omit<ToastMessage, "key">) => {
     if (timer.current !== null) window.clearTimeout(timer.current);
     setMsg({ ...m, key: Date.now() });
-    timer.current = window.setTimeout(() => setMsg(null), 3200);
+    // A toast carrying an action is never timed out from under the person reaching for it
+    // (WCAG 2.2.1 — see the Toast docblock); it leaves when its action is taken.
+    if (!m.action) timer.current = window.setTimeout(() => setMsg(null), 3200);
   };
   return (
     <>
