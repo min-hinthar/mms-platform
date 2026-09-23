@@ -32,3 +32,15 @@ export function picksLenses(counts: {
 export function resolveLens(chosen: PicksLens | null, offered: PicksLens[]): PicksLens | null {
   return chosen && offered.includes(chosen) ? chosen : (offered[0] ?? null);
 }
+
+/**
+ * How many dishes a Surprise draw could actually produce (Codex round 1 on #300): the draw never
+ * picks a dish the diner already hearted (`surpriseMe`), so a pool that is ALL hearts is an empty
+ * lens — and an empty lens is never offered.
+ */
+export function surpriseEligible(
+  pool: readonly { id: string }[],
+  hearted: ReadonlySet<string>,
+): number {
+  return pool.filter((i) => !hearted.has(i.id)).length;
+}

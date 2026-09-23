@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { picksLenses, resolveLens } from "./picks";
+import { picksLenses, resolveLens, surpriseEligible } from "./picks";
 
 describe("picksLenses — the picks row offers only lenses that have something to show", () => {
   it("leads with the diner's favorites, then most ordered, then surprise", () => {
@@ -32,5 +32,18 @@ describe("resolveLens — the row never sits on a lens with nothing to show", ()
     expect(resolveLens("favorites", ["popular", "surprise"])).toBe("popular");
     expect(resolveLens(null, ["surprise"])).toBe("surprise");
     expect(resolveLens("popular", [])).toBeNull();
+  });
+});
+
+describe("surpriseEligible — what a draw could actually produce", () => {
+  it("excludes hearted dishes, exactly as the draw does", () => {
+    // MUTATION: count the whole pool — a diner who hearted every fitting dish is offered a Surprise
+    // that can only open an empty row; red.
+    const pool = [{ id: "a" }, { id: "b" }];
+    expect(surpriseEligible(pool, new Set(["a", "b"]))).toBe(0);
+    expect(surpriseEligible(pool, new Set(["a"]))).toBe(1);
+    expect(
+      picksLenses({ favorites: 2, popular: 0, pool: surpriseEligible(pool, new Set(["a", "b"])) }),
+    ).toEqual(["favorites"]);
   });
 });

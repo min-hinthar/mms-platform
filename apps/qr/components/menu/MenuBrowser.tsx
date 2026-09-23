@@ -7,7 +7,7 @@ import { GuestList } from "@/components/GuestList";
 import { PickupSlotChip } from "@/components/PickupSlotChip";
 import { BlurUpImage } from "./BlurUpImage";
 import { PhotoPlaceholder } from "./PhotoPlaceholder";
-import { hasFreeFrom, passesDiets, type Diet } from "@/lib/menu/dietary";
+import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { buildStartHereRows } from "@/lib/menu/startHereRows";
 import { DietFilterButton } from "./DietFilterButton";
 import type { ModGroup } from "@/lib/menu/modifiers";
@@ -153,7 +153,8 @@ export function MenuBrowser({
   // the honesty rules live in lib/menu/startHereRows.ts where a test can watch them fail.
   const favSet = useMemo(() => new Set(favorites.map((f) => f.id)), [favorites]);
   const startHere = useMemo(
-    () => buildStartHereRows(items, favorites, popularIds),
+    // rowMin 1: the static picks row keeps a thin most-ordered set (the 3 was the marquee's floor).
+    () => buildStartHereRows(items, favorites, popularIds, 1),
     [items, favorites, popularIds],
   );
 
@@ -802,6 +803,9 @@ export function MenuBrowser({
                       className="menu-row-open"
                       onClick={() => setSheetItem(i)}
                       aria-label={`${i.name_en}, ${dollars(i.base_price_cents)} — open to customize`}
+                      // Codex round 1 on #300 — the label stays concise; the newly visible
+                      // description reaches a screen reader as the button's DESCRIPTION.
+                      aria-describedby={i.description_en ? `row-desc-${i.id}` : undefined}
                     >
                       <span
                         style={{
@@ -873,7 +877,9 @@ export function MenuBrowser({
                             two lines, clamped, so the guest knows what they are ordering
                             without opening the sheet (v7.2's `.desc`). */}
                         {i.description_en && (
-                          <span className="menu-row-desc">{i.description_en}</span>
+                          <span id={`row-desc-${i.id}`} className="menu-row-desc">
+                            {i.description_en}
+                          </span>
                         )}
                         {badges.length > 0 && (
                           <span

@@ -6,7 +6,7 @@ import { PhotoPlaceholder } from "./PhotoPlaceholder";
 import { Rail } from "../Rail";
 import { passesDiets, type Diet } from "@/lib/menu/dietary";
 import { refillSurprise, surpriseMe, TASTE_ROW_MAX } from "@/lib/menu/taste";
-import { picksLenses, resolveLens, type PicksLens } from "@/lib/menu/picks";
+import { picksLenses, resolveLens, surpriseEligible, type PicksLens } from "@/lib/menu/picks";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -65,7 +65,7 @@ export function PicksRow({
   const lenses = picksLenses({
     favorites: fits(favorites).length,
     popular: fits(popular).length,
-    pool: pool.length,
+    pool: surpriseEligible(pool, heartedIds),
   });
   // Seeded with the opening lens so it is PINNED: a first heart adds a Favorites pill but never
   // swaps the row out from under the diner (lib/menu/picks.ts `resolveLens`).

@@ -37,6 +37,10 @@ auto-scrolling rows with a pause button, and a "taste buds" panel — the search
   with its visible word (WCAG 2.5.3); the picks row pins its opening lens so a first heart never swaps
   it mid-browse (`resolveLens`). Rails bleed into the gutter so the lit pill's shadow is not sliced
   square, and the picks rail snaps on the 20px gutter instead of the screen edge.
+- **Codex round 1.** Surprise is offered only when a draw could produce something (`surpriseEligible`
+  — the draw never picks a hearted dish, so an all-hearted pool was an empty lens); the static row keeps
+  a thin most-ordered set (`buildStartHereRows(…, rowMin)` — the 3-card floor was the deleted marquee's);
+  a row's description reaches a screen reader as the dish button's `aria-describedby`.
 
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 
