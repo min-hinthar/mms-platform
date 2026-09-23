@@ -105,7 +105,10 @@ export function PicksRow({
       ? "Picks a few dishes for you, never one you have already hearted."
       : surprise.length > 0
         ? `We picked ${surprise.length} ${surprise.length === 1 ? "dish" : "dishes"} for you. Tap again to shuffle.`
-        : "Nothing new to surprise you with right now.";
+        : // Codex round 2: every drawn dish left (a diet change, a sold-out refresh) — `refillSurprise`
+          // only tops up a draw that SURVIVED, so this is a stale draw, not an exhausted pool (the
+          // lens is only offered while something is eligible). Say so, and point at the fix.
+          "Those picks don't fit any more. Tap Shuffle for new ones.";
 
   const label = (l: PicksLens) =>
     l === "favorites"

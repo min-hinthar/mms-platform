@@ -491,12 +491,16 @@ describe("kitchen-8 — a device that wanted sound says so, and the first tap re
     soundWanted = true;
     armOk = true;
     const { getByRole, container } = mount();
-    const chip = await waitFor(() => {
-      const el = container.querySelector('.kds-chip[data-muted="true"]');
-      expect(el).not.toBeNull();
-      return el!;
+    // The preference hydrates through a two-step microtask chain after mount (KdsBoard's persisted-
+    // controls effect). Flush THAT, deterministically — a `waitFor` here raced its 1s wall-clock
+    // budget against a cold jsdom render and went red under CPU load (1 in 3 runs, 2026-09-23).
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    expect(chip.textContent).toBe(ts("en", "kds.sound.off"));
+    const chip = container.querySelector('.kds-chip[data-muted="true"]');
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toBe(ts("en", "kds.sound.off"));
     // Any tap on the board is the gesture — here the bump. MUTATION: drop the capture listener —
     // the chip stays and the slider never appears, red.
     fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));

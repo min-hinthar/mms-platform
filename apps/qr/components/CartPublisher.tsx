@@ -16,11 +16,15 @@ export function CartPublisher() {
   // published on `cartId` alone wrote a ZERO nobody observed — and a failed or abandoned first read
   // left it there, hiding a cart with dishes in it on every other page. `totals` is null until a view
   // has been applied, so until then the count is honestly unknown.
-  const { cartId, count, totals } = useCart();
+  // Codex round 2: and the CONFIRMED lines, never `count` — that one carries `pendingDelta`, so a tap
+  // followed by an instant navigation left a refused edit's optimistic number in storage with no
+  // mounted provider to correct it. `items` is written only from a server view (`applyView`).
+  const { cartId, items, totals } = useCart();
   const { publishCart } = useActiveOrder();
   const known = totals !== null;
+  const confirmed = items.reduce((n, i) => n + i.qty, 0);
   useEffect(() => {
-    if (cartId) publishCart(cartId, known ? count : null);
-  }, [cartId, count, known, publishCart]);
+    if (cartId) publishCart(cartId, known ? confirmed : null);
+  }, [cartId, confirmed, known, publishCart]);
   return null;
 }

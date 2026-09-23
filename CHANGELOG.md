@@ -41,6 +41,14 @@ auto-scrolling rows with a pause button, and a "taste buds" panel — the search
   — the draw never picks a hearted dish, so an all-hearted pool was an empty lens); the static row keeps
   a thin most-ordered set (`buildStartHereRows(…, rowMin)` — the 3-card floor was the deleted marquee's);
   a row's description reaches a screen reader as the dish button's `aria-describedby`.
+- **Codex round 2.** The menu publishes the sum of its CONFIRMED lines, never the optimistic count (an
+  in-flight edit followed by an instant navigation could leave a refused number in storage); a Surprise
+  draw that a filter change emptied says "Those picks don't fit any more. Tap Shuffle for new ones."
+  instead of claiming there is nothing new.
+- **A KDS test that failed 1 run in 3 under load** (`KdsBoard.test` › kitchen-8 warn chip) now flushes
+  the preference's two-microtask hydration explicitly instead of racing `waitFor`'s 1s wall clock
+  against a cold jsdom render; 12/12 green under a concurrent mutation run, and both of its mutants
+  (the capture listener, the hydration write) still turn it red.
 
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 
