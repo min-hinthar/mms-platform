@@ -44,7 +44,7 @@ type ActiveOrderCtx = {
    *  Phase 1a: with its item COUNT, so the header never lights an empty cart. `null` = the publisher
    *  has not SEEN the contents yet (the first view is still loading, or failed) — the stored count is
    *  dropped rather than written as a zero it never observed. */
-  publishCart: (id: string, count: number | null) => void;
+  publishCart: (id: string, count: number | null, mode?: string) => void;
   /** "Leave this table": forget the open cart pointer and its count on this device. */
   forgetCart: () => void;
   /** The published cart's item count; null when this device has not seen the cart's contents (a cart
@@ -56,6 +56,7 @@ const KEY_MODE = "mms.qr.activeMode";
 const KEY_CART = "mms.qr.activeCart";
 const KEY_CART_COUNT = "mms.qr.activeCartCount";
 const KEY_ORDER = "mms.qr.activeOrder";
+const KNOWN_MODES = new Set(["dinein", "pickup", "scango"]);
 const ORDER_TTL_MS = 4 * 60 * 60 * 1000; // 4h — a resumable order self-expires
 
 const Ctx = createContext<ActiveOrderCtx | null>(null);
@@ -173,10 +174,16 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  const publishCart = useCallback((id: string, count: number | null) => {
+  const publishCart = useCallback((id: string, count: number | null, mode?: string) => {
     if (!id) return;
+    // Codex round 3 on #300: the door a cart belongs to travels WITH it when the publisher knows it
+    // from the session (Checkout's split context). /grocery carries no `?mode=` in its URL, so the
+    // URL-observed mode could still name a market basket "Your order" — or a stale `dinein` could
+    // withhold its count as if it were a shared table cart.
+    const known = mode && KNOWN_MODES.has(mode) ? mode : null;
     try {
       localStorage.setItem(KEY_CART, id);
+      if (known) localStorage.setItem(KEY_MODE, known);
       if (count === null) localStorage.removeItem(KEY_CART_COUNT);
       else localStorage.setItem(KEY_CART_COUNT, encodeCartCount(id, count));
     } catch {
@@ -185,6 +192,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => {
       setCartId(id); // async setState (lint-safe), like clearOrder
       setCartCount(count);
+      if (known) setMode(known);
     });
   }, []);
 

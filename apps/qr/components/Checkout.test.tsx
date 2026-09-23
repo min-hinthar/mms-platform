@@ -1256,9 +1256,24 @@ describe("#300 — /cart keeps the header's count honest", () => {
         { ...ITEM, id: "line-two", qty: 3 },
       ],
     });
-    expect(h.publishCart).toHaveBeenLastCalledWith(CART, 5);
+    expect(h.publishCart).toHaveBeenLastCalledWith(CART, 5, undefined);
     h.getCartView.mockResolvedValue(view({ items: [] }));
     await syncFromServer();
-    await waitFor(() => expect(h.publishCart).toHaveBeenLastCalledWith(CART, 0));
+    await waitFor(() => expect(h.publishCart).toHaveBeenLastCalledWith(CART, 0, undefined));
+  });
+
+  it("publishes the SESSION's mode with the cart — /grocery's URL carries none", () => {
+    // Codex round 3. MUTATION: drop the mode argument — a market basket reached from /grocery is
+    // named "Your order" off whatever door the device last saw in a URL; red.
+    mount({
+      splitContext: {
+        mode: "scango",
+        mySeat: MY_SEAT,
+        myRole: "host",
+        members: [],
+        tableNumber: null,
+      },
+    });
+    expect(h.publishCart).toHaveBeenLastCalledWith(CART, 1, "scango");
   });
 });

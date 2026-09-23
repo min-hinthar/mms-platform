@@ -49,6 +49,11 @@ auto-scrolling rows with a pause button, and a "taste buds" panel — the search
   the preference's two-microtask hydration explicitly instead of racing `waitFor`'s 1s wall clock
   against a cold jsdom render; 12/12 green under a concurrent mutation run, and both of its mutants
   (the capture listener, the hydration write) still turn it red.
+- **Codex round 3.** /cart publishes the SESSION's mode with its cart (`publishCart(id, count, mode)`):
+  /grocery's URL carries no `?mode=`, so the header could call a market basket "Your order" off a
+  stale door, or withhold its count as if it were a shared table cart. And the table's number moved
+  into the eyebrow ("At table 7 ⌄", sheet titled "Table 7") — the arrival card that carried it is
+  gone, and GuestList's lock/settle banners return before their own "Table N".
 
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 

@@ -266,9 +266,11 @@ export function Checkout({
   // component only after a successful view read), never the optimistic overlay.
   const publishCart = usePublishCart();
   const confirmedCount = items.reduce((n, i) => n + i.qty, 0);
+  // The session's own mode rides along (Codex round 3): /grocery's URL carries no `?mode=`.
+  const publishedMode = splitContext?.mode || undefined;
   useEffect(() => {
-    publishCart(cartId, confirmedCount);
-  }, [cartId, confirmedCount, publishCart]);
+    publishCart(cartId, confirmedCount, publishedMode);
+  }, [cartId, confirmedCount, publishedMode, publishCart]);
   // Optimistic overlay on top of the server `items`: an edit shows instantly and the delta re-applies over
   // any realtime base change during the pending transition, then clears once refresh() lands the truth
   // (React 19 useOptimistic). Render reads `viewItems`; `items`/`setItems` stay the reconciliation base.
