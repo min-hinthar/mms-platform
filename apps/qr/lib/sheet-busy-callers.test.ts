@@ -82,6 +82,8 @@ const UNGUARDED = [
   "grocery/GroceryItemSheet.tsx",
   "menu/DietFilterButton.tsx",
   "menu/ItemSheet.tsx",
+  // Phase 1a — the table's exits: two navigations (and a device-local forget), no server write.
+  "menu/TableOptions.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {

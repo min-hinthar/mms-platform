@@ -4,6 +4,29 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 1a — the menu's first screen, and one name for the open order (2026-09-23)
+
+**The owner reversed M133 ("Toolbar first") and asked for world-class design thinking on every
+decision.** The menu opened on a display-size title, a textured arrival card, two exit tiles, two
+auto-scrolling rows with a pause button, and a "taste buds" panel — the search and categories sat
+~1,170px down, the first Add ~1,530px. Now:
+
+- **Masthead → toolbar → picks → dishes.** A three-line masthead (the door, "Menu", one bilingual
+  greeting line); the sticky search / Dietary / categories straight after it; then ONE static row of
+  picks with three lenses on the menu's own selection pills — **Your favorites** (once there are any),
+  **Most ordered** (the POS set, M135), **✦ Surprise me** (the draw's honesty rules unchanged,
+  `lib/menu/taste.ts`). The lens order lives in `lib/menu/picks.ts` (a lens with nothing to show is
+  never offered). StartHereBand, TasteBand, FavoritesRail and MarqueeRail are deleted.
+- **At a table, the door eyebrow is the table's control** ("At the table ⌄" → `TableOptions`): the
+  two exits that sat as tiles above the food ("Back to the start", "Leave this table") live in its
+  sheet, with the same promises. The arrival card is a greeting line.
+- **Every dish row shows its description** (two lines, clamped — 97/97 dishes carry one) and ends in
+  the v7.2 round **+** — one shape for Add and for Choose, so the right edge stops zig-zagging.
+- **"Check the menu" → "Refresh"** with the refresh glyph (it read as a link to the page it sat on).
+- **The header's order slot** says "Your order" / "Your basket" (`lib/order-noun.ts`) with the item
+  count, and only for a cart that has something in it — merely viewing the menu used to publish an
+  empty cart and light "Cart" on every other page (`showOrderSlot`, red-first).
+
 ### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
 
 **Why:** a side-by-side of the live QR and delivery apps found the gap was not detail craft (QR's item

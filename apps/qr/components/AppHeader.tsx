@@ -15,6 +15,7 @@ import { WalletChip } from "./WalletChip";
 import { OrdersTray } from "./OrdersTray";
 import { LiveOrderRow } from "./LiveOrderRow";
 import { buildLiveOrderPanel } from "@/lib/live-order-panel";
+import { orderSlot, showOrderSlot } from "@/lib/order-noun";
 
 /**
  * Persistent top app-bar (M-nav) — the diner's wayfinding spine across every route: brand→home, a contextual
@@ -40,7 +41,7 @@ export function AppHeader() {
       pathname?.startsWith("/kiosk")) ??
     false;
 
-  const { cartId } = useActiveOrder();
+  const { cartId, cartCount, mode: activeMode } = useActiveOrder();
   // The order affordance is redundant where a dedicated surface already shows it: the homepage resume card
   // (`/`), the live tracker (`/track`), and the /account "Today" section — so hide it (and skip its fetch)
   // on all three.
@@ -142,7 +143,9 @@ export function AppHeader() {
   }
 
   // Cart affordance yields to ANY order pill (single or tray) — an order supersedes its now-placed cart.
-  const showCart = !!cartId && !showSingle && !showTray && !onMenu && pathname !== "/cart";
+  const showCart =
+    showOrderSlot(cartId, cartCount) && !showSingle && !showTray && !onMenu && pathname !== "/cart";
+  const slot = orderSlot(activeMode, cartCount);
 
   // ── W22b · the chip's disclosure behaviour ─────────────────────────────────────────────────────
   // Panel content is built in `lib/live-order-panel.ts`. Since M46 a `.test.tsx` DOES run (jsdom,
@@ -337,14 +340,19 @@ export function AppHeader() {
             </span>
           </button>
         )}
-        {showCart && (
+        {showCart && cartId && (
           <Link
             href={`/cart?cart=${encodeURIComponent(cartId)}`}
             className="app-header-cart"
-            aria-label="Back to your cart"
+            aria-label={slot.aria}
           >
             <Icon name="cart" size={18} />
-            <span>Cart</span>
+            <span>{slot.label}</span>
+            {cartCount !== null && cartCount > 0 && (
+              <span className="app-header-count" aria-hidden>
+                {cartCount}
+              </span>
+            )}
           </Link>
         )}
         {/* K3a: a SIGNED-IN diner gets the persistent tier-tinted wallet chip (recognition); an

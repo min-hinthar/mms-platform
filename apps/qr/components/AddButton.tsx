@@ -440,13 +440,17 @@ export function AddButton({
         if (inactive) return;
         increment(true);
       }}
+      // Phase 1a — the v7.2 `.add` round "+": ONE shape for every row's trailing control (the
+      // "Choose" twin wears the same class), so the column's right edge no longer zig-zags between
+      // "Add" and "Choose" pills. The accessible name still says the verb in full.
+      className={soldOut ? undefined : "menu-add-plus"}
       style={{
         position: "relative", // ripple container
         overflow: "hidden", // clip the ripple to the pill
         alignSelf: "center",
         minWidth: 44,
         minHeight: 44,
-        padding: "0 16px",
+        padding: soldOut ? "0 16px" : 0,
         borderRadius: 999,
         border: "none",
         fontWeight: "var(--fw-heavy)",
@@ -460,7 +464,9 @@ export function AddButton({
         ripples.map((r) => (
           <span key={r.id} className="mms-ripple" style={{ left: r.x, top: r.y }} aria-hidden />
         ))}
-      <span style={{ position: "relative" }}>{busy ? "…" : soldOut ? "Sold out" : "Add"}</span>
+      <span style={{ position: "relative" }} aria-hidden={!soldOut || undefined}>
+        {busy ? "…" : soldOut ? "Sold out" : "+"}
+      </span>
     </m.button>
   );
 }

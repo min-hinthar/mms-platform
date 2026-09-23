@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { useAnimationPreference } from "@mms/ui";
+import { Icon, useAnimationPreference } from "@mms/ui";
 import { PULL_MAX_PX, pullArmed, pullTravel } from "@/lib/pull-refresh";
 import { haptic } from "@/lib/haptics";
 
@@ -258,10 +258,12 @@ export function PullToRefresh({
         disabled={pending}
         aria-label="Check the menu for updates"
       >
+        {/* Phase 1a — "Check the menu" read as a navigation link ON the menu; the control says what
+            it does, with the one glyph that means it. */}
         <span aria-hidden className={pending && shouldAnimate ? "ptr-star-spin" : undefined}>
-          ✦
-        </span>{" "}
-        {pending ? "Checking…" : "Check the menu"}
+          <Icon name="refresh" size={14} />
+        </span>
+        {pending ? "Checking…" : "Refresh"}
       </button>
       {(shown > 0 || pending) && (
         // Decorative + inert: the OUTCOME is announced through the page's existing single live

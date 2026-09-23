@@ -878,3 +878,20 @@ Every interaction primitive lives in `@mms/ui` and is styled once in `packages/u
 - **Type/weight/tracking are tokens.** `check:style-literals` holds the remaining literals to a ratchet.
 - **The ambient room moves only under a pointer.** The phone drift is retired (F11); a clock-driven
   motion on the page ground would owe a visible stop control again (WCAG 2.2.2).
+
+## 21 · The menu's first screen (Phase 1a — M133 reversed by the owner)
+
+Masthead → toolbar → picks → dishes, in that order, so the first category and the first Add land on
+a 390×844 opening screen.
+
+- **The masthead is three quiet lines**: the door eyebrow (at a table it is the table's CONTROL,
+  opening the exits sheet), the title "Menu" at `--fs-h1`, and one bilingual greeting line. No card,
+  no exit tiles before the food.
+- **The toolbar comes first** and stays sticky. Nothing that is not search, diet or navigation sits
+  above it.
+- **Picks are ONE static row with lenses**, on the category rail's own pills (`.menu-tab-on` is the
+  selection vocabulary — never a new one). A lens with nothing to show is not offered. No marquee:
+  motion that moves on its own owes a stop control and clips the edge card.
+- **Rows tell you what the dish is** (a two-line description) and end in one round **+**.
+- **One noun for the open cart**: "order" at the restaurant, "basket" at the market
+  (`lib/order-noun.ts`).

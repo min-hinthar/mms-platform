@@ -10,10 +10,12 @@ import { useActiveOrder } from "./ActiveOrderProvider";
  * renders nothing. The publish setState is rAF-deferred inside the store — lint-safe.
  */
 export function CartPublisher() {
-  const { cartId } = useCart();
+  // Phase 1a — the COUNT travels with the id: the header offers "Your order · N" only for a cart
+  // with something in it (merely viewing the menu used to light "Cart" everywhere else).
+  const { cartId, count } = useCart();
   const { publishCart } = useActiveOrder();
   useEffect(() => {
-    if (cartId) publishCart(cartId);
-  }, [cartId, publishCart]);
+    if (cartId) publishCart(cartId, count);
+  }, [cartId, count, publishCart]);
   return null;
 }

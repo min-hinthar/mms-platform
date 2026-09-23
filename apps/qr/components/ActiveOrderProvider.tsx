@@ -38,12 +38,17 @@ type ActiveOrderCtx = {
   /** Drop the resumable order (the pill/card call this once its live status reads terminal). */
   clearOrder: () => void;
   /** The menu publishes its server-minted open-cart id here (the menu URL carries no `?cart=`), so the
-   *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit. */
-  publishCart: (id: string) => void;
+   *  header's off-menu "back to cart" link works after a menu-only session — not just after a /cart visit.
+   *  Phase 1a: with its item COUNT, so the header never lights an empty cart. */
+  publishCart: (id: string, count: number) => void;
+  /** The published cart's item count; null when this device has not seen the cart's contents (a cart
+   *  reached by URL) — the header then names the object without claiming a number. */
+  cartCount: number | null;
 };
 
 const KEY_MODE = "mms.qr.activeMode";
 const KEY_CART = "mms.qr.activeCart";
+const KEY_CART_COUNT = "mms.qr.activeCartCount";
 const KEY_ORDER = "mms.qr.activeOrder";
 const ORDER_TTL_MS = 4 * 60 * 60 * 1000; // 4h — a resumable order self-expires
 
@@ -76,6 +81,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const [mode, setMode] = useState<string | null>(null);
   const [cartId, setCartId] = useState<string | null>(null);
+  const [cartCount, setCartCount] = useState<number | null>(null);
   const [order, setOrder] = useState<ActiveOrder | null>(null);
   const hydrated = useRef(false);
 
@@ -87,11 +93,17 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
 
     let nextMode: string | null = null;
     let nextCart: string | null = null;
+    let nextCount: number | null = null;
     try {
       if (urlMode) localStorage.setItem(KEY_MODE, urlMode);
       if (urlCart) localStorage.setItem(KEY_CART, urlCart);
       nextMode = urlMode ?? localStorage.getItem(KEY_MODE);
       nextCart = urlCart ?? localStorage.getItem(KEY_CART);
+      // The count belongs to the STORED cart only; a different cart reached by URL has an unknown one.
+      const stored = localStorage.getItem(KEY_CART_COUNT);
+      const [countFor, n] = stored ? stored.split(":") : [];
+      nextCount = countFor && countFor === nextCart && n !== undefined ? Number(n) : null;
+      if (nextCount !== null && !Number.isFinite(nextCount)) nextCount = null;
     } catch {
       nextMode = urlMode;
       nextCart = urlCart;
@@ -120,6 +132,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
         }
         nextOrder = captured;
         nextCart = null; // drop the "back to cart" affordance — the cart became this order
+        nextCount = null;
       }
     }
     if (nextOrder === undefined && !hydrated.current) nextOrder = readStoredOrder();
@@ -128,6 +141,7 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     const raf = requestAnimationFrame(() => {
       setMode(nextMode);
       setCartId(nextCart);
+      setCartCount(nextCount);
       if (nextOrder !== undefined) setOrder(nextOrder);
     });
     return () => cancelAnimationFrame(raf);
@@ -143,17 +157,23 @@ export function ActiveOrderProvider({ children }: { children: ReactNode }) {
     requestAnimationFrame(() => setOrder(null));
   }, []);
 
-  const publishCart = useCallback((id: string) => {
+  const publishCart = useCallback((id: string, count: number) => {
     if (!id) return;
     try {
       localStorage.setItem(KEY_CART, id);
+      localStorage.setItem(KEY_CART_COUNT, `${id}:${count}`);
     } catch {
       /* ignore */
     }
-    requestAnimationFrame(() => setCartId(id)); // async setState (lint-safe), like clearOrder
+    requestAnimationFrame(() => {
+      setCartId(id); // async setState (lint-safe), like clearOrder
+      setCartCount(count);
+    });
   }, []);
 
   return (
-    <Ctx.Provider value={{ mode, cartId, order, clearOrder, publishCart }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ mode, cartId, cartCount, order, clearOrder, publishCart }}>
+      {children}
+    </Ctx.Provider>
   );
 }
