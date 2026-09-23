@@ -1,7 +1,8 @@
 "use client";
-import { useRef } from "react";
+import { useRef, useSyncExternalStore } from "react";
 import { m, useTransform } from "framer-motion";
 import { useAnimationPreference, useDeviceTier, useHeroParallax, useInView } from "@mms/ui";
+import { greetingFor } from "@/lib/greeting";
 
 /**
  * Homepage hero (R9b · maximal) — the "morning coffee" signature moment behind the mode picker. A ☕ glyph
@@ -16,6 +17,14 @@ import { useAnimationPreference, useDeviceTier, useHeroParallax, useInView } fro
  * content is the heading + copy.
  */
 export function HomeHero() {
+  // Phase 0 — the greeting reads the RESTAURANT's clock after hydration; the server render (which
+  // cannot know when the page is read) says the timeless "Mingalaba". The swap lands inside the
+  // line's own 150ms stagger entrance, so it is never seen as a change.
+  const greeting = useSyncExternalStore(
+    noSubscribe,
+    () => greetingFor(new Date()),
+    () => "Mingalaba",
+  );
   const { shouldAnimate } = useAnimationPreference();
   const tier = useDeviceTier();
   const on = shouldAnimate && tier !== "low"; // heavy GPU parallax only off the low tier
@@ -69,8 +78,10 @@ export function HomeHero() {
         Mandalay Morning Star
       </h1>
       <p className="home-greeting mms-stagger" style={{ animationDelay: "150ms" }}>
-        Good morning — how would you like to order?
+        {greeting} — how would you like to order?
       </p>
     </div>
   );
 }
+
+const noSubscribe = () => () => {};

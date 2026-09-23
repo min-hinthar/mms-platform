@@ -1,4 +1,5 @@
 import { type CSSProperties } from "react";
+import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { redirect } from "next/navigation";
 import { requireStaffPage } from "@/lib/staff";
 import { getTableDetail } from "@/lib/floor";
@@ -35,7 +36,12 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
     const lang = await readStaffLang();
     return (
       <main className="staff-main">
-        <StaffBar lang={lang} title="table.detail.closed.title" lock={hasPin} />
+        <StaffBar
+          lang={lang}
+          title="table.detail.closed.title"
+          leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
+          lock={hasPin}
+        />
         <div className="staff-col" style={wrap}>
           <p style={{ color: "var(--t2)", fontSize: "var(--fs-sm)", margin: 0 }}>
             <Chrome lang={lang} k="table.detail.closed.body" echo="stack" />

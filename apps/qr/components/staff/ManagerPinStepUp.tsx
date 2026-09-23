@@ -170,7 +170,7 @@ export function ManagerPinFields({
 const label: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   marginBottom: 6,
   color: "var(--tx)",
 };

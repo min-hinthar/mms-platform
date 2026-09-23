@@ -120,7 +120,7 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   if (failed) {
     return (
       <div className="card" role="alert" style={{ padding: 16, marginTop: 12 }}>
-        <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: 600 }}>
+        <p style={{ margin: "0 0 12px", color: "var(--warn)", fontWeight: "var(--fw-semibold)" }}>
           {truth === "you-offline"
             ? "You look offline — couldn’t load the aisles. Reconnect and try again."
             : truth === "we-down"

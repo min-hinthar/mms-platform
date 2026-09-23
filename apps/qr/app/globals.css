@@ -1,9 +1,11 @@
 @import "tailwindcss";
 @import "@mms/ui/tokens.css";
+@import "@mms/ui/primitives.css";
 
 :root {
-  --font-display: var(--font-fraunces), Georgia, serif;
-  --font-body: var(--font-hanken), system-ui, sans-serif;
+  /* Padauk second in both Latin stacks — see tokens.css (per-glyph fallback for unmarked Burmese). */
+  --font-display: var(--font-fraunces), var(--font-padauk), Georgia, serif;
+  --font-body: var(--font-hanken), var(--font-padauk), system-ui, sans-serif;
   --font-my: var(--font-padauk), sans-serif;
   /* Persistent app-header content height (excl. the notch inset, which the header adds as padding-top).
      The menu's sticky toolbar offsets its `top` by this so the two chrome layers never overlap. */
@@ -32,15 +34,19 @@ body {
 html {
   background: var(--pg);
 }
+/* Phase 0 — the heading weight is the prototype's (v7.2 line 32: `h1,h2,h3{font-weight:600}`).
+   Tailwind's reset sets headings to `font-weight: inherit`, so every title that did not re-declare a
+   weight had silently drifted to 400 while others said 600 or an inline 900. */
 h1,
 h2,
 h3 {
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-display);
 }
 .eyebrow {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   letter-spacing: var(--track-eyebrow);
   text-transform: uppercase;
   color: var(--ac);
@@ -112,6 +118,8 @@ select {
   input,
   textarea,
   select {
+    /* A deliberate LITERAL (counted by check:style-literals): iOS judges the COMPUTED px, so the
+       floor must not scale with a token. overscroll-contract.test.ts pins it. */
     font-size: 16px !important;
   }
 }
@@ -606,22 +614,6 @@ select {
   transition: translate 600ms var(--ease-out);
   will-change: var(--fx-promote);
 }
-/* AUTO-motion only where there is no pointer to drive the parallax — i.e. phones, which is where
-   most diners are. Desktop gets the pointer sway and never auto-animates, so the pause control
-   never renders there (a stop button for still content is noise). */
-@media (pointer: coarse) {
-  .pa-far {
-    animation: paFarDrift var(--pa-drift-far) var(--ease-in-out) infinite alternate;
-  }
-}
-@keyframes paFarDrift {
-  from {
-    transform: translate3d(-1.2%, 0.9%, 0) scale(1.04);
-  }
-  to {
-    transform: translate3d(1.5%, -0.7%, 0) scale(1.09);
-  }
-}
 /* The middle distance: the warm pool (halved from the shipped 10%) and the debossed grid — the only
    plane in focus. The mask is a floored VIGNETTE: still graded, so it never reads as wallpaper, but
    it bottoms out around 18-55% instead of reaching zero two-thirds up the screen. */
@@ -661,21 +653,6 @@ select {
   transition: translate 520ms var(--ease-out);
   will-change: var(--fx-promote);
 }
-@media (pointer: coarse) {
-  .pa-mid {
-    animation: paMidDrift var(--pa-drift-mid) var(--ease-in-out) infinite alternate;
-  }
-}
-/* Sub-grid amplitude on purpose: the grid must never visibly crawl past the content, only breathe.
-   11px is a quarter of the 44px gauge, so no lattice ever lands where the last one was. */
-@keyframes paMidDrift {
-  from {
-    transform: translate3d(-11px, 6px, 0);
-  }
-  to {
-    transform: translate3d(11px, -6px, 0);
-  }
-}
 /* Film on the lens. Three changes from the `::after` it replaces: it is outside the mask, it is
    MONOCHROME (the shipped tile is a raw feTurbulence rect — RGBA noise, i.e. coloured confetti;
    feColorMatrix collapses it to luminance and forces alpha to 1, feComponentTransfer clamps it to
@@ -696,28 +673,12 @@ select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n' color-interpolation-filters='sRGB'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='.33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncG type='linear' slope='.32' intercept='.34'/%3E%3CfeFuncB type='linear' slope='.32' intercept='.34'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   background-size: 180px 180px;
 }
-html[data-ambient="paused"] .pa-far,
-html[data-ambient="paused"] .pa-mid {
-  animation-play-state: paused;
-}
-/* `off` stills the room (Codex #238 P2). The dial's own comment promises "a still room", and the
-   coarse-pointer drift rule above is unconditional, so without this it kept running and `off` was
-   telling the truth about blur and a lie about motion. It also genuinely costs: a running transform
-   animation self-promotes its layer whatever `will-change` says, so a drifting plane keeps a
-   full-viewport backing store alive that `off` exists to give back.
-   The pause coin goes with it — a stop control for content that is not moving is noise, which is
-   the same rule that keeps it off desktop. `display: none` (not `visibility`) so it leaves the
-   accessibility tree and the tab order too, and it tracks the attribute live rather than depending
-   on a React read of `dataset` that nothing would re-run. */
-/* `off` must still the room the SAME way reduced-motion does (M146, Codex P2 on #238). This block
-   used to null `animation` alone, which stops the coarse-pointer drift and nothing else: on a fine
-   pointer `AmbientMotion` writes `--pa-px`/`--pa-py` every frame, so both full-viewport planes kept
-   translating ±6px/±13px — with `--fx-promote: auto` having just REMOVED their layer promotion, so
-   the "off" setting was doing unpromoted compositing work. `.pa-pause` is `display: none` here, and
-   the pause control never renders on a fine pointer anyway, so that diner had motion and NO stop
-   control (WCAG 2.2.2). The reduced-motion block below is the correct shape and is mirrored here on
-   purpose — if you edit one, edit both. The dial is also read in `AmbientMotion` now, so the
-   listener is not attached at all; this rule is the belt that holds if that ever regresses. */
+/* `off` stills the room the SAME way reduced-motion does (M146, Codex P2 on #238): on a fine pointer
+   `AmbientMotion` writes `--pa-px`/`--pa-py` every frame, so without this both full-viewport planes
+   kept translating under the cursor with their layer promotion removed. Phase 0 retired the phone
+   auto-drift (and with it the fixed pause coin that sat over dish photos, F11) — the room now moves
+   ONLY under the diner's own pointer, which is not auto-motion, so no stop control is owed. If a
+   clock-driven drift ever returns, the WCAG 2.2.2 pause control returns with it. */
 html[data-fx="off"] .pa-far,
 html[data-fx="off"] .pa-mid {
   animation: none;
@@ -730,55 +691,6 @@ html[data-fx="off"] .pa-far {
 }
 html[data-fx="off"] .pa-mid {
   transform: none;
-}
-html[data-fx="off"] .pa-pause {
-  display: none;
-}
-/* WCAG 2.2.2 for the coarse-pointer drift, and a VISIBLE one — hover luck is not a stop mechanism.
-   A SIBLING of .paper-ambient, never a child: a child of a z:-1 layer paints behind every pixel of
-   content and cannot be clicked. It reuses `.start-here-pause`'s vellum-coin vocabulary rather than
-   inventing a second one, and it is the only element in the whole system that takes a pointer
-   event. AmbientMotion renders it only when the drift can actually run. */
-.pa-pause {
-  position: fixed;
-  left: max(12px, env(safe-area-inset-left, 0px));
-  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--cta-dock-h, 0px) + 12px);
-  z-index: var(--z-toolbar);
-  display: grid;
-  place-items: center;
-  min-width: 44px;
-  min-height: 44px;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--t2);
-  cursor: pointer;
-}
-.pa-pause > span {
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-full);
-  border: 1px solid color-mix(in oklab, var(--gold) 30%, var(--bd));
-  background: var(--cd);
-  box-shadow:
-    inset 0 1px 0 var(--sheen),
-    var(--sh);
-  font-size: 9px;
-  line-height: 1;
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-@media (hover: hover) {
-  .pa-pause:hover {
-    color: var(--tx);
-  }
-  .pa-pause:hover > span {
-    transform: scale(1.1);
-  }
-}
-.pa-pause:active > span {
-  transform: scale(0.94);
 }
 /* The reduced-motion composition is not this one minus movement: it trades motion for CUT. The grid
    is incised deeper (--pa-groove-still) and the far plane is pinned to the most asymmetric moment
@@ -803,25 +715,19 @@ html[data-fx="off"] .pa-pause {
   .pa-mid {
     transform: none;
   }
-  .pa-pause > span {
-    transition: none;
-  }
 }
 /* A receipt prints on white paper — a fixed layer repeats on every printed page. */
 @media print {
-  .paper-ambient,
-  .pa-pause {
+  .paper-ambient {
     display: none;
   }
 }
 /* Windows High Contrast: the OS owns the palette, and it forces background-COLOR without forcing
    background-IMAGE — so every gradient, groove and grain tile in here would survive and paint over
    a ground the user explicitly asked the system to control. The whole room is decorative; the right
-   answer is to get out of the way, not to tint it differently. The pause control goes with it,
-   because there is then nothing left moving for it to stop. */
+   answer is to get out of the way, not to tint it differently. */
 @media (forced-colors: active) {
-  .paper-ambient,
-  .pa-pause {
+  .paper-ambient {
     display: none;
   }
 }
@@ -1196,7 +1102,7 @@ html[data-fx="off"] .pa-pause {
   background: none;
   color: var(--oa);
   font-size: 20px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1;
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -1211,8 +1117,8 @@ html[data-fx="off"] .pa-pause {
 .mms-qty-val {
   min-width: 22px;
   text-align: center;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1280,7 +1186,7 @@ html[data-fx="off"] .pa-pause {
   position: absolute;
   right: 6px;
   bottom: 4px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   line-height: 1;
   color: color-mix(in oklab, var(--ac) 55%, transparent);
 }
@@ -1340,7 +1246,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--sf);
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
   cursor: pointer;
   transition:
@@ -1361,7 +1267,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--ac);
   color: var(--oa);
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1399,7 +1305,7 @@ html[data-fx="off"] .pa-pause {
   background: transparent;
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
   cursor: pointer;
 }
@@ -1436,7 +1342,7 @@ html[data-fx="off"] .pa-pause {
   border: none;
   background: transparent;
   color: var(--tx);
-  font-size: 16px; /* ≥16px → iOS Safari does not auto-zoom on focus */
+  font-size: var(--fs-body); /* ≥16px → iOS Safari does not auto-zoom on focus */
 }
 .menu-search input::placeholder {
   color: var(--t3);
@@ -1484,8 +1390,8 @@ html[data-fx="off"] .pa-pause {
   border: 1px solid var(--bd);
   background: var(--sf);
   color: var(--t2);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
   cursor: pointer;
   scroll-snap-align: center; /* a manual swipe settles the chip centered, matching the JS rail-centering */
@@ -1549,13 +1455,13 @@ html[data-fx="off"] .pa-pause {
     box-shadow var(--dur-fast) var(--ease-out);
 }
 .slot-day-kicker {
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .slot-day-count {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--t3);
 }
 .slot-day-on {
@@ -1578,8 +1484,8 @@ html[data-fx="off"] .pa-pause {
   border: 1.5px solid var(--bd);
   background: var(--cd);
   color: var(--tx);
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-lead);
   cursor: pointer;
   display: flex;
   flex-direction: column;
@@ -1602,7 +1508,7 @@ html[data-fx="off"] .pa-pause {
 }
 .slot-time-low {
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--warn);
 }
 /* Daypart sections (🌅 Morning · ☀️ Afternoon · 🌆 Evening) — organize the flat time grid into
@@ -1624,19 +1530,19 @@ html[data-fx="off"] .pa-pause {
   margin: 0;
 }
 .slot-part-emoji {
-  font-size: 15px;
+  font-size: var(--fs-lead);
   line-height: 1;
 }
 .slot-part-label {
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.01em;
   color: var(--tx);
 }
 .slot-part-count {
   margin-left: auto;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   color: var(--t3);
 }
 .slot-time-h {
@@ -1655,8 +1561,8 @@ html[data-fx="off"] .pa-pause {
 .slot-soonest-tag {
   /* W9e — 9px sat below the scale's own --fs-xs floor (11px) on a diner-facing surface. */
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--ac-strong);
   line-height: 1;
@@ -1713,7 +1619,7 @@ html[data-fx="off"] .pa-pause {
   border-radius: 999px;
   background: var(--ac);
   color: var(--oa);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
   transition: opacity var(--dur-fast) var(--ease-out);
 }
@@ -1755,7 +1661,7 @@ html[data-fx="off"] .pa-pause {
 .item-sheet-desc {
   margin: 12px 0 0;
   color: var(--t2);
-  font-size: 14px;
+  font-size: var(--fs-label);
   line-height: 1.5;
 }
 /* W5c: the bilingual description — Padauk, quieter, tucked under the EN line. */
@@ -1763,13 +1669,13 @@ html[data-fx="off"] .pa-pause {
   margin: 4px 0 0;
   font-family: var(--font-my);
   color: var(--t3);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.6;
 }
 .item-sheet-allergens {
   margin: 10px 0 4px;
   color: var(--t3);
-  font-size: 12px;
+  font-size: var(--fs-caption);
   line-height: 1.45;
 }
 
@@ -1786,13 +1692,13 @@ html[data-fx="off"] .pa-pause {
   gap: 8px;
   width: 100%;
   padding: 0 0 4px;
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-lead);
   color: var(--tx);
 }
 .item-modgroup-hint {
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: var(--fw-semibold);
+  font-size: var(--fs-caption);
   color: var(--t3);
 }
 /* W5c: bilingual group/option labels — the MY line stacks under its EN sibling in Padauk. */
@@ -1803,7 +1709,7 @@ html[data-fx="off"] .pa-pause {
 }
 .item-modgroup-my {
   font-family: var(--font-my);
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   font-size: var(--fs-sm); /* W16e — was 12px, under the Burmese floor */
   color: var(--t3);
 }
@@ -1817,8 +1723,8 @@ html[data-fx="off"] .pa-pause {
    on the row — VISIBLE (not decorative), warm-amber so it reads as a caution without alarming. */
 .item-opt-allergen {
   display: block;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
   color: var(--ac);
   margin-top: 2px;
 }
@@ -1833,8 +1739,8 @@ html[data-fx="off"] .pa-pause {
   justify-content: space-between;
   gap: 8px;
   padding: 0 0 4px;
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-lead);
   color: var(--tx);
 }
 .item-note-input {
@@ -1846,7 +1752,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--sf);
   color: var(--tx);
   font: inherit;
-  font-size: 16px; /* the app-wide iOS input-zoom floor (P5.2) */
+  font-size: var(--fs-body); /* the app-wide iOS input-zoom floor (P5.2) */
   line-height: 1.4;
   resize: vertical;
 }
@@ -1856,7 +1762,7 @@ html[data-fx="off"] .pa-pause {
 }
 .item-note-count {
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t3);
 }
 
@@ -1905,17 +1811,17 @@ html[data-fx="off"] .pa-pause {
    add-ons pantry, trailing for the 🌶/🍯 intensity meters); native color-emoji rendering (VS16 in the
    glyph strings), no letter-spacing tricks. */
 .item-opt-emoji {
-  font-size: 14px;
+  font-size: var(--fs-label);
 }
 .item-opt-name {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--fs-label);
   color: var(--tx);
 }
 .item-opt-delta {
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
   color: var(--jade-strong);
 }
 
@@ -1924,8 +1830,8 @@ html[data-fx="off"] .pa-pause {
   margin: 22px 0 0;
 }
 .item-upsell-title {
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
   margin: 0 0 10px;
 }
 .item-upsell-row {
@@ -1974,8 +1880,8 @@ html[data-fx="off"] .pa-pause {
   border-radius: 12px;
 }
 .item-upsell-name {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   line-height: 1.25;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -1983,9 +1889,9 @@ html[data-fx="off"] .pa-pause {
   overflow: hidden;
 }
 .item-upsell-price {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t2);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 
 /* Sticky Add-to-order bar — pins to the sheet's bottom (the sheet is the scroll container); full-bleed
@@ -2021,7 +1927,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--sf);
   color: var(--tx);
   font-size: 18px;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 .item-qty-btn[aria-disabled="true"] {
@@ -2031,8 +1937,8 @@ html[data-fx="off"] .pa-pause {
 .item-qty-count {
   min-width: 22px;
   text-align: center;
-  font-weight: 800;
-  font-size: 16px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-body);
   color: var(--tx);
   font-variant-numeric: tabular-nums;
 }
@@ -2052,14 +1958,14 @@ html[data-fx="off"] .pa-pause {
   border-radius: var(--r-full);
   background: var(--ac);
   color: var(--oa);
-  font-weight: 800;
-  font-size: 15px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-lead);
   cursor: pointer;
 }
 /* v7.2 CTA anatomy — the advisory total rides INSIDE the button, right-aligned, tabular. */
 .item-add-btn-price {
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: var(--fs-h3);
   font-variant-numeric: tabular-nums;
 }
 /* Sold out: the lone label centers (space-between with one child would pin it left). */
@@ -2144,7 +2050,7 @@ html[data-fx="off"] .pa-pause {
   }
 }
 .pay-success-title {
-  font-size: 26px;
+  font-size: var(--fs-h1);
   margin: 8px 0 0;
 }
 .pay-success-stars {
@@ -2154,13 +2060,13 @@ html[data-fx="off"] .pa-pause {
   border-radius: var(--r-full);
   background: color-mix(in oklab, var(--ac) 12%, var(--cd));
   color: var(--ac-strong);
-  font-weight: 800;
-  font-size: 14px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-label);
 }
 /* The honest milestone caption beneath the Stars pill — only renders once the summary resolves. */
 .pay-success-progress {
   margin: 8px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 /* Mode + status + ETA row under the celebration headline. */
@@ -2246,8 +2152,8 @@ html[data-fx="off"] .pa-pause {
   gap: 10px;
   margin: 14px 0;
   color: var(--t3);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
 }
 .checkout-pay-divider::before,
 .checkout-pay-divider::after {
@@ -2385,38 +2291,6 @@ html[data-fx="off"] .pa-pause {
 
 /* ── W13 — the added-to-cart moment ─────────────────────────────────────────────────────────── */
 
-/* The toast springs in (v7.2 .toast): lift + settle on the spring curve. Token duration → the
-   reduced-motion token collapse covers it (final frame = resting state). Enter-only by design —
-   the exit is a quiet fade of relevance, not a moment. */
-.mms-toast {
-  animation: mmsToastIn var(--dur-base) var(--spring) both;
-}
-/* Review MED — the exit the plan specified (v7.2 animates both directions): a quiet settle-down
-   before the unmount. Token durations → RM-collapsed. */
-.mms-toast-out {
-  animation: mmsToastOut var(--dur-fast) var(--ease-out) both;
-}
-@keyframes mmsToastOut {
-  from {
-    opacity: 1;
-    transform: none;
-  }
-  to {
-    opacity: 0;
-    transform: translateY(8px) scale(0.97);
-  }
-}
-@keyframes mmsToastIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px) scale(0.96);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 /* The cart bar springs up on mount (v7.2 .cartbar): translateY(140%) → none. Token duration +
    spring; plays on each (re)mount of the bar — appearing IS the moment. */
 .cartbar-in {
@@ -2527,7 +2401,7 @@ html[data-fx="off"] .pa-pause {
 .checkout-bill-group {
   margin: 10px 0 0;
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.3px;
   text-transform: uppercase;
   color: var(--t2);
@@ -2722,8 +2596,8 @@ html[data-fx="off"] .pa-pause {
   border: 1px solid var(--bd);
   background: linear-gradient(180deg, color-mix(in oklab, var(--sf) 55%, var(--cd)), var(--cd));
   color: var(--t2);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   line-height: 1.1;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
@@ -2802,9 +2676,9 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   gap: 10px;
   margin: 0 0 10px;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--t3);
 }
@@ -3060,7 +2934,7 @@ html[data-fx="off"] .pa-pause {
 .stars-ring-count {
   font-family: var(--font-display);
   font-size: 32px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
   font-variant-numeric: tabular-nums;
 }
@@ -3118,20 +2992,20 @@ html[data-fx="off"] .pa-pause {
 }
 .tier-up-kicker {
   margin: 10px 0 2px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: var(--ac-strong);
 }
 .tier-up-name {
   font-size: 22px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .tier-up-sub {
   margin: 6px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 .tier-up-dismiss {
@@ -3143,7 +3017,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--ac);
   color: var(--oa);
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
 }
 @keyframes tierUpIn {
@@ -3195,8 +3069,8 @@ html[data-fx="off"] .pa-pause {
 }
 .merge-beat-kicker {
   margin: 12px 0 4px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.4px;
   text-transform: uppercase;
   color: var(--ac-strong);
@@ -3204,19 +3078,19 @@ html[data-fx="off"] .pa-pause {
 .merge-beat-count {
   font-family: var(--font-display);
   font-size: 46px;
-  font-weight: 900;
+  font-weight: var(--fw-black);
   line-height: 1.05;
   color: var(--tx);
 }
 .merge-beat-count-unit {
   font-family: var(--font-body);
   font-size: 19px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--t2);
 }
 .merge-beat-sub {
   margin: 8px 0 0;
-  font-size: 13.5px;
+  font-size: var(--fs-label);
   color: var(--t2);
   line-height: 1.55;
 }
@@ -3229,7 +3103,7 @@ html[data-fx="off"] .pa-pause {
   background: var(--ac);
   color: var(--oa);
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
 }
 @keyframes mergeBeatIn {
@@ -3420,7 +3294,7 @@ html[data-fx="off"] .pa-pause {
   font-size: var(--fs-display);
   line-height: var(--lh-tight);
   letter-spacing: var(--track-display);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--tx);
   margin: var(--s2) 0 0;
   text-wrap: balance;
@@ -3540,12 +3414,9 @@ html[data-fx="off"] .pa-pause {
 
 /* Masthead — an editorial kicker + display title + a gold hairline that fades to nothing (a more refined
    rule than a flat line), setting the premium tone above the rich reward cards. */
-.account-masthead {
-  margin-bottom: 20px;
-}
 .account-masthead-rule {
   height: 1px;
-  margin-top: 14px;
+  margin-top: var(--s1);
   background: linear-gradient(
     90deg,
     color-mix(in oklab, var(--gold) 55%, transparent),
@@ -3564,8 +3435,8 @@ html[data-fx="off"] .pa-pause {
   min-height: 44px;
   padding: 10px 2px;
   color: var(--ac);
-  font-weight: 700;
-  font-size: 14px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-label);
   transition: color var(--dur-fast) var(--ease-out);
 }
 .nav-link::after {
@@ -3615,8 +3486,8 @@ html[data-fx="off"] .pa-pause {
   border-radius: var(--r-full);
   background: linear-gradient(180deg, var(--ac), var(--ac-strong));
   color: var(--oa);
-  font-weight: 800;
-  font-size: 15px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-lead);
   border: none;
   cursor: pointer;
   box-shadow:
@@ -3680,7 +3551,7 @@ html[data-fx="off"] .pa-pause {
 }
 .track-notice p {
   margin: 0 0 16px;
-  font-size: 14px;
+  font-size: var(--fs-label);
   line-height: 1.55;
   color: var(--t2);
 }
@@ -3693,9 +3564,9 @@ html[data-fx="off"] .pa-pause {
   gap: 5px;
   padding: 3px 9px;
   border-radius: var(--r-full);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--ac-strong);
   background: color-mix(in oklab, var(--ac) 8%, var(--cd));
   border: 1px solid color-mix(in oklab, var(--ac) 22%, var(--bd));
@@ -3707,9 +3578,9 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   padding: 3px 9px;
   border-radius: var(--r-full);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--t2);
   background: color-mix(in oklab, var(--sf) 60%, var(--cd));
   border: 1px solid var(--bd);
@@ -3722,9 +3593,9 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   padding: 3px 9px;
   border-radius: var(--r-full);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 12%, transparent);
   border: 1px solid color-mix(in oklab, var(--warn) 40%, var(--bd));
@@ -3738,9 +3609,9 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   gap: 8px;
   margin: 12px 2px 8px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--t2);
 }
@@ -3841,21 +3712,21 @@ html[data-fx="off"] .pa-pause {
   gap: 10px;
   align-items: baseline;
   padding: 6px 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .history-line + .history-line {
   border-top: 1px solid color-mix(in oklab, var(--bd) 50%, transparent);
 }
 .history-line-qty {
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
-  font-size: 12px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-caption);
   color: var(--ac-strong);
 }
 .history-line-mods {
   display: block;
   margin-top: 1px;
-  font-size: 11.5px;
+  font-size: var(--fs-caption);
   line-height: 1.4;
   color: var(--t3);
 }
@@ -3864,9 +3735,9 @@ html[data-fx="off"] .pa-pause {
 .history-line-refund {
   display: block;
   margin-top: 1px;
-  font-size: 11.5px;
+  font-size: var(--fs-caption);
   line-height: 1.4;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--warn);
   font-variant-numeric: tabular-nums;
 }
@@ -3874,7 +3745,7 @@ html[data-fx="off"] .pa-pause {
   margin: 10px 0 0;
   display: grid;
   gap: 4px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .history-totals-row {
   display: flex;
@@ -3894,7 +3765,7 @@ html[data-fx="off"] .pa-pause {
   margin-top: 4px;
   padding-top: 6px;
   border-top: 1px solid var(--bd);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 .history-totals-grand dt,
 .history-totals-grand dd {
@@ -4023,8 +3894,8 @@ html[data-fx="off"] .pa-pause {
 }
 .wb-heading {
   margin: 0 0 10px;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 .wb-list {
@@ -4092,15 +3963,15 @@ html[data-fx="off"] .pa-pause {
   min-width: 0;
 }
 .wb-name {
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .wb-mail {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t2);
   white-space: nowrap;
   overflow: hidden;
@@ -4109,9 +3980,9 @@ html[data-fx="off"] .pa-pause {
 .wb-method {
   flex: none;
   margin-left: auto;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   text-transform: uppercase;
   /* W22d-1 — was `var(--ac)`: 3.70:1 in light on this tint. Same shape as `.lend-banner-back`, and
      on the sign-in chooser of the very rewards surface this slice is about. `aria-hidden` does not
@@ -4149,14 +4020,14 @@ html[data-fx="off"] .pa-pause {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
 }
 .wb-divider {
   margin: 16px 0;
   text-align: center;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--t2);
 }
@@ -4177,14 +4048,14 @@ html[data-fx="off"] .pa-pause {
 }
 .lend-banner-glyph {
   flex: none;
-  font-size: 16px;
+  font-size: var(--fs-body);
   color: var(--ac);
 }
 .lend-banner-copy {
   flex: 1;
   min-width: 0;
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.35;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4192,7 +4063,7 @@ html[data-fx="off"] .pa-pause {
 }
 .lend-banner-sub {
   color: var(--t2);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .lend-banner-back {
   flex: none;
@@ -4206,8 +4077,8 @@ html[data-fx="off"] .pa-pause {
      this was a call site doing exactly that, on a ground tighter than bare `--sf`. 4.53 is thin, so
      the combo is now asserted rather than trusted. */
   color: var(--ac-strong);
-  font-weight: 800;
-  font-size: 13px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-sm);
   cursor: pointer;
   transition:
     transform var(--dur-fast) var(--ease-out),
@@ -4289,9 +4160,9 @@ html[data-fx="off"] .pa-pause {
   min-width: 0; /* the wordmark may shrink/hide — never force horizontal page scroll */
   min-height: 44px;
   font-family: var(--font-display);
-  font-weight: 800;
-  font-size: 16px;
-  letter-spacing: -0.01em;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-body);
+  letter-spacing: var(--track-tight);
   color: var(--tx);
 }
 .app-header-star {
@@ -4328,8 +4199,8 @@ html[data-fx="off"] .pa-pause {
   background: linear-gradient(180deg, color-mix(in oklab, var(--ac) 12%, var(--cd)), var(--cd));
   border: 1px solid color-mix(in oklab, var(--ac) 42%, var(--bd));
   color: var(--ac-strong); /* accent-STRONG for AA on the faint accent tint */
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
   white-space: nowrap;
   box-shadow: inset 0 1px 0 var(--sheen);
   transition:
@@ -4385,8 +4256,8 @@ html[data-fx="off"] .pa-pause {
    button's default cursor; a small accent count pill trails the label ("Orders  2"). */
 .app-header-order-tray {
   font: inherit;
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
   cursor: pointer;
 }
 .app-header-order-count {
@@ -4398,8 +4269,8 @@ html[data-fx="off"] .pa-pause {
   border-radius: var(--r-full);
   background: var(--ac);
   color: var(--oa);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   line-height: 1;
 }
 /* ── W22b · the live order chip's disclosure ──────────────────────────────────────────────────────
@@ -4411,12 +4282,12 @@ html[data-fx="off"] .pa-pause {
 .app-header-order-chip {
   cursor: pointer;
   font: inherit;
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
 }
 .app-header-order-caret {
   flex: none;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1;
   opacity: 0.75;
   transition: transform var(--dur-fast) var(--ease-out);
@@ -4463,18 +4334,18 @@ html[data-fx="off"] .pa-pause {
 }
 .app-header-panel-mode {
   font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
   color: var(--tx);
 }
 .app-header-panel-count {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 .app-header-panel-context {
   margin: 2px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 .app-header-panel-rows {
@@ -4487,14 +4358,14 @@ html[data-fx="off"] .pa-pause {
   align-items: baseline;
   justify-content: space-between;
   gap: 12px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 .app-header-panel-row dt {
   color: var(--t2);
 }
 .app-header-panel-row dd {
   margin: 0;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
   color: var(--tx);
 }
@@ -4512,12 +4383,12 @@ html[data-fx="off"] .pa-pause {
   border-radius: var(--r-full);
   background: var(--ac);
   color: var(--oa);
-  font-weight: 800;
-  font-size: 14px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-label);
 }
 .app-header-panel-note {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   line-height: 1.4;
   color: var(--t3);
   text-align: center;
@@ -4531,8 +4402,8 @@ html[data-fx="off"] .pa-pause {
   padding: 0 10px;
   border-radius: var(--r-full);
   color: var(--t2);
-  font-weight: 700;
-  font-size: 13px;
+  font-weight: var(--fw-bold);
+  font-size: var(--fs-sm);
   transition:
     color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out);
@@ -4552,8 +4423,8 @@ html[data-fx="off"] .pa-pause {
   padding: 0 10px;
   border-radius: var(--r-full);
   color: var(--ac);
-  font-weight: 800;
-  font-size: 13.5px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-label);
   transition: background var(--dur-fast) var(--ease-out);
 }
 @media (hover: hover) {
@@ -4569,8 +4440,8 @@ html[data-fx="off"] .pa-pause {
   background: var(--ac);
   color: var(--oa);
   font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
 }
 /* When a live-order pill is present, compact the header on small phones so the row never overflows into a
    horizontal page scroll (no body overflow-x:hidden — that breaks sticky/dvh). Wordmark → mark-only under
@@ -4635,22 +4506,22 @@ html[data-fx="off"] .pa-pause {
   flex-direction: column;
 }
 .home-resume-kicker {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--ac);
 }
 .home-resume-status {
   margin-top: 1px;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
   color: var(--tx);
 }
 .home-resume-arrow {
   flex: none;
   color: var(--ac);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   transition: transform var(--dur-base) var(--ease-out);
 }
 @media (hover: hover) {
@@ -4712,12 +4583,12 @@ html[data-fx="off"] .pa-pause {
   gap: 1px;
 }
 .live-order-mode {
-  font-size: 14px;
-  font-weight: 800;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .live-order-context {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4728,8 +4599,8 @@ html[data-fx="off"] .pa-pause {
   align-items: center;
   gap: 5px;
   flex: none;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   color: var(--ac-strong);
   white-space: nowrap;
 }
@@ -4750,13 +4621,13 @@ html[data-fx="off"] .pa-pause {
 .live-order-arrow {
   flex: none;
   color: var(--ac);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   transition: transform var(--dur-base) var(--ease-out);
 }
 /* Tray sheet body (inside .mms-sheet — which already supplies the 20px horizontal padding + the title). */
 .orders-tray-sub {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 .orders-tray-list,
@@ -4770,7 +4641,7 @@ html[data-fx="off"] .pa-pause {
 }
 .orders-tray-note {
   margin: 14px 0 0;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t2);
   text-align: center;
 }
@@ -4783,8 +4654,8 @@ html[data-fx="off"] .pa-pause {
 }
 .today-orders-h {
   margin: 2px 0 0;
-  font-size: 17px;
-  font-weight: 800;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 
@@ -4941,13 +4812,13 @@ html[data-seen-surface] .mms-stagger {
   gap: 6px;
   margin: 0 0 5px;
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   letter-spacing: var(--track-eyebrow);
   text-transform: uppercase;
   color: var(--t3);
 }
 .arrival-mode-glyph {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1;
 }
 /* The live table label — the one place this row earns accent, because it is a FACT the session
@@ -4958,8 +4829,8 @@ html[data-seen-surface] .mms-stagger {
   padding: 2px 8px;
   border-radius: var(--r-full);
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   /* --ink, NOT --oa. `--oa` is on-ACCENT ink: in light it is #fffdf8, sized for the dark amber
      `--ac` fill, and on `--gold` it measures 2.0458:1. `--ink` is the CONSTANT deep ink that exists
      for exactly this — a bright fill that is bright in BOTH themes — and it clears at worst 5.4353
@@ -4972,9 +4843,9 @@ html[data-seen-surface] .mms-stagger {
   margin: 0;
   font-family: var(--font-display);
   font-size: 20px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1.15;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-tight);
   color: var(--tx);
 }
 .arrival-greeting-my {
@@ -4983,7 +4854,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .arrival-line {
   margin: 3px 0 0;
-  font-size: 13.5px;
+  font-size: var(--fs-label);
   color: var(--t2);
   line-height: 1.5;
 }
@@ -5031,13 +4902,13 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   gap: 4px;
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.01em;
   color: var(--tx);
 }
 .arrival-exit-note {
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.3;
   /* `--t2`, not the `--t3` a caption would take. Two reasons, and the second is the binding one:
      this line is the PROMISE ("the table stays open for everyone else"), which is the honest half
@@ -5092,19 +4963,19 @@ html[data-seen-surface] .mms-stagger {
   margin: 0 0 10px;
   font-family: var(--font-display);
   font-size: 19px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-tight);
 }
 .start-here-sub {
   /* Its own line: a flex break, so the heading markup (and its accessible name) is untouched. */
   flex-basis: 100%;
   margin-top: 1px;
   font-family: var(--font-body);
-  font-size: 12.5px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--t3);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--track-snug);
 }
 /* The closing rule — a third flex item on its own line, so it works whether the h2 stands alone
    (TasteBand, FavoritesRail) or sits beside the pause control inside `.start-here-hrow`. */
@@ -5225,8 +5096,8 @@ html[data-seen-surface] .mms-stagger {
   transition: transform var(--dur-base) var(--ease-out);
 }
 .start-here-name {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   line-height: 1.3;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -5265,8 +5136,8 @@ html[data-seen-surface] .mms-stagger {
   z-index: 1;
   padding: 2px 7px;
   border-radius: var(--r-full);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
   color: var(--tx);
   background: var(--cd);
@@ -5334,14 +5205,14 @@ html[data-seen-surface] .mms-stagger {
   align-items: baseline;
   gap: 6px;
   margin: 4px 0 6px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-snug);
   color: var(--t3);
 }
 .start-here-rowcap-my {
   font-family: var(--font-my);
-  font-size: 13px;
+  font-size: var(--fs-sm);
 }
 /* The heading row — the h2 and the pause control side by side. The button lives OUTSIDE the h2
    so it never joins the heading's (and the rails') accessible name. */
@@ -5432,7 +5303,7 @@ html[data-seen-surface] .mms-stagger {
   padding: 0 14px;
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   white-space: nowrap;
   color: var(--t2);
   background: linear-gradient(180deg, color-mix(in oklab, var(--gold) 6%, var(--cd)), var(--cd));
@@ -5489,8 +5360,8 @@ html[data-seen-surface] .mms-stagger {
 .taste-chip-my {
   font-family: var(--font-my);
   /* 13px — the Burmese floor (W12/W16e); the old cloud's fs-xs sat under it. */
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: inherit;
   opacity: 0.85;
 }
@@ -5509,19 +5380,19 @@ html[data-seen-surface] .mms-stagger {
   flex-wrap: wrap;
   gap: 6px;
   margin: 8px 2px 6px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--t2);
 }
 .taste-caption-note {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t3);
 }
 .taste-caption-my {
   font-family: var(--font-my);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--t3);
 }
 /* ── M137 · the taste band, reimagined around ONE feature ─────────────────────────────────────
@@ -5554,21 +5425,21 @@ html[data-seen-surface] .mms-stagger {
   margin: 0;
   font-family: var(--font-display);
   font-size: 19px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1.2;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-tight);
   color: var(--tx);
 }
 .taste-invite-my {
   font-family: var(--font-my);
   /* 13px — the Burmese floor (W12/W16e). */
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   color: var(--ac-strong);
 }
 .taste-invite-line {
   margin: 2px 0 0;
-  font-size: 13.5px;
+  font-size: var(--fs-label);
   line-height: 1.45;
   color: var(--t2);
 }
@@ -5588,7 +5459,7 @@ html[data-seen-surface] .mms-stagger {
   color: var(--oa);
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.01em;
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
@@ -5620,9 +5491,9 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   gap: 5px;
   flex: 1;
-  font-size: 12.5px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--t2);
 }
 .taste-again-btn {
@@ -5637,7 +5508,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--sf);
   font: inherit;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--tx);
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease-out);
@@ -5694,7 +5565,7 @@ html[data-seen-surface] .mms-stagger {
   padding: 2px 8px;
   border-radius: var(--r-full);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: 1.35;
   color: var(--t2);
   background: color-mix(in oklab, var(--gold) 9%, var(--sf));
@@ -5742,8 +5613,8 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 14px;
-  font-weight: 800;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .table-timeline-dot {
@@ -5776,7 +5647,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .table-timeline-counts {
   margin: 3px 0 0 16px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t2);
   font-variant-numeric: tabular-nums;
 }
@@ -5804,7 +5675,7 @@ html[data-seen-surface] .mms-stagger {
   flex: none;
   color: var(--t3);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   transform: rotate(0deg);
   transition: transform var(--dur-fast) var(--ease-out);
 }
@@ -5818,8 +5689,8 @@ html[data-seen-surface] .mms-stagger {
 }
 .table-timeline-my {
   display: block;
-  font-size: 11.5px;
-  font-weight: 600;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
   color: var(--t2);
   line-height: var(--lh-my, 1.6);
 }
@@ -5836,26 +5707,26 @@ html[data-seen-surface] .mms-stagger {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 12.5px;
-  font-weight: 800;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
 }
 .table-timeline-detail-state .table-timeline-my {
   display: inline;
   margin-left: 6px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .table-timeline-detail-lines {
   list-style: none;
   margin: 2px 0 0 16px;
   padding: 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   display: grid;
   gap: 2px;
 }
 .table-timeline-note {
   margin: 6px 0 0 16px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   line-height: 1.5;
 }
@@ -5880,19 +5751,19 @@ html[data-seen-surface] .mms-stagger {
 }
 .goodbye-beat-line {
   margin: 0;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
   line-height: 1.45;
 }
 .goodbye-beat-line [lang="my"] {
   display: block;
-  font-size: 17px;
+  font-size: var(--fs-h3);
   margin-bottom: 2px;
 }
 .goodbye-beat-sub {
   margin: 6px 0 2px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 .settle-complete {
@@ -5907,16 +5778,16 @@ html[data-seen-surface] .mms-stagger {
 }
 .settle-complete-line {
   margin: 0;
-  font-size: 15px;
-  font-weight: 800;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .settle-complete-line [lang="my"] {
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .settle-complete-sub {
   margin: 3px 0 0;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 
@@ -5966,7 +5837,7 @@ html[data-seen-surface] .mms-stagger {
   border: 1px solid color-mix(in oklab, var(--ac) 18%, var(--bd));
   background: color-mix(in oklab, var(--ac) 5%, var(--cd));
   box-shadow: inset 0 1px 0 var(--sheen);
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--tx);
   line-height: 1.45;
 }
@@ -5979,7 +5850,7 @@ html[data-seen-surface] .mms-stagger {
   border: none;
   background: transparent;
   color: var(--t2);
-  font-size: 14px;
+  font-size: var(--fs-label);
   cursor: pointer;
   border-radius: var(--r-full);
 }
@@ -6000,15 +5871,15 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
 }
 .grocery-total-label {
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--track-caps);
   color: var(--t2);
 }
 .grocery-total-figure {
   font-size: 40px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1.05;
   color: var(--tx);
   font-variant-numeric: tabular-nums;
@@ -6024,23 +5895,23 @@ html[data-seen-surface] .mms-stagger {
 }
 .exit-pass-kicker {
   margin: 0;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--track-caps);
   color: var(--ok);
 }
 .exit-pass-code {
   margin: 6px 0 4px;
   font-size: 40px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-wide);
   color: var(--tx);
   font-variant-numeric: tabular-nums;
 }
 .exit-pass-sub {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
   line-height: 1.5;
 }
@@ -6070,7 +5941,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--cd);
   color: var(--tx);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
   box-shadow: inset 0 1px 0 var(--sheen);
 }
@@ -6108,7 +5979,7 @@ html[data-seen-surface] .mms-stagger {
   background: none;
   color: var(--t2);
   font: inherit;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
   transition:
     background var(--dur-fast) var(--ease-in-out),
@@ -6136,7 +6007,7 @@ html[data-seen-surface] .mms-stagger {
   margin: 4px 0 6px;
   font-family: var(--font-display);
   font-size: var(--fs-display);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1.02;
   letter-spacing: -0.015em;
   color: var(--tx);
@@ -6178,8 +6049,8 @@ html[data-seen-surface] .mms-stagger {
   background: var(--okb);
   color: var(--ok);
   font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
 }
 
 /* Search field — one clean pill on the card surface (was two inline-styled objects). */
@@ -6239,7 +6110,7 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
   color: var(--tx);
   font-family: var(--font-body), var(--font-my);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   font-size: var(--fs-body);
   text-align: left;
   cursor: pointer;
@@ -6279,7 +6150,7 @@ html[data-seen-surface] .mms-stagger {
   border: 1px solid var(--bd);
   background: var(--cd);
   color: var(--tx);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 
@@ -6310,7 +6181,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--cd);
   color: var(--tx);
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--fs-body);
   box-shadow:
     var(--sh-md),
@@ -6339,7 +6210,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--ac);
   color: var(--oa);
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--fs-body);
   box-shadow:
     var(--sh-md),
@@ -6384,33 +6255,11 @@ html[data-seen-surface] .mms-stagger {
 .gbasket-qty {
   min-width: 18px;
   text-align: center;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 .gbasket-empty {
   margin: 8px 0 16px;
   color: var(--t3);
-}
-
-/* Add/remove toast — token pill (was an inline object). */
-.grocery-toast {
-  position: fixed;
-  left: 50%;
-  /* W9e (J12) — compose the home-bar inset like the pinned bars it floats above (CartBar,
-     .grocery-cta-bar) already do; a bare 90px sat the toast ON the CTA on every notched iPhone.
-     R1 — the band's REAL height rides `--cta-dock-h` (useCtaDock publishes it: height + 16px gap),
-     so a wrapped label or a larger system font can no longer push the CTA up under the toast;
-     the fallback is the 56px band (`.grocery-basket-btn` min-height) + useCtaDock's 16px gap = 72
-     — computed, and pinned by the guard against both sources. */
-  bottom: calc(var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  z-index: var(--z-toast);
-  padding: 10px 18px;
-  border-radius: var(--r-full);
-  background: var(--tx);
-  color: var(--pg);
-  font-weight: 700;
-  font-size: var(--fs-sm);
-  box-shadow: var(--sh-md);
 }
 
 /* Aisle FILTER rail — bilingual tiles, horizontally scrollable; the pressed tile is self-contained
@@ -6518,8 +6367,8 @@ html[data-seen-surface] .mms-stagger {
   text-align: left;
 }
 .aisle-tile-en {
-  font-size: 12.5px;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   line-height: 1.1;
 }
 .aisle-tile-my {
@@ -6711,8 +6560,8 @@ html[data-seen-surface] .mms-stagger {
   line-height: 1.15;
 }
 .aisle-fan-label-en {
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
   line-height: 1.15;
 }
 .aisle-fan-label-my {
@@ -6766,13 +6615,13 @@ html[data-seen-surface] .mms-stagger {
 .aisle-heading-my {
   font-family: var(--font-my);
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--t2);
 }
 .aisle-heading-count {
   margin-left: auto;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
@@ -6850,8 +6699,8 @@ html[data-seen-surface] .mms-stagger {
 .gcard-name {
   /* W5d (G17 "name-weight bump to menu scale"): 13px → 15px for scannability, keeping the 2-line
      clamp + 700 weight (a dense card leads with a legible name). */
-  font-size: 15px;
-  font-weight: 700;
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-bold);
   line-height: 1.25;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -6869,7 +6718,7 @@ html[data-seen-surface] .mms-stagger {
   overflow: hidden;
 }
 .gcard-meta {
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t3);
 }
 /* The card foot pins the whole price block (compare-at caption + price row) to the bottom with ONE
@@ -6890,7 +6739,7 @@ html[data-seen-surface] .mms-stagger {
 }
 .gcard-price {
   font-size: var(--fs-body);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 /* On sale, the DISCOUNTED price is the typographic hero — larger + deep-clay so a sale card is
@@ -6902,15 +6751,15 @@ html[data-seen-surface] .mms-stagger {
 /* W5d (G17): unit price on its OWN line under the price (was inline in the wrap-prone price row). */
 .gcard-unit {
   display: block;
-  font-size: 12px;
+  font-size: var(--fs-caption);
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
 /* EBT demoted to a neutral outline micro-chip so its green no longer reads as a second CTA. */
 .gcard-ebt {
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-snug);
   color: var(--t2);
   border: 1px solid var(--bd);
   border-radius: 5px;
@@ -6936,7 +6785,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--ac);
   color: var(--oa);
   font-size: 24px;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1;
   cursor: pointer;
   /* A solid accent disc reads on ANY photo; a ring lifts it off busy imagery (no blur — mobile GPU). */
@@ -6997,14 +6846,14 @@ html[data-seen-surface] .mms-stagger {
   margin-top: 12px;
 }
 .gsheet-meta {
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t2);
 }
 /* The Save% pill on the sheet hero sits top-left like the card's, at hero scale. */
 .gsheet-sale {
   top: 12px;
   left: 12px;
-  font-size: 12px;
+  font-size: var(--fs-caption);
 }
 /* Price block at sheet scale — bigger than the card's, price on its own line, unit beneath. */
 .gsheet-price {
@@ -7021,14 +6870,14 @@ html[data-seen-surface] .mms-stagger {
 .gsheet-unit {
   display: block;
   margin-top: 2px;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
 /* EBT eligibility stated as a FACT (not a payment method — tender is 2027). */
 .gsheet-ebt {
   margin: 14px 0 0;
-  font-size: 13px;
+  font-size: var(--fs-sm);
   line-height: 1.5;
   color: var(--t2);
 }
@@ -7059,7 +6908,7 @@ html[data-seen-surface] .mms-stagger {
 .gcard-qty {
   min-width: 22px;
   text-align: center;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 .gb-retry {
@@ -7070,7 +6919,7 @@ html[data-seen-surface] .mms-stagger {
   background: var(--cd);
   color: var(--tx);
   font: inherit;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 
@@ -7087,8 +6936,8 @@ html[data-seen-surface] .mms-stagger {
   height: auto;
   padding: 2px 7px;
   border-radius: var(--r-full);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
   letter-spacing: 0.01em;
   line-height: 1.4;
   /* GOLD + constant INK — a distinct "savings" value-language, so the deal signal never wears the
@@ -7109,7 +6958,7 @@ html[data-seen-surface] .mms-stagger {
    sr-only), only the NUMBER is struck (words stay legible). Lives in `.gcard-foot`, so no margin. */
 .gcard-compare {
   display: block;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--t3);
   font-variant-numeric: tabular-nums;
 }
@@ -7123,7 +6972,7 @@ html[data-seen-surface] .mms-stagger {
   gap: 6px;
   margin: 6px 0 0;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--ac-strong);
 }
 
@@ -7139,9 +6988,9 @@ html[data-seen-surface] .mms-stagger {
 }
 .grocery-ebt-tag {
   flex: none;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.03em;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   color: var(--ok);
   border: 1px solid color-mix(in oklab, var(--ok) 45%, var(--bd));
   border-radius: 6px;
@@ -7181,15 +7030,15 @@ html[data-seen-surface] .mms-stagger {
 .table-chip-num {
   font-family: var(--font-display);
   font-size: 30px;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1;
 }
 .table-chip-state {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 .table-dot {
@@ -7265,8 +7114,8 @@ html[data-seen-surface] .mms-stagger {
   background: color-mix(in oklab, var(--chip-tint) 12%, var(--cd));
   color: var(--tx);
   text-decoration: none;
-  font-weight: 800;
-  font-size: 13.5px;
+  font-weight: var(--fw-heavy);
+  font-size: var(--fs-label);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     background var(--dur-fast) var(--ease-out);
@@ -7278,7 +7127,7 @@ html[data-seen-surface] .mms-stagger {
   }
 }
 .wallet-chip-glyph {
-  font-size: 14px;
+  font-size: var(--fs-label);
   line-height: 1;
 }
 .wallet-chip-count {
@@ -7339,7 +7188,7 @@ html[data-seen-surface] .mms-stagger {
 .chrome-en {
   display: block;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .chrome-pair-inline .chrome-en {
@@ -7377,7 +7226,7 @@ a .chrome-en {
   background: transparent;
   color: var(--tx);
   font-size: var(--kfs-meta, var(--fs-sm));
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 .staff-lang-btn + .staff-lang-btn {
@@ -7455,14 +7304,14 @@ a .chrome-en {
 }
 .kds-stat b {
   font-size: var(--kfs-clock);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1;
 }
 .kds-stat span {
   /* K27 — the meta tier (15px at small), not a phone 12px: these labels are read from the pass. */
   font-size: var(--kfs-meta);
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--t2);
 }
@@ -7483,7 +7332,7 @@ a .chrome-en {
   border: 1px solid var(--bd);
   background: var(--sf);
   color: var(--tx);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-size: var(--kfs-meta);
   cursor: pointer;
 }
@@ -7600,7 +7449,7 @@ a .chrome-en {
 }
 .kds-id {
   font-size: var(--kfs-id);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -7608,9 +7457,9 @@ a .chrome-en {
 .kds-id small {
   display: block;
   font-size: var(--kfs-meta);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
-  letter-spacing: 0.04em;
+  letter-spacing: var(--track-caps);
 }
 .kds-strip-amber .kds-id small,
 .kds-strip-red .kds-id small {
@@ -7624,15 +7473,15 @@ a .chrome-en {
 }
 .kds-clock {
   font-size: var(--kfs-clock);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
 .kds-badge {
   font-size: var(--kfs-meta); /* K27 — same tier as every other chrome word on the ticket */
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: var(--track-wide);
   color: var(--t2);
 }
 .kds-strip-amber .kds-badge,
@@ -7683,7 +7532,7 @@ a .chrome-en {
   color: var(--oa);
   border-radius: 10px;
   font-size: var(--kfs-item);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1;
 }
 .kds-line-main {
@@ -7693,23 +7542,23 @@ a .chrome-en {
 .kds-line-name {
   margin: 0;
   font-size: var(--kfs-item);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-snug);
   overflow-wrap: anywhere;
 }
 .kds-line-mods {
   margin: 2px 0 0;
   font-size: var(--kfs-mod);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   line-height: 1.35;
   color: var(--tx); /* FULL contrast — modifiers carry the allergy-adjacent picks (O-A) */
 }
 .kds-line-tag {
   margin: 2px 0 0;
   font-size: var(--kfs-label);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: var(--track-wide);
   color: var(--ac);
 }
 /* P1 — the Burmese-first line. The catalog's name_my takes the primary slot (lang="my") and the
@@ -7728,14 +7577,14 @@ a .chrome-en {
 .kds-line-name[lang="my"] {
   font-family: var(--font-my);
   font-size: var(--kfs-item-my);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-synthesis: none;
   line-height: var(--lh-my);
 }
 .kds-line-mods[lang="my"] {
   margin-top: var(--s1);
   font-family: var(--font-my);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-synthesis: none;
   line-height: var(--lh-my);
 }
@@ -7760,7 +7609,7 @@ a .chrome-en {
   display: block;
   font-family: var(--font-my);
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-synthesis: none;
   line-height: var(--lh-my);
 }
@@ -7775,7 +7624,9 @@ a .chrome-en {
 .kds-line-en {
   margin: 0;
   font-size: var(--kfs-mod);
-  font-weight: 800; /* the dish name it still is — the 600-weight EN modifiers sit under it */
+  font-weight: var(
+    --fw-heavy
+  ); /* the dish name it still is — the 600-weight EN modifiers sit under it */
   line-height: var(--lh-snug);
   color: var(--tx);
   overflow-wrap: anywhere;
@@ -7784,14 +7635,14 @@ a .chrome-en {
 .kds-rail-my {
   display: block;
   font-family: var(--font-my);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-synthesis: none;
   line-height: var(--lh-my);
 }
 .kds-rail-en {
   display: block;
   font-size: var(--kfs-meta);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 /* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b). */
 /* W23a — the per-line 86 control. A quiet SECONDARY next to the full-width bump target: taking a
@@ -7807,7 +7658,7 @@ a .chrome-en {
   background: transparent;
   color: var(--warn);
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--kfs-mod);
   cursor: pointer;
 }
@@ -7829,7 +7680,7 @@ a .chrome-en {
   border-radius: 10px;
   background: color-mix(in srgb, var(--warn) 22%, transparent);
   color: var(--warn);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--kfs-mod);
   text-align: center;
 }
@@ -7840,7 +7691,7 @@ a .chrome-en {
   border: 2px solid var(--warn);
   background: color-mix(in srgb, var(--warn) 30%, var(--cd));
   font-size: var(--kfs-mod);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1.3;
   overflow-wrap: anywhere;
 }
@@ -7857,8 +7708,8 @@ a .chrome-en {
   background: var(--ok);
   color: var(--oa);
   font-size: var(--kfs-clock);
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-snug);
   cursor: pointer;
 }
 .kds-bump-fire {
@@ -7877,7 +7728,7 @@ a .chrome-en {
   margin: 0;
   padding: 8px 14px 0;
   font-size: var(--kfs-mod);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--tx);
 }
 
@@ -7924,7 +7775,7 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--kfs-clock);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
 }
 .kds-page-btn[aria-disabled="true"] {
@@ -7947,7 +7798,7 @@ a .chrome-en {
 /* "+N more" IS the rush signal (O-D) — never quiet, never truncated. */
 .kds-more {
   font-size: var(--kfs-clock);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--warn);
 }
 .kds-new-pill {
@@ -7958,7 +7809,7 @@ a .chrome-en {
   background: var(--gold);
   color: var(--oa);
   font-size: var(--kfs-meta);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
 }
 
@@ -7975,9 +7826,9 @@ a .chrome-en {
 .kds-rail h3 {
   margin: 0 0 var(--s2);
   font-size: var(--kfs-label);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
-  letter-spacing: 0.07em;
+  letter-spacing: var(--track-wide);
   color: var(--t2);
 }
 .kds-rail ul {
@@ -7993,7 +7844,7 @@ a .chrome-en {
   padding: 7px 0;
   border-top: 1px solid var(--bd);
   font-size: var(--kfs-mod);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: 1.25;
 }
 .kds-rail li b {
@@ -8030,7 +7881,7 @@ a .chrome-en {
   gap: 2px;
   color: var(--t2);
   font-size: var(--kfs-meta);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 .kds-rail li.kds-served b {
@@ -8056,7 +7907,7 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--kfs-meta);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 
@@ -8075,7 +7926,7 @@ a .chrome-en {
   background: var(--tx);
   color: var(--pg);
   font-size: var(--kfs-meta);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   box-shadow: var(--sh-md);
 }
 /* ONE rule for the pill: the board's real button and the help card's inert replica
@@ -8088,7 +7939,7 @@ a .chrome-en {
   border: 0;
   background: var(--ac);
   color: var(--oa);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--kfs-meta);
   cursor: pointer;
 }
@@ -8138,7 +7989,7 @@ a .chrome-en {
   margin: 0;
   font-size: clamp(14px, 1.2vw, 20px);
   color: var(--t2);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .orb-cols {
   flex: 1;
@@ -8158,7 +8009,7 @@ a .chrome-en {
   margin: 0 0 clamp(8px, 1vw, 16px);
   font-size: clamp(22px, 2.4vw, 36px);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--track-caps);
   /* board-6 — a hairline, not a 2px full-brightness rule: this screen is lit 12h a day and the
      gold stays on the READY heading's TEXT alone (the burn-in-aware half of the always-on posture). */
   border-bottom: 1px solid var(--bd);
@@ -8167,9 +8018,9 @@ a .chrome-en {
 .orb-col h2 small {
   display: block;
   font-size: 0.62em;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
-  letter-spacing: 0.02em;
+  letter-spacing: var(--track-snug);
   text-transform: none;
 }
 /* The READY column's heading. --gold is CORRECT here and must stay: every `.orb-root` wrapper is
@@ -8204,7 +8055,7 @@ a .chrome-en {
   margin: clamp(8px, 1vw, 16px) 0 0;
   color: var(--t2);
   font-size: clamp(18px, 1.8vw, 30px);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .orb-card {
   /* board-9 — the flash is a `::before` overlay BEHIND the text: the card is its own stacking
@@ -8220,7 +8071,7 @@ a .chrome-en {
   padding: clamp(10px, 1.2vw, 20px) 6px;
   border-bottom: 1px solid var(--bd);
   font-size: clamp(28px, 3.6vw, 54px);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
 }
 /* board-1 — EVERY row is one line: the fit divides the box by a row's height, so a wrapped name
@@ -8237,16 +8088,16 @@ a .chrome-en {
   margin-right: auto;
   color: var(--t2);
   font-size: 0.58em;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.05em;
+  letter-spacing: var(--track-caps);
 }
 /* K32 (A4·1): minutes on the shelf — the server's count, quiet beside the code. */
 .orb-wait {
   flex: none;
   color: var(--t2);
   font-size: 0.5em;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   font-variant-numeric: tabular-nums;
 }
 /* board-9 — the flash animates OPACITY on an overlay (§3: transform/opacity only), never the card's
@@ -8272,7 +8123,34 @@ a .chrome-en {
   margin: clamp(12px, 1.5vw, 24px) 0 0;
   color: var(--t2);
   font-size: clamp(18px, 1.8vw, 30px);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
+}
+/* Phase 0 — the unlinked wall: a centred setup panel with ONE action at TV scale. The refusal
+   sentence leads, the CTA follows, the typed-path fallback sits quietly beneath. */
+.orb-setup {
+  /* The CTA's TV tier, named beside the root's --kfs-meta (a wall wants viewport-unit type). */
+  --kfs-cta: clamp(18px, 1.6vw, 28px);
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: clamp(16px, 2vw, 32px);
+  min-height: 100dvh;
+  text-align: center;
+}
+.orb-setup .orb-head {
+  justify-content: center;
+}
+.orb-setup .orb-empty {
+  max-width: 34ch;
+  margin: 0;
+}
+.orb-setup-cta {
+  font-size: var(--kfs-cta);
+}
+.orb-setup-hint {
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-medium);
+  color: var(--t3);
 }
 /* board-2 — a stale board must read as stale from three metres: the cards fall to the secondary
    ink (a state, not motion — nothing here for reduced motion) and the ONE status line, which already
@@ -8284,7 +8162,7 @@ a .chrome-en {
 .orb-root[data-stale] .orb-status {
   font-size: clamp(18px, 1.8vw, 30px);
   color: var(--tx);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 /* board-6 ships the hairline half only. The ±2px anti-burn DRIFT was drafted and withdrawn (the
    blind pass, slice 5): an auto-motion with no pause control on a screen that has no pointer, and a
@@ -8340,22 +8218,22 @@ a .chrome-en {
   gap: 10px;
   flex-wrap: wrap;
   font-size: clamp(14px, 1.3vw, 22px);
-  font-weight: 800;
-  letter-spacing: 0.05em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--t2);
 }
 .orb-pulse h2 small {
   font-size: 0.78em;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-snug);
   text-transform: none;
 }
 .orb-pulse-note {
   margin: 0;
   color: var(--t2);
   font-size: clamp(15px, 1.4vw, 24px);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .orb-pulse-body {
   display: flex;
@@ -8377,13 +8255,13 @@ a .chrome-en {
 }
 .orb-stat b {
   font-size: clamp(24px, 2.6vw, 40px);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1;
 }
 .orb-stat span {
   font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--t2);
 }
@@ -8406,12 +8284,12 @@ a .chrome-en {
   line-height: var(--lh-tight);
 }
 .orb-table-no {
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 .orb-table-state {
   font-size: 0.8em;
-  font-weight: 700;
-  letter-spacing: 0.05em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--t2);
 }
@@ -8432,15 +8310,15 @@ a .chrome-en {
   gap: 8px;
   flex-wrap: wrap;
   font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: 700;
-  letter-spacing: 0.07em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-wide);
   text-transform: uppercase;
   color: var(--t2);
 }
 .orb-rail h3 small {
   font-size: 0.9em;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-snug);
   text-transform: none;
 }
 .orb-rail ul {
@@ -8460,24 +8338,24 @@ a .chrome-en {
 }
 .orb-rail-name {
   min-width: 0;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   overflow-wrap: anywhere;
 }
 .orb-rail-name small {
   display: block;
   font-size: 0.64em;
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .orb-rail-qty {
   flex: none;
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 .orb-rail-more {
   margin: 4px 0 0;
   font-size: clamp(14px, 1.2vw, 20px);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 
@@ -8714,7 +8592,7 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--xfs-tile);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
   box-shadow: var(--sh);
   transition: transform var(--dur-fast) var(--ease-out);
@@ -8780,7 +8658,7 @@ a .chrome-en {
 }
 .kiosk-door-label {
   font-size: var(--xfs-tile);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 .kiosk-door-hint {
   font-size: var(--xfs-meta);
@@ -8804,7 +8682,7 @@ a .chrome-en {
   background: var(--ac);
   color: var(--oa);
   font-size: var(--xfs-body);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
 }
 .kiosk-cta:disabled {
@@ -8819,7 +8697,7 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--xfs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 .kiosk-lang-toggle {
@@ -8831,7 +8709,7 @@ a .chrome-en {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--xfs-meta);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 .kiosk-topbar {
@@ -8928,7 +8806,7 @@ a .chrome-en {
   gap: 8px;
   pointer-events: none;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
   will-change: transform, opacity;
 }
@@ -8973,8 +8851,8 @@ a .chrome-en {
   background: none;
   color: var(--t2);
   font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-snug);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -9005,15 +8883,15 @@ a .chrome-en {
 .usual-kicker {
   margin: 0;
   font-size: var(--fs-xs);
-  font-weight: 800;
-  letter-spacing: 0.04em;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--t2);
 }
 .usual-dishes {
   margin: 2px 0 0;
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--tx);
 }
 .usual-add {
@@ -9025,7 +8903,7 @@ a .chrome-en {
   background: transparent;
   color: var(--ac-strong);
   font-size: var(--fs-sm);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   cursor: pointer;
   transition: background var(--dur-fast) var(--ease-out);
 }
@@ -9066,7 +8944,7 @@ a .chrome-en {
 .sound-h {
   margin: 0;
   font-size: var(--fs-body);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .sound-sub {
@@ -9274,7 +9152,7 @@ html[data-fx="lite"] .mms-scrim {
    ── .app-header-panel — a dl of --t3/--t2 rows, i.e. a reading surface; it is the second-largest
       candidate buffer in the app; and it hangs DIRECTLY beneath the frosted header, so frosting it
       would nest one blur under another. Opaque --cd, unchanged.
-   ── .mms-toast — an INVERTED pill (`background: var(--tx)`, `color: var(--pg)`). An inverted
+   ── .ui-toast (@mms/ui primitives.css) — an INVERTED pill (`background: var(--tx)`, `color: var(--pg)`). An inverted
       surface has zero headroom in the direction a backdrop moves it: a translucent cream pill over
       dark content greys out and the dark ink collapses with it. The clearest case of rule 1.
    ── .cartbar — a solid --ac primary CTA. Gold is the colour of action AND of selection; a
@@ -9570,7 +9448,7 @@ html[data-fx="lite"] .mms-scrim {
 .pgl-title {
   margin: 0 0 var(--s2);
   font-size: var(--fs-h1);
-  font-weight: 900;
+  font-weight: var(--fw-black);
   color: var(--tx);
 }
 .pgl-lede {
@@ -9582,7 +9460,7 @@ html[data-fx="lite"] .mms-scrim {
 .pgl-count {
   margin: 0 0 var(--s3);
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--tx);
 }
 /* The autonym note. It is the one paragraph on this sheet that explains an ABSENCE, so it is boxed
@@ -9604,7 +9482,7 @@ html[data-fx="lite"] .mms-scrim {
 .pgl-band-title {
   margin: 0 0 var(--s2);
   font-size: var(--fs-h2);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .pgl-band-why {
@@ -9621,7 +9499,7 @@ html[data-fx="lite"] .mms-scrim {
 .pgl-table th {
   text-align: left;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t3);
   padding: 0 var(--s3) var(--s2);
   border-bottom: 1px solid var(--bd);
@@ -9675,13 +9553,13 @@ html[data-fx="lite"] .mms-scrim {
 .pgl-lock {
   display: block;
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 .pgl-lock-why {
   display: block;
   margin-top: 2px;
-  font-weight: 400;
+  font-weight: var(--fw-regular);
   color: var(--t3);
 }
 .pgl-sign {
@@ -9778,7 +9656,7 @@ html[data-fx="lite"] .mms-scrim {
 .pns-title {
   margin: 0;
   font-size: var(--fs-h2);
-  font-weight: 900;
+  font-weight: var(--fw-black);
   color: var(--tx);
 }
 .pns-since {
@@ -9797,13 +9675,13 @@ html[data-fx="lite"] .mms-scrim {
 }
 .pns-label {
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t3);
 }
 .pns-value {
   margin: 2px 0 0;
   font-size: var(--fs-h3);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
   font-variant-numeric: tabular-nums;
 }
@@ -9815,7 +9693,7 @@ html[data-fx="lite"] .mms-scrim {
    wear the numeral's size and weight — those say "this is a measurement". */
 .pns-value-none {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .pns-detail {
@@ -9833,7 +9711,7 @@ html[data-fx="lite"] .mms-scrim {
   border-radius: var(--r-full);
   background: var(--sf);
   font-size: var(--fs-xs);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .pns-chip-n {
@@ -9855,7 +9733,7 @@ html[data-fx="lite"] .mms-scrim {
 .pns-sub {
   margin: 0 0 var(--s2);
   font-size: var(--fs-sm);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   color: var(--tx);
 }
 .pns-money-grid {
@@ -9873,18 +9751,18 @@ html[data-fx="lite"] .mms-scrim {
 /* The one note that is not background: money the figures above do NOT account for. */
 .pns-note-warn {
   color: var(--warn);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .pns-ok {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--ok);
 }
 .pns-warn {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--warn);
 }
 /* The link IS the paragraph's whole content, so it can carry the 44px target without disturbing
@@ -9905,7 +9783,7 @@ html[data-fx="lite"] .mms-scrim {
   border: 1px solid var(--ac);
   border-radius: var(--r-full);
   color: var(--ac);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   text-decoration: none;
 }
 
@@ -9979,25 +9857,25 @@ html[data-fx="lite"] .mms-scrim {
   flex: 1 1 auto;
   gap: 2px;
   font-size: var(--fs-h1);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 1.2;
 }
 .staff-door-name > .chrome-pair > [lang="my"] {
   font-family: var(--font-my);
   font-synthesis: none;
   font-size: 2.375rem; /* 38px — the biggest Burmese on any staff surface but the ticket */
-  font-weight: 700; /* Padauk's heaviest cut; 800 would silently match the same face */
+  font-weight: var(--fw-bold); /* Padauk's heaviest cut; 800 would silently match the same face */
   line-height: 1.35;
 }
 .staff-door-name > .chrome-pair > .chrome-en {
   font-size: var(--fs-h3);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .staff-door-sub {
   margin: auto 0 0;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   line-height: 1.4;
   color: var(--t2);
 }
@@ -10013,7 +9891,7 @@ html[data-fx="lite"] .mms-scrim {
 .staff-door-here {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--gold-strong);
 }
 /* The More grid: the eight manager pages as small tiles beneath the doors. */
@@ -10023,7 +9901,7 @@ html[data-fx="lite"] .mms-scrim {
   gap: var(--s3);
   margin-top: var(--s2);
   font-size: var(--fs-h3);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
 }
 .staff-more-head::after {
   content: "";
@@ -10059,7 +9937,7 @@ html[data-fx="lite"] .mms-scrim {
 /* The tile's script comes from <Chrome>'s own mark (`.chrome-my` sets Padauk); this only sizes. */
 .staff-tile-name {
   font-size: var(--fs-h2);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-snug);
 }
 /* A4·2 — the counter's one screen: four zones (start · tables & counter orders · to-go bags ·
@@ -10073,7 +9951,7 @@ html[data-fx="lite"] .mms-scrim {
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--fs-h3);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
 /* counter-4 — the Start zone's three arms (Walk-up · Phone order · Start a table; `register-stage.ts`
@@ -10089,7 +9967,7 @@ html[data-fx="lite"] .mms-scrim {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 /* manager-7 — ONE rest state for every `aria-pressed` chip outside the KDS root (the loss sheet's
@@ -10109,7 +9987,7 @@ html[data-fx="lite"] .mms-scrim {
   background: var(--sf);
   color: var(--tx);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 /* A full-width row (the loss sheet's reasons): left-aligned, the card's corner, not a pill. */
@@ -10123,15 +10001,15 @@ html[data-fx="lite"] .mms-scrim {
 /* A segment half (the loss sheet's Void/Comp): shares the row. */
 .staff-chip-seg {
   flex: 1;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 /* A quieter figure inside a chip (the tip chips' amount); on the cap it takes the cap's ink. */
 .staff-chip-amount {
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--t2);
 }
 .staff-chip[aria-pressed="true"] .staff-chip-amount {
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: inherit;
 }
 .staff-chip[aria-disabled="true"] {
@@ -10152,7 +10030,7 @@ html[data-fx="lite"] .mms-scrim {
   background: var(--ac);
   color: var(--oa);
   font-size: var(--fs-xs);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: 18px;
   text-align: center;
 }
@@ -10279,7 +10157,7 @@ html[data-fx="lite"] .mms-scrim {
   margin: 0;
   /* the English title (a bare text node from <Chrome>) is sized HERE; the Burmese pair below */
   font-size: var(--fs-h1);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   line-height: var(--lh-tight);
 }
 .staff-bar-title > .chrome-pair {
@@ -10289,13 +10167,13 @@ html[data-fx="lite"] .mms-scrim {
   font-family: var(--font-my);
   font-synthesis: none;
   font-size: 1.875rem; /* 30px — the large-title idiom, one step under the doors' 38 */
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: 1.3;
 }
 .staff-bar-title > .chrome-pair > .chrome-en {
   font-size: var(--fs-sm);
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-snug);
   color: var(--t2);
 }
 .staff-bar-mid {
@@ -10438,7 +10316,7 @@ html[data-fx="lite"] .mms-scrim {
   background: var(--cd);
   color: var(--tx);
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   text-decoration: none;
   box-shadow:
     inset 0 1px 0 var(--sheen),
@@ -10547,21 +10425,21 @@ html[data-fx="lite"] .mms-scrim {
   flex: 1 1 auto;
   min-width: 0;
   font-size: var(--fs-h3);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
 .staff-row-name > .chrome-pair > [lang="my"] {
   font-family: var(--font-my);
   font-synthesis: none;
   font-size: 1.1875rem; /* 19px */
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: 1.35;
 }
 /* counter-10 — the echo at `--fs-sm`, the bar title's own echo size: 11px under 19px Padauk on a
    62px row read at arm's length was K29's "12px echo", one step smaller still. */
 .staff-row-name > .chrome-pair > .chrome-en {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
 }
 .staff-row-chev {
@@ -10621,7 +10499,7 @@ html[data-fx="lite"] .mms-scrim {
 .staff-greeting {
   margin: 0 0 var(--s4);
   font-size: var(--fs-h3);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 
@@ -10714,13 +10592,6 @@ html[data-fx="lite"] .mms-scrim {
   /* The market: three SKUs per row (227px each at the tablet width; the phone's are 163). */
   .gcard-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  /* The ambient's pause coin moves into the gutter the column no longer covers — OFF the content
-     (F11's complaint) — and stays in the corner only where there is no gutter to take. */
-  .pa-pause {
-    /* The safe-area term stays on the tablet tier too — a landscape phone IS ≥ 48em, and without
-       it the coin sat inside the 44–59px sensor strip (blind pass on #271). */
-    left: max(12px, env(safe-area-inset-left, 0px), calc(50% - var(--w-page) / 2 - 56px));
   }
   /* The category rail WRAPS instead of scrolling: a mouse has no sideways swipe, and at 736px
      every category fits in two rows (three reviewers, three viewports, one finding). The snap and
@@ -10848,7 +10719,7 @@ html[data-fx="lite"] .mms-scrim {
 .entry-brand {
   margin: 0 0 var(--s3);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   letter-spacing: var(--track-eyebrow);
   text-transform: uppercase;
   color: var(--t3);
@@ -10878,7 +10749,7 @@ html[data-fx="lite"] .mms-scrim {
   display: block;
   margin-bottom: 6px;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--tx);
 }
 .entry-input {
@@ -10914,7 +10785,7 @@ html[data-fx="lite"] .mms-scrim {
   border-radius: var(--r-full);
   font: inherit;
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 .entry-primary {
@@ -10926,7 +10797,7 @@ html[data-fx="lite"] .mms-scrim {
   border: 1px solid var(--bd);
   background: var(--cd);
   color: var(--tx);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .entry-primary[aria-disabled="true"],
 .entry-secondary[aria-disabled="true"] {
@@ -10945,7 +10816,7 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--ac);
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 .entry-divider {
@@ -10978,7 +10849,7 @@ html[data-fx="lite"] .mms-scrim {
 .entry-h3 {
   margin: var(--s5) 0 4px;
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
 }
 .entry-note {
@@ -11010,7 +10881,7 @@ html[data-fx="lite"] .mms-scrim {
 .team-form-h {
   margin: 0 0 var(--s4);
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .team-fields {
   display: grid;
@@ -11020,7 +10891,7 @@ html[data-fx="lite"] .mms-scrim {
   display: block;
   margin-bottom: var(--s2);
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--tx);
 }
 .team-field {
@@ -11063,7 +10934,7 @@ html[data-fx="lite"] .mms-scrim {
 }
 .team-name {
   font-size: var(--fs-body);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .team-email {
   margin-top: var(--s1);
@@ -11107,7 +10978,7 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--tx);
   font: inherit;
   font-size: var(--fs-field);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 .team-toggle {
@@ -11118,7 +10989,7 @@ html[data-fx="lite"] .mms-scrim {
   background: var(--cd);
   font: inherit;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -11142,15 +11013,15 @@ html[data-fx="lite"] .mms-scrim {
    the first time the button changed. The chosen size wears the lit-gold cap, the one selection
    vocabulary (§2). */
 .help-glyph {
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--fs-h3);
   line-height: 1;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--track-display);
 }
 .help-glyph-aa {
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-size: var(--fs-body);
-  letter-spacing: -0.02em;
+  letter-spacing: var(--track-display);
 }
 .help-sheet .mms-sheet-body,
 .help-menu,
@@ -11177,16 +11048,16 @@ html[data-fx="lite"] .mms-scrim {
   display: block;
   margin-top: 2px;
   font-size: var(--fs-sm);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--t2);
 }
 .help-row-sub > .chrome-pair > [lang="my"] {
   font-size: 0.9375rem; /* 15px */
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 .help-row-sub > .chrome-pair > .chrome-en {
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
 }
 
 /* ── the cards ── */
@@ -11240,7 +11111,7 @@ html[data-fx="lite"] .mms-scrim {
 }
 .expo-age {
   font-size: var(--fs-h3);
-  font-weight: 800;
+  font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
 /* counter-1 — the picked posture: the write is waiting on the undo window. The header wears the ok
@@ -11286,7 +11157,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-lede {
   margin: 0 0 var(--s2);
   font-size: var(--fs-h3);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: var(--lh-snug);
   outline: none;
 }
@@ -11298,7 +11169,7 @@ html[data-fx="lite"] .mms-scrim {
 }
 .help-lede > .chrome-pair > .chrome-en {
   font-size: var(--fs-body);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .help-more {
   margin: 0;
@@ -11316,7 +11187,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-step {
   margin: 0;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--t2);
   font-variant-numeric: tabular-nums;
 }
@@ -11333,7 +11204,7 @@ html[data-fx="lite"] .mms-scrim {
   color: var(--oa);
   font: inherit;
   font-size: var(--fs-body);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   cursor: pointer;
 }
 .help-footer {
@@ -11350,7 +11221,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-report-label {
   display: block;
   margin: 0 0 var(--s2);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 /* 17px, not 14: iOS zooms into any field under 16px and never zooms back out. */
 .help-report-field {
@@ -11387,7 +11258,7 @@ html[data-fx="lite"] .mms-scrim {
   margin: 0 0 var(--s3);
   min-height: 1.5em;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   color: var(--warn);
 }
 .help-report-actions {
@@ -11411,7 +11282,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-report-sent-title {
   margin: 0 0 4px;
   font-size: var(--fs-h3);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .help-report-sent-sub {
   margin: 0;
@@ -11421,7 +11292,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-report-mine-title {
   margin: 0 0 var(--s2);
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   color: var(--t2);
 }
 .help-report-mine {
@@ -11466,7 +11337,7 @@ html[data-fx="lite"] .mms-scrim {
   padding: 0 10px;
   border-radius: var(--r-full);
   font-size: var(--fs-xs);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   background: color-mix(in oklab, var(--tx) 8%, var(--cd));
   color: var(--t2);
 }
@@ -11513,7 +11384,7 @@ html[data-fx="lite"] .mms-scrim {
 .help-size-sample {
   flex: 1 1 auto;
   min-width: 0;
-  font-weight: 700;
+  font-weight: var(--fw-bold);
   line-height: 1.2;
 }
 .help-size-sample > .chrome-pair > [lang="my"] {
@@ -11536,21 +11407,58 @@ html[data-fx="lite"] .mms-scrim {
 }
 .help-size-sample > .chrome-pair > .chrome-en {
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
 }
 .help-size-meta {
   flex: none;
   text-align: right;
   font-size: var(--fs-sm);
-  font-weight: 700;
+  font-weight: var(--fw-bold);
 }
 .help-size-across {
   display: block;
   font-size: var(--fs-xs);
-  font-weight: 500;
+  font-weight: var(--fw-medium);
   color: var(--t2);
 }
 .help-size-back {
   width: 100%;
   justify-content: center;
+}
+
+/* Phase 0 — the parked split (SplitSection): one honest sentence, and the per-person reference one
+   tap away in a quiet disclosure. The summary is a full 44px row with a chevron that turns. */
+.split-parked-details {
+  margin-top: var(--s2);
+}
+.split-parked-details > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 44px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ac-strong);
+  cursor: pointer;
+  list-style: none;
+}
+.split-parked-details > summary::-webkit-details-marker {
+  display: none;
+}
+.split-parked-details > summary::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+.split-parked-details[open] > summary::after {
+  transform: translateY(2px) rotate(-135deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .split-parked-details > summary::after {
+    transition: none;
+  }
 }

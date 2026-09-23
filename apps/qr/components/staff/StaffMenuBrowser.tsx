@@ -239,10 +239,10 @@ export function StaffMenuBrowser({
               )}
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600 }}>
+              <div style={{ fontWeight: "var(--fw-semibold)" }}>
                 {i.nameEn}
                 {i.soldOut && (
-                  <span style={{ color: "var(--t3)", fontWeight: 400 }}>
+                  <span style={{ color: "var(--t3)", fontWeight: "var(--fw-regular)" }}>
                     {" · "}
                     <Chrome lang={lang} k="browse.soldOut" />
                   </span>
@@ -260,7 +260,7 @@ export function StaffMenuBrowser({
                   {i.nameMy}
                 </div>
               )}
-              <div style={{ fontWeight: 800, marginTop: 4 }}>
+              <div style={{ fontWeight: "var(--fw-heavy)", marginTop: 4 }}>
                 ${(i.priceCents / 100).toFixed(2)}
               </div>
             </div>
@@ -335,7 +335,11 @@ export function StaffMenuBrowser({
 }
 
 const nameStrip: CSSProperties = { margin: "0 0 var(--s4)", display: "grid", gap: "var(--s1)" };
-const nameLabel: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--tx)" };
+const nameLabel: CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--tx)",
+};
 const nameRow: CSSProperties = { display: "flex", gap: "var(--s2)" };
 const nameInput: CSSProperties = {
   minHeight: 48,
@@ -355,7 +359,7 @@ const nameBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -408,7 +412,7 @@ const chooseBtn: CSSProperties = {
   border: "1px solid var(--ac)",
   background: "var(--sf)",
   color: "var(--ac-strong)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
   flex: "none",

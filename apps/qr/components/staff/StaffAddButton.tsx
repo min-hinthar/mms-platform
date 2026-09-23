@@ -134,7 +134,7 @@ const btn: CSSProperties = {
   padding: "0 16px",
   borderRadius: 999,
   border: "none",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
   alignSelf: "center",

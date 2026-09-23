@@ -4,6 +4,60 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 0 — the design system in code, and the visible-bug batch (2026-09-23)
+
+**Why:** a side-by-side of the live QR and delivery apps found the gap was not detail craft (QR's item
+sheet beats delivery's) but SYSTEM: no shared button, toast, field or page heading, so every screen
+rebuilt its own — 267 literal font-weights and none tokenized, 316 more inline, seven primary-button
+recipes, three toasts, page titles at 400/600/900. And a handful of bugs a guest can see.
+
+**The system (`@mms/ui`, styled by the new `@mms/ui/primitives.css`):**
+
+- **Tokens:** a weight scale (`--fw-regular…--fw-black`), a tracking scale (`--track-tight/-snug/-caps/-wide`),
+  and the three missing type steps (`--fs-lead` 15 · `--fs-label` 14 · `--fs-caption` 12). Codemods
+  moved every exact match: all 267 CSS weights and 323 inline weights, 126 CSS sizes, 46 CSS + 31 inline
+  trackings (≤0.5px / ≤0.01em snaps onto the scale; none elsewhere).
+- **`Button` / `buttonClass`** — primary · secondary · quiet · danger × sm · md · lg · xl, 44px floor at
+  every size, `aria-disabled` (never native) and a `busy` state that refuses re-entry, in ONE place.
+- **`Toast`** — one always-mounted live region docked on the published CTA band, an optional `action`
+  (undo). The menu's and the market's toasts now both render it (the kitchen's is F21).
+- **`Field`** — label, control, one note line (hint OR error) wired with `aria-describedby`/`aria-invalid`.
+- **`PageMasthead` / `Kicker`** — one page heading; `/account` is the first consumer (its title was 900 inline).
+- **`EmptyState layout="page"`** — the one "nothing here" page: `/cart` and `/track` now share it.
+- **Headings** take the prototype's 600 (`h1,h2,h3`), which Tailwind's reset had silently turned into 400.
+- **`/kit`** — every primitive on the live tokens, for reviewing a visual PR on the preview (404 on production).
+- **`check:style-literals`** (CI fast lane, step fifteen) — a parsed ratchet: hardcoded weight/size/tracking
+  counts may fall, never rise. ESLint now bans numeric inline `fontWeight`.
+
+**The bugs:**
+
+- Burmese broke into spaced fallback glyphs wherever it sat unmarked inside a Latin face (the /account tier
+  name, /kiosk): Padauk is now second in both Latin stacks.
+- The TV board, signed out, printed `/staff/login?next=/board` as prose; it is a centred panel with a real
+  "Sign in to set up this screen" link (the path stays as the typed fallback).
+- A bare `/menu` became a Scan-&-go GROCERY session (F9): now a 307 in `proxy.ts` (to `/`, or dine-in for a
+  sticker/invite code), with the page repeating the rule.
+- The split section promised "Tip is added per person at their pay step" while self-serve split is parked:
+  it now says pay as one bill or at the counter, with each share one tap away.
+- `/cart` with no order said "Start from the menu" over a button to the door picker; `/cart` and `/track`
+  now share one empty-page design whose sentence names the button's destination.
+- The phone background drift and its fixed pause coin (over dish photos, F11) are retired.
+- The home greeting said "Good morning" at dinner; it reads the restaurant's clock (`lib/greeting.ts`).
+- Staff: the table page's leading control is "← Floor" (it was the Screens circle, so every settle left
+  through the doors); the floor lists dine-in tables only — phones browsing the menu were cards (K21).
+
+**Proof:** 5 new suites/cases (`menu-entry`, `greeting`, `floor-dinein-only`, the board's sign-in link, the
+retired-drift contract), each watched red first; mutant `floor/k21-phones-back-on-the-floor` (748).
+
+**The blind pass (REJECT, one critical) — all closed on the PR:** an unreadable `/cart` told a tablemate
+whose host had paid "No order on this device yet … will show up here" (now three states in
+`lib/cart-empty-copy.ts`: no id · not open HERE · complete); `/kit` is opt-in (preview/dev only); the
+ratchet now counts `var()` fallbacks, keyword weights, EVERY stylesheet, `${n}px` templates and the
+shared `packages/ui/src/icon.tsx` (its Satori exclusion is scoped to `apps/qr/app`); the F11 guard reads
+animation LONGHANDS on any part of the room; the greeting has a winter (PST) case that kills a
+fixed-offset mutant; the proxy's 307 has its own suite (`lib/proxy-menu.test.ts`); repeated query keys
+read as their last value on both paths; a Toast with an action must not time out under focus (WCAG 2.2.1).
+
 ### signin-1 · signin-2 · signin-3 · signin-4 · signin-5 · doors-1 · doors-2 · help-1 · chrome-1 — the sign-in screen and the shared chrome (2026-09-20)
 
 **Slice 7 of the staff-console polish: the front door and everything every screen shares, from the

@@ -8,6 +8,7 @@ import { getReceiptEntry } from "@/lib/receipt-entry";
 import { resolveReceiptOrder } from "@/lib/receipt-token";
 import { reorderLink } from "@/lib/order-history-view";
 import { menuHref, menuLinkText } from "@/lib/menu-href";
+import { EmptyState, Icon, buttonClass } from "@mms/ui";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { awaitingManualCapture } from "@/lib/manual-capture-mode";
 
@@ -247,21 +248,23 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
   return (
     <main className={col} style={wrap}>
       <PaperAmbient />
-      <div className="card card-textured track-notice">
-        <div className="track-notice-medallion" aria-hidden>
-          🍵
-        </div>
-        <h1>Track your order</h1>
-        <p>Your order timeline and ETA will appear here once you’ve placed an order.</p>
-        {/* W9a — a direct visit with no order: the door picker is the honest destination (and the
-            only one that can send a grocery shopper to the market instead of the dish menu). */}
-        <Link href={menuHref(null)} className="nav-link-strong">
-          {menuLinkText(null, "browse")}{" "}
-          <span aria-hidden className="nav-arrow nav-arrow-fwd">
-            →
-          </span>
-        </Link>
-      </div>
+      {/* Phase 0 — the shared empty-page grammar (the same slip an empty /cart shows). A direct
+          visit with no order: the door picker is the honest destination (W9a — the only one that can
+          send a grocery shopper to the market instead of the dish menu). */}
+      <EmptyState
+        layout="page"
+        icon={<Icon name="receipt" size={28} />}
+        title="Track your order"
+        subtitle="Your order timeline and ETA will appear here once you’ve placed an order."
+        action={
+          <Link href={menuHref(null)} className={buttonClass({ size: "lg" })}>
+            {menuLinkText(null, "browse")}{" "}
+            <span aria-hidden className="ui-btn-arrow-fwd">
+              →
+            </span>
+          </Link>
+        }
+      />
     </main>
   );
 }

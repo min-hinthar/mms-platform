@@ -200,7 +200,10 @@ export function KioskReview({
                     {p.nameMy}
                   </span>
                 )}
-                <span className="kiosk-door-hint" style={{ fontWeight: 800, color: "var(--tx)" }}>
+                <span
+                  className="kiosk-door-hint"
+                  style={{ fontWeight: "var(--fw-heavy)", color: "var(--tx)" }}
+                >
                   + ${(p.priceCents / 100).toFixed(2)}
                 </span>
               </button>
@@ -278,7 +281,7 @@ export function KioskReview({
                 {/* The amount carries the warmth — accent ink, not muted meta-grey. */}
                 <span
                   className="kiosk-door-hint"
-                  style={{ color: "var(--ac-strong)", fontWeight: 800 }}
+                  style={{ color: "var(--ac-strong)", fontWeight: "var(--fw-heavy)" }}
                 >
                   ${(cents / 100).toFixed(2)}
                 </span>
@@ -329,7 +332,7 @@ export function KioskReview({
                 <span className="kiosk-door-hint"> · {l.modifiers.join(", ")}</span>
               )}
             </span>
-            <span style={{ fontWeight: 800 }}>
+            <span style={{ fontWeight: "var(--fw-heavy)" }}>
               ${((l.qty * l.unitPriceCents) / 100).toFixed(2)}
             </span>
           </li>
@@ -342,7 +345,7 @@ export function KioskReview({
           justifyContent: "space-between",
           padding: "var(--s4)",
           fontSize: "var(--xfs-tile)",
-          fontWeight: 800,
+          fontWeight: "var(--fw-heavy)",
         }}
       >
         <span lang={lang === "my" ? "my" : undefined}>{t(lang, "total")}</span>

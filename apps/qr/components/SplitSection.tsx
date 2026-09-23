@@ -139,12 +139,10 @@ export function SplitSection({
     });
   }
 
-  return (
-    <section aria-labelledby="split-h" style={{ marginTop: 18 }}>
-      <h2 id="split-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 8px" }}>
-        Split the bill
-      </h2>
-
+  // The reference breakdown — the split mode, who has what, and each person's share. Presentation
+  // only (amounts stay server-derived); shared by both branches below.
+  const breakdown = (
+    <>
       <div role="group" aria-label="Split mode" className="checkout-pill-row">
         {(["even", "by_person"] as const).map((m) => {
           const on = mode === m;
@@ -184,7 +182,7 @@ export function SplitSection({
                 : ownerMember.name;
             return (
               <li key={line.id}>
-                <div style={{ fontWeight: 600, fontSize: "var(--fs-sm)" }}>
+                <div style={{ fontWeight: "var(--fw-semibold)", fontSize: "var(--fs-sm)" }}>
                   {line.qty}× {line.name}
                 </div>
                 {canAssign ? (
@@ -263,7 +261,13 @@ export function SplitSection({
               <Avatar size="sm" initial={seatInitial(s.name)} color={seatColor(s.seat)} />
               {s.seat === ctx.mySeat ? `${s.name} (you)` : s.name}
             </dt>
-            <dd style={{ margin: 0, fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+            <dd
+              style={{
+                margin: 0,
+                fontVariantNumeric: "tabular-nums",
+                fontWeight: "var(--fw-bold)",
+              }}
+            >
               {/* Rolls as assignments shift the shares (presentation only — amounts stay server-derived). */}
               <NumberFlow
                 value={s.shareCents / 100}
@@ -273,15 +277,52 @@ export function SplitSection({
           </div>
         ))}
       </dl>
+    </>
+  );
+
+  // Phase 0 — while the self-serve settlement door is PARKED (A1, `SURFACES.selfServeSplit`) this
+  // section used to render the whole split UI anyway: "Evenly / By person", per-person amounts and
+  // "Tip is added per person at their pay step" — a step that does not exist, beside a single
+  // "Pay the whole order" button. A screen may only promise what the code keeps (DESIGN-LANGUAGE §5).
+  // So it says what IS true — one bill here, or the counter splits it — and keeps the per-person
+  // figures one tap away, because "who owes what" is still worth reading at a shared table.
+  if (!surfaceOpen("selfServeSplit")) {
+    return (
+      <section aria-labelledby="split-h" className="split-parked" style={{ marginTop: 18 }}>
+        <h2 id="split-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 4px" }}>
+          Splitting the bill?
+        </h2>
+        <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", margin: 0, lineHeight: 1.5 }}>
+          Pay as one bill here — or ask at the counter, and our staff can split it for you.
+        </p>
+        <details className="split-parked-details">
+          <summary>See each person’s share</summary>
+          {breakdown}
+          <p
+            style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}
+          >
+            Each person’s share of the order, including tax — a guide for settling up.
+          </p>
+        </details>
+      </section>
+    );
+  }
+
+  return (
+    <section aria-labelledby="split-h" style={{ marginTop: 18 }}>
+      <h2 id="split-h" style={{ fontSize: "var(--fs-body)", margin: "0 0 8px" }}>
+        Split the bill
+      </h2>
+
+      {breakdown}
 
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
         Each person’s share of the order, including tax. Tip is added per person at their pay step.
       </p>
 
-      {/* A1 — the self-serve settlement door is PARKED (`SURFACES.selfServeSplit`): the reference
-          breakdown above stays (it is presentation), the "pay separately" verb and the guest's
-          promise of it do not. The counter splits a bill the way a family expects — a person does. */}
-      {!surfaceOpen("selfServeSplit") ? null : ctx.myRole === "host" ? (
+      {/* The live door (reachable only while `SURFACES.selfServeSplit` is open — the parked branch
+          above returns first). */}
+      {ctx.myRole === "host" ? (
         <button
           type="button"
           onClick={beginSettle}
@@ -316,7 +357,7 @@ const aav = (on: boolean, seat: string, frozen = false): CSSProperties => ({
   // vivid fixed seat hues — every hue clears AA behind #fff (avatars.test.ts). This control IS the
   // 44px tap-target avatar (the primitive's discs are 22/30px), so it carries the exception inline.
   color: "#fff",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   display: "grid",
   placeItems: "center",

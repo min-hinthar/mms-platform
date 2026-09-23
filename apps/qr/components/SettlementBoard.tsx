@@ -281,7 +281,13 @@ export function SettlementBoard({
         Everyone pays their share
         {/* K2: anchor the split to the real table. */}
         {ctx.tableNumber != null && (
-          <span style={{ color: "var(--t3)", fontWeight: 600, fontSize: "var(--fs-sm)" }}>
+          <span
+            style={{
+              color: "var(--t3)",
+              fontWeight: "var(--fw-semibold)",
+              fontSize: "var(--fs-sm)",
+            }}
+          >
             {" "}
             · Table {ctx.tableNumber}
           </span>
@@ -316,7 +322,7 @@ export function SettlementBoard({
                 background: "none",
                 border: "none",
                 color: "var(--warn)",
-                fontWeight: 800,
+                fontWeight: "var(--fw-heavy)",
                 textDecoration: "underline",
                 cursor: "pointer",
               }}
@@ -387,7 +393,7 @@ export function SettlementBoard({
                   background: "none",
                   border: "none",
                   color: "var(--warn)",
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   textDecoration: "underline",
                   cursor: "pointer",
                 }}
@@ -517,8 +523,10 @@ export function SettlementBoard({
                         initial={seatInitial(nameOf(s.seat))}
                         color={seatColor(s.seat)}
                       />
-                      <span style={{ flex: 1, fontWeight: 700 }}>{name}</span>
-                      <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>
+                      <span style={{ flex: 1, fontWeight: "var(--fw-bold)" }}>{name}</span>
+                      <span
+                        style={{ fontVariantNumeric: "tabular-nums", fontWeight: "var(--fw-bold)" }}
+                      >
                         ${(s.amountCents / 100).toFixed(2)}
                       </span>
                       <StatusBadge status={s.status} />
@@ -547,7 +555,7 @@ export function SettlementBoard({
             border: "1.5px solid var(--bd)",
             background: "transparent",
             color: "var(--t2)",
-            fontWeight: 700,
+            fontWeight: "var(--fw-bold)",
             cursor: aborting ? "default" : "pointer",
           }}
         >
@@ -579,7 +587,7 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
     <span
       style={{
         fontSize: "var(--fs-xs)",
-        fontWeight: 800,
+        fontWeight: "var(--fw-heavy)",
         padding: "3px 9px",
         borderRadius: 999,
         color: s.color,

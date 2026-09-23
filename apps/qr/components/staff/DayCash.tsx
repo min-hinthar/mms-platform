@@ -163,16 +163,20 @@ const dayGrid: CSSProperties = {
   margin: 0,
 };
 const dayCell: CSSProperties = { display: "grid", gap: "var(--s1)" };
-const dayLabel: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 700, color: "var(--t2)" };
+const dayLabel: CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+  color: "var(--t2)",
+};
 const dayBig: CSSProperties = {
   fontFamily: "var(--font-display)",
   fontSize: "var(--fs-h2)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   margin: 0,
 };
 const dayCount: CSSProperties = {
   fontFamily: "var(--font-body)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 400,
+  fontWeight: "var(--fw-regular)",
   color: "var(--t2)",
 };

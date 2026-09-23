@@ -2523,3 +2523,22 @@ assertion ran. Flush the timer first (`await act(async () => { await new Promise
 setTimeout(r, 0)); })`), then assert; the same case then goes red under the mutant and the
 "focus returns to the trigger" case stops depending on which of `act`'s internal ticks happened to
 run the timeout. Sibling of #127: a jsdom fact, not a React one.
+
+## #131
+
+**A value-preserving token codemod can still break a rule whose job is to be a LITERAL.** Phase 0
+moved every `font-size: 16px` to `var(--fs-body)` — identical at the default root size — and one of
+them was the iOS no-zoom floor (`input { font-size: 16px !important }` under 640px). iOS judges the
+COMPUTED px, so a rem token that scales with the user's text setting is the wrong shape there;
+`overscroll-contract.test.ts` caught it. Before a mechanical sweep, grep for the rules that exist to
+pin a number (floors, print, Satori, email) and exclude them — and give each a comment saying the
+literal is deliberate, so the ratchet's count is explained, not merely tolerated.
+
+## #132
+
+**`redirect()` in a Server Component under a route with `loading.tsx` is a CLIENT hop, not a 307.**
+The loading boundary starts streaming first, so the redirect arrives as `NEXT_REDIRECT` in the RSC
+payload plus a `<meta http-equiv="refresh" content="1;url=…">` — the guest sees the skeleton of the
+page they were leaving, then jumps. Measured on the bare-`/menu` rule: `curl` said 200. A redirect a
+person must never see belongs in `proxy.ts` (a true 307 before render); keep the page-level call as
+the belt for paths the proxy matcher skips.

@@ -449,7 +449,7 @@ export function AddButton({
         padding: "0 16px",
         borderRadius: 999,
         border: "none",
-        fontWeight: 800,
+        fontWeight: "var(--fw-heavy)",
         cursor: inactive ? "default" : "pointer",
         background: soldOut ? "var(--sf)" : "var(--ac)",
         color: soldOut ? "var(--t3)" : "var(--oa)",

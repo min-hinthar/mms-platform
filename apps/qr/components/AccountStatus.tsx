@@ -280,7 +280,7 @@ const avatar: CSSProperties = {
   display: "grid",
   placeItems: "center",
   fontSize: "var(--fs-h3)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   userSelect: "none",
 };
 const sinceLine: CSSProperties = {
@@ -291,7 +291,7 @@ const sinceLine: CSSProperties = {
 const h2: CSSProperties = {
   margin: "0 0 6px",
   fontSize: "var(--fs-h3)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
   overflowWrap: "anywhere", // a long email must wrap, never overflow the card
 };
@@ -310,7 +310,7 @@ const tierChip: CSSProperties = {
   borderRadius: 999,
   border: "1px solid transparent", // color set inline from the tier tint
   fontSize: "var(--fs-sm)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
 };
 const sub: CSSProperties = {
   margin: "0 0 14px",
@@ -329,7 +329,7 @@ const lendBtn: CSSProperties = {
   borderRadius: 12,
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
@@ -355,7 +355,7 @@ const proceedBtn: CSSProperties = {
   border: "1.5px solid var(--ac)",
   background: "transparent",
   color: "var(--ac)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -366,7 +366,7 @@ const cancelBtn: CSSProperties = {
   border: "1.5px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };

@@ -69,7 +69,7 @@ export default function NotFound() {
               borderRadius: 999,
               background: "var(--ac)",
               color: "var(--oa)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               fontSize: "var(--fs-h3)",
               textDecoration: "none",
             }}
@@ -86,7 +86,7 @@ export default function NotFound() {
               borderRadius: 999,
               border: "1px solid var(--bd)",
               color: "var(--tx)",
-              fontWeight: 700,
+              fontWeight: "var(--fw-bold)",
               fontSize: "var(--fs-sm)",
               textDecoration: "none",
             }}

@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { bareMenuRedirect } from "@/lib/menu-entry";
 import { publicClient } from "@mms/db/server";
 import { TableCartProvider } from "@/components/TableCartProvider";
 import { CartPublisher } from "@/components/CartPublisher";
@@ -42,7 +44,12 @@ export default async function Menu({
   // `reorder` (J5) = a past order id to bring back once the cart is ready (validated + earner-gated
   // server-side in reorderOrder; the client only relays the id). `door` (K0/K1) = the diner-facing
   // entrance for analytics only (never authz) — the To-go door sends door=togo on the pickup mode.
-  const { mode = "scango", t, j, reorder, door, table, resume } = await searchParams;
+  const params = await searchParams;
+  // Phase 0 / F9 — a mode-less /menu is redirected, never guessed (lib/menu-entry.ts).
+  const bare = bareMenuRedirect(params);
+  if (bare) redirect(bare);
+  const mode = params.mode ?? "dinein"; // unreachable default — `bare` handled every mode-less entry
+  const { t, j, reorder, door, table, resume } = params;
   const code = t ?? j;
   const joinOnly = !t && !!j;
   const db = publicClient();

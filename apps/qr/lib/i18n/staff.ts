@@ -1811,9 +1811,12 @@ export const STAFF = {
   // sentence under a Burmese refusal); `{x}` is the Latin path, which <Chrome> marks `lang="en"`.
   // Claude-authored draft pending K15.
   "board.signin": {
-    en: "A manager can sign in on this screen at {x}.",
-    my: "မန်နေဂျာက ဒီစခရင်မှာ {x} ကနေ ဝင်နိုင်ပါတယ်။",
+    en: "Or open {x} on this screen.",
+    my: "ဒါမှမဟုတ် ဒီစခရင်မှာ {x} ကို ဖွင့်ပါ။",
   },
+  // Phase 0 — the unlinked board's ONE action. It used to print the sign-in path as plain text on a
+  // wall with a remote; now it is a link a manager can follow. Claude-authored draft pending K15.
+  "board.signin.cta": { en: "Sign in to set up this screen", my: "ဒီစခရင်ကို ပြင်ဆင်ဖို့ ဝင်ပါ" },
   "board.offline": {
     en: "Can’t reach the ordering system — this screen isn’t updating. Trying again…",
     my: "အော်ဒါစနစ်နဲ့ ဆက်သွယ်လို့ မရပါ — ဒီစခရင် အသစ်မတက်ပါ။ ထပ်ကြိုးစားနေပါတယ်…",

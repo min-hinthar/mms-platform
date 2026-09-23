@@ -116,7 +116,7 @@ const card: CSSProperties = {
 const question: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--tx)",
   // W19 — the card replaces a CENTER-aligned button; left-aligned prose read as misaligned.
   textAlign: "center",
@@ -125,7 +125,7 @@ const questionMy: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   color: "var(--t2)",
 };
 const detail: CSSProperties = {
@@ -147,7 +147,7 @@ const baseBtn: CSSProperties = {
   minHeight: 48,
   padding: "6px 14px",
   borderRadius: 12,
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
   lineHeight: 1.2,
@@ -164,5 +164,5 @@ const btnMy: CSSProperties = {
   // W16e review MED — these are the owner's OWN named buttons ("Send to kitchen … or finalize pay
   // bill"); shipping their Burmese at the 11px floor is exactly what the W12 bill review rejected.
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
 };

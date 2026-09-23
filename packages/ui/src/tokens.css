@@ -5,8 +5,12 @@
    src/__tests__/contrast-audit.test.ts, which parses THIS file — it re-checks the matrix on every
    token change (so this claim can't silently rot). (Mirror of MMS_QR_tokens.css; single source of truth.) */
 :root {
-  --font-display: "Fraunces", Georgia, serif;
-  --font-body: "Hanken Grotesk", system-ui, sans-serif;
+  /* Padauk rides SECOND in every Latin stack: font fallback is per-glyph, so a Myanmar run that is
+     not wrapped in lang="my" (a tier name inside a serif heading, a kiosk line) still reaches Padauk
+     instead of the platform's own Myanmar face — which rendered as broken, spaced glyphs on /kiosk
+     and the /account tier card. Latin glyphs never reach it. */
+  --font-display: "Fraunces", "Padauk", Georgia, serif;
+  --font-body: "Hanken Grotesk", "Padauk", system-ui, sans-serif;
   --font-my: "Padauk", sans-serif;
   --s1: 4px;
   --s2: 8px;
@@ -40,9 +44,26 @@
      RULE here, not the coincidence of `--fs-body` happening to be 1rem. Fields read this, never body,
      so a type-scale pass that drops body text can no longer re-introduce focus-zoom silently. */
   --fs-field: max(1rem, var(--fs-body));
+  --fs-lead: 0.9375rem; /* 15 — a card's supporting line */
+  --fs-label: 0.875rem; /* 14 — control labels, dense rows */
   --fs-sm: 0.8125rem; /* 13 */
+  --fs-caption: 0.75rem; /* 12 — chips, meta, captions */
   --fs-xs: 0.6875rem; /* 11 */
+  /* Phase 0 — the weight and tracking scales. Before these existed the stylesheet carried 267
+     literal font-weights and 16 distinct letter-spacings; "bold" meant 600, 700 or 800 depending on
+     who wrote the rule. Name the role, never the number. `scripts/check-style-literals.mjs` holds the
+     remaining literals to a ratchet: the count may fall, never rise. */
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600; /* headings, emphasis in running text */
+  --fw-bold: 700; /* labels, prices, controls */
+  --fw-heavy: 800; /* primary CTAs, eyebrows, numerals that lead */
+  --fw-black: 900;
   --track-display: -0.02em;
+  --track-tight: -0.01em;
+  --track-snug: 0.02em; /* chips + badges */
+  --track-caps: 0.05em; /* short uppercase labels */
+  --track-wide: 0.08em; /* spaced uppercase */
   --track-eyebrow: 0.13em; /* matches the shipped .eyebrow value — the class consumes this token */
   --w-content: 27.5rem; /* 440 — the entry/content column */
   --r-sm: 12px;

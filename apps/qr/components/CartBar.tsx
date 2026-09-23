@@ -98,7 +98,7 @@ export function CartBar() {
         alignItems: "center",
         border: "none",
         font: "inherit",
-        fontWeight: 800,
+        fontWeight: "var(--fw-heavy)",
         cursor: "pointer",
       }}
     >

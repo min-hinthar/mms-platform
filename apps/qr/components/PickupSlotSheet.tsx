@@ -164,7 +164,7 @@ export function PickupSlotSheet({
               background: "none",
               border: "none",
               color: "var(--warn)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               textDecoration: "underline",
               cursor: "pointer",
             }}

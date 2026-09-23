@@ -35,6 +35,11 @@ import { describe, expect, it } from "vitest";
 const QR = join(__dirname, "..");
 const CSS = readFileSync(join(QR, "app", "globals.css"), "utf8");
 const TOKENS = readFileSync(join(QR, "..", "..", "packages", "ui", "src", "tokens.css"), "utf8");
+// Phase 0 — the interaction primitives ship their own sheet; the toast's dock rule lives there now.
+const PRIMITIVES = readFileSync(
+  join(QR, "..", "..", "packages", "ui", "src", "primitives.css"),
+  "utf8",
+);
 
 /** Comments name selectors and values in prose; a guard a comment can satisfy reads the wrong thing. */
 const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
@@ -185,7 +190,12 @@ describe("the responsive contract — the stylesheet half", () => {
     const band = Number(/^([\d.]+)px$/.exec(one(".grocery-basket-btn", "min-height"))![1]);
     const hook = readFileSync(join(QR, "lib", "hooks", "useCtaDock.ts"), "utf8");
     const gap = Number(/\bgap = (\d+)\b/.exec(hook)![1]);
-    expect(one(".grocery-toast", "bottom")).toContain(`var(--cta-dock-h, ${band + gap}px)`);
+    // Phase 0: ONE toast for both diner surfaces, docked in the primitive's sheet.
+    const toast = declarations(PRIMITIVES).filter(
+      (d) => d.selector === ".ui-toast-region" && d.prop === "bottom" && d.media === null,
+    );
+    expect(toast).toHaveLength(1);
+    expect(toast[0]!.value).toContain(`var(--cta-dock-h, ${band + gap}px)`);
   });
 
   it("places the short-tier hero fold AFTER the bare rules it must beat (an @media adds no cascade weight)", () => {
@@ -207,9 +217,7 @@ describe("the responsive contract — the stylesheet half", () => {
     }
   });
 
-  it("keeps the pause coin's safe-area term on every tier, and the door's alignment in CSS", () => {
-    expect(one(".pa-pause", "left")).toContain("env(safe-area-inset-left");
-    expect(one(".pa-pause", "left", TABLET)).toContain("env(safe-area-inset-left");
+  it("keeps the door's alignment in CSS", () => {
     expect(one(".door", "align-items")).toBe("center");
     expect(one(".home-doors .door", "align-items", TABLET)).toBe("flex-start");
   });
@@ -235,9 +243,22 @@ describe("the responsive contract — the stylesheet half", () => {
     expect(find(".menu-list", "grid-template-columns")).toHaveLength(0);
   });
 
-  it("moves the ambient pause coin into the gutter from the tablet tier, keyed on the column width", () => {
-    expect(one(".pa-pause", "left", TABLET)).toContain("var(--w-page)");
-    expect(one(".pa-pause", "position")).toBe("fixed");
+  it("gives the ambient room no clock-driven motion at any tier, so no fixed stop control floats over content (F11)", () => {
+    // Phase 0 retired the phone drift and its pause coin. If a clock-driven animation returns on
+    // either plane, the WCAG 2.2.2 control must return with it — this pins the pair together.
+    // MUTATION: re-add `@media (pointer: coarse) { .pa-far { animation: paFarDrift … } }` → red.
+    // Any animation property (the shorthand OR a longhand like `animation-name`) on ANY part of the
+    // room — the planes, the grain, the host itself — not just the two selectors it used to live on.
+    const clocked = DECLS.filter(
+      (d) =>
+        d.selector.split(",").some((s) => /(^|\s)\.(pa-[\w-]+|paper-ambient)$/.test(s.trim())) &&
+        /^animation(-name)?$/.test(d.prop) &&
+        d.value !== "none",
+    );
+    expect(clocked.map((d) => `${d.media ?? ""} ${d.selector} { animation: ${d.value} }`)).toEqual(
+      [],
+    );
+    expect(find(".pa-pause", "position")).toHaveLength(0);
   });
 
   it("switches the aisle rail and the aisle fan on ONE boundary, at the desktop tier", () => {
@@ -460,6 +481,8 @@ describe("the responsive contract — the pages half", () => {
         "app/(order)/menu/loading.tsx",
         "app/grocery/loading.tsx",
         "app/grocery/page.tsx",
+        // Phase 0 — the primitives reference (/kit, never on the production host) takes the tier.
+        "app/kit/page.tsx",
         "app/page.tsx",
         "components/TablePicker.tsx",
         "components/menu/MenuBrowser.tsx",

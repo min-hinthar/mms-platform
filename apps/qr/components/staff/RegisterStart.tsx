@@ -269,7 +269,11 @@ const row: CSSProperties = { display: "flex", gap: "var(--s3)", flexWrap: "wrap"
 // The three arms are `.staff-arm` (`register-stage.ts` names it; `globals.css` draws it) — the help
 // card wears the same class.
 const subForm: CSSProperties = { display: "grid", gap: "var(--s2)" };
-const label: CSSProperties = { fontSize: "var(--fs-sm)", fontWeight: 600, color: "var(--t2)" };
+const label: CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-semibold)",
+  color: "var(--t2)",
+};
 const input: CSSProperties = {
   minHeight: 48,
   padding: "0 var(--s3)",
@@ -288,7 +292,7 @@ const goBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const errText: CSSProperties = { color: "var(--warn)", fontSize: "var(--fs-sm)", margin: 0 };

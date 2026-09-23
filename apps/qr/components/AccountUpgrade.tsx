@@ -780,7 +780,7 @@ const card: CSSProperties = {
 const h2: CSSProperties = {
   margin: "0 0 6px",
   fontSize: "var(--fs-h3)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
 };
 const sub: CSSProperties = {
@@ -792,7 +792,7 @@ const sub: CSSProperties = {
 const label: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
   margin: "0 0 6px",
 };
@@ -815,7 +815,7 @@ const primaryBtn: CSSProperties = {
   minHeight: 50,
   borderRadius: 12,
   border: "none",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
@@ -831,7 +831,7 @@ const googleBtn: CSSProperties = {
   borderRadius: 12,
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-body)",
   cursor: "pointer",
 };
@@ -848,7 +848,7 @@ const carryOverrideBtn: CSSProperties = {
   border: "1px solid var(--warn)",
   background: "transparent",
   color: "var(--warn)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   fontSize: "var(--fs-sm)",
   lineHeight: 1.35,
   cursor: "pointer",

@@ -117,7 +117,7 @@ export function MergeTableButton({
           style={{ ...panel, outline: "none" }}
         >
           <div style={panelHead}>
-            <span style={{ fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+            <span style={{ fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}>
               {/* Inline echo: this heading shares a flex row with Cancel. */}
               <Chrome lang={lang} k="settle.merge.into" vars={{ id: sourceLabel }} echo="inline" />
             </span>
@@ -155,7 +155,7 @@ export function MergeTableButton({
                     {/* The floor's own keys, not new ones: this row says exactly what a table card
                         says, and one wording is the point (`floor.table` / `floor.card.item.*` /
                         `floor.party`). No echo — the row is dense metadata inside a 44px target. */}
-                    <span style={{ fontWeight: 700 }}>
+                    <span style={{ fontWeight: "var(--fw-bold)" }}>
                       <Chrome
                         lang={lang}
                         k="floor.table"
@@ -253,7 +253,7 @@ const mergeBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--ac)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -264,7 +264,7 @@ const cancelBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 const linkBtn: CSSProperties = {
@@ -274,7 +274,7 @@ const linkBtn: CSSProperties = {
   background: "none",
   color: "var(--ac)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.

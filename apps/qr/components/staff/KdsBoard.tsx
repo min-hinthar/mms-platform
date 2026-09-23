@@ -969,10 +969,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
               <span
                 style={{
                   fontSize: "var(--kfs-meta)",
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   color: "var(--t2)",
                   textTransform: "uppercase",
-                  letterSpacing: "0.07em",
+                  letterSpacing: "var(--track-wide)",
                   flex: "none",
                 }}
               >

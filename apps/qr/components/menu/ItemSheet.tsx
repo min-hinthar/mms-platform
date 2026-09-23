@@ -283,7 +283,7 @@ function ItemSheetBody({
       <p className="item-sheet-allergens" role="note">
         {contains && (
           <>
-            <span style={{ fontWeight: 700 }}>Contains</span> {contains}.{" "}
+            <span style={{ fontWeight: "var(--fw-bold)" }}>Contains</span> {contains}.{" "}
           </>
         )}
         Allergen info is a guide — add any allergy in the note below and the kitchen will see it.

@@ -1,0 +1,454 @@
+/* @mms/ui — the interaction primitives' ONE stylesheet (Phase 0).
+ *
+ * Before this file every screen rebuilt its own button, toast, field and page heading: 274 <button>s
+ * carried 77 different lead classes, the diner app had seven primary-button recipes and three
+ * toasts, and a page title was 400, 600 or 900 depending on the page. These classes are the
+ * vocabulary those surfaces migrate onto. Rules:
+ *
+ *   · Tokens only. Every size, weight, tracking, radius, colour and duration below reads
+ *     tokens.css — `scripts/check-style-literals.mjs` counts this file too.
+ *   · 44px is a floor, not a size. Even `sm` controls clear it; `xl` is the kitchen/counter tap.
+ *   · One selection vocabulary stays where it lives (globals.css, the lit-gold cap). Nothing here
+ *     draws a "selected" state; a Button is an action, never a toggle.
+ *   · Every animation has a reduced-motion off-switch in the block at the foot of this file.
+ *   · Disabled is `aria-disabled`, never native `disabled` (K35 / DESIGN-LANGUAGE §17): the control
+ *     keeps focus and can say why it is refusing. The Button component guards the click.
+ */
+
+/* ── Button ───────────────────────────────────────────────────────────────────────────────────── */
+.ui-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 48px;
+  padding: var(--s2) var(--s5);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
+  font-family: var(--font-body);
+  font-size: var(--fs-lead);
+  font-weight: var(--fw-heavy);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--track-tight);
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-base) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+.ui-btn:not([aria-disabled="true"]):active {
+  transform: scale(0.98);
+}
+.ui-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+  box-shadow: none;
+}
+/* Busy is not disabled: the action is happening, so the control keeps its full ink. */
+.ui-btn[aria-busy="true"] {
+  cursor: progress;
+  opacity: 1;
+}
+
+.ui-btn-sm {
+  min-height: 44px;
+  padding-inline: var(--s4);
+  font-size: var(--fs-label);
+}
+.ui-btn-lg {
+  min-height: 54px;
+  padding-inline: var(--s6);
+  font-size: var(--fs-body);
+}
+/* The kitchen/counter tap — the KDS bump's own height, so a console CTA and a bump feel like one
+   instrument. */
+.ui-btn-xl {
+  min-height: var(--tap-bump);
+  padding-inline: var(--s8);
+  font-size: var(--fs-h3);
+}
+.ui-btn-block {
+  display: flex;
+  width: 100%;
+}
+
+/* primary — the one action a screen exists for. Clay → deeper clay (both stops keep --oa ≥ AA), a
+   printed sheen lip over the lifted shadow; the gold warmth rides as a hover halo, off the text. */
+.ui-btn-primary {
+  background: linear-gradient(180deg, var(--ac), var(--ac-strong));
+  color: var(--oa);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+/* secondary — a real alternative, drawn as a paper card rather than a second filled pill, so a
+   section never carries two primaries that compete. */
+.ui-btn-secondary {
+  background: var(--cd);
+  border-color: var(--bd);
+  color: var(--tx);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh);
+}
+/* quiet — navigation and dismissal. No fill, full target. */
+.ui-btn-quiet {
+  background: transparent;
+  color: var(--t2);
+  padding-inline: var(--s3);
+}
+/* danger — destructive, tinted rather than solid: --warn on --warnb is an audited AA pair, and a
+   solid red pill reads as the page's primary action. */
+.ui-btn-danger {
+  background: var(--warnb);
+  border-color: color-mix(in oklab, var(--warn) 32%, transparent);
+  color: var(--warn);
+}
+
+@media (hover: hover) {
+  .ui-btn-primary:not([aria-disabled="true"]):hover {
+    box-shadow:
+      inset 0 1px 0 var(--sheen),
+      var(--sh-glow),
+      0 0 24px -10px var(--glow-gold);
+  }
+  .ui-btn-secondary:not([aria-disabled="true"]):hover {
+    border-color: color-mix(in oklab, var(--ac) 45%, var(--bd));
+  }
+  .ui-btn-quiet:not([aria-disabled="true"]):hover {
+    color: var(--tx);
+  }
+  .ui-btn-danger:not([aria-disabled="true"]):hover {
+    border-color: var(--warn);
+  }
+  .ui-btn:not([aria-disabled="true"]):hover .ui-btn-arrow-fwd {
+    transform: translateX(3px);
+  }
+  .ui-btn:not([aria-disabled="true"]):hover .ui-btn-arrow-back {
+    transform: translateX(-3px);
+  }
+}
+.ui-btn-arrow-fwd,
+.ui-btn-arrow-back {
+  display: inline-block;
+  transition: transform var(--dur-base) var(--ease-out);
+}
+.ui-btn-spinner {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  border-radius: var(--r-full);
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  animation: uiSpin 0.8s linear infinite;
+}
+@keyframes uiSpin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────────────────────────────
+   ONE placement for every diner confirmation: centred, floating above whatever CTA dock the page
+   publishes (`useCtaDock` writes --cta-dock-h = the band's height + its 16px gap; the fallback is
+   the 56px band + that gap), plus the home-bar inset. The region is ALWAYS mounted — several
+   screen-reader/browser pairs skip a live region born with its text — and only the pill comes and
+   goes. An inverted pill (--tx on --pg) is deliberately opaque: it has zero contrast headroom for a
+   backdrop (the opaque register in globals.css). */
+.ui-toast-region {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: calc(var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px));
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: center;
+  padding-inline: var(--s4);
+  pointer-events: none;
+}
+.ui-toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: min(100%, var(--w-content));
+  padding: 10px var(--s4);
+  border-radius: var(--r-full);
+  background: var(--tx);
+  color: var(--pg);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  box-shadow: var(--sh-md);
+  animation: uiToastIn var(--dur-base) var(--spring) both;
+}
+.ui-toast-leaving {
+  animation: uiToastOut var(--dur-fast) var(--ease-out) both;
+}
+.ui-toast-my {
+  font-family: var(--font-my);
+  font-weight: var(--fw-semibold);
+}
+/* The undo/action: a real button inside the pill (the only part that takes a pointer), a full 44px
+   target without growing the pill (negative block margin). It wears the PILL's own ink, underlined:
+   the pill inverts per theme (dark in light, cream in Night), so any fixed accent — gold included —
+   fails contrast on one of the two. */
+.ui-toast-action {
+  pointer-events: auto;
+  flex: none;
+  min-height: 44px;
+  margin-block: -12px;
+  margin-inline-end: calc(-1 * var(--s2));
+  padding-inline: var(--s3);
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+@keyframes uiToastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes uiToastOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+}
+
+/* ── Field ────────────────────────────────────────────────────────────────────────────────────────
+   Label above, control, then ONE line beneath that is either the hint or the error (never both —
+   the error replaces the hint it contradicts). The control's font-size reads --fs-field, the 16px
+   floor iOS zooms beneath (M78). */
+.ui-field {
+  display: grid;
+  gap: 6px;
+}
+.ui-field-label {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
+}
+.ui-field-label-my {
+  margin-inline-start: var(--s2);
+  font-family: var(--font-my);
+  font-weight: var(--fw-medium);
+  color: var(--t2);
+}
+.ui-field-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font-family: var(--font-body);
+  font-size: var(--fs-field);
+  box-shadow: inset 0 1px 2px color-mix(in oklab, var(--ink) 6%, transparent);
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.ui-field-control::placeholder {
+  color: var(--t3);
+}
+.ui-field-control:focus-visible {
+  border-color: var(--ac);
+  outline-offset: 1px;
+}
+.ui-field-control[aria-invalid="true"] {
+  border-color: var(--warn);
+}
+.ui-field-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.ui-field-error {
+  color: var(--warn);
+  font-weight: var(--fw-semibold);
+  animation: uiRise var(--dur-base) var(--ease-out) both;
+}
+@keyframes uiRise {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ── Page masthead + kicker ───────────────────────────────────────────────────────────────────────
+   ONE page heading: a kicker, the h1 in the display face at ONE weight, an optional Burmese line
+   and a lede. The prototype's h1 weight is 600 (v7.2 line 32); the as-built pages had drifted to
+   400 (Tailwind's reset), 600 and an inline 900. */
+.ui-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--ac);
+}
+.ui-masthead {
+  display: grid;
+  gap: var(--s2);
+  margin: 0 0 var(--s6);
+}
+.ui-masthead[data-align="center"] {
+  justify-items: center;
+  text-align: center;
+}
+.ui-masthead-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
+  color: var(--tx);
+  text-wrap: balance;
+}
+.ui-masthead-title[data-size="display"] {
+  font-size: var(--fs-display);
+}
+.ui-masthead-my {
+  margin: 0;
+  font-family: var(--font-my);
+  font-size: var(--fs-body);
+  line-height: var(--lh-my);
+  color: var(--t2);
+}
+.ui-masthead-lede {
+  margin: 0;
+  max-width: 36rem;
+  font-size: var(--fs-body);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+  text-wrap: pretty;
+}
+
+/* ── Empty state ──────────────────────────────────────────────────────────────────────────────────
+   `card` sits inside a region a heading already names (the staff boards); `page` IS the page — a
+   centred slip with an icon medallion, one heading, one sentence, one way forward. */
+.ui-empty {
+  padding: var(--s6);
+}
+.ui-empty[data-tone="error"] {
+  border-color: var(--warn);
+}
+.ui-empty-icon {
+  margin-bottom: var(--s2);
+  font-size: var(--fs-h1);
+  line-height: 1;
+}
+.ui-empty-title {
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  letter-spacing: normal;
+}
+.ui-empty-sub {
+  margin: var(--s1) 0 0;
+  font-size: var(--fs-label);
+  line-height: var(--lh-normal);
+  color: var(--t2);
+}
+.ui-empty-action {
+  margin-top: var(--s4);
+}
+.ui-empty[data-layout="page"] {
+  margin-top: var(--s2);
+  padding: var(--s8) var(--s6) var(--s6);
+  text-align: center;
+}
+.ui-empty[data-layout="page"] .ui-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--s4);
+  border-radius: var(--r-card);
+  background: var(--grad);
+  /* A line glyph on the warm medallion wears the ACCENT (the old /track medallion held a colour
+     emoji, so its --oa ink never showed — cream-on-cream in light, dark-on-plum in Night). --ac is
+     the non-text contrast the icon needs on both themes' --grad. */
+  color: var(--ac);
+  box-shadow:
+    inset 0 1px 0 var(--sheen),
+    var(--sh-lift);
+}
+.ui-empty[data-layout="page"][data-tone="error"] .ui-empty-icon {
+  background: var(--warnb);
+  color: var(--warn);
+}
+.ui-empty[data-layout="page"] .ui-empty-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  line-height: var(--lh-snug);
+  letter-spacing: var(--track-display);
+  text-wrap: balance;
+}
+.ui-empty[data-layout="page"] .ui-empty-sub {
+  max-width: 30ch;
+  margin-inline: auto;
+  margin-top: var(--s2);
+  text-wrap: pretty;
+}
+.ui-empty[data-layout="page"] .ui-empty-action {
+  margin-top: var(--s6);
+  display: flex;
+  justify-content: center;
+}
+
+/* ── Reduced motion: every animation above, at rest ───────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .ui-btn,
+  .ui-btn-arrow-fwd,
+  .ui-btn-arrow-back,
+  .ui-field-control {
+    transition: none;
+  }
+  .ui-btn:not([aria-disabled="true"]):active {
+    transform: none;
+  }
+  /* A busy control still says it is busy — a static ring with a gap, plus aria-busy. */
+  .ui-btn-spinner,
+  .ui-toast,
+  .ui-toast-leaving,
+  .ui-field-error {
+    animation: none;
+  }
+}

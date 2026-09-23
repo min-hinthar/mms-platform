@@ -220,14 +220,14 @@ const logoImg: CSSProperties = { display: "block", flex: "none", borderRadius: 4
 const h1: CSSProperties = {
   margin: 0,
   fontSize: "var(--fs-h2)",
-  fontWeight: 900,
+  fontWeight: "var(--fw-black)",
   color: "var(--tx)",
 };
 const h1My: CSSProperties = {
   display: "block",
   fontFamily: "var(--font-my)",
   fontSize: "var(--fs-sm)",
-  fontWeight: 400,
+  fontWeight: "var(--fw-regular)",
   color: "var(--t2)",
   marginTop: 2,
 };
@@ -238,22 +238,22 @@ const meta: CSSProperties = {
 };
 const codeLabel: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 700,
-  letterSpacing: "0.06em",
+  fontWeight: "var(--fw-bold)",
+  letterSpacing: "var(--track-caps)",
   textTransform: "uppercase",
   color: "var(--t3)",
 };
 const codeValue: CSSProperties = {
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
-  letterSpacing: "0.04em",
+  letterSpacing: "var(--track-caps)",
   color: "var(--tx)",
 };
 const groupHead: CSSProperties = {
   margin: "10px 0 0",
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
-  letterSpacing: "0.07em",
+  fontWeight: "var(--fw-heavy)",
+  letterSpacing: "var(--track-wide)",
   textTransform: "uppercase",
   color: "var(--t3)",
 };
@@ -271,7 +271,7 @@ const lineAmount: CSSProperties = { color: "var(--t2)", fontVariantNumeric: "tab
 const lineRefund: CSSProperties = {
   display: "block",
   fontSize: "var(--fs-xs)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--warn)",
   fontVariantNumeric: "tabular-nums",
   marginTop: 1,
@@ -279,13 +279,13 @@ const lineRefund: CSSProperties = {
 const paidLine: CSSProperties = {
   margin: "12px 0 0",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--ac-strong)",
 };
 const refundedLine: CSSProperties = {
   margin: "12px 0 0",
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
 };
 const disclosure: CSSProperties = {
@@ -296,7 +296,7 @@ const disclosure: CSSProperties = {
 };
 const droppedHeading: CSSProperties = {
   fontSize: "var(--fs-xs)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   color: "var(--tx)",
   margin: 0,
 };

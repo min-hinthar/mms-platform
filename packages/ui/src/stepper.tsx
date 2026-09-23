@@ -144,7 +144,7 @@ const step = (disabled: boolean): CSSProperties => ({
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: 18,
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   lineHeight: 1,
   cursor: disabled ? "default" : "pointer",
   opacity: disabled ? 0.6 : 1,
@@ -155,6 +155,6 @@ const step = (disabled: boolean): CSSProperties => ({
 const count: CSSProperties = {
   minWidth: 20,
   textAlign: "center",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontVariantNumeric: "tabular-nums",
 };

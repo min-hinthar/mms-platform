@@ -282,13 +282,13 @@ const body: CSSProperties = { display: "grid", gap: "var(--s4)", padding: "var(-
 const groupBox: CSSProperties = { border: "none", margin: 0, padding: 0 };
 const legend: CSSProperties = {
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--tx)",
   padding: 0,
   marginBottom: "var(--s2)",
 };
-const reqTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: 600 };
-const optTag: CSSProperties = { color: "var(--t3)", fontWeight: 400 };
+const reqTag: CSSProperties = { color: "var(--ac-strong)", fontWeight: "var(--fw-semibold)" };
+const optTag: CSSProperties = { color: "var(--t3)", fontWeight: "var(--fw-regular)" };
 const optList: CSSProperties = { display: "flex", flexWrap: "wrap", gap: "var(--s2)" };
 // manager-7 — layout only: the fill, ink, hairline, radius and size are `.staff-chip`'s, so the
 // shared pressed rule can reach the chosen option (an inline fill would beat it).
@@ -310,7 +310,7 @@ const qtyBtn: CSSProperties = {
   fontSize: "var(--fs-h3)",
   cursor: "pointer",
 };
-const qtyNum: CSSProperties = { minWidth: 24, textAlign: "center", fontWeight: 800 };
+const qtyNum: CSSProperties = { minWidth: 24, textAlign: "center", fontWeight: "var(--fw-heavy)" };
 const noteInput: CSSProperties = {
   minHeight: 48,
   padding: "0 var(--s3)",
@@ -327,7 +327,7 @@ const cta: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   cursor: "pointer",
 };
 const ctaDisabled: CSSProperties = { ...cta, opacity: 0.5, cursor: "default" };

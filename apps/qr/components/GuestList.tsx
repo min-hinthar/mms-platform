@@ -162,7 +162,7 @@ export function GuestList() {
             display: "inline-flex",
             alignItems: "center",
             color: "var(--ac-strong)",
-            fontWeight: 800,
+            fontWeight: "var(--fw-heavy)",
             whiteSpace: "nowrap",
           }}
         >
@@ -213,7 +213,9 @@ export function GuestList() {
           );
         })}
       </ul>
-      <span style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: 600 }}>
+      <span
+        style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", fontWeight: "var(--fw-semibold)" }}
+      >
         {/* K2: lead with the real table when it's registered — "Table 7 · Party of 3". */}
         {tableNumber != null ? `Table ${tableNumber} · ` : ""}
         {list.length === 1 ? "Just you" : `Party of ${list.length}`}
@@ -258,7 +260,7 @@ const lockBar: CSSProperties = {
   borderRadius: 11,
   background: "var(--warnb)",
   color: "var(--warn)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
 };
 // W9b — the settle banner. Same shape as `lockBar` but neutral-surfaced rather than warn-coloured:
@@ -275,7 +277,7 @@ const settleBar: CSSProperties = {
   background: "var(--sf)",
   border: "1px solid var(--bd)",
   color: "var(--t2)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
 };
 const retryBtn: CSSProperties = {
@@ -284,7 +286,7 @@ const retryBtn: CSSProperties = {
   background: "none",
   border: "none",
   color: "var(--ac)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   textDecoration: "underline",
   cursor: "pointer",
@@ -300,7 +302,7 @@ const inviteChip: CSSProperties = {
   border: "1.5px solid var(--ac)",
   background: "color-mix(in oklab, var(--ac) 9%, var(--cd))",
   color: "var(--ac-strong)",
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
 };
@@ -310,6 +312,6 @@ const fullNote: CSSProperties = {
   alignItems: "center",
   gap: 6,
   fontSize: "var(--fs-sm)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   color: "var(--t2)",
 };

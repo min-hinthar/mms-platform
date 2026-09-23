@@ -301,13 +301,17 @@ const codeChip: CSSProperties = {
   borderRadius: "var(--r-full)",
   border: "1px solid var(--bd)",
   background: "var(--cd)",
-  fontWeight: 700,
-  letterSpacing: "0.04em",
+  fontWeight: "var(--fw-bold)",
+  letterSpacing: "var(--track-caps)",
   fontVariantNumeric: "tabular-nums",
 };
 const worth: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)" };
 const form: CSSProperties = { display: "grid", gap: "var(--s2)" };
-const fieldLabel: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", fontWeight: 700 };
+const fieldLabel: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
+};
 const fieldRow: CSSProperties = { display: "flex", gap: "var(--s2)", flexWrap: "wrap" };
 const input: CSSProperties = {
   flex: "1 1 160px",
@@ -328,7 +332,7 @@ const applyBtn: CSSProperties = {
   border: "1px solid var(--ac)",
   background: "var(--ac)",
   color: "var(--oa)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const removeBtn: CSSProperties = {
@@ -339,6 +343,6 @@ const removeBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "transparent",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };

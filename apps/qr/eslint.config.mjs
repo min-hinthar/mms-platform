@@ -49,6 +49,13 @@ const noNumericFontSize = {
         message:
           "Use a --fs-* token (e.g. fontSize: 'var(--fs-sm)'), not a numeric fontSize — the type scale is tokenized (W2c).",
       },
+      {
+        // Phase 0 — the weight scale is tokenized too (`--fw-*`, tokens.css). 323 inline numeric
+        // weights were codemodded to tokens at their exact value; this keeps the count at zero.
+        selector: "Property[key.name='fontWeight'] Literal[raw=/^[0-9]+$/]",
+        message:
+          "Use a --fw-* token (e.g. fontWeight: 'var(--fw-bold)'), not a numeric fontWeight — the weight scale is tokenized (Phase 0).",
+      },
       noBareMenuHref,
       noBareMenuPush,
       noBareMenuDefault,

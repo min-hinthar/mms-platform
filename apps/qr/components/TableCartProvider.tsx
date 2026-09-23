@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
-import { Icon } from "@mms/ui";
+import { Icon, Toast } from "@mms/ui";
 import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@/lib/cart";
 import {
   cartFreeze,
@@ -522,7 +522,7 @@ export function TableCartProvider({
   const noticeTimer = useRef<number | null>(null);
   const noticeExitTimer = useRef<number | null>(null);
   // W13 — the toast leaves as deliberately as it arrives (review MED): the display timer flips a
-  // `leaving` phase (the .mms-toast-out settle), then a short exit timer unmounts. Both timers are
+  // `leaving` phase (the .ui-toast-leaving settle), then a short exit timer unmounts. Both timers are
   // single-slot — a fresh flash cancels BOTH so overlapping notices still replace deterministically.
   const [noticeLeaving, setNoticeLeaving] = useState(false);
   // W13 — `my` is an optional Burmese segment rendered as its own lang="my" span (WCAG 3.1.2 —
@@ -1517,7 +1517,7 @@ export function TableCartProvider({
             borderRadius: 11,
             background: "var(--warnb)",
             color: "var(--warn)",
-            fontWeight: 700,
+            fontWeight: "var(--fw-bold)",
             fontSize: "var(--fs-sm)",
             // Token (not a literal): the Night `--sh-md` is near-black-heavy so this floating alert
             // keeps its lift on the dark page; a hardcoded light shadow vanished on Night (R2 audit).
@@ -1539,7 +1539,7 @@ export function TableCartProvider({
               background: "none",
               border: "none",
               color: "var(--warn)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               fontSize: "var(--fs-sm)",
               textDecoration: "underline",
               cursor: "pointer",
@@ -1557,51 +1557,14 @@ export function TableCartProvider({
           onChosen={(slot) => setPickupSlot(slot)} // slot is cart metadata — no items/totals refetch
         />
       )}
-      <div
-        role="status"
-        aria-atomic="true"
-        style={{
-          position: "fixed",
-          left: 0,
-          right: 0,
-          // W9e (J12) — compose the home-bar inset like CartBar directly beneath it already does; a
-          // bare 84 collided with the pinned CTA on every notched iPhone at the app's single
-          // highest-frequency moment (the add-confirmation toast).
-          bottom: "calc(84px + env(safe-area-inset-bottom, 0px))",
-          textAlign: "center",
-          pointerEvents: "none",
-          zIndex: "var(--z-toast)" as CSSProperties["zIndex"],
-        }}
-      >
-        {notice && (
-          // W13 — the toast springs in (.mms-toast; keyed so replacing one notice with another
-          // replays the entrance). The MY segment is its own lang="my" span on the Padauk stack.
-          <span
-            key={notice.text}
-            className={`mms-toast${noticeLeaving ? " mms-toast-out" : ""}`}
-            style={{
-              display: "inline-block",
-              background: "var(--tx)",
-              color: "var(--pg)",
-              // W16e — 10/16 (was 8/14): the pill carries a bilingual line now, and stacked
-              // Burmese needs the vertical room; marginInline keeps a long notice off the edges.
-              padding: "10px 16px",
-              marginInline: 16,
-              borderRadius: 999,
-              fontSize: "var(--fs-sm)",
-              fontWeight: 700,
-            }}
-          >
-            {notice.text}
-            {notice.my && (
-              <span lang="my" style={{ fontFamily: "var(--font-my)", fontWeight: 600 }}>
-                {" · "}
-                {notice.my}
-              </span>
-            )}
-          </span>
-        )}
-      </div>
+      {/* Phase 0 — the ONE diner toast (`@mms/ui` Toast): always-mounted live region, docked on the
+          published CTA band (`--cta-dock-h`, which CartBar writes) instead of the hard 84px that
+          assumed one bar height; keyed on the text so a replacement replays the spring. The MY
+          half rides its own lang="my" span on the Padauk stack inside the primitive. */}
+      <Toast
+        message={notice ? { key: notice.text, text: notice.text, my: notice.my } : null}
+        leaving={noticeLeaving}
+      />
     </Ctx.Provider>
   );
 }

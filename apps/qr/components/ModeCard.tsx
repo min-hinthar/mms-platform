@@ -47,7 +47,11 @@ function DoorFace({
               {" "}
               <span
                 lang="my"
-                style={{ fontFamily: "var(--font-my)", fontWeight: 600, color: "var(--t2)" }}
+                style={{
+                  fontFamily: "var(--font-my)",
+                  fontWeight: "var(--fw-semibold)",
+                  color: "var(--t2)",
+                }}
               >
                 {my}
               </span>

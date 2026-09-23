@@ -68,7 +68,7 @@ export default function GlobalError({
               border: "none",
               background: "var(--ac)",
               color: "var(--oa)",
-              fontWeight: 800,
+              fontWeight: "var(--fw-heavy)",
               fontSize: "var(--fs-body)",
               cursor: "pointer",
             }}

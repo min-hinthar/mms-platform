@@ -41,7 +41,7 @@ export function Avatar({
         display: "grid",
         placeItems: "center",
         color: "#fff",
-        fontWeight: 800,
+        fontWeight: "var(--fw-heavy)",
         fontSize: s.font,
         ...(ring ? { border: "2px solid var(--pg)" } : null),
       }}

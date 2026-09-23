@@ -127,7 +127,7 @@ const payBtn: CSSProperties = {
   background: "var(--ac)",
   color: "var(--oa)",
   fontSize: "var(--fs-body)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   cursor: "pointer",
 };
 const cancelBtn: CSSProperties = {
@@ -138,7 +138,7 @@ const cancelBtn: CSSProperties = {
   background: "var(--cd)",
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
-  fontWeight: 600,
+  fontWeight: "var(--fw-semibold)",
   cursor: "pointer",
 };
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.

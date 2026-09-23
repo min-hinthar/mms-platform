@@ -125,7 +125,7 @@ function My({
         display: inline ? "inline" : "block",
         fontFamily: "var(--font-my)",
         fontSize: size,
-        fontWeight: 600,
+        fontWeight: "var(--fw-semibold)",
         color,
         // ⚠️ The inline accent's gap is a MARGIN, never a whitespace text node: its two hosts are
         // FLEX containers (`.checkout-leader-row dt` for the receipt rows, `.nav-link` for the back
@@ -2102,7 +2102,7 @@ export function Checkout({
                 minHeight: 48,
                 padding: "0 22px",
                 borderRadius: 12,
-                fontWeight: 800,
+                fontWeight: "var(--fw-heavy)",
                 fontSize: "var(--fs-body)",
                 textDecoration: "none",
               }}
@@ -2411,7 +2411,7 @@ export function Checkout({
                   borderRadius: 11,
                   background: "var(--warnb)",
                   color: "var(--warn)",
-                  fontWeight: 700,
+                  fontWeight: "var(--fw-bold)",
                   fontSize: "var(--fs-sm)",
                 }}
               >
@@ -2549,7 +2549,7 @@ export function Checkout({
                       />
                     </span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600 }}>{i.name}</div>
+                      <div style={{ fontWeight: "var(--fw-semibold)" }}>{i.name}</div>
                       {/* W13 — the Burmese name: the post-add path speaks both tongues (100%
                           name_my coverage; lang="my" for WCAG 3.1.2 + the Padauk stack). */}
                       {i.nameMy && (
@@ -2574,7 +2574,13 @@ export function Checkout({
                           identical plain sibling (the two never merge). Full text color: allergy-
                           adjacent, never muted. Read-only — remove/re-add to change it. */}
                       {i.notes && (
-                        <div style={{ fontSize: "var(--fs-sm)", fontWeight: 600, marginTop: 2 }}>
+                        <div
+                          style={{
+                            fontSize: "var(--fs-sm)",
+                            fontWeight: "var(--fw-semibold)",
+                            marginTop: 2,
+                          }}
+                        >
                           “{i.notes}”
                         </div>
                       )}
@@ -2599,7 +2605,7 @@ export function Checkout({
                       )}
                       <div
                         style={{
-                          fontWeight: 700,
+                          fontWeight: "var(--fw-bold)",
                           marginTop: 4,
                           fontVariantNumeric: "tabular-nums",
                           textDecoration:
@@ -2713,8 +2719,8 @@ export function Checkout({
                     <h3
                       style={{
                         fontSize: "var(--fs-sm)",
-                        fontWeight: 800,
-                        letterSpacing: 0.3,
+                        fontWeight: "var(--fw-heavy)",
+                        letterSpacing: "var(--track-snug)",
                         textTransform: "uppercase",
                         color: "var(--t2)",
                         margin: "0 0 8px",
@@ -2769,14 +2775,16 @@ export function Checkout({
                 Plain content, not a live region — this view keeps its one. */}
             {!settledClose && staged && stage === "bill" && unsentQty > 0 && (
               <div className="card checkout-unsent-note mms-rise">
-                <p style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: 600 }}>
+                <p
+                  style={{ margin: 0, fontSize: "var(--fs-sm)", fontWeight: "var(--fw-semibold)" }}
+                >
                   {unsentQty === 1
                     ? "1 item hasn’t gone to the kitchen yet"
                     : `${unsentQty} items haven’t gone to the kitchen yet`}
                   <span
                     style={{
                       display: "block",
-                      fontWeight: 400,
+                      fontWeight: "var(--fw-regular)",
                       color: "var(--t2)",
                       marginTop: 2,
                     }}
@@ -2789,7 +2797,7 @@ export function Checkout({
                     lang="my"
                     style={{
                       display: "block",
-                      fontWeight: 400,
+                      fontWeight: "var(--fw-regular)",
                       fontSize: "var(--fs-xs)",
                       color: "var(--t3)",
                       marginTop: 2,
@@ -2967,13 +2975,19 @@ export function Checkout({
                   htmlFor="pickup-name"
                   style={{
                     display: "block",
-                    fontWeight: 700,
+                    fontWeight: "var(--fw-bold)",
                     fontSize: "var(--fs-sm)",
                     marginBottom: 4,
                   }}
                 >
                   First name for pickup{" "}
-                  <span style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+                  <span
+                    style={{
+                      fontWeight: "var(--fw-semibold)",
+                      color: "var(--t3)",
+                      fontSize: "var(--fs-sm)",
+                    }}
+                  >
                     {/* W21 — pickup REQUIRES the contact (create-intent refuses without it);
                         scango keeps the optional call-out. */}
                     {isPickupMode ? "Required" : "Optional"}
@@ -3012,14 +3026,18 @@ export function Checkout({
                       htmlFor="pickup-phone"
                       style={{
                         display: "block",
-                        fontWeight: 700,
+                        fontWeight: "var(--fw-bold)",
                         fontSize: "var(--fs-sm)",
                         marginBottom: 4,
                       }}
                     >
                       Phone number{" "}
                       <span
-                        style={{ fontWeight: 600, color: "var(--t3)", fontSize: "var(--fs-sm)" }}
+                        style={{
+                          fontWeight: "var(--fw-semibold)",
+                          color: "var(--t3)",
+                          fontSize: "var(--fs-sm)",
+                        }}
                       >
                         Required
                       </span>
@@ -3137,7 +3155,10 @@ export function Checkout({
                         style={{
                           ...tipChipStyle(),
                           ...(isNone
-                            ? { color: on ? "var(--t2)" : "var(--t3)", fontWeight: on ? 700 : 600 }
+                            ? {
+                                color: on ? "var(--t2)" : "var(--t3)",
+                                fontWeight: on ? "var(--fw-bold)" : "var(--fw-semibold)",
+                              }
                             : null),
                           ...(payFrozen ? { opacity: 0.55 } : null),
                           ...({ "--tip-heat": chipIdx } as CSSProperties),
@@ -3195,7 +3216,7 @@ export function Checkout({
                           margin: "0 0 4px",
                           fontSize: "var(--fs-sm)",
                           color: "var(--ac-strong)",
-                          fontWeight: 600,
+                          fontWeight: "var(--fw-semibold)",
                         }}
                       >
                         <span aria-hidden>✦ </span>
@@ -3217,7 +3238,10 @@ export function Checkout({
                 {customTipOpen && (
                   <div id="custom-tip-field" style={{ margin: "2px 0 4px" }}>
                     <div style={customTipWrap}>
-                      <span aria-hidden style={{ fontWeight: 800, color: "var(--t2)" }}>
+                      <span
+                        aria-hidden
+                        style={{ fontWeight: "var(--fw-heavy)", color: "var(--t2)" }}
+                      >
                         $
                       </span>
                       <input
@@ -3238,7 +3262,7 @@ export function Checkout({
                           border: "none",
                           background: "transparent",
                           color: "var(--tx)",
-                          fontWeight: 800,
+                          fontWeight: "var(--fw-heavy)",
                           outline: "none",
                           minWidth: 0,
                         }}
@@ -3293,7 +3317,7 @@ export function Checkout({
                 }}
               >
                 <div>
-                  <div style={{ fontWeight: 800, fontSize: "var(--fs-body)" }}>
+                  <div style={{ fontWeight: "var(--fw-heavy)", fontSize: "var(--fs-body)" }}>
                     {tipPreviewCents > 0 ? T("estimatedTotal") : T("rowTotal")}
                     <My k={tipPreviewCents > 0 ? "estimatedTotal" : "rowTotal"} color="var(--t3)" />
                   </div>
@@ -3309,7 +3333,7 @@ export function Checkout({
                     fontVariantNumeric: "tabular-nums",
                     fontFamily: "var(--font-display)",
                     fontSize: "var(--fs-h2)",
-                    fontWeight: 800,
+                    fontWeight: "var(--fw-heavy)",
                   }}
                 >
                   <NumberFlow
@@ -3370,7 +3394,7 @@ export function Checkout({
                   minHeight: 50,
                   borderRadius: 12,
                   border: kitchenDraftQty === 0 && !undoOpen ? "none" : undefined,
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   fontSize: "var(--fs-body)",
                   cursor: undoOpen ? "default" : "pointer",
                   opacity: undoOpen ? 0.55 : 1,
@@ -3393,7 +3417,7 @@ export function Checkout({
                     <span
                       style={{
                         display: "block",
-                        fontWeight: 600,
+                        fontWeight: "var(--fw-semibold)",
                         fontSize: "var(--fs-xs)",
                         color: "inherit",
                         opacity: 0.8,
@@ -3426,7 +3450,7 @@ export function Checkout({
                   minHeight: 50,
                   borderRadius: 12,
                   border: "none",
-                  fontWeight: 800,
+                  fontWeight: "var(--fw-heavy)",
                   fontSize: "var(--fs-body)",
                   cursor: loadingPay || payFrozen ? "default" : "pointer",
                   opacity: loadingPay ? 0.7 : payFrozen ? 0.55 : 1,
@@ -3485,8 +3509,8 @@ export function Checkout({
                   style={{
                     margin: "14px 0 4px",
                     fontSize: "var(--fs-xs)",
-                    fontWeight: 700,
-                    letterSpacing: "0.04em",
+                    fontWeight: "var(--fw-bold)",
+                    letterSpacing: "var(--track-caps)",
                     textTransform: "uppercase",
                     color: "var(--t3)",
                   }}
@@ -3572,14 +3596,14 @@ const tipChipStyle = (): CSSProperties => ({
   color: "var(--tx)",
   textAlign: "center",
   fontSize: "var(--fs-sm)", // explicit so the label never inherits a larger size and wraps
-  fontWeight: 800,
+  fontWeight: "var(--fw-heavy)",
   whiteSpace: "nowrap",
   cursor: "pointer",
 });
 const tipChipSmall = (on: boolean): CSSProperties => ({
   display: "block",
   fontSize: "var(--fs-xs)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   // On the lit gold cap the sub inherits the cap's cream (--oa) — --ac-strong would meld into it.
   color: on ? "inherit" : "var(--t3)",
 });
@@ -3628,7 +3652,7 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
         background: "color-mix(in oklab, var(--ac) 8%, var(--cd))",
         color: "var(--ac-strong)",
         fontSize: "var(--fs-sm)",
-        fontWeight: 800,
+        fontWeight: "var(--fw-heavy)",
         whiteSpace: "nowrap",
       }}
     >
@@ -3684,7 +3708,7 @@ function Row({
         padding: strong ? "10px 0 0" : "5px 0",
         marginTop: strong ? 6 : 0,
         borderTop: strong ? "1px solid var(--bd)" : "none",
-        fontWeight: strong ? 800 : 400,
+        fontWeight: strong ? "var(--fw-heavy)" : "var(--fw-regular)",
       }}
     >
       <dt>
@@ -3694,7 +3718,7 @@ function Row({
             style={{
               fontSize: "var(--fs-xs)",
               color: "var(--t3)",
-              fontWeight: 400,
+              fontWeight: "var(--fw-regular)",
               // W21 — a MARGIN, never a whitespace text node: this dt is a FLEX container (the
               // dotted-leader row), and flex drops whitespace-only children — a {" "} here rendered
               // "Sales tax(10.5%)" fused (the exact trap documented on <My/>).
@@ -3776,7 +3800,7 @@ function BillLines({
           />
         </span>
         <span className="checkout-bill-name">
-          <span style={{ fontWeight: 600 }}>
+          <span style={{ fontWeight: "var(--fw-semibold)" }}>
             {i.qty > 1 ? `${i.qty} × ` : ""}
             {i.name}
           </span>
@@ -3823,7 +3847,7 @@ function BillLines({
         <span
           style={{
             fontVariantNumeric: "tabular-nums",
-            fontWeight: 600,
+            fontWeight: "var(--fw-semibold)",
             textDecoration: struck ? "line-through" : "none",
             color: struck ? "var(--t3)" : "inherit",
           }}

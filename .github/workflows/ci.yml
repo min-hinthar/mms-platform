@@ -100,6 +100,11 @@ jobs:
       # blocked M186's first attempt on. Parses (comments and `{false && …}` branches satisfy
       # nothing) and binds the `if` test to the verdict's own binding.
       - run: pnpm check:scan-repeat
+      # Phase 0 — the style-literal RATCHET. Weights, sizes and tracking are tokens (tokens.css);
+      # this holds the remaining hardcoded values to a recorded baseline: a count may fall (re-record
+      # with --update) but never rise. Parses — CSS with comments stripped, TSX through the AST — so
+      # a literal in a comment satisfies nothing. File-read only, ~1s.
+      - run: pnpm check:style-literals
       # Turborepo runs lint, typecheck, build, test across the affected workspaces (cached).
       # W8 — orphan-suite guard. `vitest run` exits 1 only when ZERO files match its include glob, so
       # a test file dropped outside a workspace's glob is INVISIBLE: it never runs and nothing reports

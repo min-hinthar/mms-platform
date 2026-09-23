@@ -193,7 +193,7 @@ const retryBtn: CSSProperties = {
   border: "1px solid var(--bd)",
   background: "var(--sf)",
   color: "var(--tx)",
-  fontWeight: 700,
+  fontWeight: "var(--fw-bold)",
   fontSize: "var(--fs-sm)",
   cursor: "pointer",
   font: "inherit",
