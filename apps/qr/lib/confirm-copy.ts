@@ -1,7 +1,8 @@
 import { t } from "./i18n";
 
 /**
- * W16c — the confirm step's copy, assembled PURE (M46: decision logic lives in lib/, testable
+ * W16c — the confirm step's copy (and, since Phase 1b, the send/pay copy that replaced two of its
+ * confirms), assembled PURE (M46: decision logic lives in lib/, testable
  * without a DOM). The static halves live in `lib/i18n/confirm.ts`; what happens here is the part
  * that can actually go wrong — interpolating a COUNT or an AMOUNT into both tongues.
  *
@@ -11,14 +12,12 @@ import { t } from "./i18n";
  */
 
 export type ConfirmDecision =
-  | { kind: "sendToKitchen"; itemCount: number }
-  /** The CHARGE (PaymentSection.confirm), not the intent mint — see docs/W16_PLAN.md §W16c.
-   *  `unsentCount` (W19): qty units of still-draft food in the charge (lib/checkout-stage
-   *  unsentFoodQty). The confirm names them so "forgot to send, paid anyway" is an informed
-   *  choice — those dishes are fired the moment payment lands, never lost. */
-  | { kind: "pay"; amountCents: number; unsentCount?: number }
-  /** A split share's manual-capture HOLD (SharePay) — real money committed, so same policy. */
-  | { kind: "authorizeShare"; amountCents: number };
+  /** A split share's manual-capture HOLD (SharePay) — real money committed, and the ONE confirm
+   *  left. Phase 1b (owner, 2026-09-23: "Drop both") retired the send-to-kitchen confirm (the
+   *  server-clocked undo is the safety net) and the card-pay confirm (the Pay button names the sum;
+   *  a second "Pay $X?" asked the same question twice). What those two confirms carried now lives
+   *  where the diner acts — `sentCopy`, `payProceedLabel` and `unsentPayNote` below. */
+  { kind: "authorizeShare"; amountCents: number };
 
 export type ConfirmCopy = {
   /** EN accessible name for the confirm group (an aria-label can't carry two langs). */
@@ -42,51 +41,6 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
     cancelMy: t("my", "confirmCancel"),
   };
   switch (d.kind) {
-    case "sendToKitchen": {
-      // The count is what the send COMMITS — showing it is the whole point of the step (a diner
-      // who added a round for the table sees "5 items", not a bare "are you sure?").
-      const n = d.itemCount;
-      const unit = n === 1 ? t("en", "countItem") : t("en", "countItems");
-      return {
-        ...shared,
-        label: t("en", "confirmSendLabel"),
-        // MY has no plural — `ခု` is invariant (lib/i18n/cart.ts countItem/countItems).
-        questionEn: n > 0 ? `Send ${n} ${unit} to the kitchen?` : "Send this to the kitchen?",
-        questionMy:
-          n > 0
-            ? `${n} ${t("my", "countItems")} မီးဖိုချောင်သို့ ပို့မှာ သေချာပါသလား?`
-            : "မီးဖိုချောင်သို့ ပို့မှာ သေချာပါသလား?",
-        detailEn: t("en", "confirmSendDetail"),
-        detailMy: t("my", "confirmSendDetail"),
-        proceedEn: t("en", "confirmSendProceed"),
-        proceedMy: t("my", "confirmSendProceed"),
-      };
-    }
-    case "pay": {
-      const amount = dollars(d.amountCents);
-      // W19 — name the unsent dishes IN the charge confirm. Latin digits in both tongues (the
-      // money-path rule); appended to the detail so the question stays the amount.
-      const unsent = d.unsentCount ?? 0;
-      const unsentEn =
-        unsent > 0
-          ? ` Includes ${unsent} ${unsent === 1 ? "item" : "items"} not sent yet — the kitchen starts ${unsent === 1 ? "it" : "them"} the moment you pay.`
-          : "";
-      const unsentMy =
-        unsent > 0
-          ? ` မပို့ရသေးတဲ့ ${unsent} ခုပါဝင်ပါတယ် — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်က စချက်ပေးပါမယ်။`
-          : "";
-      return {
-        ...shared,
-        label: t("en", "confirmPayLabel"),
-        questionEn: `Charge ${amount} to your card?`,
-        questionMy: `သင့်ကတ်မှ ${amount} ကောက်ခံမှာ သေချာပါသလား?`,
-        detailEn: `${t("en", "confirmPayDetail")}${unsentEn}`,
-        detailMy: `${t("my", "confirmPayDetail")}${unsentMy}`,
-        // The amount rides the proceed button too: the last thing under the thumb names the sum.
-        proceedEn: `${t("en", "confirmPayProceed")} ${amount}`,
-        proceedMy: `${t("my", "confirmPayProceed")} ${amount}`,
-      };
-    }
     case "authorizeShare": {
       const amount = dollars(d.amountCents);
       return {
@@ -101,4 +55,51 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
       };
     }
   }
+}
+
+/**
+ * Phase 1b — the send-to-kitchen OUTCOME, now that no confirm precedes it. The owner's own Burmese
+ * from the W16 directive ("Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" — a completed-action statement:
+ * "…confirmed") sat on the confirm's proceed button because that was the moment of commitment;
+ * with one tap it becomes TRUE only when the send lands, so it moves to the success line.
+ */
+export function sentCopy(fired: number): { en: string; my: string } {
+  return {
+    en: `Sent to the kitchen — ${fired} ${fired === 1 ? "item" : "items"} on the way.`,
+    my: t("my", "sentConfirmed"),
+  };
+}
+
+/** Phase 1b — the card Pay button: the last thing under the thumb names the sum it charges (the
+ *  job the retired confirm's proceed button did). Latin digits (the money-path rule). */
+export function payProceedLabel(amountCents: number): string {
+  return `Pay ${dollars(amountCents)}`;
+}
+
+/**
+ * W19, re-homed by Phase 1b — a diner who forgot to send can still pay: the charge INCLUDES the
+ * drafts and the kitchen starts them the moment payment lands. The retired confirm named them;
+ * this note stands ABOVE the Pay button instead, so it is read before the tap rather than after.
+ * Null when nothing is unsent. Latin digits in both tongues.
+ */
+export function unsentPayNote(unsent: number): { en: string; my: string } | null {
+  if (unsent <= 0) return null;
+  return {
+    en: `Includes ${unsent} ${unsent === 1 ? "item" : "items"} not sent yet — the kitchen starts ${unsent === 1 ? "it" : "them"} the moment you pay.`,
+    my: `မပို့ရသေးတဲ့ ${unsent} ခုပါဝင်ပါတယ် — ငွေရှင်းပြီးတာနဲ့ မီးဖိုချောင်က စချက်ပေးပါမယ်။`,
+  };
+}
+
+/**
+ * Phase 1b — what a guest who is NOT the host sees where the host's "Send to kitchen" would be.
+ * Only the host fires the table (`mms_fire_cart` refuses anyone else), and until now a guest saw
+ * nothing there at all — their dishes sat in a cart with no sign of how they reach the kitchen.
+ * Names the host when the table knows them. The MY line is Claude-authored: K15 check-before-trust.
+ */
+export function hostSendsCopy(hostName: string | null): { en: string; my: string } {
+  const who = hostName?.trim() || null;
+  return {
+    en: `${who ?? "Your host"} sends the table’s order to the kitchen — your dishes go with it.`,
+    my: `${who ? `${who} က` : "အိမ်ရှင်က"} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
+  };
 }

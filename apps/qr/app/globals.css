@@ -2152,6 +2152,32 @@ html[data-fx="off"] .pa-mid {
    sweep on its own relative span (z-index 1). */
 /* W2d — "or pay with card" divider between the wallet (Express Checkout) and the card element.
    Rendered only when a wallet is available; the flanking hairlines are pseudo-elements. */
+/* Phase 1b — the pay step's unsent-dishes note reuses the Bill stage's `.checkout-unsent-note` card
+   (one look for one fact); only its Burmese line needs a rule of its own. */
+/* Phase 1b — a non-host guest's "who sends" line, where the host sees Send: quiet, centered under
+   the dishes, the same register as the "already with the kitchen" line the Send button leaves. */
+.checkout-host-note {
+  margin: 12px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  text-align: center;
+  line-height: var(--lh-snug);
+}
+
+.checkout-host-note-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+  color: var(--t3);
+}
+
+.checkout-pay-unsent-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+  color: var(--t2);
+}
+
 .checkout-pay-divider {
   display: flex;
   align-items: center;

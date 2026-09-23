@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { initialStage, kitchenDraftQty, unsentFoodQty } from "./checkout-stage";
+import {
+  initialStage,
+  kitchenDraftQty,
+  kitchenDraftUnitsFromRows,
+  payBlockedByUnsent,
+  unsentFoodQty,
+} from "./checkout-stage";
 
 /**
  * W12 — the two-moment landing rule, pinned:
@@ -69,5 +75,29 @@ describe("unsentFoodQty — what the Bill moment warns about (W19)", () => {
 
   it("nothing unsent → zero (no notice, no confirm line)", () => {
     expect(unsentFoodQty([l("fired", "dinein", 2), l("served", "togo", 1)])).toBe(0);
+  });
+});
+
+describe("payBlockedByUnsent — a dine-in bill is payable only once everything is sent (Phase 1b)", () => {
+  it("blocks a dine-in bill with anything unsent, and only a dine-in one", () => {
+    // MUTATION: drop the mode check — pickup / scan-and-go (no send step: paying IS ordering) can
+    // never pay at all; red.
+    expect(payBlockedByUnsent("dinein", 2)).toBe(true);
+    expect(payBlockedByUnsent("pickup", 2)).toBe(false);
+    expect(payBlockedByUnsent("scango", 2)).toBe(false);
+    // MUTATION: `>= 0` — a fully sent table can never pay; red.
+    expect(payBlockedByUnsent("dinein", 0)).toBe(false);
+  });
+
+  it("counts exactly what Send can clear — dinein drafts, never to-go or fired lines", () => {
+    // MUTATION: count every draft — a to-go draft (not sendable, it fires at checkout) would lock
+    // Pay with no button that can ever unlock it; red.
+    const rows = [
+      { state: "draft", fulfillment: "dinein", qty: 2 },
+      { state: "draft", fulfillment: "togo", qty: 1 },
+      { state: "fired", fulfillment: "dinein", qty: 3 },
+    ];
+    expect(kitchenDraftUnitsFromRows(rows)).toBe(2);
+    expect(kitchenDraftUnitsFromRows([{ state: "draft", fulfillment: "togo", qty: 1 }])).toBe(0);
   });
 });

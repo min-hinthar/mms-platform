@@ -13,6 +13,8 @@ import { createIntentInput } from "@mms/db/schemas";
 import { getStripe } from "@/lib/stripe";
 import { getCartTotals } from "@/lib/totals";
 import { unavailableLineNames } from "@/lib/availability-read";
+import { payBlockedByUnsent } from "@/lib/checkout-stage";
+import { kitchenDraftUnits } from "@/lib/unsent-read";
 import { manualCaptureMode } from "@/lib/manual-capture";
 import { tipWithinAmountCap } from "@/lib/tip";
 import { pickupContactMissing } from "@/lib/pickup-contact";
@@ -194,6 +196,20 @@ export async function POST(req: NextRequest) {
               ? `${soldOutNames[0]} just sold out — remove it to keep going.`
               : `${soldOutNames.join(" and ")} just sold out — remove them to keep going.`,
         },
+        { status: 409 },
+      );
+    }
+
+    // Phase 1b (owner, 2026-09-23: "Everything sent") — a dine-in bill is payable only once every
+    // dish the table can send has gone to the kitchen (`payBlockedByUnsent`, the same binding the
+    // Bill's Pay control reads). Refused here, at the charge boundary, because this route is directly
+    // POST-able — the button is the courtesy, this is the gate. Placed with the other pre-mint
+    // refusals: the lock is released and no slot or Stripe state is touched. The read fails OPEN
+    // (lib/unsent-read.ts) — a charge that slips past is today's behaviour, drafts fired on landing.
+    if (payBlockedByUnsent(sess.mode, await kitchenDraftUnits(cartId))) {
+      await freeLock();
+      return NextResponse.json(
+        { error: "Send everything to the kitchen first — then the bill is ready to pay." },
         { status: 409 },
       );
     }

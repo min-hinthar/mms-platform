@@ -1285,3 +1285,101 @@ describe("#300 — /cart keeps the header's count honest", () => {
     expect(h.publishCart).toHaveBeenLastCalledWith(CART, null, undefined);
   });
 });
+
+describe("Phase 1b — the browser's Back walks the checkout's own steps", () => {
+  const DINEIN = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [],
+    tableNumber: 7,
+  };
+
+  it("View bill pushes a #bill entry, and Back returns to the Order stage", async () => {
+    // MUTATION: flip the stage without pushing — the entry never exists, Back leaves /cart; red.
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    mount({ splitContext: DINEIN, initialItems: [{ ...ITEM, lineState: "fired" }] });
+    // Every line is with the kitchen, so the Order stage offers the bill as its primary action.
+    const toOrder = screen.queryByRole("button", { name: /Back to your order/i });
+    if (toOrder) fireEvent.click(toOrder); // initialStage may open on the Bill
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    expect(window.location.hash).toBe("#bill");
+    expect(screen.getByRole("button", { name: /Back to your order/i })).toBeTruthy();
+    // MUTATION: drop the popstate listener — Back changes the URL but the screen stays on the Bill; red.
+    await act(async () => {
+      window.history.back();
+      await new Promise((r) => setTimeout(r, 20));
+    });
+    await waitFor(() => expect(window.location.hash).toBe(""));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /Back to your order/i })).toBeNull(),
+    );
+  });
+});
+
+describe("Phase 1b — a guest who is not the host is told who sends", () => {
+  const TABLE = (role: "host" | "guest") => ({
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: role,
+    members: [
+      { seat: PEER_SEAT, name: "Aung", role: "host" as const },
+      { seat: MY_SEAT, name: "Me", role: "guest" as const },
+    ],
+    tableNumber: 7,
+  });
+
+  it("a guest with unsent dishes sees the host's name where Send would be", () => {
+    // MUTATION: drop the note — the guest's Order moment has no verb and no word again; red.
+    mount({ splitContext: TABLE("guest") });
+    expect(document.body.textContent).toContain("Aung sends the table’s order to the kitchen");
+  });
+
+  it("the host sees Send, not the note", () => {
+    mount({ splitContext: { ...TABLE("host"), mySeat: PEER_SEAT } });
+    expect(document.body.textContent).not.toContain("sends the table’s order");
+  });
+});
+
+describe("Phase 1b — a dine-in bill is payable only once everything is sent", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+
+  it("locks Pay while a dish is unsent, says why, and never starts a charge", async () => {
+    // MUTATION: drop `sendBlocksPay` from the Pay handler — the tap reaches create-intent, which now
+    // refuses it, and the diner learns the rule from a failure instead of the button; red.
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    window.history.replaceState(null, "", "/cart?cart=cart-1");
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const pay = screen.getByRole("button", { name: /Send everything to the kitchen first/i });
+    expect(pay.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(pay);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("Send them to the kitchen, then pay the bill.");
+    fetchSpy.mockRestore();
+  });
+});
+
+describe("Phase 1b — the bill says which table it is", () => {
+  it("wears the table number at a dine-in table", () => {
+    // MUTATION: drop the eyebrow — a shared-table bill stops naming its table; red.
+    mount({
+      tableNumber: 7,
+      splitContext: {
+        mode: "dinein",
+        mySeat: MY_SEAT,
+        myRole: "host",
+        members: [],
+        tableNumber: 7,
+      },
+    });
+    expect(screen.getByText("Table 7")).toBeTruthy();
+  });
+});

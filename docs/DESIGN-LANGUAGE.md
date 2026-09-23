@@ -903,3 +903,19 @@ a 390×844 opening screen.
 - **Horizontal scrollers bleed into the gutter** (`margin-inline: -gutter; padding-inline: gutter;
 scroll-padding-inline: gutter`): a lit pill's lift shadow is otherwise sliced square at the
   scroller's edge, and a mandatory-snap rail snaps its first card flush to the screen.
+
+## 22 · Commit moments (Phase 1b — W16c's confirms retired by the owner)
+
+- **Undo beats "are you sure?"** A reversible commit (Send to kitchen) is one tap with a visible,
+  server-clocked Undo. A confirm asks every diner, every round, to guard against a mistake the undo
+  already recovers.
+- **Name the sum on the control that charges it**, and put anything the diner should know about the
+  charge BEFORE the tap, beside the button (the unsent-dishes note) — never in a dialog after it.
+- **Keep a confirm only where it guards something no undo reaches**: a card hold committed for the
+  whole table (the split share).
+- **A rule that gates a money action is ONE binding read by both halves** (`payBlockedByUnsent`):
+  the server refuses on it, and the control reads it to say why before the tap. A disabled control
+  names what unlocks it and who can do it.
+- **Steps that live in state still get history entries** (a hash per step), so the platform Back
+  button walks them — and Back runs the same handler as the in-page back control, never a shortcut
+  around its side effects.

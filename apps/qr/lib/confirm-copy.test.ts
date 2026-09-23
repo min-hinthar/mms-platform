@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { confirmCopy, dollars, type ConfirmDecision } from "./confirm-copy";
-import { t } from "./i18n";
+import {
+  confirmCopy,
+  dollars,
+  hostSendsCopy,
+  payProceedLabel,
+  sentCopy,
+  unsentPayNote,
+  type ConfirmDecision,
+} from "./confirm-copy";
 
 /**
  * W16c — the confirm copy's rules. Every decision the diner can be asked to confirm is walked
@@ -9,13 +16,7 @@ import { t } from "./i18n";
  * no copy branch can't typecheck at all).
  */
 
-const DECISIONS: ConfirmDecision[] = [
-  { kind: "sendToKitchen", itemCount: 3 },
-  { kind: "sendToKitchen", itemCount: 1 },
-  { kind: "sendToKitchen", itemCount: 0 },
-  { kind: "pay", amountCents: 4210 },
-  { kind: "authorizeShare", amountCents: 1240 },
-];
+const DECISIONS: ConfirmDecision[] = [{ kind: "authorizeShare", amountCents: 1240 }];
 
 describe("confirmCopy — both tongues, every field, every decision", () => {
   it("never returns an empty slot (a blank confirm is a dead-end decision)", () => {
@@ -49,73 +50,70 @@ describe("confirmCopy — both tongues, every field, every decision", () => {
 });
 
 describe("confirmCopy — the numbers the diner is deciding on", () => {
-  it("the amount appears in BOTH tongues' question and on the proceed button", () => {
-    // Not transcribed: the expectation is `dollars()` of the same cents the decision carries.
-    const cents = 4210;
-    const c = confirmCopy({ kind: "pay", amountCents: cents });
-    const amount = dollars(cents);
-    expect(amount).toBe("$42.10"); // pins the formatter itself (2dp, Latin, leading $)
-    expect(c.questionEn).toContain(amount);
-    expect(c.questionMy).toContain(amount);
-    expect(c.proceedEn).toContain(amount);
-    expect(c.proceedMy).toContain(amount);
-  });
-
   it("a share hold names its own amount, not the table's", () => {
     const c = confirmCopy({ kind: "authorizeShare", amountCents: 1240 });
+    expect(dollars(1240)).toBe("$12.40"); // pins the formatter itself (2dp, Latin, leading $)
     expect(c.questionEn).toContain(dollars(1240));
     expect(c.questionMy).toContain(dollars(1240));
-  });
-
-  it("the send confirm names the COUNT it commits, and pluralizes EN (MY ခု is invariant)", () => {
-    const three = confirmCopy({ kind: "sendToKitchen", itemCount: 3 });
-    const one = confirmCopy({ kind: "sendToKitchen", itemCount: 1 });
-    expect(three.questionEn).toBe(`Send 3 ${t("en", "countItems")} to the kitchen?`);
-    expect(one.questionEn).toBe(`Send 1 ${t("en", "countItem")} to the kitchen?`);
-    // The two EN forms must actually DIFFER — a pluralizer that returns one string for both is
-    // the degenerate fixture this asserts against.
-    expect(three.questionEn).not.toBe(one.questionEn);
-    expect(three.questionMy).toContain("3");
-    expect(one.questionMy).toContain("1");
-  });
-
-  it("an unknown count falls back to a countless question, never 'Send 0 items'", () => {
-    const c = confirmCopy({ kind: "sendToKitchen", itemCount: 0 });
-    expect(c.questionEn).not.toContain("0");
-    expect(c.questionMy).not.toContain("0");
+    expect(c.proceedEn).toContain(dollars(1240));
   });
 });
 
-describe("confirmCopy — the owner's own words", () => {
-  it("the send-to-kitchen PROCEED button carries the owner's Burmese verbatim (W16 directive)", () => {
+describe("Phase 1b — what the retired send confirm carried, now on the send's outcome", () => {
+  it("the success line carries the owner's Burmese verbatim (W16 directive)", () => {
     // Pinned so a future reword is a deliberate act with the owner, not a silent drift: this exact
-    // string is what Min wrote in the W16 directive for this button.
-    expect(confirmCopy({ kind: "sendToKitchen", itemCount: 2 }).proceedMy).toBe(
-      "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ",
-    );
+    // string is what Min wrote in the W16 directive. It is a completed-action statement, so it
+    // rides the moment the send has LANDED.
+    expect(sentCopy(2).my).toBe("Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ");
+  });
+
+  it("names the count the send committed, and pluralizes EN", () => {
+    const three = sentCopy(3).en;
+    const one = sentCopy(1).en;
+    expect(three).toBe("Sent to the kitchen — 3 items on the way.");
+    expect(one).toBe("Sent to the kitchen — 1 item on the way.");
+    expect(three).not.toBe(one); // a pluralizer returning one string for both is the degenerate case
   });
 });
 
-describe("confirmCopy — the charge confirm names unsent dishes (W19)", () => {
-  it("with unsent items, BOTH tongues carry the count in Latin digits", () => {
-    const c = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 3 });
-    expect(c.detailEn).toContain("3 items not sent yet");
-    expect(c.detailEn).toContain("the moment you pay");
-    expect(c.detailMy).toContain("3");
-    expect(c.detailMy).not.toMatch(/[၀-၉]/); // money-path rule: Latin digits in the MY line too
+describe("Phase 1b — what the retired pay confirm carried, now on the Pay button and above it", () => {
+  it("the Pay button names the sum it charges, Latin digits", () => {
+    // Not transcribed: the expectation is `dollars()` of the same cents.
+    expect(payProceedLabel(4210)).toBe(`Pay ${dollars(4210)}`);
+    expect(payProceedLabel(4210)).toContain("$42.10");
+  });
+
+  it("names unsent dishes in BOTH tongues, Latin digits (W19)", () => {
+    const n = unsentPayNote(3)!;
+    expect(n.en).toContain("3 items not sent yet");
+    expect(n.en).toContain("the moment you pay");
+    expect(n.my).toContain("3");
+    expect(/\p{Script=Myanmar}/u.test(n.my)).toBe(true);
+    expect(n.my).not.toMatch(/[၀-၉]/); // money-path rule: Latin digits in the MY line too
   });
 
   it("singular reads as one item, not '1 items'", () => {
-    const c = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 1 });
-    expect(c.detailEn).toContain("1 item not sent yet");
-    expect(c.detailEn).not.toContain("1 items");
+    const n = unsentPayNote(1)!;
+    expect(n.en).toContain("1 item not sent yet");
+    expect(n.en).not.toContain("1 items");
   });
 
-  it("with nothing unsent (or the field omitted), the detail is untouched", () => {
-    const plain = confirmCopy({ kind: "pay", amountCents: 4210 });
-    const zero = confirmCopy({ kind: "pay", amountCents: 4210, unsentCount: 0 });
-    expect(plain.detailEn).toBe(zero.detailEn);
-    expect(plain.detailEn).not.toContain("not sent");
-    expect(plain.detailMy).not.toContain("မပို့ရသေး");
+  it("says nothing when nothing is unsent", () => {
+    expect(unsentPayNote(0)).toBeNull();
+  });
+});
+
+describe("Phase 1b — a guest who is not the host is told who sends", () => {
+  it("names the host when the table knows them, in both tongues", () => {
+    // MUTATION: drop the name — "Your host" where the table has a real name reads as a stranger; red.
+    const c = hostSendsCopy("Aung");
+    expect(c.en).toBe("Aung sends the table’s order to the kitchen — your dishes go with it.");
+    expect(c.my).toContain("Aung");
+    expect(/\p{Script=Myanmar}/u.test(c.my)).toBe(true);
+  });
+
+  it("falls back to the role, never a blank name", () => {
+    expect(hostSendsCopy(null).en).toMatch(/^Your host sends/);
+    expect(hostSendsCopy("  ").en).toMatch(/^Your host sends/);
   });
 });

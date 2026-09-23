@@ -9,32 +9,17 @@ import type { Entry } from "./types";
  * `confirm-copy.test.ts` over the ASSEMBLED strings, which is where an interpolated numeral could
  * actually go wrong).
  *
- * ⚠️ `confirmSendProceed.my` is the owner's OWN Burmese, quoted verbatim from the W16 directive.
- * Grammatically it reads as a completed-action statement ("…confirmed"), which is why it sits on
- * the PROCEED BUTTON (the moment the diner commits) rather than in the question. The
- * Claude-authored question forms below are K15 check-before-trust — they await Min's native read.
+ * ⚠️ `sentConfirmed.my` is the owner's OWN Burmese, quoted verbatim from the W16 directive.
+ * Grammatically it reads as a completed-action statement ("…confirmed"). It sat on the send
+ * confirm's proceed button while that confirm existed; Phase 1b retired the confirm, so it now
+ * rides the send's SUCCESS line — the moment the statement becomes true. The Claude-authored
+ * question forms below are K15 check-before-trust — they await Min's native read.
  */
 export const CONFIRM = {
   confirmCancel: { en: "Cancel", my: "မလုပ်တော့ပါ" },
 
-  // ── send to kitchen (the owner's named example) ────────────────────────────
-  confirmSendLabel: {
-    en: "Confirm sending to the kitchen",
-    my: "မီးဖိုချောင်သို့ ပို့ရန် အတည်ပြုပါ",
-  },
-  confirmSendDetail: {
-    en: "The kitchen starts cooking it. You’ll have a few seconds to undo.",
-    my: "မီးဖိုချောင်က ချက်ပြုတ်စပြီ။ ပြန်ရုပ်သိမ်းရန် စက္ကန့်အနည်းငယ် ရပါမယ်",
-  },
-  confirmSendProceed: { en: "Yes, send", my: "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" }, // owner verbatim
-
-  // ── finalize the bill (the CHARGE, not the intent mint) ────────────────────
-  confirmPayLabel: { en: "Confirm your payment", my: "ငွေချေမှု အတည်ပြုပါ" },
-  confirmPayDetail: {
-    en: "This completes your payment — it can’t be undone here.",
-    my: "ဒါနဲ့ ငွေချေမှု ပြီးဆုံးပါပြီ — ဒီမှာ ပြန်ရုပ်သိမ်းလို့ မရတော့ပါ",
-  },
-  confirmPayProceed: { en: "Yes, pay", my: "ဟုတ်ကဲ့၊ ရှင်းမယ်" },
+  // ── the send outcome (Phase 1b: the send confirm is retired; see lib/confirm-copy sentCopy) ──
+  sentConfirmed: { en: "Sent to the kitchen", my: "Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ" }, // owner verbatim
 
   // ── authorize a split share (a real hold on the card) ──────────────────────
   confirmAuthorizeLabel: { en: "Confirm your share", my: "သင့်ဝေစု အတည်ပြုပါ" },

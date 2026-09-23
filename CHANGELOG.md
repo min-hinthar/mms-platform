@@ -4,6 +4,35 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 1b — one tap to send, one tap to pay, and a bill that is final before it is paid (2026-09-23)
+
+**The owner's calls:** "Drop both" (the send and pay confirms — reverses W16c) and "Everything sent"
+(a dine-in bill is payable only once every dish has gone to the kitchen).
+
+- **Send to kitchen is one tap.** The confirm step is gone; the server-clocked 10s Undo is the
+  safety net. The owner's own Burmese from the W16 directive ("Kitchen သို့ မှာယူရန် အတည်ပြုပါပြီ",
+  a completed-action statement) moves from the retired confirm's button to the send's SUCCESS line,
+  where it is true (`sentCopy`, still pinned verbatim by a mutant).
+- **Card pay is one tap.** The second "Charge $X to your card?" is gone — the review step's
+  "Pay · $X" already asked, and the Pay button names the sum (`payProceedLabel`). The W19 unsent-dishes
+  disclosure it carried now stands ABOVE the Pay button, read before the tap (`unsentPayNote`).
+  The share-hold confirm (SharePay) stays: it commits a card hold for someone else's bill.
+- **"Everything sent" — a dine-in bill is final before it is paid.** `payBlockedByUnsent` (one
+  binding): `create-intent` and `openSettlement` refuse while a sendable dish is unsent, and the
+  Bill's Pay control reads the same rule — locked, labelled "Send everything to the kitchen first",
+  with the note saying who can clear it. Counts only what Send can clear (dinein drafts); to-go
+  drafts still fire at checkout. Pickup and scan-and-go are untouched (paying IS ordering there).
+  Dishes that never reach the table stay a staff void/refund; charging only after staff confirm
+  service is filed as **M234** (owner: a separate phase).
+- **Browser Back walks the checkout** (`lib/checkout-history.ts`): Order → Bill → Pay each get a
+  hash entry, and Back from Pay runs the same `editOrder` as the in-page control — before, Back left
+  /cart and stranded the pay-window lock, freezing the table until the TTL. A charge in flight
+  refuses the Back; Forward honours the Bill door the undo window keeps shut. Hash entries, never a
+  same-path push (the view-transition popstate hang).
+- **A guest who is not the host is told who sends** ("Aung sends the table's order to the kitchen —
+  your dishes go with it."), where the host sees Send — before, a guest's Order moment had no verb.
+- **The bill says which table it is** ("Table 7" eyebrow on /cart).
+
 ### Phase 1a — the menu's first screen, and one name for the open order (2026-09-23)
 
 **The owner reversed M133 ("Toolbar first") and asked for world-class design thinking on every

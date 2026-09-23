@@ -14,6 +14,8 @@ import {
 } from "./lock";
 import { SETTLE_TTL_MS } from "./lock-ttl";
 import { releaseHold } from "./split-hold";
+import { payBlockedByUnsent } from "./checkout-stage";
+import { kitchenDraftUnits } from "./unsent-read";
 
 /**
  * W11 (M43) — the durable half of "we are knowingly walking away from money". Every call site below
@@ -241,6 +243,11 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
     if (sessErr || !sess) throw new Error("Couldn’t start the split — please try again.");
     if (sess.mode !== "dinein") throw new Error("Splitting the bill is for dine-in tables.");
   }
+  // Phase 1b — "Everything sent": a split is a way to PAY, so it opens only once the table's bill is
+  // final (`payBlockedByUnsent`, the same binding create-intent refuses on). Fail-open read — see
+  // lib/unsent-read.ts for why that direction is safe here.
+  if (payBlockedByUnsent("dinein", await kitchenDraftUnits(id)))
+    throw new Error("Send everything to the kitchen first — then you can split the bill.");
   await assertMutationRate(uid); // per-device flood guard (P3.4) — bound settlement re-open churn
 
   // The freeze is the mutex — acquire FIRST so two opens can't race the derive/insert.
