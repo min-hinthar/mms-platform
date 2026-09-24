@@ -725,6 +725,42 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     );
   });
 
+  it("a NEWER sold-out that FAILS does not strip the older success of its Undo", async () => {
+    // Codex round 5 on #304 (P2). A in flight, dismissed; B tapped and refused; then A succeeds.
+    // RED before: the tap sequence made A non-newest, so A went sold out with no Undo.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const dA = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dA.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q);
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    setItemSoldOut.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: "That changed.", code: "stale" }),
+    );
+    const dialogB = await tapEightySix(q, "Laphet");
+    await waitFor(() => expect(within(dialogB).getByRole("status").textContent).not.toBe(""));
+    fireEvent.keyDown(dialogB, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    await act(async () => {
+      dA.resolve({ ok: true, soldOut: true });
+    });
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    expect(q.container.querySelector(".kds-undo")!.textContent).toContain(
+      tf("en", "kds.undo.86", { x: "Mohinga" }),
+    );
+  });
+
   it("a refusal renders in the sheet's region, keeps the sheet open, and refreshes", async () => {
     // MUTATIONS (by hand): route every refusal to the board region — the sheet's region is empty,
     // red; refresh only on ok — no queue read, red.

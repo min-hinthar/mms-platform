@@ -638,11 +638,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // response lands first. Every tap takes the next number; a result whose number is no longer the
   // latest says what happened and offers no Undo (the newer dish owns the slot).
   const tap86Seq = useRef(0);
+  // Codex round 5 — ownership goes to the newest SUCCESSFUL tap: a newer tap that is refused or
+  // throws changed nothing and must not strip an older success of its Undo.
+  const won86Seq = useRef(0);
   useEffect(() => {
     const p = parked86.current;
     if (menuLineId !== null || p === null) return;
     parked86.current = null;
-    if (p.seq === tap86Seq.current) onEightySixed(p);
+    if (p.seq === won86Seq.current) onEightySixed(p);
   }, [menuLineId, onEightySixed]);
   // The line whose 86 just landed — focus goes to its own button once, and only if focus was
   // orphaned. Set only on OK, consumed by the commit that applied the override, whatever happened.
@@ -664,6 +667,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     haptic("pick"); // the sheet rising is the visible half
     setMenuMsg(null);
     setMenuLineId(line.id);
+    // Codex round 5 — the routing ref follows the OPEN too (the close paths already clear it in the
+    // same step): an older answer settling right after this tap must see B's sheet, not "none".
+    menuLineRef.current = line.id;
   };
 
   const eightySix = async (line: KitchenLine) => {
@@ -676,6 +682,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     setPending86((p) => new Map(p).set(id, line.id));
     haptic("commit"); // §3 — at the tap, synchronously; the busy button is the visible half
     setMenuMsg(null);
+    // Codex round 5 — a stale board error (a failed Done, bring-back or Undo) outranks the notice
+    // and outlives it; the old inline sold-out handler cleared it here, and so does this one.
+    showErr(null);
     // A refusal lands where the cook is looking: in the sheet that is open — this line's, or (Codex
     // round 3 on #304) ANOTHER line's, because a modal sheet makes the board behind it aria-hidden
     // and a refusal spoken there would never be heard; the sentence names its dish either way.
@@ -696,7 +705,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       });
       if (res.ok) {
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
-        const newest = seq === tap86Seq.current;
+        // The newest SUCCESS owns the one Undo slot (a newer tap that failed does not count).
+        const newest = seq > won86Seq.current;
+        if (newest) won86Seq.current = seq;
         if (menuLineRef.current === null || menuLineRef.current === line.id) {
           // ONE commit: the override (SOLD OUT, the ⋯ gone), the sheet unmounted, the undo bar,
           // the region's notice, and the focus landing's flag.
