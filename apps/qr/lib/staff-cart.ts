@@ -50,7 +50,23 @@ export type SettleCashResult =
        *  was recorded. */
       tipCents: number;
     }
-  | { ok: false; error: string };
+  | SettleCashRefusal;
+
+// ── Phase 2c · register ──
+/**
+ * A cash settle's refusal. `code` is decided by WHERE the refusal happened, never by message text:
+ *  - absent — every refusal that predates the code (gate, input, reads, freeze, the RPC); callers
+ *    render `error` through `<OutageText>` as before.
+ *  - `moved` — the compare-and-swap: the quote the cashier read (`quotedCents`) is not the total the
+ *    server just derived from the live lines. `totalCents` is that derived PRE-TIP total, so the sheet
+ *    can name both figures and re-quote the server's. Nothing was recorded.
+ * The settle gate (Phase 2c, second wave) adds its own arm here (`code: "unsent"`); a union member
+ * per code, so each carries exactly the facts its sentence needs.
+ */
+export type SettleCashRefusal =
+  | { ok: false; error: string; code?: undefined }
+  | { ok: false; error: string; code: "moved"; totalCents: number };
+export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
 // export from THIS "use server" module would mint a public POST endpoint around a service-role read.
@@ -257,11 +273,14 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
 /**
  * Settle the table order in CASH ("pay a human"). Re-derives the authoritative total server-side
  * (getCartTotals — the single tax engine), then records an idempotent cash order via
- * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). tip_cents=0:
- * a cash tip is in-hand / off-system (Min's call). W16a: the service charge is RETIRED — totals carry
- * serviceChargeCents = 0 (the RPC param stays for the order-snapshot contract; margin now lives in the
- * mode-derived line prices). Refused while a card payment / split is in flight (shared mutex) so cash
- * can't double-charge a table.
+ * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). The cash
+ * tip the cashier typed IS recorded (`p_tip_cents`, W17c-2 — the old "off-system" sentence here was
+ * false from that slice on). Phase 2c: an optional `quotedCents` — the pre-tip total the cashier was
+ * shown — is COMPARED inside the held freeze against the derived total and a mismatch refuses with
+ * `code: "moved"` before anything is recorded; it is never read into an amount. W16a: the service
+ * charge is RETIRED — totals carry serviceChargeCents = 0 (the RPC param stays for the order-snapshot
+ * contract; margin now lives in the mode-derived line prices). Refused while a card payment / split is
+ * in flight (shared mutex) so cash can't double-charge a table.
  */
 export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const gate = await staffGate();
@@ -269,7 +288,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents } = parsed.data;
+  const { sessionId, tipCents, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -326,6 +345,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
   // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
   try {
+    // (The settle gate's unsent-dishes check sits HERE — after the freeze, before the totals.)
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -338,6 +358,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
     }
+    // Phase 2c · register — the COMPARE-AND-SWAP. The cashier collected the figure they were shown;
+    // if the live lines now total something else (a qty step, a promo, a guest adding from their phone
+    // inside a poll window), recording `totals` would collect $X and book $Y. Refuse BEFORE the RPC,
+    // naming the server's figure so the sheet can show both. Compared against the PRE-tip total —
+    // the same quantity `detail.settleTotalCents` quotes — never total + tip. The quote is never read
+    // into an amount. Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    if (quotedCents !== undefined && quotedCents !== totals.totalCents)
+      return {
+        ok: false,
+        code: "moved",
+        totalCents: totals.totalCents,
+        error: "The total changed — check the order, then take payment again.",
+      };
     // W17c-2 — the cash tip is RECORDED now (it used to be hardcoded 0 and described as
     // "in-hand/off-system"). It is the one figure here a human supplies, because the server has
     // nothing to derive it from: only the person who took the cash knows what was left. Bounded by
