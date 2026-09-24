@@ -151,6 +151,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       // somewhere from a screen that has nothing to explain.
       help={home.view === "floor" ? <HelpButton lang={lang} screen="counter" /> : undefined}
       lock={hasPin}
+      // Phase 2b · feedback — the counter's status slot folds its two boards (the provider below
+      // is the bar's parent there); the doors have no feed, so no slot — the offline row instead.
+      live={home.view === "floor" ? "counter" : undefined}
     />
   );
   const greeting = (

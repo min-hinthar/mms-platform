@@ -7201,6 +7201,42 @@ const MUTANTS = [
     replace:
       "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n      throw e;\n",
   },
+  // ── Phase 2b · feedback ──
+  // The staff bar's liveness truth (lib/live-connection.ts) and the lane's thumb-zone Undo
+  // (lib/undo-hold.ts, lib/expo-rules.ts). Every rule here decides what a person at the counter or
+  // the pass BELIEVES about the screen in front of them.
+  {
+    id: "live-connection/offline-hides-behind-a-feed",
+    file: "apps/qr/lib/live-connection.ts",
+    suite: "lib/live-connection.test.ts",
+    why: "Phase 2b · feedback — a device that has been offline for the whole sustain cannot hear the feed it is showing. Tested only when no feed answered, a counter bar on a dead wifi keeps its green 'Live' dot over boards that can no longer update",
+    find: '  if (offline) return "offline";',
+    replace: '  if (offline && feed !== "live" && feed !== "not_updating") return "offline";',
+  },
+  {
+    id: "live-connection/a-feedless-page-says-live",
+    file: "apps/qr/lib/live-connection.ts",
+    suite: "lib/live-connection.test.ts",
+    why: "Phase 2b · feedback — no feed means no dot. Without the null arm the counter's reserved mark claims 'Live' before a single board has reported, and every feedless call draws a liveness it has nothing behind",
+    find: '  if (feed === undefined || feed === "page") return null;\n',
+    replace: "",
+  },
+  {
+    id: "live-connection/approvals-freezes-the-counter-dot",
+    file: "apps/qr/lib/live-connection.ts",
+    suite: "lib/live-connection.test.ts",
+    why: "Phase 2b · feedback — the counter bar folds its OWN two boards. Folding every report lets a stale manager approvals rail turn the dot 'Not updating' over a floor and a lane that are both live, and the counter starts distrusting boards that are fine",
+    find: "  return liveFold(COUNTER_FEEDS.map((b) => states[b]));",
+    replace: "  return liveFold(Object.values(states));",
+  },
+  {
+    id: "live-connection/the-row-shows-on-a-blip",
+    file: "apps/qr/lib/live-connection.ts",
+    suite: "lib/live-connection.test.ts",
+    why: "Phase 2b · feedback — the offline row waits out NET_SHOW_MS of unbroken outage. Any offlineSince showing it flaps the row (and reflows the page under a finger) on every one-second blip of marginal restaurant wifi",
+    find: "  return offlineSince !== null && now - offlineSince >= ms;",
+    replace: "  return offlineSince !== null;",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

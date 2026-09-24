@@ -2665,6 +2665,32 @@ export const STAFF = {
     en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this tab settles itself in a minute. If it doesn’t, try again.",
     my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ကတ်ကနေ ဖြတ်ပြီးပြီလား မသိရပါ။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ဦး — ဖြတ်ပြီးသားဆိုရင် ဒီစာရင်း တစ်မိနစ်အတွင်း သူ့ဘာသာ ပိတ်သွားပါမယ်။ မပိတ်ရင် ထပ်စမ်းပါ။",
   }, // K15-HIGH — read while a charge's outcome is unknown; a misread collects the guest twice
+
+  // ── Phase 2b · feedback ──
+  // The bar's status slot (feed pages) and the offline row (feedless pages), then the counter
+  // lane's thumb-zone Undo pill. Every MY value in this block is a Claude-authored K15 draft
+  // pending Min's native check, EXCEPT where a `grounded:` comment names its in-repo source.
+  // The slot's words — "Live" is sr-only at every width (only the bad states are read at arm's
+  // length); the other two are drawn beside the mark.
+  "shell.live.live": { en: "Live", my: "အသစ်တက်နေ" }, // grounded: report.conn.live
+  "shell.live.stale": { en: "Not updating", my: "အသစ်မတက်ပါ" }, // grounded: report.conn.notUpdating
+  "shell.live.offline": { en: "Offline", my: "အော့ဖ်လိုင်း" },
+  // The feedless page's row. No paper tail — that is a BOARD sentence (`out.tail.paper`); a menu or
+  // a lock screen has nothing to keep on paper.
+  "shell.net.offline": {
+    en: "This device is offline — changes won’t save.",
+    my: "ဒီစက် အင်တာနက် မရှိပါ — ပြင်ဆင်မှုတွေ မသိမ်းနိုင်ပါ။",
+  }, // K15-HIGH — the one reason a manager's price or 86 toggle is refused on a dead wifi
+  // The lane's Undo pill (live={false}: the lane's own region speaks the pick). The pill's text
+  // names what was picked; its action is `kds.undo` verbatim.
+  "expo.toast.picked": { en: "{x} picked up", my: "{x} ယူသွားပြီ" }, // grounded: expo.live.picked
+  "expo.toast.pickedTable": { en: "Table {id} picked up", my: "စားပွဲ {id} ယူသွားပြီ" }, // grounded: expo.live.pickedTable
+  "expo.toast.handedOver": { en: "{x} handed over", my: "{x} လွှဲပေးပြီး" }, // grounded: expo.verb.handedOver
+  // A scan-and-go hand-over is spoken as what the button said ("Handed over"), not "picked up".
+  "expo.live.handedOver": {
+    en: "{x} handed over — undo available.",
+    my: "{x} လွှဲပေးပြီး — ပြန်ဖျက်နိုင်သေးသည်။",
+  }, // grounded: expo.verb.handedOver + expo.live.picked's tail
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2824,6 +2850,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.line.state.fired",
   // ── Phase 2a · register ──
   "settle.card.unknown",
+  // ── Phase 2b · feedback ──
+  "shell.net.offline",
 ]);
 
 /**

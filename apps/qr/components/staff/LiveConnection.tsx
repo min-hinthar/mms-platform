@@ -59,6 +59,13 @@ export function useLiveBoardState(board: string): LiveBoardState | undefined {
   return useContext(LiveConnectionContext)?.states[board];
 }
 
+// ── Phase 2b · feedback ──
+/** Every board's reported state — for the bar's status slot, whose PURE fold (`counterFold`) picks
+ *  the boards it speaks for. `undefined` outside a provider (a page with no live board). */
+export function useLiveBoardStates(): Readonly<Record<string, LiveBoardState>> | undefined {
+  return useContext(LiveConnectionContext)?.states;
+}
+
 /** A board reports its state on every change; a no-op outside a provider. */
 export function useReportLive(board: string, state: LiveBoardState): void {
   const ctx = useContext(LiveConnectionContext);

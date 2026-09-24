@@ -12498,3 +12498,113 @@ a.aisle-tile {
 .staff-send-left {
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Phase 2b · feedback ── */
+/* The bar's STATUS SLOT (feed pages only: the counter, the KDS, a table page). StaffBar wraps the h1
+   and the slot in `.staff-bar-head` ONLY when a feed is passed, so a feedless bar keeps today's DOM.
+   The wrapper is the flex item R1's line-breaking counts (its natural width = the title's plus the
+   slot's), so the slot stays beside the title on row 1; the h1 inside shrinks and still ellipsizes.
+   The slot is OUTSIDE the h1 — the heading's name, and the KDS main region labelled by it, never
+   change. Three states, three SHAPES, never colour alone: a filled dot, a hollow ring, the glyph. */
+.staff-bar-head {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.staff-bar-head > .staff-bar-title {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.staff-live {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+/* The 14px mark box is reserved whenever the slot renders (SSR included) — nothing shifts when the
+   counter's boards first report and the empty mark fills in. `inline-flex` so `.mms-pop`'s transform
+   actually animates. */
+.staff-live-mark {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--warn);
+}
+.staff-live[data-state="live"] .staff-live-mark::before,
+.staff-live[data-state="stale"] .staff-live-mark::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: var(--r-full);
+}
+.staff-live[data-state="live"] .staff-live-mark::before {
+  background: var(--ok);
+}
+.staff-live[data-state="stale"] .staff-live-mark::before {
+  box-shadow: inset 0 0 0 2px var(--warn);
+}
+/* The bad states are READ at arm's length; `--warn` on the Night glass bar is pinned in
+   composite-contrast.test.ts (the glass floor). */
+.staff-live-word {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  color: var(--warn);
+  white-space: nowrap;
+}
+/* 'Live' is spoken, never drawn — at EVERY width (the common state stays narrow). The sr-only
+   recipe, scoped: the word is a real text node either way. */
+.staff-live[data-state="live"] .staff-live-word {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+/* The OFFLINE ROW (feedless pages only): in flow INSIDE the sticky bar — full width, ordered last
+   (the Lock refusal's idiom), so it never covers a control and the bar stays the only sticky
+   element. The bar wraps only while it holds the row. Entrance `.mms-rise` (RM-gated by the kit). */
+.staff-bar:has(> .staff-net) {
+  flex-wrap: wrap;
+}
+.staff-net {
+  flex-basis: 100%;
+  order: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warnb);
+  color: var(--tx);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+}
+.staff-net > svg {
+  color: var(--warn);
+}
+/* WCAG 2.4.11 — a keyboard-focus scroll must never park a control UNDER the sticky bar. StaffBarNet
+   publishes the header's measured height as --staff-bar-h (the ONE publisher); the fallbacks cover
+   the moment before it hydrates. ⚠️ 76px / 128px are COMPUTED from this sheet (a Burmese title +
+   echo: 10 + 39 + 14 + 10 + 1 on a tablet; the two-row phone bar adds the 8px gap + a 44px row),
+   NOT measured on a device — OPEN-ITEMS row to measure. */
+:root:has(.staff-bar) {
+  scroll-padding-top: calc(var(--staff-bar-h, 76px) + var(--s2));
+}
+@media (max-width: 720px) {
+  :root:has(.staff-bar) {
+    scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--s2));
+  }
+}

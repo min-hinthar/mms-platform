@@ -303,6 +303,9 @@ function combos(map: Record<string, string>, theme: "light" | "dark") {
     { name: "oa on solid ac", fg: tok(map, "--oa"), bg: ac },
     { name: "ok on okb", fg: tok(map, "--ok"), bg: tok(map, "--okb") },
     { name: "warn on warnb", fg: tok(map, "--warn"), bg: tok(map, "--warnb") },
+    // Phase 2b · feedback — the staff bar's offline row (`.staff-net`) sets its sentence in --tx on
+    // a --warnb ground, in both themes (the KDS runs Night). Watched RED with light --warnb at #7a3a2a.
+    { name: "tx on warnb", fg: tok(map, "--tx"), bg: tok(map, "--warnb") },
     // ── M83 · the EMAIL pairs ────────────────────────────────────────────────────────────────
     // Every text×surface pair rendered by `apps/qr/emails/*`, asserted here as TOKEN pairs.
     //
