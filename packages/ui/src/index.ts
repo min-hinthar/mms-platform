@@ -20,6 +20,8 @@ export { OutageState, DegradedStrip, RetryButton } from "./fallback";
 export { Avatar } from "./avatar";
 export { Skeleton } from "./skeleton";
 export { Stepper } from "./stepper";
+// Phase 1c · cart-motion — the one "same gesture" window (the Stepper's remove-arm + /cart's tap hold)
+export { SAME_GESTURE_MS, removeHeld } from "./gesture";
 export { Card } from "./card";
 // Interaction primitives (Phase 0) — styled by `@mms/ui/primitives.css` (.ui-*)
 export { Button, buttonClass } from "./button";
