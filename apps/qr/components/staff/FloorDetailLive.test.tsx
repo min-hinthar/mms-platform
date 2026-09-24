@@ -54,7 +54,12 @@ vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 const replace = vi.fn();
 const refresh = vi.fn();
 const push = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh, push }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace, refresh, push }),
+  usePathname: () => "/staff/table/s1",
+}));
+// Phase 2a · send — the table page now mounts the console's Send; its server action is inert here.
+vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.fn() }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
@@ -73,6 +78,7 @@ const line = (id: string, name: string): TableLineView => ({
   notes: null,
   modifiers: [],
   refundedCents: 0,
+  sendable: true,
 });
 const DETAIL: TableDetail = {
   sessionId: "s1",
@@ -103,6 +109,9 @@ const DETAIL: TableDetail = {
   nudgeSecure: null,
   lastActivityAt: NOW,
   paymentInFlight: false,
+  hostPresent: true,
+  // Both drafts were staff-added (no seat), so the Send is primary even at a hosted table.
+  send: { sendable: 2, staffAdded: 2, togoDraft: 0, inKitchen: false, foodDraft: true },
   serverNow: NOW,
 };
 
