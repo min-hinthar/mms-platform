@@ -171,6 +171,44 @@ export function settleBlockedTarget(trigger: "cash" | "reader" | "tab"): "send" 
   return trigger === "tab" ? "lines" : "send";
 }
 
+// ── the send line's lifetime ──────────────────────────────────────────────────────────────────────
+
+/**
+ * The fact a send line speaks to: the slot's kind and, where it has one, its unit count. Two reads
+ * with the same fact show the same slot, so a line raised over one still speaks true over the other.
+ */
+export function sendViewFact(v: StaffSendView): string {
+  return v.kind === "send" || v.kind === "togoAtPay" ? `${v.kind}:${v.units}` : v.kind;
+}
+
+/** A send line as the page holds it: `raisedAt` is the last read TICKET started when it was raised;
+ *  `against` is the fact of the first read that STARTED after it (null until that read commits). */
+export type HeldSendNote = { raisedAt: number; against: string | null };
+
+/**
+ * A send line clears when the fact it speaks to is SUPERSEDED — "Couldn't send — try again" must not
+ * stand over an "Everything's been sent" row after a colleague sends, and nothing but another tap
+ * used to clear it.
+ *
+ * The baseline is NOT the view at raise time: the answer arrives before the re-read, so a "Sent" or a
+ * "Brought back" would be superseded by the very read that confirms it. Nor is it the next commit: a
+ * poll already in the air when the answer landed began BEFORE the write. It is the first commit of a
+ * read that STARTED after the line was raised (`readTicket > raisedAt`); every later commit whose fact
+ * differs clears the line. Commits of older reads are ignored.
+ *
+ * Returns the note unchanged (same reference) when nothing moves, so the caller's guarded
+ * set-during-render converges.
+ */
+export function sendNoteAfterCommit<N extends HeldSendNote>(
+  note: N | null,
+  readTicket: number,
+  fact: string,
+): N | null {
+  if (!note || readTicket <= note.raisedAt) return note;
+  if (note.against === null) return { ...note, against: fact };
+  return note.against === fact ? note : null;
+}
+
 // ── the server's answers ──────────────────────────────────────────────────────────────────────────
 
 /**

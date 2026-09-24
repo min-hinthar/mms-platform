@@ -6977,6 +6977,22 @@ const MUTANTS = [
     replace: '      return warn("table.send.err.expired");\n',
   },
   {
+    id: "staff-send-view/send-line-never-superseded",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "Phase 2a (blind review) — a send line retires when the slot it spoke over changes. Kept, 'Couldn't send — try again' stands over an 'Everything's been sent' row after a colleague sends, inviting a tap that contradicts the screen",
+    find: "  return note.against === fact ? note : null;\n",
+    replace: "  return note;\n",
+  },
+  {
+    id: "staff-send-view/send-line-baselined-by-a-stale-read",
+    file: "apps/qr/lib/staff-send-view.ts",
+    suite: "lib/staff-send-view.test.ts",
+    why: "Phase 2a (blind review) — only a read that STARTED after the line may fix its baseline. A poll already in the air began before the write; baselined on it, the confirming re-read retires a 'Sent' or 'Brought back' the instant it lands",
+    find: "  if (!note || readTicket <= note.raisedAt) return note;\n",
+    replace: "  if (!note) return note;\n",
+  },
+  {
     id: "send-grace/absolute-server-deadline",
     file: "apps/qr/lib/send-grace.ts",
     suite: "lib/send-grace.test.ts",

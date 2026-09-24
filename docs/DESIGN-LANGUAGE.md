@@ -801,10 +801,15 @@ built.
 - **Drain before fire, on the console, is a hold.** A note typed on a sendable dish but not saved
   holds the Send (naming the dish) and a tap takes the finger to that note field — found by
   `data-note-for` within the order card, not by its id; any line write still in flight holds it too.
-- **Outcomes take the view's ONE region** as `StaffMsg` keys: writeError > send warn > degraded >
-  send ok, and each setter clears the other, so a standing "Sent" never masks the frozen-board
-  signal. A send that THREW says "couldn't confirm — check the order" and re-reads at once; it never
-  says "couldn't send" and never offers an Undo it has no batch for.
+- **Outcomes take the view's ONE region** as `StaffMsg` keys: writeError > degraded > send warn >
+  send ok, and each setter clears the other, so no send line — of either tone — masks the
+  frozen-board signal (a frozen view must never look live). A send line also RETIRES once the fact
+  it speaks to is superseded: the first read that started after it fixes the slot it was said over,
+  and a later read showing a different slot (a colleague sent, the count moved) clears it
+  (`sendNoteAfterCommit`). A send that THREW says "couldn't confirm — check the order" and re-reads
+  at once; it never says "couldn't send" and never offers an Undo it has no batch for. An UNDO that
+  threw is unknown too ("couldn't confirm the take-back"), keeps its window, and a retry that finds
+  the batch already brought back answers `gone` — never "too late".
 - **A staff write's refusal is CODED by where it happened.** `staffAddItem` answers
   `{ ok: false, error, code }`: the pre-read refusals are coded by the branch that refused (`signin`
   · `sentence` · `invalid` · `outage` · `closed` · `no-cart` · `paying`), and a throw inside the add

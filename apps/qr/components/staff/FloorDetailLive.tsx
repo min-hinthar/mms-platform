@@ -37,7 +37,10 @@ import type { StaffKey } from "@/lib/i18n/staff";
 import { counterAskLive } from "@/lib/counter-pay-state";
 import {
   sendHoldFrom,
+  sendNoteAfterCommit,
+  sendViewFact,
   staffSendView,
+  type HeldSendNote,
   type SendNotice,
   type StaffLineEdit,
   type StaffSendHold,
@@ -101,6 +104,9 @@ export function FloorDetailLive({
   const inFlight = useRef(false);
   // A refresh requested while one is in flight (see `refresh`).
   const rerun = useRef(false);
+  // Every detail read takes a ticket; the committed detail's ticket rides beside it (see `sendNote`).
+  const reads = useRef(0);
+  const [readTicket, setReadTicket] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -208,12 +214,16 @@ export function FloorDetailLive({
     try {
       do {
         rerun.current = false;
+        // This read's ticket — committed WITH its detail (one batched render), so the send line can
+        // tell a read that began after it from one already in the air (`sendNoteAfterCommit`).
+        const ticket = ++reads.current;
         try {
           // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
           const res = await raceTimeout(getTableDetail(sessionId));
           if (!alive.current) return;
           if (res.kind === "detail") {
             setDetail(res.detail);
+            setReadTicket(ticket);
             fails.current = 0;
             setDegraded(null);
           } else if (res.kind === "closed") {
@@ -279,16 +289,32 @@ export function FloorDetailLive({
   const orderCardRef = useRef<HTMLElement>(null);
   // Detail commits, counted by identity (React's guarded set-during-render): the post-undo hold ends
   // on the drafts coming back, or two commits later (the first may be a poll that began before it).
+  const sendView = staffSendView({
+    mode: detail.mode,
+    counterOrder: isCounter,
+    cartOpen: detail.cartId != null && !detail.settled,
+    paymentInFlight: detail.paymentInFlight,
+    hostPresent: detail.hostPresent,
+    counterAsk: counterAskLive(detail.counterRequestedAt),
+    counts: detail.send,
+  });
+  // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
+  // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
+  // never look live), and each setter clears the other, so a stale line never resurfaces when a
+  // newer one clears. A send line also clears once the fact it speaks to is SUPERSEDED — the first
+  // read that started after it fixes the slot it was said over, and a later read showing a different
+  // slot (a colleague sent, the count moved) retires it (`sendNoteAfterCommit`).
+  const [sendNote, setSendNote] = useState<
+    ({ tone: "ok" | "warn"; msg: StaffMsg } & HeldSendNote) | null
+  >(null);
   const [seenDetail, setSeenDetail] = useState(detail);
   const [detailSeq, setDetailSeq] = useState(0);
   if (seenDetail !== detail) {
     setSeenDetail(detail);
     setDetailSeq((n) => n + 1);
+    const next = sendNoteAfterCommit(sendNote, readTicket, sendViewFact(sendView));
+    if (next !== sendNote) setSendNote(next);
   }
-  // The send's line in the ONE region below. Precedence: writeError > send warn > degraded > send
-  // ok — a standing "Sent" never masks the frozen-board signal (S2-audit S9), and each setter clears
-  // the other, so a stale line never resurfaces when a newer one clears.
-  const [sendNote, setSendNote] = useState<{ tone: "ok" | "warn"; msg: StaffMsg } | null>(null);
   const onWriteError = useCallback((e: ReactNode) => {
     setWriteError(e);
     setSendNote(null);
@@ -299,7 +325,9 @@ export function FloorDetailLive({
       window.location.assign("/staff/login");
       return;
     }
-    setSendNote(n);
+    // `raisedAt` — the last read STARTED so far; only a read that starts after this line may
+    // baseline it (see `sendNoteAfterCommit`). Read in a callback, never during render.
+    setSendNote(n ? { ...n, raisedAt: reads.current, against: null } : null);
     if (n) setWriteError(null);
   }, []);
   // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
@@ -313,15 +341,6 @@ export function FloorDetailLive({
     setSendHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
   }, []);
   const getHold = useCallback(() => sendHoldFrom([...lineEdits.current.values()]), []);
-  const sendView = staffSendView({
-    mode: detail.mode,
-    counterOrder: isCounter,
-    cartOpen: detail.cartId != null && !detail.settled,
-    paymentInFlight: detail.paymentInFlight,
-    hostPresent: detail.hostPresent,
-    counterAsk: counterAskLive(detail.counterRequestedAt),
-    counts: detail.send,
-  });
   const send = useStaffSend({
     sessionId,
     view: sendView,
@@ -777,8 +796,6 @@ export function FloorDetailLive({
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
-            ) : sendNote?.tone === "warn" ? (
-              <MsgText lang={lang} msg={sendNote.msg} />
             ) : degraded ? (
               <span lang={lang}>
                 {frozenBoardCopy(

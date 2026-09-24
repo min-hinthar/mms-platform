@@ -9,6 +9,8 @@ import {
   staffSendCounts,
   staffSendView,
   undoNotice,
+  sendNoteAfterCommit,
+  sendViewFact,
   type SendRow,
   type StaffSendCounts,
   type StaffSendViewInput,
@@ -262,5 +264,43 @@ describe("the region lines — decided by reason, never by text", () => {
       tone: "ok",
       msg: { k: "table.send.gone" },
     });
+  });
+});
+
+describe("sendNoteAfterCommit — a send line lives until the fact it speaks to changes", () => {
+  const note = { tone: "warn" as const, raisedAt: 4, against: null as string | null };
+
+  it("ignores commits of reads that started before the line (a poll already in the air)", () => {
+    expect(sendNoteAfterCommit(note, 4, "allSent")).toBe(note);
+    expect(sendNoteAfterCommit(note, 3, "allSent")).toBe(note);
+  });
+
+  it("baselines on the first read that started after it, then keeps it while the fact holds", () => {
+    const armed = sendNoteAfterCommit(note, 5, "send:3");
+    expect(armed).toEqual({ ...note, against: "send:3" });
+    expect(sendNoteAfterCommit(armed, 6, "send:3")).toBe(armed);
+  });
+
+  it("clears it when a later read's fact differs — a colleague sent, or the count moved", () => {
+    const armed = { ...note, against: "send:3" };
+    // MUTATION: never clear — "Couldn't send — try again" stands over "Everything's been sent"; red.
+    expect(sendNoteAfterCommit(armed, 6, "allSent")).toBeNull();
+    expect(sendNoteAfterCommit(armed, 6, "send:4")).toBeNull();
+  });
+
+  it("the fact is the slot's kind and, where it counts, its units", () => {
+    expect(sendViewFact({ kind: "allSent" })).toBe("allSent");
+    expect(sendViewFact({ kind: "togoAtPay", units: 2 })).toBe("togoAtPay:2");
+    expect(
+      sendViewFact({
+        kind: "send",
+        units: 3,
+        emphasis: "primary",
+        note: null,
+        blocked: null,
+        staffAdded: 3,
+        dinerUnits: 0,
+      }),
+    ).toBe("send:3");
   });
 });

@@ -7,8 +7,9 @@ import type { StaffFireResult } from "@/lib/staff-send-view";
 
 /**
  * Phase 2a · send — how the table page HOSTS the Send: its outcomes share the page's ONE region
- * under a written precedence (writeError > send warn > degraded > send ok — a standing "Sent" must
- * never mask the frozen-board signal, S2-audit S9), and the add page's "Review · N not sent →"
+ * under a written precedence (writeError > degraded > send warn > send ok — no send line, of either
+ * tone, may mask the frozen-board signal, S2-audit S9; a send line clears once the fact it speaks to
+ * is superseded), and the add page's "Review · N not sent →"
  * (`?send=1`) lands focused on what it promised, then drops the param.
  *
  * Everything around the order card is stubbed: this suite is about the wiring of ONE slot and ONE
@@ -129,7 +130,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("the ONE region — writeError > send warn > degraded > send ok", () => {
+describe("the ONE region — writeError > degraded > send warn > send ok", () => {
   // The notice repeats the Send's own count — `detail.send.sendable` units, never the line count.
   const SENT = STAFF["table.send.sent.many"].en.replace("{n}", String(detail().send.sendable));
 
@@ -163,7 +164,7 @@ describe("the ONE region — writeError > send warn > degraded > send ok", () =>
     expect(region().textContent!.length).toBeGreaterThan(0);
   });
 
-  it("a WARN send line outranks the degraded one — a refusal is the thing to read", async () => {
+  it("the degraded line outranks a WARN send line — a frozen view must never look live (S9)", async () => {
     getTableDetail.mockResolvedValue({ kind: "outage" });
     mount(detail());
     await flush(5000);
@@ -173,7 +174,77 @@ describe("the ONE region — writeError > send warn > degraded > send ok", () =>
     await flush(400);
     fireEvent.click(sendBtn());
     await flush();
+    // MUTATION: rank the warn send line above `degraded` — "Couldn't send — try again" hides the
+    // frozen-board signal for as long as the outage lasts; red.
+    expect(region().textContent).toBe(frozen);
+    expect(region().textContent).not.toBe(STAFF["table.send.err.failed"].en);
+  });
+
+  it("a warn send line standing when the read degrades gives the region to the frozen signal", async () => {
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: detail() });
+    mount(detail());
+    await flush();
+    fire.mockResolvedValueOnce({ ok: false, reason: "failed" });
+    fireEvent.click(sendBtn());
+    await flush();
     expect(region().textContent).toBe(STAFF["table.send.err.failed"].en);
+    getTableDetail.mockResolvedValue({ kind: "outage" });
+    await flush(5000);
+    expect(region().textContent).not.toBe(STAFF["table.send.err.failed"].en);
+    expect(region().textContent!.length).toBeGreaterThan(0);
+  });
+});
+
+describe("a send line clears when the fact it speaks to is superseded", () => {
+  it("'Couldn't send' stands through reads that agree, and goes when a colleague sends", async () => {
+    const same = detail();
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: same });
+    mount(detail());
+    await flush();
+    fire.mockResolvedValueOnce({ ok: false, reason: "failed" });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(region().textContent).toBe(STAFF["table.send.err.failed"].en);
+    // A fresh read of the same table (a new object, the same send slot) — the note still speaks true.
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: detail() });
+    await flush(5000);
+    expect(region().textContent).toBe(STAFF["table.send.err.failed"].en);
+    // A colleague sends from another tablet: the slot now says "Everything's been sent".
+    getTableDetail.mockResolvedValue({
+      kind: "detail",
+      detail: detail({
+        lines: [{ ...draft("a"), qty: 2, state: "fired", sendable: false }],
+        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      }),
+    });
+    await flush(5000);
+    // MUTATION: keep the note until the next tap — "Couldn't send — try again" over an "Everything's
+    // been sent" row, inviting a tap that cooks nothing and contradicts the screen; red.
+    expect(region().textContent).toBe("");
+    expect(document.querySelector(".staff-send-status")).not.toBeNull();
+  });
+
+  it("a 'Sent' line survives the post-send read that zeroes the count (the fact it announced)", async () => {
+    fire.mockResolvedValueOnce({
+      ok: true,
+      fired: 3,
+      undoUntil: new Date(T + 10_000).toISOString(),
+      serverNow: new Date(T).toISOString(),
+      undoBatch: "b",
+    });
+    getTableDetail.mockResolvedValue({
+      kind: "detail",
+      detail: detail({
+        lines: [{ ...draft("a"), qty: 2, state: "fired", sendable: false }],
+        send: { sendable: 0, staffAdded: 0, togoDraft: 0, inKitchen: true, foodDraft: false },
+      }),
+    });
+    mount(detail());
+    await flush();
+    fireEvent.click(sendBtn());
+    await flush();
+    await flush(5000);
+    expect(region().textContent).toBe(STAFF["table.send.sent.many"].en.replace("{n}", "3"));
   });
 });
 
