@@ -709,8 +709,10 @@ built.
 - **Never native `disabled` on a control that was just tapped** — it drops focus to `<body>` in a
   real browser, so a busy name spoken "through the same node" is spoken from nowhere. `aria-disabled`
   states it, the handler refuses re-entry (the Lock circle, after the language switch's own rule).
-  The kitchen board's eight action buttons — bump · fire · the line · 86 · undo · recall · the pager
-  — follow it since the K22/K28 slice (2026-09-20), with the CSS keyed on the attribute; the lane's
+  The kitchen board's nine action buttons — Done (the bump) · Cook now · the line · the line's ⋯ ·
+  the sheet's Mark sold out · undo · Bring back · the pager (‹ ›) — follow it since the K22/K28
+  slice (2026-09-20; the ⋯ and its sheet since Phase 2b, measured from `KdsBoard.tsx` +
+  `KdsLineMenu.tsx`), with the CSS keyed on the attribute; the lane's
   bump, the register's five controls and (slice 3) the manager rails — `Stepper` itself, the
   approvals card, the refund and void/comp sheets, the line editor, the mod sheet, the menu browser,
   the add button — are `aria-disabled` the same way since the same day, and 23 native `disabled`
@@ -851,6 +853,79 @@ built.
   `<Chrome>` (`settle.card.unknown`) — never the write-outage twin, whose "that change wasn’t saved"
   is false for a charge that may have landed. Server-returned sentences keep going through
   `<OutageText>`.
+- **Sold out lives behind the line's ⋯, never one tap under the line (Phase 2b, K22).** A trailing
+  `.kds-line-more` cell (48px × the row's full height, a `--bd` hairline on its left, the Ellipsis
+  glyph at 1.15em against the text-size dial, `.staff-press`) renders only where `canEightySix(line)`
+  holds — a menu dish not already sold out — named by sr-only `<Chrome k="kds.line.more">` ("More
+  for {x}") with `aria-haspopup="dialog"` + `aria-expanded`. It opens ONE board-level `Sheet`
+  (`className="dark kds-menu"`, titled by the dish): the hint, the sheet's ONE `role=status`
+  region ABOVE the button (a refusal grows the sheet upward, away from the thumb), then a
+  `Button variant="danger" size="xl" block` reading "Mark sold out". Two deliberate taps: the
+  sheet's button refuses, with no visual, for `SAME_GESTURE_MS` from the sheet's mount and while the
+  sheet is exiting. No Sheet `busy` (§16) — the write is reversible and resolves into the board.
+- **The result resolves IN the sheet.** The button goes busy with its label kept; the dish's ⋯ is
+  `aria-disabled` (and `aria-busy` on the opener); a refusal renders in the sheet's region in the
+  device language and re-arms the button; a success UNMOUNTS the sheet (never a close — a closing
+  sheet keeps the board `aria-hidden` through its exit) in the same commit as the override, the undo
+  bar and the region's notice, and focus lands once on the dish's own line button. A cook who
+  dismisses mid-write lands on the busy ⋯ and the write finishes at board level; a refusal then goes
+  to the board's region. The board re-reads on EVERY outcome.
+- **A confirmed override is keyed on the poll sequence, never "until the prop agrees".** Every
+  refresh that actually starts stamps a sequence; an OK sold-out (or its Undo) records the latest
+  started one, and a snapshot drops the override only when its fetch started later
+  (`pruneSoldOut`). `overlaySoldOut` is the ONE binding the row, the tag, the ⋯, the sheet's subject
+  and the line's spoken name read. The sheet's subject is the LIVE line; the id is cleared in the
+  render that finds it gone, so a Bring back never reopens the sheet.
+- **Sold out is a fact on the line and a clause in its name.** The tag row gains SOLD OUT
+  (`kds.86.done`) in `--tx` beside a 0.55em `--warn` dot (warn ink pinned in
+  `composite-contrast` on the started tint). The line button's `aria-label` replaces its content,
+  so `al(kind:"line")` takes a REQUIRED `soldOut` and appends " — Sold out" after the unchanged name.
+- **A dish's kitchen note sits directly under that dish, as its description.** `TicketNote` is a
+  sibling after `.kds-item-row` inside the same `<li class="kds-item">` — never inside the line button
+  (the Later fade never reaches it), never after a control. EXACTLY two flex children: the
+  aria-hidden ⚠ and ONE `.ticket-note-text` span holding an sr-only "Kitchen note — " prefix and
+  the note's script runs (§6 — Myanmar runs marked `lang="my"`, Latin runs bare). The line button is
+  `aria-describedby` the Later slot, then the note — never an empty attribute. It is the ONLY warn
+  band inside a ticket; the takeaway lane's bag line reuses it.
+- **The bar's status slot (feed pages only, Phase 2b).** A page with a feed passes `live` to
+  `StaffBar`: the counter passes `'counter'` (the pure `counterFold` of the floor and the bags —
+  never the manager's approvals rail), the kitchen board and a table page their own `degraded ?
+'not_updating' : 'live'` — the same truth their banner reads, so bar and banner never disagree.
+  Only then are the h1 and the slot wrapped in `.staff-bar-head`, the slot OUTSIDE the h1 (the
+  heading's name never changes). Three states, three SHAPES, never colour alone: a filled `--ok` dot
+  (live, the word sr-only), a hollow `--warn` ring + "Not updating", the offline glyph + "Offline"
+  (a SUSTAINED device offline outranks the feed). The mark box is reserved at SSR and EMPTY before
+  the boards report — never a guessed "Live". Plain text, not a live region (the boards' regions
+  speak their freeze); a change between drawn states pops the mark once, never on first paint.
+- **The offline row (feedless pages only).** Menu, tips, glossary, team, sign-in, lock, the doors:
+  after 2s (`NET_SHOW_MS`) of UNBROKEN device offline, one in-flow `role="note"` row INSIDE the
+  sticky bar, last — "This device is offline — changes won’t save." It hides the moment the device
+  is back. A feed page never draws it (its slot says Offline), so nothing covers the kitchen board's
+  head. The device truth is `useDeviceOffline` (a store over `navigator.onLine` whose clock survives
+  a soft-navigation remount). The row lives INSIDE the bar, so the bar is still the only sticky
+  element.
+- **`--staff-bar-h` has ONE publisher.** `StaffBarNet` (the bar's always-last child) publishes the
+  header's measured height on `<html>`, and `:root:has(.staff-bar)` sets `scroll-padding-top` from
+  it, so a keyboard-focused control never parks under the sticky bar (WCAG 2.4.11), the offline row
+  included. Everything else that needs the bar's height READS the variable.
+- **The takeaway lane's thumb-zone Undo.** "Picked up" / "Handed over" draws the `@mms/ui` Toast at
+  `size="xl"` and `live={false}` — the lane's own region speaks the pick; the pill only draws. 64px,
+  and the WHOLE pill takes the tap (a thumb that misses Undo lands on the pill, never on a control
+  beneath it); a leaving pill takes none. It shows ONLY the pick that opened it; after its own Undo
+  it stays visible and inert for `SAME_GESTURE_MS`, then leaves, and the restored slot refuses a
+  re-pick for the same gesture. A KEYBOARD user on either Undo (`:focus-visible` only — a tap never
+  holds) holds the window, capped at a minute. After an Undo from the pill focus lands on the card's
+  restored slot. The counter column carries `.staff-col-dock` so its last controls scroll clear.
+- **The kitchen board's sound chip follows the engine.** `KdsChime.subscribe` sets the chip from the
+  audio context's real state, so a tablet that slept shows "Sound off — tap to turn on" and re-arms
+  off the next tap — never a volume slider over a silent board. The sold-out tap and its Undo buzz
+  at the TAP (`commit`), opening the ⋯ buzzes `pick`. Lateness is one module (`lib/kds-urgency.ts`);
+  nobody restates the 8/12-minute thresholds.
+- **Plain words on the console (owner, 2026-09-24).** §5's rule reaches the staff: "Mark sold out"
+  / "Sold out" (never 86), "Done" (never BUMP), "Cook now" (never fire), "Later" (never held), "Bring
+  back" (never recall), "Remove" / "Make it free" / "On the house" (never void / comp), "Running
+  bill" (never tab), "Take cash" / "Take payment" / "Paid today" (never settle). The dictionary KEYS
+  keep their old names (`kds.86`, `kds.bump`, `settle.*`) — a key is an address, not copy.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
@@ -960,7 +1035,10 @@ Every interaction primitive lives in `@mms/ui` and is styled once in `packages/u
   is `aria-disabled` and busy is `aria-busy` + a spinner at full ink — the component refuses the click.
   A link that looks like a button takes `buttonClass()`.
 - **Toast** — the view's one live region: visible for news, corrections and claims whose origin is
-  gone; `quiet` (spoken, not drawn) for an in-place change (§23). Bottom-centred above the CTA dock,
+  gone; `quiet` (spoken, not drawn) for an in-place change (§23) — unless the view's own region
+  already speaks the fact: then the Toast is `live={false}` (no role, no aria-live) and only draws;
+  the staff lane's xl Undo pill is the case, and a silent Toast can never be `quiet` (the type
+  refuses it). Bottom-centred above the CTA dock,
   inverted and opaque. Its action is
   the pill's own ink, underlined (the pill inverts per theme, so a fixed accent fails on one of them).
 - **Field** — label above, one note line below that is the hint or the error, never both.

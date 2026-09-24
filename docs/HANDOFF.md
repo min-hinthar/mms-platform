@@ -5,6 +5,26 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
+>
+> **Phase 2b is built on this branch** as two parallel worktree branches (`p2b/kitchen` ·
+> `p2b/feedback`) merged here, then the owner's plain-words pass carried onto the console (owner:
+> _"86 this dish doesn't make sense to my parents"_). Its CHANGELOG entry is the as-built, with the
+> full old → new word table; DESIGN-LANGUAGE §17 carries the new rules (the ⋯ sheet, notes under
+> their dish, the bar's status slot, the offline row, `--staff-bar-h`'s one publisher, the lane's
+> thumb-zone Undo, plain words on the console) and §20 the silent Toast. The rows 2b found are
+> **P2au–P2bt** in OPEN-ITEMS; the owner's word picks wait on **C24 ③**; 10 new + 27 re-drafted
+> Burmese strings are listed on **K15**. Nothing here is device-measured — the ⋯ and glance
+> constants, the `--staff-bar-h` fallbacks and both browser passes are P2bb · P2bc · P2bj · P2bk ·
+> P2bl; do not quote a pixel to the owner before those run. **P2bi (med)** — staff tablets never pick
+> up a new build — means 2b itself reaches a live kitchen tablet only when its tab is killed.
+> **Next: 2c** — the order pad + register settle + the settle gate (send-kitchen commit B; the pad
+> removes 2a's interim "Review · N not sent →" bridge on the add page), then **2d** (the floor + the
+> tablet split + the counter bell, which the feedback branch deliberately left out) · **2e** language
+> · **2f** counter cook-before-paid. Staff copy follows the plain words from here on: write "Mark
+> sold out", "Done", "Cook now", "Running bill", "Take payment" — never the trade word — and keep the
+> dictionary KEYS as they are.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2a — the console sends to the kitchen — on branch `claude/inspiring-cori-4rf37k`)
 >
 > **Phase 1c merged as #302; Phase 2a is built on this branch** as four parallel worktree branches
@@ -216,7 +236,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 854 `verify:slice` mutants · 147 target modules (128 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 880 `verify:slice` mutants · 151 target modules (132 `apps/qr/lib`, 3 API routes,
 > **15** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
@@ -293,7 +313,7 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 854 `verify:slice` mutants · 147 target modules (128 `apps/qr/lib`, 3 API routes,
+> **Gate today:** 880 `verify:slice` mutants · 151 target modules (132 `apps/qr/lib`, 3 API routes,
 > **15** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
@@ -933,8 +953,8 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **854 `verify:slice` mutants** · **147 target modules** (128 under `apps/qr/lib`, 3 API routes,
-> 15 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3479 + 188 today)** ·
+> **880 `verify:slice` mutants** · **151 target modules** (132 under `apps/qr/lib`, 3 API routes,
+> 15 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3598 + 207 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1403,7 +1423,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (854 today)**, **1372 qr + 138 ui tests at the time (3479 + 188 today)**, 69 target modules at the time (128 under `apps/qr/lib` today, 147 in all), 97 local
+> **334 mutants at the time (880 today)**, **1372 qr + 138 ui tests at the time (3598 + 207 today)**, 69 target modules at the time (132 under `apps/qr/lib` today, 151 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2295,7 +2315,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 854 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3479 qr tests + 188 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 880 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3598 qr tests + 207 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3017,7 +3037,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (854 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (880 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and

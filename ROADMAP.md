@@ -367,7 +367,11 @@ the plan state.
   - [x] **2a — the console sends to the kitchen** (2026-09-24): Send + server-clocked Undo on the
         table page (P2k), coded staff-add refusals + an idempotent add key, four tablet fixes, two
         register hotfixes (the typed-comma tip, the rejected secure close).
-  - [ ] **2b — kitchen tickets + feedback.**
+  - [x] **2b — kitchen tickets + feedback** (2026-09-24): "Mark sold out" behind each line's ⋯ into a
+        sheet (K22), kitchen notes under their dish, sold out as a tag + a spoken clause, the sound
+        chip that follows the engine; the staff bar's live / not updating / offline mark, the offline
+        row, `--staff-bar-h` scroll-padding, the lane's thumb-zone Undo; and the plain-words pass on
+        every staff string (no 86 / bump / fire / void / comp / tab / settle).
   - [ ] **2c — the order pad + register settle + the settle gate** (removes 2a's interim "Review · N
         not sent" bridge).
   - [ ] **2d — the floor + the tablet split + the counter bell** (the floor's "not sent" signal).
