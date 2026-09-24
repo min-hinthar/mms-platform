@@ -37,7 +37,9 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
       const data = (await res.json()) as { clientSecret?: string; error?: string };
       if (!res.ok || !data.clientSecret) {
         setError(
-          res.status < 500 && data.error ? data.error : "Couldn’t start the card save — try again.",
+          res.status < 500 && data.error
+            ? data.error
+            : "Couldn’t save your card just now — try again.",
         );
         setPhase("idle");
         return;
@@ -45,7 +47,7 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
       setClientSecret(data.clientSecret);
       setPhase("form");
     } catch {
-      setError("Couldn’t start the card save — try again.");
+      setError("Couldn’t save your card just now — try again.");
       setPhase("idle");
     }
   }
@@ -99,14 +101,14 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
         aria-busy={phase === "loading"}
         style={secureBtn}
       >
-        {phase === "loading" ? "Starting…" : "Put a card on file — leave whenever"}
+        {phase === "loading" ? "Starting…" : "Save a card — leave whenever"}
       </button>
       <p style={hint}>
         No charge now. Pay here anytime — or leave, and we’ll close your bill with this card.
       </p>
       {(error || !stripePromise) && (
         <p role="alert" style={{ ...hint, color: "var(--warn)" }}>
-          {error ?? "Card save is temporarily unavailable."}
+          {error ?? "Saving a card isn’t available right now."}
         </p>
       )}
     </div>
@@ -163,7 +165,7 @@ function SetupForm({ cartId, onDone }: { cartId: string; onDone: () => void }) {
         aria-busy={submitting}
         style={secureBtn}
       >
-        {submitting ? "Saving…" : "Put my card on file"}
+        {submitting ? "Saving…" : "Save my card"}
       </button>
     </form>
   );

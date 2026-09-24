@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
+import { STAFF } from "@/lib/i18n/staff";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 
 /**
@@ -65,6 +66,9 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** The confirm button leads with the amount ("Take $42.10"); the trigger ("Take cash · …") does not. */
+const SETTLE_AMOUNT = STAFF["settle.cash.settleAmount"].en.replace("{m}", "$");
+
 function mount(props: Partial<Parameters<typeof CashSettleButton>[0]> = {}) {
   const onHandoff = vi.fn();
   render(
@@ -79,15 +83,19 @@ function mount(props: Partial<Parameters<typeof CashSettleButton>[0]> = {}) {
       />
     </StaffLangProvider>,
   );
-  const trigger = () => screen.getByRole("button", { name: /Settle in cash · \$42\.10/ });
+  const trigger = () =>
+    screen.getByRole("button", { name: STAFF["settle.cash.trigger"].en.replace("{m}", "$42.10") });
   const open = () => {
     fireEvent.click(trigger()); // a tap — never focused first, the WebKit shape
-    return screen.getByRole("dialog", { name: "Settle in cash" });
+    return screen.getByRole("dialog", { name: STAFF["settle.cash.title"].en });
   };
-  const settle = () => screen.getByRole("button", { name: /^Settle \$|^Settling…/ });
+  const settle = () =>
+    screen.getByRole("button", {
+      name: (n) => n.startsWith(SETTLE_AMOUNT) || n === STAFF["settle.cash.settling"].en,
+    });
   const cancel = () => screen.getByRole("button", { name: "Cancel" });
-  /** The trigger AFTER a landed settle — the only "Settling…" left once the sheet is gone. */
-  const settling = () => screen.getByRole("button", { name: "Settling…" });
+  /** The trigger AFTER a landed settle — the only busy word left once the sheet is gone. */
+  const settling = () => screen.getByRole("button", { name: STAFF["settle.cash.settling"].en });
   return { trigger, open, settle, cancel, settling, onHandoff };
 }
 
@@ -163,7 +171,7 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0 });
     expect(settle().getAttribute("aria-busy")).toBe("true");
     expect(settle().getAttribute("aria-disabled")).toBe("true");
-    expect(settle().textContent).toBe("Settling…");
+    expect(settle().textContent).toBe(STAFF["settle.cash.settling"].en);
     expect(
       screen
         .getByRole("button", { name: "Close — finishing, please wait" })
@@ -224,7 +232,9 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     fireEvent.click(chip);
     expect((document.getElementById("cash-tip") as HTMLInputElement).value).toBe("8.00");
     expect(chip.getAttribute("aria-pressed")).toBe("true");
-    expect(settle().textContent).toBe("Settle $50.10");
+    expect(settle().textContent).toBe(
+      STAFF["settle.cash.settleAmount"].en.replace("{m}", "$50.10"),
+    );
     await act(async () => {
       fireEvent.click(settle());
     });
@@ -241,7 +251,9 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     // path real hands take (a paste is one event and never showed the bug).
     for (const ch of "5,00") fireEvent.change(field, { target: { value: field.value + ch } });
     expect(field.value).toBe("5,00");
-    expect(settle().textContent).toBe("Settle $47.10");
+    expect(settle().textContent).toBe(
+      STAFF["settle.cash.settleAmount"].en.replace("{m}", "$47.10"),
+    );
     // The chip lit by VALUE, not by the field's spelling: a $8.00 chip is not lit by "5,00", and
     // "8,00" typed by hand lights it.
     const chip = within(dialog).getByRole("button", { name: /^20%/ });

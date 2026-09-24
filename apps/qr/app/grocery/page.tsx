@@ -316,7 +316,7 @@ export default function Grocery() {
           ? "This basket’s already paid for — start a fresh one to keep shopping."
           : reason === "cancelled"
             ? "This basket was closed — start a fresh one to keep shopping."
-            : "Your market session ended — start a fresh basket to keep shopping.",
+            : "Your shopping visit ended — start a fresh basket to keep shopping.",
       );
     },
     [applyLines, flash],
@@ -458,7 +458,7 @@ export default function Grocery() {
       }
       const next = enqueueScan(cartId, barcode, scanId);
       if (next === null) {
-        flash("Too many scans waiting — reconnect to sync before adding more.");
+        flash("Too many scans waiting — get back online before adding more.");
         return true;
       }
       const cached = lookupCachedItem(barcode);
@@ -608,7 +608,7 @@ export default function Grocery() {
         // the `noteOutcome` above the chain); the toast says the same words once, as the view's
         // announcement. The weighed / unavailable wording is the kiosk's shipped copy, named once.
         if (r.reason === "unknown_barcode") {
-          flash("Barcode not on file — search by name.");
+          flash("We couldn’t find that item — search by name.");
           // A SHELF miss only: a stale Browse card or search result is not a shelf code (G22).
           if (fromCamera(via) && !missedRef.current.has(barcode)) {
             missedRef.current.add(barcode);
@@ -629,7 +629,7 @@ export default function Grocery() {
       } else if (r.reason === "locked") {
         flash("Hang on — this basket’s being checked out.");
       } else if (r.reason === "settling") {
-        flash("Hang on — this basket’s being settled.");
+        flash("Hang on — this basket’s being paid for.");
       } else {
         // `unreadable` — we couldn't establish why. Same honest transient copy as a thrown error;
         // NEVER the fresh-basket offer (a re-mint against a merely-unreadable cart abandons lines).
@@ -929,7 +929,7 @@ export default function Grocery() {
               ? "This basket’s been paid for"
               : cartGone === "cancelled"
                 ? "This basket was closed"
-                : "Your market session ended"}
+                : "Your shopping visit ended"}
           </p>
           <p style={{ margin: "0 0 12px", color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
             {cartGone === "paid"
@@ -1186,7 +1186,7 @@ export default function Grocery() {
                       name: lastScannedName ?? lastScanned,
                       meta: lastScannedLine
                         ? `In your basket ×${lastScannedLine.qty}`
-                        : "Waiting to sync",
+                        : "Waiting for a connection",
                       busy: addingBarcode === lastScanned || !!busyLine,
                       onAddAnother: () => void addAnother(),
                     }}

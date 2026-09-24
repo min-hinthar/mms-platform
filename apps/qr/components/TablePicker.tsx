@@ -92,7 +92,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
                     mine
                       ? `Table ${t.tableNumber}, your table — pick up where you left off`
                       : t.occupied
-                        ? `Table ${t.tableNumber}, seated — join with the party’s code`
+                        ? `Table ${t.tableNumber}, someone is sitting here — join with the table code`
                         : `Table ${t.tableNumber}, open — sit here`
                   }
                   onClick={() =>
@@ -143,8 +143,8 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
             margin: "0 0 12px",
           }}
         >
-          Table {seatedNum} is seated. Enter the code the party shares (or scan the table’s sticker)
-          to order together on one cart.
+          Someone is already sitting at Table {seatedNum}. Enter the table code they share (or scan
+          the table’s sticker) to order together.
         </p>
         <form onSubmit={submitJoin}>
           <label
@@ -156,7 +156,7 @@ export function TablePicker({ tables }: { tables: DineInTable[] }) {
               marginBottom: 6,
             }}
           >
-            Party code
+            Table code
           </label>
           <div style={{ display: "flex", gap: 8 }}>
             <input

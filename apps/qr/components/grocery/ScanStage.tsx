@@ -84,9 +84,9 @@ const HINT_KEY: Record<ScanHint, DictKey> = {
 
 /** The stage's accessible name outside the primer (sr-only; EN-only by design, like the toasts). */
 function stageName(cam: CameraState): string {
-  if (cam === "live") return "Scanner on — point your camera at a barcode";
+  if (cam === "live") return "Scanner on — point your camera at the code on the package";
   if (cam === "starting") return t("en", "scanStarting");
-  return "Barcode scanner";
+  return "Package code scanner";
 }
 
 const PANEL: Record<

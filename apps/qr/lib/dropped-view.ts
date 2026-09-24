@@ -167,7 +167,7 @@ export type SettleCanceled = { reason: SettleCancelReason; dropped: DroppedSumma
  * `PARTIAL_REFUND_NOTE` rule: "your bank decides when it lands", stated the other way round.
  */
 export const SETTLE_CANCELED_NOTE =
-  "No payment was taken. If your bank is showing a pending hold, it’s being released — your bank decides when it disappears.";
+  "No payment was taken. If your bank shows a pending amount, it’s being released — your bank decides when it disappears.";
 
 /**
  * Heading + body for a cancelled hold.
@@ -214,7 +214,7 @@ export function settleCanceledCopy(settle: SettleCanceled): { heading: string; b
       // exist, on the screen they opened to find out what happened to their money.
       return {
         heading: "This order was already closed",
-        body: "It was finished or cancelled another way before we got to this payment — so we didn’t take it. If it was settled at the counter, that’s the receipt to look for.",
+        body: "It was finished or cancelled another way before we got to this payment — so we didn’t take it. If it was paid at the counter, that’s the receipt to look for.",
       };
     case "superseded":
       // ⚠️ Claim ONLY what the verdict proves (Codex #205 P2). `superseded` means the cart's lock no
@@ -225,7 +225,7 @@ export function settleCanceledCopy(settle: SettleCanceled): { heading: string; b
       // over_authorized arm, and it is the reason both arms are written separately at all.
       return {
         heading: "This payment was replaced",
-        body: "Another checkout took over this order after this attempt started, so we stopped this one. If you finished the newer one, that’s the payment to look for.",
+        body: "Someone started paying for this order again after this attempt began, so we stopped this one. If you finished the newer one, that’s the payment to look for.",
       };
     case "no_cart":
     default:
@@ -271,13 +271,13 @@ export const SETTLE_CANCELED_NEXT =
 
 /** "Your payment went through" — or the truth, while a manual-capture hold is only authorized. */
 export function paidClaim(notYetCharged: boolean): string {
-  return notYetCharged ? "Your card is authorized, not charged yet" : "Your payment went through";
+  return notYetCharged ? "Your card is approved, not charged yet" : "Your payment went through";
 }
 
 /** The reassurance the platform-down arm leads with. Same rule, the other phrasing. */
 export function safeClaim(notYetCharged: boolean): string {
   return notYetCharged
-    ? "Your card is authorized and nothing has been charged"
+    ? "Your card is approved and nothing has been charged"
     : "Your payment is safe";
 }
 

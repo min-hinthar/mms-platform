@@ -70,8 +70,8 @@ export function SessionUnavailableStrip() {
         : truth === "we-down"
           ? "We’re having trouble on our end — ordering is briefly unavailable. It’s not your connection; your table and order are safe."
           : retryFailed
-            ? "Still couldn’t start your session — sorry. Give it a minute and try again, or ask our staff."
-            : "We couldn’t start your session just now — try again."}
+            ? "Still couldn’t get you connected — sorry. Give it a minute and try again, or ask our staff."
+            : "We couldn’t get you connected just now — try again."}
     </DegradedStrip>
   );
 }

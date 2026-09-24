@@ -29,7 +29,7 @@ export const MARKET = {
 
   // ── starting + the live viewfinder's one line of guidance ──
   scanStarting: { en: "Starting the camera…", my: "ကင်မရာ ဖွင့်နေပါတယ်…" },
-  scanHintAim: { en: "Point at a barcode", my: "ဘားကုဒ်ကို ချိန်ပါ" },
+  scanHintAim: { en: "Point at the code on the package", my: "ပစ္စည်းပေါ်က ကုဒ်ကို ချိန်ပါ" }, // K15 draft (plain words 2026-09-24)
   scanHintBasket: { en: "Starting your basket…", my: "စျေးခြင်း ပြင်ဆင်နေပါတယ်…" },
   scanHintOfflineSaved: {
     en: "Offline — scans are saved and add when you’re back",
@@ -86,5 +86,5 @@ export const MARKET = {
   },
 
   // ── the result bar's one new notice (weighed / unavailable reuse the kiosk's shipped pair) ──
-  noticeUnknown: { en: "Barcode not on file", my: "ဒီဘားကုဒ် စာရင်းထဲ မရှိပါ" },
+  noticeUnknown: { en: "We couldn’t find that item", my: "ဒီပစ္စည်းကို ရှာမတွေ့ပါ" }, // K15 draft (plain words 2026-09-24)
 } satisfies Record<string, Entry>;

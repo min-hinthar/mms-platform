@@ -46,7 +46,7 @@ export const COUNTER_PAY_REFUSAL_COPY: Record<CounterPayRefusal, string> = {
   not_dinein: "Paying at the counter is for tables — this order pays here.",
   settling: "The table’s splitting the bill right now — finish or cancel that first.",
   paying: "Someone’s paying on their phone — wait for that to finish.",
-  empty: "Nothing to settle yet — add something first.",
+  empty: "Nothing to pay yet — add something first.",
 };
 
 /**

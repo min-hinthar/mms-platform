@@ -9,6 +9,7 @@ import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { Avatar, NumberFlow } from "@mms/ui";
+import { TABLE_STARTER, TABLE_STARTER_MID } from "@/lib/confirm-copy";
 
 /**
  * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
@@ -27,7 +28,7 @@ import { Avatar, NumberFlow } from "@mms/ui";
  * fabricated-diagnosis class). Echoing the bar's exact string is inert besides: setting the live
  * region to the value it already holds changes nothing and announces nothing.
  */
-const FROZEN_NOTE = "Item assignments are locked while a checkout finishes.";
+const FROZEN_NOTE = "You can’t change who pays for what while someone is paying.";
 
 export function SplitSection({
   cartId,
@@ -106,7 +107,7 @@ export function SplitSection({
       // `onChanged` is typed `() => void` here, so the re-read's outcome is erased, and the
       // sentence would sit there claiming a check is still underway long after it finished — or
       // failed. Say what is known and let the re-read speak through the screen it refreshes.
-      onStatus("Couldn’t confirm that reassignment — the seats below are re-read from the server.");
+      onStatus("Couldn’t save that change — the list below shows what we have now.");
       onChanged();
     } finally {
       setBusyLine(null);
@@ -239,7 +240,7 @@ export function SplitSection({
               ? // Honest while frozen: the shares below are still true and still worth reading —
                 // only the reassignment is unavailable. Don't invite a tap the server will refuse.
                 `${FROZEN_NOTE} The shares below still apply.`
-              : "Tap a guest to assign your items; the host can assign any."}
+              : `Tap a guest to choose who pays for your items; ${TABLE_STARTER_MID} can move any item.`}
           </li>
         </ul>
       )}
@@ -301,7 +302,7 @@ export function SplitSection({
           <p
             style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}
           >
-            Each person’s share of the order, including tax — a guide for settling up.
+            Each person’s share of the order, including tax — a guide for sharing the cost.
           </p>
         </details>
       </section>
@@ -340,7 +341,8 @@ export function SplitSection({
         </button>
       ) : (
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12, lineHeight: 1.5 }}>
-          The host can start a split so everyone pays their own card — or pay as one bill below.
+          {TABLE_STARTER} can split the bill so everyone pays with their own card — or pay as one
+          bill below.
         </p>
       )}
     </section>

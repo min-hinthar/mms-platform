@@ -64,6 +64,7 @@ vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.f
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
+const { ts } = await import("@/lib/i18n/staff");
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -242,5 +243,29 @@ describe("FloorDetailLive — a closed table", () => {
     });
     expect(replace).not.toHaveBeenCalled();
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("FloorDetailLive — the running-bill nudge (blind review, 2026-09-24)", () => {
+  const nudgeText = (over: Partial<TableDetail>) => {
+    const r = render(
+      <StaffLangProvider lang="en">
+        <FloorDetailLive initial={{ ...DETAIL, ...over }} sessionId="s1" />
+      </StaffLangProvider>,
+    );
+    return r.container.textContent ?? "";
+  };
+  it("a party at a table with a running bill ALREADY open is pointed at that bill, never offered one", () => {
+    // MUTATION (by hand): drop the `tab === "trust"` fork — the open bill is suggested again, red.
+    const open = nudgeText({ nudgeSecure: "party", tab: "trust" });
+    expect(open).toContain(ts("en", "table.detail.nudge.partyOpen"));
+    expect(open).not.toContain(ts("en", "table.detail.nudge.party"));
+    cleanup();
+    const none = nudgeText({ nudgeSecure: "party", tab: "none" });
+    expect(none).toContain(ts("en", "table.detail.nudge.party"));
+    cleanup();
+    expect(nudgeText({ nudgeSecure: "age", tab: "trust" })).toContain(
+      ts("en", "table.detail.nudge.age"),
+    );
   });
 });

@@ -149,14 +149,18 @@ describe("M76 — the loss sheet is HELD through its exit, and each open is a fr
     );
     const loss = () => screen.queryByTestId("loss");
     expect(loss()).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /Void \/ Comp/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: new RegExp(STAFF["table.line.verb.voidComp"].en) }),
+    );
     expect(loss()?.getAttribute("data-open")).toBe("true");
     const first = loss()!.getAttribute("data-instance");
     fireEvent.click(screen.getByRole("button", { name: "close-loss" }));
     // MUTATION: mount it as `{sheetOpen && …}` again — gone at once, nothing left to slide; red.
     expect(loss()?.getAttribute("data-open")).toBe("false");
     expect(loss()!.getAttribute("data-instance")).toBe(first);
-    fireEvent.click(screen.getByRole("button", { name: /Void \/ Comp/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: new RegExp(STAFF["table.line.verb.voidComp"].en) }),
+    );
     expect(loss()?.getAttribute("data-open")).toBe("true");
     // MUTATION: `key={line.id}` instead of `key={loss.key}` — the same instance, its PIN and
     // reason still filled from last time; red.

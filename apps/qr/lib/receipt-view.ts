@@ -54,7 +54,11 @@ export function serviceDisclosed(b: ReceiptBreakdownish): boolean {
 }
 
 /** Verbatim from the checkout's one disclosure element — the receipt repeats the charge, so it
- *  repeats the explanation, word for word. */
+ *  repeats the explanation, word for word. ⚠️ A HISTORICAL RECORD, not UI copy: the service charge
+ *  was retired on 2026-08-15 (W16a), so this renders only on a receipt that carried it, and it must
+ *  say exactly what that guest read at checkout — statute number included. The plain-words pass
+ *  (2026-09-24) reworded it and the blind review restored it: a record is never re-voiced
+ *  (DESIGN-LANGUAGE §5; `receipt-view.test.ts` pins the text). */
 export const SERVICE_CHARGE_DISCLOSURE =
   "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It " +
   "is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we " +

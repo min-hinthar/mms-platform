@@ -173,7 +173,18 @@ describe("glass floor — the frosted chrome over its worst possible backdrop", 
    * ⚠️ This bound dies the moment anything adds `brightness()` above 1 to a text-bearing pane.
    */
   const pane = over(t(dark, "--glass-chrome"), WHITE);
-  for (const token of ["--tx", "--t2", "--ac", "--jade-strong", "--ruby-strong", "--t3"]) {
+  // Phase 2b · feedback — `--warn` joins: the bar's status slot draws "Not updating" / "Offline" in
+  // it on the KDS's Night glass bar. It clears at 4.5598 (this guard's own output) — the tightest
+  // token on the list; watched RED with Night --warn at #d8774f before being committed green.
+  for (const token of [
+    "--tx",
+    "--t2",
+    "--ac",
+    "--jade-strong",
+    "--ruby-strong",
+    "--t3",
+    "--warn",
+  ]) {
     it(`glass floor · ${token} on frosted chrome over white`, () => {
       expect(ratio(t(dark, token), pane)).toBeGreaterThanOrEqual(AA);
     });
@@ -852,5 +863,70 @@ describe("scan stage — the ink box, its scrim and its reticle over a live came
     expect(parseBlock(".dark")["--on-ink"]).toBeUndefined();
     expect(parseBlock(".dark")["--scan-scrim"]).toBeUndefined();
     expect(parseBlock(".dark")["--scan-dim"]).toBeUndefined();
+  });
+});
+
+// ── Phase 2b · kitchen ──
+describe("the KDS line's OFF THE MENU tag — its ink and its dot over the card and the started tint", () => {
+  /**
+   * Phase 2b moved "sold out" from a full-width warn band (deleted) onto the line's tag row, which
+   * sits on the ticket face (`--cd`) or, on a started line, on `.kds-item[data-state=in_progress]`'s
+   * accent tint over it. Neither ground is a token, so the hex audit cannot name either. The tag is
+   * 13px (`--kfs-label`), so it needs full AA — and `--warn` ink there measures 4.44:1 on the tint:
+   * the reason the TEXT is --tx and the hue rides a ≥3:1 dot (WCAG 1.4.11, a graphic).
+   *
+   * BOUND TO THE CSS THAT SHIPS: the ink, the dot's fill and the tint's share are parsed out of
+   * globals.css, so `.kds-line-off { color: var(--warn) }` goes red here, not in a hand note. The
+   * KDS is Night-only (`.kds-root.dark`), so Night is the theme asserted. The held card (both
+   * fades) is documented, not asserted at 4.5: a held line is aria-disabled — WCAG 1.4.3's
+   * inactive-component exemption — and --tx through both fades is the 4.02:1 the echo block above
+   * already records.
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const declared = (selector: string, prop: string) => {
+    // Exactly ONE block names this selector alone — ambiguity is refused, never picked by position.
+    const re = new RegExp(
+      `(?:^|[}\\s])${selector.replace(/[.:[\]()"=]/g, "\\$&")}\\s*\\{([^}]*)\\}`,
+      "g",
+    );
+    const blocks = [...globals.matchAll(re)].map((m) => m[1] as string);
+    const values = blocks
+      .map((b) => new RegExp(`(?:^|;|\\n)\\s*${prop}\\s*:\\s*([^;]+)`).exec(b)?.[1]?.trim())
+      .filter((v): v is string => v !== undefined);
+    if (values.length !== 1)
+      throw new Error(`globals.css: \`${selector}\` declares \`${prop}\` ${values.length}×`);
+    return values[0] as string;
+  };
+  const tokenOf = (value: string) => {
+    const m = /^var\((--[\w-]+)\)$/.exec(value);
+    if (!m) throw new Error(`expected a token, got \`${value}\``);
+    return m[1] as string;
+  };
+  const ink = t(dark, tokenOf(declared(".kds-line-off", "color")));
+  const dot = t(dark, tokenOf(declared(".kds-line-off-dot", "background")));
+  const tint = /^color-mix\(in srgb, var\((--[\w-]+)\) ([\d.]+)%, transparent\)$/.exec(
+    declared('.kds-item[data-state="in_progress"]', "background"),
+  );
+  if (!tint) throw new Error("globals.css: the in_progress tint is not the parsed color-mix form");
+  const cd = t(dark, "--cd");
+  // `color-mix(in srgb, X N%, transparent)` is premultiplied: X at alpha N, painted over the card.
+  const started = over({ ...t(dark, tint[1] as string), a: Number(tint[2]) / 100 }, cd);
+  const THREE = 3;
+
+  it("Night · the tag's ink clears AA on the card face and on the started tint", () => {
+    expect(ratio(ink, cd)).toBeGreaterThanOrEqual(AA);
+    expect(ratio(ink, started)).toBeGreaterThanOrEqual(AA);
+  });
+  it("Night · the warn dot holds 3:1 (a graphic) on both grounds", () => {
+    expect(ratio(dot, cd)).toBeGreaterThanOrEqual(THREE);
+    expect(ratio(dot, started)).toBeGreaterThanOrEqual(THREE);
+  });
+  it("Night · warn INK would not clear AA on the started tint — this is why the text is --tx", () => {
+    // A REASON guard: the day a palette change makes --warn legible here, this fails and someone
+    // re-reads the note above instead of inheriting a rule whose reason has expired.
+    expect(ratio(t(dark, "--warn"), started)).toBeLessThan(AA);
   });
 });

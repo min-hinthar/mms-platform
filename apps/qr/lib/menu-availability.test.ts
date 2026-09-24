@@ -208,6 +208,6 @@ describe("setItemSoldOut — the first thing that can ever set is_sold_out", () 
     // The flag DID land and the copy says so — an unrecorded correct 86 beats putting a dish the
     // kitchen cannot make back on sale.
     expect(updates).toHaveLength(1);
-    if (!r.ok) expect(r.error).toContain("off the menu");
+    if (!r.ok) expect(r.error).toContain("is sold out");
   });
 });

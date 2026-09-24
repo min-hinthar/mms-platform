@@ -353,7 +353,7 @@ describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 ·
     releaseResult = false;
     cartRow = { settle_at: new Date().toISOString() };
     shares = [{ stripe_payment_intent_id: "pi_1", status: "pending" }];
-    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    await expect(abortSettlement(CART)).rejects.toThrow(/paid another way/);
     expect(cancelled).toEqual([]);
     expect(ledgerDelete()).toBeUndefined();
   });
@@ -420,7 +420,7 @@ describe("abortSettlement — the claim is scoped to the host and COUNTED (A3 ·
     cartRow = { settle_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() };
     staleClearResult = false;
     cartRowAfterClear = { settle_at: new Date().toISOString() };
-    await expect(abortSettlement(CART)).rejects.toThrow(/settled another way/);
+    await expect(abortSettlement(CART)).rejects.toThrow(/paid another way/);
     expect(staleClears).toBe(1);
   });
 

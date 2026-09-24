@@ -123,3 +123,30 @@ export function pickedUndoArmed(
 ): boolean {
   return nowMs - startedMs >= armMs;
 }
+
+// ── Phase 2b · feedback ──
+/**
+ * The lane's thumb-zone Undo pill shows exactly ONE pick: the one that opened it (`toastFor`, the
+ * latest tap), and only while its window is open. It never falls back to an older pick still in its
+ * window — a pill that re-labelled itself would let the second tap of a double-tapped Undo take a
+ * SECOND bag back. Older picks keep their in-slot Undo on their own cards. A committing pick (the
+ * window closed, the write in flight) has nothing left to undo, so the pill leaves at once.
+ */
+export function toastPick(
+  picked: ReadonlyMap<string, { committing: boolean }>,
+  toastFor: string | null,
+): string | null {
+  if (toastFor === null) return null;
+  const p = picked.get(toastFor);
+  return p !== undefined && !p.committing ? toastFor : null;
+}
+
+/**
+ * W9d's scan-and-go basket, named ONCE: every line is grocery, so the shopper already holds the
+ * goods — the counter checks the exit pass ("Verified") and records the walk-out ("Handed over"),
+ * never "Bagged & ready". One food line makes it a bag. Semantics unchanged from the card's inline
+ * predicate this replaces (an empty line list is vacuously a basket, as it was).
+ */
+export function isScanGoBasket(lines: readonly { fulfillment: string }[]): boolean {
+  return lines.every((l) => l.fulfillment === "grocery");
+}

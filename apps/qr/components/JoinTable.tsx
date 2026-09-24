@@ -42,7 +42,7 @@ export function JoinTable() {
             margin: "0 0 12px",
           }}
         >
-          Enter the code your host shared to order together on one cart.
+          Enter the table code someone at your table shared, to order together.
         </p>
         <form onSubmit={submit}>
           <label

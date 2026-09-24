@@ -84,6 +84,10 @@ const UNGUARDED = [
   "menu/ItemSheet.tsx",
   // Phase 1a — the table's exits: two navigations (and a device-local forget), no server write.
   "menu/TableOptions.tsx",
+  // Phase 2b · kitchen — the KDS line's ⋯ sheet. Its 86 IS a write, but a reversible one (a 6s undo
+  // in the bar, then /staff/menu) that resolves into the board: dismissing mid-write lands on the
+  // busy ⋯ and the write finishes at board level (§16 — `busy` here is the documented anti-pattern).
+  "staff/KdsLineMenu.tsx",
 ];
 
 describe("M82 — the sheets that hold an irreversible write pass `busy`", () => {

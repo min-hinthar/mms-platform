@@ -190,7 +190,9 @@ export function useTableSession(
           created: d.created,
         });
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not start session"))
+      .catch((e: unknown) =>
+        setError(e instanceof Error ? e.message : "Couldn’t get you connected — try again"),
+      )
       .finally(() => {
         minting.current = false;
       });

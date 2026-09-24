@@ -21,7 +21,19 @@ import {
   setKdsVolume,
 } from "@/lib/kds-sound";
 import { allDayRows } from "@/lib/ticket-names";
-import { RailRowText, TicketLineText } from "./TicketText";
+import { kdsUrgency } from "@/lib/kds-urgency";
+import {
+  canEightySix,
+  lineDescribedBy,
+  lineMenuSubject,
+  overlaySoldOut,
+  pruneSoldOut,
+  qtyStands,
+  recordSoldOut,
+  type SoldOutOverride,
+} from "@/lib/kds-line";
+import { RailRowText, TicketLineText, TicketNote } from "./TicketText";
+import { KdsLineMenu } from "./KdsLineMenu";
 import type {
   KdsThresholds,
   KitchenLine,
@@ -30,7 +42,7 @@ import type {
   KitchenTicket,
 } from "@/lib/kitchen-types";
 import Link from "next/link";
-import { EmptyState, Icon } from "@mms/ui";
+import { EmptyState, Icon, removeHeld, useSheetSubject } from "@mms/ui";
 import { useStaffLang } from "./StaffLangProvider";
 import { StaffBar } from "./StaffBar";
 import { haptic } from "@/lib/haptics";
@@ -76,10 +88,12 @@ const RECALL_MS = 120_000; // mirror of the SQL 2-minute recall window (the serv
 
 type RecallEntry = { cartId: string; label: string; lineIds: string[]; expiresAt: number };
 /** K22 — what the undo bar can take back: a bump (the SQL 2-minute recall behind it) or an 86 (the
- *  reverse compare-and-swap on `menu_items.is_sold_out`). One bar, one 6-second window, two kinds. */
+ *  reverse compare-and-swap on `menu_items.is_sold_out`). One bar, one 6-second window, two kinds.
+ *  Phase 2b — the 86's entry carries `shownAt` (the pill's mount, `performance.now()`): the pill
+ *  appears where the ⋯ sheet's button just was, so its Undo is held for `SAME_GESTURE_MS` (§24). */
 type UndoEntry =
   | ({ kind: "bump" } & RecallEntry)
-  | { kind: "eighty6"; menuItemId: string; label: string; expiresAt: number };
+  | { kind: "eighty6"; menuItemId: string; label: string; expiresAt: number; shownAt: number };
 
 // P2 — keys, not labels. The four station names stay LATIN in both tongues by owner decision
 // (2026-09-05): they are set-once English kitchen jargon, and a wrong Burmese word here HIDES
@@ -124,15 +138,6 @@ function ticketId(
 /** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
 function fmtSlot(iso: string): string {
   return staffClock(iso);
-}
-
-function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "amber" | "red" {
-  const amber = t.channel === "dinein" ? th.dineinAmberMin : th.pickupAmberMin;
-  const red = t.channel === "dinein" ? th.dineinRedMin : th.pickupRedMin;
-  const min = ageMs / 60_000;
-  if (min >= red) return "red";
-  if (min >= amber) return "amber";
-  return "ok";
 }
 
 export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; hasPin?: boolean }) {
@@ -195,11 +200,26 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [railView, setRailView] = useState<"allday" | "served">("allday");
   const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
+  // Phase 2b — the KDS sound truth (§15: "wanted" and "armed" are two facts). `soundOn` FOLLOWS the
+  // engine (the subscription below), so a context suspended under a sleeping tablet drops the volume
+  // slider for the warn chip instead of claiming a sound nothing can make.
   const [soundOn, setSoundOn] = useState(false);
-  // kitchen-8 — "this device wanted sound": armed on a previous mount, disarmed by the reload.
+  // kitchen-8 — "this device wanted sound": armed on a previous mount (or on this one — enableSound
+  // sets it), disarmed by the reload or an explicit mute.
   const [soundWanted, setSoundWanted] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const chime = useRef<KdsChime | null>(null);
+
+  // Phase 2b · kitchen — the board's CONFIRMED override of a dish's sold-out flag, keyed on the poll
+  // sequence (`lib/kds-line.ts`). `fetchSeq` counts every refresh that actually STARTS (a coalesced
+  // call starts nothing); an OK 86 records `afterSeq` = the latest started, and a snapshot drops it
+  // only when its own fetch started later. So a poll already in flight at the write cannot
+  // resurrect the ⋯ (the coalesced-refresh defect), and the first post-write snapshot is the truth
+  // even when a second writer moved the dish — never "until the prop agrees" (menu-3's blind pass).
+  const fetchSeq = useRef(0);
+  const [soldOverrides, setSoldOverrides] = useState<ReadonlyMap<string, SoldOutOverride>>(
+    () => new Map(),
+  );
 
   // The elapsed clock: 1s tick, seeded from the SERVER clock (skew-safe — never trust the tablet).
   // clockOffset is computed inside callbacks only (Date.now() in render is impure under the compiler);
@@ -258,6 +278,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const refresh = useCallback(async () => {
     if (inFlight.current) return; // coalesce overlapping fetches
     inFlight.current = true;
+    const seq = ++fetchSeq.current; // Phase 2b — stamped at the START (see `fetchSeq`)
     // Stamp the degrade in the SAME clock space as `nowMs` (server-space, offset-corrected), so the
     // escalation elapsed cancels any device-clock skew.
     const stampNow = () => Date.now() + (clockOffset.current ?? 0);
@@ -302,6 +323,8 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       }
 
       setSnap(queue);
+      // Phase 2b — in the same batch as the snapshot: every override this fetch supersedes drops.
+      setSoldOverrides((prev) => pruneSoldOut(prev, seq));
       // A fresh good snapshot clears a STALE action-error banner (no perma-stuck error) — stale by
       // the dwell, not by the poll: a refusal younger than ERR_DWELL_MS is still being read.
       if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
@@ -389,15 +412,22 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   }, [snap]);
 
   // ── Derived board state ────────────────────────────────────────────────────────────────────────
+  // Phase 2b — the tickets as the board KNOWS them: the snapshot with every confirmed sold-out
+  // override laid over it. The ONE binding the row, the tag, the ⋯, the sheet, `expectedSoldOut`
+  // and the line's name all read — never `snap.tickets` directly.
+  const tickets = useMemo(
+    () => overlaySoldOut(snap.tickets, soldOverrides),
+    [snap.tickets, soldOverrides],
+  );
   const filtered = useMemo(() => {
-    if (station === "all") return snap.tickets;
+    if (station === "all") return tickets;
     // The station chip filters LINES (a mixed ticket shows only this station's work); a ticket with
     // nothing for this station drops. Ticket bumps send only the DISPLAYED line ids, so a wok-screen
     // bump can never silently serve the drinks a barista hasn't made.
-    return snap.tickets
+    return tickets
       .map((t) => ({ ...t, lines: t.lines.filter((l) => l.station === station) }))
       .filter((t) => t.lines.length > 0);
-  }, [snap.tickets, station]);
+  }, [tickets, station]);
 
   const live = useMemo(() => filtered.filter((t) => !t.held), [filtered]);
   const pageSize = kdsPageSize(size);
@@ -411,7 +441,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const liveTailPage = Math.floor(Math.max(0, live.length - 1) / pageSize);
 
   const lateCount = live.filter(
-    (t) => urgency(t, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
+    (t) => kdsUrgency(t.channel, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
   ).length;
   const oldestMs = live.reduce((max, t) => Math.max(max, nowMs - Date.parse(t.firedAt)), 0);
 
@@ -462,6 +492,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     setSoundOn(ok);
     if (ok) {
       setKdsSoundWanted(true);
+      // Phase 2b — wanted on THIS mount too: without it, a device armed for the first time went
+      // silent after sleep showing "Enable sound", and the first-tap re-arm below never attached.
+      setSoundWanted(true);
       chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
     }
   };
@@ -469,7 +502,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     setVolume(v);
     setKdsVolume(v);
     setKdsSoundWanted(v > 0); // an explicit mute is a choice; the next mount does not nag about it
+    setSoundWanted(v > 0);
   };
+  // Phase 2b — the engine's state, heard: arming, and a suspension out from under an armed context
+  // (sleep, a call, an OS interruption), each re-read from `armed` in the subscription callback.
+  useEffect(() => {
+    const c = (chime.current ??= new KdsChime());
+    return c.subscribe(() => setSoundOn(c.armed));
+  }, []);
   // kitchen-8 — a device that wanted sound re-arms off the FIRST tap of the shift (usually a bump):
   // browsers need some gesture, not the chip's. One attempt, silent (no confirmation tone — nobody
   // asked for one); if the device has no audio the warn chip stays and says so.
@@ -514,22 +554,31 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     [lang, refresh],
   );
 
-  // K22 — an 86 from the ticket is one tap on a target beside the bump, mid-rush, with wet hands.
-  // The bump has had a 6-second undo since W3d; the 86 had none, and its reverse lives on another
-  // screen. Same bar, same window, same key. The reverse is the compare-and-swap back to
-  // available, with `expectedSoldOut: true` because that is the state this board just wrote — a
-  // manager who put it back on /staff/menu in between makes the swap refuse honestly.
+  // K22 — the 86 has had a 6-second undo in the bar since K22 (the bump's since W3d). Same bar, same
+  // window, same key. The reverse is the compare-and-swap back to available, with
+  // `expectedSoldOut: true` because that is the state this board just wrote — anyone who put it back
+  // on /staff/menu in between makes the swap refuse honestly. Phase 2b: no haptic here any more —
+  // the 86 buzzes at its TAP (§3: the haptic weights the gesture, never the network).
   const onEightySixed = useCallback(
     (entry: { menuItemId: string; label: string }) => {
-      setUndo({ kind: "eighty6", ...entry, expiresAt: Date.now() + UNDO_MS });
+      setUndo({
+        kind: "eighty6",
+        ...entry,
+        expiresAt: Date.now() + UNDO_MS,
+        shownAt: performance.now(),
+      });
       setNotice(tf(lang, "kds.live.86", { x: entry.label }));
-      haptic("commit");
     },
     [lang],
   );
   const [undo86Pending, startUndo86] = useTransition();
   const undoEightySix = (entry: Extract<UndoEntry, { kind: "eighty6" }>) => {
+    // Phase 2b — the pill mounts in the footprint of the ⋯ sheet's 86 button, so a stray second tap
+    // of the 86 would land here and put the dish straight back on sale: held for SAME_GESTURE_MS
+    // from the pill's mount, refused with no visual (§24).
+    if (removeHeld(entry.shownAt, performance.now())) return;
     if (undo86Pending) return; // §17 — the handler refuses re-entry; the button is never `disabled`
+    haptic("commit"); // §3 — at the tap; the bar leaving (or the refusal) is the visible half
     showErr(null);
     startUndo86(async () => {
       try {
@@ -542,14 +591,170 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           showErr(eightySixOutcome(res, entry.label));
           return;
         }
+        // The put-back is confirmed: the line wears its ⋯ again at once, before any poll.
+        setSoldOverrides((p) => recordSoldOut(p, entry.menuItemId, false, fetchSeq.current));
         setUndo(null);
         setNotice(tf(lang, "kds.live.86.undone", { x: entry.label }));
-        haptic("commit");
         void refresh();
       } catch {
         showErr({ k: "kds.err.86.undo", vars: { x: entry.label } });
       }
     });
+  };
+
+  // ── Phase 2b · kitchen — the ⋯ sheet and the 86 behind it ─────────────────────────────────────
+  // The sheet's subject is the LIVE line, looked up by id in the overlaid tickets on every render:
+  // a line that leaves the board closes the sheet, and the id is cleared in the SAME render (the
+  // adjust-state-from-a-prop idiom), so a recall that brings it back never reopens it.
+  const [menuLineId, setMenuLineId] = useState<string | null>(null);
+  const menuLine = lineMenuSubject(tickets, menuLineId);
+  if (menuLineId !== null && menuLine === null) setMenuLineId(null);
+  const menu = useSheetSubject(menuLine);
+  // The key of the open whose 86 LANDED: that instance is UNMOUNTED, never closed — a closing sheet
+  // keeps the board aria-hidden through its exit, and the region's "off the menu" would be spoken
+  // under it (sheet.tsx; the cash confirm's worked example).
+  const [landedKey, setLandedKey] = useState<number | null>(null);
+  // The sheet's one region: a refusal for the line it is about (cleared on open and on each tap).
+  const [menuMsg, setMenuMsg] = useState<KdsMsg | null>(null);
+  // In flight, per DISH (menuItemId → the line whose sheet sent it). The REF is the guard read at tap
+  // time (LEARNINGS #126); the state is what the ⋯ and the sheet render.
+  const pending86Ref = useRef(new Set<string>());
+  const [pending86, setPending86] = useState<ReadonlyMap<string, string>>(() => new Map());
+  // Which line's sheet is open NOW, for routing a result that lands after the render that sent it.
+  const menuLineRef = useRef<string | null>(null);
+  useEffect(() => {
+    menuLineRef.current = menuLineId;
+  }, [menuLineId]);
+  // Blind review (2026-09-24) — an 86 that lands while ANOTHER line's sheet is open. The success
+  // path used to close whatever sheet was open (`setMenuLineId(null)`) and mount the Undo bar in
+  // the footprint of that sheet's own sold-out button: the cook reading dish B lost B's sheet, and
+  // a tap meant for B's button could land on A's Undo and put A straight back on sale. Now that
+  // sheet is left alone, the fact goes to the board's region, and A's Undo waits HERE until the
+  // open sheet closes — then it mounts with its own fresh window (and its own same-gesture hold).
+  // A REF, read when the sheet id changes: parking changes nothing on screen, so it re-renders
+  // nothing; the unpark is the commit where `menuLineId` goes null (Esc, a dismiss, the line leaving).
+  const parked86 = useRef<{ menuItemId: string; label: string; seq: number } | null>(null);
+  // Codex rounds 2–3 on #304 — ONE Undo slot, so only the NEWEST sold-out tap may fill it, whichever
+  // response lands first. Every tap takes the next number; a result whose number is no longer the
+  // latest says what happened and offers no Undo (the newer dish owns the slot).
+  const tap86Seq = useRef(0);
+  // Codex round 5 — ownership goes to the newest SUCCESSFUL tap: a newer tap that is refused or
+  // throws changed nothing and must not strip an older success of its Undo.
+  const won86Seq = useRef(0);
+  useEffect(() => {
+    const p = parked86.current;
+    if (menuLineId !== null || p === null) return;
+    parked86.current = null;
+    if (p.seq === won86Seq.current) onEightySixed(p);
+  }, [menuLineId, onEightySixed]);
+  // The line whose 86 just landed — focus goes to its own button once, and only if focus was
+  // orphaned. Set only on OK, consumed by the commit that applied the override, whatever happened.
+  const landRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = landRef.current;
+    if (id === null) return;
+    landRef.current = null;
+    const ae = document.activeElement;
+    if (ae === null || ae === document.body)
+      document.getElementById(`kds-line-${id}`)?.focus({ preventScroll: true });
+  }, [soldOverrides]);
+
+  const openMenu = (line: KitchenLine) => {
+    // A dish whose 86 is in flight refuses its ⋯ (aria-disabled says so); a sold-out or grocery line
+    // has no ⋯ at all.
+    if (!canEightySix(line) || (line.menuItemId && pending86Ref.current.has(line.menuItemId)))
+      return;
+    haptic("pick"); // the sheet rising is the visible half
+    setMenuMsg(null);
+    setMenuLineId(line.id);
+    // Codex round 5 — the routing ref follows the OPEN too (the close paths already clear it in the
+    // same step): an older answer settling right after this tap must see B's sheet, not "none".
+    menuLineRef.current = line.id;
+  };
+
+  const eightySix = async (line: KitchenLine) => {
+    const id = line.menuItemId;
+    if (!canEightySix(line) || id === null || pending86Ref.current.has(id)) return;
+    const key = menu.key;
+    const dish = dishVisible(lang, line.name, line.nameMy);
+    const seq = ++tap86Seq.current;
+    pending86Ref.current.add(id);
+    setPending86((p) => new Map(p).set(id, line.id));
+    haptic("commit"); // §3 — at the tap, synchronously; the busy button is the visible half
+    setMenuMsg(null);
+    // Codex round 5 — a stale board error (a failed Done, bring-back or Undo) outranks the notice
+    // and outlives it; the old inline sold-out handler cleared it here, and so does this one.
+    showErr(null);
+    // A refusal lands where the cook is looking: in the sheet that is open — this line's, or (Codex
+    // round 3 on #304) ANOTHER line's, because a modal sheet makes the board behind it aria-hidden
+    // and a refusal spoken there would never be heard; the sentence names its dish either way.
+    // With no sheet open, the board's one region (with its 8 s dwell).
+    const refuse = (m: KdsMsg) => {
+      if (menuLineRef.current !== null) setMenuMsg(m);
+      else showErr(m);
+    };
+    try {
+      // W23a — takes the DISH off the menu; the ticket in front of the cook was already sold, so no
+      // line on ANY ticket is touched. `expectedSoldOut` is the LIVE line's flag as the board knows
+      // it (snapshot + confirmed override) — `canEightySix` above already refused a line that reads
+      // sold out, so this is `false` by construction, and the server re-checks it against the row.
+      const res = await setItemSoldOut({
+        menuItemId: id,
+        soldOut: true,
+        expectedSoldOut: line.soldOut,
+      });
+      if (res.ok) {
+        setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
+        // The newest SUCCESS owns the one Undo slot (a newer tap that failed does not count).
+        const newest = seq > won86Seq.current;
+        if (newest) won86Seq.current = seq;
+        if (menuLineRef.current === null || menuLineRef.current === line.id) {
+          // ONE commit: the override (SOLD OUT, the ⋯ gone), the sheet unmounted, the undo bar,
+          // the region's notice, and the focus landing's flag.
+          landRef.current = line.id;
+          setLandedKey(key);
+          setMenuLineId(null);
+          // Codex round 4 on #304 — the routing ref follows the CLOSE now, not the effect after it:
+          // another answer settling in this same batch (an older refusal) must see "no sheet" and
+          // reach the board's region, not a sheet that is unmounting under it.
+          menuLineRef.current = null;
+          if (newest) {
+            // THIS dish's Undo wins: an older result parked under this sheet is dropped (the
+            // drain would otherwise publish it the moment this sheet unmounts).
+            parked86.current = null;
+            onEightySixed({ menuItemId: id, label: dish });
+          } else {
+            // A NEWER sold-out was tapped after this one (Codex round 3 — the older response
+            // landing LAST): that dish owns the one Undo slot. This one stays sold out, says so,
+            // promises nothing, and goes back on from /staff/menu like any other.
+            setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
+          }
+        } else if (!newest) {
+          setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
+        } else {
+          // ANOTHER line's sheet is open (the refusal path's mirror): never touch it. The notice
+          // goes to the board's region; the Undo is parked until that sheet closes (above).
+          setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
+          parked86.current = { menuItemId: id, label: dish, seq };
+        }
+      } else {
+        // After a `stale` refusal (someone else 86'd it) or the landed-but-unlogged ledger sentence,
+        // the refresh below shows the dish sold out and the sheet's body turns into the statement.
+        refuse(eightySixOutcome(res, dish));
+      }
+    } catch {
+      refuse({ k: "kds.err.86", vars: { x: dish } });
+    } finally {
+      pending86Ref.current.delete(id);
+      setPending86((p) => {
+        const next = new Map(p);
+        next.delete(id);
+        return next;
+      });
+      // On EVERY outcome: the ledger-insert failure answers `ok:false` although the flag landed, and
+      // only a fresh snapshot can tell the cook what is true.
+      void refresh();
+    }
   };
 
   const [recallPending, startRecall] = useTransition();
@@ -598,6 +803,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         titleRef={headingRef}
         titleTabIndex={-1}
         lock={hasPin}
+        live={degraded ? "not_updating" : "live"} // Phase 2b · feedback — the banner's own truth
         // A4·5 — the wall (`/board`, the TV the kitchen keeps an eye on) is the KITCHEN's, so its
         // link rides this bar as a circle now that the doors' More is three tiles; it was the one
         // surface reachable in-app only from that grid (before P7, only by bookmark). Named by
@@ -825,7 +1031,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
                 thresholds={snap.thresholds}
                 pulse={pulses.get(t.cartId) ?? null}
                 onBumped={onBumped}
-                onEightySixed={onEightySixed}
+                menuOpenId={menuLineId}
+                pending86={pending86}
+                onOpenMenu={openMenu}
                 onError={showErr}
                 onRefused={onRefused}
                 onRefresh={refresh}
@@ -996,6 +1204,34 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         </footer>
       )}
 
+      {/* Phase 2b — the ⋯ sheet, ONE per board. Held through its exit by `useSheetSubject` (a
+          dismissed sheet slides down with its subject), keyed per open, and UNMOUNTED — not
+          closed — once its 86 has landed (`landedKey`). */}
+      {menu.held && landedKey !== menu.key && (
+        <KdsLineMenu
+          key={menu.key}
+          line={menu.held}
+          open={menu.open}
+          size={size}
+          pending={
+            menu.held.menuItemId !== null && pending86.get(menu.held.menuItemId) === menu.held.id
+          }
+          blocked={
+            menu.held.menuItemId !== null &&
+            pending86.has(menu.held.menuItemId) &&
+            pending86.get(menu.held.menuItemId) !== menu.held.id
+          }
+          msg={menuMsg}
+          on86={(l) => void eightySix(l)}
+          onOpenChange={(o) => {
+            if (!o) {
+              setMenuLineId(null);
+              menuLineRef.current = null; // see the 86 success path (Codex round 4)
+            }
+          }}
+        />
+      )}
+
       {undo && (
         <div className="kds-undo">
           <span>
@@ -1028,7 +1264,9 @@ function TicketCard({
   thresholds,
   pulse,
   onBumped,
-  onEightySixed,
+  menuOpenId,
+  pending86,
+  onOpenMenu,
   onError,
   onRefused,
   onRefresh,
@@ -1038,7 +1276,11 @@ function TicketCard({
   thresholds: KdsThresholds;
   pulse: number | null;
   onBumped: (entry: RecallEntry, label: string) => void;
-  onEightySixed: (entry: { menuItemId: string; label: string }) => void;
+  /** Phase 2b — the line whose ⋯ sheet is open (its ⋯ is `aria-expanded`). */
+  menuOpenId: string | null;
+  /** Phase 2b — dishes whose 86 is in flight → the line whose sheet sent it. */
+  pending86: ReadonlyMap<string, string>;
+  onOpenMenu: (line: KitchenLine) => void;
   onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   onRefresh: () => Promise<void> | void;
@@ -1047,7 +1289,7 @@ function TicketCard({
   const [pending, startTransition] = useTransition();
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
-  const level = ticket.held ? "ok" : urgency(ticket, ageMs, thresholds);
+  const level = ticket.held ? "ok" : kdsUrgency(ticket.channel, ageMs, thresholds);
   const stripClass =
     level === "red"
       ? "kds-strip kds-strip-red kds-strip-pulse"
@@ -1141,7 +1383,9 @@ function TicketCard({
             // Only when the slot line actually renders (held AND a pickup slot) — a description
             // pointing at a missing id is a broken promise, not a name.
             slotId={ticket.held && ticket.pickupSlot ? `kds-slot-${ticket.cartId}` : undefined}
-            onEightySixed={onEightySixed}
+            menuOpen={menuOpenId === l.id}
+            pending86={pending86}
+            onOpenMenu={onOpenMenu}
             onError={onError}
             onRefused={onRefused}
             onRefresh={onRefresh}
@@ -1185,7 +1429,9 @@ function KdsLineRow({
   line,
   held,
   slotId,
-  onEightySixed,
+  menuOpen,
+  pending86,
+  onOpenMenu,
   onError,
   onRefused,
   onRefresh,
@@ -1194,49 +1440,17 @@ function KdsLineRow({
   held: boolean;
   /** The ticket's slot line (`.kds-slot`), present only on a held ticket — names WHY a line refuses. */
   slotId?: string;
-  onEightySixed: (entry: { menuItemId: string; label: string }) => void;
+  /** Phase 2b — this line's ⋯ sheet is open. */
+  menuOpen: boolean;
+  pending86: ReadonlyMap<string, string>;
+  onOpenMenu: (line: KitchenLine) => void;
   onError: (msg: KdsMsg | null) => void;
   onRefused: (res: { error: string; code: KitchenErrCode }, act: KdsAct, x: string) => void;
   onRefresh: () => Promise<void> | void;
 }) {
   const lang = useStaffLang();
   const [pending, startTransition] = useTransition();
-  const [eightySixing, setEightySixing] = useState(false);
   const to = line.state === "fired" ? "in_progress" : "served";
-
-  // W23a — take the DISH off the menu from the ticket that just revealed it is out. Deliberately does
-  // NOT touch this line: the ticket in front of the cook was already sold and someone is waiting for
-  // it, so the kitchen still owes whatever it can make. What this stops is the NEXT order — which is
-  // the only thing an 86 can honestly do.
-  const flip = async (menuItemId: string) => {
-    if (eightySixing) return; // §17 — refuse re-entry here, never via `disabled`
-    setEightySixing(true);
-    onError(null);
-    try {
-      const res = await setItemSoldOut({
-        menuItemId,
-        soldOut: true,
-        // The state this ticket RENDERED with — never a hardcoded `false`. The board polls, so a
-        // dish 86’d on another console is already reflected here; asserting `false` would make the
-        // compare-and-swap refuse a flip the cook can plainly see is unnecessary.
-        expectedSoldOut: line.soldOut,
-      });
-      // A refusal here is usually "someone already 86'd it", which is a success from the cook's point
-      // of view — say what the server said, in the device language, rather than inventing a
-      // cheerful verdict.
-      if (!res.ok) onError(eightySixOutcome(res, dishVisible(lang, line.name, line.nameMy)));
-      else {
-        // K22 — the undo bar takes it from here: the dish as the cook sees it (Burmese-first, the
-        // same rule the accessible name uses), and the id the reverse swap needs.
-        onEightySixed({ menuItemId, label: dishVisible(lang, line.name, line.nameMy) });
-        await onRefresh();
-      }
-    } catch {
-      onError({ k: "kds.err.86", vars: { x: dishVisible(lang, line.name, line.nameMy) } });
-    } finally {
-      setEightySixing(false);
-    }
-  };
 
   const tap = () => {
     if (pending || held) return; // §17 — refused in the handler; a held line has nothing to act on
@@ -1256,83 +1470,111 @@ function KdsLineRow({
     });
   };
 
-  return (
-    <li>
-      {/* Per-line check-off: the whole row is the tap. Held lines aren't tappable — the kitchen
-          hasn't been handed them yet (the SQL guards refuse it anyway; don't offer what can't act). */}
-      <button
-        type="button"
-        className="kds-line"
-        data-state={line.state}
-        onClick={tap}
-        aria-disabled={pending || held || undefined}
-        aria-busy={pending || undefined}
-        // A held line is refused (the kitchen has not been handed it), and the ticket's slot line
-        // says why — "fires at 5:48 PM" rides the name instead of a bare no-op with an action verb.
-        aria-describedby={held ? slotId : undefined}
-        aria-label={
-          al(lang, {
-            kind: "line",
-            done: line.state !== "fired",
-            qty: line.qty,
-            name: line.name,
-            nameMy: line.nameMy,
-            modifiers: line.modifiers,
-          }).aria
-        }
-      >
-        <span className="kds-qty" aria-hidden="true">
-          {line.qty}
-        </span>
-        <span className="kds-line-main">
-          {/* P1 — the line Mom reads a hundred times a night: Burmese first when the catalog has it,
-              English beneath (`TicketText.tsx`, pinned by its own jsdom suite). P2 — the aria-label
-              above now follows it: `lib/staff-labels.ts` builds the name from the SAME string this
-              renders, so the accessible name contains the visible label in whichever language is on
-              screen (WCAG 2.5.3, the deferral this comment used to record). The name is flat and
-              therefore carries no lang; that trade is argued in `staff-labels.ts`. */}
-          <TicketLineText line={line} />
-          {(line.fulfillment === "togo" || line.state === "in_progress") && (
-            <p className="kds-line-tag" lang={lang}>
-              {line.fulfillment === "togo" ? ts(lang, "kds.line.bagit") : ""}
-              {line.fulfillment === "togo" && line.state === "in_progress" ? " · " : ""}
-              {line.state === "in_progress" ? ts(lang, "kds.line.cooking") : ""}
-            </p>
-          )}
-        </span>
-      </button>
-      {/* W23a — 86 the DISH from the ticket that just told the cook it is out. This is the whole
-          point of putting it here rather than only on /staff/menu: the person who discovers the pan
-          is empty is holding this screen, and the alternative is walking to another console mid-rush
-          (which means it does not happen, and the orders keep coming).
+  const noteId = line.notes ? `kds-note-${line.id}` : undefined;
+  const inFlight = line.menuItemId !== null && pending86.has(line.menuItemId);
+  const togo = line.fulfillment === "togo";
+  const cooking = line.state === "in_progress";
 
-          A SIBLING of the bump button, never nested — a button inside a button is invalid, and the
-          bump must stay the full-width primary target. Grocery barcodes carry no menuItemId, and
-          there is nothing to 86 about a packaged item on a shelf. */}
-      {line.menuItemId &&
-        (line.soldOut ? (
-          // Already off. A STATEMENT, not a disabled button: there is no action left here, and the
-          // put-back lives on /staff/menu where the manager can see the whole menu at once. Saying so
-          // stops a second cook walking over to 86 a dish that is already 86'd.
-          <p className="kds-line-86-done">
-            <Chrome lang={lang} k="kds.86.done" echo="stack" />
-          </p>
-        ) : (
+  return (
+    // Phase 2b — the <li> is the ITEM: the row (the Start/Done tap and its ⋯), then the dish's note.
+    // `data-state` lives here so the started tint covers the row, the ⋯ and the note together, and
+    // the divider (border-top) sits on the item, so a note can only belong to the dish above it.
+    <li className="kds-item" data-state={line.state}>
+      <div className="kds-item-row">
+        {/* Per-line check-off: the whole row is the tap. Held lines aren't tappable — the kitchen
+            hasn't been handed them yet (the SQL guards refuse it anyway; don't offer what can't act). */}
+        <button
+          id={`kds-line-${line.id}`}
+          type="button"
+          className="kds-line"
+          onClick={tap}
+          aria-disabled={pending || held || undefined}
+          aria-busy={pending || undefined}
+          // The held ticket's slot line says WHY a held line refuses ("fires at 5:48 PM"), and the
+          // dish's kitchen note is the line's description — slot first, then the note; nothing when
+          // neither exists (`lineDescribedBy`, never an empty attribute).
+          aria-describedby={lineDescribedBy({ slot: held ? slotId : undefined, note: noteId })}
+          aria-label={
+            al(lang, {
+              kind: "line",
+              done: line.state !== "fired",
+              qty: line.qty,
+              name: line.name,
+              nameMy: line.nameMy,
+              modifiers: line.modifiers,
+              // Phase 2b — the name REPLACES the content for assistive tech, so the OFF THE MENU tag
+              // below is announced only through this clause.
+              soldOut: line.soldOut,
+            }).aria
+          }
+        >
+          {/* Phase 2b (commit 2) — a single is a quiet ringed numeral; only a multiple wears the lit
+              accent fill (`qtyStands`), so a 2 no longer reads like a 1 at arm's length. */}
+          <span className="kds-qty" data-many={qtyStands(line.qty) || undefined} aria-hidden="true">
+            {line.qty}
+          </span>
+          <span className="kds-line-main">
+            {/* P1 — the line Mom reads a hundred times a night: Burmese first when the catalog has
+                it, English beneath (`TicketText.tsx`, pinned by its own jsdom suite). P2 — the
+                aria-label above follows it: `lib/staff-labels.ts` builds the name from the SAME
+                string this renders (WCAG 2.5.3). The name is flat and therefore carries no lang;
+                that trade is argued in `staff-labels.ts`. */}
+            <TicketLineText line={line} />
+            {/* The tag row: Bag it · Cooking · OFF THE MENU, joined by " · " text nodes inside a
+                block <p> (§6's flex whitespace rule cannot eat them). Phase 2b — sold out is a FACT
+                on the line, in --tx beside a warn dot (warn ink measured 4.44:1 on the started
+                tint), never the full-width band a control used to leave behind. */}
+            {(togo || cooking || line.soldOut) && (
+              <p className="kds-line-tag" lang={lang}>
+                {togo ? ts(lang, "kds.line.bagit") : ""}
+                {togo && cooking ? " · " : ""}
+                {cooking ? ts(lang, "kds.line.cooking") : ""}
+                {line.soldOut && (togo || cooking) ? " · " : ""}
+                {line.soldOut && (
+                  <span className="kds-line-off">
+                    <span className="kds-line-off-dot" aria-hidden="true" />
+                    {ts(lang, "kds.86.done")}
+                  </span>
+                )}
+              </p>
+            )}
+          </span>
+        </button>
+        {/* Phase 2b (K22) — the 86 lives behind this ⋯, never one tap under the line: a test pass
+            86'd a live dish by clicking the first such band. A SIBLING of the line button, never
+            nested (a button in a button is invalid), 48px wide and the row's full height so its
+            hit box shares the line's edge. Only where there is something to 86 (`canEightySix`):
+            a grocery barcode and a dish already off the menu have none — the put-back is the 6s
+            undo, then /staff/menu (server-and-up), never this ticket. Named by sr-only dictionary
+            text through <Chrome> (§17's circle idiom), never an aria-label. */}
+        {canEightySix(line) && (
           <button
+            id={`kds-more-${line.id}`}
             type="button"
-            className="kds-line-86"
-            aria-disabled={eightySixing || undefined}
-            aria-busy={eightySixing || undefined}
-            onClick={() => void flip(line.menuItemId!)}
-            aria-label={
-              al(lang, { kind: "eighty6", echo: "stack", name: line.name, nameMy: line.nameMy })
-                .aria
+            className="kds-line-more staff-press"
+            aria-haspopup="dialog"
+            aria-expanded={menuOpen}
+            aria-disabled={inFlight || undefined}
+            aria-busy={
+              (line.menuItemId !== null && pending86.get(line.menuItemId) === line.id) || undefined
             }
+            onClick={() => onOpenMenu(line)}
           >
-            <Chrome lang={lang} k="kds.86" echo="stack" />
+            <Icon name="more" strokeWidth={2.25} />
+            <span className="sr-only">
+              <Chrome
+                lang={lang}
+                k="kds.line.more"
+                vars={{ x: dishVisible(lang, line.name, line.nameMy) }}
+              />
+            </span>
           </button>
-        ))}
-      {line.notes && <p className="kds-note">{line.notes}</p>}
+        )}
+      </div>
+      {/* Phase 2b — the kitchen note sits DIRECTLY under its dish (the allergy channel, the only
+          warn band inside a ticket): outside the line button, so the held line's fade never
+          reaches it, and after no control, so it can never read as a caption for one. */}
+      {line.notes && <TicketNote id={noteId} lang={lang} note={line.notes} className="kds-note" />}
     </li>
   );
 }

@@ -151,6 +151,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
       // somewhere from a screen that has nothing to explain.
       help={home.view === "floor" ? <HelpButton lang={lang} screen="counter" /> : undefined}
       lock={hasPin}
+      // Phase 2b · feedback — the counter's status slot folds its two boards (the provider below
+      // is the bar's parent there); the doors have no feed, so no slot — the offline row instead.
+      live={home.view === "floor" ? "counter" : undefined}
     />
   );
   const greeting = (
@@ -209,7 +212,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
       <LiveConnectionProvider>
         {header}
-        <div className="staff-col" style={wrapWide}>
+        {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
+            thumb-zone Undo pill. */}
+        <div className="staff-col staff-col-dock" style={wrapWide}>
           {greeting}
           {/* 1 · START — the one action taken most, first. The zone's region is `RegisterStart`'s own,
             named by this heading. */}

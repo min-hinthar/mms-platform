@@ -92,7 +92,10 @@ export async function reorderOrder(raw: {
     const authz = await assertCartMember(cartId);
     if (authz.locked) return { ok: false, error: "Order is locked while someone checks out" };
     if (authz.settling)
-      return { ok: false, error: "The table is settling up — you can’t edit while everyone pays" };
+      return {
+        ok: false,
+        error: "Your table is paying — you can’t change the order while everyone pays",
+      };
     uid = authz.uid;
     mode = authz.mode;
     await assertMutationRate(uid);
@@ -254,7 +257,7 @@ export async function reorderOrder(raw: {
       // insertOrIncLine's status-atomic guard: the cart closed mid-loop (a webhook capture landed).
       // That is NOT an availability fact about the remaining dishes — stop and say what happened.
       if (e instanceof Error && e.message === "Cart is no longer open")
-        return { ok: false, error: "Your cart just closed — start a fresh order from the menu." };
+        return { ok: false, error: "Your order just closed — start a fresh one from the menu." };
       // M119 — an availability refusal carries its own reason, so the fallback path above stays as
       // honest as the batch one. Without this, a sold-out dish reached on the unverified path would
       // be reported `needs_choices` ("tap to choose") — a wrong sentence swapped in for a wrong

@@ -328,7 +328,7 @@ describe("Phase 1c — the pay element's timings and gates", () => {
   it("the note walks loading → slow / offline → secure, and says nothing on a failure", () => {
     expect(payElementView(run([])).note).toBe("loading");
     expect(payNoteCopy("loading").en).toBe("Loading the secure card form…");
-    expect(payNoteCopy("secure").en).toBe("Your card goes straight to Stripe — never to us.");
+    expect(payNoteCopy("secure").en).toBe(t("en", "payFormSecure"));
     expect(payElementView(run([cardReady(), walletReady(false)])).note).toBe("secure");
     expect(payElementView(run([fail()])).note).toBeNull();
     for (const n of ["loading", "slow", "offline", "secure"] as const)

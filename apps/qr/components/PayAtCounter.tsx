@@ -141,7 +141,7 @@ export function CounterSettledCard({
   return (
     <section className="card card-textured mms-pop" style={card} aria-labelledby="settled-h">
       <p style={{ ...eyebrow, color: "var(--ok)" }}>
-        <Icon name="check" size={14} /> {by === "counter" ? "Settled" : "Paid"}
+        <Icon name="check" size={14} /> {by === "counter" ? "Paid at the counter" : "Paid"}
       </p>
       <h3 id="settled-h" style={title}>
         {TX(titleKey)}

@@ -1,4 +1,4 @@
-import { Card, Icon } from "@mms/ui";
+import { Card, Icon, buttonClass } from "@mms/ui";
 import type { HelpDoorScreen } from "@/lib/help";
 import type { KdsSize } from "@/lib/kds-size";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -10,8 +10,8 @@ import { START_ARM } from "./register-stage";
 
 /**
  * P7·3 — the "picture" on each help card: a STATIC replica of the real control in the real
- * control's OWN DECLARATION — its class where the control has one (`.kds-bump`, `.kds-line-86`,
- * `.staff-circ`, `.expo-status`), its exported style object where it is styled inline
+ * control's OWN DECLARATION — its class where the control has one (`.kds-bump`, `.kds-line-more`
+ * and the primitive Button's `buttonClass`, `.staff-circ`, `.expo-status`), its exported style object where it is styled inline
  * (`expo-stage.ts`, `register-stage.ts`, `tableCardStyle`), and for the undo pill the one CSS rule that names both the
  * button and the replica. NEVER a new class that copies the look: the blind pass on the first draft
  * found the takeaway stages drawn green and inverted, the undo pill in the bar's colours, the
@@ -63,8 +63,16 @@ export function HelpPicture({
         </span>
       )}
       {screen === "kitchen" && n === 3 && (
-        <span className="kds-line-86">
-          <Chrome lang={lang} k="kds.86" echo="stack" />
+        // Phase 2b — the 86 lives behind the line's ⋯ (`.kds-line-more`), then the sheet's danger
+        // xl Button (the primitive's own `buttonClass`): the two taps the card's sentence names.
+        <span className="help-pic-pair">
+          <span className="kds-line-more">
+            <Icon name="more" strokeWidth={2.25} />
+          </span>
+          <span className="help-pic-arrow">→</span>
+          <span className={buttonClass({ variant: "danger", size: "xl" })}>
+            <Chrome lang={lang} k="kds.86" echo="stack" />
+          </span>
         </span>
       )}
       {screen === "kitchen" && n === 4 && (

@@ -71,8 +71,8 @@ export function InviteSheet({
   return (
     <Sheet open={open} onOpenChange={onOpenChange} title="Invite to your table">
       <p style={muted}>
-        Everyone at the table orders together into one cart. Share this to add a phone — or just
-        scan the table’s QR sticker. Up to {MAX_PARTY_SIZE} guests per table.
+        Everyone at the table adds to one shared order. Share this to add a phone — or just scan the
+        table’s QR sticker. Up to {MAX_PARTY_SIZE} guests per table.
       </p>
 
       {joinCode && (

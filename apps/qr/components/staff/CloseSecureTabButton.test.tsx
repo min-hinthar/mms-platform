@@ -33,7 +33,9 @@ function mount() {
     </StaffLangProvider>,
   );
   const trigger = () =>
-    screen.getByRole("button", { name: /^Close tab · card on file · \$42\.10/ });
+    screen.getByRole("button", {
+      name: new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.10")}`),
+    });
   const charge = async () => {
     fireEvent.click(trigger());
     await act(async () => {

@@ -44,6 +44,7 @@ function mount(items: PricedItem[], lang: "en" | "my" = "en", canEditPrice = tru
   );
 }
 const status = () => screen.getByRole("status");
+const EIGHTY_SIX = STAFF["browse.price.verb.eightySix"].en;
 const pill = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
 
 afterEach(cleanup);
@@ -65,7 +66,7 @@ describe("menu-1 — §17: no control here goes native `disabled`, and the guard
     );
     const { container } = mount([item()]);
     expect(container.querySelectorAll("[disabled]")).toHaveLength(0);
-    const eightySix = pill("86 — Mohinga");
+    const eightySix = pill(`${EIGHTY_SIX} — Mohinga`);
     fireEvent.click(eightySix);
     // Mid-flight: the pill is aria-disabled + busy, and STILL not native.
     expect(eightySix.getAttribute("aria-disabled")).toBe("true");
@@ -88,7 +89,7 @@ describe("menu-1 — §17: no control here goes native `disabled`, and the guard
       }),
     );
     mount([item()]);
-    const eightySix = pill("86 — Mohinga");
+    const eightySix = pill(`${EIGHTY_SIX} — Mohinga`);
     fireEvent.click(eightySix);
     fireEvent.click(eightySix);
     fireEvent.click(eightySix);
@@ -129,7 +130,7 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
   it("the 86 pill reads `Put back` the moment the server answers, and a second flip posts that state", async () => {
     mount([item()]);
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
     expect(setItemSoldOut).toHaveBeenCalledWith({
       menuItemId: "a1",
@@ -150,7 +151,7 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
       soldOut: false,
       expectedSoldOut: true,
     });
-    expect(pill("86 — Mohinga")).toBeTruthy();
+    expect(pill(`${EIGHTY_SIX} — Mohinga`)).toBeTruthy();
   });
 
   it("a refusal changes nothing on the row — the prop is the truth, and the refresh is asked for", async () => {
@@ -161,16 +162,16 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
     });
     mount([item()]);
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
-    expect(pill("86 — Mohinga")).toBeTruthy();
+    expect(pill(`${EIGHTY_SIX} — Mohinga`)).toBeTruthy();
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("the confirmed override lets go once the list prop agrees", async () => {
     const { rerender } = mount([item()]);
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
     expect(pill("Put back — Mohinga")).toBeTruthy();
     // The refresh landed: the prop says sold out with its stamp. The row must show the STAMP now
@@ -196,7 +197,7 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
         <MenuPriceEditor items={[item()]} canEditPrice nowIso={NOW} />
       </StaffLangProvider>,
     );
-    expect(pill("86 — Mohinga")).toBeTruthy();
+    expect(pill(`${EIGHTY_SIX} — Mohinga`)).toBeTruthy();
   });
 
   it("a list that DISAGREES on arrival wins — a second writer inside the window is the truth, and the next tap posts its state", async () => {
@@ -205,7 +206,7 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
     // retry forever (the blind pass, slice 6).
     const { rerender } = mount([item()]);
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
     expect(pill("Put back — Mohinga")).toBeTruthy();
     // MUTATION: keep an override whose value the prop disagrees with — `Put back` survives the
@@ -215,7 +216,7 @@ describe("menu-3 — the row shows what the server CONFIRMED before the refresh 
         <MenuPriceEditor items={[item({ soldOut: false })]} canEditPrice nowIso={NOW} />
       </StaffLangProvider>,
     );
-    const eightySix = pill("86 — Mohinga");
+    const eightySix = pill(`${EIGHTY_SIX} — Mohinga`);
     await act(async () => {
       fireEvent.click(eightySix);
     });
@@ -273,7 +274,7 @@ describe("menu-2 — ONE sr-only live region, and the verdict echoed in the acte
     const region = status();
     const before = region.getAttribute("style");
     await act(async () => {
-      fireEvent.click(pill("86 — Shan Noodles"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Shan Noodles`));
     });
     expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
     // MUTATION: `style={msg ? okLine : srOnly}` again — the region grows a line above the list; red.
@@ -292,7 +293,7 @@ describe("menu-2 — ONE sr-only live region, and the verdict echoed in the acte
     setItemSoldOut.mockResolvedValue({ ok: false, error: "Custom refusal.", code: "stale" });
     const { container } = mount([item()]);
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
     expect(container.querySelector('li p[aria-hidden="true"]')?.textContent).toBe(
       "Custom refusal.",
@@ -419,7 +420,7 @@ describe("the sold-out chip", () => {
     // focus falls to <body> and the echo is rendered nowhere; red on all three.
     expect(document.querySelectorAll("li")).toHaveLength(2);
     expect(document.activeElement).toBe(putBack);
-    expect(putBack.textContent).toContain("86");
+    expect(putBack.textContent).toContain(EIGHTY_SIX);
     expect(document.querySelector('li p[aria-hidden="true"]')?.textContent).toBe(
       STAFF["browse.price.live.on"].en.replace("{x}", "Shan Noodles"),
     );
@@ -445,7 +446,7 @@ describe("the sold-out chip", () => {
     // comes back PRESSED and the list collapses to one row without a tap; red.
     setItemSoldOut.mockResolvedValue({ ok: true, soldOut: true });
     await act(async () => {
-      fireEvent.click(pill("86 — Mohinga"));
+      fireEvent.click(pill(`${EIGHTY_SIX} — Mohinga`));
     });
     const chip = screen.getByRole("button", { name: "Sold out (1)" });
     expect(chip.getAttribute("aria-pressed")).toBe("false");
@@ -465,6 +466,8 @@ describe("the sold-out chip", () => {
 
   it("speaks Burmese numerals under the Burmese console", () => {
     mount([item({ soldOut: true })], "my");
-    expect(screen.getByRole("button", { name: /ဖြုတ်ထားတာ \(၁\)/ })).toBeTruthy();
+    // The count is the Burmese numeral; the words around it come from the dictionary.
+    const name = STAFF["browse.price.soldOutOnly"].my.replace("{n}", "၁");
+    expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 });

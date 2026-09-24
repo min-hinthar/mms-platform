@@ -4,6 +4,7 @@ import {
   fulfillmentLabel,
   groupReceiptLines,
   receiptDateLabel,
+  SERVICE_CHARGE_DISCLOSURE,
   serviceDisclosed,
   tenderLabel,
 } from "./receipt-view";
@@ -41,6 +42,18 @@ describe("buildReceiptRows", () => {
     expect(full.find((r) => r.key === "total")?.grand).toBe(true);
     // Amounts are rendered VERBATIM — the model never recomputes (2395 ≠ any sum it might invent).
     expect(full.find((r) => r.key === "total")?.amountCents).toBe(2395);
+  });
+});
+
+describe("SERVICE_CHARGE_DISCLOSURE — a historical record, rendered verbatim", () => {
+  it("is exactly what a pre-2026-08-15 guest read at checkout, statute number included", () => {
+    // The plain-words pass re-voiced it (2026-09-24) and the blind review restored it: a receipt
+    // records what the guest was TOLD, so this string is never edited — DESIGN-LANGUAGE §5.
+    expect(SERVICE_CHARGE_DISCLOSURE).toBe(
+      "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). " +
+        "It is not a tip — anything extra above is yours to give. Card fees are built into menu " +
+        "prices; we never add a surcharge on debit.",
+    );
   });
 });
 

@@ -29,7 +29,7 @@ export type CounterPayResult =
   | { ok: true; counterRequestedAt: string | null }
   | { ok: false; reason: CounterPayRefusal | "closed" | "error"; error: string };
 
-const CLOSED = "This order’s already settled — there’s nothing left to pay.";
+const CLOSED = "This order’s already paid — there’s nothing left to pay.";
 const OUTAGE = "Couldn’t reach the counter just now — please try again.";
 
 function fromAuthz(e: unknown): CounterPayResult {

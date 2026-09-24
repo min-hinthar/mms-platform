@@ -22,8 +22,10 @@ import type { Entry } from "./types";
  * figures, so Burmese digits there would make the row ragged). No dictionary VALUE carries a MYANMAR
  * digit — counts arrive through the `{n}` / `{total}` slots and `tf()` converts them at render, so
  * the rule lives in one function with one guard (`strings.test.ts`, "NO dictionary value anywhere
- * carries a Myanmar digit") rather than in a hundred strings. Latin digits are a different matter and
- * one value has one: `kds.86`'s "86 this dish", where 86 is the kitchen VERB, not a number.
+ * carries a Myanmar digit") rather than in a hundred strings. Latin digits are a different matter:
+ * the service-charge row's "(5%)" is a rate printed on the receipt. `kds.86` carried the kitchen
+ * verb "86 this dish" until the plain-words pass (owner, 2026-09-24) made it "Mark sold out"; the
+ * KEY keeps the old name so nothing that reads it moves.
  *
  * ⚠️ Every MY value is a Claude-authored working draft pending Min's native check (K15), EXCEPT
  * where a `grounded:` comment names its in-repo source. Two are already settled and must NOT be
@@ -162,22 +164,27 @@ export const STAFF = {
   // ── KDS: the card ──────────────────────────────────────────────────────────
   // {id} is the table number from the physical tent — Latin in both tongues, always.
   "kds.table": { en: "Table {id}", my: "စားပွဲ {id}" }, // grounded: kiosk `tableNumber`
-  "kds.held": { en: "Held · ", my: "ဆိုင်းထား · " }, // K15-HIGH — a held card read as live is food cooked an hour early
+  "kds.held": { en: "Later · ", my: "ဆိုင်းထား · " }, // K15-HIGH — a held card read as live is food cooked an hour early
   "kds.slot": {
-    en: "Pickup {t} — fires automatically",
+    en: "Pickup {t} — starts cooking on its own",
     my: "{t} လာယူ — အလိုအလျောက် စချက်ပါမယ်",
   }, // K15-HIGH
-  "kds.fire": { en: "Fire now", my: "အခု စချက်" }, // K15-HIGH — no undo, only a second ticket
-  "kds.bump": { en: "BUMP", my: "ပြီးပြီ" }, // K15-HIGH — the tap made most; a 6s undo is the only way back
+  "kds.fire": { en: "Cook now", my: "အခု စချက်" }, // K15-HIGH — no undo, only a second ticket
+  // Blind review (2026-09-24): the ticket carried TWO "Done" buttons — this whole-ticket one and each
+  // line's `kds.line.done`. The ticket's is "All done". K15 draft; was “ပြီးပြီ”.
+  "kds.bump": { en: "All done", my: "အားလုံး ပြီးပြီ" }, // K15-HIGH — the tap made most; a 6s undo is the only way back
   // The bump's accessible-name tail. The visible label leads the name (2.5.3), and this says WHICH
   // ticket and how much it clears — the two facts a cook needs before a tap that clears the card.
   "kds.bump.what": { en: "{x}, all {n} items done", my: "{x} — ပစ္စည်း {n} ခုလုံး ပြီးပြီ" },
   "kds.line.start": { en: "Start", my: "စလုပ်" },
-  "kds.line.done": { en: "Done", my: "ပြီး" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ပြီး”.
+  "kds.line.done": { en: "Done", my: "ပြီးပြီ" },
   "kds.line.bagit": { en: "Bag it", my: "ထုပ်ရန်" },
   "kds.line.cooking": { en: "Cooking", my: "ချက်နေဆဲ" },
-  "kds.86": { en: "86 this dish", my: "ဒီဟင်း ဖြုတ်" }, // K15-HIGH — undone on a DIFFERENT screen
-  "kds.86.done": { en: "Off the menu", my: "မီနူးက ဖြုတ်ထားပြီ" }, // K15-HIGH — a statement, not a button
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဒီဟင်း ဖြုတ်”.
+  "kds.86": { en: "Mark sold out", my: "ကုန်ပြီ လို့ မှတ်မယ်" }, // K15-HIGH — a 6s undo in the bar, then /staff/menu
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “မီနူးက ဖြုတ်ထားပြီ”.
+  "kds.86.done": { en: "Sold out", my: "ကုန်သွားပြီ" }, // K15-HIGH — a statement, not a button
 
   // ── KDS: the status line and stats ─────────────────────────────────────────
   // Stat LABELS are Burmese; their VALUES stay Latin (tabular-nums column).
@@ -188,17 +195,17 @@ export const STAFF = {
   "kds.allclear": { en: "All clear", my: "ရှင်းပြီ" },
   "kds.open.one": { en: "{n} open ticket", my: "ဖွင့်ထားတဲ့ အော်ဒါ {n} ခု" },
   "kds.open.many": { en: "{n} open tickets", my: "ဖွင့်ထားတဲ့ အော်ဒါ {n} ခု" },
-  "kds.held.count": { en: " · {n} held", my: " · ဆိုင်းထား {n} ခု" },
+  "kds.held.count": { en: " · {n} for later", my: " · ဆိုင်းထား {n} ခု" },
   "kds.new": { en: "{n} new →", my: "အသစ် {n} →" },
 
   // ── KDS: the all-day rail ──────────────────────────────────────────────────
-  "kds.allday.chip": { en: "All-day", my: "စုစုပေါင်း" },
-  "kds.allday.title": { en: "All day", my: "စုစုပေါင်း" },
-  "kds.allday.empty": { en: "Nothing live.", my: "ဘာမှ မရှိပါ။" },
+  "kds.allday.chip": { en: "Dish totals", my: "စုစုပေါင်း" },
+  "kds.allday.title": { en: "Dish totals", my: "စုစုပေါင်း" },
+  "kds.allday.empty": { en: "Nothing open right now.", my: "ဘာမှ မရှိပါ။" },
   // A4·1 (K31) — the served rail: what went OUT today, read-only, beside the all-day counts.
   "kds.served.chip": { en: "Served", my: "ထုတ်ပြီး" },
   // A line that went out and was then written off (a cooked loss) stays on the rail, marked.
-  "kds.served.voided": { en: "Voided after service", my: "ထုတ်ပြီးမှ ပယ်ဖျက်" },
+  "kds.served.voided": { en: "Removed after serving", my: "ထုတ်ပြီးမှ ပယ်ဖျက်" },
   "kds.served.title": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
   "kds.served.empty": { en: "Nothing served yet today.", my: "ဒီနေ့ ဘာမှ မထုတ်ရသေးပါ။" },
   // The rail's read failed (ADVISORY — the live board above is unaffected). Said rather than an
@@ -221,13 +228,13 @@ export const STAFF = {
   },
 
   // ── KDS: empty and frozen states ───────────────────────────────────────────
-  "kds.empty": { en: "Nothing on the line", my: "ချက်စရာ ဘာမှ မရှိပါ" },
+  "kds.empty": { en: "Nothing to cook", my: "ချက်စရာ ဘာမှ မရှိပါ" },
   "kds.empty.degraded": {
-    en: "Nothing on the line as of the last update",
+    en: "Nothing to cook as of the last update",
     my: "နောက်ဆုံး အချက်အလက်အရ ချက်စရာ ဘာမှ မရှိပါ",
   },
   "kds.empty.hint": {
-    en: "Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as held cards until their fire time.",
+    en: "Tickets appear the moment an order is sent or paid — dine-in sends, pickup and to-go land at checkout, scheduled orders wait as dashed Later cards until it’s time to cook.",
     my: "အော်ဒါ ပို့တာ ဒါမှမဟုတ် ငွေရှင်းတာနဲ့ ဒီမှာ ချက်ချင်း ပေါ်ပါတယ် — ဆိုင်မှာစားက ပို့တဲ့အခါ၊ လာယူနဲ့ ပါဆယ်က ငွေရှင်းတဲ့အခါ၊ ချိန်းထားတဲ့ အော်ဒါတွေက စချက်ချိန်ရောက်တဲ့အထိ ဆိုင်းထားကတ်အဖြစ် စောင့်နေပါမယ်။",
   },
   "kds.empty.outage": {
@@ -240,10 +247,13 @@ export const STAFF = {
   // kitchen-8 — this device WANTED sound (armed last shift) and a reload disarmed it: a warn chip,
   // not a ghost identical to the filter beside it. Any tap on the board re-arms it silently.
   "kds.sound.off": { en: "Sound off — tap to turn on", my: "အသံ ပိတ်နေ — ဖွင့်ရန် နှိပ်ပါ" },
-  "kds.recall": { en: "Recall", my: "ပြန်ခေါ်" }, // K15-HIGH — the second way back (2-minute window)
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ပြန်ခေါ်”.
+  "kds.recall": { en: "Bring back", my: "ပြန်ယူ" }, // K15-HIGH — the second way back (2-minute window)
   "kds.undo": { en: "Undo", my: "ပြန်ဖျက်" }, // K15-HIGH — the only way back inside 6 seconds
-  "kds.undo.bumped": { en: "{x} bumped", my: "{x} ပြီးသွားပြီ" },
-  "kds.undo.86": { en: "{x} off the menu", my: "{x} မီနူးက ဖြုတ်ပြီ" }, // K15-HIGH — the undo bar's copy after an 86
+  // K15 draft (blind review 2026-09-24) — names the ticket action, "All done"; was “{x} ပြီးသွားပြီ”.
+  "kds.undo.bumped": { en: "{x} all done", my: "{x} အားလုံး ပြီးသွားပြီ" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} မီနူးက ဖြုတ်ပြီ”.
+  "kds.undo.86": { en: "{x} sold out", my: "{x} ကုန်သွားပြီ" }, // K15-HIGH — the undo bar's copy after an 86
   "kds.page": { en: "Page {n} of {total}", my: "စာမျက်နှာ {n} / {total}" },
   "kds.more": { en: "+{n} more", my: "နောက်ထပ် {n}" },
 
@@ -254,33 +264,47 @@ export const STAFF = {
   "kds.age.days": { en: "More than a day elapsed", my: "တစ်ရက်ကျော် ကြာပြီ" },
 
   // ── KDS: live-region announcements (class D — primary tongue only) ─────────
+  // K15 draft (blind review 2026-09-24) — "all done", the button's word; was “{x} ပြီးသွားပြီ — …”.
   "kds.live.bumped": {
-    en: "{x} bumped — undo available.",
-    my: "{x} ပြီးသွားပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
+    en: "{x} all done — undo available.",
+    my: "{x} အားလုံး ပြီးသွားပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
   },
   "kds.live.restored": { en: "{x} restored to the board.", my: "{x} ဘုတ်ပေါ် ပြန်တင်ပြီးပြီ။" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} မီနူးက ဖြုတ်ပြီ — ပြ…”.
   "kds.live.86": {
-    en: "{x} off the menu — undo available.",
-    my: "{x} မီနူးက ဖြုတ်ပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
+    en: "{x} marked sold out — undo available.",
+    my: "{x} ကုန်သွားပြီ လို့ မှတ်ပြီးပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
+  },
+  // Codex round 2 on #304 — an 86 that landed under ANOTHER dish's open sheet: its Undo waits for that
+  // sheet to close and may be superseded by the newer dish's own, so this line promises none.
+  // Claude-authored MY draft pending Min's native check (K15).
+  "kds.live.86.parked": {
+    en: "{x} marked sold out.",
+    my: "{x} ကုန်သွားပြီ လို့ မှတ်ပြီးပြီ။",
   },
   "kds.live.86.undone": { en: "{x} back on the menu.", my: "{x} မီနူးပေါ် ပြန်တင်ပြီးပြီ။" },
 
   // ── KDS: failures (read at the moment the tablet is not working) ──────────
+  // K15 draft (blind review 2026-09-24) — "all done", the button's word; was “{x} ကို မပြီးအောင် …”.
   "kds.err.bump": {
-    en: "Couldn’t bump {x} — try again.",
-    my: "{x} ကို မပြီးအောင် မလုပ်နိုင်ပါ — ထပ်စမ်းပါ။",
+    en: "Couldn’t mark {x} all done — try again.",
+    my: "{x} ကို အားလုံး ပြီးပြီ လို့ မမှတ်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
+  // Blind review (2026-09-24): `kds.fire` is "Cook now", so its failure says "cook" — never "start",
+  // which is `kds.line.start`'s verb. The MY already said စချက် (start cooking), the button's word.
   "kds.err.fire": {
-    en: "Couldn’t fire {x} — try again.",
+    en: "Couldn’t send {x} to cook — try again.",
     my: "{x} ကို မစချက်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} ကို ပြန်မခေါ်နိုင်ပါ…”.
   "kds.err.recall": {
-    en: "Couldn’t recall {x} — try again.",
-    my: "{x} ကို ပြန်မခေါ်နိုင်ပါ — ထပ်စမ်းပါ။",
+    en: "Couldn’t bring back {x} — try again.",
+    my: "{x} ကို ပြန်မယူနိုင်ပါ — ထပ်စမ်းပါ။",
   },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} ကို မီနူးက မဖြုတ်နို…”.
   "kds.err.86": {
-    en: "Couldn’t take {x} off the menu — try again.",
-    my: "{x} ကို မီနူးက မဖြုတ်နိုင်ပါ — ထပ်စမ်းပါ။",
+    en: "Couldn’t mark {x} sold out — try again.",
+    my: "{x} ကို ကုန်ပြီ လို့ မမှတ်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
   "kds.err.86.undo": {
     en: "Couldn’t put {x} back — use the Menu screen.",
@@ -292,9 +316,10 @@ export const STAFF = {
   },
   // kitchen-3 — the server's refusals, keyed so the region can say them in the device language.
   "kds.err.stale": { en: "{x} was already updated.", my: "{x} ကို ပြောင်းပြီးသားပါ။" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} အတွက် ပြန်ခေါ်နိုင်ခ…”.
   "kds.err.recall.window": {
-    en: "The recall window has passed for {x}.",
-    my: "{x} အတွက် ပြန်ခေါ်နိုင်ချိန် ကုန်သွားပြီ။",
+    en: "Too late to bring back {x}.",
+    my: "{x} ကို ပြန်ယူဖို့ နောက်ကျသွားပြီ။",
   },
   "kds.err.fire.live": {
     en: "{x} is already in the kitchen.",
@@ -313,9 +338,9 @@ export const STAFF = {
   "kds.a11y.stationFilter": { en: "Station filter", my: "စတေရှင် စစ်ထုတ်" },
   "kds.a11y.tickets": { en: "Open kitchen tickets", my: "ဖွင့်ထားတဲ့ မီးဖိုချောင် အော်ဒါများ" },
   "kds.a11y.lines": { en: "Items for {x}", my: "{x} အတွက် ပစ္စည်းများ" }, // P2n — the ticket's line list
-  "kds.a11y.allDay": { en: "All-day counts", my: "စုစုပေါင်း အရေအတွက်" },
+  "kds.a11y.allDay": { en: "Count of each dish", my: "စုစုပေါင်း အရေအတွက်" },
   "kds.a11y.served": { en: "Served today", my: "ဒီနေ့ ထုတ်ပြီးသမျှ" },
-  "kds.a11y.railView": { en: "Rail view", my: "ဘေးဘား အမြင်" },
+  "kds.a11y.railView": { en: "Side panel view", my: "ဘေးဘား အမြင်" },
   "kds.a11y.volume": { en: "Chime volume", my: "အသံ အတိုးအကျယ်" },
   // A4·5 — the wall's link is a circle in this bar, named by sr-only text like the counter's
   // approvals circle (the glyph is a TV). It was the doors' `floor.nav.board` tile from P7 to
@@ -324,7 +349,8 @@ export const STAFF = {
   "kds.a11y.pager": { en: "Ticket pages", my: "အော်ဒါ စာမျက်နှာများ" },
   "kds.a11y.prevPage": { en: "Previous page", my: "ရှေ့ စာမျက်နှာ" },
   "kds.a11y.nextPage": { en: "Next page", my: "နောက် စာမျက်နှာ" },
-  "kds.a11y.recall": { en: "Recall a bumped ticket", my: "ပြီးသွားတဲ့ အော်ဒါ ပြန်ခေါ်" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ပြီးသွားတဲ့ အော်ဒါ ပြန်ခေါ်”.
+  "kds.a11y.recall": { en: "Bring back a finished ticket", my: "ပြီးသွားတဲ့ အော်ဒါ ပြန်ယူ" },
   // P7 — the TEXT SIZE dial (aria-only group name + three 44px chips, so no echo on the chips).
   // 30px was derived from the font files; the right size is Mom's eyes at the pass, picked once.
   "kds.a11y.size": { en: "Text size", my: "စာလုံး အရွယ်အစား" },
@@ -377,10 +403,10 @@ export const STAFF = {
   // afford the noun that says WHICH thing is unregistered.
   "floor.unregistered": { en: "unregistered", my: "မှတ်ပုံမတင်" },
   "floor.unregisteredSticker": { en: "unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
-  "floor.tab": { en: "Tab", my: "စာရင်းဖွင့်" },
-  "floor.tabSecured": { en: "Tab secured · card on file", my: "စာရင်း အာမခံပြီး · ကတ် သိမ်းထား" },
-  "floor.tabOpen": { en: "tab open", my: "စာရင်း ဖွင့်ထား" },
-  "floor.tabOverLimit": { en: "over tab limit", my: "စာရင်း ကန့်သတ် ကျော်" }, // K15-HIGH — the cue to check in with the table
+  "floor.tab": { en: "Running bill", my: "စာရင်းဖွင့်" },
+  "floor.tabSecured": { en: "Running bill · card on file", my: "စာရင်း အာမခံပြီး · ကတ် သိမ်းထား" },
+  "floor.tabOpen": { en: "running bill open", my: "စာရင်း ဖွင့်ထား" },
+  "floor.tabOverLimit": { en: "over the running-bill limit", my: "စာရင်း ကန့်သတ် ကျော်" }, // K15-HIGH — the cue to check in with the table
   "floor.party": { en: "party of {n}", my: "{n} ယောက်" },
   "floor.card.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
   "floor.card.item.many": { en: "{n} items", my: "ပစ္စည်း {n} ခု" },
@@ -430,7 +456,7 @@ export const STAFF = {
   // INSIDE a MY value is not a slot and nothing marks it (strings.test.ts pins that). The leading
   // em dash is punctuation carried in the value, as `kds.held` / `kds.held.count` already do.
   "table.appr.refundsHint": {
-    en: "— money was taken (or a card hold abandoned) with no order behind it. Refund it in {x}, then mark it done here.",
+    en: "— money was taken (or set aside on a card and never used) with no order behind it. Refund it in {x}, then mark it done here.",
     my: "— အော်ဒါ မရှိဘဲ ငွေယူထားတယ် (ဒါမှမဟုတ် ကတ်မှာ ငွေပိတ်ထားပြီး ပစ်ထားတယ်)။ {x} မှာ ပြန်အမ်းပြီး ဒီမှာ ပြီးကြောင်း မှတ်ပါ။",
   }, // K15-HIGH — the instruction that gets a guest's money back
   "table.appr.stripe": { en: "Stripe", my: "Stripe" }, // LATIN BY DESIGN — the processor's own name
@@ -451,7 +477,7 @@ export const STAFF = {
     my: "နောက်ဆုံး အချက်အလက်အရ ခွင့်ပြုစရာ ဘာမှ မရှိပါ",
   },
   "table.appr.empty.hint": {
-    en: "When a server asks to void or comp something they can’t do solo, it lands here for a manager to approve or deny — oldest first.",
+    en: "When a server asks to remove an item or make it free and can’t do it alone, it lands here for a manager to approve or deny — oldest first.",
     my: "စားပွဲထိုးက သူ့ဘာသာ မလုပ်နိုင်လို့ ဖျက်ဖို့ ဒါမှမဟုတ် အခမဲ့ပေးဖို့ တောင်းဆိုရင် မန်နေဂျာ ခွင့်ပြု ဒါမှမဟုတ် ငြင်းပယ်ဖို့ ဒီမှာ ရောက်လာပါမယ်။ အဟောင်းက အရင်ပြပါတယ်။",
   },
   "table.appr.empty.outage": {
@@ -462,13 +488,16 @@ export const STAFF = {
   // ── the request card ───────────────────────────────────────────────────────
   // A counter/kiosk request has no tent card, so the table line is the bare noun.
   "table.appr.table": { en: "Table", my: "စားပွဲ" }, // glossary: စားပွဲ
-  "table.appr.kind.comp": { en: "Comp", my: "အခမဲ့" },
-  "table.appr.kind.void": { en: "Void", my: "ဖျက်" },
+  "table.appr.kind.comp": { en: "Make it free", my: "အခမဲ့" },
+  "table.appr.kind.void": { en: "Remove", my: "ဖျက်" },
   // The CARD's accessible name. Two keys rather than one with a `{kind}` slot: the raw DB values are
   // `comp`/`void`, and interpolating one would put an English status key inside a Burmese name —
   // the OPEN-ITEMS P2g shape. {x} is the dish, verbatim in whatever script the catalog holds.
-  "table.appr.card.comp": { en: "Comp request for {x}", my: "{x} အတွက် အခမဲ့ပေးရန် တောင်းဆိုချက်" },
-  "table.appr.card.void": { en: "Void request for {x}", my: "{x} အတွက် ဖျက်ရန် တောင်းဆိုချက်" },
+  "table.appr.card.comp": {
+    en: "Free-item request for {x}",
+    my: "{x} အတွက် အခမဲ့ပေးရန် တောင်းဆိုချက်",
+  },
+  "table.appr.card.void": { en: "Remove request for {x}", my: "{x} အတွက် ဖျက်ရန် တောင်းဆိုချက်" },
   "table.appr.cooked": { en: "cooked", my: "ချက်ပြီးသား" }, // K15-HIGH — the food is already gone; comping it costs the kitchen twice
   // The SEVEN reason codes the loss sheet can send, as words rather than as `service_recovery`.
   // Seven, not six: the void arm offers `sold_out` (W23a's dine-in 86) on top of the five the
@@ -489,11 +518,11 @@ export const STAFF = {
   // keeps the English byte-identical to the pre-P2 line ("Approve this comp — …").
   // "PIN" is ပင်နံပါတ်: a bare Latin run inside a MY value is unmarkable (strings.test.ts).
   "table.appr.confirm.approveComp": {
-    en: "Approve this comp — confirm with your PIN",
+    en: "Approve making it free — confirm with your PIN",
     my: "ဒီဟာကို အခမဲ့ပေးမယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
   "table.appr.confirm.approveVoid": {
-    en: "Approve this void — confirm with your PIN",
+    en: "Approve removing it — confirm with your PIN",
     my: "ဒီဟာကို ဖျက်မယ် — ပင်နံပါတ်နဲ့ အတည်ပြုပါ",
   },
   "table.appr.confirm.deny": {
@@ -514,7 +543,7 @@ export const STAFF = {
     my: "ဒီပစ္စည်း ပြောင်းသွားပြီ — ပြန်ဖတ်နေပါတယ်။",
   },
   "table.appr.msg.notOpen": {
-    en: "That table is no longer open — deny it (a settled refund is handled separately).",
+    en: "That table is no longer open — deny it (a refund after payment is handled separately).",
     my: "ဒီစားပွဲ ပိတ်သွားပြီ — ငြင်းပယ်လိုက်ပါ (ရှင်းပြီးသားကို ပြန်အမ်းတာ သီးသန့် လုပ်ပါတယ်)။",
   },
   "table.appr.msg.inFlight": {
@@ -550,14 +579,14 @@ export const STAFF = {
     my: "{x} ပြန်အမ်းပြီးကြောင်း အတည်ပြု",
   },
   "table.appr.refunds.outage": {
-    en: "The refunds ledger can’t load right now — anything already recorded is still there.",
+    en: "The refunds list can’t load right now — anything already recorded is still there.",
     my: "ပြန်အမ်းရန် စာရင်းကို အခု မဖတ်နိုင်သေးပါ — မှတ်ထားပြီးသားတွေ ရှိနေဆဲပါ။",
   },
   // The ledger loaded once and the latest poll could not read it (Codex round 3 on #283): the
   // last rows stay, and this line stands over them — or alone — so an empty strip never reads as
   // "nothing stranded" while the board cannot hear the feed.
   "table.appr.refunds.stale": {
-    en: "The refunds ledger couldn’t refresh — showing the last good list; a newly stranded charge may be missing.",
+    en: "The refunds list couldn’t refresh — showing the last good list; a new one may be missing.",
     my: "ပြန်အမ်းရန် စာရင်းကို ပြန်မဖတ်နိုင်ပါ — နောက်ဆုံး ဖတ်နိုင်ခဲ့တဲ့ စာရင်းကို ပြထားပါတယ်၊ အသစ် ကျန်နေတဲ့ ငွေကောက်ခံမှု ပါမလာနိုင်ပါ။",
   },
 
@@ -568,19 +597,19 @@ export const STAFF = {
   "browse.title.counter": { en: "Counter order", my: "ကောင်တာ အော်ဒါ" }, // glossary: အော်ဒါ
   "browse.title.add": { en: "Add items", my: "ပစ္စည်း ထည့်ရန်" },
   "browse.sub.counter": {
-    en: "Walk-up or phone order — review and settle from the order page.",
+    en: "Walk-up or phone order — review and take payment from the order page.",
     my: "လမ်းလျှောက်လာ ဒါမှမဟုတ် ဖုန်းအော်ဒါ — အော်ဒါ စာမျက်နှာမှာ စစ်ပြီး ငွေရှင်းပါ။",
   },
   "browse.sub.table": {
     en: "Ordering for table {id}. Tap to add — it lands on the table’s order instantly.",
     my: "စားပွဲ {id} အတွက် မှာနေပါတယ်။ နှိပ်လိုက်တာနဲ့ စားပွဲရဲ့ အော်ဒါထဲ ချက်ချင်း ရောက်ပါမယ်။",
   },
-  "browse.review": { en: "Review order & settle →", my: "အော်ဒါ စစ်ပြီး ငွေရှင်း →" },
+  "browse.review": { en: "Review order & take payment →", my: "အော်ဒါ စစ်ပြီး ငွေရှင်း →" },
 
   // ── the staff menu browser: the counter order's name strip ─────────────────
   "browse.name.label": { en: "Name for the order", my: "အော်ဒါအတွက် နာမည်" },
   "browse.name.placeholder": {
-    en: "First name — it’s the pickup call-out",
+    en: "First name — we call it when the order is ready",
     my: "နာမည်အရင် — လာယူချိန် လှမ်းခေါ်မယ့် နာမည်",
   },
   "browse.name.save": { en: "Save", my: "သိမ်း" },
@@ -600,7 +629,8 @@ export const STAFF = {
   // The row's sold-out FLAG, a statement about the dish. `browse.add.verb.soldOut` is the disabled
   // BUTTON's own word — two keys for one idea, the way floor.unregistered/…Sticker are, so a K15
   // correction to the badge cannot silently reword the control.
-  "browse.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // the glossary's ဖြုတ်, as kds.86.done
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
+  "browse.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // the same state word as kds.86.done
   "browse.verb.choose": { en: "Choose…", my: "ရွေးရန်…" },
   // {n} is a prose count (Burmese numerals); {x} is the dish name, verbatim.
   "browse.added": { en: "Added {n} × {x}.", my: "{x} {n} ခု ထည့်ပြီးပြီ။" },
@@ -619,7 +649,8 @@ export const STAFF = {
   // ── the add-to-table button (StaffAddButton) ───────────────────────────────
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
   "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
-  "browse.add.verb.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // ကုန်သွား is the LOSS reason
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
+  "browse.add.verb.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // ကုန်သွား is the LOSS reason
   // This console's OWN failure sentence — not a server-authored string, so it is a dictionary key
   // rather than something <OutageText> passes through as English forever.
   // Phase 2a (Codex round 1, P1) — replaces `browse.add.failed`: an add whose answer never arrived
@@ -658,7 +689,7 @@ export const STAFF = {
   // The closed-session surface: a cleared or expired table, reached from a bookmark or a stale tap.
   "table.detail.closed.title": { en: "This table is closed", my: "ဒီစားပွဲ ပိတ်ထားပြီ" },
   "table.detail.closed.body": {
-    en: "It was cleared or its session expired. Head back to the floor for active tables.",
+    en: "It was cleared or sat idle too long. Head back to the floor for active tables.",
     my: "ရှင်းလိုက်ပြီ ဒါမှမဟုတ် အချိန်ကုန်သွားပြီ။ ဖွင့်ထားတဲ့ စားပွဲတွေအတွက် ခန်းမကို ပြန်သွားပါ။",
   },
 
@@ -668,7 +699,7 @@ export const STAFF = {
   // sentence). These are the VISIBLE badges on the drill-down, sentence-cased as they render today —
   // the English console stays byte-identical. Same MY wording as the floor's, deliberately.
   "table.detail.unregisteredBadge": { en: "Unregistered sticker", my: "မှတ်ပုံမတင် စတစ်ကာ" },
-  "table.detail.tabOpen": { en: "Tab open", my: "စာရင်း ဖွင့်ထား" },
+  "table.detail.tabOpen": { en: "Running bill open", my: "စာရင်း ဖွင့်ထား" },
   // A1 — the drill-down's ask banner, above the settle controls. Present tense, the table's own
   // voice: they asked, they are waiting, the register acts. The relative time ("2m ago") is rendered
   // beside `counterAsked` by <RelativeTime> — since counter-8 through the `time.*` keys below, so
@@ -683,7 +714,7 @@ export const STAFF = {
   // Each of these leads a <RelativeTime> node ("5m ago" · "၅ မိနစ်က"). It stays a PREFIX on purpose,
   // not a sentence with a slot: `{t}` is a Latin clock by contract (fill.ts), and the age is PROSE
   // in the reader's tongue — a marked run of its own, which no string slot can carry.
-  "table.detail.tabOpened": { en: "tab opened", my: "စာရင်းဖွင့်တာ" },
+  "table.detail.tabOpened": { en: "running bill opened", my: "စာရင်းဖွင့်တာ" },
   "table.detail.lastActivity": { en: "last activity", my: "နောက်ဆုံး လှုပ်ရှားမှု" },
 
   // ── counter-8 · the relative age (`<RelativeTime>`, `lib/relative-time.ts`) ─────────────────
@@ -697,28 +728,40 @@ export const STAFF = {
   // ── the two advisory banners (server-discretion, S3.3) ────────────────────────────────────
   // TWO keys for one sentence because it carries TWO money figures and `{m}` fills globally: the
   // bolded lead-in takes the running subtotal, the body takes the ceiling.
-  "table.detail.ceiling.at": { en: "Tab at {m}", my: "စာရင်း {m} ရောက်ပြီ" },
+  "table.detail.ceiling.at": { en: "Running bill at {m}", my: "စာရင်း {m} ရောက်ပြီ" },
   "table.detail.ceiling.past": {
-    en: "— past the {m} mark. Check in with the table, or ask them to secure the tab with a card on file.",
+    en: "— past the {m} mark. Check in with the table, or ask them to save a card for the running bill.",
     my: "— {m} ကို ကျော်သွားပြီ။ စားပွဲကို သွားမေးပါ၊ ဒါမှမဟုတ် ကတ်နဲ့ စာရင်း အာမခံဖို့ ပြောပါ။",
   },
   "table.detail.nudge.party": {
-    en: "Large party — consider suggesting a secure tab (a card on file) so they can order freely and settle once.",
+    en: "Large party — consider suggesting a running bill with a saved card, so they can order freely and pay once.",
     my: "အဖွဲ့ကြီးပါ — ကတ် သိမ်းပြီး စာရင်း အာမခံဖို့ အကြံပြုပါ။ လွတ်လွတ်လပ်လပ် မှာပြီး တစ်ခါတည်း ရှင်းလို့ ရပါတယ်။",
   },
+  // Blind review (2026-09-24): `age` fires only on an OPEN running bill (lib/floor.ts), so it points
+  // at the bill that exists instead of suggesting one. EN reworded; the MY already said "this bill".
   "table.detail.nudge.age": {
-    en: "This tab's been open a while — consider suggesting they secure it with a card on file.",
+    en: "This running bill’s been open a while — suggest saving a card on this running bill.",
     my: "ဒီစာရင်း ဖွင့်ထားတာ ကြာပြီ — ကတ် သိမ်းပြီး အာမခံဖို့ အကြံပြုပါ။",
+  },
+  // …and the party nudge on a table whose running bill is ALREADY open (the component picks it by
+  // `detail.tab`). K15 draft — built from `nudge.party`'s own words with ဒီစာရင်း ("this bill").
+  "table.detail.nudge.partyOpen": {
+    en: "Large party — suggest saving a card on this running bill, so they can order freely and pay once.",
+    my: "အဖွဲ့ကြီးပါ — ဒီစာရင်းမှာ ကတ် သိမ်းပြီး အာမခံဖို့ အကြံပြုပါ။ လွတ်လွတ်လပ်လပ် မှာပြီး တစ်ခါတည်း ရှင်းလို့ ရပါတယ်။",
   },
 
   // ── the party card ────────────────────────────────────────────────────────────────────────
   "table.detail.party.title": { en: "Party", my: "အဖွဲ့" },
   "table.detail.party.empty": { en: "No guests yet.", my: "ဧည့်သည် မရှိသေးပါ။" },
-  "table.detail.host": { en: "host", my: "အိမ်ရှင်" },
+  // Plain words (owner, 2026-09-24; corrected by the blind review) — names the ROLE, never an event:
+  // a staff-opened table's host is the first diner who scans, so "started the table" was false.
+  // K15 draft; was “စားပွဲ စဖွင့်တဲ့သူ” (and “အိမ်ရှင်” before that).
+  "table.detail.host": { en: "sends the orders", my: "အော်ဒါ ပို့သူ" },
   // {x} is a guest's name — verbatim, in whatever script the seat carries.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ကတ် သိမ်းထားပြီး — တာဝန်…”.
   "table.detail.hostOfRecord": {
-    en: "Card on file — host of record: {x}.",
-    my: "ကတ် သိမ်းထားပြီး — တာဝန်ခံ အိမ်ရှင်မှာ {x} ဖြစ်ပါတယ်။",
+    en: "Card on file — saved by {x}.",
+    my: "ကတ် သိမ်းထားပြီး — {x} သိမ်းထားတဲ့ ကတ်ပါ။",
   },
 
   // ── the order card ────────────────────────────────────────────────────────────────────────
@@ -745,8 +788,8 @@ export const STAFF = {
   // The read-only twin of `table.line.voided` — ONE wording, because they are the two branches
   // of a single list in a single card and the word for a voided line must not change with the
   // reader's write permission.
-  "table.detail.line.voided": { en: "Voided", my: "ဖျက်ပြီး" },
-  "table.detail.line.comped": { en: "Comped", my: "အခမဲ့ ပေး" }, // the အခမဲ့ root every other comp string uses
+  "table.detail.line.voided": { en: "Removed", my: "ဖျက်ပြီး" },
+  "table.detail.line.comped": { en: "On the house", my: "အခမဲ့ ပေး" }, // the အခမဲ့ root every other comp string uses
   // The money row. `{m}` is preformatted by `fmt()` and stays Latin; the item count is prose.
   "table.detail.subtotalSoFar": { en: "subtotal so far", my: "ယခုအထိ စုစုပေါင်း" },
   "table.detail.item.one": { en: "{n} item", my: "ပစ္စည်း {n} ခု" },
@@ -766,39 +809,42 @@ export const STAFF = {
   },
   "table.detail.line.refunded": { en: "refunded {m}", my: "{m} ပြန်အမ်းပြီး" },
   "table.detail.pretaxNote": {
-    en: "Running pre-tax subtotal — tax is added at settle.",
+    en: "Running pre-tax subtotal — tax is added when they pay.",
     my: "အခွန်မပါသေးတဲ့ စုစုပေါင်း — အခွန်ကို ငွေရှင်းချိန်မှာ ထည့်ပါမယ်။",
   },
 
   // ── settle, tab close and the counter handoff ─────────────────────────────────────────────
   "table.detail.trust.reader": {
-    en: "Paying by card? Use the reader above, or the guest can close the tab from their phone.",
+    en: "Paying by card? Use the reader above, or the guest can close the running bill from their phone.",
     my: "ကတ်နဲ့ ရှင်းမလား။ အပေါ်က ကတ်စက်နဲ့ ယူပါ၊ ဒါမှမဟုတ် ဧည့်သည်က သူ့ဖုန်းကနေ စာရင်းပိတ်နိုင်ပါတယ်။",
   },
   "table.detail.trust.phone": {
-    en: "Paying by card? The guest closes the tab from their phone — it settles when that payment lands.",
+    en: "Paying by card? The guest closes the running bill from their phone — it’s paid when that payment goes through.",
     my: "ကတ်နဲ့ ရှင်းမလား။ ဧည့်သည်က သူ့ဖုန်းကနေ စာရင်းပိတ်ပါမယ် — ငွေရောက်တာနဲ့ ရှင်းပြီးပါမယ်။",
   },
   "table.detail.handoff.paid": { en: "Paid · {m}", my: "ရှင်းပြီး · {m}" },
   "table.detail.handoff.change": { en: "change {m}", my: "အကြွေ {m}" },
   "table.detail.handoff.callout": {
-    en: "The pickup call-out — it’s on the kitchen ticket and the ready board.",
+    en: "The number we call when it’s ready — it’s on the kitchen ticket and the ready board.",
     my: "လာယူဖို့ ခေါ်မယ့် နံပါတ် — မီးဖိုချောင် အော်ဒါစာရွက်နဲ့ အော်ဒါ ဘုတ်မှာ ပါပါတယ်။",
   },
   "table.detail.payingPhone.tab": {
-    en: "A guest is paying on their phone — editing and tab close are paused until that finishes.",
+    en: "A guest is paying on their phone — editing and closing the running bill are paused until that finishes.",
     my: "ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ် — ပြီးတဲ့အထိ ပြင်တာနဲ့ စာရင်းပိတ်တာကို ခဏရပ်ထားပါတယ်။",
   },
   "table.detail.payingPhone.cash": {
-    en: "A guest is paying on their phone — editing and cash settle are paused until that finishes.",
+    en: "A guest is paying on their phone — editing and taking cash are paused until that finishes.",
     my: "ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ် — ပြီးတဲ့အထိ ပြင်တာနဲ့ ငွေသားရှင်းတာကို ခဏရပ်ထားပါတယ်။",
   },
 
   // ── accessible names with no visible label to contain (sx() only) ─────────────────────────
   "table.detail.a11y.guests": { en: "Guests at this table", my: "ဒီစားပွဲက ဧည့်သည်များ" },
   "table.detail.a11y.lines": { en: "Items on this order", my: "ဒီအော်ဒါက ပစ္စည်းများ" },
-  "table.detail.a11y.openTab": { en: "Open a tab for this table", my: "ဒီစားပွဲအတွက် စာရင်းဖွင့်" },
-  "table.detail.a11y.settle": { en: "Settle this table", my: "ဒီစားပွဲ ငွေရှင်း" },
+  "table.detail.a11y.openTab": {
+    en: "Open a running bill for this table",
+    my: "ဒီစားပွဲအတွက် စာရင်းဖွင့်",
+  },
+  "table.detail.a11y.settle": { en: "Take payment for this table", my: "ဒီစားပွဲ ငွေရှင်း" },
   "table.detail.a11y.merge": { en: "Merge this table", my: "ဒီစားပွဲကို ပေါင်းစည်း" },
   "table.detail.a11y.paid": { en: "Order paid", my: "အော်ဒါ ငွေရှင်းပြီး" },
 
@@ -857,9 +903,10 @@ export const STAFF = {
   "expo.tag.verified": { en: "Verified", my: "စစ်ဆေးပြီး" },
   "expo.pickup": { en: "Pickup {t}", my: "လာယူချိန် {t}" },
   // The product name rides `{x}` so <Chrome> marks it Latin inside the Burmese run.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} — ထွက်ခွင့်လက်မှတ်ကိ…”.
   "expo.grocery.note": {
-    en: "{x} — verify the exit pass; nothing to bag.",
-    my: "{x} — ထွက်ခွင့်လက်မှတ်ကို စစ်ပါ၊ ထုပ်စရာ မရှိပါ။",
+    en: "{x} — check their paid screen; nothing to bag.",
+    my: "{x} — ငွေရှင်းပြီး စခရင်ကို စစ်ပါ၊ ထုပ်စရာ မရှိပါ။",
   },
   "expo.dest.togo": { en: "To-go", my: "ပါဆယ်" },
   "expo.dest.grocery": { en: "Grocery", my: "ကုန်စုံ" },
@@ -924,7 +971,8 @@ export const STAFF = {
   "floor.nav.approvals": { en: "Approvals", my: "ခွင့်ပြုချက်များ" },
   "floor.nav.approvalsCount": { en: "Approvals ({n})", my: "ခွင့်ပြုချက်များ ({n})" },
   // A4·3 — the zone's own heading (`floor.settled.head`) with an arrow: `reg.day.refunded.*` /
-  // `reg.day.note` point staff at "Settled today" — the tile, the heading and the pointer are one name.
+  // `reg.day.note` point staff at "Today’s payments & refunds" — the tile, the heading and the
+  // pointer are one name.
   "floor.nav.menuPrices": { en: "Menu prices", my: "မီနူး ဈေးနှုန်း" },
   "floor.nav.menuAvailability": { en: "Menu availability", my: "မီနူး ရနိုင်မှု" },
   "floor.nav.tips": { en: "Tips today", my: "ဒီနေ့ အပိုကြေး" },
@@ -938,12 +986,13 @@ export const STAFF = {
   // counter door names both of Dad's rooms — the register AND the tables — because that is what it
   // opens on. Every MY value here is a Claude-authored draft pending Min's native check (K15).
   "floor.door.counter": { en: "Counter & tables", my: "ကောင်တာနဲ့ စားပွဲများ" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဟင်းထွက်တဲ့နေရာ · တစ်ကတ်…”.
   "floor.door.kitchen.sub": {
-    en: "The pass · tickets, bump, 86",
-    my: "ဟင်းထွက်တဲ့နေရာ · တစ်ကတ်၊ ပြီးပြီ၊ ဖြုတ်",
+    en: "Kitchen screen · tickets, done, sold out",
+    my: "မီးဖိုချောင် စခရင် · တစ်ကတ်၊ ပြီးပြီ၊ ကုန်သွားပြီ",
   },
   "floor.door.counter.sub": {
-    en: "Register · take an order, settle a table, apply a promo code",
+    en: "Register · take an order, take payment, add a promo code",
     my: "ကောင်တာ · အော်ဒါယူ၊ စားပွဲ ငွေရှင်း၊ လျှော့ကုဒ် ထည့်",
   },
   // A tablet that has walked through a door says so on that door, and opens there next time.
@@ -994,29 +1043,37 @@ export const STAFF = {
   // ── Settled today — the manager's zone of the counter screen (A4·3 · M204) ──
   // The list READS THE RECEIPT: every row label below is pinned to the artifact's own English in
   // `lib/settled-view.test.ts`, so a reworded receipt reddens the pin instead of drifting from it.
-  "floor.settled.head": { en: "Settled today", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ" },
+  // Blind review (2026-09-24): the list holds today's payments AND earlier orders refunded here
+  // today, so "Paid today" understated it. K15 draft; was “ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ”.
+  "floor.settled.head": {
+    en: "Today’s payments & refunds",
+    my: "ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ",
+  },
   "floor.settled.sub": {
     en: "Orders paid today, and earlier orders refunded here today, as the guest’s receipt shows them. Refunding a line returns its price + tax to the card and is logged with your name.",
     my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများနဲ့ ဒီနေ့ ဒီမှာ ပြန်အမ်းလိုက်တဲ့ ရှေ့ရက် အော်ဒါများ — ဧည့်သည့် ပြေစာမှာ ပြတဲ့အတိုင်း။ တစ်လိုင်းကို ပြန်အမ်းလိုက်ရင် အဲဒီဈေးနှုန်းနဲ့ အခွန်ကို ကတ်ထဲ ပြန်ထည့်ပေးပြီး ဘယ်သူလုပ်တယ်ဆိုတာ မှတ်တမ်းတင်ပါတယ်။",
   }, // K15-HIGH — the sentence that says a refund is logged to the person who taps it
   // EN singular/plural pair — ONE Burmese value (see STAFF_PLURAL_PAIRS).
-  "floor.settled.count.one": { en: "{n} settled", my: "ရှင်းပြီး {n} ခု" },
-  "floor.settled.count.many": { en: "{n} settled", my: "ရှင်းပြီး {n} ခု" },
+  // Blind review (2026-09-24): a count of ORDERS, paid or refunded — "{n} paid" miscounted a refund.
+  // K15 draft; was “ရှင်းပြီး {n} ခု”.
+  "floor.settled.count.one": { en: "{n} order", my: "အော်ဒါ {n} ခု" },
+  "floor.settled.count.many": { en: "{n} orders", my: "အော်ဒါ {n} ခု" },
   // The read is capped; a full page says so rather than passing part of the day off as the whole.
   "floor.settled.full": {
     en: "— the newest {n}; earlier ones are off this list",
     my: "— နောက်ဆုံး {n} ခုသာ၊ အစောပိုင်းဟာတွေ ဒီစာရင်းမှာ မပါ",
   },
+  // K15 draft (blind review 2026-09-24); was “ဒီနေ့ ငွေရှင်းပြီး အော်ဒါ မရှိသေးပါ”.
   "floor.settled.none": {
-    en: "Nothing settled yet today",
-    my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါ မရှိသေးပါ",
+    en: "Nothing paid or refunded yet today",
+    my: "ဒီနေ့ ငွေရှင်းတာ ပြန်အမ်းတာ မရှိသေးပါ",
   },
   "floor.settled.none.hint": {
-    en: "Orders paid today — and earlier orders refunded here today — land in this list the moment they settle, newest first.",
+    en: "Orders paid today — and earlier orders refunded here today — land in this list the moment they’re paid or refunded, newest first.",
     my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါတွေနဲ့ ဒီနေ့ ဒီမှာ ပြန်အမ်းလိုက်တဲ့ ရှေ့ရက် အော်ဒါတွေ ရှင်းပြီးတာနဲ့ ဒီစာရင်းမှာ ရောက်လာပါမယ် — အသစ်က အရင်။",
   },
   "floor.settled.outage": {
-    en: "Today’s settled orders can’t load right now — the system is unreachable.",
+    en: "Today’s paid orders can’t load right now — the system is unreachable.",
     my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါတွေကို အခု မဖတ်နိုင်သေးပါ — စနစ်နဲ့ မဆက်နိုင်ပါ။",
   },
   "floor.settled.stale": {
@@ -1024,7 +1081,11 @@ export const STAFF = {
     my: "ပြန်မဖတ်နိုင်ပါ — {t} အချိန်က စာရင်းကို ပြထားပါတယ်။",
   },
   "floor.settled.verb.refresh": { en: "Refresh", my: "ပြန်ဖတ်" },
-  "floor.settled.a11y.list": { en: "Orders settled today", my: "ဒီနေ့ ငွေရှင်းပြီး အော်ဒါစာရင်း" },
+  // K15 draft (blind review 2026-09-24) — the heading's words; was “ဒီနေ့ ငွေရှင်းပြီး အော်ဒါစာရင်း”.
+  "floor.settled.a11y.list": {
+    en: "Today’s payments & refunds",
+    my: "ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ",
+  },
   "floor.settled.a11y.lines": { en: "Order lines", my: "အော်ဒါ လိုင်းများ" },
   "floor.settled.a11y.rows": { en: "Receipt totals", my: "ပြေစာ စုစုပေါင်းများ" },
   // The receipt's own identity line: its short code (an identifier — Latin), who it was for.
@@ -1121,7 +1182,7 @@ export const STAFF = {
     my: "ကတ် တစ်ခုထက်ပိုပြီး ရှင်းထားတာ — ပေးသူတစ်ယောက်ချင်းစီကို {x} မှာ ပြန်အမ်းပါ။",
   },
   "floor.refund.err.stripe": {
-    en: "The refund didn’t go through at the card processor — try again.",
+    en: "The refund didn’t go through on the card — try again.",
     my: "ကတ်ကုမ္ပဏီမှာ ပြန်အမ်းတာ မအောင်မြင်ပါ — ထပ်ကြိုးစားပါ။",
   },
   "floor.refund.err.notManager": {
@@ -1143,13 +1204,14 @@ export const STAFF = {
   // ═══ P2 PR B · lines ═══════════════════════════════════════════════════════════
   // ── the table drill-down: one cart line (StaffLineEditor) ──────────────────
   // Terminal badges. No echo at the call site — a badge cannot legibly stack two scripts.
-  "table.line.comped": { en: "Comped · free", my: "အခမဲ့ ပေးထား" },
-  "table.line.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // grounded: browse.price.soldOut
+  "table.line.comped": { en: "On the house · no charge", my: "အခမဲ့ ပေးထား" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားပြီ”.
+  "table.line.soldOut": { en: "Sold out", my: "ကုန်သွားပြီ" }, // grounded: browse.price.soldOut
   "table.line.approvalRequested": { en: "Approval requested", my: "ခွင့်ပြုချက် တောင်းထားပြီ" },
 
   // The two per-line VERBS. Each is the button's visible word AND the head of its accessible name
   // (al()'s `verb` arm), so a K15 correction moves both halves in one edit.
-  "table.line.verb.voidComp": { en: "Void / Comp", my: "ဖျက် / အခမဲ့" }, // K15-HIGH — opens the loss sheet; the line leaves the bill
+  "table.line.verb.voidComp": { en: "Remove or make free", my: "ဖျက် / အခမဲ့" }, // K15-HIGH — opens the loss sheet; the line leaves the bill
   "table.line.verb.addNote": { en: "Note", my: "မှတ်ချက်" },
   "table.line.verb.editNote": { en: "Edit note", my: "မှတ်ချက် ပြင်" },
 
@@ -1172,17 +1234,17 @@ export const STAFF = {
   // 2.5.3 has nothing to contain and these can afford the noun that says WHICH choice is being made
   // — the same trade `floor.unregisteredSticker` makes against `floor.unregistered`.
   "table.loss.a11y.action": {
-    en: "Void or comp this item",
+    en: "Remove this item or make it free",
     my: "ဒီပစ္စည်းကို ဖျက် ဒါမှမဟုတ် အခမဲ့ပေး",
   },
   "table.loss.a11y.reason": {
-    en: "Reason for this void or comp",
+    en: "Reason for removing it or making it free",
     my: "ဒီ ဖျက်/အခမဲ့ အတွက် အကြောင်းအရင်း",
   },
 
   "table.loss.cooking": { en: "already cooking", my: "ချက်နေဆဲ" }, // K15-HIGH — the cue that this loss is real food
-  "table.loss.seg.void": { en: "Void (remove)", my: "ဖျက် (ပြန်နုတ်)" },
-  "table.loss.seg.comp": { en: "Comp (free)", my: "အခမဲ့ (ငွေမယူ)" },
+  "table.loss.seg.void": { en: "Remove (off the bill)", my: "ဖျက် (ပြန်နုတ်)" },
+  "table.loss.seg.comp": { en: "Make it free (no charge)", my: "အခမဲ့ (ငွေမယူ)" },
   "table.loss.hint.void": {
     en: "Cancels the item and removes it from the bill. The kitchen won’t make it.",
     my: "ပစ္စည်းကို ဖျက်ပြီး စာရင်းထဲက ထုတ်ပါမယ်။ မီးဖိုချောင်က မချက်တော့ပါ။",
@@ -1217,8 +1279,8 @@ export const STAFF = {
   // English literals. The title is two whole keys, not a verb slot: the verb sits in a different
   // place in each tongue. `in_flight` reuses `table.appr.msg.inFlight`; "pick a reason" reuses
   // `table.loss.reasonRequired`; the "use Void" hint quotes the segment's own word through `{x}`.
-  "table.loss.title.void": { en: "Void “{x}”", my: "“{x}” ဖျက်" },
-  "table.loss.title.comp": { en: "Comp “{x}”", my: "“{x}” အခမဲ့" },
+  "table.loss.title.void": { en: "Remove “{x}”", my: "“{x}” ဖျက်" },
+  "table.loss.title.comp": { en: "Make “{x}” free", my: "“{x}” အခမဲ့" },
   "table.loss.msg.notOpen": {
     en: "This table’s order is no longer open.",
     my: "ဒီစားပွဲရဲ့ အော်ဒါ ပိတ်သွားပြီ။",
@@ -1249,17 +1311,20 @@ export const STAFF = {
   // Two whole keys per action rather than one with a {x} verb slot: the verb sits in a different
   // place in each tongue (Burmese is SOV), so a shared template would read wrong in one of them.
   "table.loss.requestApproval.void": {
-    en: "Request a manager’s approval to void",
+    en: "Request a manager’s approval to remove it",
     my: "ဖျက်ဖို့ မန်နေဂျာ ခွင့်ပြုချက် တောင်းမယ်",
   },
   "table.loss.requestApproval.comp": {
-    en: "Request a manager’s approval to comp",
+    en: "Request a manager’s approval to make it free",
     my: "အခမဲ့ပေးဖို့ မန်နေဂျာ ခွင့်ပြုချက် တောင်းမယ်",
   },
-  "table.loss.confirm.void": { en: "Void item", my: "ပစ္စည်း ဖျက်" }, // K15-HIGH — the tap that removes a fired line
-  "table.loss.confirm.comp": { en: "Comp item", my: "ပစ္စည်း အခမဲ့ပေး" }, // K15-HIGH — the tap that gives food away
-  "table.loss.confirmApproval.void": { en: "Void with approval", my: "ခွင့်ပြုချက်နဲ့ ဖျက်" }, // K15-HIGH
-  "table.loss.confirmApproval.comp": { en: "Comp with approval", my: "ခွင့်ပြုချက်နဲ့ အခမဲ့ပေး" }, // K15-HIGH
+  "table.loss.confirm.void": { en: "Remove item", my: "ပစ္စည်း ဖျက်" }, // K15-HIGH — the tap that removes a fired line
+  "table.loss.confirm.comp": { en: "Make item free", my: "ပစ္စည်း အခမဲ့ပေး" }, // K15-HIGH — the tap that gives food away
+  "table.loss.confirmApproval.void": { en: "Remove with approval", my: "ခွင့်ပြုချက်နဲ့ ဖျက်" }, // K15-HIGH
+  "table.loss.confirmApproval.comp": {
+    en: "Make free with approval",
+    my: "ခွင့်ပြုချက်နဲ့ အခမဲ့ပေး",
+  }, // K15-HIGH
   "table.loss.noManager": {
     en: "No manager here? Request approval",
     my: "မန်နေဂျာ မရှိဘူးလား? ခွင့်ပြုချက် တောင်းပါ",
@@ -1276,9 +1341,10 @@ export const STAFF = {
     en: "One price per dish — dine-in and to-go ring the same amount, the way the register does. A change takes effect on the next order; lines already in a cart keep the price they were quoted, and paid orders never change. Every edit is recorded with your name.",
     my: "ဟင်းတစ်မျိုးကို ဈေးတစ်ခုတည်း — ဆိုင်မှာစားရော ပါဆယ်ရော အတူတူ၊ ကောင်တာမှာလိုပဲ။ ပြောင်းလိုက်ရင် နောက်အော်ဒါကစပြီး သက်ရောက်ပါတယ်။ အော်ဒါထဲ ရောက်နေပြီးသားတွေက ပြောထားတဲ့ ဈေးအတိုင်းပဲ၊ ငွေရှင်းပြီးသား အော်ဒါတွေလည်း မပြောင်းပါ။ ဘယ်သူ ပြင်တယ်ဆိုတာ အကုန် မှတ်ထားပါတယ်။",
   },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ကုန်သွားတာနဲ့ ဟင်းကို မီ…”.
   "browse.price.leadServer": {
-    en: "Take a dish off the menu the moment you run out — nobody can order it until someone puts it back, and there is no timer that does it for you. Prices are managers only. Every change is recorded with your name.",
-    my: "ကုန်သွားတာနဲ့ ဟင်းကို မီနူးက ချက်ချင်း ဖြုတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းက မန်နေဂျာ သီးသန့်။ ဘယ်သူ ပြောင်းတယ်ဆိုတာ အကုန် မှတ်ထားပါတယ်။",
+    en: "Mark a dish sold out the moment you run out — nobody can order it until someone puts it back, and there is no timer that does it for you. Prices are managers only. Every change is recorded with your name.",
+    my: "ကုန်သွားတာနဲ့ ဟင်းကို ကုန်ပြီ လို့ ချက်ချင်း မှတ်ပါ — တစ်ယောက်ယောက် ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။ အလိုအလျောက် ပြန်တင်ပေးမယ့် အချိန်တိုင်း မရှိပါ။ ဈေးနှုန်းက မန်နေဂျာ သီးသန့်။ ဘယ်သူ ပြောင်းတယ်ဆိုတာ အကုန် မှတ်ထားပါတယ်။",
   },
   "browse.price.find": { en: "Find a dish", my: "ဟင်း ရှာပါ" },
   "browse.price.noMatch": {
@@ -1288,28 +1354,33 @@ export const STAFF = {
 
   // The sold-out flag on a row. Leading " · " sits INSIDE the value, the way `kds.held` carries its
   // own separator; {t} is a clock time and stays Latin in both tongues.
-  "browse.price.soldOut": { en: " · sold out", my: " · ဖြုတ်ထားပြီ" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “· ဖြုတ်ထားပြီ”.
+  "browse.price.soldOut": { en: " · sold out", my: " · ကုန်သွားပြီ" },
   // menu-4 — {t} is the clock alone on the same service day and `Sep 15, 6:40 PM` on any other
   // (`lib/sold-out-since.ts` decides; the row tints the older one). ONE key on purpose: the
   // sentence is the same, only the stamp grows a day.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “· {t} ကတည်းက ဖြုတ်ထားပြီ”.
   "browse.price.soldOutSince": {
     en: " · sold out since {t}",
-    my: " · {t} ကတည်းက ဖြုတ်ထားပြီ",
+    my: " · {t} ကတည်းက ကုန်သွားပြီ",
   },
   // The sold-out chip beside the search (the audit's "find the flags that outlived their shift"
   // affordance). {n} is a prose count → Burmese numerals.
-  "browse.price.soldOutOnly": { en: "Sold out ({n})", my: "ဖြုတ်ထားတာ ({n})" },
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်ထားတာ ({n})”.
+  "browse.price.soldOutOnly": { en: "Sold out ({n})", my: "ကုန်သွားတာ ({n})" },
   // The empty state UNDER the chip: the needle searched only what is off the menu, and the
   // sentence must say so — `browse.price.noMatch` while the chip hides a matching dish is false.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was ““{x}” နဲ့ ကိုက်ညီတဲ့ ဖြု…”.
   "browse.price.noMatchSoldOut": {
     en: "No sold-out dish matches “{x}”.",
-    my: "“{x}” နဲ့ ကိုက်ညီတဲ့ ဖြုတ်ထားတဲ့ ဟင်း မရှိပါ။",
+    my: "“{x}” နဲ့ ကိုက်ညီတဲ့ ကုန်သွားတဲ့ ဟင်း မရှိပါ။",
   },
 
   // ── VERBS — the visible word on a control, and the word its name leads with ─
-  // `86` is kitchen jargon on a 44px pill and stays the English console's word verbatim; the Burmese
-  // is the glossary's ဖြုတ်, the same verb `kds.86` uses.
-  "browse.price.verb.eightySix": { en: "86", my: "ဖြုတ်" },
+  // Plain words (owner, 2026-09-24): this pill said "86" — kitchen slang the owner's parents do not
+  // use — and now says what it does, in the same words as `kds.86` on the kitchen board.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဖြုတ်”.
+  "browse.price.verb.eightySix": { en: "Mark sold out", my: "ကုန်ပြီ လို့ မှတ်မယ်" },
   "browse.price.verb.putBack": { en: "Put back", my: "ပြန်တင်" },
   "browse.price.verb.edit": { en: "Edit", my: "ပြင်" },
   "browse.price.verb.cancel": { en: "Cancel", my: "မလုပ်တော့" },
@@ -1348,9 +1419,10 @@ export const STAFF = {
   },
 
   // ── the view's ONE live region ─────────────────────────────────────────────
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “{x} ကို မီနူးက ဖြုတ်ပြီ…”.
   "browse.price.live.off": {
-    en: "{x} is off the menu — nobody can order it until you put it back.",
-    my: "{x} ကို မီနူးက ဖြုတ်ပြီ — ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။",
+    en: "{x} is sold out — nobody can order it until you put it back.",
+    my: "{x} ကုန်သွားပြီ — ပြန်မတင်မချင်း ဘယ်သူမှ မမှာနိုင်ပါ။",
   }, // K15-HIGH
   "browse.price.live.on": {
     en: "{x} is back on the menu.",
@@ -1446,11 +1518,11 @@ export const STAFF = {
   "floor.tips.total.self": { en: "Your tips today", my: "ဒီနေ့ ကိုယ်ရတဲ့ အပိုကြေး" },
   "floor.tips.people": { en: "Handed to a person", my: "လူတစ်ယောက် လက်ခံထားတာ" },
   "floor.tips.people.empty.all": {
-    en: "Nobody has settled a tipped order yet today.",
+    en: "Nobody has taken payment for a tipped order yet today.",
     my: "ဒီနေ့ အပိုကြေးပါတဲ့ အော်ဒါ ဘယ်သူမှ မရှင်းရသေးပါ။",
   },
   "floor.tips.people.empty.self": {
-    en: "You haven’t settled a tipped order yet today.",
+    en: "You haven’t taken payment for a tipped order yet today.",
     my: "ဒီနေ့ အပိုကြေးပါတဲ့ အော်ဒါ ကိုယ် မရှင်းရသေးပါ။",
   },
   "floor.tips.a11y.people": { en: "Tips by person", my: "လူအလိုက် အပိုကြေး" },
@@ -1491,7 +1563,7 @@ export const STAFF = {
   // cannot read English must not land on that screen with no way to change the console's language.
   "floor.team.title": { en: "Team", my: "ဝန်ထမ်းများ" },
   "floor.team.sub": {
-    en: "Add staff by email — they’ll sign in with a one-time code. Deactivate to offboard without losing history.",
+    en: "Add staff by email — they’ll sign in with a one-time code. Deactivate someone who has left — their history stays.",
     my: "အီးမေးလ်နဲ့ ဝန်ထမ်း ထည့်ပါ — တစ်ကြိမ်သုံး ကုဒ်နဲ့ ဝင်ပါလိမ့်မယ်။ မှတ်တမ်း မပျောက်စေဘဲ ထုတ်ဖို့ ရပ်ဆိုင်းပါ။",
   },
   "floor.team.managersOnly": { en: "Managers only", my: "မန်နေဂျာများသာ" },
@@ -1601,18 +1673,18 @@ export const STAFF = {
   // အံဆွဲ from `reg.day.inDrawer` and လိုနေ (short/lacking) as the one new idea.
   "reg.day.short": { en: "{m} short in drawer", my: "အံဆွဲထဲ {m} လိုနေ" },
   "reg.day.refunded.one": {
-    en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
-    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
+    en: "{n} order paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Today’s payments & refunds, not in these totals.",
+    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ စာရင်းမှာ ပြပါတယ်။",
   },
   "reg.day.refunded.many": {
-    en: "{n} orders paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Settled today, not in these totals.",
-    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ ပြပါတယ်။",
+    en: "{n} orders paid today and since fully refunded ({m}) — not counted above. An earlier day’s order refunded here today shows under Today’s payments & refunds, not in these totals.",
+    my: "ဒီနေ့ ငွေရှင်းပြီးမှ အပြည့် ပြန်အမ်းလိုက်တဲ့ အော်ဒါ {n} ခု ({m}) — အပေါ်က စာရင်းမှာ မပါပါ။ ရှေ့ရက်က အော်ဒါကို ဒီနေ့ ဒီမှာ ပြန်အမ်းထားရင် ဒီစုစုပေါင်းမှာ မဟုတ်ဘဲ ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ စာရင်းမှာ ပြပါတယ်။",
   },
   // Zone-neutral (Codex round 2 on #283): the takings floor on the CONFIGURED service zone
   // (`readServiceDay`), so the note must not name a city the owner's setting may not be.
   "reg.day.note": {
-    en: "Since the service day began. Order totals by status — line-level refunds aren’t netted out; Settled today, below, shows each one on its order.",
-    my: "ဒီနေ့ ဝန်ဆောင်မှုနေ့ စကတည်းက။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အောက်က ဒီနေ့ ငွေရှင်းပြီး အော်ဒါများ စာရင်းမှာ အော်ဒါတစ်ခုချင်းအလိုက် ပြပါတယ်။",
+    en: "Since the service day began. Order totals by status — line-level refunds aren’t netted out; Today’s payments & refunds, below, shows each one on its order.",
+    my: "ဒီနေ့ ဝန်ဆောင်မှုနေ့ စကတည်းက။ အော်ဒါ စုစုပေါင်းကို အခြေအနေအလိုက် ခွဲပြထားပါတယ် — တစ်လိုင်းချင်း ပြန်အမ်းငွေတွေ မနုတ်ထားပါ။ အောက်က ဒီနေ့ ငွေရှင်းတာနဲ့ ပြန်အမ်းတာများ စာရင်းမှာ အော်ဒါတစ်ခုချင်းအလိုက် ပြပါတယ်။",
   },
   "reg.day.outage": {
     en: "Today’s takings can’t load right now — the system is unreachable.",
@@ -1634,19 +1706,19 @@ export const STAFF = {
   "settle.confirm": { en: "Confirm", my: "အတည်ပြု" },
 
   // ── cash settle (the two-step confirm at the counter and at the table) ────
-  "settle.cash.trigger": { en: "Settle in cash · {m}", my: "ငွေသားနဲ့ ရှင်း · {m}" },
-  "settle.cash.triggerTab": { en: "Close tab · cash · {m}", my: "စာရင်းပိတ် · ငွေသား · {m}" },
+  "settle.cash.trigger": { en: "Take cash · {m}", my: "ငွေသားနဲ့ ရှင်း · {m}" },
+  "settle.cash.triggerTab": { en: "Close bill · cash · {m}", my: "စာရင်းပိတ် · ငွေသား · {m}" },
   // K29(b) — the cash confirm is the shared sheet now; its title names the act WITHOUT the amount
   // (the question below carries it, tip-inclusive, and a title that quoted the pre-tip figure would
   // put two different numbers on one sheet). Grounded: the two trigger keys above, amount dropped.
-  "settle.cash.title": { en: "Settle in cash", my: "ငွေသားနဲ့ ရှင်း" },
-  "settle.cash.titleTab": { en: "Close tab · cash", my: "စာရင်းပိတ် · ငွေသား" },
+  "settle.cash.title": { en: "Take cash", my: "ငွေသားနဲ့ ရှင်း" },
+  "settle.cash.titleTab": { en: "Close bill · cash", my: "စာရင်းပိတ် · ငွေသား" },
   "settle.cash.take": { en: "Take {m} in cash?", my: "ငွေသား {m} လက်ခံမလား?" }, // K15-HIGH — the amount actually collected
   "settle.cash.tipBreakdown": { en: "({m} + {tip} tip)", my: "({m} + အပိုကြေး {tip})" },
-  "settle.cash.closesTab": { en: "This closes the tab.", my: "ဒါနဲ့ စာရင်း ပိတ်ပါမယ်။" },
+  "settle.cash.closesTab": { en: "This closes the running bill.", my: "ဒါနဲ့ စာရင်း ပိတ်ပါမယ်။" },
   "settle.cash.closesOrder": { en: "This closes the order.", my: "ဒါနဲ့ အော်ဒါ ပိတ်ပါမယ်။" }, // glossary: အော်ဒါ
-  "settle.cash.settling": { en: "Settling…", my: "ရှင်းနေပါတယ်…" },
-  "settle.cash.settleAmount": { en: "Settle {m}", my: "{m} ရှင်း" }, // K15-HIGH — the tap that takes the money
+  "settle.cash.settling": { en: "Taking payment…", my: "ရှင်းနေပါတယ်…" },
+  "settle.cash.settleAmount": { en: "Take {m}", my: "{m} ရှင်း" }, // K15-HIGH — the tap that takes the money
   "settle.cash.hint": {
     en: "Includes sales tax. A cash tip is handled separately.",
     my: "ရောင်းခွန် ပါဝင်ပါတယ်။ ငွေသား အပိုကြေးကို သီးခြား ကိုင်တွယ်ပါတယ်။",
@@ -1667,18 +1739,18 @@ export const STAFF = {
     my: "ဧည့်သည်က အော်ဒါစက်မှာ အပိုကြေး မထည့်ဘူးလို့ ရွေးထားပါတယ်။",
   },
   "settle.cash.overCap": {
-    en: "That’s over the {m} cap — check the amount.",
+    en: "That’s over the {m} limit — check the amount.",
     my: "{m} ကန့်သတ်ချက် ကျော်နေပါတယ် — ပမာဏ ပြန်စစ်ပါ။",
   }, // K15-HIGH — the only thing standing between a fat finger and a recorded tip
 
   // ── cash settle: the counter handoff (tendered → change) ─────────────────
-  "settle.cash.tenderedLabel": { en: "Cash tendered (optional)", my: "လက်ခံရရှိငွေ (ထည့်ချင်မှ)" },
+  "settle.cash.tenderedLabel": { en: "Cash received (optional)", my: "လက်ခံရရှိငွေ (ထည့်ချင်မှ)" },
   "settle.cash.change": { en: "Change: {m}", my: "ပြန်အမ်းငွေ: {m}" }, // K15-HIGH — money handed back across the counter
   "settle.cash.notEnough": { en: "Not enough yet.", my: "ငွေ မလုံလောက်သေးပါ။" },
 
   // ── closing a secure tab against the card on file ────────────────────────
   "settle.card.trigger": {
-    en: "Close tab · card on file · {m}",
+    en: "Close bill · card on file · {m}",
     my: "စာရင်းပိတ် · သိမ်းထားကတ် · {m}",
   },
   "settle.card.chargeQ": {
@@ -1700,7 +1772,7 @@ export const STAFF = {
     my: "ငွေဖြတ်မှုကို ကတ်စက်ဆီ ပို့ပါမယ် — ဧည့်သည်က အဲဒီမှာ ကပ် ဒါမှမဟုတ် ထိုးပါမယ်။",
   },
   "settle.reader.startFailed": {
-    en: "Couldn’t start the card payment — try again, or settle by cash.",
+    en: "Couldn’t start the card payment — try again, or take cash.",
     my: "ကတ်နဲ့ ငွေရှင်းတာ မစနိုင်ပါ — ထပ်စမ်းပါ၊ ဒါမှမဟုတ် ငွေသားနဲ့ ရှင်းပါ။",
   },
   "settle.reader.onReader": { en: "On the reader", my: "ကတ်စက်ပေါ်မှာ" },
@@ -1713,7 +1785,7 @@ export const STAFF = {
     en: "Couldn’t cancel just now — try again.",
     my: "အခု မဖျက်နိုင်ပါ — ထပ်စမ်းပါ။",
   },
-  "settle.reader.backToSettle": { en: "Back to settle", my: "ငွေရှင်းဆီ ပြန်" },
+  "settle.reader.backToSettle": { en: "Back to payment", my: "ငွေရှင်းဆီ ပြန်" },
 
   // ── clearing a table on turnover ─────────────────────────────────────────
   // {id} is the number off the physical tent card — Latin in both tongues.
@@ -1837,7 +1909,7 @@ export const STAFF = {
     my: "အော်ဒါ ဘုတ်ကို မပြင်ဆင်ရသေးပါ — မန်နေဂျာကို ဒီစခရင်မှာ ပြင်ဆင်ပေးဖို့ ပြောပါ။",
   },
   "board.denied": {
-    en: "This screen isn’t authorized for the order-ready board.",
+    en: "This screen isn’t allowed to show the order-ready board.",
     my: "ဒီစခရင်ကို အော်ဒါ ဘုတ်အတွက် ခွင့်မပြုထားပါ။",
   },
 
@@ -1933,7 +2005,10 @@ export const STAFF = {
   // instruction, and dine-in is table service, so there is nothing for them to do. `board.col.ready`
   // (ယူသွားနိုင်ပါပြီ, "you can take it away") is right for the takeaway column beside it and would
   // be a lie here. The kitchen's own word for what the stamp holds is that the food has come out.
-  "board.pulse.up": { en: "Food up", my: "ဟင်းထွက်ပြီ" },
+  // Plain words (owner, 2026-09-24): the English was the pass's slang "Food up". "Ready to serve"
+  // holds the same stamp and names a STAFF verb — a guest serves nothing, so it is still no
+  // instruction to them. The Burmese (the food has come out) already said it plainly.
+  "board.pulse.up": { en: "Ready to serve", my: "ဟင်းထွက်ပြီ" },
   "board.pulse.unavailable": {
     en: "Can’t read the kitchen right now.",
     my: "မီးဖိုချောင် အခြေအနေကို အခု မဖတ်နိုင်သေးပါ။",
@@ -1981,7 +2056,7 @@ export const STAFF = {
   "pilot.gloss.col.fix": { en: "Correction", my: "ပြင်ဆင်ချက်" },
   "pilot.gloss.band.high": { en: "Read these first", my: "ဒါတွေ အရင်ဖတ်ပါ" },
   "pilot.gloss.band.high.why": {
-    en: "A wrong word here stops service: a held ticket read as live, a bump with no way back, an outage nobody knows what to do about.",
+    en: "A wrong word here stops service: a ticket for later read as one to cook now, a Done tapped with no way back, an outage nobody knows what to do about.",
     my: "ဒီမှာ စာလုံးမှားရင် အလုပ် ရပ်သွားပါတယ် — ဆိုင်းထားတဲ့ အော်ဒါကို လက်ရှိလို့ ဖတ်မိတာ၊ ပြန်မရတော့တဲ့ ပြီးပြီနှိပ်မိတာ၊ စနစ်ပျက်တဲ့အခါ ဘာလုပ်ရမှန်း မသိတာ။",
   },
   "pilot.gloss.band.rest": { en: "The rest", my: "ကျန်တာများ" },
@@ -2049,7 +2124,7 @@ export const STAFF = {
   // orders and the takings — and a split-settled table IS in both: `mms_fulfill_split_order` writes a
   // real `qr_orders` row with `status='paid'`. What it does not write is a `promo_redemptions` row.
   "pilot.night.split": {
-    en: "Missing from this one: a table that split its bill. A split settle records no discount use — its order and its money ARE counted.",
+    en: "Missing from this one: a table that split its bill. A split payment records no discount use — its order and its money ARE counted.",
     my: "ဒီဂဏန်းမှာ မပါတာ — ဘေလ်ခွဲပြီး ရှင်းတဲ့ စားပွဲ။ ခွဲရှင်းတာက လျှော့ပေးမှတ်တမ်း မတင်ပါ — အော်ဒါနဲ့ ငွေကတော့ ရေတွက်ထားပါတယ်။",
   },
   // A zero under "discounts given" has two opposite meanings — "guests did not use it" and "the code
@@ -2373,10 +2448,12 @@ export const STAFF = {
     my: "မီးဖိုချောင် ဘုတ် ဘယ်လို သုံးရမလဲ",
   },
   "help.how.title.counter": { en: "How the counter works", my: "ကောင်တာ ဘယ်လို သုံးရမလဲ" },
-  // the kitchen board — bump · undo · 86 · fire (the canvas's four, verified against KdsBoard.tsx)
+  // the kitchen board — Done · undo · sold out · Cook now (the canvas's four, verified against KdsBoard.tsx)
+  // K15 draft (blind review 2026-09-24) — names the button, "All done" (`kds.bump`); was
+  // “… အစိမ်းရောင် ခလုတ်ကို နှိပ်ပါ။ …”.
   "help.how.kitchen.1": {
-    en: "Food up? Tap the green button. The ticket clears.",
-    my: "ဟင်းထွက်ပြီလား? အစိမ်းရောင် ခလုတ်ကို နှိပ်ပါ။ တစ်ကတ် ပျောက်သွားပါမယ်။",
+    en: "Food ready? Tap the green All done button. The ticket clears.",
+    my: "ဟင်းထွက်ပြီလား? အစိမ်းရောင် အားလုံး ပြီးပြီ ခလုတ်ကို နှိပ်ပါ။ တစ်ကတ် ပျောက်သွားပါမယ်။",
   }, // K15-HIGH — the one instruction the pass runs on
   "help.how.kitchen.1.more": {
     en: "Every line on the ticket goes at once.",
@@ -2389,13 +2466,21 @@ export const STAFF = {
   },
   // Not "the dark bar": `.kds-undo` is `--tx` on `--pg`, and the board is always Night, so the bar
   // is the PALE one on that screen. The sentence names its place, not a colour it does not have.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “အောက်ခြေက ဘားက တစ်ကတ်ကို…”.
   "help.how.kitchen.2.more": {
     en: "The bar at the bottom brings the ticket back.",
-    my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
+    my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ယူပေးပါမယ်။",
   },
+  // Phase 2b — the 86 moved behind the line's ⋯ ("More", its spoken name — a screen reader voices
+  // the glyph as "midline horizontal ellipsis", so the card names the word, the picture maps it to
+  // ⋯). Re-drafted: Claude-authored MY pending Min's native check (K15), re-queued.
+  // Plain words (owner, 2026-09-24) — K15 re-draft of the Burmese; was “ဟင်းကုန်ရင် အဲဒီဟင်းရဲ့…”.
+  // Blind review (2026-09-24): the card said "Tap More", but only the ⋯ glyph is DRAWN on the line —
+  // a cook looks for the word and finds none. The card now names what is on screen, the glyph
+  // itself (its spoken name stays "More for …", `kds.line.more`). K15 draft; was “… နောက်ထပ် ကို …”.
   "help.how.kitchen.3": {
-    en: "Out of a dish? 86 it — guests can’t order it any more.",
-    my: "ဟင်းကုန်ရင် ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
+    en: "Out of a dish? Tap ⋯ on its line and mark it sold out — guests can’t order it any more.",
+    my: "ဟင်းကုန်ရင် အဲဒီဟင်းရဲ့ ⋯ ကို နှိပ်ပြီး ကုန်ပြီ လို့ မှတ်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
   }, // K15-HIGH — a wrong word here hides a dish from every guest, or keeps selling one that is gone
   // `setItemSoldOut` is server-and-up (app/staff/menu), so the put-back is not a manager's job —
   // the first draft said it was, and would have had Mom wait for someone she did not need.
@@ -2403,9 +2488,11 @@ export const STAFF = {
     en: "Anyone can put it back from the Menu page.",
     my: "မီနူး စာမျက်နှာကနေ ဘယ်သူမဆို ပြန်တင်လို့ ရပါတယ်။",
   },
+  // Blind review (2026-09-24): names the button, "Cook now" (`kds.fire`) — "Start" is the line
+  // button's verb. K15 draft; was “… ချက်ချိန်ရောက်မှ နှိပ်ပါ။”.
   "help.how.kitchen.4": {
-    en: "A dashed card is a scheduled pickup. Fire it when it’s time.",
-    my: "အစက်အပြောက် ကတ်က ကြိုမှာထားတဲ့ အော်ဒါပါ။ ချက်ချိန်ရောက်မှ နှိပ်ပါ။",
+    en: "A dashed card is a scheduled pickup. Tap Cook now when it’s time.",
+    my: "အစက်အပြောက် ကတ်က ကြိုမှာထားတဲ့ အော်ဒါပါ။ ချက်ချိန်ရောက်မှ အခု စချက် ကို နှိပ်ပါ။",
   }, // K15-HIGH — fired an hour early is food cooked an hour early
   "help.how.kitchen.4.more": {
     en: "Until then it waits — nothing is cooking.",
@@ -2494,7 +2581,7 @@ export const STAFF = {
   "report.attached.connection": { en: "Connection: {x}", my: "ချိတ်ဆက်မှု · {x}" },
   "report.attached.version": { en: "Version: {x}", my: "ဗားရှင်း · {x}" },
   "report.attached.more": {
-    en: "Plus device details and this session’s ids.",
+    en: "Plus device details and a few reference numbers.",
     my: "ထပ်ပြီး စက်အချက်အလက်နဲ့ ခြေရာခံ နံပါတ်များ။",
   },
   "report.conn.live": { en: "updating", my: "အသစ်တက်နေ" },
@@ -2576,9 +2663,12 @@ export const STAFF = {
     en: "{x} sends from their phone — send here only if the table asks.",
     my: "{x} က ဖုန်းကနေ ပို့ပါတယ် — စားပွဲက ပြောမှ ဒီကနေ ပို့ပါ။",
   },
+  // Plain words (owner, 2026-09-24; corrected by the blind review) — the ROLE, read from
+  // `TABLE_SENDER_THIRD` (lib/confirm-copy.ts; `confirm-copy.test.ts` pins the two together).
+  // K15 draft; was “စားပွဲ စဖွင့်တဲ့သူက …” (and “စားပွဲ အိမ်ရှင်က …” before that).
   "table.send.hostNote.anon": {
-    en: "The table’s host sends from their phone — send here only if the table asks.",
-    my: "စားပွဲ အိမ်ရှင်က ဖုန်းကနေ ပို့ပါတယ် — စားပွဲက ပြောမှ ဒီကနေ ပို့ပါ။",
+    en: "The person sending the table’s orders does it from their phone — send here only if the table asks.",
+    my: "စားပွဲရဲ့ အော်ဒါ ပို့သူက ဖုန်းကနေ ပို့ပါတယ် — စားပွဲက ပြောမှ ဒီကနေ ပို့ပါ။",
   },
   // {n} = the dishes staff added here; {total} = the table's OWN unsent dishes the same Send fires
   // (`mms_fire_cart` cannot fire a subset) — {total} because only {n}/{total} take Burmese digits.
@@ -2616,7 +2706,7 @@ export const STAFF = {
   }, // K15-HIGH — why a counter order has no Send (it cooks at payment)
   "table.send.err.nothing": { en: "Nothing new to send.", my: "ပို့စရာ အသစ် မရှိပါ။" },
   "table.send.err.closed": {
-    en: "This order is settled or closed — nothing to send.",
+    en: "This order is paid or closed — nothing to send.",
     my: "ဒီအော်ဒါ ရှင်းပြီး ဒါမှမဟုတ် ပိတ်ပြီးပြီ — ပို့စရာ မရှိပါ။",
   },
   "table.send.err.counter": {
@@ -2624,7 +2714,7 @@ export const STAFF = {
     my: "ကောင်တာ အော်ဒါတွေက ငွေရှင်းပြီးမှ မီးဖိုချောင် ရောက်ပါတယ်။",
   },
   "table.send.err.expired": {
-    en: "Too late to bring it back — the kitchen has it. Use Void / Comp on the dish if it shouldn’t be made.",
+    en: "Too late to bring it back — the kitchen has it. Use “Remove or make free” on the dish if it shouldn’t be made.",
     my: "ပြန်ယူဖို့ နောက်ကျသွားပြီ — မီးဖိုချောင် ရောက်သွားပြီ။ မချက်စေချင်ရင် ဟင်းပေါ်က ဖျက် / အခမဲ့ ကို နှိပ်ပါ။",
   }, // K15-HIGH — the kitchen already has it; the only way left is the loss path
   "table.send.err.failed": { en: "Couldn’t send — try again.", my: "မပို့နိုင်ပါ — ထပ်စမ်းပါ။" },
@@ -2662,9 +2752,78 @@ export const STAFF = {
   // write-outage twin ("that change wasn’t saved") would be false here. Same promise as that server
   // arm's own sentence. Claude-authored MY draft pending Min's native check (K15).
   "settle.card.unknown": {
-    en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this tab settles itself in a minute. If it doesn’t, try again.",
+    en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this bill closes itself in a minute. If it doesn’t, try again.",
     my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ကတ်ကနေ ဖြတ်ပြီးပြီလား မသိရပါ။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ဦး — ဖြတ်ပြီးသားဆိုရင် ဒီစာရင်း တစ်မိနစ်အတွင်း သူ့ဘာသာ ပိတ်သွားပါမယ်။ မပိတ်ရင် ထပ်စမ်းပါ။",
   }, // K15-HIGH — read while a charge's outcome is unknown; a misread collects the guest twice
+
+  // ── Phase 2b · kitchen ──
+  // The 86 moved behind a per-line ⋯ (K22: a test pass 86'd a live dish off a one-tap band). All
+  // three are Claude-authored MY drafts pending Min's native check (K15).
+  // The ⋯'s sr-only name. {x} is the dish as the ticket renders it (Burmese-first). A "More" control,
+  // not a menu of "options" holding one action. grounded: floor.door.more (နောက်ထပ်) +
+  // table.line.noteLabel ({x} အတွက်).
+  "kds.line.more": { en: "More for {x}", my: "{x} အတွက် နောက်ထပ်" },
+  // The sheet's hint above the 86. It promises exactly what `setItemSoldOut` does: the dish's
+  // `is_sold_out` flips, and no line on ANY ticket is touched. grounded: help.how.kitchen.3
+  // (မမှာနိုင်တော့ပါ), kds.live.restored (ဘုတ်ပေါ်), "orders" (အော်ဒါတွေ), help.how.title.counter (ကောင်တာ).
+  "kds.86.hint": {
+    en: "Guests can’t order it any more. Orders already on the board stay — tell the counter if you can’t make them.",
+    my: "ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။ ဘုတ်ပေါ်က အော်ဒါတွေကတော့ ဆက်ရှိနေမယ် — မလုပ်ပေးနိုင်ရင် ကောင်တာကို ပြောပါ။",
+  }, // K15-HIGH — the last thing read before a dish leaves every guest's menu
+  // The sr-only prefix on a ticket's kitchen note (the note is the line's description). The " — "
+  // after it is punctuation in the component, not dictionary text. grounded: browse.mod.note.
+  "kds.note.sr": { en: "Kitchen note", my: "မီးဖိုချောင် မှတ်ချက်" },
+  // ── Phase 2b · feedback ──
+  // The bar's status slot (feed pages) and the offline row (feedless pages), then the counter
+  // lane's thumb-zone Undo pill. Every MY value in this block is a Claude-authored K15 draft
+  // pending Min's native check, EXCEPT where a `grounded:` comment names its in-repo source.
+  // The slot's words — "Live" is sr-only at every width (only the bad states are read at arm's
+  // length); the other two are drawn beside the mark.
+  "shell.live.live": { en: "Live", my: "အသစ်တက်နေ" }, // grounded: report.conn.live
+  "shell.live.stale": { en: "Not updating", my: "အသစ်မတက်ပါ" }, // grounded: report.conn.notUpdating
+  "shell.live.offline": { en: "Offline", my: "အော့ဖ်လိုင်း" },
+  // The feedless page's row. No paper tail — that is a BOARD sentence (`out.tail.paper`); a menu or
+  // a lock screen has nothing to keep on paper.
+  "shell.net.offline": {
+    en: "This device is offline — changes won’t save.",
+    my: "ဒီစက် အင်တာနက် မရှိပါ — ပြင်ဆင်မှုတွေ မသိမ်းနိုင်ပါ။",
+  }, // K15-HIGH — the one reason a manager's price or 86 toggle is refused on a dead wifi
+  // The lane's Undo pill (live={false}: the lane's own region speaks the pick). The pill's text
+  // names what was picked; its action is `kds.undo` verbatim.
+  "expo.toast.picked": { en: "{x} picked up", my: "{x} ယူသွားပြီ" }, // grounded: expo.live.picked
+  "expo.toast.pickedTable": { en: "Table {id} picked up", my: "စားပွဲ {id} ယူသွားပြီ" }, // grounded: expo.live.pickedTable
+  "expo.toast.handedOver": { en: "{x} handed over", my: "{x} လွှဲပေးပြီး" }, // grounded: expo.verb.handedOver
+  // A scan-and-go hand-over is spoken as what the button said ("Handed over"), not "picked up".
+  "expo.live.handedOver": {
+    en: "{x} handed over — undo available.",
+    my: "{x} လွှဲပေးပြီး — ပြန်ဖျက်နိုင်သေးသည်။",
+  }, // grounded: expo.verb.handedOver + expo.live.picked's tail
+  // Blind review (2026-09-24) — THE HOLD CAP, SAID OUT LOUD (lib/undo-hold `holdCapPhase`). A
+  // keyboard user parked on Undo holds the window for at most a minute; five seconds before it is
+  // up the lane's region warns, and the commit that follows is announced. Per SUBJECT shape, like
+  // every expo sentence. All six are Claude-authored K15 drafts: the verbs are grounded on
+  // expo.live.picked (ယူသွားပြီ) / expo.verb.handedOver (လွှဲပေးပြီး) and kds.undo (ပြန်ဖျက်).
+  "expo.live.capSoon": {
+    en: "{x} will be marked picked up in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် {x} ကို ယူသွားပြီ လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capSoonTable": {
+    en: "Table {id} will be marked picked up in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် စားပွဲ {id} ကို ယူသွားပြီ လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capSoonHanded": {
+    en: "{x} will be marked handed over in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် {x} ကို လွှဲပေးပြီး လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capDone": { en: "{x} marked picked up.", my: "{x} ကို ယူသွားပြီ လို့ မှတ်ပြီးပြီ။" },
+  "expo.live.capDoneTable": {
+    en: "Table {id} marked picked up.",
+    my: "စားပွဲ {id} ကို ယူသွားပြီ လို့ မှတ်ပြီးပြီ။",
+  },
+  "expo.live.capDoneHanded": {
+    en: "{x} marked handed over.",
+    my: "{x} ကို လွှဲပေးပြီး လို့ မှတ်ပြီးပြီ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2824,6 +2983,10 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.line.state.fired",
   // ── Phase 2a · register ──
   "settle.card.unknown",
+  // ── Phase 2b · kitchen ──
+  "kds.86.hint",
+  // ── Phase 2b · feedback ──
+  "shell.net.offline",
 ]);
 
 /**

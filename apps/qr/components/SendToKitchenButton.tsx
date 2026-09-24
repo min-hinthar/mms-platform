@@ -4,7 +4,7 @@ import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
-import { sentCopy } from "@/lib/confirm-copy";
+import { sentCopy, TABLE_STARTER_MID } from "@/lib/confirm-copy";
 import { graceDeadlineMs, graceRemainingSec } from "@/lib/send-grace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
@@ -195,7 +195,7 @@ export function SendToKitchenButton({
       try {
         const res = await undoFire(cartId, undoBatch);
         if (res.ok) {
-          setMsg({ kind: "ok", text: "Brought back to your cart — edit and send again." });
+          setMsg({ kind: "ok", text: "Brought back to your order — change it and send again." });
           setUndoUntil(null); // the batch is back in draft → close the window
         } else if (res.reason === "expired") {
           // The grace passed mid-tap — honest steer to a server, and the window is genuinely over.
@@ -352,7 +352,7 @@ const reasonCopy: Record<
   "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error",
   string
 > = {
-  not_host: "Ask the host to send the order to the kitchen.",
+  not_host: `Ask ${TABLE_STARTER_MID} to send the order to the kitchen.`,
   // ⚠️ THE SAME STRING AS THE CLIENT-SIDE REFUSAL, DELIBERATELY (Codex round 2 on #247). This is
   // the RACED path: the tap started while the cart was editable and the server took the lock before
   // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
@@ -367,7 +367,7 @@ const reasonCopy: Record<
   // still coming, and on a lock that took and released mid-request it already went by. A sentence
   // that makes no claim about the lock needs no edge and cannot go stale.
   locked: "That didn’t go through — please try again.",
-  settling: "The table is settling up — you can’t send while everyone pays.",
+  settling: "Your table is paying — you can’t send while everyone pays.",
   nothing: "Everything’s already with the kitchen.",
   rate_limited: "One moment — too many taps. Try again in a few seconds.",
   error: "Couldn’t send that just now — please try again.",

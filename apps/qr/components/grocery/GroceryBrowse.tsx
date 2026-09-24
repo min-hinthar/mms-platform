@@ -355,7 +355,8 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   if (catalog.length === 0 || stocked.length === 0) {
     return (
       <p style={{ color: "var(--t3)", marginTop: 14 }}>
-        The aisles are being stocked — search above, or scan a shelf barcode from the Scan tab.
+        The aisles are being stocked — search above, or scan the code on a package from the Scan
+        tab.
       </p>
     );
   }

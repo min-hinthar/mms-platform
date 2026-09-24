@@ -2616,3 +2616,43 @@ an earlier `style` prop: the LAST spread wins wholesale.
 `aria-disabled` / `aria-busy` last, OR-ing in a caller's `aria-disabled={true}` (pinned by
 `packages/ui/src/__tests__/button-state.test.ts`, red on the old order). The rule generalises: a
 primitive that DERIVES an attribute from its props must spread caller props BEFORE it, never after.
+
+## #140
+
+**`vitest -t` takes a REGEX, so a red-first harness must treat "0 passed, all skipped" as NO result,
+never as a survivor.** Phase 2b's kitchen branch ran hand mutations through `-t "<test name>"`; a
+name containing `--kfs-_ tier` matched ZERO tests (the pattern parsed as a regex), so an induced
+mutation read "green" with every test skipped. Escape the name, or assert the run's passed count is
+non-zero before calling a mutant survived. The same branch found a second false survivor's cousin:
+an EventTarget ignores a repeated `addEventListener` of the SAME function, so an "attach once" guard
+around it is dead code — a surviving hand mutant was right, and the guard was deleted.
+
+## #141
+
+**jsdom matches `:focus-visible` on ANY focused element (a browser does not after a tap), and
+NEITHER jsdom nor a browser fires a blur for a focused node that is REMOVED.** A tap-vs-keyboard test must
+stub `Element.prototype.matches` (delegating every other selector), or "a tap never holds the
+window" passes for the wrong reason. And any state keyed on focus/blur PAIRS (a hold, a paused
+timer) must be released explicitly when its control is replaced by a keyed remount, because the
+removal fires no blur anywhere and the hold stays latched (the lane's thumb-zone Undo, Phase 2b).
+
+## #142
+
+**Inside one `await act(async () => vi.advanceTimersByTimeAsync(n))`, a state set by a timer does
+not commit until `act` ends** — so a timer an EFFECT schedules in response (a leave phase after a
+shield) starts at the END of the advance, not when the first timer fired. Split the advance at the
+phase boundary, or the assertion reads the phase one timer late. Related: a component whose
+persisted controls hydrate over a two-microtask chain after mount races a click fired synchronously
+after `render` — flush two microtasks first.
+
+## #143
+
+**A plain-words rename is a CONCEPT merge, and the dictionary's same-surface rules make it one.**
+`strings.test.ts` forbids two keys on one surface saying the same English with different Burmese.
+Renaming the kitchen's "BUMP" to "Done" put it beside the line's existing "Done" (`kds.line.done`,
+ပြီး) — the guard would have reddened on the fork, and the right answer was one Burmese word for
+both (ပြီးပြီ), not an exemption. The same pass found "Remove" twice under `table.*` (the approvals
+chip and the loss sheet's segment), resolved by keeping the segment's parenthetical so each tongue
+says the same distinction. Before renaming a value, grep its surface for the NEW English. And keep
+the key: `kds.86` still names "Mark sold out" — a key is an address the tests, the glossary sheet
+and the K15 markers all hold, and renaming it would have moved nothing a reader sees.

@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { helpCardCount, helpSeenKey, type HelpDoorScreen } from "@/lib/help";
+import { STAFF } from "@/lib/i18n/staff";
 
 vi.mock("@/lib/haptics", () => ({ haptic: vi.fn() }));
 vi.mock("posthog-js", () => ({
@@ -110,7 +111,7 @@ describe("HelpButton", () => {
   it("the first time a DEVICE mounts a screen's door, the cards open by themselves — once", async () => {
     const { unmount } = render(<HelpButton lang="en" screen="kitchen" cardVars={kitchenVars} />);
     await screen.findByRole("dialog");
-    expect(screen.getByText(/Food up\? Tap the green button/)).not.toBeNull();
+    expect(screen.getByText(STAFF["help.how.kitchen.1"].en)).not.toBeNull();
     // On the auto-open the SHEET's initial focus stands — the dialog, announced with its title (W9e):
     // the content mounts a commit after the open, so nothing else could have focus yet. From the
     // first Next on, the sentence takes it.

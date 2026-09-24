@@ -595,9 +595,9 @@ export function OrderTracker({
           : refunded
             ? "This order was refunded — the amount returns to your original payment method, typically within five to ten business days."
             : pureGrocery
-              ? "Paid — you’re all set. Show your exit pass on the way out if asked."
+              ? "Paid — you’re all set. Show this screen on your way out if asked."
               : dineInSettled
-                ? "Paid in full — your table is settled."
+                ? "Paid in full — your table’s bill is paid."
                 : arriveErr && ready
                   ? arriveErr
                   : ready
@@ -612,7 +612,7 @@ export function OrderTracker({
                           : "Payment confirmed — your order is in."
                       : timedOut
                         ? sharePayer
-                          ? "Your share is paid. The table’s bill is recorded under whoever started the split — details below."
+                          ? "Your share is paid. The table’s bill is saved under whoever started splitting it — details below."
                           : weDown
                             ? // W10c — the escalation is announced too. The reference itself is spelled
                               // out character by character in its own sr-only sibling below.
@@ -625,8 +625,8 @@ export function OrderTracker({
                             ? // W23d — under manual capture this beat is an AUTHORIZATION, and the
                               // headline beside it now says so. Announcing "Payment confirmed" here
                               // put the screen's two money claims in direct contradiction.
-                              "Card authorized — we’re confirming your order."
-                            : "Payment confirmed — finalizing your order."
+                              "Card approved — we’re confirming your order."
+                            : "Payment confirmed — finishing your order."
                           : processing
                             ? "Confirming your payment."
                             : "Confirming your order."}
@@ -770,7 +770,7 @@ export function OrderTracker({
           </p>
         </section>
       ) : pureGrocery ? (
-        <section className="exit-pass mms-rise" aria-label="Exit pass">
+        <section className="exit-pass mms-rise" aria-label="Paid — show at the door">
           <p
             className="exit-pass-kicker"
             style={{
@@ -1028,7 +1028,7 @@ export function OrderTracker({
                       // `getMyLiveOrders` are BOTH scoped to `earned_by`, and a split order stamps only
                       // the host — which is the entire premise of this branch. /account would greet them
                       // with "No orders yet". Say what is true and point at a person who can help.
-                      "Your payment went through. The table’s bill is recorded under whoever started the split, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
+                      "Your payment went through. The table’s bill is saved under whoever started splitting it, so this screen can’t follow it — ask them for the receipt, or check with us before you go."
                     : `${paidClaim(notYetCharged)}; we just can’t reach the order from this screen yet. Refresh to try again.`}
           </div>
           {/* The receipt token staff can look the payment up by. Same visible/sr-only split as the
@@ -1150,8 +1150,8 @@ export function OrderTracker({
             lineHeight: 1.5,
           }}
         >
-          Live updates aren’t reaching this screen, so this is a snapshot rather than a live view —
-          it won’t update on its own.
+          This screen isn’t updating right now — it shows your order as it was when it loaded, and
+          it won’t change on its own.
           <span
             style={{
               display: "flex",

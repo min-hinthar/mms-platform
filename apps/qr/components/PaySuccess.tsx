@@ -162,7 +162,7 @@ export function PaySuccess({
       </h1>
       {awaitingCapture && (
         <p className="pay-success-progress">
-          Your card is authorized — we take the payment as we confirm the order.
+          Your card is approved — we take the payment as we confirm the order.
         </p>
       )}
       {!awaitingCapture && earned && (

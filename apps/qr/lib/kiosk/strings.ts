@@ -29,15 +29,21 @@ const STRINGS = {
   grocery: { en: "Grocery", my: "ကုန်စုံ" },
   groceryHint: { en: "Scan items as you go", my: "ပစ္စည်းတွေကို စကင်ဖတ်သွားရုံပါပဲ" },
   yourName: { en: "Your first name", my: "သင့်နာမည်" },
-  namePrompt: { en: "It’s the pickup call-out", my: "အော်ဒါရရင် နာမည်နဲ့ ခေါ်ပေးဖို့ပါ" },
+  namePrompt: {
+    en: "We’ll call this name when your order is ready",
+    my: "အော်ဒါရရင် နာမည်နဲ့ ခေါ်ပေးဖို့ပါ",
+  },
   tableNumber: { en: "Your table number", my: "စားပွဲနံပါတ်" },
-  tablePrompt: { en: "It’s on the table tent", my: "စားပွဲပေါ်က နံပါတ်ပြားမှာ ကြည့်လို့ရပါတယ်" },
+  tablePrompt: {
+    en: "It’s on the number stand on your table",
+    my: "စားပွဲပေါ်က နံပါတ်ပြားမှာ ကြည့်လို့ရပါတယ်",
+  },
   tableTaken: {
-    en: "That table’s already seated — please ask a server.",
+    en: "Someone is already sitting at that table — please ask our staff.",
     my: "အဲဒီစားပွဲမှာ ဧည့်သည်ရှိနေပါတယ် — ဝန်ထမ်းကို မေးကြည့်ပါနော်။",
   },
   tableUnknown: {
-    en: "We don’t recognize that table number — check the tent and try again.",
+    en: "We don’t recognize that table number — check the number stand and try again.",
     my: "အဲဒီနံပါတ်ကို ရှာမတွေ့ပါ — နံပါတ်ပြားကို ပြန်ကြည့်ပြီး ထပ်စမ်းပေးပါ။",
   },
   start: { en: "Start", my: "စမယ်" },
@@ -71,14 +77,14 @@ const STRINGS = {
     my: "အားလုံး အဆင်သင့်ပါပြီ — ကောင်တာမှာ ရှင်းလိုက်ပါ။",
   },
   handoffDinein: {
-    en: "Take your tent to the table and pay at the counter.",
+    en: "Take your number stand to the table and pay at the counter.",
     my: "နံပါတ်ပြားလေးကို စားပွဲဆီယူသွားပြီး ကောင်တာမှာ ရှင်းလိုက်ပါနော်။",
   },
   handoffThanks: { en: "Thank you!", my: "ကျေးဇူး အများကြီးတင်ပါတယ်!" },
   done: { en: "Done", my: "ပြီးပါပြီ" },
   stillThere: { en: "Still there?", my: "ရှိနေသေးလား?" },
   idleBody: {
-    en: "This order will clear so the kiosk is ready for the next customer.",
+    en: "This order will clear so the screen is ready for the next customer.",
     my: "နောက်တစ်ယောက်အတွက် ဒီအော်ဒါကို ရှင်းလိုက်ပါမယ်။",
   },
   // Post-commitment idle (the upsell screen): the order SURVIVES — never threaten to clear it.
@@ -91,14 +97,14 @@ const STRINGS = {
   total: { en: "Total", my: "စုစုပေါင်း" },
   add: { en: "Add", my: "ထည့်မယ်" },
   scanPrompt: {
-    en: "Scan a barcode, or browse below",
-    my: "ဘားကုဒ် စကင်ဖတ်ပါ — ဒါမှမဟုတ် အောက်မှာ ရွေးလိုက်ပါ",
+    en: "Scan the code on the package, or browse below",
+    my: "ပစ္စည်းပေါ်က ကုဒ်ကို စကင်ဖတ်ပါ — ဒါမှမဟုတ် အောက်မှာ ရွေးလိုက်ပါ", // K15 draft (plain words 2026-09-24)
   },
   // Honest scan refusals (W6b review): each failure names itself — "something went wrong" on a
   // simply-unknown barcode sends customers away from a working kiosk.
   scanUnknown: {
-    en: "We couldn’t find that barcode — please ask at the counter.",
-    my: "ဒီဘားကုဒ်ကို ရှာမတွေ့ပါ — ကောင်တာမှာ မေးကြည့်ပါနော်။",
+    en: "We couldn’t find that item — please ask at the counter.",
+    my: "ဒီပစ္စည်းကို ရှာမတွေ့ပါ — ကောင်တာမှာ မေးကြည့်ပါနော်။", // K15 draft (plain words 2026-09-24)
   },
   scanUnavailable: {
     en: "That item isn’t available today.",
@@ -111,7 +117,7 @@ const STRINGS = {
   categories: { en: "Categories", my: "အမျိုးအစားများ" },
   menu: { en: "Menu", my: "မီနူး" },
   notConfigured: {
-    en: "This kiosk isn’t set up yet — please order at the counter.",
+    en: "This screen isn’t set up yet — please order at the counter.",
     my: "ဒီစက် အဆင်သင့်မဖြစ်သေးပါ — ကောင်တာမှာ မှာလိုက်ပါနော်။",
   },
   somethingWrong: {
@@ -126,7 +132,7 @@ const STRINGS = {
    * actually works.
    */
   justAMoment: {
-    en: "Just a moment — we couldn’t reach our system. Please tap again.",
+    en: "Just a moment — we couldn’t connect. Please tap again.",
     my: "ခဏလေးပါ — စနစ်နဲ့ ချိတ်ဆက်လို့ မရသေးပါ။ ထပ်နှိပ်ကြည့်ပါနော်။",
   },
 } as const;

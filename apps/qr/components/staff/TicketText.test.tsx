@@ -1,7 +1,15 @@
 /** @vitest-environment jsdom */
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { ExpoLineMy, ModsMy, RailRowText, TicketLineText } from "./TicketText";
+import {
+  ExpoLineMy,
+  ModsMy,
+  RailRowText,
+  TicketDishTitle,
+  TicketLineText,
+  TicketNote,
+} from "./TicketText";
+import { ts } from "@/lib/i18n/staff";
 
 /**
  * P1 — the RENDER rule, pinned where it lives.
@@ -198,5 +206,73 @@ describe("ExpoLineMy — the bag row's Burmese half, name and modifiers independ
     const en = [...my.querySelectorAll('[lang="en"]')].map((e) => e.textContent);
     expect(en).toEqual(["Mohinga", "No egg"]);
     expect(my.textContent).toBe(`Mohinga · ${MILD_MY} · No egg`);
+  });
+});
+
+describe("Phase 2b · TicketNote — two flex children, each Myanmar run marked, nothing for a blank note", () => {
+  const MIXED = "no peanuts — မြေပဲ";
+
+  it("the note has EXACTLY the ⚠ and ONE text span, with no text node directly under it", () => {
+    // jsdom has no layout, so the flex-fragmentation defect (§6: a flex container drops whitespace-only
+    // children, eating the space between two runs) is pinned STRUCTURALLY. MUTATION: render the runs
+    // straight under the note (drop the .ticket-note-text wrapper) — more than two children, red.
+    const { container } = render(
+      <TicketNote note={MIXED} id="n1" lang="en" className="kds-note" />,
+    );
+    const note = container.querySelector("#n1")!;
+    expect(note.tagName).toBe("P");
+    expect(note.className).toBe("kds-note");
+    expect(note.children).toHaveLength(2);
+    expect(note.children[0]!.tagName.toLowerCase()).toBe("svg");
+    expect(note.children[0]!.getAttribute("aria-hidden")).toBe("true");
+    expect(note.children[1]!.className).toBe("ticket-note-text");
+    expect([...note.childNodes].filter((n) => n.nodeType === Node.TEXT_NODE)).toHaveLength(0);
+  });
+
+  it('only the Myanmar run is lang="my"; the sr prefix is the first text in the span', () => {
+    // MUTATION ticket-text/note-myanmar-run-unmarked (`r.my ? … : r.text` → `r.text`) — the Burmese
+    // run is bare text, typeset in the body face and voiced as English, red.
+    const { container } = render(<TicketNote note={MIXED} lang="en" className="kds-note" />);
+    const text = container.querySelector(".ticket-note-text")!;
+    const marked = text.querySelectorAll("[lang]");
+    expect(marked).toHaveLength(1);
+    expect(marked[0]!.getAttribute("lang")).toBe("my");
+    expect(marked[0]!.textContent).toBe("မြေပဲ");
+    expect(text.firstElementChild!.className).toBe("sr-only");
+    expect(text.firstElementChild!.textContent).toBe(`${ts("en", "kds.note.sr")} — `);
+    expect(text.textContent).toBe(`${ts("en", "kds.note.sr")} — ${MIXED}`);
+  });
+
+  it("a Latin-only note mounts no [lang] span; as=span renders a span; a blank note renders nothing", () => {
+    const latin = render(<TicketNote note="no MSG" lang="en" as="span" className="expo-note" />);
+    const span = latin.container.querySelector(".expo-note")!;
+    expect(span.tagName).toBe("SPAN");
+    expect(span.querySelector("[lang]")).toBeNull();
+    cleanup();
+    const blank = render(<TicketNote note="   " lang="en" className="kds-note" />);
+    expect(blank.container.innerHTML).toBe("");
+  });
+
+  it("under my, the sr prefix arrives marked Burmese — the note's own runs keep their own marks", () => {
+    const { container } = render(<TicketNote note="no MSG" lang="my" className="kds-note" />);
+    const sr = container.querySelector(".ticket-note-text > .sr-only")!;
+    expect(sr.querySelector('[lang="my"]')?.textContent).toBe(ts("my", "kds.note.sr"));
+    // The Latin note itself is bare text — never marked Burmese by the device language.
+    const text = container.querySelector(".ticket-note-text")!;
+    expect([...text.querySelectorAll("[lang]")].every((el) => sr.contains(el))).toBe(true);
+  });
+});
+
+describe("Phase 2b · TicketDishTitle — the sheet names the dish the way the line reads", () => {
+  it("Burmese first with the English echo, or the bare English name", () => {
+    // MUTATION ticket-text/dish-title-drops-echo — the English echo (Dad's line, and WCAG 2.5.3's
+    // visible text beside a Burmese label) is gone, red.
+    const my = render(<TicketDishTitle line={{ name: "Mohinga", nameMy: MOHINGA_MY }} />);
+    expect(my.container.querySelector('.chrome-my[lang="my"]')?.textContent).toBe(MOHINGA_MY);
+    expect(my.container.querySelector(".chrome-en")?.textContent).toBe("Mohinga");
+    cleanup();
+    const en = render(<TicketDishTitle line={{ name: "Mohinga", nameMy: null }} />);
+    expect(en.container.textContent).toBe("Mohinga");
+    expect(en.container.querySelector("[lang]")).toBeNull();
   });
 });

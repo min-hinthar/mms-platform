@@ -642,7 +642,10 @@ export function TableCartProvider({
     if (!resume || !session?.created || resumeNoticed.current) return;
     resumeNoticed.current = true;
     void Promise.resolve().then(() =>
-      flash("That table session had ended — we’ve started a fresh one for you.", 4200),
+      flash(
+        "Your earlier visit at this table had ended — we’ve started a fresh one for you.",
+        4200,
+      ),
     );
   }, [resume, session, flash]);
   // Cancel a pending clear-timer on unmount so it can't fire setState on an unmounted component
@@ -684,7 +687,7 @@ export function TableCartProvider({
     // nothing to double-add and the honest sentence is the same either way.
     const msg =
       prev && prev !== cartId
-        ? "Your table session timed out — we started a fresh order."
+        ? "Your table sat idle too long — we started a fresh order."
         : unconfirmed
           ? // SAME cart, and the write that sent us here may have landed on it. Point at the cart,
             // never at the retry: re-sending is the one action that can charge the dish twice.
@@ -1472,7 +1475,7 @@ export function TableCartProvider({
         // The copy predates this slice, but rule 1 now PINS the release as always-spoken, so the
         // false case would have been guarded in rather than merely left standing.
         settling
-        ? "The pay-lock lifted — the order stays locked while your table splits the bill"
+        ? "Checkout ended — the order stays locked while your table splits the bill"
         : "The order’s unlocked — you can edit again"
       : lockedByYou
         ? "You’re checking out — the order’s locked"

@@ -20,7 +20,7 @@ export const CART = {
   yourOrder: { en: "Your order", my: "သင့်အော်ဒါ" }, // shipped W12
   yourBill: { en: "Your bill", my: "သင့်ဘောက်ချာ" }, // shipped W12
   // EN values are the SHIPPED checkout copy verbatim (never reworded by translation plumbing).
-  emptyCartTitle: { en: "Nothing in your cart yet", my: "ဘာမှ မထည့်ရသေးပါ" },
+  emptyCartTitle: { en: "Nothing added yet", my: "ဘာမှ မထည့်ရသေးပါ" },
   emptyCartSubMenu: {
     en: "Add a dish from the menu and it’ll show up here.",
     my: "မီနူးထဲက ဟင်းတစ်ခွက် ထည့်လိုက်ရင် ဒီမှာ ပေါ်လာပါမယ်",
@@ -84,22 +84,22 @@ export const CART = {
   // Claude-authored diaspora-register drafts pending Min's native check (K15). "ကောင်တာ" is the
   // loanword the kiosk strings already use for the register (lib/kiosk/strings.ts).
   payAtCounter: { en: "Pay at the counter", my: "ကောင်တာမှာ ရှင်းမယ်" },
-  counterTitle: { en: "Settle up at the counter", my: "ကောင်တာမှာ ရှင်းလိုက်ပါ" },
+  counterTitle: { en: "Pay at the counter", my: "ကောင်တာမှာ ရှင်းလိုက်ပါ" },
   counterBody: {
     en: "Show this to whoever’s at the register — cash or card, either works.",
     my: "ကောင်တာက ဝန်ထမ်းကို ဒါလေး ပြလိုက်ပါ — ငွေသားပဲဖြစ်ဖြစ် ကတ်ပဲဖြစ်ဖြစ် ရပါတယ်",
   },
   counterKeepOrdering: {
-    en: "You can keep ordering — the counter settles whatever’s on the table.",
+    en: "You can keep ordering — you’ll pay for everything on the table at the counter.",
     my: "ဆက်မှာလို့ ရပါသေးတယ် — စားပွဲပေါ်က အားလုံးကို ကောင်တာမှာ ရှင်းပေးပါမယ်",
   },
   payOnPhoneInstead: {
     en: "Changed your mind? Pay on your phone",
     my: "စိတ်ပြောင်းသွားရင် ဖုန်းကနေ ရှင်းမယ်",
   },
-  counterSettledTitle: { en: "All settled — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
+  counterSettledTitle: { en: "All paid — thank you!", my: "ရှင်းပြီးပါပြီ — ကျေးဇူးတင်ပါတယ်" },
   counterSettledBody: {
-    en: "This bill was settled at the counter. There’s nothing left to pay here.",
+    en: "This bill was paid at the counter. There’s nothing left to pay here.",
     my: "ဒီဘောက်ချာကို ကောင်တာမှာ ရှင်းပြီးပါပြီ — ဒီမှာ ဘာမှ ရှင်းစရာ မကျန်တော့ပါဘူး",
   },
   // The close when a TABLEMATE's card settled the bill on their phone — this seat cannot see that
@@ -139,7 +139,7 @@ export const CART = {
     my: "အင်တာနက် မရှိသလိုပဲ — ပြန်ချိတ်မိတာနဲ့ ထပ်ကြိုးစားပေးပါမယ်။",
   },
   payFormSecure: {
-    en: "Your card goes straight to Stripe — never to us.",
+    en: "Your card number goes straight to Stripe, our secure payment service — we never see it.",
     my: "ကတ်အချက်အလက်တွေက Stripe ဆီ တိုက်ရိုက် သွားပါတယ် — ကျွန်တော်တို့ဆီ မရောက်ပါဘူး။",
   },
   payFormReady: { en: "Card form ready.", my: "ကတ်ဖောင် အသင့်ဖြစ်ပါပြီ။" }, // sr-only

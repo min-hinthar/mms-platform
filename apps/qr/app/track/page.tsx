@@ -156,7 +156,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
             🫖
           </div>
           <h1>Payment received</h1>
-          <p>Your share is in — we’re finalizing the table’s order. Check back in a moment.</p>
+          <p>Your share is in — we’re finishing the table’s order. Check back in a moment.</p>
           {/* `replace`, not push (J1): a self-refresh to the SAME URL would stack a duplicate history entry —
               the view-transition library's popstate handler then freezes ~4s on the next browser-back
               (same-pathname pop → its route effect never re-fires → the transition promise hangs). */}
@@ -255,7 +255,7 @@ export default async function Track({ searchParams }: { searchParams: SearchPara
         layout="page"
         icon={<Icon name="receipt" size={28} />}
         title="Track your order"
-        subtitle="Your order timeline and ETA will appear here once you’ve placed an order."
+        subtitle="Your order’s progress will show here once you’ve placed an order."
         action={
           <Link href={menuHref(null)} className={buttonClass({ size: "lg" })}>
             {menuLinkText(null, "browse")}{" "}

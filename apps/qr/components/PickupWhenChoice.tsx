@@ -140,7 +140,7 @@ export function PickupWhenChoice({
     if (asap) return; // already ASAP — nothing to do
     if (!asapAvailable) {
       // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
-      onStatus("The kitchen isn’t taking ASAP orders right now — please schedule a time.");
+      onStatus("The kitchen can’t take orders as soon as possible just now — please pick a time.");
       return;
     }
     const token = ++writeToken.current;
@@ -163,13 +163,13 @@ export function PickupWhenChoice({
             ? "This order is already being paid."
             : r.reason === "locked"
               ? RACED_NOTE
-              : "Couldn’t switch to ASAP — please try again.",
+              : "Couldn’t switch to as soon as possible — please try again.",
         );
       } catch {
         if (token !== writeToken.current) return;
         onSlotChange(confirmedSlot.current);
         onRevert();
-        onStatus("Couldn’t switch to ASAP — check your connection and try again.");
+        onStatus("Couldn’t switch to as soon as possible — check your connection and try again.");
       }
     });
   }
@@ -234,7 +234,10 @@ export function PickupWhenChoice({
           // aria-disabled (not native disabled) keeps the control focusable so a keyboard/SR user can
           // reach it and hear WHY (the onStatus nudge) instead of the pill vanishing from the tab order.
           aria-disabled={frozen || !asapAvailable || undefined}
-          // Explicit accessible name (the visible "ASAP" initialism + emoji are decorative here).
+          // Explicit accessible name: the visible "As soon as possible" leads it (WCAG 2.5.3) and the
+          // prep estimate / the reason it is refused follows. Blind review (2026-09-24): ASAP is ONE
+          // phrase everywhere — no ⚡ here, because ⚡ now marks the scheduler's EARLIEST slot, a
+          // different thing (PickupSlotSheet).
           // Frozen is checked FIRST: while a checkout holds the lock the timing can't change for
           // ANY reason, so claiming "the kitchen is closed" would be a diagnosis this code never
           // established (M116's rule — a refusal names the reason it actually has).
@@ -251,9 +254,7 @@ export function PickupWhenChoice({
           style={segStyle}
           onClick={chooseAsap}
         >
-          <span>
-            <span aria-hidden>⚡ </span>ASAP
-          </span>
+          <span>As soon as possible</span>
           <small style={subStyle}>{asapAvailable ? `~${prepMinutes} min` : "Unavailable"}</small>
         </button>
         <button
@@ -293,7 +294,7 @@ export function PickupWhenChoice({
             ? // Frame ~prep as the cook estimate and point to /track for the confirmed pickup time, so the
               // two surfaces read as one story (create-intent snaps a slot for capacity; /track echoes it).
               `We’ll start it the moment you pay — ready in about ${prepMinutes} min; we’ll confirm your pickup time next.`
-            : "ASAP isn’t available right now — please schedule a pickup time above."
+            : "As soon as possible isn’t available right now — please pick a pickup time above."
           : `Ready for pickup ${formatSlotLong(slot)}.`}
       </p>
       <PickupSlotSheet

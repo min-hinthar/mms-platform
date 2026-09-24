@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { HELP_SCREENS, helpCardCount, type HelpDoorScreen } from "@/lib/help";
+import { STAFF } from "@/lib/i18n/staff";
 import { HelpPicture } from "./HelpPicture";
 
 /**
@@ -298,7 +299,16 @@ describe("help-1 — pictures are declarations, never drawings", () => {
     expect(tier[0]!.selectors).toContain(".kds-root");
     expect(pic("kitchen", 1).querySelector(".kds-bump")!.className).toBe("kds-bump help-pic-bump");
     cleanup();
-    expect(pic("kitchen", 3).querySelector(".kds-line-86")!.className).toBe("kds-line-86");
+    // Phase 2b — the 86 behind the line's ⋯: the real ⋯ class, then the sheet's danger xl Button in
+    // the primitive's own classes. MUTATION: keep the old `.kds-line-86` replica — red.
+    const eightySix = pic("kitchen", 3);
+    expect(eightySix.querySelector(".kds-line-86")).toBeNull();
+    expect(eightySix.querySelector(".kds-line-more")!.className).toBe("kds-line-more");
+    expect(eightySix.querySelector(".kds-line-more > svg")).not.toBeNull();
+    expect(eightySix.querySelector(".ui-btn")!.className).toBe("ui-btn ui-btn-danger ui-btn-xl");
+    expect(eightySix.querySelector(".ui-btn")!.textContent).toBe(STAFF["kds.86"].en);
+    // …and the ⋯ class is a LIVE rule in the stylesheet, not a name nothing draws.
+    expect(css).toMatch(/(^|[\s,])\.kds-line-more\s*\{/m);
   });
 
   it("the help-pic-* classes the pictures wear and the ones the sheet declares are ONE set", () => {

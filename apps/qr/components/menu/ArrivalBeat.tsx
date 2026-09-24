@@ -52,7 +52,7 @@ export function ArrivalBeat({
   const line =
     mode === "dinein"
       ? party > 0
-        ? `${party} of you at the table — order together, settle together.`
+        ? `${party} of you at the table — order together, pay together.`
         : "You’re at the table — order when you’re ready."
       : mode === "pickup"
         ? "Pick a time — we’ll have it ready."

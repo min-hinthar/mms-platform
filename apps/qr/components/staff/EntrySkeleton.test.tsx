@@ -101,8 +101,16 @@ describe("EntrySkeleton", () => {
     );
     const bar = live.querySelector("header.staff-bar")!;
     expect(bar.querySelector(":scope > .staff-bar-tail")).not.toBeNull();
-    // the same shape: a leading circle, a title block, a tail of circles
-    expect(band.children.length).toBe(bar.children.length);
+    // the same shape: a leading circle, a title block, a tail of circles. Phase 2b · feedback — the
+    // bar's `hidden` height probe (StaffBarNet) is `display: none`: no flex item, no gap, no shape;
+    // and its always-mounted offline region is `.sr-only` while online (absolutely positioned — out
+    // of the flex flow, no gap) until the row it becomes is needed.
+    const laidOut = (el: Element) =>
+      [...el.children].filter(
+        (c) => !(c as HTMLElement).hidden && !c.classList.contains("sr-only"),
+      );
+    expect(laidOut(bar)).toHaveLength(bar.children.length - 2);
+    expect(band.children.length).toBe(laidOut(bar).length);
   });
   it("is column-shaped where the card is — the pages' OWN column class, holding one entry card", () => {
     const sk = mount(<EntrySkeleton what="what.console" form="login" />);

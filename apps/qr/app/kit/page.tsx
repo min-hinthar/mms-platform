@@ -39,6 +39,13 @@ export default function KitPage() {
         <KitDemos part="toast" />
       </KitSection>
 
+      <KitSection
+        title="Thumb-zone undo"
+        note="The staff lane's xl pill: silent, 64px, a drain over the real window, a visible shield."
+      >
+        <KitDemos part="toast-xl" />
+      </KitSection>
+
       <KitSection title="Field" note="Label, control, one note line — the hint or the error.">
         <KitDemos part="field" />
       </KitSection>

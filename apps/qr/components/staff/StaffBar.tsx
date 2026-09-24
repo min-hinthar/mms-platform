@@ -4,6 +4,9 @@ import { Icon, type IconName } from "@mms/ui";
 import { Chrome } from "./Chrome";
 import { StaffLangSwitch } from "./StaffLangSwitch";
 import { LockButton } from "./LockButton";
+import { LiveDot } from "./LiveDot";
+import { StaffBarNet } from "./StaffBarNet";
+import type { LiveBoardState } from "@/lib/live-connection";
 import { sx } from "@/lib/staff-labels";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
@@ -52,6 +55,7 @@ export function StaffBar({
   trailing,
   help,
   lock = false,
+  live,
   className,
 }: {
   lang: StaffLang;
@@ -76,8 +80,24 @@ export function StaffBar({
   help?: ReactNode;
   /** Mount the Lock circle — only when the caller has a PIN (locking without one strands the device). */
   lock?: boolean;
+  /**
+   * Phase 2b · feedback — the page's FEED, for the status slot beside the title: `'counter'` (the
+   * fold of the floor and the bags), or a board's own state (the KDS, a table page) — the SAME truth
+   * its banner reads. Unset on a page with no feed: no slot, today's DOM, and the offline ROW (below
+   * the utilities) says what the slot would.
+   */
+  live?: "counter" | LiveBoardState;
   className?: string;
 }) {
+  const heading = (
+    <h1 id={titleId} ref={titleRef} tabIndex={titleTabIndex} className="staff-bar-title">
+      {titleNode ?? (title ? <Chrome lang={lang} k={title} vars={titleVars} echo="stack" /> : null)}
+      {/* The badge is set off by a visible gap AND a spoken separator: the h1's accessible name
+          is built by adjacency, and "Daw Ayeowner" is what a flex gap alone produces. */}
+      {after && <span className="sr-only">, </span>}
+      {after}
+    </h1>
+  );
   return (
     <header className={`staff-bar${className ? ` ${className}` : ""}`}>
       {leading.kind === "screens" && (
@@ -101,14 +121,16 @@ export function StaffBar({
           <Chrome lang={lang} k={leading.k} vars={leading.vars} />
         </Link>
       )}
-      <h1 id={titleId} ref={titleRef} tabIndex={titleTabIndex} className="staff-bar-title">
-        {titleNode ??
-          (title ? <Chrome lang={lang} k={title} vars={titleVars} echo="stack" /> : null)}
-        {/* The badge is set off by a visible gap AND a spoken separator: the h1's accessible name
-            is built by adjacency, and "Daw Ayeowner" is what a flex gap alone produces. */}
-        {after && <span className="sr-only">, </span>}
-        {after}
-      </h1>
+      {live === undefined ? (
+        heading
+      ) : (
+        // The slot sits OUTSIDE the h1 (its name never changes) and beside it on row 1, R1's
+        // line-breaking still counting the title's natural width. Only a feed page gets the wrapper.
+        <div className="staff-bar-head">
+          {heading}
+          <LiveDot lang={lang} feed={live} />
+        </div>
+      )}
       {middle && <div className="staff-bar-mid">{middle}</div>}
       {/* `role="group"`: a bare <div> is `generic`, which prohibits an author name (rule 3d). */}
       <div className="staff-bar-tail" role="group" aria-label={sx(lang, "shell.a11y.tools")}>
@@ -117,6 +139,8 @@ export function StaffBar({
         <StaffLangSwitch lang={lang} />
         {lock && <LockButton lang={lang} />}
       </div>
+      {/* ALWAYS last: the offline row on a feedless page, and the bar's measured height. */}
+      <StaffBarNet lang={lang} feed={live !== undefined} />
     </header>
   );
 }

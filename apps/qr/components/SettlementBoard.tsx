@@ -7,6 +7,7 @@ import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { Avatar, Icon, NumberFlow, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
+import { TABLE_STARTER_MID } from "@/lib/confirm-copy";
 
 /**
  * Live split-tender settlement board (M3·P3.3b). Once the host opens a split, the cart is frozen and
@@ -121,7 +122,7 @@ export function SettlementBoard({
         } else if (hadShares.current && !redirected.current) {
           setSplitCanceled(true);
           onStatus(
-            "The host canceled the split — nothing more will be charged. Any hold on your card is being released.",
+            "The split was canceled — nothing more will be charged. Any amount your bank set aside is being let go.",
           );
         }
         setLoaded(true);
@@ -220,7 +221,7 @@ export function SettlementBoard({
   // correct answer, not a bug to paper over — `mms_fulfill_split_order` hard-raises when Σ(captured) ≠
   // the expected total, so minting a share mid-flight would break fulfillment for everyone. Name the
   // situation and give the two real ways out (restart the split, or pay together).
-  const hostName = ctx.members.find((m) => m.role === "host")?.name ?? "the host";
+  const hostName = ctx.members.find((m) => m.role === "host")?.name ?? TABLE_STARTER_MID;
   const lateJoiner =
     loaded && !complete && !gone && shares.length > 0 && !shares.some((s) => s.seat === ctx.mySeat);
 
@@ -301,7 +302,8 @@ export function SettlementBoard({
           lineHeight: 1.5,
         }}
       >
-        No one’s card is charged until everyone has paid; then the whole order is captured together.
+        No one’s card is charged until everyone has put in their card; then everyone is charged
+        together.
       </p>
 
       {!loaded ? (
@@ -415,10 +417,10 @@ export function SettlementBoard({
             // W11 (M44) — the abort's payer-facing face. Not a live region (onStatus announced it);
             // the visible copy answers the question an authorized payer is actually asking.
             <div className="settle-complete">
-              <p className="settle-complete-line">The host canceled the split</p>
+              <p className="settle-complete-line">The split was canceled</p>
               <p className="settle-complete-sub">
-                Nothing more will be charged. Any hold on your card is being released — it can take
-                a few days to drop off your statement. You can split again or pay together.
+                Nothing more will be charged. Any amount your bank set aside is being let go — it
+                can take a few days to drop off your statement. You can split again or pay together.
               </p>
             </div>
           ) : complete ? (
@@ -445,7 +447,7 @@ export function SettlementBoard({
                     format={{ style: "currency", currency: "USD" }}
                   />
                 </strong>{" "}
-                of ${(totalCents / 100).toFixed(2)} authorized
+                of ${(totalCents / 100).toFixed(2)} approved
                 {allIn ? " — finishing up…" : ""}
               </p>
 
@@ -570,7 +572,9 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
   const map: Record<SettlementShare["status"], { label: string; color: string; bg: string }> = {
     pending: { label: "Waiting", color: "var(--t3)", bg: "var(--sf)" },
     authorized: {
-      label: "Authorized",
+      // Blind review (2026-09-24): ONE name for the `authorized` state — SharePay's button says
+      // "Card approved", so the board's badge does too (never "Card in" beside it).
+      label: "Card approved",
       color: "var(--ac-strong)",
       bg: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
     },
