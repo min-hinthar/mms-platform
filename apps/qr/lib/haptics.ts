@@ -35,9 +35,10 @@
  *    carry its own copy of this guard, which is why the rule now lives in exactly one function.
  * 2. **A haptic may never be the ONLY feedback for an event.** iOS Safari does not implement
  *    `navigator.vibrate` at all, so on the app's single most common device every one of these is a
- *    silent no-op. This holds today by construction — pick has the stepper digit + MicroBurst, add
- *    has the cart count capsule, commit closes the sheet, celebrate has the confetti — and any new
- *    moment has to bring its own visible half.
+ *    silent no-op. This holds today by construction — pick has the stepper digit's pop, add has the
+ *    morph + the MicroBurst + the cart count capsule (Phase 1c: the burst rides the pill's add, never
+ *    a step), commit closes the sheet, celebrate has the confetti — and any new moment has to bring
+ *    its own visible half.
  */
 
 /** The vocabulary. Values are the v7.2 weights; `celebrate` is a pattern, hence the array. */
