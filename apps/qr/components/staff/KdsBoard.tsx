@@ -21,6 +21,7 @@ import {
   setKdsVolume,
 } from "@/lib/kds-sound";
 import { allDayRows } from "@/lib/ticket-names";
+import { kdsUrgency } from "@/lib/kds-urgency";
 import { RailRowText, TicketLineText } from "./TicketText";
 import type {
   KdsThresholds,
@@ -124,15 +125,6 @@ function ticketId(
 /** tips-1's sweep — the restaurant's clock, never the tablet's (`lib/staff-clock.ts`). */
 function fmtSlot(iso: string): string {
   return staffClock(iso);
-}
-
-function urgency(t: KitchenTicket, ageMs: number, th: KdsThresholds): "ok" | "amber" | "red" {
-  const amber = t.channel === "dinein" ? th.dineinAmberMin : th.pickupAmberMin;
-  const red = t.channel === "dinein" ? th.dineinRedMin : th.pickupRedMin;
-  const min = ageMs / 60_000;
-  if (min >= red) return "red";
-  if (min >= amber) return "amber";
-  return "ok";
 }
 
 export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; hasPin?: boolean }) {
@@ -411,7 +403,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const liveTailPage = Math.floor(Math.max(0, live.length - 1) / pageSize);
 
   const lateCount = live.filter(
-    (t) => urgency(t, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
+    (t) => kdsUrgency(t.channel, nowMs - Date.parse(t.firedAt), snap.thresholds) === "red",
   ).length;
   const oldestMs = live.reduce((max, t) => Math.max(max, nowMs - Date.parse(t.firedAt)), 0);
 
@@ -1047,7 +1039,7 @@ function TicketCard({
   const [pending, startTransition] = useTransition();
   const id = ticketId(lang, ticket);
   const ageMs = nowMs - Date.parse(ticket.firedAt);
-  const level = ticket.held ? "ok" : urgency(ticket, ageMs, thresholds);
+  const level = ticket.held ? "ok" : kdsUrgency(ticket.channel, ageMs, thresholds);
   const stripClass =
     level === "red"
       ? "kds-strip kds-strip-red kds-strip-pulse"

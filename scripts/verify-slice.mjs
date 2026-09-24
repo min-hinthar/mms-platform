@@ -7201,6 +7201,49 @@ const MUTANTS = [
     replace:
       "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n      throw e;\n",
   },
+  // ── Phase 2b · kitchen ──
+  {
+    id: "kds-urgency/channel-swapped",
+    file: "apps/qr/lib/kds-urgency.ts",
+    suite: "lib/kds-urgency.test.ts",
+    why: "Phase 2b — lateness reads the ticket's OWN channel pair: dine-in ages on the dine-in thresholds, pickup and scan-and-go on the pickup ones. Swap the ternary and a table's food reads calm while the counter customer's reads red, or the reverse — on the KDS strip, the Late stat and (2d) the floor pill at once",
+    find: '  const amber = channel === "dinein" ? th.dineinAmberMin : th.pickupAmberMin;\n  const red = channel === "dinein" ? th.dineinRedMin : th.pickupRedMin;\n',
+    replace:
+      '  const amber = channel !== "dinein" ? th.dineinAmberMin : th.pickupAmberMin;\n  const red = channel !== "dinein" ? th.dineinRedMin : th.pickupRedMin;\n',
+  },
+  {
+    id: "kds-urgency/amber-edge-exclusive",
+    file: "apps/qr/lib/kds-urgency.ts",
+    suite: "lib/kds-urgency.test.ts",
+    why: "Phase 2b — the amber edge is inclusive: a ticket exactly 8:00 old is amber. Exclusive, it reads calm for the minute the config says it should not",
+    find: '  if (min >= amber) return "amber";\n',
+    replace: '  if (min > amber) return "amber";\n',
+  },
+  {
+    id: "kds-urgency/red-edge-exclusive",
+    file: "apps/qr/lib/kds-urgency.ts",
+    suite: "lib/kds-urgency.test.ts",
+    why: "Phase 2b — the red edge is inclusive: a ticket exactly 12:00 old is red and counts as Late. Exclusive, it stays amber and the Late stat under-counts at the threshold",
+    find: '  if (min >= red) return "red";\n',
+    replace: '  if (min > red) return "red";\n',
+  },
+  {
+    id: "kds-urgency/config-ignored",
+    file: "apps/qr/lib/kds-urgency.ts",
+    suite: "lib/kds-urgency.test.ts",
+    why: "Phase 2b — the owner's `mms_kds_config` row is the thresholds; the defaults are only the fallback. Always answer the defaults and a kitchen that set 5/9 is told 8/12 on every screen",
+    find: "  if (!row) return DEFAULT_KDS_THRESHOLDS;\n",
+    replace: "  return DEFAULT_KDS_THRESHOLDS;\n",
+  },
+  {
+    id: "kds-urgency/config-crossed",
+    file: "apps/qr/lib/kds-urgency.ts",
+    suite: "lib/kds-urgency.test.ts",
+    why: "Phase 2b — the row maps field for field. Cross dine-in and pickup and a kitchen that set pickup tighter than dine-in (the counter customer is standing there) gets the reverse",
+    find: "    dineinAmberMin: row.dinein_amber_min,\n    dineinRedMin: row.dinein_red_min,\n    pickupAmberMin: row.pickup_amber_min,\n    pickupRedMin: row.pickup_red_min,\n",
+    replace:
+      "    dineinAmberMin: row.pickup_amber_min,\n    dineinRedMin: row.pickup_red_min,\n    pickupAmberMin: row.dinein_amber_min,\n    pickupRedMin: row.dinein_red_min,\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

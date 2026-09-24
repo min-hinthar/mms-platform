@@ -322,6 +322,34 @@ describe("§2 — the console's six pressed selectors share ONE lit-cap rule", (
   });
 });
 
+describe("Phase 2b — lateness is `kdsUrgency`, read by the ticket's OWN channel", () => {
+  it("dine-in 8/12 and pickup 2/4: a five-minute dine-in ticket is calm, a five-minute pickup is red, Late reads 1", () => {
+    // Asymmetric thresholds, or the wiring could pass a constant channel and read the same. MUTATION
+    // (red-first, by hand): `kdsUrgency("dinein", …)` at either call site — the pickup card loses its
+    // red strip and Late reads 0.
+    const fiveAgo = new Date(Date.parse(NOW) - 5 * 60_000).toISOString();
+    const q = queue(fiveAgo);
+    q.thresholds = { ...q.thresholds, pickupAmberMin: 2, pickupRedMin: 4 };
+    q.tickets.push({
+      ...q.tickets[0]!,
+      cartId: "cart-p",
+      sessionId: "sess-p",
+      channel: "pickup",
+      label: "#A1",
+      tableNumber: null,
+      customerName: "Aye",
+      shortCode: "A1",
+      lines: [{ ...q.tickets[0]!.lines[0]!, id: "line-p" }],
+    });
+    const { container } = mount("en", q);
+    const strips = [...container.querySelectorAll(".kds-ticket > header")];
+    expect(strips).toHaveLength(2);
+    expect(strips[0]!.className).toBe("kds-strip");
+    expect(strips[1]!.className).toContain("kds-strip-red");
+    expect(container.querySelector(".kds-stat-late b")?.textContent).toBe("1");
+  });
+});
+
 /** Nine tickets on an eight-slot page — the pager exists; the last one is HELD when asked. */
 const nineTickets = (heldLast = false): KitchenQueue => {
   const nine = queue();

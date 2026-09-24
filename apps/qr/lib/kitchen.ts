@@ -28,6 +28,7 @@ import { loadLineNames } from "./line-names";
 import { dayStartIso, resolveServiceTz } from "./day-window";
 import { readServedToday, settleServedRail } from "./served-today";
 import { shapeKdsStats } from "./kitchen-stats";
+import { shapeKdsThresholds } from "./kds-urgency";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
@@ -75,14 +76,6 @@ const STATION_BY_CATEGORY: Record<string, KitchenStation> = {
   "appetizers-salads": "cold",
 };
 
-const DEFAULT_THRESHOLDS: KdsThresholds = {
-  dineinAmberMin: 8,
-  dineinRedMin: 12,
-  pickupAmberMin: 8,
-  pickupRedMin: 12,
-  rechimeSec: 75,
-};
-
 /**
  * The live fire queue, grouped into per-CART tickets (the ticket bump needs one unambiguous parent).
  * Bounded reads assembled in TS — a fixed round-trip count regardless of volume:
@@ -125,16 +118,8 @@ export async function getKitchenQueue(): Promise<KitchenPoll> {
   ]);
   const nowIso = nowRes.data ?? new Date().toISOString(); // app-clock fallback only if the rpc fails
   const nowMs = new Date(nowIso).getTime();
-  const cfg = cfgRes.data;
-  const thresholds: KdsThresholds = cfg
-    ? {
-        dineinAmberMin: cfg.dinein_amber_min,
-        dineinRedMin: cfg.dinein_red_min,
-        pickupAmberMin: cfg.pickup_amber_min,
-        pickupRedMin: cfg.pickup_red_min,
-        rechimeSec: cfg.rechime_sec,
-      }
-    : DEFAULT_THRESHOLDS;
+  // Phase 2b — the row (or the defaults) shaped in `kds-urgency.ts`, the one home of kitchen lateness.
+  const thresholds: KdsThresholds = shapeKdsThresholds(cfgRes.data);
   // A failed stats rpc is an UNKNOWN count, never zero (Codex round 1 on A4·1): the rail's capped
   // sentence takes it as a denominator. Logged, and the queue is answered regardless.
   if (statsRes.error)
