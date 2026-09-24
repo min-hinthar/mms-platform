@@ -30,6 +30,15 @@ describe("parseMoneyCents — the whole string decides what a comma means", () =
   it.each([[""], ["."], [","], ["12345678"]])("%j is not an amount → null", (text) => {
     expect(parseMoneyCents(text)).toBeNull();
   });
+
+  it.each([["5,00."], ["5,5.0"], ["12,50.00"]])(
+    "%j — a decimal comma then a dot (a paste) is not an amount → null",
+    (text) => {
+      // MUTATION: drop the mixed-order refusal — "5,00." strips its comma as grouping and reads
+      // 50000 cents ($500 for a $5 tip); "5,5.0" reads 5500. Red.
+      expect(parseMoneyCents(text)).toBeNull();
+    },
+  );
 });
 
 describe("sanitizeMoneyInput — per keystroke it only refuses, never rewrites", () => {
@@ -42,6 +51,21 @@ describe("sanitizeMoneyInput — per keystroke it only refuses, never rewrites",
 
   it("'12,50' typed → 1250", () => {
     expect(parseMoneyCents(typed("12,50"))).toBe(1250);
+  });
+
+  it("a dot after a DECIMAL comma is refused: '5,00.' typed stays '5,00' and reads $5.00", () => {
+    // MUTATION: accept the dot — the field holds "5,00.", where a dot makes every comma grouping,
+    // and the settle records 50000 cents for a $5 tip. Red.
+    expect(typed("5,00.")).toBe("5,00");
+    expect(parseMoneyCents(typed("5,00."))).toBe(500);
+    expect(typed("5,5.0")).toBe("5,50");
+    expect(parseMoneyCents(typed("5,5.0"))).toBe(550);
+  });
+
+  it("a dot after a GROUPING comma is still kept: '1,234.56' typed → 123456", () => {
+    expect(typed("1,234.56")).toBe("1,234.56");
+    expect(parseMoneyCents(typed("1,234.56"))).toBe(123456);
+    expect(parseMoneyCents(typed("1,234"))).toBe(123400);
   });
 
   it("a second dot is refused: '1.2.3' → '1.23'", () => {

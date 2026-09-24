@@ -17,9 +17,15 @@
 /** Longest text the field keeps — far past any cap, short enough that no parse walks a novel. */
 const MAX_CHARS = 12;
 
+/** The text so far ends in a comma followed by 1–2 digits — a decimal comma, not grouping. */
+const DECIMAL_COMMA_TAIL = /,\d{1,2}$/;
+
+/** A decimal comma FOLLOWED by a dot ("5,00.", "5,5.0") — two decimal marks, no reading is safe. */
+const COMMA_THEN_DOT = /,\d{1,2}\./;
+
 /**
  * Per-keystroke filter: keeps ASCII digits, ONE `.`, and commas typed BEFORE the dot; refuses a
- * third digit after the dot; caps the text at 12 characters. Keystroke-stable: feeding it its own
+ * dot straight after a decimal comma ("5,00" + "."); refuses a third digit after the dot; caps the text at 12 characters. Keystroke-stable: feeding it its own
  * output plus one character never changes what was already there.
  */
 export function sanitizeMoneyInput(raw: string): string {
@@ -36,6 +42,9 @@ export function sanitizeMoneyInput(raw: string): string {
       out += ch;
     } else if (ch === ".") {
       if (dot) continue;
+      // A dot after a DECIMAL comma ("5,00" then ".") is refused: with a dot present every comma
+      // reads as grouping, so accepting it would turn the $5.00 on screen into $500.00.
+      if (DECIMAL_COMMA_TAIL.test(out)) continue;
       dot = true;
       out += ch;
     } else if (ch === ",") {
@@ -50,13 +59,16 @@ export function sanitizeMoneyInput(raw: string): string {
 
 /**
  * Whole-string read → integer cents, or `null` when the text is not an amount (empty, only
- * separators, or more than seven whole-dollar digits).
+ * separators, a decimal comma followed by a dot, or more than seven whole-dollar digits).
  *
  * The W21d disambiguation, verbatim, now on the whole string: with a dot present, commas are
  * grouping ("1,234.56"); comma-only text is a DECIMAL comma when 1–2 digits end it ("5,00",
  * "5,5"); otherwise commas are grouping ("1,234").
  */
 export function parseMoneyCents(text: string): number | null {
+  // The belt for a PASTE (the keystroke filter refuses this shape as it is typed): a comma with
+  // 1–2 digits and then a dot carries two decimal marks, and neither reading is safe to record.
+  if (COMMA_THEN_DOT.test(text)) return null;
   const normalized = text.includes(".")
     ? text.replace(/,/g, "")
     : text.replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
