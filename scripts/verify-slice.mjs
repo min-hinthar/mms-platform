@@ -6610,6 +6610,41 @@ const MUTANTS = [
     find: '  if (i.sheetOpen) return "swallow";\n',
     replace: '  if (i.sheetOpen) return "hold";\n',
   },
+  // ── Phase 1c · cart-motion ──
+  // /cart's removal wiring. The rules are pure (lib/line-motion.ts, value-falsified in its own
+  // suite); these are the four lines in Checkout.tsx that CALL them, which only the jsdom suite sees.
+  {
+    id: "p1c-cart-motion/removal-skips-the-landing",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 1c — an own removal must move focus to the NEIGHBOURING dish's name before the write (while the old control is live) and hold what sits below from the next tap. Skip the call and a keyboard/screen-reader user is left inside an inert ghost, and a quick second tap lands on the row that slid under the finger",
+    find: "                          if (q <= 0) lines.noteRemoval(i.id);\n",
+    replace: "",
+  },
+  {
+    id: "p1c-cart-motion/empty-heading-drops-its-ref",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 1c — removing the ONLY dish swaps the view to the empty state; its <h1> is the landing target (WCAG 2.4.3). Without the ref, focus falls to <body> and a screen reader hears nothing about what just happened",
+    find: '        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>\n',
+    replace: '        <h1 tabIndex={-1} style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>\n',
+  },
+  {
+    id: "p1c-cart-motion/a-removed-draft-reads-as-fired",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 1c — S2.2 keyed on a draft COUNT also fires on a tablemate's REMOVAL, and on iOS (a tap never focuses a button) activeElement is always <body>, so every peer removal yanked the VoiceOver cursor to the heading. `firedSince` keys on ids: a firing is a draft that is still here",
+    find: "      firedSince(prev, new Set(split(liveLineIds)), new Set(split(draftIds))) &&\n",
+    replace: "      split(draftIds).length < prev.length &&\n",
+  },
+  {
+    id: "p1c-cart-motion/ghost-rendered-as-a-live-row",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 1c — a leaving row must render inert, aria-hidden and `.mms-remove`. Drop the flag and the removed dish is drawn as a LIVE row for its whole exit: a second listitem a screen reader reads, and a stepper a finger can still press on a line the server has already deleted",
+    find: "                      .map((r) => renderLine(r.item, r.leaving))}\n",
+    replace: "                      .map((r) => renderLine(r.item))}\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

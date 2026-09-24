@@ -2,6 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { cssDeclarations, stripCssComments } from "./css-declarations";
 
 /**
  * R1 — THE RESPONSIVE CONTRACT: one column knob, three tiers, and no page carrying a width of its own.
@@ -41,56 +42,9 @@ const PRIMITIVES = readFileSync(
   "utf8",
 );
 
-/** Comments name selectors and values in prose; a guard a comment can satisfy reads the wrong thing. */
-const strip = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
-
-/** `i` is the declaration's ORDER in the file — the cascade tiebreak at equal specificity, which is
- *  what an `@media` block relies on: it adds no weight, so a bare rule written AFTER it wins. */
-type Decl = { media: string | null; selector: string; prop: string; value: string; i: number };
-
-/**
- * A declaration walker that binds every `prop: value` to the selector block it sits in AND to the
- * `@media` / `@supports` block wrapping that (one level, which is all this stylesheet uses). A
- * tokenizer on `{` `}` `;` is enough: prettier writes every declaration `prop: value;` on its own
- * line and closes every block, so there is no ambiguity to resolve — and where there would be
- * (a `{` inside a string), this file has none: assert it rather than guess.
- */
-function declarations(css: string): Decl[] {
-  const code = strip(css);
-  // No brace inside a quoted string (one line, same quote): the brace walk below is then exact.
-  expect(code).not.toMatch(/(["'])(?:(?!\1)[^\n])*[{}](?:(?!\1)[^\n])*\1/);
-  const out: Decl[] = [];
-  const stack: string[] = [];
-  let buf = "";
-  const flush = () => {
-    const text = buf.trim();
-    buf = "";
-    const colon = text.indexOf(":");
-    if (colon < 0 || stack.length === 0) return;
-    const head = stack[stack.length - 1]!;
-    if (head.startsWith("@")) return; // a declaration directly inside @media/@supports: not a rule
-    const media = stack.length > 1 ? (stack[stack.length - 2] ?? null) : null;
-    out.push({
-      media,
-      selector: head.replace(/\s+/g, " "),
-      prop: text.slice(0, colon).trim(),
-      value: text.slice(colon + 1).trim(),
-      i: out.length,
-    });
-  };
-  for (const ch of code) {
-    if (ch === "{") {
-      stack.push(buf.trim().replace(/\s+/g, " "));
-      buf = "";
-    } else if (ch === "}") {
-      flush();
-      stack.pop();
-    } else if (ch === ";") {
-      flush();
-    } else buf += ch;
-  }
-  return out;
-}
+// The shared walker (lifted to lib/ when motion-contract.test.ts became its second reader).
+const strip = stripCssComments;
+const declarations = cssDeclarations;
 
 const DECLS = declarations(CSS);
 const rem = (v: string) => {

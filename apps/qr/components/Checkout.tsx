@@ -2,6 +2,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useOptimistic,
   useRef,
   useState,
@@ -75,6 +76,8 @@ import { RewardField } from "./RewardField";
 import { PickupWhenChoice } from "./PickupWhenChoice";
 import { PaperAmbient } from "./PaperAmbient";
 import { WalletChip } from "./WalletChip";
+import { focusWasLost, useLineMotion } from "./useLineMotion";
+import { firedSince } from "@/lib/line-motion";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { useRewardsBadge } from "@/lib/useRewardsBadge";
 import {
@@ -206,6 +209,12 @@ function applyCartOptimistic(state: CartItem[], u: CartOptimistic): CartItem[] {
       return state.map((i) => (i.id === u.id ? { ...i, lineState: "fired" } : i));
   }
 }
+
+// Phase 1c · cart-motion — the section a line is drawn in, and its identity-as-drawn. The sig covers
+// EVERY field, so a ghost is always the row exactly as it was last painted (never a stale name or a
+// stale line amount), and the motion state re-derives only when something rendered actually changed.
+const lineGroup = (i: CartItem) => i.fulfillment;
+const lineSig = (i: CartItem) => JSON.stringify(i);
 
 /**
  * Cart + checkout (client), two steps: REVIEW (edit lines, promo, tip — cart open/editable) →
@@ -1341,26 +1350,52 @@ export function Checkout({
   // slice exists to keep honest.
   const [leavingPay, setLeavingPay] = useState(false);
 
-  // Focus management: when a stepper removes the last unit of a line, the <li> unmounts and focus
-  // would fall to <body>. Move it to the heading so keyboard/SR users keep their place.
+  // Phase 1c · cart-motion — a removed line leaves in place (a ghost + a FLIP close) and focus lands
+  // on the NEIGHBOURING dish's name, in place; a peer's removal moves focus only if it was inside the
+  // removed row. Presentation and focus only: `viewItems` still drops the line at the tap, so every
+  // count, total and the write chain below see the removal exactly as before. See useLineMotion.ts.
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const prevLen = useRef(viewItems.length);
-  useEffect(() => {
-    if (viewItems.length > 0 && viewItems.length < prevLen.current) headingRef.current?.focus();
-    prevLen.current = viewItems.length;
-  }, [viewItems.length]);
+  const lines = useLineMotion(viewItems, {
+    group: lineGroup,
+    groupOrder: BILL_GROUP_KEYS,
+    sig: lineSig,
+    scope: viewKey,
+  });
+  // The heading takes focus only when the VIEW swaps — the last line removed (the empty state's
+  // heading) or a refused last-line removal restoring the list (the review heading) — and only when
+  // focus was actually lost with the subtree that held it.
+  const hasLines = viewItems.length > 0;
+  const hadLines = useRef(hasLines);
+  useLayoutEffect(() => {
+    const swapped = hadLines.current !== hasLines;
+    hadLines.current = hasLines;
+    if (swapped && focusWasLost()) headingRef.current?.focus();
+  }, [hasLines]);
 
   // S2.2 (B4): when a line the diner could edit gets fired (its stepper unmounts in favour of a state
   // chip), focus would fall to <body>. Move it to the heading — BUT only if focus actually dropped
   // there, so we never yank focus off a control the user moved to (e.g. SendToKitchenButton focuses its
   // own "Undo" button when the window opens; for a host on this device, that's where focus lands).
-  const draftCount = viewItems.filter((i) => i.lineState === "draft").length;
-  const prevDraftCount = useRef(draftCount);
+  // Keyed on IDS, not a count (Phase 1c): a count also falls on a REMOVAL of a draft line, and on
+  // iOS — where a tap never focuses a button — activeElement is <body> for every tap, so the count
+  // form parked focus on the heading on every tablemate's removal. Removals are handled by
+  // useLineMotion; this fires only for a draft that is STILL HERE and no longer a draft.
+  const draftIds = viewItems
+    .filter((i) => i.lineState === "draft")
+    .map((i) => i.id)
+    .join("\u0001");
+  const liveLineIds = viewItems.map((i) => i.id).join("\u0001");
+  const prevDraftIds = useRef(draftIds);
   useEffect(() => {
-    if (draftCount < prevDraftCount.current && document.activeElement === document.body)
+    const split = (k: string) => (k === "" ? [] : k.split("\u0001"));
+    const prev = split(prevDraftIds.current);
+    prevDraftIds.current = draftIds;
+    if (
+      firedSince(prev, new Set(split(liveLineIds)), new Set(split(draftIds))) &&
+      document.activeElement === document.body
+    )
       headingRef.current?.focus();
-    prevDraftCount.current = draftCount;
-  }, [draftCount]);
+  }, [draftIds, liveLineIds]);
 
   // W9b — the same focus discipline as the draft-count effect above, for the lock. A peer taking the
   // lock used to natively disable the stepper the diner may be standing on; since K35 the stepper is
@@ -2184,7 +2219,9 @@ export function Checkout({
     const backLabel = menuLinkText(sessionMode, "browse");
     return (
       <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
-        <h1 style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
+        {/* Phase 1c — the landing target when the LAST line is removed (the view swaps here), so a
+            screen reader hears "Your order", then the empty state, instead of losing focus to <body>. */}
+        <h1 ref={headingRef} tabIndex={-1} style={{ fontSize: "var(--fs-h1)", marginBottom: 16 }}>
           {T("yourOrder")}
           <My k="yourOrder" size="var(--fs-sm)" />
         </h1>
@@ -2336,9 +2373,11 @@ export function Checkout({
     // lives on <html>, so the fixed z:-1 layer is visible without trapping fixed overlays).
     <main className="page-col page-col-narrow" style={{ padding: "24px 20px 40px" }}>
       <PaperAmbient />
-      {/* tabIndex={-1} = programmatic focus target (focus moves here when a line is removed). No
-          outline override — the browser shows its :focus-visible ring (WCAG 2.4.7). K3a: a signed-in
-          diner's wallet chip rides beside the heading (recognition at the pay moment; hidden for anon). */}
+      {/* tabIndex={-1} = programmatic focus target (focus lands here when the view swaps — the last
+          line removed or restored — or a fired line drops focus; a removed line's focus lands on its
+          neighbour's name instead). No outline override — the browser shows its :focus-visible ring
+          (WCAG 2.4.7). K3a: a signed-in diner's wallet chip rides beside the heading (recognition at
+          the pay moment; hidden for anon). */}
       {/* Phase 1b — table context on the bill, the same eyebrow the menu wears ("At table 7"): at a
           shared table the one fact every screen should answer is WHICH table this is. */}
       {isDineIn && tableNumber != null && <p className="eyebrow">Table {tableNumber}</p>}
@@ -2636,7 +2675,7 @@ export function Checkout({
                 viewItems.some((i) => i.fulfillment === k),
               );
               const showHeadings = present.length > 1;
-              const renderLine = (i: CartItem) => {
+              const renderLine = (i: CartItem, leaving = false) => {
                 // `canEdit` stays the PERMISSION (state × role); the lock is a separate, transient
                 // refusal. Keeping them apart is what lets a locked control stay RENDERED and disabled
                 // instead of vanishing — a missing control is the red-team trap this repo names by
@@ -2652,7 +2691,8 @@ export function Checkout({
                 return (
                   <li
                     key={i.id}
-                    className="card card-textured checkout-line"
+                    {...lines.rowProps(i.id, leaving)}
+                    className={`card card-textured checkout-line${leaving ? " mms-remove" : ""}`}
                     style={{ padding: 12, display: "flex", gap: 10, alignItems: "center" }}
                   >
                     {/* W13 — the v7.2 50px line thumb (.crow .ph). The slot ALWAYS renders: a
@@ -2674,7 +2714,16 @@ export function Checkout({
                       />
                     </span>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: "var(--fw-semibold)" }}>{i.name}</div>
+                      {/* Phase 1c — the focus landing target when a NEIGHBOURING line is removed: it
+                          cannot be activated (a repeated Enter can never delete this dish), and a
+                          screen reader speaking its name is the removal's confirmation. */}
+                      <div
+                        data-line-name
+                        tabIndex={-1}
+                        style={{ fontWeight: "var(--fw-semibold)" }}
+                      >
+                        {i.name}
+                      </div>
                       {/* W13 — the Burmese name: the post-add path speaks both tongues (100%
                           name_my coverage; lang="my" for WCAG 3.1.2 + the Padauk stack). */}
                       {i.nameMy && (
@@ -2772,7 +2821,7 @@ export function Checkout({
                                   // <body> mid-interaction (WCAG 2.4.3).
                                   aria-disabled={editsFrozen || undefined}
                                   onClick={() => {
-                                    if (editsFrozen) return;
+                                    if (editsFrozen || leaving) return;
                                     toggleFulfillment(i.id, f);
                                   }}
                                   className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
@@ -2796,7 +2845,7 @@ export function Checkout({
                             type="button"
                             aria-disabled={editsFrozen || undefined}
                             onClick={() => {
-                              if (editsFrozen) return;
+                              if (editsFrozen || leaving) return;
                               makeNow(i.id);
                             }}
                             className="checkout-pill checkout-pill-accent"
@@ -2830,7 +2879,15 @@ export function Checkout({
                         removeGlyph={<Icon name="trash" size={18} />}
                         showCount
                         incrementLabel={`Add another ${i.name}`}
-                        onChange={(q) => changeQty(i.id, q)}
+                        onChange={(q) => {
+                          // A leaving row never writes — `inert` + `.mms-remove` already refuse it,
+                          // and this holds where `inert` is unsupported (Safari < 15.5).
+                          if (leaving) return;
+                          // Before the write: focus leaves for the neighbour while this control is
+                          // still live, and whatever sits below is held from the next tap.
+                          if (q <= 0) lines.noteRemoval(i.id);
+                          changeQty(i.id, q);
+                        }}
                       />
                     ) : (
                       <LineStateChip state={i.lineState} comped={false} />
@@ -2884,9 +2941,23 @@ export function Checkout({
                     )}
                   <ul
                     role="list"
-                    style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 10 }}
+                    {...lines.listProps}
+                    style={{
+                      listStyle: "none",
+                      padding: 0,
+                      margin: 0,
+                      display: "grid",
+                      gap: 10,
+                      // The containing block a leaving row is placed in while the list closes over it.
+                      position: "relative",
+                    }}
                   >
-                    {viewItems.filter((i) => i.fulfillment === key).map(renderLine)}
+                    {lines
+                      .rowsFor(
+                        key,
+                        viewItems.filter((i) => i.fulfillment === key),
+                      )
+                      .map((r) => renderLine(r.item, r.leaving))}
                   </ul>
                 </section>
               ));
@@ -3912,6 +3983,8 @@ const BILL_GROUPS: [label: string, key: CartItem["fulfillment"]][] = [
   ["To-go", "togo"],
   ["Grocery", "grocery"],
 ];
+/** The section order the editing cards draw in — where focus looks for a removed dish's neighbour. */
+const BILL_GROUP_KEYS = BILL_GROUPS.map(([, k]) => k);
 
 /**
  * W21 (owner: "cart bill and also final pay total bill should organize dine-in and take-out items

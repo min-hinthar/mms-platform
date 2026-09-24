@@ -1,6 +1,7 @@
 "use client";
 
-import type { CSSProperties, ReactNode } from "react";
+import { useRef, type CSSProperties, type ReactNode } from "react";
+import { removeHeld } from "./gesture";
 import { Icon } from "./icon";
 
 /**
@@ -14,6 +15,10 @@ import { Icon } from "./icon";
  *  - the **increment gate** — "+" refuses at `busy`/`disabled`, `qty >= max`, or `soldOut`, each with
  *    the right accessible name (a sold-out "+" also dims). The "−"/remove stays live when an item is
  *    sold out (so the line can still be cleared); it refuses only with `disabled` (a mutation in flight).
+ *  - **the remove-arm** (Phase 1c) — a Remove that was a "−" less than `SAME_GESTURE_MS` ago ignores
+ *    the tap (a double-tap never deletes). The swallowed tap gives no feedback: by definition it is the
+ *    second half of the gesture that made the "−" turn into Remove. A Remove that MOUNTED at the
+ *    minimum is never held. The arm is a ref read and written only in the handler (#126).
  *  - **§17 — never native `disabled` on a control that was just tapped.** A natively disabled button
  *    drops focus to `<body>` mid-tap, so a busy stepper spoke its name from nowhere. Both controls are
  *    `aria-disabled` with the handler refusing re-entry (the same predicate), and a dim keyed on it;
@@ -73,6 +78,8 @@ export function Stepper({
 }) {
   const removing = qty <= min;
   const incDisabled = disabled || qty >= max || soldOut;
+  // When this "−" last turned into Remove (a `performance.now()` stamp), or null. Handler-only.
+  const morphedAt = useRef<number | null>(null);
   return (
     <span style={{ ...row, gap: showCount ? 8 : 4 }}>
       <button
@@ -80,6 +87,9 @@ export function Stepper({
         className="mms-stepper-btn"
         onClick={() => {
           if (disabled) return;
+          // The remove-arm: the second tap of a double-tap on "−" lands on the Remove it just became.
+          if (removing && removeHeld(morphedAt.current, performance.now())) return;
+          if (!removing && qty - 1 <= min) morphedAt.current = performance.now();
           onChange(qty - 1);
         }}
         aria-disabled={disabled || undefined}
