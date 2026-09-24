@@ -57,7 +57,7 @@ import {
 
 /** A ghost whose own `animationend` never arrives (a backgrounded tab, a cancelled animation) is
  *  dropped by this bound. Well past the `--dur-base` (240ms) fade it backs up. */
-export const LEAVE_BOUND_MS = 1000;
+const LEAVE_BOUND_MS = 1000;
 
 type MotionState<T> = {
   key: string;
@@ -80,7 +80,7 @@ export function focusWasLost(): boolean {
 }
 
 /** Focus an element where it is — no scroll — and bring it into view only for a keyboard user. */
-export function focusInPlace(el: HTMLElement | null | undefined): void {
+function focusInPlace(el: HTMLElement | null | undefined): void {
   if (!el) return;
   el.focus({ preventScroll: true });
   try {

@@ -1598,6 +1598,28 @@ describe("Phase 1c — a removed line leaves in place", () => {
     expect(g[0]!.compareDocumentPosition(ohn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("a ghost never writes, even where `inert` is not honoured", async () => {
+    // jsdom does not honour `inert` (nor `pointer-events`), which makes it exactly the old engine
+    // this guard exists for: Safari before 15.5 would let a keyboard reach the fading controls. A
+    // dine-in to-go line carries all three writers — the stepper, the for-here/to-go pills and
+    // "Send to kitchen now" — so pressing every button in its ghost exercises every guard.
+    const A = { ...ITEM, fulfillment: "togo" as const };
+    const B = { ...ITEM_B, fulfillment: "togo" as const };
+    truth([B]);
+    mount({ splitContext: DINE_IN, initialItems: [A, B] });
+    await press("Remove Mohinga");
+    h.setQty.mockClear();
+    const inGhost = Array.from(ghosts()[0]!.querySelectorAll("button"));
+    expect(inGhost.length).toBeGreaterThanOrEqual(5); // −, +, For here, To go, Send to kitchen now
+    await act(async () => {
+      inGhost.forEach((btn) => btn.click());
+    });
+    // MUTATION: drop any one `leaving` guard — a deleted line writes again, red.
+    expect(h.setQty).not.toHaveBeenCalled();
+    expect(h.setLineFulfillment).not.toHaveBeenCalled();
+    expect(h.makeItNow).not.toHaveBeenCalled();
+  });
+
   it("the ghost ends on its OWN animationend, not a descendant's", async () => {
     truth([ITEM_B]);
     mount({ initialItems: [ITEM, ITEM_B] });

@@ -2820,7 +2820,7 @@ export function Checkout({
                                   // <body> mid-interaction (WCAG 2.4.3).
                                   aria-disabled={editsFrozen || undefined}
                                   onClick={() => {
-                                    if (editsFrozen) return;
+                                    if (editsFrozen || leaving) return;
                                     toggleFulfillment(i.id, f);
                                   }}
                                   className={`checkout-pill${on ? " checkout-pill-on" : ""}`}
@@ -2844,7 +2844,7 @@ export function Checkout({
                             type="button"
                             aria-disabled={editsFrozen || undefined}
                             onClick={() => {
-                              if (editsFrozen) return;
+                              if (editsFrozen || leaving) return;
                               makeNow(i.id);
                             }}
                             className="checkout-pill checkout-pill-accent"
@@ -2879,6 +2879,9 @@ export function Checkout({
                         showCount
                         incrementLabel={`Add another ${i.name}`}
                         onChange={(q) => {
+                          // A leaving row never writes — `inert` + `.mms-remove` already refuse it,
+                          // and this holds where `inert` is unsupported (Safari < 15.5).
+                          if (leaving) return;
                           // Before the write: focus leaves for the neighbour while this control is
                           // still live, and whatever sits below is held from the next tap.
                           if (q <= 0) lines.noteRemoval(i.id);
