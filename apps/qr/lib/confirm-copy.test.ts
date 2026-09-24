@@ -116,8 +116,14 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
   });
 
   it("falls back to the role, never a blank name", () => {
-    expect(hostSendsCopy(null).en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
-    expect(hostSendsCopy("  ").en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
+    // RED on the old fallback: "The person sending your table’s orders sends the table’s order" said
+    // "send" twice. The nameless sentence names the sender by what they hold, once.
+    for (const blank of [null, "  "]) {
+      const en = hostSendsCopy(blank).en;
+      expect(en.startsWith("One person at your table sends")).toBe(true);
+      expect(en.match(/\bsend/g)?.length).toBe(1);
+      expect(en).not.toContain(TABLE_STARTER);
+    }
   });
 });
 

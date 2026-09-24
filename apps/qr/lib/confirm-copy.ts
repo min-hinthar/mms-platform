@@ -114,7 +114,11 @@ export const TABLE_SENDER_THIRD = "the person sending the table’s orders";
 export function hostSendsCopy(hostName: string | null): { en: string; my: string } {
   const who = hostName?.trim() || null;
   return {
-    en: `${who ?? TABLE_STARTER} sends the table’s order to the kitchen — your dishes go with it.`,
-    my: `${who ? `${who} က` : "စားပွဲရဲ့ အော်ဒါ ပို့သူက" /* K15 draft (blind review 2026-09-24; was စားပွဲ စဖွင့်တဲ့သူက) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
+    // No name known: the role sentence ("The person sending your table’s orders sends the table’s
+    // order…") would say "send" twice, so the fallback names the sender plainly by what they hold.
+    en: who
+      ? `${who} sends the table’s order to the kitchen — your dishes go with it.`
+      : "One person at your table sends the order to the kitchen from their phone — your dishes go with it.",
+    my: `${who ? `${who} က` : "စားပွဲက တစ်ယောက်က သူ့ဖုန်းကနေ" /* K15 draft (2026-09-24; was စားပွဲ စဖွင့်တဲ့သူက) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
   };
 }
