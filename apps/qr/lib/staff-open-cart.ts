@@ -14,7 +14,8 @@ export async function openCartFor(sessionId: string) {
   const db = serviceClient();
   const { data: session, error: sessionError } = await db
     .from("table_sessions")
-    .select("id,status,mode,qr_code")
+    // Phase 2a · send — `expires_at` so a staff write can slide the table's expiry (maybeRenewSession).
+    .select("id,status,mode,qr_code,expires_at")
     .eq("id", sessionId)
     .maybeSingle();
   if (sessionError) return { session: null, cart: null, unavailable: true as const };

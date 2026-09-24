@@ -16,20 +16,31 @@ import {
  * skips the round-trip on the common plenty-of-window path; the WHERE `.lt("expires_at", cutoff)`
  * makes concurrent renewals race-clean (once one commits the fresh expiry the others no-op, so a
  * multi-phone realtime fan-out can't burst N redundant writes). Non-fatal — never blocks the request.
+ *
+ * Phase 2a · send — EXPORTED so a STAFF write slides the table's expiry too (`staffAddItem`,
+ * `staffFireCart`, `staffUndoFire`): a phone-less table worked only from the console otherwise aged
+ * off the floor and the KDS 4h after "Start a table". This module is `server-only`, not "use server",
+ * so the export mints no endpoint.
  */
-async function maybeRenewSession(
+export async function maybeRenewSession(
   db: ReturnType<typeof serviceClient>,
   sessionId: string,
   expiresAt: string,
 ): Promise<void> {
   if (new Date(expiresAt).getTime() - Date.now() >= SESSION_RENEW_THRESHOLD_MS) return;
-  const { error } = await db
-    .from("table_sessions")
-    .update({ expires_at: sessionExpiryFromNow() })
-    .eq("id", sessionId)
-    .eq("status", "active")
-    .lt("expires_at", sessionRenewBeforeIso());
-  if (error) console.error("[authz] session renewal failed", error.message);
+  // Contained, not just error-checked: a staff caller runs this AFTER its write committed (the
+  // console's add and send), so a throw escaping here would report a landed dish as a failed one.
+  try {
+    const { error } = await db
+      .from("table_sessions")
+      .update({ expires_at: sessionExpiryFromNow() })
+      .eq("id", sessionId)
+      .eq("status", "active")
+      .lt("expires_at", sessionRenewBeforeIso());
+    if (error) console.error("[authz] session renewal failed", error.message);
+  } catch (e) {
+    console.error("[authz] session renewal threw", e); // deliberate: non-fatal by contract
+  }
 }
 
 /**

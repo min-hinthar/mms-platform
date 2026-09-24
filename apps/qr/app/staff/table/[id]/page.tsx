@@ -20,9 +20,17 @@ export const dynamic = "force-dynamic";
  * renders the outage shell in place, keeping the URL. The live detail + clear-table live in
  * FloorDetailLive.
  */
-export default async function TablePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function TablePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  // Phase 2a · send — `?send=1` is the add page's "Review · N not sent →": land focused on the Send.
+  searchParams: Promise<{ send?: string | string[] }>;
+}) {
   const caller = await requireStaffPage();
   const { id } = await params;
+  const sp = await searchParams;
   if (!caller) return <StaffOutageShell what="what.table" />;
   const hasPin = await staffHasPin(caller.staffId);
 
@@ -56,6 +64,7 @@ export default async function TablePage({ params }: { params: Promise<{ id: stri
       initial={res.detail}
       sessionId={id}
       hasPin={hasPin}
+      arrivedToSend={sp.send === "1"}
       // W6c: the reader id is server-only config; the client gets only the boolean.
       terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
     />

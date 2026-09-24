@@ -1,10 +1,11 @@
 import type { LineState } from "@mms/db";
 
 /**
- * The single source for line-state vocabulary (S2-audit S12) — so the diner cart and the staff surfaces
- * can't drift on what a state is CALLED. Plain module (no I/O): imported by Checkout (diner) and
- * StaffLineEditor / FloorDetailLive (staff). A comped line reads "Comped" regardless of state (handled at
- * the call site); these maps cover the kitchen-life states.
+ * The single source for the DINER's line-state vocabulary (S2-audit S12). Plain module (no I/O):
+ * imported by Checkout. A comped line reads "Comped" regardless of state (handled at the call site).
+ * The staff map that lived here (`STAFF_STATE_COPY`, English-only) was retired in Phase 2a · send:
+ * the drill-down's line tags are the staff dictionary's `table.line.state.*` now, so a Burmese
+ * console no longer reads them in English.
  */
 
 /** Diner-facing (the cart): warmer phrasing; a voided line reads "Removed". */
@@ -14,13 +15,4 @@ export const DINER_STATE_COPY: Record<LineState, string> = {
   in_progress: "Cooking",
   served: "Served",
   voided: "Removed",
-};
-
-/** Staff-facing (the drill-down): terser; a voided line reads "Voided". */
-export const STAFF_STATE_COPY: Record<LineState, string> = {
-  draft: "In cart",
-  fired: "Sent",
-  in_progress: "Cooking",
-  served: "Served",
-  voided: "Voided",
 };

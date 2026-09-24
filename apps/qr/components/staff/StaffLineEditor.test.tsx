@@ -163,3 +163,78 @@ describe("M76 — the loss sheet is HELD through its exit, and each open is a fr
     expect(loss()!.getAttribute("data-instance")).not.toBe(first);
   });
 });
+
+// ── Phase 2a · send ──
+describe("Phase 2a · send — what the line says about the kitchen, and what it reports up", () => {
+  const renderLine = (l: TableLineView, lang: "en" | "my" = "en", onEditState = vi.fn()) => {
+    render(
+      <StaffLangProvider lang={lang}>
+        <ul>
+          <StaffLineEditor
+            sessionId="s1"
+            line={l}
+            disabled={false}
+            onError={() => {}}
+            onEditState={onEditState}
+          />
+        </ul>
+      </StaffLangProvider>,
+    );
+    return onEditState;
+  };
+
+  it("a sendable draft says 'Not sent'; a to-go draft and a fired line do not", () => {
+    renderLine({ ...line, sendable: true } as TableLineView);
+    expect(screen.getByRole("listitem").textContent).toContain(STAFF["table.line.notSent"].en);
+    cleanup();
+    renderLine({ ...line, sendable: false } as TableLineView);
+    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["table.line.notSent"].en);
+    cleanup();
+    renderLine({ ...line, state: "fired", sendable: false } as TableLineView);
+    expect(screen.getByRole("listitem").textContent).not.toContain(STAFF["table.line.notSent"].en);
+  });
+
+  it("a fired line speaks its state in the device language — no English 'Sent' under Burmese", () => {
+    renderLine({ ...line, state: "fired", sendable: false } as TableLineView, "my");
+    const text = screen.getByRole("listitem").textContent ?? "";
+    expect(text).toContain(STAFF["table.line.state.fired"].my);
+    expect(text).not.toContain(STAFF["table.line.state.fired"].en);
+    cleanup();
+    renderLine({ ...line, state: "in_progress", sendable: false } as TableLineView);
+    expect(screen.getByRole("listitem").textContent).toContain(
+      STAFF["table.line.state.inProgress"].en,
+    );
+    cleanup();
+    renderLine({ ...line, state: "served", sendable: false } as TableLineView);
+    expect(screen.getByRole("listitem").textContent).toContain(STAFF["table.line.state.served"].en);
+  });
+
+  it("an unsaved note reports noteDirty up, and a save clears it (drain before fire)", async () => {
+    const report = renderLine({ ...line, sendable: true } as TableLineView);
+    const last = () => report.mock.calls.at(-1)!;
+    expect(last()).toEqual([
+      "l1",
+      { lineId: "l1", name: "Mohinga", noteDirty: false, writing: false, sendable: true },
+    ]);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /note/i }));
+    });
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    expect(field).not.toBeNull();
+    await act(async () => {
+      fireEvent.change(field, { target: { value: "no peanuts" } });
+    });
+    expect(last()[1]).toMatchObject({ noteDirty: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["table.line.save"].en }));
+    });
+    expect(setLineNotes).toHaveBeenCalledWith("s1", { cartItemId: "l1", notes: "no peanuts" });
+    expect(last()[1]).toMatchObject({ noteDirty: false, writing: false });
+  });
+
+  it("a line that leaves the list withdraws its report", () => {
+    const report = renderLine({ ...line, sendable: true } as TableLineView);
+    cleanup();
+    expect(report.mock.calls.at(-1)).toEqual(["l1", null]);
+  });
+});
