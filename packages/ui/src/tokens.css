@@ -389,6 +389,15 @@
   --field-gap: 6px;
   --focus-w: 2.5px;
   --field-focus-offset: 1px;
+  /* ── Phase 1c · grocery — the Scan door's INK stage (constants: identical in both themes) ──
+     CONSTANT light ink for text/strokes ON --ink and on the live camera image — intentionally NOT
+     re-declared in `.dark`, mirroring --ink: --oa flips to #130d1e in Night and cannot sit on a video.
+     Pinned by composite-contrast.test.ts ("scan stage"), which also asserts its absence from `.dark`. */
+  --on-ink: #fffdf8;
+  /* The result bar / hint chip ground over the camera image, and the reticle's 1px halo. */
+  --scan-scrim: color-mix(in oklab, var(--ink) 72%, transparent);
+  /* The static dim OUTSIDE the reticle window (a 100vmax box-shadow, painted once, never animated). */
+  --scan-dim: color-mix(in oklab, var(--ink) 40%, transparent);
 }
 .dark {
   /* v4 Night. The ground is indigo-purple at HSL 259°, and it STAYS there.

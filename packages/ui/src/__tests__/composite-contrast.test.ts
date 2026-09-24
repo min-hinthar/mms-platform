@@ -767,3 +767,90 @@ describe("vellum wash — the save-your-Stars card's ground (.surface-vellum)", 
     }
   }
 });
+
+// ── Phase 1c · grocery ──
+describe("scan stage — the ink box, its scrim and its reticle over a live camera image", () => {
+  /**
+   * The Scan door's viewfinder is CONSTANT ink in both themes (--ink, --on-ink, --scan-scrim,
+   * --scan-dim, --gold), because what sits under it is a camera image, not a themed surface. The
+   * worst image a label can sit on is WHITE (a blown shelf label) — `over(…, WHITE)` is that bound —
+   * and the result bar's text, the reticle's halo and the `.scan-on-ink` button's edge each have to
+   * clear their floor on it.
+   *
+   * ⚠️ `--on-ink` is deliberately absent from `.dark` (--oa flips to #130d1e in Night and cannot
+   * sit on a video), so the Night assertions below read it THROUGH the `.dark` merge at the top of
+   * this file. Revert that merge to `parseBlock(".dark")` alone and they throw "not declared" —
+   * the merge's first falsifiable assertion. The absence itself is pinned by a parse, not assumed.
+   *
+   * ⚠️ BOUND TO THE CSS THAT CONSUMES THE TOKENS (the #242 lesson above): the result bar's ground
+   * and ink, the button's fill and label, and the lit corners' colour are read out of globals.css,
+   * so switching a rule to a different token re-points these assertions at it instead of leaving
+   * them measuring a constant nothing uses.
+   *
+   * Measured by this guard (not by hand): on-ink on ink 17.5174 (both themes); the result bar's
+   * on-ink over the scrim on white 6.9519; the scrim on white against white 7.0671; the lit gold
+   * against its halo on white 3.3981 light / 4.5042 Night — the tightest pin here.
+   *
+   * RED-FIRST — induced, watched fail, restored md5-identical (numbers are this guard's output):
+   *   --scan-scrim 72% → 40%            result bar 6.9519 → 2.4976, lit gold 3.3981 → 1.2208 FAIL
+   *   `--on-ink` redeclared in `.dark`   "absent from .dark"                                FAIL
+   *   `dark = parseBlock(".dark")`      every Night pin throws "--on-ink is not declared"    FAIL
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  /** The ONE live rule for `selector` that declares `prop`, as a bare token name. */
+  const consumed = (selector: string, prop: string): string => {
+    const rules = [...globals.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
+      m[1]!.split(",").some((s) => s.trim() === selector),
+    );
+    const values = rules
+      .map((m) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(m[2]!)?.[1]?.trim())
+      .filter((v): v is string => v !== undefined);
+    if (values.length !== 1)
+      throw new Error(`globals.css: ${values.length} \`${selector} { ${prop} }\` rules (need 1)`);
+    const tok = /^var\((--[\w-]+)\)$/.exec(values[0]!);
+    if (!tok) throw new Error(`globals.css: \`${selector} { ${prop} }\` is not a bare token`);
+    return tok[1]!;
+  };
+
+  const THREE = 3; // WCAG 1.4.11 non-text contrast (a focus-free UI edge, the reticle's corners)
+  const scrimOnWhite = (map: Record<string, string>) => over(t(map, "--scan-scrim"), WHITE);
+
+  for (const [theme, map] of [
+    ["light", light],
+    ["Night", dark],
+  ] as const) {
+    it(`${theme} · on-ink on ink ≥ 7 (the primer, on the solid box)`, () => {
+      expect(ratio(t(map, "--on-ink"), t(map, "--ink"))).toBeGreaterThanOrEqual(7);
+    });
+    it(`${theme} · the result bar's ink over its ground, on a white label, ≥ AA`, () => {
+      const ink = consumed(".scan-result", "color");
+      const ground = consumed(".scan-result", "background");
+      expect(ratio(t(map, ink), over(t(map, ground), WHITE))).toBeGreaterThanOrEqual(AA);
+    });
+    it(`${theme} · the lit corners' colour holds 3:1 against their own halo on white`, () => {
+      const lit = consumed(".scan-reticle-lit .scan-corner::before", "background");
+      expect(ratio(t(map, lit), scrimOnWhite(map))).toBeGreaterThanOrEqual(THREE);
+    });
+    it(`${theme} · the .scan-on-ink button's fill holds 3:1 against the scrim on white`, () => {
+      const fill = consumed(".ui-btn-primary.scan-on-ink", "background");
+      expect(ratio(t(map, fill), scrimOnWhite(map))).toBeGreaterThanOrEqual(THREE);
+      // …and its label on that fill is real text.
+      const label = consumed(".ui-btn-primary.scan-on-ink", "color");
+      expect(ratio(t(map, label), t(map, fill))).toBeGreaterThanOrEqual(AA);
+    });
+  }
+
+  it("the reticle's halo on white holds 3:1 against white (a corner never vanishes on a label)", () => {
+    expect(ratio(scrimOnWhite(light), WHITE)).toBeGreaterThanOrEqual(THREE);
+  });
+
+  it("--on-ink is a CONSTANT — declared in :root, absent from .dark", () => {
+    expect(parseBlock(":root")["--on-ink"]).toBeDefined();
+    expect(parseBlock(".dark")["--on-ink"]).toBeUndefined();
+    expect(parseBlock(".dark")["--scan-scrim"]).toBeUndefined();
+    expect(parseBlock(".dark")["--scan-dim"]).toBeUndefined();
+  });
+});

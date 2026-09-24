@@ -6038,25 +6038,19 @@ html[data-seen-surface] .mms-stagger {
 /* ===== W4g — grocery editorial polish: one type-led masthead + one token system for the chrome
    (replaces the eyebrow + generic h1 + EBT text-wall and a pile of ad-hoc inline styles). ===== */
 
-/* Masthead: a display-serif title over one quiet bilingual subline. Space, not rules, sets it off. */
+/* Masthead — Phase 1c: the §21 menu rhythm (eyebrow over one --fs-h1 title; the sub and the exit
+   tile are gone), so the toolbar lands ~58px under the header instead of ~170px. */
 .grocery-head {
-  margin: 2px 0 18px;
+  margin: 0;
 }
 .grocery-title {
-  margin: 4px 0 6px;
+  margin: var(--s1) 0 var(--s3);
   font-family: var(--font-display);
-  font-size: var(--fs-display);
+  font-size: var(--fs-h1);
   font-weight: var(--fw-semibold);
-  line-height: 1.02;
-  letter-spacing: -0.015em;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
   color: var(--tx);
-}
-.grocery-sub {
-  margin: 0;
-  max-width: 32ch;
-  color: var(--t2);
-  font-size: var(--fs-sm);
-  line-height: 1.45;
 }
 
 /* Toolbar cluster: the Browse|Scan segmented control + the search field read as one group. */
@@ -6388,7 +6382,9 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
   white-space: nowrap;
 }
-.aisle-tile[aria-pressed="true"] {
+/* Phase 1c — the chips are NAVIGATION links now, so the current view is `aria-current`, not a
+   toggle's `aria-pressed` (this selector and its `-my` child below migrated together). */
+.aisle-tile[aria-current="true"] {
   /* A solid lit cap (not a 10% tint that vanishes on Night) — the selected aisle reads at a glance. */
   border-color: var(--ac);
   background: var(--ac);
@@ -6415,10 +6411,12 @@ html[data-seen-surface] .mms-stagger {
   /* W16e review LOW — was 10.5px/1.15: the smallest Burmese in the app, and its own line-height
      OVERRODE the new [lang="my"] leading, so /grocery kept clipping stacked diacritics while the
      rest of the app breathed. Size to the scale; leading inherits. */
-  font-size: var(--fs-xs);
+  /* Phase 1c — up to the §6 Burmese floor (13px) — it was --fs-xs, the smallest Burmese on the
+     market's first screen. The chip stays ~44px. */
+  font-size: var(--fs-sm);
   color: var(--t3);
 }
-.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+.aisle-tile[aria-current="true"] .aisle-tile-my {
   color: color-mix(in oklab, var(--oa) 78%, transparent);
 }
 
@@ -11867,4 +11865,572 @@ html[data-fx="lite"] .mms-scrim {
   margin-top: 2px;
   font-family: var(--font-my);
   font-size: var(--fs-sm);
+}
+
+/* ── Phase 1c · grocery ──────────────────────────────────────────────────────────────────────────
+   The market's front door: the Scan door's ink stage + recovery panels + in-stage result bar, and
+   Browse's shelves / aisle view. Tokens only (check:style-literals holds the ratchet); every
+   animation below is escorted by the ONE reduced-motion block at the foot of this section. */
+
+/* THE INK STAGE — ONE fixed box for idle · primer · starting · live, so moving between them never
+   changes layout. Deliberately NOT `.card-textured`: that class forces `> * { position: relative }`,
+   which would beat every absolute layer below. The height is declared TWICE on the property (a vh
+   line, then an svh line for browsers that have it) — never through a custom property, because an
+   unsupported unit inside var() computes to `unset` at use time and would collapse the box. */
+.scan-stage {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  height: min(min(100vw - 2 * var(--s5), 34rem) * 0.75, 36vh);
+  height: min(min(100vw - 2 * var(--s5), 34rem) * 0.75, 36svh);
+  border-radius: var(--r-card);
+  background: var(--ink);
+  color: var(--on-ink);
+}
+/* The focus ring lives on the BOX (tabIndex −1, focused on Start / Try again / Dismiss) — never on
+   an sr-only node a sighted keyboard user cannot see. */
+.scan-stage:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+}
+.scan-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+.scan-stage[data-state="live"] .scan-video {
+  opacity: 1;
+}
+/* The window and the reticle share one geometry: a 2.4:1 box, 62% wide, centred at 38% height. The
+   `translate` PROPERTY positions it so the lock's `transform: scale()` composes instead of
+   replacing the centring. */
+.scan-window,
+.scan-reticle {
+  position: absolute;
+  left: 50%;
+  top: 38%;
+  width: 62%;
+  aspect-ratio: 2.4 / 1;
+  translate: -50% -50%;
+  pointer-events: none;
+}
+/* A STATIC dim outside the window — painted once, never animated, so never a promoted layer (the
+   stage's overflow clips the 100vmax shadow). Live only: there is nothing to frame before video. */
+.scan-window {
+  display: none;
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 100vmax var(--scan-dim);
+}
+.scan-stage[data-state="live"] .scan-window {
+  display: block;
+}
+/* Before video the corners are DIM — a frame, not a claim that anything is being read. */
+.scan-stage:not([data-state="live"]) .scan-reticle {
+  opacity: 0.45;
+}
+/* Four L-corners; each arm its own 22×3 bar in --on-ink with a 1px --scan-scrim halo, so a corner
+   holds ≥3:1 on a white label AND on a black shelf (composite-contrast "scan stage"). */
+.scan-corner {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+}
+.scan-corner[data-c="tl"] {
+  top: 0;
+  left: 0;
+}
+.scan-corner[data-c="tr"] {
+  top: 0;
+  right: 0;
+}
+.scan-corner[data-c="bl"] {
+  bottom: 0;
+  left: 0;
+}
+.scan-corner[data-c="br"] {
+  bottom: 0;
+  right: 0;
+}
+.scan-corner::before,
+.scan-corner::after {
+  content: "";
+  position: absolute;
+  border-radius: var(--r-full);
+  background: var(--on-ink);
+  box-shadow: 0 0 0 1px var(--scan-scrim);
+}
+.scan-corner::before {
+  width: 22px;
+  height: 3px;
+}
+.scan-corner::after {
+  width: 3px;
+  height: 22px;
+}
+.scan-corner[data-c="tl"]::before,
+.scan-corner[data-c="tl"]::after {
+  top: 0;
+  left: 0;
+}
+.scan-corner[data-c="tr"]::before,
+.scan-corner[data-c="tr"]::after {
+  top: 0;
+  right: 0;
+}
+.scan-corner[data-c="bl"]::before,
+.scan-corner[data-c="bl"]::after {
+  bottom: 0;
+  left: 0;
+}
+.scan-corner[data-c="br"]::before,
+.scan-corner[data-c="br"]::after {
+  bottom: 0;
+  right: 0;
+}
+/* The LOCK — beat one of the decode feedback, fired on an announced sighting BEFORE the network.
+   It claims "I read it", never "added" (the server's verdict is beat two: haptic, toast, row). The
+   gold corners are the selection colour, bright in both themes. Transform + opacity only. */
+.scan-reticle-lit {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+.scan-reticle-lit .scan-corner::before,
+.scan-reticle-lit .scan-corner::after {
+  background: var(--gold);
+}
+.scan-reticle[data-lock] {
+  animation: mmsScanLock var(--dur-base) var(--ease-out);
+}
+.scan-reticle[data-lock] .scan-reticle-lit {
+  animation: mmsScanLit 900ms linear both;
+}
+@keyframes mmsScanLock {
+  35% {
+    transform: scale(0.96);
+  }
+}
+@keyframes mmsScanLit {
+  0% {
+    opacity: 0;
+  }
+  9% {
+    opacity: 1;
+  }
+  78% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* The one line of guidance, top-centre. Visible text, NOT a live region; hidden while a result
+   shows (one message at a time). Burmese at the §6 floor (--fs-sm), not the caption size. */
+.scan-hint {
+  position: absolute;
+  top: var(--s2);
+  left: 50%;
+  translate: -50% 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: calc(100% - 2 * var(--s3));
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-full);
+  background: var(--scan-scrim);
+  color: var(--on-ink);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+  text-align: center;
+  pointer-events: none;
+}
+.scan-hint-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+/* "Starting the camera…" — shown only if the start takes longer than 400ms (a timer, not motion). */
+.scan-starting {
+  position: absolute;
+  inset: auto 0 var(--s4);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  text-align: center;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+/* The primer: a centred column INSIDE the ink box — the camera prompt only ever follows its tap. */
+.scan-primer {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+  padding: var(--s4);
+  text-align: center;
+}
+.scan-stage-title {
+  margin: 0;
+  color: var(--on-ink);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+}
+.scan-primer-my {
+  margin: 0;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  color: color-mix(in oklab, var(--on-ink) 80%, transparent);
+}
+/* `.scan-on-ink` — the primary button INVERTED onto the constant ink ground, identical in both
+   themes (the clay primary is tuned for paper and loses its edge on black). The 1px scrim ring is
+   the button's boundary on a live image. Hover/active keep the same fill + label pair. */
+.ui-btn-primary.scan-on-ink {
+  background: var(--on-ink);
+  color: var(--ink);
+  box-shadow: 0 0 0 1px var(--scan-scrim);
+}
+@media (hover: hover) {
+  .ui-btn-primary.scan-on-ink:not([aria-disabled="true"]):hover {
+    box-shadow:
+      0 0 0 1px var(--scan-scrim),
+      0 0 24px -10px var(--glow-gold);
+  }
+}
+/* A bilingual control's label is a flex row, so the Burmese half is separated by a GAP, never a
+   whitespace node (§6). */
+.scan-btn-bi > span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.scan-btn-my {
+  font-family: var(--font-my);
+  font-weight: var(--fw-semibold);
+}
+/* The explanation sits UNDER the box, in flow. */
+.scan-note {
+  max-width: 40ch;
+  margin: var(--s3) auto 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  text-align: center;
+}
+.scan-note-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+}
+/* THE RESULT BAR — inside the stage, where the shopper is looking, above the reticle. Not live:
+   the toast is the announcement; this is what persists. Keyed per outcome so each one arrives. */
+.scan-result {
+  position: absolute;
+  inset-inline: var(--s2);
+  bottom: var(--s2);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-card);
+  background: var(--scan-scrim);
+  color: var(--on-ink);
+}
+.scan-result-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.scan-result-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+}
+.scan-result-meta {
+  font-size: var(--fs-sm);
+}
+.scan-result-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+}
+.scan-result-my {
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+}
+.scan-result-dismiss {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-full);
+  background: transparent;
+  color: var(--on-ink);
+  cursor: pointer;
+}
+/* PAPER — the recovery panels grow freely and never clip (the R1 lesson: recovery copy must never
+   be cut off). The same height expression, as a MIN, declared twice for the same var() reason. */
+.scan-panel {
+  display: grid;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  min-height: min(min(100vw - 2 * var(--s5), 34rem) * 0.75, 36vh);
+  min-height: min(min(100vw - 2 * var(--s5), 34rem) * 0.75, 36svh);
+}
+.scan-panel > .ui-empty {
+  margin-top: 0;
+}
+.scan-panel .ui-empty-title:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
+.scan-panel-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+}
+/* The heading's Burmese line at body size — Padauk at the display h2 size would outweigh the EN. */
+.scan-panel .ui-empty-title .scan-panel-my {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+.scan-help > summary .scan-panel-my {
+  display: inline;
+  margin: 0 0 0 var(--s2);
+}
+.scan-panel-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+}
+.scan-help {
+  width: 100%;
+  max-width: 36ch;
+  margin-top: var(--s2);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-normal);
+  text-align: left;
+}
+.scan-help > summary {
+  padding-block: var(--s3);
+  color: var(--ac-strong);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.scan-help ol {
+  display: grid;
+  gap: var(--s2);
+  margin: 0;
+  padding-left: var(--s5);
+}
+/* The two terminal-basket lines (a finished basket / an unavailable one) as compact paper notes:
+   no stage renders against a basket that cannot take a scan (W9d). */
+.scan-paper-note {
+  margin: var(--s3) 0 0;
+  padding: var(--s3) var(--s4);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+
+/* Phase 1c · grocery — reduced motion: every animation above, at rest. The lock's gold corners
+   still SHOW for their 900ms (a state, not motion). The result bar's `.mms-rise`, the panels'
+   `.mms-settle` and the shelves' `.mms-stagger` ride the shared gates. Nothing here loops, and
+   there is no scanning laser, so no stop control is owed (WCAG 2.2.2). */
+@media (prefers-reduced-motion: reduce) {
+  .scan-reticle[data-lock],
+  .scan-reticle[data-lock] .scan-reticle-lit {
+    animation: none;
+  }
+  .scan-reticle[data-lock] .scan-reticle-lit {
+    opacity: 1;
+  }
+  .scan-video {
+    transition: none;
+  }
+}
+
+/* ── Phase 1c · grocery — Browse: the market home's shelves and the aisle view ─────────────────── */
+/* The rail's chips are <a> links now. */
+a.aisle-tile {
+  text-decoration: none;
+}
+/* A shelf: the heading row, then six cards. */
+.aisle-shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+.aisle-shelf-head .aisle-heading {
+  flex-wrap: wrap;
+  row-gap: 0;
+  min-width: 0;
+  margin: 0;
+}
+.aisle-shelf-head .aisle-heading-count {
+  flex: none;
+}
+/* "See all {n}" — a 44px link in the strong accent (the tinted-surface text variant, AA on --pg). */
+.aisle-shelf-all {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 44px;
+  margin-inline-end: calc(-1 * var(--s2));
+  padding-inline: var(--s2);
+  border-radius: var(--r-full);
+  color: var(--ac-strong);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .aisle-shelf-all:hover {
+    text-decoration: underline;
+  }
+}
+/* The phone shelf is a snap rail: two whole cards and a ~40% peek at 390, bled into the gutter
+   (§21 — a lit card's shadow is otherwise sliced square at the scroller's edge), with block padding
+   so a 2px + 3px-offset focus ring is never clipped. */
+.shelf-rail {
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 2 * var(--s2)) / 2.4);
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s5));
+  padding: var(--s2) var(--s5);
+  scroll-padding-inline: var(--s5);
+  scroll-snap-type: x mandatory;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.shelf-rail::-webkit-scrollbar {
+  display: none;
+}
+.shelf-rail > * {
+  scroll-snap-align: start;
+}
+/* The trailing fade says "this scrolls" — dropped while a card inside has keyboard focus, so the
+   ring is never masked (the `.aisle-rail-scroll` precedent, WCAG 2.4.7). */
+.shelf-rail:not(:focus-within) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+}
+/* From the tablet tier the shelf is a 3-across grid of its two rows: a mouse has no sideways swipe
+   (§18), so no mouse-unswipeable rails. */
+@media (min-width: 48em) {
+  .shelf-rail {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: var(--s2) 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .shelf-rail:not(:focus-within) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+/* The aisle view lands UNDER the pinned rail (header + ~the rail's own height on a phone; the rail
+   is static from the desktop tier). Its heading takes focus on entry — a visible ring for keyboard,
+   none for a pointer-initiated move. */
+.aisle-view {
+  scroll-margin-top: calc(
+    var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 72px
+  );
+}
+@media (min-width: 64em) {
+  .aisle-view {
+    scroll-margin-top: calc(
+      var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
+    );
+  }
+}
+.aisle-view .aisle-heading:focus {
+  outline: none;
+}
+.aisle-view .aisle-heading:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
+/* Browse's loading skeleton, in the new geometry (the shimmer + its RM gate are `.mms-skeleton`). */
+.gb-skeleton {
+  margin-top: var(--s3);
+}
+.gb-skel-line {
+  display: block;
+  width: 70%;
+  height: 12px;
+  border-radius: var(--r-full);
+}
+.gb-skel-rail {
+  display: flex;
+  gap: var(--s2);
+  margin: var(--s3) 0;
+  overflow: hidden;
+}
+.gb-skel-pill {
+  flex: none;
+  width: 96px;
+  height: 44px;
+  border-radius: var(--r-full);
+}
+.gb-skel-heading {
+  display: block;
+  width: 45%;
+  height: 18px;
+  margin: var(--s5) 0 var(--s2);
+  border-radius: var(--r-sm);
+}
+.gb-skel-shelf {
+  overflow: hidden;
+}
+.gb-skel-text {
+  display: block;
+  width: 85%;
+  height: 12px;
+  border-radius: var(--r-sm);
+}
+.gb-skel-text-short {
+  width: 55%;
+}
+/* The market's named exit, at the page foot (Phase 1c — it was a 260px tile in the masthead). */
+.grocery-foot {
+  margin: var(--s6) 0 0;
+  text-align: center;
 }

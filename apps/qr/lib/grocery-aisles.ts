@@ -34,6 +34,39 @@ export const AISLES: Aisle[] = [
 
 export const aisleBySlug = new Map(AISLES.map((a) => [a.slug, a]));
 
+/**
+ * Phase 1c — the market home shows ONE shelf of six per aisle, not the whole ~400-card wall.
+ *
+ * `aislePreview` keeps the INPUT order (the catalog's own name A→Z, `getGroceryCatalog`). There is
+ * deliberately no featured-first ranking: the featured set is an unreviewed seed (OPEN-ITEMS G19), so
+ * a sale claim may not decide what a shelf leads with — the Save pill stays on the card only (W9d) —
+ * and there is no "popular" ordering because there is no sales data to back one.
+ */
+export const AISLE_PREVIEW = 6;
+export function aislePreview<T>(
+  items: readonly T[],
+  n: number = AISLE_PREVIEW,
+): { shown: T[]; total: number; more: boolean } {
+  return { shown: items.slice(0, n), total: items.length, more: items.length > n };
+}
+
+/**
+ * The aisles that actually stock something, in MERCHANDISING order (AISLES), with their counts
+ * measured from the live catalog — never typed. An empty aisle is omitted: a chip or shelf for it
+ * would be a dead end.
+ */
+export function stockedAisles(
+  catalog: readonly { category: string | null }[],
+): { aisle: Aisle; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const i of catalog)
+    if (i.category) counts.set(i.category, (counts.get(i.category) ?? 0) + 1);
+  return AISLES.flatMap((aisle) => {
+    const count = counts.get(aisle.slug) ?? 0;
+    return count > 0 ? [{ aisle, count }] : [];
+  });
+}
+
 /** Pack-size label ("400g") — grams stay grams (the catalog is metric); other units pass through. */
 export function sizeLabel(qty: number | null, unit: string | null): string | null {
   if (!qty || !unit) return null;

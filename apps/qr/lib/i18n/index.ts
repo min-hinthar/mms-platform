@@ -1,6 +1,7 @@
 import { COMMON } from "./common";
 import { CART } from "./cart";
 import { CONFIRM } from "./confirm";
+import { MARKET } from "./market"; // Phase 1c · grocery
 import type { Locale } from "./types";
 
 export type { Locale, Entry } from "./types";
@@ -13,7 +14,7 @@ export { CART_MONEY_KEYS } from "./cart";
  * Per-surface modules keep authoring + the K15 native check owner-reviewable; new surfaces join
  * the spread as the W5-L3…L5 rollout lands.
  */
-export const DICT = { ...COMMON, ...CART, ...CONFIRM } as const;
+export const DICT = { ...COMMON, ...CART, ...CONFIRM, ...MARKET } as const;
 
 export type DictKey = keyof typeof DICT;
 

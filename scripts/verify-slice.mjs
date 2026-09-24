@@ -6593,6 +6593,23 @@ const MUTANTS = [
     find: "  if (i.stars !== null && i.stars > 0) {",
     replace: "  if (i.stars !== null && i.stars >= 0) {",
   },
+  // ── Phase 1c · grocery ──
+  {
+    id: "grocery/a-sheet-over-a-minting-basket-only-holds",
+    file: "apps/qr/lib/camera-state.ts",
+    suite: "lib/camera-state.test.ts",
+    why: "Phase 1c — `decodeHold` decides whether a decoded sighting may become a charge attempt (M186 lineage). Test the basket before the sheet and a sheet open while the basket is still minting reads `hold`, not `swallow` — so on the render that both lands the basket and closes the sheet the scanner takes the hold→none edge, RESETS its throttle, and the jar that sat in frame behind the modal announces as new and is charged",
+    find: '  if (i.sheetOpen) return "swallow";\n  if (!i.cartReady) return "hold";\n',
+    replace: '  if (!i.cartReady) return "hold";\n  if (i.sheetOpen) return "swallow";\n',
+  },
+  {
+    id: "grocery/a-sheet-holds-instead-of-swallowing",
+    file: "apps/qr/lib/camera-state.ts",
+    suite: "lib/camera-state.test.ts",
+    why: "Phase 1c — the sheet's pause must SWALLOW, never hold: a hold resets the throttle on the way out, so closing the basket sheet over a jar still in frame announces it as new and `add()` charges it — an item added behind a modal the shopper could not see",
+    find: '  if (i.sheetOpen) return "swallow";\n',
+    replace: '  if (i.sheetOpen) return "hold";\n',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
