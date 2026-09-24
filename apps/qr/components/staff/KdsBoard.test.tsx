@@ -42,6 +42,14 @@ const haptic = vi.fn();
 let soundWanted = false;
 let armOk = false;
 const setKdsSoundWanted = vi.fn();
+// Phase 2b — the fake engine: `armed` is the context's state, and its listeners are what
+// `KdsChime.subscribe` hands the board (a suspension is `ctxRunning = false` + `notifyChime()`).
+let ctxRunning = false;
+const chimeListeners = new Set<() => void>();
+const notifyChime = () => {
+  for (const f of chimeListeners) f();
+};
+const played = vi.fn();
 
 const queue = (firedAt = NOW): KitchenQueue => ({
   tickets: [
@@ -110,12 +118,22 @@ vi.mock("@/lib/kds-sound", () => ({
   KDS_DEFAULT_VOLUME: 0.8,
   KdsChime: class {
     arm() {
+      ctxRunning = armOk;
+      notifyChime(); // the real engine notifies once after an arm settles
       return Promise.resolve(armOk);
     }
     get armed() {
-      return armOk;
+      return ctxRunning;
     }
-    play() {}
+    subscribe(cb: () => void) {
+      chimeListeners.add(cb);
+      return () => {
+        chimeListeners.delete(cb);
+      };
+    }
+    play(...a: unknown[]) {
+      played(...a);
+    }
   },
   getKdsVolume: () => 0.8,
   setKdsVolume: () => {},
@@ -149,6 +167,9 @@ afterEach(() => {
   getKitchenQueue.mockImplementation(() => Promise.resolve({ ok: true, queue: currentQueue }));
   soundWanted = false;
   armOk = false;
+  ctxRunning = false;
+  chimeListeners.clear();
+  played.mockReset();
   currentQueue = queue();
   vi.useRealTimers();
   // The performance.now clock and the getComputedStyle stub are spies — restore them per test.
@@ -998,6 +1019,36 @@ describe("kitchen-8 — a device that wanted sound says so, and the first tap re
     expect(bumpTicket).toHaveBeenCalledTimes(1);
   });
 
+  it("Phase 2b — sound truth: armed for the FIRST time here, then suspended, wears the warn chip and re-arms off the next tap, silently", async () => {
+    // MUTATIONS (by hand): enableSound leaves `soundWanted` false — the suspended board reads
+    // "Enable sound" and never re-arms, red; `soundOn` set-once (no subscription) — the slider
+    // survives the suspension, red.
+    armOk = true;
+    const { getByRole, container } = mount();
+    // Let the persisted-controls hydration (a two-step microtask chain, "no stored flag") land
+    // first, as it does long before a person can tap.
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    fireEvent.click(getByRole("button", { name: ts("en", "kds.sound.enable") }));
+    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
+    expect(played).toHaveBeenCalledTimes(1); // the arm's own confirmation tone
+    // The tablet sleeps: the context is suspended out from under the armed engine.
+    act(() => {
+      ctxRunning = false;
+      notifyChime();
+    });
+    expect(container.querySelector(".kds-vol")).toBeNull();
+    const chip = container.querySelector('.kds-chip[data-muted="true"]');
+    expect(chip?.textContent).toBe(ts("en", "kds.sound.off"));
+    // The next tap anywhere on the board re-arms, with no tone, and the slider comes back.
+    fireEvent.click(getByRole("button", { name: new RegExp(`^${ts("en", "kds.bump")}`) }));
+    await waitFor(() => expect(container.querySelector(".kds-vol")).not.toBeNull());
+    expect(played).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('.kds-chip[data-muted="true"]')).toBeNull();
+  });
+
   it("a fresh device shows the plain chip, and an explicit arm is what sets the preference", async () => {
     armOk = true;
     const { getByRole, container } = mount();
@@ -1084,6 +1135,14 @@ describe("Phase 2b — the stylesheet: the 86 band is gone, the ⋯ sheet is a t
     for (const r of rules)
       for (const sel of r.selectors)
         expect(sel, sel).not.toMatch(/\.kds-line-86(?![\w-])|\.kds-line-86-done/);
+  });
+
+  it("the undo pill clears the home indicator (xcut-10): its bottom adds the safe-area inset", () => {
+    // MUTATION (by hand): `bottom: 18px` back — on a notched tablet the pill sits on the indicator.
+    const pill = rules.filter((r) => r.selectors.includes(".kds-undo"));
+    const bottoms = pill.flatMap((r) => [...r.body.matchAll(/(?:^|;)\s*bottom:\s*([^;]+)/g)]);
+    expect(bottoms).toHaveLength(1);
+    expect(bottoms[0]![1]!.trim()).toBe("calc(var(--s4) + env(safe-area-inset-bottom, 0px))");
   });
 
   it("the held line's fade is still declared verbatim (composite-contrast parses it)", () => {

@@ -200,8 +200,12 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   const [railView, setRailView] = useState<"allday" | "served">("allday");
   const [size, setSize] = useState<KdsSize>("s");
   const [page, setPage] = useState(0);
+  // Phase 2b — the KDS sound truth (§15: "wanted" and "armed" are two facts). `soundOn` FOLLOWS the
+  // engine (the subscription below), so a context suspended under a sleeping tablet drops the volume
+  // slider for the warn chip instead of claiming a sound nothing can make.
   const [soundOn, setSoundOn] = useState(false);
-  // kitchen-8 — "this device wanted sound": armed on a previous mount, disarmed by the reload.
+  // kitchen-8 — "this device wanted sound": armed on a previous mount (or on this one — enableSound
+  // sets it), disarmed by the reload or an explicit mute.
   const [soundWanted, setSoundWanted] = useState(false);
   const [volume, setVolume] = useState(0.8);
   const chime = useRef<KdsChime | null>(null);
@@ -488,6 +492,9 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     setSoundOn(ok);
     if (ok) {
       setKdsSoundWanted(true);
+      // Phase 2b — wanted on THIS mount too: without it, a device armed for the first time went
+      // silent after sleep showing "Enable sound", and the first-tap re-arm below never attached.
+      setSoundWanted(true);
       chime.current.play("dinein"); // audible confirmation — the tap IS the volume check
     }
   };
@@ -495,7 +502,14 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     setVolume(v);
     setKdsVolume(v);
     setKdsSoundWanted(v > 0); // an explicit mute is a choice; the next mount does not nag about it
+    setSoundWanted(v > 0);
   };
+  // Phase 2b — the engine's state, heard: arming, and a suspension out from under an armed context
+  // (sleep, a call, an OS interruption), each re-read from `armed` in the subscription callback.
+  useEffect(() => {
+    const c = (chime.current ??= new KdsChime());
+    return c.subscribe(() => setSoundOn(c.armed));
+  }, []);
   // kitchen-8 — a device that wanted sound re-arms off the FIRST tap of the shift (usually a bump):
   // browsers need some gesture, not the chip's. One attempt, silent (no confirmation tone — nobody
   // asked for one); if the device has no audio the warn chip stays and says so.

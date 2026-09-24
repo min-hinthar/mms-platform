@@ -8034,7 +8034,8 @@ a .chrome-en {
 /* The 6s undo toast after a ticket bump. */
 .kds-undo {
   position: fixed;
-  bottom: 18px;
+  /* Phase 2b (xcut-10) — clear of the home indicator on a notched tablet or phone. */
+  bottom: calc(var(--s4) + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-toast); /* a transient notice: above a sheet, below the recovery alert */
