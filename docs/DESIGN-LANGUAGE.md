@@ -141,10 +141,25 @@ server database first."_ The doctrine that survived two adversarial reviews and 
   customer facing"_).** Every visible string uses the words a guest or a parent would say out loud —
   no trade slang (86, fire, comp, void, bump), no payments/tech jargon; internal names stay in code.
   On the guest screens that means: "pay", never "settle"; "approved", never "authorized" / "hold" /
-  "captured"; "the person who started your table", never "the host"; "the code on the package",
-  never "barcode"; "on the house", never "comped"; "another window", never "another tab"; "table
-  code", never "party code". A legal disclosure says what the charge is FOR, never a statute number.
-  The Order / Basket nouns of §21 still bind — plain words never fork a settled vocabulary.
+  "captured"; "the person sending your table’s orders", never "the host"; "the code on the
+  package", never "barcode"; "on the house", never "comped"; "another window", never "another tab";
+  "table code", never "party code"; "as soon as possible", never "ASAP". The Order / Basket nouns of
+  §21 still bind — plain words never fork a settled vocabulary.
+  - **Plain must also be TRUE (blind review, 2026-09-24).** Name a ROLE by what it does, never by an
+    event that may not have happened: a staff-opened table's host is simply the first diner who
+    scans, so "the person who started your table" was false for every one of them. And a list is
+    named for everything in it ("Today’s payments & refunds", not "Paid today" over a list that
+    holds refunds).
+  - **ONE word per concept, on one screen and across screens.** Two buttons on one ticket never
+    share a word ("All done" for the ticket, "Done" for a line); one phrase for one choice ("as soon
+    as possible" — the ⚡ belongs to the scheduler's "Earliest time" alone); one name for one state
+    ("Card approved" on the board and on the payer's own screen); a help card names the button as
+    it is drawn (the ⋯ glyph, "Cook now"). `lib/i18n/plain-words.test.ts` parses every dictionary
+    and fails on the trade and payments words.
+  - **Exception — historical records render VERBATIM.** A receipt records what the guest was told:
+    the retired service charge's disclosure on a pre-2026-08-15 receipt repeats the checkout's
+    text word for word, "(CA SB-1524)" included (`SERVICE_CHARGE_DISCLOSURE`, pinned). A record is
+    never re-voiced, however plain the new words would be.
 
 ## 6 · Bilingual — one surface, two tongues
 
