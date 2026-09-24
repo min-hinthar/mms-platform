@@ -1,6 +1,9 @@
 "use client";
 import { Fragment } from "react";
-import { burmeseAddsInfo, type AllDayRow } from "@/lib/ticket-names";
+import { Icon } from "@mms/ui";
+import { burmeseAddsInfo, noteRuns, type AllDayRow } from "@/lib/ticket-names";
+import type { StaffLang } from "@/lib/staff-lang";
+import { Chrome } from "./Chrome";
 
 /**
  * P1 — the bilingual TEXT of a ticket line, in one place, so the render rule the data layer cannot
@@ -124,6 +127,74 @@ export function ExpoLineMy({ line }: { line: LineText }) {
           <ModsMy modifiers={line.modifiers} modifiersMy={line.modifiersMy} />
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * Phase 2b · kitchen — a line's KITCHEN NOTE, the allergy channel: the one warn band inside a KDS
+ * ticket, rendered directly under its dish (never inside the line button, whose held fade would
+ * reach it, and never after a control), and named as the line's description.
+ *
+ * ⚠️ EXACTLY TWO in-flow children, and that is the load-bearing shape: the note is a flex row (the
+ * ⚠ beside the text), and a flex container DROPS whitespace-only text children (DESIGN-LANGUAGE §6)
+ * — render the script runs straight into it and every space between an English run and a Burmese
+ * one vanishes. So the ⚠, then ONE inline span that holds the sr-only prefix and every run, in
+ * which inline whitespace survives. Each Myanmar run is marked `lang="my"` (Padauk, `--lh-my`, a
+ * Burmese voice); Latin runs stay bare text nodes. `as="span"` for a phrasing-content parent (the
+ * expo bag line). A blank note renders nothing.
+ */
+export function TicketNote({
+  note,
+  id,
+  lang,
+  className,
+  as: Tag = "p",
+}: {
+  note: string;
+  id?: string;
+  lang: StaffLang;
+  className?: string;
+  as?: "p" | "span";
+}) {
+  const runs = noteRuns(note);
+  if (runs.length === 0) return null;
+  return (
+    <Tag className={className} id={id}>
+      <Icon name="alert" />
+      <span className="ticket-note-text">
+        <span className="sr-only">
+          <Chrome lang={lang} k="kds.note.sr" />
+          {" — "}
+        </span>
+        {runs.map((r, i) =>
+          r.my ? (
+            <span key={i} lang="my">
+              {r.text}
+            </span>
+          ) : (
+            r.text
+          ),
+        )}
+      </span>
+    </Tag>
+  );
+}
+
+/**
+ * Phase 2b · kitchen — the dish as the ⋯ sheet's title: the catalog Burmese with the English echo
+ * beneath (the same `.chrome-pair` shape the console's chrome uses), or the English name alone when
+ * the catalog has none. Independent of the device language, as the ticket is — the sheet is ABOUT
+ * the line the cook just tapped, so it names it the way that line reads.
+ */
+export function TicketDishTitle({ line }: { line: Pick<LineText, "name" | "nameMy"> }) {
+  if (line.nameMy === null) return <>{line.name}</>;
+  return (
+    <span className="chrome-pair">
+      <span className="chrome-my" lang="my">
+        {line.nameMy}
+      </span>
+      <span className="chrome-en">{line.name}</span>
     </span>
   );
 }

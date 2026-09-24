@@ -176,7 +176,7 @@ export const STAFF = {
   "kds.line.done": { en: "Done", my: "ပြီး" },
   "kds.line.bagit": { en: "Bag it", my: "ထုပ်ရန်" },
   "kds.line.cooking": { en: "Cooking", my: "ချက်နေဆဲ" },
-  "kds.86": { en: "86 this dish", my: "ဒီဟင်း ဖြုတ်" }, // K15-HIGH — undone on a DIFFERENT screen
+  "kds.86": { en: "86 this dish", my: "ဒီဟင်း ဖြုတ်" }, // K15-HIGH — a 6s undo in the bar, then /staff/menu
   "kds.86.done": { en: "Off the menu", my: "မီနူးက ဖြုတ်ထားပြီ" }, // K15-HIGH — a statement, not a button
 
   // ── KDS: the status line and stats ─────────────────────────────────────────
@@ -2393,9 +2393,12 @@ export const STAFF = {
     en: "The bar at the bottom brings the ticket back.",
     my: "အောက်ခြေက ဘားက တစ်ကတ်ကို ပြန်ခေါ်ပေးပါမယ်။",
   },
+  // Phase 2b — the 86 moved behind the line's ⋯ ("More", its spoken name — a screen reader voices
+  // the glyph as "midline horizontal ellipsis", so the card names the word, the picture maps it to
+  // ⋯). Re-drafted: Claude-authored MY pending Min's native check (K15), re-queued.
   "help.how.kitchen.3": {
-    en: "Out of a dish? 86 it — guests can’t order it any more.",
-    my: "ဟင်းကုန်ရင် ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
+    en: "Out of a dish? Tap More on its line, then 86 it — guests can’t order it any more.",
+    my: "ဟင်းကုန်ရင် အဲဒီဟင်းရဲ့ နောက်ထပ် ကို နှိပ်ပြီး ဖြုတ်လိုက်ပါ — ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။",
   }, // K15-HIGH — a wrong word here hides a dish from every guest, or keeps selling one that is gone
   // `setItemSoldOut` is server-and-up (app/staff/menu), so the put-back is not a manager's job —
   // the first draft said it was, and would have had Mom wait for someone she did not need.
@@ -2665,6 +2668,24 @@ export const STAFF = {
     en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this tab settles itself in a minute. If it doesn’t, try again.",
     my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ကတ်ကနေ ဖြတ်ပြီးပြီလား မသိရပါ။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ဦး — ဖြတ်ပြီးသားဆိုရင် ဒီစာရင်း တစ်မိနစ်အတွင်း သူ့ဘာသာ ပိတ်သွားပါမယ်။ မပိတ်ရင် ထပ်စမ်းပါ။",
   }, // K15-HIGH — read while a charge's outcome is unknown; a misread collects the guest twice
+
+  // ── Phase 2b · kitchen ──
+  // The 86 moved behind a per-line ⋯ (K22: a test pass 86'd a live dish off a one-tap band). All
+  // three are Claude-authored MY drafts pending Min's native check (K15).
+  // The ⋯'s sr-only name. {x} is the dish as the ticket renders it (Burmese-first). A "More" control,
+  // not a menu of "options" holding one action. grounded: floor.door.more (နောက်ထပ်) +
+  // table.line.noteLabel ({x} အတွက်).
+  "kds.line.more": { en: "More for {x}", my: "{x} အတွက် နောက်ထပ်" },
+  // The sheet's hint above the 86. It promises exactly what `setItemSoldOut` does: the dish's
+  // `is_sold_out` flips, and no line on ANY ticket is touched. grounded: help.how.kitchen.3
+  // (မမှာနိုင်တော့ပါ), kds.live.restored (ဘုတ်ပေါ်), "orders" (အော်ဒါတွေ), help.how.title.counter (ကောင်တာ).
+  "kds.86.hint": {
+    en: "Guests can’t order it any more. Orders already on the board stay — tell the counter if you can’t make them.",
+    my: "ဧည့်သည်တွေ မမှာနိုင်တော့ပါ။ ဘုတ်ပေါ်က အော်ဒါတွေကတော့ ဆက်ရှိနေမယ် — မလုပ်ပေးနိုင်ရင် ကောင်တာကို ပြောပါ။",
+  }, // K15-HIGH — the last thing read before a dish leaves every guest's menu
+  // The sr-only prefix on a ticket's kitchen note (the note is the line's description). The " — "
+  // after it is punctuation in the component, not dictionary text. grounded: browse.mod.note.
+  "kds.note.sr": { en: "Kitchen note", my: "မီးဖိုချောင် မှတ်ချက်" },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2824,6 +2845,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.line.state.fired",
   // ── Phase 2a · register ──
   "settle.card.unknown",
+  // ── Phase 2b · kitchen ──
+  "kds.86.hint",
 ]);
 
 /**

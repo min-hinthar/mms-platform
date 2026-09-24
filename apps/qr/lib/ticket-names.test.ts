@@ -5,6 +5,7 @@ import {
   burmeseAddsInfo,
   catalogNameMy,
   isUuid,
+  noteRuns,
   pairModifiersMy,
   uuidOptionIds,
   type AllDayLine,
@@ -179,5 +180,45 @@ describe("allDayRows — the rail's key is the English label; a row carries the 
     const first = line({ name: "Mohinga", modifiers: ["Mild"], modifiersMy: [null] });
     allDayRows([first, line({ name: "Mohinga", modifiers: ["Mild"], modifiersMy: [MILD_MY] })]);
     expect(first.modifiersMy).toEqual([null]);
+  });
+});
+
+describe("Phase 2b · noteRuns — a free-text note split by script, neutrals riding the run before", () => {
+  it("an English note ending in Burmese: the space and the dash attach to the English run", () => {
+    // MUTATION ticket-names/note-runs-never-burmese (`my: false` everywhere) — the Burmese run is
+    // never marked, and the allergy note is typeset in the body face and voiced as English.
+    expect(noteRuns("no peanuts — မြေပဲ")).toStrictEqual([
+      { text: "no peanuts — ", my: false },
+      { text: "မြေပဲ", my: true },
+    ]);
+  });
+
+  it("a Burmese note ending in English: the space stays inside the Burmese run", () => {
+    expect(noteRuns("မြေပဲ မထည့်ပါ no MSG")).toStrictEqual([
+      { text: "မြေပဲ မထည့်ပါ ", my: true },
+      { text: "no MSG", my: false },
+    ]);
+  });
+
+  it("one script is one run; a leading neutral joins the run after it", () => {
+    expect(noteRuns("no MSG, extra lime")).toStrictEqual([
+      { text: "no MSG, extra lime", my: false },
+    ]);
+    expect(noteRuns("မြေပဲ မထည့်ပါ")).toStrictEqual([{ text: "မြေပဲ မထည့်ပါ", my: true }]);
+    expect(noteRuns("2× မြေပဲ")).toStrictEqual([{ text: "2× မြေပဲ", my: true }]);
+    expect(noteRuns("!!!")).toStrictEqual([{ text: "!!!", my: false }]);
+  });
+
+  it("a blank note has no runs", () => {
+    expect(noteRuns("")).toStrictEqual([]);
+    expect(noteRuns("   ")).toStrictEqual([]);
+  });
+
+  it("a Myanmar Extended-A codepoint counts as Myanmar", () => {
+    // U+AA60 (MYANMAR LETTER KHAMTI GA) — outside the basic block, inside the module's script test.
+    expect(noteRuns("no \uAA60")).toStrictEqual([
+      { text: "no ", my: false },
+      { text: "\uAA60", my: true },
+    ]);
   });
 });
