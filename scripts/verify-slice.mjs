@@ -6787,6 +6787,31 @@ const MUTANTS = [
     find: "    if (optError) throw new ItemUnreadableError(menuItemId);",
     replace: "    if (false) throw new ItemUnreadableError(menuItemId);",
   },
+  // Phase 2a (Codex round 1, P1) — the add key's lifetime on the shipped staff add surfaces.
+  {
+    id: "staff-add-key/unconfirmed-reads-definite",
+    file: "apps/qr/lib/staff-add-key.ts",
+    suite: "lib/staff-add-key.test.ts",
+    why: "Phase 2a (Codex round 1, P1) — an `unconfirmed` add may have LANDED. Read as definite, the next tap mints a new key and a lost-response add is doubled: a second dish cooked and charged",
+    find: '  return res.code === "unconfirmed" ? "unknown" : "definite";\n',
+    replace: '  return "definite";\n',
+  },
+  {
+    id: "staff-add-key/retry-mints-new-key",
+    file: "apps/qr/lib/staff-add-key.ts",
+    suite: "lib/staff-add-key.test.ts",
+    why: "Phase 2a (Codex round 1, P1) — a retry of the same intent after an unknown outcome must resend the SAME key, which the ledger turns into a no-op if the first landed. A fresh key is a second add",
+    find: "  return held !== null && held.intent === intent ? held.key : mint();\n",
+    replace: "  return mint();\n",
+  },
+  {
+    id: "staff-add-key/key-held-after-ok",
+    file: "apps/qr/lib/staff-add-key.ts",
+    suite: "lib/staff-add-key.test.ts",
+    why: "Phase 2a (Codex round 1, P1) — a definite outcome retires the key. Held after an ok add, the NEXT deliberate add of the same dish is swallowed by the ledger as a duplicate of the first",
+    find: '  return outcome === "unknown" ? { intent, key } : null;\n',
+    replace: "  return { intent, key };\n",
+  },
   // ── Phase 2a · send ──
   // The staff console's Send to kitchen (P2k). The server action (lib/staff-send.ts), the pure send
   // rules (lib/staff-send-view.ts), the one client reading of the server grace (lib/send-grace.ts),

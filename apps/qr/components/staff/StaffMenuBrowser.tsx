@@ -1,9 +1,16 @@
 "use client";
 import { useSheetSubject } from "@mms/ui";
-import { useMemo, useState, useTransition, type CSSProperties } from "react";
+import { useMemo, useRef, useState, useTransition, type CSSProperties } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { staffAddItem } from "@/lib/staff-cart";
+import {
+  addAttemptOutcome,
+  heldAfter,
+  keyForAttempt,
+  type AddAttemptOutcome,
+  type HeldAddKey,
+} from "@/lib/staff-add-key";
 import { setCartCustomerName } from "@/lib/register";
 import { ts } from "@/lib/i18n/staff";
 import { al, sx } from "@/lib/staff-labels";
@@ -75,6 +82,9 @@ export function StaffMenuBrowser({
   const [name, setName] = useState(initialName ?? "");
   const [nameSaved, setNameSaved] = useState<boolean>(initialName != null && initialName !== "");
   const [namePending, startNameTransition] = useTransition();
+  // Phase 2a (Codex round 1, P1) — the add key held for a retry after an UNKNOWN outcome, bound to
+  // the intent it was minted for (`lib/staff-add-key.ts`). One sheet at a time, so one slot.
+  const heldKey = useRef<HeldAddKey>(null);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -92,20 +102,38 @@ export function StaffMenuBrowser({
     choice: { modifierIds: string[]; qty: number; notes?: string },
   ) {
     setSheetError(null);
+    // The INTENT is the dish + its choices + qty + note: a retry of exactly that resends the held key
+    // (a no-op if the first landed); a changed choice is a new add and must not be swallowed as a
+    // duplicate of the old one.
+    const intent = JSON.stringify([
+      item.id,
+      [...choice.modifierIds].sort(),
+      choice.qty,
+      choice.notes ?? "",
+    ]);
+    const addKey = keyForAttempt(heldKey.current, intent, () => crypto.randomUUID());
     startTransition(async () => {
+      let outcome: AddAttemptOutcome;
       try {
-        const r = await staffAddItem({ sessionId, menuItemId: item.id, ...choice });
+        const r = await staffAddItem({ sessionId, menuItemId: item.id, ...choice, addKey });
+        outcome = addAttemptOutcome(r);
         if (r.ok) {
           setSheetItem(null);
           setNotice({ kind: "added", qty: choice.qty, name: item.nameEn });
-          router.refresh();
         } else {
-          // Into the SHEET's live region — the page-level one is behind the modal scrim.
-          setSheetError({ kind: "server", message: r.error });
+          // Into the SHEET's live region — the page-level one is behind the modal scrim. An unknown
+          // outcome may have LANDED: say "couldn't confirm", never the server's "couldn't add".
+          setSheetError(
+            outcome === "unknown" ? { kind: "unconfirmed" } : { kind: "server", message: r.error },
+          );
         }
       } catch {
-        setSheetError({ kind: "threw" });
+        outcome = "unknown";
+        setSheetError({ kind: "unconfirmed" });
       }
+      heldKey.current = heldAfter(intent, addKey, outcome);
+      // The order's truth (and the "Review · N not sent" bridge) after anything that may have landed.
+      if (outcome !== "definite") router.refresh();
     });
   }
 

@@ -620,9 +620,16 @@ export const STAFF = {
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
   "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
   "browse.add.verb.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // ကုန်သွား is the LOSS reason
-  // This console's OWN failure sentence — a thrown Server Action, not a server-authored string, so
-  // it is a dictionary key rather than something <OutageText> passes through as English forever.
-  "browse.add.failed": { en: "Couldn’t add that — try again.", my: "မထည့်နိုင်ပါ — ထပ်စမ်းပါ။" },
+  // This console's OWN failure sentence — not a server-authored string, so it is a dictionary key
+  // rather than something <OutageText> passes through as English forever.
+  // Phase 2a (Codex round 1, P1) — replaces `browse.add.failed`: an add whose answer never arrived
+  // (the action threw, or the write answered `unconfirmed`) may have LANDED. "Try again" read as
+  // "nothing landed" and invited a second plate; the retry now resends the same add key, and the
+  // sentence sends staff to the order first. MY is a Claude-authored K15 draft pending Min's check.
+  "browse.add.unconfirmed": {
+    en: "Couldn’t confirm that add — check the order before adding again.",
+    my: "ထည့်ပြီးမပြီး မသေချာပါ — ထပ်မထည့်ခင် အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a blind re-add cooks and charges a second dish
 
   // ── the staff modifier sheet (StaffModSheet) ───────────────────────────────
   "browse.mod.required": { en: "required", my: "မဖြစ်မနေ" },
@@ -2810,6 +2817,7 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.counterAtPay",
   "table.send.err.expired",
   "table.send.err.unknown",
+  "browse.add.unconfirmed",
   "table.send.err.undoUnknown",
   "table.send.gone",
   "table.line.notSent",

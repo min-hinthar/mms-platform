@@ -26,8 +26,9 @@ import type { StaffLang } from "@/lib/staff-lang";
  */
 export type StaffSheetFailure =
   | { kind: "server"; message: string }
-  /** The action THREW — transport, or a redacted server error. */
-  | { kind: "threw" };
+  /** The outcome is UNKNOWN — the action threw, or the write answered `unconfirmed`: the add may
+   *  have LANDED, so the sentence sends staff to the order, never to "try again". */
+  | { kind: "unconfirmed" };
 
 /**
  * The staff modifier sheet (W6a — closes K17). Same pure selection model as the diner ItemSheet
@@ -270,7 +271,7 @@ export function StaffModSheet({
           ) : error.kind === "server" ? (
             <OutageText lang={lang} error={error.message} />
           ) : (
-            <Chrome lang={lang} k="browse.add.failed" />
+            <Chrome lang={lang} k="browse.add.unconfirmed" />
           )}
         </p>
       </div>
