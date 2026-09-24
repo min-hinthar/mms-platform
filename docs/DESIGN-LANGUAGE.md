@@ -712,8 +712,10 @@ built.
   in-flight REF when the tap lands (LEARNINGS #126). **`aria-disabled` is the ZONE's fact; `aria-busy`
   is the ONE control's** — the register holds all five while a mint runs and marks busy only the
   control that minted (a draft that stamped busy on Walk-up for a phone mint told assistive tech
-  the wrong element was updating). Busy is the attribute plus a dim, never a label swap TO AN
-  ELLIPSIS: `{pending ? "…" : label}` on a button with no `aria-label` makes its accessible name
+  the wrong element was updating). On a `.staff-btn`, busy is the attribute plus a dim; on the
+  `@mms/ui` `.ui-btn` (the console's first is the table page's Send, Phase 2a) busy is `aria-busy`
+  plus a full-ink spinner and a stated word ("Sending…", "Bringing it back…"), never dimmed (§20).
+  Either way, never a label swap TO AN ELLIPSIS: `{pending ? "…" : label}` on a button with no `aria-label` makes its accessible name
   literally "…" for the round trip, and a 64px zone that collapses to an ellipsis moves under the
   thumb. A swap to a stated word is not that rule's subject — the register's Go says "Going…"
   (`reg.going`, both states echoing so the height holds), and only on the form that went.
@@ -769,6 +771,73 @@ built.
   the field 17px so iOS never zooms, an empty tap answered in the view's ONE live region with focus
   back on the field, success announced by moving focus to the sent card. The gate answers KEYS
   (`outage` · `auth` · `invalid` · `save`), so every refusal renders in the device language.
+- **The console sends too (Phase 2a, P2k).** The table page carries ONE Send per table, in the
+  order card between the pretax note and the card's one status region, so the page reads "send, then
+  settle". It is `@mms/ui` Button primary · xl · block, and it is **primary** when staff own the
+  send: the table is hostless, staff added any of the unsent dishes (a "mixed" note says the Send
+  also fires the table's own), or the table has asked to pay (a check-with-the-table note). When a
+  diner host runs the table and every unsent dish is theirs it is **secondary** under "{host} sends
+  from their phone — send here only if the table asks." One tap sends; there is no confirm. A counter
+  order is never offered a Send: its status row says "The kitchen starts this order when it’s paid."
+  (until 2f).
+- **Hints sit BELOW the control, never above.** A held or blocked Send (a dirty note on a sendable
+  dish, a write still saving, a payment in flight) is `aria-disabled` — never natively disabled —
+  with its reason as an `aria-describedby` hint under it; a hint collapsing can therefore never move
+  the control under a thumb. Notes that describe the send vanish AT the tap. The control row holds
+  64px (`--tap-bump`) through Send → Undo → the status rows (all sent · to-go at pay · counter at
+  pay), which are rows, not pills: no fill, border, radius or cursor, focusable with tabIndex -1.
+- **The console's Undo reads the diner's server clock and the one same-gesture hold.** The grace is
+  `lib/send-grace.ts` (the server-measured duration from local receipt — the diner's
+  SendToKitchenButton reads the same module). The Send turns into the Undo on the SAME node (focus
+  stays), the verb is its whole accessible name and the countdown is a separate aria-hidden `· {n}s`
+  span, and a tap within `SAME_GESTURE_MS` of ANY relabel under the finger (Send → Undo, Undo →
+  Send, a count that moved) is ignored. The controller (`useStaffSend`) is owned by the host that
+  owns the detail, so the refresh that zeroes the "not sent" count, or a view swap, cannot kill an
+  open undo; an open undo also survives "← Floor" and a reload through a per-device
+  `mms-staff-undo:{sessionId}` stash (display-only; the SQL re-checks). After a successful undo the
+  control stays busy until the drafts are back (bounded at two detail commits), then focus returns to
+  the Send; when the window closes with focus on the Undo, focus moves to the status row in place,
+  without scrolling.
+- **Drain before fire, on the console, is a hold.** A note typed on a sendable dish but not saved
+  holds the Send (naming the dish) and a tap takes the finger to that note field — found by
+  `data-note-for` within the order card, not by its id; any line write still in flight holds it too.
+- **Outcomes take the view's ONE region** as `StaffMsg` keys: writeError > send warn > degraded >
+  send ok, and each setter clears the other, so a standing "Sent" never masks the frozen-board
+  signal. A send that THREW says "couldn't confirm — check the order" and re-reads at once; it never
+  says "couldn't send" and never offers an Undo it has no batch for.
+- **A staff write's refusal is CODED by where it happened.** `staffAddItem` answers
+  `{ ok: false, error, code }`: the pre-read refusals are coded by the branch that refused (`signin`
+  · `sentence` · `invalid` · `outage` · `closed` · `no-cart` · `paying`), and a throw inside the add
+  by its PHASE (`lib/staff-add-outcome.ts` `addFailureCode`) — pricing writes nothing, so its failures
+  are definite (`sold_out` · `gone` · `outage` · `failed`); anything thrown from the write is
+  `unconfirmed`, because the RPC may have committed with its response lost. Never classify by message
+  text. The Send's refusal union (`lib/staff-send.ts`) is coded the same way.
+- **One add, one key.** A staff add may carry a client-minted `addKey` (uuid) riding the existing
+  `p_scan_id` ledger (`mms_scan_events`, claimed in the insert's transaction), so a resend of the same
+  key is an idempotent no-op. An `unconfirmed` add is resent under the SAME key, never re-tapped
+  under a new one; the key dedupes per EVENT, so mint one per add.
+- **Every exit to the floor asks for it BY NAME.** The bar's back control, a closed-table bounce and
+  a cleared table go to `STAFF_DOOR_TARGET.counter`, never a bare `/staff` — that resolves by the
+  door cookie and can land on the doors screen.
+- **A live board's async read never acts on an unmounted view.** The poll effect owns an `alive` ref
+  (re-armed at setup, cleared in cleanup) and nothing below the `await` — no setState, no router
+  call — runs once it is false. A board that reports its connection state withdraws the report when
+  it unmounts, so the screen's fold (`aggregateConnection`) reflects only boards on screen; and a
+  realtime session channel is named per MOUNT (`{topic}:{sessionId}:{seq}`), so two consumers of one
+  session, or a remount before the async removal settles, never share a joined channel.
+- **A typed money amount is read once, on the whole string, in integer cents.** A staff money
+  field's `onChange` only REFUSES characters (`sanitizeMoneyInput` — digits, one `.`, commas before
+  the dot, ≤2 decimals, ≤12 chars); it never rewrites or drops a comma, because a keystroke cannot
+  know what the next key will make of it. What a comma means is decided at read time by
+  `parseMoneyCents` (a dot present → grouping; comma-only ending in 1–2 digits → decimal comma; else
+  grouping), with integer arithmetic — never `parseFloat × 100`. A chip that fills a money field is
+  lit by VALUE (`parseMoneyCents(field) === cents`), not by the field's spelling.
+- **A rejected charge action is an UNKNOWN outcome, and says so.** When a Server Action that may
+  have moved money rejects (the connection dropped), the control clears busy, closes its confirm
+  (focus returns to the trigger) and renders its own `kind: "local"` dictionary sentence through
+  `<Chrome>` (`settle.card.unknown`) — never the write-outage twin, whose "that change wasn’t saved"
+  is false for a charge that may have landed. Server-returned sentences keep going through
+  `<OutageText>`.
 
 ## 18 · Aspect ratios — the page column and its tiers (R1)
 
