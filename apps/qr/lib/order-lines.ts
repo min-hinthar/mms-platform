@@ -107,11 +107,16 @@ export async function priceItem(
   let optLabels: string[] = [];
   let chosen: { id: string; name: string; price_delta_cents: number; group_id: string }[] = [];
   if (modifierIds.length) {
-    const { data: opts } = await db
+    const { data: opts, error: optError } = await db
       .from("modifier_options")
       .select("id,name,price_delta_cents,group_id")
       .eq("is_active", true)
       .in("id", modifierIds);
+    // Phase 2a · padserver — a failed options read is an OUTAGE, never "no options chosen". Folding
+    // it into `[]` priced and named the line WITHOUT the add-on the guest chose — a silent
+    // under-charge on the diner path, and on the staff path a dish the kitchen cooks wrong. Fail
+    // closed, the same way the item read above does (M119).
+    if (optError) throw new ItemUnreadableError(menuItemId);
     chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
     addCents = chosen.reduce((a, m) => a + m.price_delta_cents, 0);
     optLabels = chosen.map((m) => m.name);
