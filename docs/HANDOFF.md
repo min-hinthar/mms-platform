@@ -917,7 +917,7 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
 > **792 `verify:slice` mutants** · **139 target modules** (122 under `apps/qr/lib`, 3 API routes,
-> 13 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3283 + 184 today)** ·
+> 13 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3288 + 184 today)** ·
 > 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
@@ -1386,7 +1386,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (792 today)**, **1372 qr + 138 ui tests at the time (3283 + 184 today)**, 69 target modules at the time (122 under `apps/qr/lib` today, 139 in all), 97 local
+> **334 mutants at the time (792 today)**, **1372 qr + 138 ui tests at the time (3288 + 184 today)**, 69 target modules at the time (122 under `apps/qr/lib` today, 139 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2278,7 +2278,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 792 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3283 qr tests + 184 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 792 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3288 qr tests + 184 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is

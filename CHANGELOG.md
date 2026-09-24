@@ -48,6 +48,11 @@ module with mutants (38 new; 792 total across 139 files). DESIGN-LANGUAGE §23�
   across its re-key; the chooser note is each chip's accessible description and promises only what a
   save carries; a Back into an aisle before the catalog loads keeps its entry; the save card's
   platform-down arm (unreachable once an order has arrived) is gone.
+- **Codex round 1 (seven P2s: five fixed here, two already fixed above).** /account's chooser note
+  reads the same refreshed live-orders list as "Today" (`AccountLiveOrders`), so it never names an
+  order that has finished; a stalled receipt mint no longer hides every rewards door on /track
+  (`RECEIPT_SETTLE_BOUND_MS`); the save card that mounts already-offline withholds its link; a second
+  identical grocery toast is announced again; `grocery_scan_miss` counts shelf (camera) misses only.
 
 ### Phase 1b — one tap to send, one tap to pay, and a bill that is final before it is paid (2026-09-23)
 
