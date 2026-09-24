@@ -7,6 +7,16 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 
+/**
+ * The two error sources on this surface, kept APART (the TerminalSettle `SettleError` pattern).
+ * `kind: "server"` is a sentence `closeSecureTab` returned, so it goes through `<OutageText>`.
+ * `kind: "local"` is a REJECTED action (the connection dropped mid-charge): nothing came back, so
+ * the charge's outcome is UNKNOWN — this file authors that sentence as its own dictionary key rather
+ * than the write-outage twin, whose "that change wasn’t saved" would be false for a charge that may
+ * have landed.
+ */
+type CloseError = { kind: "server"; text: string } | { kind: "local" };
+
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /**
@@ -26,7 +36,7 @@ export function CloseSecureTabButton({
   const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<CloseError | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -42,11 +52,23 @@ export function CloseSecureTabButton({
   async function confirm() {
     setBusy(true);
     setError(null);
-    const res = await closeSecureTab({ sessionId });
+    let res: Awaited<ReturnType<typeof closeSecureTab>>;
+    try {
+      res = await closeSecureTab({ sessionId });
+    } catch (e) {
+      // Phase 2a · register — a REJECTED action used to latch the confirm on "Charging…" with both
+      // buttons disabled until a reload. Clear busy, close the confirm (the effect above returns
+      // focus to the trigger) and say the one true thing: we don't know whether the card was charged.
+      console.error("[CloseSecureTabButton] close rejected — outcome unknown", e);
+      setBusy(false);
+      setConfirming(false);
+      setError({ kind: "local" });
+      return;
+    }
     if (!res.ok) {
       setBusy(false);
       setConfirming(false);
-      setError(res.error);
+      setError({ kind: "server", text: res.error });
       return;
     }
     router.refresh(); // the off-session charge fulfills via webhook; the live detail re-fetches to paid
@@ -112,7 +134,11 @@ export function CloseSecureTabButton({
       </p>
       {error && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          <OutageText lang={lang} error={error} />
+          {error.kind === "server" ? (
+            <OutageText lang={lang} error={error.text} />
+          ) : (
+            <Chrome lang={lang} k="settle.card.unknown" echo={false} />
+          )}
         </p>
       )}
     </div>

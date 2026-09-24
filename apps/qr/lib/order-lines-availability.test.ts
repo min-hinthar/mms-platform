@@ -28,6 +28,10 @@ const BASE = {
 let ITEM: Record<string, unknown> | null = { ...BASE };
 /** A transport-level failure on the item read — distinct from "the row is not there" (ITEM = null). */
 let ITEM_ERROR: { message: string } | null = null;
+/** Phase 2a · padserver — the modifier_options read: its rows, its error, and whether it was made. */
+let OPT_ROWS: Record<string, unknown>[] = [];
+let OPT_ERROR: { message: string } | null = null;
+let optReads = 0;
 
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
@@ -35,7 +39,12 @@ vi.mock("@mms/db/server", () => ({
       const chain = {
         select: () => chain,
         eq: () => chain,
-        in: () => Promise.resolve({ data: [], error: null }),
+        in: () => {
+          optReads += 1;
+          return Promise.resolve(
+            OPT_ERROR ? { data: null, error: OPT_ERROR } : { data: OPT_ROWS, error: null },
+          );
+        },
         maybeSingle: () =>
           Promise.resolve(
             ITEM_ERROR
@@ -53,6 +62,9 @@ const { priceItem, ItemUnsellableError, ItemUnreadableError } = await import("./
 beforeEach(() => {
   ITEM = { ...BASE };
   ITEM_ERROR = null;
+  OPT_ROWS = [];
+  OPT_ERROR = null;
+  optReads = 0;
 });
 
 describe("priceItem — the add-time availability refusal", () => {
@@ -110,5 +122,43 @@ describe("priceItem — a failed read is not an availability verdict", () => {
   it("the unreadable error carries the id it could not read (diagnosable without the message)", async () => {
     ITEM_ERROR = { message: "transport failure" };
     await expect(priceItem(BASE.id, [])).rejects.toMatchObject({ menuItemId: BASE.id });
+  });
+});
+
+// ── Phase 2a · padserver ──
+/**
+ * The OPTIONS read had the same fold the item read had before M119: `{ data: opts }` alone turned a
+ * failed read into "no options chosen", so the line was priced and named WITHOUT the add-on the
+ * guest chose — a silent under-charge on the diner path, a dish cooked wrong on the staff path.
+ */
+describe("priceItem — a failed OPTIONS read fails closed (Phase 2a)", () => {
+  const GROUP = "55555555-5555-4555-8555-555555555555";
+  const OPT = "66666666-6666-4666-8666-666666666666";
+  const WITH_GROUP = {
+    ...BASE,
+    item_modifier_groups: [{ modifier_groups: { id: GROUP, min_select: 0, max_select: 3 } }],
+  };
+
+  it("THE DEFECT — an options read error with chosen ids throws ItemUnreadableError", async () => {
+    ITEM = WITH_GROUP;
+    OPT_ERROR = { message: "transport failure" };
+    await expect(priceItem(BASE.id, [OPT])).rejects.toBeInstanceOf(ItemUnreadableError);
+    await expect(priceItem(BASE.id, [OPT])).rejects.toMatchObject({ menuItemId: BASE.id });
+  });
+
+  it("the control — a readable add-on is priced onto the line", async () => {
+    ITEM = WITH_GROUP;
+    OPT_ROWS = [{ id: OPT, name: "Extra egg", price_delta_cents: 150, group_id: GROUP }];
+    await expect(priceItem(BASE.id, [OPT])).resolves.toMatchObject({
+      unitPriceCents: 1140,
+      opts: ["Extra egg"],
+      optionIds: [OPT],
+    });
+  });
+
+  it("no chosen ids → the options read is not made (so its error cannot refuse a plain add)", async () => {
+    OPT_ERROR = { message: "transport failure" };
+    await expect(priceItem(BASE.id, [])).resolves.toMatchObject({ unitPriceCents: 990 });
+    expect(optReads).toBe(0);
   });
 });

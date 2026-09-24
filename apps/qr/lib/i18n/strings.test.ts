@@ -166,6 +166,8 @@ describe("the dictionary guards", () => {
     const SAME_WORD_BY_DESIGN: Readonly<Record<string, string>> = {
       "what.floor|what.room":
         "The floor and the room are one physical space; the console says ခန်းမ for both, and the two English forms exist only because the sentences around them differ.",
+      "table.line.state.inProgress|table.loss.cooking":
+        "Phase 2a · send — one kitchen state, the line is on the stove. The line tag says it bare ('Cooking'); the loss sheet's English adds 'already' only because it sits in a sentence about why a void needs approval. ချက်နေဆဲ carries that 'still/already' in its ဆဲ, and both are grounded on kds.line.cooking — two Burmese words for one state would be the fork the sibling rule below forbids.",
     };
     const paired = new Set<string>(STAFF_PLURAL_PAIRS.flat() as readonly string[]);
     const norm = (v: string) =>

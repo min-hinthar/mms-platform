@@ -22,17 +22,43 @@ vi.mock("next/server", () => ({ after: () => {} }));
 
 const priceItemCalls: { menuItemId: string; modifierIds: string[]; opts?: unknown }[] = [];
 let priceItemThrows = false;
+/** Phase 2a · padserver — what pricing throws, when it throws something more specific than the
+ *  cardinality Error (`priceItemThrows`). Built from the MOCK's own classes (below), which are the
+ *  classes `staff-add-outcome.ts` checks with `instanceof` under this mock. */
+let priceItemRejects: unknown = null;
+/** Phase 2a · padserver — the write throws (a lost response), or the insert RPC answers "not open"
+ *  (`"closed"` → the mock's CartClosedError, a definite non-write). */
+let insertThrows: boolean | "closed" = false;
 const insertCalls: {
   cartId: string;
   bySeat: string | null;
   qty: number | undefined;
+  scanId: string | undefined;
   fulfillment: unknown;
   taxCents: unknown;
 }[] = [];
 
+const { MockUnsellable, MockUnreadable, MockCartClosed } = vi.hoisted(() => {
+  class MockUnsellable extends Error {
+    constructor(
+      message: string,
+      readonly reason: "sold_out" | "gone",
+    ) {
+      super(message);
+    }
+  }
+  class MockUnreadable extends Error {}
+  class MockCartClosed extends Error {}
+  return { MockUnsellable, MockUnreadable, MockCartClosed };
+});
+
 vi.mock("./order-lines", () => ({
+  ItemUnsellableError: MockUnsellable,
+  ItemUnreadableError: MockUnreadable,
+  CartClosedError: MockCartClosed,
   priceItem: (menuItemId: string, modifierIds: string[], opts?: unknown) => {
     priceItemCalls.push({ menuItemId, modifierIds, opts });
+    if (priceItemRejects) return Promise.reject(priceItemRejects);
     if (priceItemThrows) return Promise.reject(new Error("choose a required option"));
     return Promise.resolve({
       name: "Chicken Curry",
@@ -46,14 +72,19 @@ vi.mock("./order-lines", () => ({
     line: { fulfillment?: unknown; taxCents?: unknown },
     bySeat: string | null,
     qty?: number,
+    scanId?: string,
   ) => {
     insertCalls.push({
       cartId,
       bySeat,
       qty,
+      scanId,
       fulfillment: line.fulfillment,
       taxCents: line.taxCents,
     });
+    if (insertThrows === "closed")
+      return Promise.reject(new MockCartClosed("Cart is no longer open"));
+    if (insertThrows) return Promise.reject(new Error("Cart is no longer open"));
     return Promise.resolve();
   },
   touchCart: () => Promise.resolve(),
@@ -63,8 +94,10 @@ vi.mock("./staff", () => ({
   staffGate: () =>
     Promise.resolve({ ok: true, caller: { uid: "u-1", staffId: "s-1", role: "server" } }),
   STAFF_WRITE_OUTAGE: "outage",
+  STAFF_SIGNIN_REQUIRED: "Staff sign-in required.",
 }));
-vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(null) }));
+let payInFlight: string | null = null;
+vi.mock("./pay-guard", () => ({ paymentInFlightReason: () => Promise.resolve(payInFlight) }));
 /** A3 — the owner each settle acquires and releases under, recorded so uniqueness is a VALUE. */
 const acquireOwners: string[] = [];
 const releaseOwners: string[] = [];
@@ -132,6 +165,9 @@ beforeEach(() => {
   priceItemCalls.length = 0;
   insertCalls.length = 0;
   priceItemThrows = false;
+  priceItemRejects = null;
+  insertThrows = false;
+  payInFlight = null;
   sessionMode = "pickup";
 });
 
@@ -179,7 +215,77 @@ describe("staffAddItem — cardinality + qty are money rules (W6a)", () => {
 
   it("bounds qty at the schema (10 is refused before any pricing)", async () => {
     const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM, qty: 10 });
-    expect(r).toEqual({ ok: false, error: "Invalid request." });
+    expect(r).toEqual({ ok: false, error: "Invalid request.", code: "invalid" });
+    expect(priceItemCalls).toHaveLength(0);
+  });
+});
+
+// ── Phase 2a · padserver ──
+describe("staffAddItem — the failure CODE is decided by where it happened (Phase 2a)", () => {
+  const KEY = "33333333-3333-4333-8333-333333333333";
+
+  it("a payment in flight refuses with `paying` and prices nothing", async () => {
+    payInFlight = "mid_payment";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r).toMatchObject({ ok: false, code: "paying" });
+    expect(priceItemCalls).toHaveLength(0);
+  });
+
+  it("a sold-out dish is `sold_out` — a definite refusal, no line written", async () => {
+    priceItemRejects = new MockUnsellable("Mohinga just sold out", "sold_out");
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r).toMatchObject({ ok: false, code: "sold_out" });
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("an unreadable catalog is an `outage`, not an availability verdict", async () => {
+    priceItemRejects = new MockUnreadable("Menu item unreadable");
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r).toMatchObject({ ok: false, code: "outage" });
+  });
+
+  it("a cardinality refusal is a definite `failed`", async () => {
+    priceItemThrows = true;
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r).toMatchObject({ ok: false, code: "failed" });
+  });
+
+  it("a throw out of the WRITE is `unconfirmed` — it may have landed, so never `failed`", async () => {
+    insertThrows = true;
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(insertCalls).toHaveLength(1);
+    expect(r).toMatchObject({ ok: false, code: "unconfirmed" });
+    // The sentence the existing callers show is unchanged.
+    expect(r).toMatchObject({ error: "Couldn’t add that item." });
+  });
+
+  it("the insert refused as NOT OPEN is a definite `closed` — nothing was written", async () => {
+    insertThrows = "closed";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    // MUTATION: classify the write phase without its thrown value — `unconfirmed`; red.
+    expect(r).toMatchObject({ ok: false, code: "closed" });
+  });
+
+  it("forwards the add key to the ledger as the scan id (the idempotent resend)", async () => {
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM, addKey: KEY });
+    expect(r.ok).toBe(true);
+    expect(insertCalls[0]?.scanId).toBe(KEY);
+  });
+
+  it("no add key → no scan id (every existing caller is byte-identical)", async () => {
+    await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(insertCalls[0]?.scanId).toBeUndefined();
+  });
+
+  it("a qty of 3 still reaches the ledger beside the add key", async () => {
+    await staffAddItem({ sessionId: SESSION, menuItemId: ITEM, qty: 3, addKey: KEY });
+    expect(insertCalls[0]?.qty).toBe(3);
+    expect(insertCalls[0]?.scanId).toBe(KEY);
+  });
+
+  it("a non-uuid add key is refused at the schema", async () => {
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM, addKey: "k-1" });
+    expect(r).toMatchObject({ ok: false, code: "invalid" });
     expect(priceItemCalls).toHaveLength(0);
   });
 });
@@ -421,5 +527,37 @@ describe("the freeze-owner binding, PARSED — bound to crypto.randomUUID(), and
     expect(stamp).toBeDefined();
     expect(ts.isIdentifier(stamp!.initializer) && stamp!.initializer.text === owner).toBe(true);
     expect(props.some((p) => (p.name as ts.Identifier).text === "closedByUid")).toBe(false);
+  });
+});
+
+// ── Phase 2a · send ──
+// A staff write slides the table's expiry exactly as a diner write does: a phone-less table worked
+// only from the console used to age off the floor and the KDS 4h after "Start a table".
+const renewal = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("./authz", () => ({
+  maybeRenewSession: (...a: unknown[]) => {
+    renewal.calls.push(a);
+    return Promise.resolve();
+  },
+}));
+
+describe("staffAddItem — renews the table's session (Phase 2a · send)", () => {
+  beforeEach(() => {
+    renewal.calls.length = 0;
+  });
+
+  it("a landed add renews THIS session", async () => {
+    sessionMode = "dinein";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(true);
+    expect(renewal.calls).toHaveLength(1);
+    expect(renewal.calls[0]![1]).toBe(SESSION);
+  });
+
+  it("a refused add renews nothing", async () => {
+    priceItemThrows = true;
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(false);
+    expect(renewal.calls).toEqual([]);
   });
 });

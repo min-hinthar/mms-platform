@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useTransition, type CSSProperties } from "
 import { useRouter } from "next/navigation";
 import { settleCash } from "@/lib/staff-cart";
 import { changeDue } from "@/lib/register-math";
+import { centsToField, parseMoneyCents, sanitizeMoneyInput } from "@/lib/money-input";
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
 import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
 import { Sheet } from "@mms/ui";
@@ -84,37 +85,32 @@ export function CashSettleButton({
   // what was left. It is bounded by Zod (0..100000) and by the qr_orders_tip_cents_nonneg CHECK.
   // Pre-filled from the guest's kiosk choice when there was one. `null` (never asked) leaves the
   // field empty rather than typing a 0 that would read as an answer nobody gave.
-  const [tip, setTip] = useState(
-    intendedTipCents != null ? (intendedTipCents / 100).toFixed(2) : "",
-  );
+  const [tip, setTip] = useState(intendedTipCents != null ? centsToField(intendedTipCents) : "");
   // W21d (Codex P1 on #184) — the kiosk intent can arrive AFTER this control mounts (staff opens
   // the order before the guest answers the prompt; the realtime/5s refresh updates the prop, but a
   // useState initializer never re-runs). Sync the first non-null intent into the field UNLESS the
   // cashier already typed — their hands beat the wire, and a sync must never overwrite a human.
   const tipTouched = useRef(false);
   useEffect(() => {
-    if (intendedTipCents != null && !tipTouched.current)
-      setTip((intendedTipCents / 100).toFixed(2));
+    if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));
   }, [intendedTipCents]);
   // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
-  // comma (deleting it recorded a $500 tip for a $5 one), while "1,234.56" is US grouping
-  // (turning every comma into a point made parseFloat stop at 1.23). Disambiguate: with a dot
-  // present, commas are grouping — strip them; comma-only input is a decimal comma when 1–2
-  // digits follow it at the end ("5,00"), grouping otherwise ("1,234").
-  const sanitizeMoney = (raw: string) => {
-    const normalized = raw.includes(".")
-      ? raw.replace(/,/g, "")
-      : raw.replace(/,(?=\d{1,2}$)/, ".").replace(/,/g, "");
-    return normalized.replace(/[^0-9.]/g, "");
-  };
-  const tipCents = Math.max(0, Math.round(Number.parseFloat(tip || "0") * 100) || 0);
-  const tipValid = tipCents <= 100000;
+  // comma, "1,234.56" is US grouping. Phase 2a moved that rule to `lib/money-input`, and moved it
+  // OUT OF THE KEYSTROKE: judged per key, "5," had no digits after the comma yet, so the comma was
+  // deleted as grouping and "5,00" typed key by key recorded a $500 tip. The field now only refuses
+  // characters (`sanitizeMoneyInput`); the comma is decided on the whole string when it is read
+  // (`parseMoneyCents`), in integer cents — no float × 100.
+  const tipParsed = parseMoneyCents(tip);
+  const tipCents = tipParsed ?? 0;
+  // A null read WITH a digit in it is more than seven whole-dollar digits — past any cap, so it is
+  // refused as over the cap, never read as a zero tip. Digit-free text ("", ".", ",") is no tip.
+  const tipValid = tipParsed != null ? tipCents <= 100000 : !/\d/.test(tip);
   // What the cashier actually collects. Everything below — the confirm question, the settle button,
   // the change — reads THIS, so none of them can quote a pre-tip figure while another quotes the
   // tipped one.
   const dueCents = totalCents + tipCents;
-  // Cashier arithmetic only — parsed dollars → cents, never sent anywhere.
-  const tenderedCents = Math.round(Number.parseFloat(tendered || "0") * 100) || 0;
+  // Cashier arithmetic only — parsed to cents, never sent anywhere.
+  const tenderedCents = parseMoneyCents(tendered) ?? 0;
   const triggerRef = useRef<HTMLButtonElement>(null);
   // §17 — the attribute and the handler read ONE predicate.
   const canSettle = !pending && tipValid;
@@ -261,7 +257,8 @@ export function CashSettleButton({
                     // the value (the chip only fills it), so the pressed state is derived, never stored,
                     // and hand-editing the field unlights the chip the moment they diverge (the
                     // checkout chips' idiom, and the W17c "name it once" rule applied to UI state).
-                    const on = tip === (cents / 100).toFixed(2);
+                    // Compared by VALUE: "8,00" typed by hand is the $8.00 chip's amount too.
+                    const on = parseMoneyCents(tip) === cents;
                     return (
                       <button
                         key={p.label}
@@ -273,7 +270,7 @@ export function CashSettleButton({
                         style={tipChip}
                         onClick={() => {
                           tipTouched.current = true;
-                          setTip((cents / 100).toFixed(2));
+                          setTip(centsToField(cents));
                         }}
                       >
                         {p.label}
@@ -304,7 +301,7 @@ export function CashSettleButton({
                 value={tip}
                 onChange={(e) => {
                   tipTouched.current = true;
-                  setTip(sanitizeMoney(e.target.value));
+                  setTip(sanitizeMoneyInput(e.target.value));
                 }}
                 aria-describedby={
                   !tipValid
@@ -366,7 +363,7 @@ export function CashSettleButton({
                   autoComplete="off"
                   placeholder={tf(lang, "settle.cash.example", { x: "40" })}
                   value={tendered}
-                  onChange={(e) => setTendered(sanitizeMoney(e.target.value))}
+                  onChange={(e) => setTendered(sanitizeMoneyInput(e.target.value))}
                   style={tenderInput}
                 />
                 <p

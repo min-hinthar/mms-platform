@@ -12462,3 +12462,39 @@ a.aisle-tile {
     opacity: 0;
   }
 }
+
+/* ── Phase 2a · send ── */
+/* The table page's "Send to kitchen" slot (P2k). Only the LAYOUT the Button primitive does not
+   already give: the Send/Undo itself is `@mms/ui` Button primary·xl·block (`.ui-btn-xl` owns the
+   64px `--tap-bump` row, the fill, the press and the busy state), so no bespoke fill lives here and
+   `.staff-press` never stacks on it. Every hint sits BELOW the control — a hint above it would move
+   the control under a thumb when it collapsed. No new animation: the Undo's entrance is the kit's
+   `.mms-settle`, already reduced-motion-escorted. */
+.staff-send {
+  margin-top: var(--s4);
+}
+/* all sent · to-go at pay · counter at pay: a STATUS ROW, not a pill — no fill, border, radius or
+   cursor — at the control's own height, so Undo → status at the window's close moves nothing. */
+.staff-send-status {
+  min-height: var(--tap-bump);
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+.staff-send-hint {
+  margin: var(--s2) 0 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+/* The Undo's verb and its countdown on one row; the digits are tabular so the label does not jitter
+   as the seconds fall. */
+.staff-send-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.staff-send-left {
+  font-variant-numeric: tabular-nums;
+}

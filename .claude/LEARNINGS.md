@@ -2569,3 +2569,50 @@ another worktree does not rewrite your files; a run in yours does.
 the real hazard, and it was pinned instead. Same shape in two other areas: a spec named a mutation
 that one guard alone could not expose because a second guard in series already refused, so each
 guard's mutant needed its own case that got past the other one.
+
+## #136
+
+**A context value built with `useMemo` over state is NOT a stable effect dependency — key an
+unmount-only cleanup on a stable callback instead.** Phase 2a's `LiveConnection` spec said
+`useEffect(() => () => ctx?.remove(board), [ctx, board])`. Built and measured, it hung: every report
+mints a new context value, so the cleanup (keyed on `ctx`) removes-then-re-adds on each state change,
+the re-added map is a new object, and the provider re-renders into the same cycle forever (the suite
+timed out at 90s). The fix pulls the provider's `remove` out as a `useCallback([])` and keys on that:
+`useEffect(() => () => remove?.(board), [remove, board])` — fires on unmount or a board-name change
+only. Any effect whose CLEANUP writes the state the context value is derived from has this shape.
+
+## #137
+
+**A merge where one branch PINNED a component's output before another added required fields to its
+props typechecks only at the merge — and the fix belongs to neither branch.** Phase 2a's tablet branch
+wrote `FloorDetailLive.test.tsx` against the table page as it stood; the send branch, in parallel,
+added required fields (`TableDetail.send` / `hostPresent`, `TableLineView.sendable`) and a
+`usePathname` read. Each branch was green alone; merged, the pinning suite's fixtures no longer
+satisfied the props type and the mocks missed the new hook. Git reports no conflict — the files do
+not overlap. The #133 rule (typecheck the MERGE) catches it; the lesson on top is that a
+characterization suite written in parallel with a props change is a guaranteed integration commit,
+so plan one (`eb1abe2`) rather than discover it.
+
+## #138
+
+**A per-keystroke sanitizer must never DECIDE, only refuse — and a parser's `null` for "too big" must
+never be defaulted with `?? 0` at a cap check.** The register's cash tip dropped a comma per
+keystroke: "5,00" pasted was $5.00, "5,00" TYPED recorded $500 (`tipCents` 50000), because a comma
+that is decimal only if ≤2 digits follow is undecidable on every prefix of the input. A test that
+feeds the whole string is green for the wrong reason — test typed input as a fold over keystrokes.
+The fix reads the whole string once at read time (`parseMoneyCents`, integer cents), and its
+`null` past seven whole-dollar digits nearly became `?? 0`, which turns the largest input into the
+smallest: an over-cap tip would have settled as no tip.
+
+## #139
+
+**`@mms/ui` Button spreads `...rest` AFTER its own `aria-disabled`, so a caller's
+`aria-disabled={x || undefined}` ERASES the primitive's busy state whenever `x` is false.** Passing
+`undefined` explicitly is still a key in the spread. Spread the attribute only when it is true
+(`{...(x ? { "aria-disabled": true } : {})}`). Same family as the swipe hook whose `style` replaced
+an earlier `style` prop: the LAST spread wins wholesale.
+
+**Fixed at the source the same day:** `button.tsx` now spreads `...rest` FIRST and writes its own
+`aria-disabled` / `aria-busy` last, OR-ing in a caller's `aria-disabled={true}` (pinned by
+`packages/ui/src/__tests__/button-state.test.ts`, red on the old order). The rule generalises: a
+primitive that DERIVES an attribute from its props must spread caller props BEFORE it, never after.

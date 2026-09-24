@@ -8,7 +8,8 @@ import {
   settleCashInput,
   staffAddItemInput,
 } from "@mms/db/schemas";
-import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
+import { staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
+import { addFailureCode, type StaffWriteCode } from "./staff-add-outcome";
 import { openCartFor, closeCounterStyleSession } from "./staff-open-cart";
 import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
@@ -22,6 +23,7 @@ import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
+import { maybeRenewSession } from "./authz";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -33,7 +35,10 @@ import { logTabEvent } from "./tab-events";
  * never sends a price or a total.
  */
 
-export type StaffWriteResult = { ok: true } | { ok: false; error: string };
+export type { StaffWriteCode } from "./staff-add-outcome";
+/** Phase 2a · padserver — `code` is additive: every existing caller still reads `error`. It is set by
+ *  `staffAddItem` (decided by the refusing branch or the write PHASE, never by message text). */
+export type StaffWriteResult = { ok: true } | { ok: false; error: string; code?: StaffWriteCode };
 export type SettleCashResult =
   | {
       ok: true;
@@ -61,19 +66,37 @@ export type SettleCashResult =
  */
 export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
   const gate = await staffGate();
-  if (!gate.ok) return { ok: false, error: gate.error };
+  if (!gate.ok)
+    return {
+      ok: false,
+      error: gate.error,
+      // The same split kitchen.ts's gateRefusal makes: the sign-in ask is a redirect, anything else
+      // (role floor, the gate's own outage copy) is a sentence the caller shows.
+      code: gate.error === STAFF_SIGNIN_REQUIRED ? "signin" : "sentence",
+    };
   const caller = gate.caller;
   const parsed = staffAddItemInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, menuItemId, modifierIds, notes, qty } = parsed.data;
+  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
+  const { sessionId, menuItemId, modifierIds, notes, qty, addKey } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
-  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
-  if (!session) return { ok: false, error: "That table is closed." };
-  if (!cart) return { ok: false, error: "This table has no open order." };
+  if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "outage" };
+  if (!session) return { ok: false, error: "That table is closed.", code: "closed" };
+  if (!cart) return { ok: false, error: "This table has no open order.", code: "no-cart" };
   if (await paymentInFlightReason(cart))
-    return { ok: false, error: "This table is mid-payment — wait until they’ve finished." };
+    return {
+      ok: false,
+      error: "This table is mid-payment — wait until they’ve finished.",
+      code: "paying",
+    };
 
+  // Phase 2a · padserver — WHERE a throw happens decides what it means (lib/staff-add-outcome.ts):
+  // pricing writes nothing, so its failures are definite; the write may have committed with its
+  // response lost, so anything thrown from it is `unconfirmed`. Flipped on the line before the write.
+  let phase: "price" | "write" = "price";
+  // What pricing threw (captured at the call, so the catch below keeps its binding-free shape): a
+  // sold-out / delisted / unreadable dish carries its own reason. Unused once `phase` is "write".
+  let priceFailure: unknown;
   try {
     const dineIn = session.mode === "dinein";
     const staffFulfillment = dineIn ? ("dinein" as const) : ("togo" as const);
@@ -84,13 +107,19 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
       menuItemId,
       modifierIds,
       { enforceCardinality: true },
-    );
+    ).catch((e: unknown) => {
+      priceFailure = e;
+      throw e;
+    });
     const taxCents = lineTax(unitPriceCents, category, dineIn);
     // by_seat = null: a staff-added line isn't pre-attributed to a guest's split (the host can assign it
     // later via the existing by-person flow). The status-atomic insert throws if the cart isn't open.
     // S4: fulfillment defaults from the session mode. Re-routing today is the DINER's per-line toggle
     // (setLineFulfillment, member-gated); a staff re-route action is S4.2+ (not built here).
     // W3b: `notes` = the allergy/request the guest told the server at the table.
+    // Phase 2a · padserver: `addKey` rides the EXISTING scan-event ledger (`p_scan_id`, claimed in the
+    // same transaction as the write), so a resend of the same key is an idempotent no-op.
+    phase = "write";
     await insertOrIncLine(
       cart.id,
       {
@@ -105,11 +134,20 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
       },
       null,
       qty,
+      addKey,
     );
     await touchCart(cart.id, "staffAddItem");
-  } catch {
-    // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy.
-    return { ok: false, error: "Couldn’t add that item." };
+    await maybeRenewSession(serviceClient(), session.id, session.expires_at);
+  } catch (e) {
+    // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy. The CODE says
+    // whether the add may have landed: pricing is classified by what IT threw (captured above), the
+    // write by what the write threw — a typed "not open" is a definite non-write.
+    const code = addFailureCode(phase, phase === "write" ? e : priceFailure);
+    return {
+      ok: false,
+      error: code === "closed" ? "This table has no open order." : "Couldn’t add that item.",
+      code,
+    };
   }
 
   if (process.env.NEXT_PUBLIC_POSTHOG_KEY) {

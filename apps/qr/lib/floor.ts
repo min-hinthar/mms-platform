@@ -13,6 +13,7 @@ import { getCartTotals } from "./totals";
 import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
+import { staffSendCounts } from "./staff-send-view";
 import type {
   ClearTableResult,
   FloorPoll,
@@ -365,11 +366,13 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
   let itemCount = 0;
   let runningSubtotalCents = 0;
   let lastLineAt: string | null = null;
+  // Phase 2a · send — zero until an open cart's rows say otherwise (a settled record sends nothing).
+  let send = staffSendCounts(session.mode, []);
   if (cart) {
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select(
-        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers",
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment",
       )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
@@ -414,6 +417,8 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       bySeatName: i.by_seat ? (nameBySeat.get(i.by_seat) ?? null) : null,
       soldOut: i.menu_item_id ? soldOutIds.has(i.menu_item_id) : false,
       state: (i.state ?? "draft") as TableLineView["state"],
+      // Phase 2a · send — `mms_fire_cart`'s own predicate, per line: the Send fires exactly these.
+      sendable: session.mode === "dinein" && i.state === "draft" && i.fulfillment === "dinein",
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
       notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)
@@ -422,6 +427,17 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
       refundedCents: 0, // an OPEN cart line cannot be refunded — it is voided or comped instead
     }));
+    // Phase 2a · send — the table's send counts, ONE binding (`kitchenDraftUnitsFromRows` inside),
+    // so the Send's "3 items", the add page's "3 not sent" and the diner's Pay gate agree.
+    send = staffSendCounts(
+      session.mode,
+      (items ?? []).map((i) => ({
+        state: i.state ?? "draft",
+        fulfillment: i.fulfillment,
+        qty: i.qty,
+        by_seat: i.by_seat,
+      })),
+    );
     // Count + running subtotal reflect what's CHARGEABLE — a voided/comped line shows on the drill-down
     // (as a removed/comped row) but isn't part of the "so far" total or the settle amount.
     const chargeable = lines.filter((l) => l.state !== "voided" && !l.comped);
@@ -466,6 +482,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       bySeatName: i.added_by ? (nameBySeat.get(i.added_by) ?? null) : null,
       soldOut: false, // a served line cannot be re-ordered from this screen; 86 is irrelevant to it
       state: "served" as TableLineView["state"],
+      sendable: false, // Phase 2a · send — a settled record sends nothing
       comped: false, // a comped line never reaches qr_order_items — the fulfilment excludes it
       pendingApproval: false, // approvals are cart-scoped and resolved before settlement
       notes: i.notes ?? null,
@@ -580,6 +597,9 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     nudgeSecure,
     lastActivityAt,
     paymentInFlight,
+    // Phase 2a · send — create-intent's binding for "someone at the table can send".
+    hostPresent: session.host_seat != null,
+    send,
     serverNow: nowIso,
   };
   return { kind: "detail", detail };

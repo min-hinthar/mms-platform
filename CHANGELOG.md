@@ -4,6 +4,58 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2a — the console sends to the kitchen (2026-09-24)
+
+The first staff slice of the owner's polish plan, built as four parallel worktree branches (`p2a/*`:
+send · padserver · tablet · register) merged here. Decided in pure `lib/` modules with mutants (62
+new; 854 total across 147 files). DESIGN-LANGUAGE §17.
+
+- **The console sends to the kitchen (P2k).** A phone-less table ("Start a table") no longer waits
+  for its settle to cook: the table page gains "Send to kitchen · N items" with a 10s
+  server-clocked Undo, dishes the kitchen has not got are tagged "Not sent", post-fire line states
+  speak the device language (`STAFF_STATE_COPY` retired; K25 narrowed), and the add page gains an
+  interim "Review · N not sent →" bridge that lands focused on the Send — **a bridge, not a
+  surface: the 2c order pad removes it with `browse.review`**. `staffFireCart` moved from
+  `kitchen.ts` to `lib/staff-send.ts` with a typed refusal union (counter · paying · nothing · …),
+  its batch and deadline, and `staffUndoFire`; staff writes (add, send, undo) now renew the session
+  like a diner write, so a console-only table no longer drops off the floor after four hours. The
+  diner's SendToKitchenButton reads its grace through the new `lib/send-grace.ts` (arithmetic only,
+  no behaviour change).
+- **Staff add: coded refusals, an idempotent add key, and a paid add-on that is never dropped.**
+  `staffAddItem` returns a failure `code` decided by where it failed (`unconfirmed` for a write that
+  may have landed), accepts an optional `addKey` forwarded to the existing `p_scan_id` ledger so a
+  retried add can never land twice, and `priceItem` refuses (outage) instead of pricing a line
+  without its chosen add-on when the modifier options read fails — on the diner path and reorder too.
+  A rolled-back SQL test pins the staff Send/Undo's batch isolation
+  (`supabase/tests/staff_fire_undo_test.sql`, CI-only — its first red-first run is filed).
+- **Tablet fixes ahead of the page/pane fork.** Clearing a table and a table closing under you
+  return to the floor by name (never the doors); a table-page read that lands after "+ Add items" no
+  longer yanks you off the add page; the table page's realtime channel is unique per mount (no
+  unhandled rejection or dead realtime after a quick remount, and the order pad can share a
+  session); a board that closes no longer leaves a stale "not updating" on the help report. The table
+  page's current output is pinned by a new jsdom suite (`FloorDetailLive.test.tsx`).
+- **Register hotfixes.** A cash tip typed key by key as "5,00" recorded $500 (measured: `tipCents` 50000) — the comma rule now runs on the whole string in integer cents (`lib/money-input.ts`), the
+  field only refuses characters, tip chips light by value, and an 8+-digit tip is refused as over
+  the cap. A secure-tab close whose action rejected no longer latches on "Charging…": the confirm
+  closes, focus returns to the trigger, and the alert says the card may or may not have been charged
+  (`settle.card.unknown`). `CashSettleButton` and `CloseSecureTabButton` join the mutate set.
+- **Blind review (3 lenses, 3× REJECT) — fixed:**
+  - money: a dot typed after a decimal comma is refused ("5,00." stays "5,00" → $5.00, not $500), and a pasted "5,00." / "5,5.0" reads as no amount; the 8+-digit tip arm gained its mutant.
+  - send count (Codex round 1): "Sent N items" now repeats the fired UNITS (Σ qty of the batch), not the rows `mms_fire_cart` reports — the row count is only the lower-bound fallback.
+  - undo, lost response: a retry that finds its batch already brought back answers `gone` ("Nothing from that send is still with the kitchen…"), never "too late"; a thrown undo says "Couldn’t confirm the take-back…" and keeps its window.
+  - undo hold: "Bringing it back…" is baselined at the answer, not the tap, and releases when the detail read degrades.
+  - refresh: a re-read asked for while a poll is in flight runs once more after it instead of being dropped.
+  - region: degraded now outranks any send line (writeError > degraded > send warn > send ok), and a send line retires once the slot it spoke over changes.
+  - add page (7c from Codex round 1): a closed table goes to the floor by name; "Review · N not sent" counts only what staff own at a host table; the quick add re-reads after an ok add.
+  - add outcome: the insert guard's "not open" is a typed `CartClosedError` → `closed` (definite), while an RPC error stays `unconfirmed`.
+  - guards: the undo's signin/outage gate is pinned; the unreachable `role` refusal is gone (`server` is the ladder's floor).
+  - add key (Codex round 1, P1 — closes P2aj): `StaffAddButton` and `StaffMenuBrowser` send an add key, resend it on a retry of an unknown add, and say "Couldn’t confirm that add — check the order before adding again."
+- **Owner decisions for Phase 2 (2026-09-24).** Counter (phone / walk-up) orders will be sendable
+  before payment with an "Unpaid — collect at pickup" flag — its own later slice, **2f**, which needs
+  a migration; until then the console refuses a counter send and says "The kitchen starts this order
+  when it’s paid." The staff language becomes a three-way **Burmese / Both / English** per-device
+  setting in Profile — slice **2e**.
+
 ### Phase 1c — the add, the removal, the card form, the Stars and the market's front door (2026-09-24)
 
 Five guest surfaces brought to the §20 primitives and the v7.2 bar, each decided in a pure `lib/`

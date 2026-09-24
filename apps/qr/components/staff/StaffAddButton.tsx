@@ -1,7 +1,15 @@
 "use client";
 import { useEffect, useRef, useState, useTransition, type CSSProperties } from "react";
+import { useRouter } from "next/navigation";
 import { Icon } from "@mms/ui";
 import { staffAddItem } from "@/lib/staff-cart";
+import {
+  addAttemptOutcome,
+  heldAfter,
+  keyForAttempt,
+  type AddAttemptOutcome,
+  type HeldAddKey,
+} from "@/lib/staff-add-key";
 import { al } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -18,12 +26,20 @@ import { useStaffLang } from "./StaffLangProvider";
  * in English, because a sentence with no authored twin is better shown than guessed at). The thrown
  * `catch` sentence is this console's OWN copy and therefore a dictionary key: routed through
  * `OutageText` it would pass through as English forever while looking converted.
+ *
+ * Phase 2a (Codex round 1, P1) — every tap carries an ADD KEY (`lib/staff-add-key.ts`). An add whose
+ * outcome is unknown — the action threw, or the write answered `unconfirmed` — may have landed, so
+ * the next tap resends the SAME key (the ledger makes it a no-op if the first landed) and the line
+ * says "couldn't confirm — check the order", never "try again". A definite outcome retires the key.
+ * Every settled attempt (ok or unknown) re-reads the page, so the add page's "Review · N not sent"
+ * bridge counts what is actually on the order.
  */
 type AddFailure =
   /** A sentence `staffAddItem` returned. English unless it is the write-outage twin. */
   | { kind: "server"; message: string }
-  /** The action THREW — transport, or a redacted server error. Our own sentence. */
-  | { kind: "threw" };
+  /** The outcome is UNKNOWN — the action threw, or the write answered `unconfirmed`: it may have
+   *  landed. Our own sentence. */
+  | { kind: "unconfirmed" };
 
 export function StaffAddButton({
   sessionId,
@@ -37,7 +53,10 @@ export function StaffAddButton({
   soldOut: boolean | null;
 }) {
   const lang = useStaffLang();
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+  // The key held for a retry of THIS dish after an unknown outcome (null after a definite one).
+  const heldKey = useRef<HeldAddKey>(null);
   const [added, setAdded] = useState(false);
   const [error, setError] = useState<AddFailure | null>(null);
   // One reset timer, cancelled before re-arm + on unmount (the TableCartProvider flash discipline).
@@ -54,21 +73,33 @@ export function StaffAddButton({
     setError(null);
     setAdded(true); // optimistic — reverted below if the server refuses OR the action throws
     if (timer.current) clearTimeout(timer.current);
+    // One dish per button, so the intent IS the dish: a held key means this tap retries the last one.
+    const addKey = keyForAttempt(heldKey.current, menuItemId, () => crypto.randomUUID());
     startTransition(async () => {
+      let outcome: AddAttemptOutcome;
       try {
-        const res = await staffAddItem({ sessionId, menuItemId });
+        const res = await staffAddItem({ sessionId, menuItemId, addKey });
+        outcome = addAttemptOutcome(res);
         if (res.ok) {
           timer.current = setTimeout(() => setAdded(false), 1400);
         } else {
           setAdded(false);
-          setError({ kind: "server", message: res.error });
+          setError(
+            outcome === "unknown"
+              ? { kind: "unconfirmed" }
+              : { kind: "server", message: res.error },
+          );
         }
       } catch {
         // A THROWN action (network/transport, redacted server error) must also revert the optimistic
-        // "Added ✓" — without this catch it would stick forever while nothing landed on the order.
+        // "Added ✓" — without this catch it would stick forever. It may still have LANDED.
+        outcome = "unknown";
         setAdded(false);
-        setError({ kind: "threw" });
+        setError({ kind: "unconfirmed" });
       }
+      heldKey.current = heldAfter(menuItemId, addKey, outcome);
+      // The page's truth (the bridge count; the order behind it) after anything that may have landed.
+      if (outcome !== "definite") router.refresh();
     });
   }
 
@@ -120,7 +151,7 @@ export function StaffAddButton({
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.message} />
           ) : (
-            <Chrome lang={lang} k="browse.add.failed" />
+            <Chrome lang={lang} k="browse.add.unconfirmed" />
           )}
         </span>
       )}

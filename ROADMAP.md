@@ -353,6 +353,28 @@ rows A1–A4 in OPEN-ITEMS carry the detail.
       which was destroying a device's orders permanently. Retracts **C21** and **C22**; closes **M209**
       and **M212**.
 
+## 🪞 The polish plan — Phase 0 → 3 &nbsp;`now`
+
+Owner's ask 2026-09-23: "the QR app still doesn't feel as polished, intuitive, production-grade as the
+delivery app." One `###` entry per phase in `CHANGELOG.md` is the as-built; `docs/HANDOFF.md` carries
+the plan state.
+
+- [x] **Phase 0 — the design system in code + the visible-bug batch** (#299).
+- [x] **Phase 1a · 1b · 1c — the guest flow** (#300 · #301 · #302): the menu's first screen, one tap to
+      send / to pay, the add, the removal, the card form, the Stars and the market's front door.
+- [ ] **Phase 2 — staff.** Owner decisions 2026-09-24: counter orders sendable before payment (2f) and
+      a three-way per-device staff language (2e).
+  - [x] **2a — the console sends to the kitchen** (2026-09-24): Send + server-clocked Undo on the
+        table page (P2k), coded staff-add refusals + an idempotent add key, four tablet fixes, two
+        register hotfixes (the typed-comma tip, the rejected secure close).
+  - [ ] **2b — kitchen tickets + feedback.**
+  - [ ] **2c — the order pad + register settle + the settle gate** (removes 2a's interim "Review · N
+        not sent" bridge).
+  - [ ] **2d — the floor + the tablet split + the counter bell** (the floor's "not sent" signal).
+  - [ ] **2e — staff language: Burmese / Both / English, per device, in Profile** (owner-chosen).
+  - [ ] **2f — counter orders cook before paid** ("Unpaid — collect at pickup"; needs a migration).
+- [ ] **Phase 3 — production signals** (photos, live Stripe keys, RUM).
+
 ## 🧩 Service-model track (dine-in full service) &nbsp;`milestone:S1…S4`
 
 The full-service layer over the guest self-serve core: **staff/floor, line authority, tabs, and the unified basket** from [`docs/context/ORDER-MODEL.md`](docs/context/ORDER-MODEL.md). The spine is shared — one **table-owned order ledger** (M1) — so these _extend_ the app, they don't fork it. An `S` track (not `M7+`) so the existing numbering/labels stay put; **milestone number ≠ build order** (see the interleave at the end).

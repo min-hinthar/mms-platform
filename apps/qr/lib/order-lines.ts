@@ -69,6 +69,20 @@ export class ItemUnreadableError extends Error {
   }
 }
 
+/**
+ * Phase 2a (blind review) — the insert RPC answered "not open" (`mms_cart_item_insert_if_open`
+ * returned null with NO error): the status-atomic guard refused, so NOTHING was written. Typed so a
+ * caller can tell that DEFINITE refusal from a throw whose response was lost after the write
+ * committed (an RPC error, an inc-qty raise) — the staff add codes it `closed`, never `unconfirmed`.
+ * The message is the one every existing caller matches (reorder.ts), unchanged.
+ */
+export class CartClosedError extends Error {
+  constructor() {
+    super("Cart is no longer open");
+    this.name = "CartClosedError";
+  }
+}
+
 export async function priceItem(
   menuItemId: string,
   modifierIds: string[],
@@ -107,11 +121,16 @@ export async function priceItem(
   let optLabels: string[] = [];
   let chosen: { id: string; name: string; price_delta_cents: number; group_id: string }[] = [];
   if (modifierIds.length) {
-    const { data: opts } = await db
+    const { data: opts, error: optError } = await db
       .from("modifier_options")
       .select("id,name,price_delta_cents,group_id")
       .eq("is_active", true)
       .in("id", modifierIds);
+    // Phase 2a · padserver — a failed options read is an OUTAGE, never "no options chosen". Folding
+    // it into `[]` priced and named the line WITHOUT the add-on the guest chose — a silent
+    // under-charge on the diner path, and on the staff path a dish the kitchen cooks wrong. Fail
+    // closed, the same way the item read above does (M119).
+    if (optError) throw new ItemUnreadableError(menuItemId);
     chosen = (opts ?? []).filter((m) => allowedGroups.has(m.group_id));
     addCents = chosen.reduce((a, m) => a + m.price_delta_cents, 0);
     optLabels = chosen.map((m) => m.name);
@@ -273,7 +292,7 @@ export async function insertOrIncLine(
     });
     if (incErr) throw new Error("Cart is no longer open");
   } else {
-    const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
+    const { data: insertedId, error: insertErr } = await db.rpc("mms_cart_item_insert_if_open", {
       p_cart_id: cartId,
       p_menu_item_id: line.menuItemId,
       p_name: line.name,
@@ -293,9 +312,14 @@ export async function insertOrIncLine(
       // a DB without 20260815100000 still resolves every option-less caller.
       ...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),
     });
+    // An RPC ERROR is not a verdict: the response may have been lost after the insert committed, so
+    // it stays an untyped throw (the staff add reads it `unconfirmed`). Same sentence as ever — the
+    // callers that match it (reorder.ts) behave exactly as before.
+    if (insertErr) throw new Error("Cart is no longer open");
     // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
-    // check as the idempotent success it is (the write already landed on a prior attempt).
-    if (!insertedId) throw new Error("Cart is no longer open");
+    // check as the idempotent success it is (the write already landed on a prior attempt). A null
+    // with no error is the guard's own refusal: nothing was written (`CartClosedError`).
+    if (!insertedId) throw new CartClosedError();
   }
 }
 

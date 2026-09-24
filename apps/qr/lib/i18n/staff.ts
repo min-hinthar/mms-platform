@@ -620,9 +620,16 @@ export const STAFF = {
   "browse.add.verb.add": { en: "Add", my: "ထည့်" },
   "browse.add.verb.added": { en: "Added", my: "ထည့်ပြီးပြီ" },
   "browse.add.verb.soldOut": { en: "Sold out", my: "ဖြုတ်ထားပြီ" }, // ကုန်သွား is the LOSS reason
-  // This console's OWN failure sentence — a thrown Server Action, not a server-authored string, so
-  // it is a dictionary key rather than something <OutageText> passes through as English forever.
-  "browse.add.failed": { en: "Couldn’t add that — try again.", my: "မထည့်နိုင်ပါ — ထပ်စမ်းပါ။" },
+  // This console's OWN failure sentence — not a server-authored string, so it is a dictionary key
+  // rather than something <OutageText> passes through as English forever.
+  // Phase 2a (Codex round 1, P1) — replaces `browse.add.failed`: an add whose answer never arrived
+  // (the action threw, or the write answered `unconfirmed`) may have LANDED. "Try again" read as
+  // "nothing landed" and invited a second plate; the retry now resends the same add key, and the
+  // sentence sends staff to the order first. MY is a Claude-authored K15 draft pending Min's check.
+  "browse.add.unconfirmed": {
+    en: "Couldn’t confirm that add — check the order before adding again.",
+    my: "ထည့်ပြီးမပြီး မသေချာပါ — ထပ်မထည့်ခင် အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a blind re-add cooks and charges a second dish
 
   // ── the staff modifier sheet (StaffModSheet) ───────────────────────────────
   "browse.mod.required": { en: "required", my: "မဖြစ်မနေ" },
@@ -2534,6 +2541,130 @@ export const STAFF = {
     my: "အစီရင်ခံစာနဲ့ အတူ ပို့မယ့် အချက်အလက်",
   },
   "report.a11y.mine": { en: "Your reports", my: "သင့် အစီရင်ခံစာများ" },
+  // ── Phase 2a · send ──
+  // The table page's "Send to kitchen" (P2k) — `useStaffSend` + `StaffSendButton`, reused by the
+  // order pad in 2c, so the namespace is `table.send.*`. Every MY value in this block is a
+  // Claude-authored K15 draft pending Min's native check, EXCEPT where a `grounded:` comment names its
+  // in-repo source. Counts ride {n}/{total} (Burmese digits under `my`); a dish or host name rides
+  // {x}. The take-back verb is ပြန်ယူ ("take back"), NOT kds.undo's ပြန်ဖျက် — that shares its root
+  // with the Void beside it on this page (ဖျက်), and the owner chose ပြန်ယူ for this control.
+  "table.send.cta.one": { en: "Send to kitchen · {n} item", my: "မီးဖိုချောင် ပို့ · {n} ခု" }, // K15-HIGH — the tap that starts cooking
+  "table.send.cta.many": { en: "Send to kitchen · {n} items", my: "မီးဖိုချောင် ပို့ · {n} ခု" }, // K15-HIGH — the tap that starts cooking
+  "table.send.sending": { en: "Sending…", my: "ပို့နေပါတယ်…" }, // grounded: table.loss.sending
+  // The verb ALONE is the control's name; the countdown is a separate aria-hidden span
+  // (`table.send.undoLeft`), so the accessible name does not change every second.
+  "table.send.undo": { en: "Undo", my: "ပြန်ယူ" }, // K15-HIGH — the only way to take a mis-sent round back
+  "table.send.undoLeft": { en: "· {n}s", my: "· {n} စက္ကန့်" },
+  "table.send.undoing": { en: "Bringing it back…", my: "ပြန်ယူနေပါတယ်…" },
+  "table.send.sent.one": {
+    en: "Sent {n} item to the kitchen.",
+    my: "မီးဖိုချောင်ကို {n} ခု ပို့ပြီးပြီ။",
+  },
+  "table.send.sent.many": {
+    en: "Sent {n} items to the kitchen.",
+    my: "မီးဖိုချောင်ကို {n} ခု ပို့ပြီးပြီ။",
+  },
+  "table.send.undone": {
+    en: "Brought back — not sent. Change it, then send again.",
+    my: "ပြန်ယူပြီးပြီ — မပို့ရသေးပါ။ ပြင်ပြီး ထပ်ပို့ပါ။",
+  },
+  "table.send.allSent": {
+    en: "Everything’s been sent to the kitchen.",
+    my: "အားလုံး မီးဖိုချောင်ကို ပို့ပြီးပြီ။",
+  },
+  "table.send.hostNote": {
+    en: "{x} sends from their phone — send here only if the table asks.",
+    my: "{x} က ဖုန်းကနေ ပို့ပါတယ် — စားပွဲက ပြောမှ ဒီကနေ ပို့ပါ။",
+  },
+  "table.send.hostNote.anon": {
+    en: "The table’s host sends from their phone — send here only if the table asks.",
+    my: "စားပွဲ အိမ်ရှင်က ဖုန်းကနေ ပို့ပါတယ် — စားပွဲက ပြောမှ ဒီကနေ ပို့ပါ။",
+  },
+  // {n} = the dishes staff added here; {total} = the table's OWN unsent dishes the same Send fires
+  // (`mms_fire_cart` cannot fire a subset) — {total} because only {n}/{total} take Burmese digits.
+  "table.send.mixedNote": {
+    en: "You added {n} here — Send also sends the table’s {total} not yet sent.",
+    my: "ဒီမှာ {n} ခု ထည့်ထားတယ် — ပို့ရင် စားပွဲက မပို့ရသေးတဲ့ {total} ခုပါ တစ်ခါတည်း ပါသွားမယ်။",
+  }, // K15-HIGH — says the Send fires the diners' round too
+  "table.send.counterAskNote": {
+    en: "They’ve asked to pay — check with the table: send these {n}, or remove any they don’t want.",
+    my: "ငွေရှင်းမယ်လို့ ပြောထားပြီ — စားပွဲကို မေးပါ၊ ဒီ {n} ခု ပို့မလား၊ မလိုတာ ဖယ်မလား။",
+  }, // K15-HIGH — the question to ask before food is cooked for a table on its way out
+  "table.send.paying": {
+    en: "A payment is under way — these go to the kitchen when it goes through.",
+    my: "ငွေပေးချေနေဆဲပါ — ငွေဝင်တာနဲ့ မီးဖိုချောင်ကို ရောက်ပါမယ်။",
+  },
+  "table.send.hold.note": {
+    en: "Save the note on {x} first — it goes to the kitchen with the dish.",
+    my: "{x} ရဲ့ မှတ်ချက်ကို အရင် သိမ်းပါ — ဟင်းနဲ့အတူ မီးဖိုချောင် ရောက်ရမှာပါ။",
+  }, // K15-HIGH — the allergy note that would otherwise be lost at the fire
+  "table.send.hold.writing": {
+    en: "One moment — a change is still saving.",
+    my: "ခဏ — ပြင်ထားတာ သိမ်းနေတုန်းပါ။",
+  },
+  "table.send.togoAtPay.one": {
+    en: "{n} to-go item — the kitchen starts it when the table pays.",
+    my: "ပါဆယ် {n} ခု — ငွေရှင်းတာနဲ့ မီးဖိုချောင်က စချက်ပါမယ်။",
+  },
+  "table.send.togoAtPay.many": {
+    en: "{n} to-go items — the kitchen starts them when the table pays.",
+    my: "ပါဆယ် {n} ခု — ငွေရှင်းတာနဲ့ မီးဖိုချောင်က စချက်ပါမယ်။",
+  },
+  "table.send.counterAtPay": {
+    en: "The kitchen starts this order when it’s paid.",
+    my: "ငွေရှင်းပြီးမှ မီးဖိုချောင်က ဒီအော်ဒါကို စချက်ပါမယ်။",
+  }, // K15-HIGH — why a counter order has no Send (it cooks at payment)
+  "table.send.err.nothing": { en: "Nothing new to send.", my: "ပို့စရာ အသစ် မရှိပါ။" },
+  "table.send.err.closed": {
+    en: "This order is settled or closed — nothing to send.",
+    my: "ဒီအော်ဒါ ရှင်းပြီး ဒါမှမဟုတ် ပိတ်ပြီးပြီ — ပို့စရာ မရှိပါ။",
+  },
+  "table.send.err.counter": {
+    en: "Counter orders go to the kitchen when they’re paid.",
+    my: "ကောင်တာ အော်ဒါတွေက ငွေရှင်းပြီးမှ မီးဖိုချောင် ရောက်ပါတယ်။",
+  },
+  "table.send.err.expired": {
+    en: "Too late to bring it back — the kitchen has it. Use Void / Comp on the dish if it shouldn’t be made.",
+    my: "ပြန်ယူဖို့ နောက်ကျသွားပြီ — မီးဖိုချောင် ရောက်သွားပြီ။ မချက်စေချင်ရင် ဟင်းပေါ်က ဖျက် / အခမဲ့ ကို နှိပ်ပါ။",
+  }, // K15-HIGH — the kitchen already has it; the only way left is the loss path
+  "table.send.err.failed": { en: "Couldn’t send — try again.", my: "မပို့နိုင်ပါ — ထပ်စမ်းပါ။" },
+  "table.send.err.unknown": {
+    en: "Couldn’t confirm the send — check the order above before you send again.",
+    my: "ပို့ပြီးမပြီး မသေချာပါ — ထပ်မပို့ခင် အပေါ်က အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — a send that may have landed; a blind re-send cooks twice
+  "table.send.err.undoFailed": {
+    en: "Couldn’t bring it back — try again before the time runs out.",
+    my: "ပြန်မယူနိုင်ပါ — အချိန်မကုန်ခင် ထပ်စမ်းပါ။",
+  },
+  // Blind review — an undo whose answer never arrived is an UNKNOWN outcome (it may have landed), and
+  // a retry that finds the batch no longer fired is `gone`, not "too late". Both point at the dishes
+  // ABOVE the slot, which say where each one is.
+  "table.send.err.undoUnknown": {
+    en: "Couldn’t confirm the take-back — check the dishes above. If they still say sent, tap Undo again.",
+    my: "ပြန်ယူပြီးမပြီး မသေချာပါ — အပေါ်က ဟင်းတွေကို စစ်ပါ။ ပို့ပြီးလို့ ပြနေသေးရင် ပြန်ယူ ကို ထပ်နှိပ်ပါ။",
+  }, // K15-HIGH — a take-back that may have landed; "couldn't" would hide a dish that is no longer cooking
+  "table.send.gone": {
+    en: "Nothing from that send is still with the kitchen — the dishes above show where each one is.",
+    my: "အဲဒီတစ်ခါ ပို့ထားတာ မီးဖိုချောင်မှာ ဘာမှ မကျန်တော့ပါ — ဟင်းတစ်ခုချင်း ဘယ်မှာလဲဆိုတာ အပေါ်မှာ ပြထားပါတယ်။",
+  }, // K15-HIGH — tells staff no dish from the send is cooking; wrong, a dish is made nobody expects
+  // The line tags (K25 for this surface): the one word that separates sent from unsent, in the
+  // device language instead of the English `STAFF_STATE_COPY` they replace.
+  "table.line.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — marks the dishes the kitchen has not got
+  "table.line.state.fired": { en: "Sent", my: "ပို့ပြီး" }, // K15-HIGH — the dish the kitchen has
+  "table.line.state.inProgress": { en: "Cooking", my: "ချက်နေဆဲ" }, // grounded: kds.line.cooking
+  "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
+  // The add page's bridge to the Send (removed with `browse.review` by the 2c order pad).
+  "browse.reviewUnsent": { en: "Review · {n} not sent →", my: "စစ်ရန် · {n} ခု မပို့ရသေး →" },
+
+  // ── Phase 2a · register ──
+  // A secure-tab close whose Server Action REJECTED (the connection dropped): the off-session charge
+  // may or may not have landed, and `closeSecureTab`'s unknown-outcome arm HOLDS the freeze — so the
+  // write-outage twin ("that change wasn’t saved") would be false here. Same promise as that server
+  // arm's own sentence. Claude-authored MY draft pending Min's native check (K15).
+  "settle.card.unknown": {
+    en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this tab settles itself in a minute. If it doesn’t, try again.",
+    my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ကတ်ကနေ ဖြတ်ပြီးပြီလား မသိရပါ။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ဦး — ဖြတ်ပြီးသားဆိုရင် ဒီစာရင်း တစ်မိနစ်အတွင်း သူ့ဘာသာ ပိတ်သွားပါမယ်။ မပိတ်ရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — read while a charge's outcome is unknown; a misread collects the guest twice
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2562,6 +2693,10 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["reg.day.refunded.one", "reg.day.refunded.many"],
   ["settle.merge.move.one", "settle.merge.move.many"],
   ["pin.wrong.one", "pin.wrong.many"],
+  // ── Phase 2a · send ──
+  ["table.send.cta.one", "table.send.cta.many"],
+  ["table.send.sent.one", "table.send.sent.many"],
+  ["table.send.togoAtPay.one", "table.send.togoAtPay.many"],
 ];
 
 /**
@@ -2672,6 +2807,23 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.loss.hint.void",
   "report.err.outage",
   "report.sent",
+  // ── Phase 2a · send ──
+  "table.send.cta.one",
+  "table.send.cta.many",
+  "table.send.undo",
+  "table.send.mixedNote",
+  "table.send.counterAskNote",
+  "table.send.hold.note",
+  "table.send.counterAtPay",
+  "table.send.err.expired",
+  "table.send.err.unknown",
+  "browse.add.unconfirmed",
+  "table.send.err.undoUnknown",
+  "table.send.gone",
+  "table.line.notSent",
+  "table.line.state.fired",
+  // ── Phase 2a · register ──
+  "settle.card.unknown",
 ]);
 
 /**

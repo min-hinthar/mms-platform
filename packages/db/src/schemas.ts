@@ -551,6 +551,11 @@ export const staffAddItemInput = z.object({
   // W6a: the register's per-add quantity (the diner ItemSheet's 1–9 bound). Defaults to 1 so every
   // existing tap-to-add call is unchanged.
   qty: z.number().int().min(1).max(9).default(1),
+  // ── Phase 2a · padserver ── a client-minted id for THIS add, forwarded as the existing
+  // `p_scan_id` (the W7b `mms_scan_events` ledger, claimed atomically with the write): a resend of
+  // the SAME key is an idempotent no-op, so an add whose response was lost can be retried without
+  // ever landing twice. Optional — every existing caller is byte-identical.
+  addKey: uuid.optional(),
 });
 
 /** setKioskTip (W17c-3) — the kiosk guest chooses a tip, minutes before a cashier takes the money.
@@ -802,3 +807,11 @@ export type SetPickupSlotInput = z.infer<typeof setPickupSlotInput>;
 export type StaffLangInput = z.infer<typeof staffLangInput>;
 export type StaffDoorInput = z.infer<typeof staffDoorInput>;
 export type StaffReportInput = z.infer<typeof staffReportInput>;
+
+// ── Phase 2a · send ──
+/** staffUndoFire — staff take back the batch THEIR console send fired, inside the grace. `batch` is
+ *  the fire_batch `staffFireCart` handed back, so the undo reverses exactly that send (never a
+ *  diner's make-it-now line sharing the window — S4-audit P1-3). Shape only: the server re-derives
+ *  the session's open cart, and `mms_undo_fire` re-checks grace + dine-in + open cart + batch in SQL. */
+export const staffUndoFireInput = z.object({ sessionId: uuid, batch: uuid });
+export type StaffUndoFireInput = z.infer<typeof staffUndoFireInput>;

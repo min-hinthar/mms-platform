@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
@@ -33,6 +33,21 @@ import { Chrome, OutageText } from "./Chrome";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import type { StaffKey } from "@/lib/i18n/staff";
+// ── Phase 2a · send ──
+import { counterAskLive } from "@/lib/counter-pay-state";
+import {
+  sendHoldFrom,
+  sendNoteAfterCommit,
+  sendViewFact,
+  staffSendView,
+  type HeldSendNote,
+  type SendNotice,
+  type StaffLineEdit,
+  type StaffSendHold,
+} from "@/lib/staff-send-view";
+import { StaffSendButton } from "./StaffSendButton";
+import { MsgText, type StaffMsg } from "./StaffMsg";
+import { useStaffSend } from "./useStaffSend";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 // P2 — keys, not labels. The three modes already have dictionary entries on the floor card
@@ -58,9 +73,13 @@ export function FloorDetailLive({
   sessionId,
   terminalReady = false,
   hasPin = false,
+  arrivedToSend = false,
 }: {
   initial: TableDetail;
   sessionId: string;
+  /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
+   *  Send (or the status row, if a colleague sent in between), then drop the param. */
+  arrivedToSend?: boolean;
   /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
   hasPin?: boolean;
   /** W6c: STRIPE_TERMINAL_READER_ID is configured (server-checked by the page) — the Card settle
@@ -83,6 +102,11 @@ export function FloorDetailLive({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
+  // A refresh requested while one is in flight (see `refresh`).
+  const rerun = useRef(false);
+  // Every detail read takes a ticket; the committed detail's ticket rides beside it (see `sendNote`).
+  const reads = useRef(0);
+  const [readTicket, setReadTicket] = useState(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -170,39 +194,65 @@ export function FloorDetailLive({
     hadRealFocus.current = document.activeElement !== document.body;
   }, [detail]);
 
+  // Phase 2a · tablet — false once the poll effect has cleaned up (unmount, or a new `refresh`). A
+  // read already in the air when the server taps "+ Add items" used to land on the unmounted page
+  // and, on a `closed` verdict, `router.replace` them OFF the add page they had just opened (the
+  // /add yank). Every setState and router call below the await is behind this.
+  const alive = useRef(true);
+
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
+    // Phase 2a (blind review) — a refresh asked for while a read is in the air is REMEMBERED, not
+    // dropped: the Send's "re-read NOW" after a send or an undo usually lands mid-poll, and the poll
+    // already in flight began BEFORE the write — so dropping the ask left the line tags stale for up
+    // to 5s. One more read runs after the current one (never more than one queued, and never after
+    // the effect cleaned up: the loop re-checks `alive`).
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
     inFlight.current = true;
     try {
-      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      const res = await raceTimeout(getTableDetail(sessionId));
-      if (res.kind === "detail") {
-        setDetail(res.detail);
-        fails.current = 0;
-        setDegraded(null);
-      } else if (res.kind === "closed") {
-        // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
-        // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
-        // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
-        // bouncing now would yank the collect panel / #CODE handoff card out from under the
-        // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
-        if (!terminalFlowLive.current) {
-          router.replace("/staff");
-          router.refresh();
+      do {
+        rerun.current = false;
+        // This read's ticket — committed WITH its detail (one batched render), so the send line can
+        // tell a read that began after it from one already in the air (`sendNoteAfterCommit`).
+        const ticket = ++reads.current;
+        try {
+          // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+          const res = await raceTimeout(getTableDetail(sessionId));
+          if (!alive.current) return;
+          if (res.kind === "detail") {
+            setDetail(res.detail);
+            setReadTicket(ticket);
+            fails.current = 0;
+            setDegraded(null);
+          } else if (res.kind === "closed") {
+            // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
+            // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
+            // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
+            // bouncing now would yank the collect panel / #CODE handoff card out from under the
+            // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
+            // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
+            if (!terminalFlowLive.current) {
+              router.replace(STAFF_DOOR_TARGET.counter);
+              router.refresh();
+            }
+          } else if (res.kind === "signin") {
+            // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
+            window.location.assign("/staff/login");
+          } else {
+            setNowMs(Date.now());
+            setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          }
+        } catch (e) {
+          if (!alive.current) return;
+          // Cause `unknown` — this end failed, which isn't evidence the platform is down.
+          fails.current += 1;
+          setNowMs(Date.now());
+          if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+          console.error("[FloorDetailLive] refresh failed", e);
         }
-      } else if (res.kind === "signin") {
-        // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
-        window.location.assign("/staff/login");
-      } else {
-        setNowMs(Date.now());
-        setDegraded((d) => nextDegraded(d, "outage", Date.now()));
-      }
-    } catch (e) {
-      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-      fails.current += 1;
-      setNowMs(Date.now());
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
-      console.error("[FloorDetailLive] refresh failed", e);
+      } while (rerun.current && alive.current);
     } finally {
       inFlight.current = false;
     }
@@ -223,12 +273,107 @@ export function FloorDetailLive({
   useFloorRealtime(true, onChange, sessionId, detail.cartId);
 
   useEffect(() => {
+    alive.current = true;
     const id = setInterval(refresh, 5000);
     return () => {
+      alive.current = false;
       clearInterval(id);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [refresh]);
+
+  // ── Phase 2a · send ── the table page's "Send to kitchen" (P2k). ─────────────────────────────────
+  // The controller lives HERE, in the component that owns the detail, so the refresh that follows a
+  // send (which zeroes the "not sent" count and swaps the slot) can never kill the open undo.
+  const pathname = usePathname();
+  const orderCardRef = useRef<HTMLElement>(null);
+  // Detail commits, counted by identity (React's guarded set-during-render): the post-undo hold ends
+  // on the drafts coming back, or two commits later (the first may be a poll that began before it).
+  const sendView = staffSendView({
+    mode: detail.mode,
+    counterOrder: isCounter,
+    cartOpen: detail.cartId != null && !detail.settled,
+    paymentInFlight: detail.paymentInFlight,
+    hostPresent: detail.hostPresent,
+    counterAsk: counterAskLive(detail.counterRequestedAt),
+    counts: detail.send,
+  });
+  // The send's line in the ONE region below. Precedence: writeError > degraded > send warn > send
+  // ok — no send line, of either tone, masks the frozen-board signal (S2-audit S9: a frozen view must
+  // never look live), and each setter clears the other, so a stale line never resurfaces when a
+  // newer one clears. A send line also clears once the fact it speaks to is SUPERSEDED — the first
+  // read that started after it fixes the slot it was said over, and a later read showing a different
+  // slot (a colleague sent, the count moved) retires it (`sendNoteAfterCommit`).
+  const [sendNote, setSendNote] = useState<
+    ({ tone: "ok" | "warn"; msg: StaffMsg } & HeldSendNote) | null
+  >(null);
+  const [seenDetail, setSeenDetail] = useState(detail);
+  const [detailSeq, setDetailSeq] = useState(0);
+  if (seenDetail !== detail) {
+    setSeenDetail(detail);
+    setDetailSeq((n) => n + 1);
+    const next = sendNoteAfterCommit(sendNote, readTicket, sendViewFact(sendView));
+    if (next !== sendNote) setSendNote(next);
+  }
+  const onWriteError = useCallback(
+    (e: ReactNode) => {
+      setWriteError(e);
+      setSendNote(null);
+      // `setSendNote` is named because the React Compiler cannot prove a setter stable once the render
+      // body also calls it (the supersede check above); it IS stable, so this changes nothing.
+    },
+    [setSendNote],
+  );
+  const onSendNotice = useCallback(
+    (n: SendNotice | null) => {
+      // An expired staff session is a verdict, not a blip — the honest surface is login (the poll's rule).
+      if (n === "signin") {
+        window.location.assign("/staff/login");
+        return;
+      }
+      // `raisedAt` — the last read STARTED so far; only a read that starts after this line may
+      // baseline it (see `sendNoteAfterCommit`). Read in a callback, never during render.
+      setSendNote(n ? { ...n, raisedAt: reads.current, against: null } : null);
+      if (n) setWriteError(null);
+    },
+    [setSendNote],
+  );
+  // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
+  // the Send reads at tap time; the state re-renders only when the derived hold actually changes.
+  const lineEdits = useRef(new Map<string, StaffLineEdit>());
+  const [sendHold, setSendHold] = useState<StaffSendHold>(null);
+  const onEditState = useCallback((lineId: string, edit: StaffLineEdit | null) => {
+    if (edit) lineEdits.current.set(lineId, edit);
+    else lineEdits.current.delete(lineId);
+    const next = sendHoldFrom([...lineEdits.current.values()]);
+    setSendHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, []);
+  const getHold = useCallback(() => sendHoldFrom([...lineEdits.current.values()]), []);
+  const send = useStaffSend({
+    sessionId,
+    view: sendView,
+    detailSeq,
+    degraded: degraded != null,
+    getHold,
+    rootRef: orderCardRef,
+    onNotice: onSendNotice,
+    onRefresh: refresh,
+  });
+  // `?send=1` — land on the thing the link promised: the Send; the status row if a colleague sent in
+  // between; otherwise the order heading. Then drop the param so a reload does not re-focus.
+  const arrival = useRef(arrivedToSend);
+  useEffect(() => {
+    if (!arrival.current) return;
+    arrival.current = false;
+    const target =
+      sendView.kind === "send"
+        ? send.controlRef.current
+        : sendView.kind === "none"
+          ? orderHeadingRef.current
+          : send.statusRef.current;
+    (target ?? orderHeadingRef.current)?.focus();
+    router.replace(pathname, { scroll: false });
+  }, [sendView.kind, send.controlRef, send.statusRef, router, pathname]);
 
   return (
     <main className="staff-main" onFocusCapture={markFocus}>
@@ -393,7 +538,12 @@ export function FloorDetailLive({
         </section>
 
         {/* Order so far */}
-        <section className="card card-textured" style={sectionCard} aria-labelledby="order-h">
+        <section
+          ref={orderCardRef}
+          className="card card-textured"
+          style={sectionCard}
+          aria-labelledby="order-h"
+        >
           <div
             style={{
               display: "flex",
@@ -460,7 +610,8 @@ export function FloorDetailLive({
                   sessionId={sessionId}
                   line={l}
                   disabled={false}
-                  onError={setWriteError}
+                  onError={onWriteError}
+                  onEditState={onEditState}
                 />
               ))}
             </ul>
@@ -604,6 +755,16 @@ export function FloorDetailLive({
               <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
             </p>
           )}
+          {/* Phase 2a · send — the slot sits between the order and its one region, so the page
+              reads "send, then settle". It mounts no region of its own. */}
+          <StaffSendButton
+            lang={lang}
+            ctl={send}
+            controlRef={send.controlRef}
+            statusRef={send.statusRef}
+            hold={sendHold}
+            hostName={detail.members.find((m) => m.isHost)?.name ?? null}
+          />
           {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
           {/* P2 — EACH ARM MARKS ITS OWN SCRIPT, so the region itself carries no `lang`. The frozen-
@@ -627,8 +788,16 @@ export function FloorDetailLive({
               ...muted,
               marginTop: 6,
               fontSize: "var(--fs-sm)",
-              minHeight: writeError || degraded ? 16 : 0,
-              color: writeError || degraded ? "var(--warn)" : "var(--t3)",
+              // Phase 2a · send — while the slot is mounted the line is reserved, so an outcome
+              // appearing never pushes the settle triggers below it.
+              minHeight:
+                writeError || degraded || sendNote || send.display.kind !== "none" ? 16 : 0,
+              color:
+                writeError || degraded || sendNote?.tone === "warn"
+                  ? "var(--warn)"
+                  : sendNote
+                    ? "var(--t2)"
+                    : "var(--t3)",
             }}
           >
             {typeof writeError === "string" ? (
@@ -645,6 +814,8 @@ export function FloorDetailLive({
                   degraded.cause,
                 )}
               </span>
+            ) : sendNote ? (
+              <MsgText lang={lang} msg={sendNote.msg} />
             ) : null}
           </p>
         </section>
@@ -660,7 +831,7 @@ export function FloorDetailLive({
             promoCode={detail.promoCode}
             promoCents={detail.settlePromoCents}
             canWrite={canWrite}
-            onError={setWriteError}
+            onError={onWriteError}
             onChanged={onChange}
           />
         )}
