@@ -39,6 +39,10 @@ const h = vi.hoisted(() => ({
   touched: [] as string[],
   renewed: [] as unknown[][],
   reads: 0,
+  /** qr_cart_items rows the post-fire units read returns, and what it filtered on. */
+  batchRows: [] as { qty: number }[] | null,
+  batchReadError: null as null | { message: string },
+  itemReads: [] as { table: string; cols: string; filters: [string, unknown][] }[],
 }));
 
 vi.mock("server-only", () => ({}));
@@ -71,8 +75,35 @@ vi.mock("./authz", () => ({
     return Promise.resolve();
   },
 }));
+/** `from(t).select(c).eq(..).eq(..)` — thenable at any depth, recording every filter. */
+function itemsQuery(table: string) {
+  const rec = { table, cols: "", filters: [] as [string, unknown][] };
+  h.itemReads.push(rec);
+  const q = {
+    select(cols: string) {
+      rec.cols = cols;
+      return q;
+    },
+    eq(col: string, v: unknown) {
+      rec.filters.push([col, v]);
+      return q;
+    },
+    limit() {
+      return q;
+    },
+    then(res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) {
+      return Promise.resolve(
+        h.batchReadError
+          ? { data: null, error: h.batchReadError }
+          : { data: h.batchRows, error: null },
+      ).then(res, rej);
+    },
+  };
+  return q;
+}
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
+    from: (table: string) => itemsQuery(table),
     rpc: (fn: string, args: Record<string, unknown>) => {
       h.rpcCalls.push({ fn, args });
       if (h.rpcError) return Promise.resolve({ data: null, error: h.rpcError });
@@ -111,6 +142,10 @@ beforeEach(() => {
   h.touched = [];
   h.renewed = [];
   h.reads = 0;
+  // Three rows of qty 1 — the default where rows and units agree. The units case below separates them.
+  h.batchRows = [{ qty: 1 }, { qty: 1 }, { qty: 1 }];
+  h.batchReadError = null;
+  h.itemReads = [];
 });
 
 describe("staffFireCart — refusals decided by where they happen", () => {
@@ -168,6 +203,34 @@ describe("staffFireCart — a committed send", () => {
     expect(r.ok && Number.isFinite(Date.parse(r.serverNow))).toBe(true);
   });
 
+  it("`fired` is the UNITS the batch holds (sum of qty), not the rows the RPC updated", async () => {
+    // One Mohinga ×3 and one tea: the RPC reports 2 rows; the kitchen got 4 dishes — the number the
+    // "Send · 4 items" button promised and the notice must repeat.
+    h.fireRows = [{ fired: 2, batch: BATCH, fire_deadline: DEADLINE }];
+    h.batchRows = [{ qty: 3 }, { qty: 1 }];
+    const r = await staffFireCart({ sessionId: SESSION });
+    // MUTATION: return the row count as `fired` — "Sent 2 items" under "Send · 4 items"; red.
+    expect(r).toMatchObject({ ok: true, fired: 4, undoBatch: BATCH });
+    expect(h.itemReads).toEqual([
+      {
+        table: "qr_cart_items",
+        cols: "qty",
+        filters: [
+          ["cart_id", "cart-1"],
+          ["fire_batch", BATCH],
+        ],
+      },
+    ]);
+  });
+
+  it("an unreadable units read falls back to the row count — never more than was fired", async () => {
+    h.fireRows = [{ fired: 2, batch: BATCH, fire_deadline: DEADLINE }];
+    h.batchReadError = { message: "boom" };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await staffFireCart({ sessionId: SESSION })).toMatchObject({ ok: true, fired: 2 });
+    spy.mockRestore();
+  });
+
   it("re-syncs the host's phone and slides the table's expiry, from the session's own stamp", async () => {
     await staffFireCart({ sessionId: SESSION });
     expect(h.touched).toEqual(["cart-1"]);
@@ -189,13 +252,74 @@ describe("staffUndoFire — takes back exactly this send's batch", () => {
     expect(h.renewed).toHaveLength(1);
   });
 
-  it("0 lines taken back → `expired` (the kitchen has it), never a silent success", async () => {
+  it("0 lines taken back while the batch's lines still carry it → `expired` (the kitchen has it)", async () => {
     h.unfired = 0;
+    h.batchRows = [{ qty: 1 }];
     expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
       ok: false,
       reason: "expired",
     });
+    // MUTATION: answer `gone` without looking — "nothing is with the kitchen" over a dish being
+    // cooked, and nobody reaches for Void / Comp; red.
+    expect(h.itemReads).toEqual([
+      {
+        table: "qr_cart_items",
+        cols: "id",
+        filters: [
+          ["cart_id", "cart-1"],
+          ["fire_batch", BATCH],
+        ],
+      },
+    ]);
     expect(h.touched).toEqual([]);
+  });
+
+  it("0 lines taken back and NO line still carries the batch → `gone` (an earlier undo landed)", async () => {
+    // The first undo's response was lost; the retry finds the batch already brought back (undo
+    // clears fire_batch) or voided. "Too late — the kitchen has it" would send staff to Void a dish
+    // that was never cooking.
+    h.unfired = 0;
+    h.batchRows = [];
+    // MUTATION: drop the `gone` arm (always `expired`); red.
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "gone",
+    });
+    expect(h.touched).toEqual([]);
+  });
+
+  it("an unreadable batch check stays `expired` — the steer that sends staff to look", async () => {
+    h.unfired = 0;
+    h.batchReadError = { message: "boom" };
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    // MUTATION: an unread check answers `gone` — a comforting "nothing is with the kitchen" read
+    // off no evidence; red.
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "expired",
+    });
+    spy.mockRestore();
+  });
+
+  it("no staff session → `signin`; an unreachable auth → `outage` — no read, no RPC", async () => {
+    h.auth = { kind: "anon" };
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "signin",
+    });
+    h.auth = { kind: "signin" };
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "signin",
+    });
+    h.auth = { kind: "unavailable" };
+    expect(await staffUndoFire({ sessionId: SESSION, batch: BATCH })).toEqual({
+      ok: false,
+      reason: "outage",
+    });
+    expect(h.reads).toBe(0);
+    expect(h.rpcCalls).toEqual([]);
+    expect(h.itemReads).toEqual([]);
   });
 
   it("the same prefix refuses: counter, paying, invalid batch", async () => {

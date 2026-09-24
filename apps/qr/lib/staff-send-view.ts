@@ -175,19 +175,19 @@ export function settleBlockedTarget(trigger: "cash" | "reader" | "tab"): "send" 
 
 /**
  * Every refusal the two actions can return, decided by WHERE it happened (never by message text):
- * the gate (signin · outage · role), the input (invalid), the reads (closed · outage), the session
- * (counter), the payment guard (paying), the write (nothing · expired · failed).
+ * the gate (signin · outage), the input (invalid), the reads (closed · outage), the session
+ * (counter), the payment guard (paying), the write (nothing · expired · gone · failed).
  */
 export type StaffSendReason =
   | "signin"
   | "outage"
-  | "role"
   | "invalid"
   | "closed"
   | "counter"
   | "paying"
   | "nothing"
   | "expired"
+  | "gone"
   | "failed";
 
 /** The diner's `SendToKitchenResult` shape on success, so `graceDeadlineMs` reads both. */
@@ -199,7 +199,7 @@ export type StaffFireResult =
       serverNow: string;
       undoBatch: string | null;
     }
-  | { ok: false; reason: Exclude<StaffSendReason, "expired"> };
+  | { ok: false; reason: Exclude<StaffSendReason, "expired" | "gone"> };
 
 export type StaffUndoResult =
   | { ok: true; unfired: number }
@@ -241,14 +241,15 @@ export function fireNotice(res: StaffFireResult): SendNotice {
       return warn("table.send.err.counter");
     case "nothing":
       return { tone: "ok", msg: { k: "table.send.err.nothing" } };
-    case "role":
     case "invalid":
     case "failed":
       return warn("table.send.err.failed");
   }
 }
 
-/** The region line for an undo's answer. `expired` steers to Void / Comp — never a silent success. */
+/** The region line for an undo's answer. `expired` steers to Void / Comp — never a silent success;
+ *  `gone` (an earlier undo already landed) is OK-toned and points at the dishes, which say where each
+ *  one is — never "too late", which would send staff to Void a dish nobody is cooking. */
 export function undoNotice(res: StaffUndoResult): SendNotice {
   if (res.ok) return { tone: "ok", msg: { k: "table.send.undone" } };
   switch (res.reason) {
@@ -264,7 +265,8 @@ export function undoNotice(res: StaffUndoResult): SendNotice {
       return warn("table.send.err.counter");
     case "expired":
       return warn("table.send.err.expired");
-    case "role":
+    case "gone":
+      return { tone: "ok", msg: { k: "table.send.gone" } };
     case "invalid":
     case "failed":
       return warn("table.send.err.undoFailed");

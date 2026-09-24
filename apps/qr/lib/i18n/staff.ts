@@ -2629,6 +2629,17 @@ export const STAFF = {
     en: "Couldn’t bring it back — try again before the time runs out.",
     my: "ပြန်မယူနိုင်ပါ — အချိန်မကုန်ခင် ထပ်စမ်းပါ။",
   },
+  // Blind review — an undo whose answer never arrived is an UNKNOWN outcome (it may have landed), and
+  // a retry that finds the batch no longer fired is `gone`, not "too late". Both point at the dishes
+  // ABOVE the slot, which say where each one is.
+  "table.send.err.undoUnknown": {
+    en: "Couldn’t confirm the take-back — check the dishes above. If they still say sent, tap Undo again.",
+    my: "ပြန်ယူပြီးမပြီး မသေချာပါ — အပေါ်က ဟင်းတွေကို စစ်ပါ။ ပို့ပြီးလို့ ပြနေသေးရင် ပြန်ယူ ကို ထပ်နှိပ်ပါ။",
+  }, // K15-HIGH — a take-back that may have landed; "couldn't" would hide a dish that is no longer cooking
+  "table.send.gone": {
+    en: "Nothing from that send is still with the kitchen — the dishes above show where each one is.",
+    my: "အဲဒီတစ်ခါ ပို့ထားတာ မီးဖိုချောင်မှာ ဘာမှ မကျန်တော့ပါ — ဟင်းတစ်ခုချင်း ဘယ်မှာလဲဆိုတာ အပေါ်မှာ ပြထားပါတယ်။",
+  }, // K15-HIGH — tells staff no dish from the send is cooking; wrong, a dish is made nobody expects
   // The line tags (K25 for this surface): the one word that separates sent from unsent, in the
   // device language instead of the English `STAFF_STATE_COPY` they replace.
   "table.line.notSent": { en: "Not sent", my: "မပို့ရသေး" }, // K15-HIGH — marks the dishes the kitchen has not got
@@ -2799,6 +2810,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.counterAtPay",
   "table.send.err.expired",
   "table.send.err.unknown",
+  "table.send.err.undoUnknown",
+  "table.send.gone",
   "table.line.notSent",
   "table.line.state.fired",
   // ── Phase 2a · register ──

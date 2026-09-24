@@ -255,4 +255,12 @@ describe("the region lines — decided by reason, never by text", () => {
     });
     expect(undoNotice({ ok: false, reason: "signin" })).toBe("signin");
   });
+  it("an undo that finds the batch already brought back is OK-toned and points at the dishes", () => {
+    // MUTATION: map `gone` to the expired steer — "too late, Void it" over a dish nobody is
+    // cooking; red.
+    expect(undoNotice({ ok: false, reason: "gone" })).toEqual({
+      tone: "ok",
+      msg: { k: "table.send.gone" },
+    });
+  });
 });
