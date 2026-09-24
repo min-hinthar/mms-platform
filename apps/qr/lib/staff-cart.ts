@@ -22,6 +22,7 @@ import { getPostHogClient } from "./posthog-server";
 import { promoTag } from "./pilot-tag";
 import { getStripe } from "./stripe";
 import { logTabEvent } from "./tab-events";
+import { maybeRenewSession } from "./authz";
 
 /**
  * Staff write to a table order (S1.3) — "order for a guest" + cash settle ("pay a human"). The cart
@@ -107,6 +108,7 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
       qty,
     );
     await touchCart(cart.id, "staffAddItem");
+    await maybeRenewSession(serviceClient(), session.id, session.expires_at);
   } catch {
     // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy.
     return { ok: false, error: "Couldn’t add that item." };

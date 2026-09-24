@@ -251,7 +251,8 @@ export type SendToKitchenResult =
 /**
  * Send the table's current draft batch to the kitchen (S2.1b, dine-in). "Send to kitchen" fires
  * EVERYONE's draft lines — a table-level action — so it follows the host-authority model: a guest adds
- * their own items, the HOST sends the batch (staff can always fire from the console via staffFireCart).
+ * their own items, the HOST sends the batch (staff can always fire from the console via `staffFireCart`
+ * in lib/staff-send.ts — the table page's Send, Phase 2a).
  * The fire is the atomic, dine-in-only mms_fire_cart (draft→fired + fire_at=now()+grace, cart-open
  * guarded, grocery/pickup excluded — server-authoritative). Returns a RESULT (not a throw): Next redacts
  * thrown Server Action errors in prod, so the discriminated reason is the only way the button can branch

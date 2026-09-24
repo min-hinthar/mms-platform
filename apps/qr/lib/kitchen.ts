@@ -8,9 +8,8 @@ import {
   bumpTicketInput,
   fireTicketNowInput,
   recallTicketInput,
-  staffFireInput,
 } from "@mms/db/schemas";
-import { getStaffAuth, staffGate, STAFF_SIGNIN_REQUIRED, STAFF_WRITE_OUTAGE } from "./staff";
+import { getStaffAuth, staffGate, STAFF_SIGNIN_REQUIRED } from "./staff";
 import { isConsoleLocked } from "./staff-lock";
 import { getPostHogClient } from "./posthog-server";
 import type {
@@ -32,7 +31,8 @@ import { shapeKdsStats } from "./kitchen-stats";
 
 /**
  * The KDS — kitchen display (S2.1b, reshaped by W3). Read of the live fire queue across EVERY channel
- * + the cook's bumps (line, ticket, recall, fire-early), plus the staff-side "send to kitchen". Server
+ * + the cook's bumps (line, ticket, recall, fire-early). The staff-side "send to kitchen" lives in
+ * lib/staff-send.ts (Phase 2a · send — `staffFireCart` + its undo, wired to the table page). Server
  * Actions are public POSTs (IDOR by default), so EVERY export re-checks requireStaff() and acts via the
  * service-role client — the client UI is the affordance, never the gate (parity with lib/floor.ts). The
  * queue is intentionally cross-table (the kitchen sees the whole room), which is exactly why the staff
@@ -457,55 +457,6 @@ export async function fireTicketNow(raw: unknown): Promise<KitchenActionResult> 
 
   captureKitchenEvent(caller.staffId, "kds_fire_held_early", { role: caller.role, lines: fired });
   revalidatePath("/staff/kitchen");
-  return { ok: true };
-}
-
-/**
- * Staff fire a table's draft batch to the kitchen from the console (S1.3 "order for a guest" → now also
- * "send it"). The fire itself is the atomic, dine-in-only mms_fire_cart (draft→fired + fire_at=now(),
- * cart-open guarded, grocery/pickup excluded). Refused with an honest message when there's nothing to
- * fire / the table isn't an open dine-in cart.
- */
-export async function staffFireCart(raw: unknown): Promise<KitchenActionResult> {
-  const gate = await staffGate();
-  if (!gate.ok) return gateRefusal(gate.error);
-  const caller = gate.caller;
-  const parsed = staffFireInput.safeParse(raw);
-  if (!parsed.success) return { ok: false, error: "Invalid request.", code: "invalid" };
-  const { sessionId } = parsed.data;
-
-  const db = serviceClient();
-  const { data: cart, error: cartError } = await db
-    .from("qr_carts")
-    .select("id")
-    .eq("session_id", sessionId)
-    .eq("status", "open")
-    .maybeSingle();
-  // W10b — an unread cart is not "no open order": that verdict sends staff hunting a phantom problem
-  // at the table while the real one is the platform.
-  if (cartError) return { ok: false, error: STAFF_WRITE_OUTAGE, code: "sentence" };
-  if (!cart) return { ok: false, error: "This table has no open order.", code: "sentence" };
-
-  const { data: fireRows, error } = await db.rpc("mms_fire_cart", { p_cart_id: cart.id });
-  if (error) {
-    console.error("[kitchen] mms_fire_cart failed", { sessionId, message: error.message });
-    return { ok: false, error: "Couldn’t send that order. Try again.", code: "failed" };
-  }
-  const fired = fireRows?.[0]?.fired ?? 0; // mms_fire_cart returns (fired, batch, fire_deadline) (S4-audit P1-3)
-  if (!fired)
-    return {
-      ok: false,
-      error: "Nothing new to send — it’s all in the kitchen already.",
-      code: "already-live",
-    };
-
-  captureKitchenEvent(caller.staffId, "staff_fire_cart", {
-    role: caller.role,
-    sessionId,
-    lines: fired,
-  });
-  revalidatePath("/staff/kitchen");
-  revalidatePath(`/staff/table/${sessionId}`);
   return { ok: true };
 }
 

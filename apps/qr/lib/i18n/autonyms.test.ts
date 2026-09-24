@@ -164,3 +164,17 @@ describe("P5 — the word-check sheet's own invariants", () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe("Phase 2a · send — the take-back verb", () => {
+  it("the table page's Undo does not share its root with the Void beside it (ဖျက်)", () => {
+    // `table.line.verb.voidComp` is ဖျက် / အခမဲ့ and sits on the SAME page as the send's Undo. The
+    // kitchen's `kds.undo` is ပြန်ဖျက် — a verb a cook reads at the pass, where there is no Void. On
+    // the table page the owner chose ပြန်ယူ ("take back") so a server scanning for Void never lands
+    // on the undo, or the other way round.
+    expect(STAFF["table.send.undo"].my).not.toContain("ဖျက်");
+    expect(STAFF["table.line.verb.voidComp"].my).toContain("ဖျက်");
+    // The verb is the WHOLE name — the countdown rides its own aria-hidden key, so no digit slot here.
+    expect(STAFF["table.send.undo"].en).not.toMatch(/\{/);
+    expect(STAFF["table.send.undo"].my).not.toMatch(/\{/);
+  });
+});

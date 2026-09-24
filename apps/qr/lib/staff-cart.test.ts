@@ -423,3 +423,35 @@ describe("the freeze-owner binding, PARSED — bound to crypto.randomUUID(), and
     expect(props.some((p) => (p.name as ts.Identifier).text === "closedByUid")).toBe(false);
   });
 });
+
+// ── Phase 2a · send ──
+// A staff write slides the table's expiry exactly as a diner write does: a phone-less table worked
+// only from the console used to age off the floor and the KDS 4h after "Start a table".
+const renewal = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock("./authz", () => ({
+  maybeRenewSession: (...a: unknown[]) => {
+    renewal.calls.push(a);
+    return Promise.resolve();
+  },
+}));
+
+describe("staffAddItem — renews the table's session (Phase 2a · send)", () => {
+  beforeEach(() => {
+    renewal.calls.length = 0;
+  });
+
+  it("a landed add renews THIS session", async () => {
+    sessionMode = "dinein";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(true);
+    expect(renewal.calls).toHaveLength(1);
+    expect(renewal.calls[0]![1]).toBe(SESSION);
+  });
+
+  it("a refused add renews nothing", async () => {
+    priceItemThrows = true;
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    expect(r.ok).toBe(false);
+    expect(renewal.calls).toEqual([]);
+  });
+});
