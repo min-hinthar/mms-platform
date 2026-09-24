@@ -25,6 +25,7 @@ export function EmptyState({
   titleAs,
   tone = "empty",
   layout = "card",
+  titleId,
 }: {
   title: ReactNode;
   subtitle?: ReactNode;
@@ -39,6 +40,10 @@ export function EmptyState({
    *  outage audit found four surfaces rendering an outage as "all done"/"catalog is empty". */
   tone?: "empty" | "error";
   layout?: "card" | "page";
+  /** Phase 1c — an `id` for the title, which also makes it programmatically focusable
+   *  (`tabIndex={-1}`): a panel that REPLACES a control the user just pressed moves focus to its own
+   *  visible heading. Additive — omitted, the title renders exactly as before. */
+  titleId?: string;
 }) {
   const TitleTag = titleAs ?? (layout === "page" ? "h1" : "p");
   return (
@@ -48,7 +53,9 @@ export function EmptyState({
           {icon}
         </div>
       ) : null}
-      <TitleTag className="ui-empty-title">{title}</TitleTag>
+      <TitleTag className="ui-empty-title" {...(titleId ? { id: titleId, tabIndex: -1 } : null)}>
+        {title}
+      </TitleTag>
       {subtitle ? <p className="ui-empty-sub">{subtitle}</p> : null}
       {action ? <div className="ui-empty-action">{action}</div> : null}
     </Card>

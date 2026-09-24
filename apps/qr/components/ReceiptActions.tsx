@@ -1,6 +1,14 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { getReceiptLink, setReceiptEmail, type ReceiptLinkResult } from "@/lib/receipt";
+import { RECEIPT_SETTLE_BOUND_MS } from "@/lib/save-stars";
 
 /**
  * W7a — the /track receipt card's door to the ARTIFACT: the durable `?r=` link ("view & print")
@@ -13,7 +21,20 @@ import { getReceiptLink, setReceiptEmail, type ReceiptLinkResult } from "@/lib/r
  * (account email pre-fills, never auto-submits), and "Sent" is only claimed after the server
  * accepted the ask. Feature-off (C8 from-address unset) simply never renders the email half.
  */
-export function ReceiptActions({ orderId }: { orderId: string }) {
+export function ReceiptActions({
+  orderId,
+  onSettled,
+}: {
+  orderId: string;
+  /**
+   * Phase 1c · account-star — called EXACTLY ONCE per mount, when the mint has answered either way
+   * (link minted, refused, or failed). The save-your-Stars card mounts below this row only after it,
+   * so the row it would otherwise push is already in place; `emailEnabled` tells the card whether
+   * the email capture is on screen (only then may it say "Emailing a receipt doesn't save them").
+   * A refused or failed mint reports `false` — it must never strand the card waiting.
+   */
+  onSettled?: (r: { emailEnabled: boolean }) => void;
+}) {
   const [link, setLink] = useState<Extract<ReceiptLinkResult, { ok: true }> | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -29,6 +50,23 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
   const wasEditing = useRef(false);
   const asked = useRef(false);
 
+  // The report is EXACTLY ONCE per mount, whichever comes first: the mint's answer or the bound
+  // (Codex round 1 — a stalled Server Action must not leave the success screen with no rewards door).
+  const onSettledRef = useRef(onSettled);
+  useEffect(() => {
+    onSettledRef.current = onSettled;
+  });
+  const reported = useRef(false);
+  const report = useCallback((emailEnabled: boolean) => {
+    if (reported.current) return;
+    reported.current = true;
+    onSettledRef.current?.({ emailEnabled });
+  }, []);
+  useEffect(() => {
+    const t = window.setTimeout(() => report(false), RECEIPT_SETTLE_BOUND_MS);
+    return () => window.clearTimeout(t);
+  }, [report]);
+
   useEffect(() => {
     if (asked.current) return; // one mint per mount — the action is idempotent but not free
     asked.current = true;
@@ -38,11 +76,13 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
           setLink(r);
           setSentTo(r.emailedTo);
         }
+        report(r.ok ? r.emailEnabled : false);
       })
       .catch(() => {
         /* deliberate: the artifact door is decorative here — the tracker itself is unaffected */
+        report(false);
       });
-  }, [orderId]);
+  }, [orderId, report]);
 
   // Focus follows the form open/close (WCAG 2.4.3 — the AccountNameEditor idiom).
   useEffect(() => {

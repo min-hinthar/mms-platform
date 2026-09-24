@@ -73,6 +73,18 @@ const nextConfig: NextConfig = {
         has: [{ type: "header", key: "purpose", value: "prefetch" }],
         headers: [{ key: "Content-Security-Policy", value: fallbackCsp }],
       },
+      // Phase 1c (F17) — the first-party Hanken face Stripe's card iframe loads as a CustomFontSource
+      // (lib/stripe-appearance.ts). `*`, not one origin: the iframe runs on per-origin
+      // *.js.stripe.com shards, and a font fetched cross-origin needs CORS. It is a public OFL font,
+      // so `*` exposes nothing. Immutable: the file name is versioned (`…-v1.woff2`). NO CSP
+      // directive changes — our CSP does not govern Stripe's iframe, and the page never fetches it.
+      {
+        source: "/fonts/:path*",
+        headers: [
+          { key: "Access-Control-Allow-Origin", value: "*" },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
     ];
   },
   async rewrites() {

@@ -46,6 +46,8 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+// ── Phase 1c · grocery ── the Scan door's glyphs (all three present in lucide-react@0.562.0)
+import { Camera, CameraOff, ScanBarcode } from "lucide-react";
 
 /**
  * The brand icon set (W2b) — retires functional emoji-as-chrome (🔍🗑🧾🪑♥💳🔥🥡🎁🛒📍…) with a
@@ -109,6 +111,10 @@ const ICONS = {
   "cat-pot": CookingPot,
   "cat-health": HeartPulse,
   "cat-home": House,
+  // ── Phase 1c · grocery ── the Scan tab (a barcode, not a shopping cart) + the camera primer/panels
+  scan: ScanBarcode,
+  camera: Camera,
+  "camera-off": CameraOff,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

@@ -1,143 +1,249 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { freshScanGate, sightBarcode, type ScanGate } from "@/lib/scan-gate";
+import {
+  cameraFailure,
+  gateOnHoldChange,
+  isInAppBrowser,
+  type CameraFailure,
+  type DecodeHold,
+} from "@/lib/camera-state";
 
 /**
- * Phone-camera barcode scanner. Uses the native BarcodeDetector API where available
- * (Chrome/Android — zero deps), and falls back to @zxing/library on everything else.
+ * Phone-camera barcode scanner — the STREAM and the DECODER, nothing else (Phase 1c). The camera
+ * state machine, its copy and every recovery panel live in `components/grocery/ScanStage.tsx`; this
+ * component reports what happened (`onState`) and what it read (`onScan`).
  *
- * ⚠️ THIS COMPONENT DOES NOT DECIDE WHAT IS CHARGED (M186). `sightBarcode` here is only a
- * THROTTLE — one barcode resting in frame is a continuous stream of identical codes, and without
- * it the page would hear about it sixty times a second. Whether a decoded barcode becomes a charge
- * is `classifyScan`'s answer, made from the BASKET, in `lib/scan-gate.ts`: a camera cannot tell a
- * jar resting in frame from a second identical jar, so nothing here should try. The worst this
- * throttle can do is drop a duplicate toast; the worst it used to do was bill twice.
+ * Uses the native BarcodeDetector API where available (Chrome/Android — zero deps) and falls back to
+ * @zxing/library on everything else.
+ *
+ * ⚠️ THIS COMPONENT DOES NOT DECIDE WHAT IS CHARGED (M186). `sightBarcode` here is only a THROTTLE —
+ * one barcode resting in frame is a continuous stream of identical codes. Whether a decoded barcode
+ * becomes a charge is `classifyScan`'s answer, made from the BASKET, in the page. What this component
+ * DOES decide is whether a sighting is announced at all (`hold`, from `decodeHold`): under the basket
+ * sheet (`swallow`) and before the basket exists (`hold`) every sighting is RECORDED in the throttle
+ * and none is announced; only the `hold → none` edge resets the throttle (`gateOnHoldChange`).
+ *
+ * The stream effect is keyed on `[attempt, visible]` ONLY. `onScan` / `onState` / `hold` are read
+ * through latest-value refs, so neither the basket landing (a new `onScan` identity) nor the sheet
+ * opening ever restarts the camera. `visible` stops every track while the page is hidden — the
+ * camera light never stays on in a pocket — and restarts it without a tap when the page returns.
  */
-export function BarcodeScanner({ onScan }: { onScan: (code: string) => void }) {
+
+/** What the stream reports. `starting` again after `live` means a visibility restart. */
+export type ScannerState = "starting" | "live" | CameraFailure;
+
+/** How long the gold lock corners show per announced sighting. */
+export const LOCK_MS = 900;
+
+const FORMATS = ["upc_a", "upc_e", "ean_13", "ean_8", "code_128"];
+
+type Detector = { detect(v: HTMLVideoElement): Promise<{ rawValue?: string }[]> };
+
+const subscribeVisibility = (onChange: () => void) => {
+  document.addEventListener("visibilitychange", onChange);
+  return () => document.removeEventListener("visibilitychange", onChange);
+};
+const pageVisible = () => document.visibilityState !== "hidden";
+
+function Corners() {
+  return (
+    <>
+      <span className="scan-corner" data-c="tl" />
+      <span className="scan-corner" data-c="tr" />
+      <span className="scan-corner" data-c="bl" />
+      <span className="scan-corner" data-c="br" />
+    </>
+  );
+}
+
+/**
+ * The four L-corners, plus their gold "lit" twin for the lock. Decorative (`aria-hidden`): the lock
+ * is beat one of the decode feedback and claims only "I read it". `lockSeq` re-keys the element so
+ * back-to-back locks each restart the animation.
+ */
+export function ScanReticle({
+  lockSeq = 0,
+  locked = false,
+}: {
+  lockSeq?: number;
+  locked?: boolean;
+}) {
+  return (
+    <div className="scan-reticle" aria-hidden key={lockSeq} data-lock={locked || undefined}>
+      <Corners />
+      <div className="scan-reticle-lit">
+        <Corners />
+      </div>
+    </div>
+  );
+}
+
+export function BarcodeScanner({
+  onScan,
+  onState,
+  hold,
+  attempt,
+}: {
+  onScan: (code: string) => void;
+  onState: (s: ScannerState) => void;
+  hold: DecodeHold;
+  /** Bumped by Start / Try again: a new attempt is a new stream. */
+  attempt: number;
+}) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const [err, setErr] = useState<string | null>(null);
   const gateRef = useRef<ScanGate>(freshScanGate());
+  const onScanRef = useRef(onScan);
+  const onStateRef = useRef(onState);
+  const holdRef = useRef<DecodeHold>(hold);
+  const lockTimer = useRef<number | null>(null);
+  const [lock, setLock] = useState({ seq: 0, on: false });
+  const visible = useSyncExternalStore(subscribeVisibility, pageVisible, () => true);
+
+  // Latest-value refs — written in effects, read by the long-lived stream closure.
+  useEffect(() => {
+    onScanRef.current = onScan;
+    onStateRef.current = onState;
+  });
+  useEffect(() => {
+    const prev = holdRef.current;
+    holdRef.current = hold;
+    // Only hold → none resets: the basket now exists, so the jar already in frame announces ONCE.
+    // swallow → none keeps the throttle, so the jar behind the sheet is never announced on close.
+    if (gateOnHoldChange(prev, hold) === "reset") gateRef.current = freshScanGate();
+  }, [hold]);
+  useEffect(
+    () => () => {
+      if (lockTimer.current !== null) window.clearTimeout(lockTimer.current);
+    },
+    [],
+  );
 
   useEffect(() => {
+    // Hidden page → no stream at all; the previous run's cleanup already stopped every track.
+    if (!visible) return;
     let stopped = false;
-    let stop = () => {
-      stopped = true;
+    let teardown = () => {};
+    const inApp = isInAppBrowser(navigator.userAgent);
+    const report = (s: ScannerState) => {
+      if (!stopped) onStateRef.current(s);
     };
+
     const emit = (code: string) => {
-      // `performance.now()`, not `Date.now()`: the throttle measures an elapsed interval, and a
-      // wall clock can step (NTP resync — this page is built around offline→online transitions).
-      // A step would only cost a duplicate toast now, but a monotonic reading is what the
-      // measurement actually means, and it costs nothing.
-      const { emit: announce, next } = sightBarcode(gateRef.current, code, performance.now());
-      // Stored on every sighting, emitted or not — otherwise the throttle measures time since the
-      // last announcement and re-announces on a schedule under a barcode that never left.
+      // `performance.now()`, not `Date.now()`: the throttle measures an elapsed interval, and a wall
+      // clock can step (NTP resync — this page is built around offline→online transitions).
+      const { emit: fresh, next } = sightBarcode(gateRef.current, code, performance.now());
+      // Stored on EVERY sighting — announced, suppressed, or held. Skipping the store while paused
+      // would make a jar that sat in frame behind the sheet look new the moment the sheet closes.
       gateRef.current = next;
-      if (announce) onScan(code);
+      if (!fresh || holdRef.current !== "none") return;
+      // Beat one — the lock, before the network. It claims "read", never "added".
+      setLock((l) => ({ seq: l.seq + 1, on: true }));
+      if (lockTimer.current !== null) window.clearTimeout(lockTimer.current);
+      lockTimer.current = window.setTimeout(() => setLock((l) => ({ ...l, on: false })), LOCK_MS);
+      onScanRef.current(code);
     };
+
+    // A microtask, not a synchronous call: the stage's state update belongs to the stream's
+    // lifecycle, not to this effect's body.
+    void Promise.resolve().then(() => report("starting"));
 
     (async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
-          setErr("Camera unavailable — search for the item by name instead.");
+          report(inApp ? "in-app" : "unsupported");
           return;
         }
-
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "environment" },
         });
-        const stopStream = () => stream.getTracks().forEach((t) => t.stop());
-        stop = () => {
-          stopped = true;
-          stopStream();
-        };
+        const tracks = stream.getTracks();
+        const stopTracks = () => tracks.forEach((t) => t.stop());
         if (stopped) {
-          stopStream();
+          stopTracks();
           return;
         }
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
+        // A track that ends on its own (unplugged, revoked, taken by the OS) is a failure we did not
+        // cause. Ours never fire it: `stopped` is set before we stop anything.
+        const onEnded = () => report("failed");
+        tracks.forEach((t) => t.addEventListener("ended", onEnded));
+        teardown = () => {
+          tracks.forEach((t) => t.removeEventListener("ended", onEnded));
+          stopTracks();
+        };
+        const video = videoRef.current;
+        if (!video) {
+          teardown();
+          return;
         }
+        video.srcObject = stream;
+        video.addEventListener("playing", () => report("live"), { once: true });
+        try {
+          await video.play();
+        } catch {
+          // A refused play() must never leave an ink slate that says nothing — it is a failure.
+          report("failed");
+          return;
+        }
+        if (stopped) return;
 
-        // Native path
+        // Native path.
         if ("BarcodeDetector" in window) {
-          // @ts-expect-error - BarcodeDetector is not in TS DOM lib yet
-          const detector = new window.BarcodeDetector({
-            formats: ["upc_a", "upc_e", "ean_13", "ean_8", "code_128"],
-          });
+          const Ctor = (window as unknown as { BarcodeDetector: new (o: object) => Detector })
+            .BarcodeDetector;
+          const detector = new Ctor({ formats: FORMATS });
           let raf = 0;
           const tick = async () => {
             if (stopped) return;
-            if (videoRef.current) {
-              try {
-                const codes = await detector.detect(videoRef.current);
-                if (codes[0]?.rawValue) emit(codes[0].rawValue);
-              } catch {
-                // detection can throw on a bad frame; keep scanning
-              }
+            try {
+              const codes = await detector.detect(video);
+              if (!stopped && codes[0]?.rawValue) emit(codes[0].rawValue);
+            } catch {
+              // Deliberate: detection can throw on a bad frame — keep scanning.
             }
-            if (!stopped) raf = requestAnimationFrame(tick);
+            if (!stopped) raf = requestAnimationFrame(() => void tick());
           };
-          tick();
-          stop = () => {
-            stopped = true;
+          void tick();
+          const stopStream = teardown;
+          teardown = () => {
             cancelAnimationFrame(raf);
             stopStream();
           };
           return;
         }
 
-        // Fallback: @zxing/library
+        // Fallback: @zxing/library.
         const { BrowserMultiFormatReader } = await import("@zxing/library");
-        if (stopped || !videoRef.current) {
-          stopStream();
-          return;
-        }
+        if (stopped) return;
         const reader = new BrowserMultiFormatReader();
-        reader.decodeFromVideoElementContinuously(videoRef.current, (result) => {
-          if (!stopped && result) emit(result.getText());
-        });
-        stop = () => {
-          stopped = true;
+        reader
+          .decodeFromVideoElementContinuously(video, (result) => {
+            if (!stopped && result) emit(result.getText());
+          })
+          // The decoder refusing the element is the same failure as a refused play().
+          .catch(() => report("failed"));
+        const stopStream = teardown;
+        teardown = () => {
           reader.reset();
           stopStream();
         };
-      } catch {
-        if (!stopped) setErr("Camera unavailable — search for the item by name instead.");
+      } catch (err) {
+        report(cameraFailure(err, { inApp }));
       }
     })();
 
-    return () => stop();
-  }, [onScan]);
+    return () => {
+      stopped = true;
+      teardown();
+    };
+  }, [attempt, visible]);
 
   return (
-    <div>
-      {/* R1 — once the camera has refused, the 4:3 black viewfinder is the largest thing on the
-          screen and does nothing (a 400×300 slab on a laptop, and on a 667px phone it pushed the
-          only recovery copy under the fixed checkout band). `hidden` keeps the element for the ref
-          and the stream teardown; the alert below is the whole Scan tab until the shopper searches
-          by name instead. Four reviewers, three viewports. */}
-      <video
-        ref={videoRef}
-        muted
-        playsInline
-        hidden={Boolean(err)}
-        aria-label="Barcode scanner viewfinder"
-        style={{
-          width: "100%",
-          borderRadius: 16,
-          background: "#000",
-          aspectRatio: "4/3",
-          objectFit: "cover",
-        }}
-      />
-      {err && (
-        <p role="alert" style={{ color: "var(--warn)", fontSize: "var(--fs-sm)" }}>
-          {err}
-        </p>
-      )}
-    </div>
+    <>
+      <video ref={videoRef} className="scan-video" muted playsInline aria-hidden />
+      <span className="scan-window" aria-hidden />
+      <ScanReticle lockSeq={lock.seq} locked={lock.on} />
+    </>
   );
 }

@@ -124,7 +124,9 @@ export type LockRow = { locked: boolean; locked_at: string | null } | null;
  * supersession is only one of the ways that happens. The counter-example that shipped was an
  * ordinary declined card: until M152 c′ (#257) the webhook's `payment_intent.payment_failed` arm
  * called `releaseCartLock(cartId, null)` — cart-wide, nulling `locked_at` — while
- * `PaymentSection.confirm()` deliberately keeps the same Element and client secret mounted. The
+ * `PaymentSection.confirm()` deliberately keeps the same clientSecret (Elements are re-created only
+ * by a load retry before the form is revealed, or by a new clientSecret — never after a decline,
+ * which needs a revealed form). The
  * diner then tapped "Edit order", this matched nothing, and inferring "another tab took over" told
  * them something false AND blocked them from editing a cart that was genuinely editable. That arm
  * no longer releases the lock (a declined intent is still confirmable, so its cart stays frozen),

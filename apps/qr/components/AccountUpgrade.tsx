@@ -36,6 +36,8 @@ import {
 } from "@/lib/oauthCallbackStore";
 import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
 import { WelcomeBackChooser } from "./WelcomeBackChooser";
+import { useAccountLiveOrders } from "./AccountLiveOrders";
+import { chooserLeavesNote } from "@/lib/save-stars";
 import { Card } from "@mms/ui";
 
 /**
@@ -47,7 +49,21 @@ import { Card } from "@mms/ui";
  * only confirmed staff, never an upgraded diner — so there's no client marker to set (and no marker-write
  * that could fail before the Google redirect and orphan the account).
  */
-export function AccountUpgrade({ stars }: { stars: number }) {
+export function AccountUpgrade({
+  stars,
+  chooserStars,
+}: {
+  stars: number;
+  /** Phase 1c — the Stars the Welcome-back chooser's disclosure names (`chooserLeavesNote`, said
+   *  BEFORE the tap): the count, or null when the rewards read failed (count-free). Omitted = no
+   *  note. The in-progress half reads /account's ONE refreshed live-orders list (Codex round 1). */
+  chooserStars?: number | null;
+}) {
+  const liveOrders = useAccountLiveOrders();
+  const chooserNote =
+    chooserStars === undefined
+      ? null
+      : chooserLeavesNote({ stars: chooserStars, inProgress: liveOrders?.length ?? 0 });
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "code">("idle");
   const [email, setEmail] = useState("");
@@ -591,7 +607,12 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       {/* K7: remembered-identity chips for a one-tap (merge-suppressed) return — renders null for a
           first-time guest with no history. Only on the idle step (the code step is mid-sign-in). */}
       {phase === "idle" && (
-        <WelcomeBackChooser onSelect={selectIdentity} busy={busy} selectedEmail={selectedEmail} />
+        <WelcomeBackChooser
+          onSelect={selectIdentity}
+          busy={busy}
+          selectedEmail={selectedEmail}
+          note={chooserNote}
+        />
       )}
 
       {phase === "idle" ? (

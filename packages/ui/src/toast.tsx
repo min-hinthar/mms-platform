@@ -19,6 +19,12 @@ import type { CSSProperties, ReactNode } from "react";
  * while that button has focus or the pointer is on the pill — pause the timer (or extend it) on
  * focus/hover, or a keyboard and screen-reader user cannot reach Undo in time. No production caller
  * passes one yet (F21 is the first); build that pause into the caller that does.
+ *
+ * `quiet` (Phase 1c) — the message is SPOKEN through this same region and draws nothing: no pill, no
+ * action, no entrance. It is for a change the person can already SEE where they acted (the menu's
+ * pill morphing into a stepper), where a floating pill over the list would only cover the rows the
+ * diner is reading. The region is still the view's ONE announcer — a quiet line never needs a second
+ * live region, and must never get one. Non-quiet rendering is unchanged.
  */
 export type ToastMessage = {
   /** Changes whenever the message does — keys the pill so a replacement replays the entrance. */
@@ -27,6 +33,8 @@ export type ToastMessage = {
   /** The Burmese half, set on the Padauk stack with its own `lang="my"`. */
   my?: ReactNode;
   action?: { label: string; onAction: () => void };
+  /** Spoken, not drawn — for a change already visible where the person acted. No action, no motion. */
+  quiet?: boolean;
 };
 
 export function Toast({
@@ -48,7 +56,17 @@ export function Toast({
       className="ui-toast-region"
       style={style}
     >
-      {message ? (
+      {message?.quiet ? (
+        <span key={message.key} className="ui-toast-quiet">
+          {message.text}
+          {message.my ? (
+            <span lang="my">
+              {" · "}
+              {message.my}
+            </span>
+          ) : null}
+        </span>
+      ) : message ? (
         <span key={message.key} className={`ui-toast${leaving ? " ui-toast-leaving" : ""}`}>
           <span>
             {message.text}

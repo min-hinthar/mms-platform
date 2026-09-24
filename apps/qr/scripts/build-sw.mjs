@@ -42,6 +42,10 @@ async function buildServiceWorker() {
     //   • icon-192/512 + both maskables — fetched by the OS/launcher at INSTALL time, never by a page.
     //     Precaching them would have pushed every diner on teahouse wifi from 261KB to ~506KB for
     //     bytes their browser will not ask this cache for.
+    //   • fonts/** — Phase 1c: the Hanken face STRIPE'S card iframe loads as a CustomFontSource.
+    //     That fetch is made from the iframe's own js.stripe.com origin, which this worker does not
+    //     control, and the page itself draws Hanken from next/font — so a precached copy is 34KB of
+    //     offline budget nothing ever reads.
     // Deliberately KEPT: logo.png (the header lockup + receipt card render it) and icon.svg (the
     // running tab's favicon).
     globIgnores: [
@@ -52,6 +56,7 @@ async function buildServiceWorker() {
       "icon-512.png",
       "icon-maskable-512.png",
       "icon-maskable.svg",
+      "fonts/**",
     ],
     dontCacheBustURLsMatching: /\.[a-f0-9]{8,}\./,
     maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,

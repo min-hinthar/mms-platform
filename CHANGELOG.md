@@ -4,6 +4,58 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 1c — the add, the removal, the card form, the Stars and the market's front door (2026-09-24)
+
+Five guest surfaces brought to the §20 primitives and the v7.2 bar, each decided in a pure `lib/`
+module with mutants (38 new; 792 total across 139 files). DESIGN-LANGUAGE §23–§27.
+
+- **The add speaks the dish, quietly** (§23). A menu "+" claims "Mohinga added" · "ထည့်ပြီးပါပြီ" to
+  screen readers at the tap and draws nothing over the menu (the row already changed under the
+  finger); the item sheet's add is drawn ("2 Mohinga added"); a write that does not land retracts it
+  BY NAME with a settle cue on the "+" and one focus landing. The one notice slot is arbitrated
+  (`lib/notice-slot.ts`): a claim never erases a correction, a quiet line never blanks visible text,
+  news never waits. The stepper "+" no longer replays the gems; the CartBar's entrance is spent only
+  by a confirmed appearance; `@mms/ui` Toast gains `quiet`.
+- **A removed dish leaves in place** (§24). On /cart the row sinks away while the list closes over it
+  (a FLIP, transform only), whatever slid under the finger ignores taps for 350ms, a refused removal
+  reappears where it was, and focus lands on the next dish's name. The `@mms/ui` Stepper's Remove
+  ignores the second half of a "−, −" double-tap (`SAME_GESTURE_MS`, shared with the hold).
+- **The card form is one honest wait** (§25). Our skeleton in the form's final footprint (Stripe's
+  loader off), one reveal, and an inline failure card whose one button can work (Try again after an
+  error; Back to review — naming the counter at a table — after a timeout, a bad key or an ended
+  intent). Pay is `aria-disabled` with its reason until the form exists and the layout settles, a
+  double confirm is ref-guarded, and a rejecting `confirmPayment` can no longer latch "Processing…"
+  and freeze the table's lock. Refused wallet confirms fail the Apple/Google Pay sheet instead of
+  letting it spin. The iframe mirrors our tokens in a first-party Hanken face (closes **F17**).
+- **Keeping what you earned** (§26). The /track success moment asks a guest who just earned a Star to
+  save it — one quiet door to /account, mounted only after the receipt settles, stopped after two
+  "Not now"s; a Back to Stripe's return URL no longer replays confetti, haptic and chime; /account
+  leads with today's orders (refreshed on wake) and puts today's coupons under the Stars; the
+  Welcome-back chooser says what a chip leaves behind before the tap.
+- **The market's front door** (§27). A camera primer before any OS prompt and six recoverable failure
+  panels (closes **G6**); the scan result stays inside the viewfinder and a miss persists; nothing is
+  added while the basket sheet is open; the camera stops when the page is hidden; shelves of six
+  with "See all", aisles as Back-able entries; a two-line masthead; "Subtotal · before tax" labels
+  (M187's label half). Browse stays the default door; `/grocery?tab=scan` is the in-store entry.
+- **The blind pre-merge review (three lenses, three REJECTs) — every verified finding fixed.** The
+  camera's hold now lifts only on a LOADED basket, so a rejoined basket's jar in frame is not charged
+  twice (`scanBasketReady`, a mutant, and a second proposition in `check:scan-repeat`); the pay step's
+  `hold` refusal and a rejected wallet confirm are pinned (the sheet is told either way); two dishes'
+  corrections of one family say the unnamed sentence instead of erasing each other, and news drops a
+  waiting visible claim; a "−" whose line changed underneath retracts its spoken claim; /account's live
+  row keeps its last good list on a failed read (`readMyLiveOrders`) and a new server snapshot
+  supersedes a read in flight; the celebration latch waits for the capture; "Add another" keeps focus
+  across its re-key; the chooser note is each chip's accessible description and promises only what a
+  save carries; a Back into an aisle before the catalog loads keeps its entry; the save card's
+  platform-down arm (unreachable once an order has arrived) is gone.
+- **Codex round 1 (seven P2s: five fixed here, two already fixed above).** /account's chooser note
+  reads the same refreshed live-orders list as "Today" (`AccountLiveOrders`), so it never names an
+  order that has finished; a stalled receipt mint no longer hides every rewards door on /track
+  (`RECEIPT_SETTLE_BOUND_MS`); the save card that mounts already-offline withholds its link; a second
+  identical grocery toast is announced again; `grocery_scan_miss` counts shelf (camera) misses only.
+- **Codex round 2 (one P2, fixed):** an auth lookup that ERRORS is a failed live-order read, not a
+  signed-out one — /account's live row no longer blanks on a transient auth failure.
+
 ### Phase 1b — one tap to send, one tap to pay, and a bill that is final before it is paid (2026-09-23)
 
 **The owner's calls:** "Drop both" (the send and pay confirms — reverses W16c) and "Everything sent"

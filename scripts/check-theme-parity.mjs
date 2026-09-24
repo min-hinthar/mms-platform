@@ -22,9 +22,10 @@
  *      `--gold-strong` was pasted from `--ac-strong` and `--jade-strong` was a value that existed
  *      nowhere in the repo. The lesson is the guard's own: prose saying "values = the light theme's
  *      own" is not enforcement, and the author of the rule is not exempt from it.
- *   4. `apps/qr/lib/stripe-client.ts`'s `FALLBACK` map — the appearance values Stripe's iframe gets
- *      when a custom property is read before the stylesheet applies. Another hand-copied set, whose
- *      comment claimed this script pinned it before this script actually did.
+ *   4. `apps/qr/lib/stripe-appearance.ts`'s `FALLBACK` map (Phase 1c moved it out of
+ *      `stripe-client.ts`) — the appearance values Stripe's iframe gets when a custom property reads
+ *      back empty. Another hand-copied set, whose comment claimed this script pinned it before this
+ *      script actually did.
  *   5. `apps/qr/app/opengraph-image.tsx` — Satori renders the card to PNG at build time and resolves
  *      no custom properties, so its palette is literal; the file's own comment said "keep in sync",
  *      which is the prose-with-no-enforcement pattern this script replaces.
@@ -43,6 +44,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -205,24 +207,194 @@ else {
 }
 
 // ── 4. Stripe appearance fallbacks ──────────────────────────────────────────────────────────────
-// These paint the Payment Element when `getPropertyValue` comes back empty (a custom property read
-// before the stylesheet applies — a cold load on a slow connection). They are per-theme, so each set
-// must match its own block.
-const STRIPE = "apps/qr/lib/stripe-client.ts";
-const stripeSrc = read(STRIPE);
-const TOKEN_FOR = { ac: "--ac", cd: "--cd", tx: "--tx", t2: "--t2", warn: "--warn" };
-for (const [theme, map] of [
-  ["light", light],
-  ["dark", dark],
-]) {
-  const block = new RegExp(`${theme}:\\s*\\{([^}]*)\\}`).exec(stripeSrc);
-  if (!block) {
-    failures.push(`${STRIPE}: could not find the \`${theme}\` FALLBACK block`);
-    continue;
+// These paint the Payment Element when `getPropertyValue` comes back empty (a stylesheet that FAILED
+// — a stale-chunk 404 after a deploy). Phase 1c moved the table to `lib/stripe-appearance.ts` and
+// grew it into the whole iframe mirror: per-theme COLOURS (each set checked against its own block,
+// `.dark` overriding `:root` the way a browser cascades it) and a SHARED map of theme-independent
+// type/spacing/radius/focus values, which must hold in BOTH themes.
+//
+// PARSED with the TypeScript AST (LEARNINGS #60), never grepped: the entries carry `// = --token`
+// comments and the file's prose names tokens and hexes, so a regex over the text could be satisfied
+// by a comment. Only a string-literal initializer under `FALLBACK.<section>.<key>` counts; any other
+// shape (a template, an identifier, a spread) is REFUSED by name. Both directions are checked — a
+// key this script does not map, and a mapped key the table lost, are each a failure.
+//
+// SHARED lengths are the values Stripe gets in px, so they are compared as NUMBERS through a
+// minimal evaluator: `var()` chains, `Npx`, `Nrem` (× the 16px root) and `max(a, b)`. It REFUSES
+// every other shape by naming the token (a `clamp(`, a `vw`) — it never guesses.
+const STRIPE = "apps/qr/lib/stripe-appearance.ts";
+const stripeAst = ts.createSourceFile(
+  STRIPE,
+  read(STRIPE),
+  ts.ScriptTarget.Latest,
+  true,
+  ts.ScriptKind.TS,
+);
+const THEME_TOKEN_FOR = {
+  ac: "--ac",
+  cd: "--cd",
+  tx: "--tx",
+  t2: "--t2",
+  t3: "--t3",
+  warn: "--warn",
+  ok: "--ok",
+  oa: "--oa",
+  bd: "--bd",
+  gold: "--gold",
+};
+const SHARED_TOKEN_FOR = {
+  ink: "--ink",
+  "fs-field": "--fs-field",
+  "fs-label": "--fs-label",
+  "lh-normal": "--lh-normal",
+  "fw-regular": "--fw-regular",
+  "fw-medium": "--fw-medium",
+  "fw-bold": "--fw-bold",
+  s1: "--s1",
+  s2: "--s2",
+  s3: "--s3",
+  s4: "--s4",
+  "r-sm": "--r-sm",
+  "field-gap": "--field-gap",
+  "focus-w": "--focus-w",
+  "field-focus-offset": "--field-focus-offset",
+};
+const SHARED_LENGTHS = new Set([
+  "fs-field",
+  "fs-label",
+  "s1",
+  "s2",
+  "s3",
+  "s4",
+  "r-sm",
+  "field-gap",
+  "focus-w",
+  "field-focus-offset",
+]);
+
+/** `FALLBACK`'s object literal, unwrapped from `as const` / `satisfies` / parentheses. */
+function stripeFallbackObject() {
+  for (const st of stripeAst.statements) {
+    if (!ts.isVariableStatement(st)) continue;
+    for (const d of st.declarationList.declarations) {
+      if (!ts.isIdentifier(d.name) || d.name.text !== "FALLBACK") continue;
+      let init = d.initializer;
+      while (
+        init &&
+        (ts.isAsExpression(init) ||
+          ts.isSatisfiesExpression(init) ||
+          ts.isParenthesizedExpression(init))
+      )
+        init = init.expression;
+      return init && ts.isObjectLiteralExpression(init) ? init : null;
+    }
   }
-  for (const [key, token] of Object.entries(TOKEN_FOR)) {
-    const got = new RegExp(`${key}:\\s*"(#[0-9a-fA-F]{3,8})"`).exec(block[1])?.[1];
-    expectHex(`stripe fallback · ${theme} ${key}`, got, map[token], STRIPE);
+  return null;
+}
+const propName = (p) =>
+  p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) ? p.name.text : null;
+/** One section as `{ key: "value" }`, or null (with the reason recorded) when it cannot be read. */
+function stripeSection(obj, section) {
+  const prop = obj.properties.find((p) => ts.isPropertyAssignment(p) && propName(p) === section);
+  if (!prop || !ts.isObjectLiteralExpression(prop.initializer)) {
+    failures.push(`${STRIPE}: FALLBACK has no \`${section}\` object literal`);
+    return null;
+  }
+  const out = {};
+  for (const p of prop.initializer.properties) {
+    const key = ts.isPropertyAssignment(p) ? propName(p) : null;
+    if (key === null || !ts.isStringLiteral(p.initializer)) {
+      failures.push(
+        `${STRIPE}: FALLBACK.${section} has an entry that is not \`key: "literal"\` ` +
+          `(\`${p.getText(stripeAst).slice(0, 60)}\`) — nothing can check it`,
+      );
+      continue;
+    }
+    out[key] = p.initializer.text;
+  }
+  return out;
+}
+/** A token's length in px, or null when its shape is outside the evaluator (refused, never guessed). */
+function evalLength(value, block, depth = 0) {
+  const v = resolve(block, value ?? "", light).trim();
+  if (depth > 5) return null;
+  let m;
+  if ((m = /^(\d+(?:\.\d+)?)px$/.exec(v))) return Number(m[1]);
+  if ((m = /^(\d+(?:\.\d+)?)rem$/.exec(v))) return Number(m[1]) * 16;
+  if ((m = /^max\((.*)\)$/.exec(v))) {
+    const parts = m[1].split(",").map((x) => x.trim());
+    if (parts.length !== 2) return null;
+    const nums = parts.map((x) => evalLength(x, block, depth + 1));
+    return nums.some((n) => n === null) ? null : Math.max(...nums);
+  }
+  return null;
+}
+const pxOf = (text) => {
+  const m = /^(\d+(?:\.\d+)?)px$/.exec((text ?? "").trim());
+  return m ? Number(m[1]) : null;
+};
+
+const fallbackObj = stripeFallbackObject();
+if (!fallbackObj) failures.push(`${STRIPE}: could not find \`export const FALLBACK = { … }\``);
+else {
+  for (const [theme, block] of [
+    ["light", light],
+    ["dark", dark],
+  ]) {
+    const got = stripeSection(fallbackObj, theme);
+    if (!got) continue;
+    for (const key of Object.keys(got))
+      if (!(key in THEME_TOKEN_FOR))
+        failures.push(
+          `stripe fallback · ${theme} ${key}: not mapped to a token here, so unchecked`,
+        );
+    for (const [key, token] of Object.entries(THEME_TOKEN_FOR)) {
+      // `.dark` OVERRIDES `:root` — a token the dark block does not re-declare is the light one.
+      const want = resolve(block, block[token] ?? light[token], light);
+      expectHex(`stripe fallback · ${theme} ${key}`, got[key], want, STRIPE);
+    }
+  }
+  const shared = stripeSection(fallbackObj, "shared");
+  if (shared) {
+    for (const key of Object.keys(shared))
+      if (!(key in SHARED_TOKEN_FOR))
+        failures.push(`stripe fallback · shared ${key}: not mapped to a token here, so unchecked`);
+    for (const [key, token] of Object.entries(SHARED_TOKEN_FOR)) {
+      const got = shared[key];
+      // Theme-independent BY CLAIM, so it must hold under both blocks: a `.dark` re-declaration
+      // (say, of the constant --ink) would make one shared fallback wrong in Night.
+      for (const [theme, block] of [
+        ["light", light],
+        ["dark", dark],
+      ]) {
+        const decl = block[token] ?? light[token];
+        if (!SHARED_LENGTHS.has(key)) {
+          expectHex(
+            `stripe fallback · shared ${key} (${theme})`,
+            got,
+            resolve(block, decl, light),
+            STRIPE,
+          );
+          continue;
+        }
+        const want = evalLength(decl, block);
+        if (want === null) {
+          failures.push(
+            `stripe fallback · shared ${key} (${theme}): ${token} is \`${decl ?? "(absent)"}\`, a ` +
+              `shape this evaluator refuses (it knows var(), px, rem and max(a, b)) — Stripe needs ` +
+              `px, so decide the value by hand rather than let a guess stand`,
+          );
+          continue;
+        }
+        const have = pxOf(got);
+        if (have === null || have !== want)
+          failures.push(
+            `stripe fallback · shared ${key} (${theme}): ${STRIPE} has ${got ?? "(not found)"}, ` +
+              `tokens.css resolves ${token} to ${want}px`,
+          );
+        else checked.push(`stripe fallback · shared ${key} (${theme}) ${want}px`);
+      }
+    }
   }
 }
 

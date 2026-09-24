@@ -2,6 +2,7 @@
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { StarsRing } from "./StarsRing";
 import type { RewardsProgress } from "@/lib/rewards";
+import type { GoodbyeDoor } from "@/lib/save-stars";
 
 /**
  * J4 — the goodbye beat (docs/JOURNEY_PLAN.md): the designed exit arc AFTER R7a's success spike. The
@@ -22,8 +23,24 @@ import type { RewardsProgress } from "@/lib/rewards";
  *
  * Ambient (no live region): the tracker's single role="status" already announced the payment; the
  * goodbye is glanceable content — J3's timeline discipline.
+ *
+ * Phase 1c · account-star — ONE rewards door at a time. For a GUEST earner the save-your-Stars card
+ * (SaveStarsPrompt, above this beat) is the door, so `door` — decided once by `successRewardsDoor`
+ * in lib/save-stars.ts, never re-derived here — tells this beat what to render:
+ *  - `link`    — today's sub-line and /account link, unchanged.
+ *  - `pending` — attribution is not decided yet: no link (so none can appear and then vanish when
+ *                the card takes over); the sub-line keeps its own rules.
+ *  - `none`    — the card is the door: no link, and no guest "with your rewards" line, which would
+ *                read as reassurance directly under the card's warning that guest Stars live only
+ *                on this phone. (The signed-in line cannot co-occur: the card requires a guest.)
  */
-export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) {
+export function GoodbyeBeat({
+  progress,
+  door,
+}: {
+  progress: RewardsProgress | null;
+  door: GoodbyeDoor;
+}) {
   const earned = !!progress?.earnedThisOrder;
   // Degenerate-summary guard (mirrors PaySuccess): if the summary RPC transiently failed inside
   // getRewardsProgress, the snapshot can read stars:0 / ordersToNext:0 with earnedThisOrder still
@@ -62,7 +79,7 @@ export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) 
           account", and this beat must not promise the durability that card exists to offer. */}
       {/* K3a: warmer + still honest — a signed-in diner's Star really IS on their account; an anon
           diner's is device-bound, so keep the softer "with your rewards" (never over-claim durability). */}
-      {earned && (
+      {earned && door !== "none" && (
         <p className="goodbye-beat-sub">
           {progress?.isUpgraded
             ? "Your Star and this receipt are saved to your account."
@@ -71,13 +88,15 @@ export function GoodbyeBeat({ progress }: { progress: RewardsProgress | null }) 
       )}
       {/* One rewards door for everyone on the fresh-payment mount (the tracker's bottom link yields
           to this one) — the earner follows their Star + receipt; a split share-payer still has their
-          own rewards to visit, just no claim about THIS order. */}
-      <Link href="/account" className="nav-link">
-        {earned ? "See them in your rewards" : "View your rewards"}{" "}
-        <span aria-hidden className="nav-arrow nav-arrow-fwd">
-          →
-        </span>
-      </Link>
+          own rewards to visit, just no claim about THIS order. Only once `door` says so (above). */}
+      {door === "link" && (
+        <Link href="/account" className="nav-link">
+          {earned ? "See them in your rewards" : "View your rewards"}{" "}
+          <span aria-hidden className="nav-arrow nav-arrow-fwd">
+            →
+          </span>
+        </Link>
+      )}
     </section>
   );
 }

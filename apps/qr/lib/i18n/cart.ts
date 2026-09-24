@@ -116,6 +116,90 @@ export const CART = {
   cardDeclined: { en: "Card declined", my: "ကတ်က အဆင်မပြေပါ" }, // v7.2 EN; MY W18 register
   orderLocked: { en: "Unlock the order to make changes", my: "ပြောင်းရန် အော်ဒါကို လော့ခ်ဖွင့်ပါ" }, // v7.2 (glossary-adapted)
   paidThankYou: { en: "Paid. Thank you!", my: "ရှင်းပြီးပါပြီ။ ကျေးဇူးပါ" }, // v7.2
+
+  // ── the pay form (Phase 1c) ────────────────────────────────────────────────
+  // The wait, the reveal and the failure card around Stripe's card iframe (lib/pay-element.ts owns
+  // which one shows; PaymentSection renders it). EVERY MY value in this block is new Claude-authored
+  // Burmese — K15: pending Min's native check (Phase 1c pay form, 21 keys). The pay verb is ရှင်း
+  // (W18 register) and the review step is the bill (ဘောက်ချာ). "Try again" is COMMON.tryAgain (v7.2).
+  //
+  // ⚠️ HONESTY, pinned by lib/pay-element.test.ts: no string here says "you were not charged" or
+  // "start again" — an ended intent may have SUCCEEDED (a tablemate or the counter settled it). The
+  // offline sentence's promise ("we'll try again when you reconnect") is `shouldAutoRetry`'s path.
+  payFormLoading: {
+    en: "Loading the secure card form…",
+    my: "ကတ်ဖောင်ကို လုံခြုံစွာ ဖွင့်နေပါတယ်…", // `လုံခြုံစွာ` is v7.2's own word (:464)
+  },
+  payFormSlow: {
+    en: "Still loading — this can take a moment.",
+    my: "ဖွင့်နေဆဲပါ — ခဏလောက် ကြာနိုင်ပါတယ်။",
+  },
+  payFormOffline: {
+    en: "You look offline — we’ll try again when you reconnect.",
+    my: "အင်တာနက် မရှိသလိုပဲ — ပြန်ချိတ်မိတာနဲ့ ထပ်ကြိုးစားပေးပါမယ်။",
+  },
+  payFormSecure: {
+    en: "Your card goes straight to Stripe — never to us.",
+    my: "ကတ်အချက်အလက်တွေက Stripe ဆီ တိုက်ရိုက် သွားပါတယ် — ကျွန်တော်တို့ဆီ မရောက်ပါဘူး။",
+  },
+  payFormReady: { en: "Card form ready.", my: "ကတ်ဖောင် အသင့်ဖြစ်ပါပြီ။" }, // sr-only
+  payFailNetworkTitle: { en: "The card form didn’t load", my: "ကတ်ဖောင် မပေါ်လာပါဘူး" },
+  // "Nothing is lost" is OutageState's shipped voice.
+  payFailBody: {
+    en: "Nothing is lost — try again in a moment.",
+    my: "ဘာမှ မပျောက်ပါဘူး — ခဏနေ ထပ်ကြိုးစားပါ။",
+  },
+  payFailOfflineBody: {
+    en: "You look offline — we’ll try again when you reconnect. Nothing is lost.",
+    my: "အင်တာနက် မရှိသလိုပဲ — ပြန်ချိတ်မိတာနဲ့ ထပ်ကြိုးစားပေးပါမယ်။ ဘာမှ မပျောက်ပါဘူး။",
+  },
+  payFailEscalated: {
+    en: "Still not loading. Go back to review and try paying again from there.",
+    my: "ဖွင့်လို့ မရသေးပါဘူး — ဘောက်ချာဆီ ပြန်သွားပြီး အဲ့ဒီကနေ ပြန်ရှင်းကြည့်ပါ။",
+  },
+  payFailEscalatedCounter: {
+    en: "Still not loading. Go back to review — you can pay at the counter from there.",
+    my: "ဖွင့်လို့ မရသေးပါဘူး — ဘောက်ချာဆီ ပြန်သွားပြီး ကောင်တာမှာ ရှင်းလို့ ရပါတယ်။",
+  },
+  payFailTimeoutTitle: {
+    en: "The card form is taking too long",
+    my: "ကတ်ဖောင် ဖွင့်တာ ကြာနေပါတယ်",
+  },
+  payFailTimeoutBody: {
+    en: "It may still appear here. If not, go back to review and try again from there.",
+    my: "ဒီမှာ ပေါ်လာနိုင်ပါသေးတယ် — မပေါ်ရင် ဘောက်ချာဆီ ပြန်သွားပြီး အဲ့ဒီကနေ ပြန်ရှင်းကြည့်ပါ။",
+  },
+  payFailTimeoutBodyCounter: {
+    en: "It may still appear here. If not, go back to review — you can pay at the counter from there.",
+    my: "ဒီမှာ ပေါ်လာနိုင်ပါသေးတယ် — မပေါ်ရင် ဘောက်ချာဆီ ပြန်သွားပြီး ကောင်တာမှာ ရှင်းလို့ ရပါတယ်။",
+  },
+  payFailIntentTitle: {
+    en: "This payment can’t continue",
+    my: "ဒီတစ်ကြိမ် ဆက်ရှင်းလို့ မရတော့ပါဘူး",
+  },
+  payFailIntentBody: {
+    en: "Go back to review to see where your order stands.",
+    my: "သင့်အော်ဒါ ဘယ်အခြေအနေ ရောက်နေလဲ ဘောက်ချာဆီ ပြန်သွားပြီး ကြည့်ပါ။",
+  },
+  payFailConfigTitle: {
+    en: "Card payment isn’t available right now",
+    my: "အခု ကတ်နဲ့ ရှင်းလို့ မရသေးပါဘူး",
+  },
+  payFailConfigBody: {
+    en: "Nothing is lost — go back to review and try again a little later.",
+    my: "ဘာမှ မပျောက်ပါဘူး — ဘောက်ချာဆီ ပြန်သွားပြီး နောက်မှ ထပ်ကြိုးစားပါ။",
+  },
+  payFailConfigBodyCounter: {
+    en: "Nothing is lost — go back to review; you can pay at the counter from there.",
+    my: "ဘာမှ မပျောက်ပါဘူး — ဘောက်ချာဆီ ပြန်သွားပြီး ကောင်တာမှာ ရှင်းလို့ ရပါတယ်။",
+  },
+  payConfirmFailed: {
+    en: "Payment couldn’t start — try again.",
+    my: "ငွေရှင်းလို့ မစနိုင်ပါဘူး — ထပ်ကြိုးစားပါ။",
+  },
+  // New as a DINER string: the only existing Burmese for it is a clause inside a staff sentence.
+  payRetrying: { en: "Trying…", my: "ထပ်ကြိုးစားနေပါတယ်…" },
+  payBackToReview: { en: "Back to review", my: "ဘောက်ချာဆီ ပြန်သွားမယ်" }, // EN: Checkout's top control, verbatim
 } satisfies Record<string, Entry>;
 
 /** Keys whose values are money/legal copy — the Latin-digits guard walks this list. */
@@ -135,4 +219,27 @@ export const CART_MONEY_KEYS = [
   // A1 — pay-prefixed by convention; they carry no amount, the rule costs them nothing.
   "payAtCounter",
   "payOnPhoneInstead",
+  // Phase 1c — the pay form's wait/failure copy, pay-prefixed by the same A1 convention: no amount
+  // in any of them, so the Latin-digits rule costs nothing and keeps them honest if one ever grows.
+  "payFormLoading",
+  "payFormSlow",
+  "payFormOffline",
+  "payFormSecure",
+  "payFormReady",
+  "payFailNetworkTitle",
+  "payFailBody",
+  "payFailOfflineBody",
+  "payFailEscalated",
+  "payFailEscalatedCounter",
+  "payFailTimeoutTitle",
+  "payFailTimeoutBody",
+  "payFailTimeoutBodyCounter",
+  "payFailIntentTitle",
+  "payFailIntentBody",
+  "payFailConfigTitle",
+  "payFailConfigBody",
+  "payFailConfigBodyCounter",
+  "payConfirmFailed",
+  "payRetrying",
+  "payBackToReview",
 ] as const satisfies readonly (keyof typeof CART)[];
