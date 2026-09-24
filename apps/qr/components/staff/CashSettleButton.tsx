@@ -92,8 +92,7 @@ export function CashSettleButton({
   // cashier already typed — their hands beat the wire, and a sync must never overwrite a human.
   const tipTouched = useRef(false);
   useEffect(() => {
-    if (intendedTipCents != null && !tipTouched.current)
-      setTip(centsToField(intendedTipCents));
+    if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));
   }, [intendedTipCents]);
   // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
   // comma, "1,234.56" is US grouping. Phase 2a moved that rule to `lib/money-input`, and moved it
