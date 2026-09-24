@@ -29,12 +29,14 @@ import { haptic } from "@/lib/haptics";
  * an open undo survive "← Floor" and a reload.
  *
  *   idle ──tap──▶ sending ──ok+batch──▶ undo ──tap──▶ undoing ──ok──▶ returning ──drafts back──▶ idle
- *                    │                   │ └─ grace ends ─▶ idle        │ └─ expired ─▶ idle
- *                    └─ refused/threw ─▶ idle                            └─ failed ─▶ undo (window stays)
+ *                    │                   │ └─ grace ends ─▶ idle        │ ├─ expired/gone ─▶ idle
+ *                    └─ refused/threw ─▶ idle                            │ ├─ failed ─▶ undo (window stays)
+ *                                                                        └─ threw ─▶ undo (unknown; stays)
  *
  * `returning` is the post-undo hold: the control stays busy ("Bringing it back…") until a detail
- * commit shows the drafts again (the rendered Send), bounded at two commits (`holdResolved`), so a
- * stale "Everything's been sent" never flashes under "Brought back — not sent".
+ * commit shows the drafts again (the rendered Send), bounded at two commits AFTER the answer
+ * (`holdResolved`), so a stale "Everything's been sent" never flashes under "Brought back — not
+ * sent" — and released at once when the page's detail read degrades, since no commit will come.
  */
 export type StaffSendPhase = "idle" | "sending" | "undo" | "undoing" | "returning";
 
@@ -92,6 +94,7 @@ export function useStaffSend({
   sessionId,
   view,
   detailSeq,
+  degraded,
   getHold,
   rootRef,
   onNotice,
@@ -102,6 +105,10 @@ export function useStaffSend({
   view: StaffSendView;
   /** Bumped on every detail commit — the post-undo hold counts commits, not time. */
   detailSeq: number;
+  /** The page's detail read is failing (its frozen-board line is up). No commit will arrive to end
+   *  the post-undo hold, so the hold ends here instead: the busy control would otherwise strand for
+   *  as long as the outage lasts, and the region's frozen-board line is the honest surface. */
+  degraded: boolean;
   /** DRAIN BEFORE FIRE, read at TAP time: a dirty note on a sendable line, or a write in flight. */
   getHold: () => StaffSendHold;
   /** The order card — the note hold finds its field by `data-note-for` within it. */
@@ -115,8 +122,15 @@ export function useStaffSend({
   const [batch, setBatch] = useState<string | null>(null);
   const [deadlineMs, setDeadlineMs] = useState<number | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  // The detail commit the undo landed on — `returning` resolves on the drafts, or two commits later.
+  // The detail commit the undo's ANSWER arrived on — `returning` resolves on the drafts, or two
+  // commits later. Read at RESPONSE time through a ref mirrored after each commit: the tap-time value
+  // would count every poll that committed while the request was on the wire — polls that began
+  // before the take-back landed — and release the hold onto a stale "Everything's been sent".
   const [undoSeq, setUndoSeq] = useState(0);
+  const latestSeq = useRef(detailSeq);
+  useEffect(() => {
+    latestSeq.current = detailSeq;
+  }, [detailSeq]);
   const [focusAsk, setFocusAsk] = useState<FocusAsk | null>(null);
   const inFlight = useRef(false);
   const armedAt = useRef<number | null>(null);
@@ -130,7 +144,7 @@ export function useStaffSend({
 
   // The post-undo hold ends when the table shows the drafts again (the Send), or after two commits.
   // React's guarded set-during-render: it converges (the phase leaves `returning`).
-  if (phase === "returning" && holdResolved(view.kind, detailSeq - undoSeq)) {
+  if (phase === "returning" && (degraded || holdResolved(view.kind, detailSeq - undoSeq))) {
     setPhase("idle");
     // Focus follows to what the slot now renders — the Send (the drafts are back) or, if a colleague
     // re-sent in between, the status row — so it never falls to <body> with the busy control.
@@ -284,10 +298,12 @@ export function useStaffSend({
         const res = await staffUndoFire({ sessionId, batch });
         if (res.ok) {
           closeWindow();
-          setUndoSeq(detailSeq);
+          setUndoSeq(latestSeq.current); // the RESPONSE-time commit (see `latestSeq`)
           setPhase("returning");
-        } else if (res.reason === "expired") {
-          // The kitchen has it: the window is genuinely over. Focus stays in the slot, unscrolled.
+        } else if (res.reason === "expired" || res.reason === "gone") {
+          // The window is genuinely over: the kitchen has it (`expired`), or nothing from the batch is
+          // still fired — an earlier take-back whose answer was lost already landed (`gone`). Either
+          // way there is nothing left to undo. Focus stays in the slot, unscrolled.
           closeWindow();
           setPhase("idle");
           ask("slot");
@@ -296,15 +312,25 @@ export function useStaffSend({
         }
         onNotice(undoNotice(res));
       } catch (e) {
+        // THREW or timed out — an UNKNOWN outcome: the take-back may have landed. Never "couldn't
+        // bring it back" (that hides a dish that is no longer cooking); say we could not confirm,
+        // point at the dishes (the refresh below re-reads them now), and keep the window open while
+        // it lasts — a retry of a take-back that did land answers `gone`, never a second undo.
         console.error("[useStaffSend] staffUndoFire threw", e);
-        setPhase("undo");
-        onNotice({ tone: "warn", msg: { k: "table.send.err.undoFailed" } });
+        if (graceRemainingSec(deadlineMs, Date.now()) > 0) {
+          setPhase("undo");
+        } else {
+          closeWindow();
+          setPhase("idle");
+          ask("slot");
+        }
+        onNotice({ tone: "warn", msg: { k: "table.send.err.undoUnknown" } });
       } finally {
         inFlight.current = false;
         onRefresh();
       }
     })();
-  }, [phase, batch, deadlineMs, sessionId, detailSeq, closeWindow, onNotice, onRefresh, ask]);
+  }, [phase, batch, deadlineMs, sessionId, closeWindow, onNotice, onRefresh, ask]);
 
   return { phase, display, remainingSec, onSend, onUndo, controlRef, statusRef };
 }

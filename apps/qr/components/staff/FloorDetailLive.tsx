@@ -311,6 +311,7 @@ export function FloorDetailLive({
     sessionId,
     view: sendView,
     detailSeq,
+    degraded: degraded != null,
     getHold,
     rootRef: orderCardRef,
     onNotice: onSendNotice,

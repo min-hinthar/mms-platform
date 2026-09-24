@@ -56,18 +56,21 @@ function Host({
   lang = "en",
   slot = true,
   renderedHold = null,
+  degraded = false,
 }: {
   view: StaffSendView;
   seq: number;
   lang?: StaffLang;
   slot?: boolean;
   renderedHold?: StaffSendHold;
+  degraded?: boolean;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const ctl = useStaffSend({
     sessionId: SESSION,
     view,
     detailSeq: seq,
+    degraded,
     getHold: () => hold,
     rootRef,
     onNotice: (n) => notices.push(n),
@@ -145,6 +148,21 @@ describe("the Send — one tap, guarded by a ref", () => {
     expect(fire).toHaveBeenCalledTimes(1);
     expect(fire).toHaveBeenCalledWith({ sessionId: SESSION });
     expect(haptic).toHaveBeenCalledWith("commit");
+  });
+
+  it("the 'Sent' notice repeats the Send's UNIT count (two lines, four dishes)", async () => {
+    // A Mohinga ×3 and a tea: the button reads 4, the server's `fired` is units (4), not rows (2).
+    const view: StaffSendView = { ...SEND, units: 4, staffAdded: 4 };
+    fire.mockResolvedValueOnce(sentOk({ fired: 4 }));
+    render(<Host view={view} seq={0} />);
+    await flush();
+    expect(control().textContent).toBe(STAFF["table.send.cta.many"].en.replace("{n}", "4"));
+    fireEvent.click(control());
+    await flush();
+    expect(notices.at(-1)).toEqual({
+      tone: "ok",
+      msg: { k: "table.send.sent.many", vars: { n: view.units } },
+    });
   });
 
   it("the label says what it sends, and is never natively disabled", async () => {
@@ -265,6 +283,49 @@ describe("after an undo — busy until the drafts come back", () => {
     expect(document.querySelector(".staff-send-status")).not.toBeNull();
   });
 
+  it("commits that land WHILE the undo is in flight do not count toward the hold", async () => {
+    const r = await sendIntoUndo();
+    r.rerender(<Host view={ALL_SENT} seq={1} />);
+    let answer!: (v: StaffUndoResult) => void;
+    undo.mockReturnValueOnce(new Promise((res) => (answer = res)));
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    // Two polls commit while the take-back is still on the wire — both began before it landed.
+    r.rerender(<Host view={ALL_SENT} seq={2} />);
+    r.rerender(<Host view={ALL_SENT} seq={3} />);
+    await act(async () => {
+      answer({ ok: true, unfired: 3 });
+    });
+    await flush();
+    // MUTATION: baseline the hold at TAP time (seq 1) — 3 − 1 = 2 commits "since", the hold
+    // releases onto the stale "Everything's been sent"; red.
+    expect(control()?.getAttribute("aria-busy")).toBe("true");
+    expect(control().textContent).toBe(STAFF["table.send.undoing"].en);
+    r.rerender(<Host view={ALL_SENT} seq={4} />);
+    expect(control().getAttribute("aria-busy")).toBe("true");
+    r.rerender(<Host view={SEND} seq={5} />);
+    await flush();
+    expect(control().getAttribute("aria-busy")).toBeNull();
+    expect(control().textContent).toBe(STAFF["table.send.cta.many"].en.replace("{n}", "3"));
+  });
+
+  it("a detail outage releases the hold — busy never strands on a board that cannot refresh", async () => {
+    const r = await sendIntoUndo();
+    r.rerender(<Host view={ALL_SENT} seq={1} />);
+    undo.mockResolvedValueOnce({ ok: true, unfired: 3 });
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    expect(control().getAttribute("aria-busy")).toBe("true");
+    // No commit will ever arrive while the read is down: the page's frozen-board line takes over.
+    // MUTATION: ignore `degraded` — "Bringing it back…" busy for as long as the outage lasts; red.
+    r.rerender(<Host view={ALL_SENT} seq={1} degraded />);
+    await flush();
+    expect(document.querySelector(".staff-send-status")).not.toBeNull();
+    expect(document.querySelector('[aria-busy="true"]')).toBeNull();
+  });
+
   it("a Send that comes back is held for 350ms too — ANY relabel, not only Send → Undo", async () => {
     const r = await sendIntoUndo();
     undo.mockResolvedValueOnce({ ok: true, unfired: 3 });
@@ -307,6 +368,41 @@ describe("after an undo — busy until the drafts come back", () => {
 });
 
 describe("refusals and the unknown", () => {
+  it("a THROWN undo is an unknown outcome: never 'couldn't', the window stays, the table re-reads", async () => {
+    const r = await sendIntoUndo();
+    r.rerender(<Host view={ALL_SENT} seq={1} />);
+    undo.mockRejectedValueOnce(new Error("network"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await flush(400);
+    refreshes.mockClear();
+    fireEvent.click(control());
+    await flush();
+    // MUTATION: say `undoFailed` — "Couldn't bring it back" over a take-back that may have landed; red.
+    expect(notices.at(-1)).toEqual({ tone: "warn", msg: { k: "table.send.err.undoUnknown" } });
+    expect(refreshes).toHaveBeenCalled();
+    expect(control().textContent).toContain(STAFF["table.send.undo"].en);
+    spy.mockRestore();
+  });
+
+  it("a retry that finds the batch already brought back says so — never 'too late'", async () => {
+    const r = await sendIntoUndo();
+    r.rerender(<Host view={ALL_SENT} seq={1} />);
+    undo.mockRejectedValueOnce(new Error("network"));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    undo.mockResolvedValueOnce({ ok: false, reason: "gone" });
+    await flush(400);
+    fireEvent.click(control());
+    await flush();
+    expect(notices.at(-1)).toEqual({ tone: "ok", msg: { k: "table.send.gone" } });
+    // The window is over — the batch is not in the kitchen to take back — and focus stays in the slot.
+    expect(sessionStorage.getItem(undoStashKey(SESSION))).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector(".staff-send-status"));
+    spy.mockRestore();
+  });
+
   it("a THROWN send says 'couldn't confirm', offers no Undo, and re-reads the table now", async () => {
     fire.mockRejectedValueOnce(new Error("network"));
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});

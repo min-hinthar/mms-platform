@@ -75,7 +75,9 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     mode: "dinein",
     status: "ordering",
     members: [],
-    lines: [draft("a"), draft("b"), draft("c")],
+    // Two LINES, three UNITS (a Mohinga ×2): mms_fire_cart reports rows, the Send counts units, and
+    // the notice must repeat the units — a fixture where the two agree cannot tell them apart.
+    lines: [{ ...draft("a"), qty: 2 }, draft("b")],
     itemCount: 3,
     runningSubtotalCents: 3600,
     settleTotalCents: null,
@@ -128,12 +130,14 @@ afterEach(() => {
 });
 
 describe("the ONE region — writeError > send warn > degraded > send ok", () => {
-  const SENT = STAFF["table.send.sent.many"].en.replace("{n}", "3");
+  // The notice repeats the Send's own count — `detail.send.sendable` units, never the line count.
+  const SENT = STAFF["table.send.sent.many"].en.replace("{n}", String(detail().send.sendable));
 
   it("a standing ok 'Sent' line is REPLACED by the frozen-board signal", async () => {
+    expect(detail().lines).toHaveLength(2);
     fire.mockResolvedValueOnce({
       ok: true,
-      fired: 3,
+      fired: detail().send.sendable, // the server's `fired` is UNITS (staff-send.test.ts pins it)
       undoUntil: new Date(T + 10_000).toISOString(),
       serverNow: new Date(T).toISOString(),
       undoBatch: "b",
