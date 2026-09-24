@@ -490,3 +490,72 @@ describe("the responsive contract — the pages half", () => {
     );
   });
 });
+
+// ── Phase 1c · pay-element ──────────────────────────────────────────────────────────────────────
+// The pay step's CTA refuses with `aria-disabled` (K35), never native `disabled` — so every
+// `:not(:disabled)` press/hover/focus flourish on `.checkout-cta` must ALSO exclude
+// `[aria-disabled="true"]`, or a refused Pay button still glows and sweeps like a commit. And the
+// card form's wait/reveal adds no motion of its own: it rides `.mms-rise` / `.mms-skeleton`, whose
+// RM escorts already exist. Parsed through the same `declarations()` walker as everything above
+// (comments stripped, each declaration bound to its selector and its @media block).
+describe("Phase 1c — the pay step's CTA and card form (the stylesheet half)", () => {
+  const RM = "@media (prefers-reduced-motion: reduce)";
+  /** A comma-list member whose FIRST compound is `.checkout-cta` (not `-ghost`, not `-arrow`). */
+  const ctaMembers = (d: Decl) =>
+    d.selector
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => /^\.checkout-cta(?![\w-])/.test(s));
+
+  it("gives every .checkout-cta hover/active/focus-visible rule the aria-disabled guard, RM block included", () => {
+    // MUTATION: drop the aria guard from one selector — red.
+    const interactive = new Map<string, string | null>();
+    for (const d of DECLS)
+      for (const m of ctaMembers(d))
+        if (/:(hover|active|focus-visible)\b/.test(m)) interactive.set(`${d.media ?? ""}|${m}`, m);
+    // A floor, measured on the Phase 1c tree: 6 distinct bare selectors (`:active` is written in two
+    // rules) + 2 in the RM block.
+    expect(interactive.size).toBeGreaterThanOrEqual(8);
+    expect(
+      [...interactive.values()].filter((m) => m && m.includes(`:not([aria-disabled="true"])`))
+        .length,
+    ).toBe(interactive.size);
+    expect([...interactive.keys()].some((k) => k.startsWith(RM))).toBe(true);
+  });
+
+  it("fades the CTA's dim through opacity, and the RM block turns every .checkout-cta transition off", () => {
+    expect(one(".checkout-cta", "transition")).toMatch(
+      /\bopacity var\(--dur-base\) var\(--ease-out\)/,
+    );
+    // EVERY RM declaration, not "some": a later RM rule re-adding a fade would win the cascade.
+    const rm = find(".checkout-cta", "transition", RM).map((d) => d.value);
+    expect(rm.length).toBeGreaterThan(0);
+    expect(rm.every((v) => v === "none")).toBe(true);
+  });
+
+  it("hides the pre-reveal live block by opacity alone — no animation or transition on it", () => {
+    const sel = '.pay-live[data-revealed="false"]';
+    expect(one(sel, "opacity")).toBe("0");
+    expect(one(sel, "position")).toBe("absolute");
+    expect(one(sel, "pointer-events")).toBe("none");
+  });
+
+  it("gives no .pay-* selector an animation, a transition or a keyframe of its own", () => {
+    // MUTATION: add a background-position animation to .pay-skel-input — red.
+    // `.pay-success-check*` is NOT this block: it is /track's success mark, with its own animation
+    // and its own RM escort. Excluded BY NAME, so any other `.pay-` class is still in scope.
+    const pay = DECLS.filter((d) => /\.pay-(?!success-)[\w-]/.test(d.selector));
+    expect(pay.length).toBeGreaterThan(0); // the block exists, so the check below can fail
+    expect(
+      pay
+        .filter((d) => /^(animation|transition)(-|$)/.test(d.prop))
+        .map((d) => `${d.selector} { ${d.prop} }`),
+    ).toEqual([]);
+    // …nor a keyframe of its own (`paySuccessRing`/`paySuccessDraw` are that same /track mark's).
+    expect(
+      DECLS.filter((d) => d.media && /^@keyframes\s+pay(?!Success)/i.test(d.media)).map(
+        (d) => d.media,
+      ),
+    ).toEqual([]);
+  });
+});

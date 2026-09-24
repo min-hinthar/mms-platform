@@ -246,7 +246,7 @@
    floor iOS zooms beneath (M78). */
 .ui-field {
   display: grid;
-  gap: 6px;
+  gap: var(--field-gap);
 }
 .ui-field-label {
   font-size: var(--fs-label);
@@ -278,7 +278,7 @@
 }
 .ui-field-control:focus-visible {
   border-color: var(--ac);
-  outline-offset: 1px;
+  outline-offset: var(--field-focus-offset);
 }
 .ui-field-control[aria-invalid="true"] {
   border-color: var(--warn);

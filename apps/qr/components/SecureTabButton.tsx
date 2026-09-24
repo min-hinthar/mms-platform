@@ -2,7 +2,7 @@
 import { useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeElementsOptions } from "@stripe/stripe-js";
-import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { getStripePromise, stripeAppearance, stripeFonts } from "@/lib/stripe-client";
 import { Card, Icon } from "@mms/ui";
 
 /**
@@ -19,7 +19,9 @@ export function SecureTabButton({ cartId, onSecured }: { cartId: string; onSecur
   const stripePromise = getStripePromise();
 
   const options = useMemo<StripeElementsOptions | null>(
-    () => (clientSecret ? { clientSecret, appearance: stripeAppearance() } : null),
+    // Phase 1c (F17) — `fonts`: the iframe's first-party Hanken face (lib/stripe-appearance.ts).
+    () =>
+      clientSecret ? { clientSecret, appearance: stripeAppearance(), fonts: stripeFonts() } : null,
     [clientSecret],
   );
 

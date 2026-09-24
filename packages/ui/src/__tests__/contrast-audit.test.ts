@@ -410,3 +410,29 @@ for (const [theme, map] of [
     }
   });
 }
+
+// ── Phase 1c · pay-element ──────────────────────────────────────────────────────────────────────
+// The Stripe card iframe is a mirror of these tokens (apps/qr/lib/stripe-appearance.ts), so its
+// pairs are TOKEN pairs asserted here, both themes (`dark` already merges :root, so `--ink` — the
+// constant the selected tab's label reads — resolves through :root exactly as the browser does).
+//  · the selected payment-method tab is §2's lit cap: `--ink` label on a flat `--gold` fill (text,
+//    4.5) with an `--ac` edge on `--cd` supplying the 3:1 NON-TEXT contrast (WCAG 1.4.11) that flat
+//    gold on a card cannot give in light;
+//  · the field error line is `--warn` on the `--cd` input ground. (`t3 on cd` — the placeholder —
+//    is already asserted in both themes above.)
+for (const [theme, map] of [
+  ["light", light],
+  ["dark", dark],
+] as const) {
+  describe(`${theme} theme — the Stripe card iframe (Phase 1c)`, () => {
+    it("ink on gold (Stripe selected tab label) clears 4.5:1", () => {
+      expect(contrastRatio(tok(map, "--ink"), tok(map, "--gold"))).toBeGreaterThanOrEqual(4.5);
+    });
+    it("ac on cd (Stripe selected tab edge, non-text) clears 3:1", () => {
+      expect(contrastRatio(tok(map, "--ac"), tok(map, "--cd"))).toBeGreaterThanOrEqual(3);
+    });
+    it("warn on cd (Stripe field error) clears 4.5:1", () => {
+      expect(contrastRatio(tok(map, "--warn"), tok(map, "--cd"))).toBeGreaterThanOrEqual(4.5);
+    });
+  });
+}

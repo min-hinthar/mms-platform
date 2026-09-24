@@ -103,6 +103,10 @@ const MONEY_MARKERS = [
   // the decision, was visible. `CartAuthz` occurs in exactly one file (measured), so this makes the
   // producer visible without dragging in every consumer that calls the guard.
   /\bCartAuthz\b/,
+  // ── Phase 1c · pay-element ── `payElementView` names no money column either, but its `payable`
+  // IS the card-path charge gate (the Pay button's aria-disabled and `confirm()` both read it) —
+  // the same reasoning as `awaitingManualCapture`: the money lives in the decision.
+  /\bpayElementView\b/,
 ];
 
 const EXEMPT = /verify:slice-exempt\s*—?\s*(.+)/;

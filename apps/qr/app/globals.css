@@ -104,7 +104,7 @@ select {
     var(--sh-paper);
 }
 :focus-visible {
-  outline: 2.5px solid var(--ac);
+  outline: var(--focus-w) solid var(--ac);
   outline-offset: 2px;
   border-radius: 6px;
 }
@@ -2211,17 +2211,20 @@ html[data-fx="off"] .pa-mid {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     var(--sh-lift);
+  /* Phase 1c — `opacity` joins: the pay step's CTA un-dims at the card form's reveal (0.7 → 1) over
+     --dur-base instead of snapping. The RM block below sets `transition: none`. */
   transition:
     transform var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-base) var(--ease-out);
+    box-shadow var(--dur-base) var(--ease-out),
+    opacity var(--dur-base) var(--ease-out);
 }
-.checkout-cta:not(:disabled):hover {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):hover {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     var(--sh-glow),
     0 0 24px -10px var(--glow-gold);
 }
-.checkout-cta:not(:disabled):active {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):active {
   transform: scale(0.98);
 }
 .checkout-cta::after {
@@ -2234,7 +2237,7 @@ html[data-fx="off"] .pa-mid {
   transform: translateX(-120%);
   opacity: 0;
 }
-.checkout-cta:not(:disabled):hover::after {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):hover::after {
   animation: checkoutShine 0.7s var(--ease-out);
 }
 @keyframes checkoutShine {
@@ -2255,7 +2258,7 @@ html[data-fx="off"] .pa-mid {
   margin-left: 8px;
   transition: transform var(--dur-base) var(--ease-out);
 }
-.checkout-cta:not(:disabled):hover .checkout-cta-arrow {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):hover .checkout-cta-arrow {
   transform: translateX(4px);
 }
 
@@ -2764,16 +2767,16 @@ html[data-fx="off"] .pa-mid {
 
 /* The Pay CTA fires its glow + sheen sweep on PRESS, not only hover; focus-visible gets the glow
    too (keyboard parity). */
-.checkout-cta:not(:disabled):active {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):active {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     var(--sh-glow),
     0 0 24px -10px var(--glow-gold);
 }
-.checkout-cta:not(:disabled):active::after {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):active::after {
   animation: checkoutShine 0.7s var(--ease-out);
 }
-.checkout-cta:not(:disabled):focus-visible {
+.checkout-cta:not(:disabled):not([aria-disabled="true"]):focus-visible {
   box-shadow:
     inset 0 1px 0 var(--sheen),
     var(--sh-glow),
@@ -2902,7 +2905,7 @@ html[data-fx="off"] .pa-mid {
   .checkout-pill:not(:disabled):hover,
   .checkout-pill-accent:not(:disabled):hover,
   .checkout-tip:not(:disabled):hover,
-  .checkout-cta:not(:disabled):active,
+  .checkout-cta:not(:disabled):not([aria-disabled="true"]):active,
   .checkout-viewbill:active,
   .confirm-swap-cancel:not(:disabled):hover,
   .confirm-swap-cancel:not(:disabled):active,
@@ -2910,7 +2913,7 @@ html[data-fx="off"] .pa-mid {
   .checkout-outline-btn:not(:disabled):active,
   .checkout-tip-on,
   .item-opt:active,
-  .checkout-cta:not(:disabled):hover .checkout-cta-arrow {
+  .checkout-cta:not(:disabled):not([aria-disabled="true"]):hover .checkout-cta-arrow {
     transform: none;
   }
   /* Kill the one-sweep CTA shine + the step-enter slide entirely under reduced motion. */
@@ -11652,4 +11655,112 @@ html[data-fx="lite"] .mms-scrim {
   font-size: var(--fs-xs);
   font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Phase 1c · pay-element ─────────────────────────────────────────────────────────────────────
+   The pay step's card form: ONE honest wait (our skeleton, in the form's final footprint — Stripe's
+   own loader is off), ONE reveal, and an inline failure card. This block adds NO @keyframes and no
+   animation or transition: every motion is the kit's — `.mms-rise` (the reveal, the failure card, a
+   late wallet row) and `.mms-skeleton` via <Skeleton> — so both RM escorts already cover it.
+   (`lib/responsive-contract.test.ts` pins that no `.pay-*` selector declares motion.) */
+.pay-stage {
+  position: relative;
+}
+
+/* The live block is mounted from t=0 UNDER the skeleton so the iframes load at their true width; it
+   is transparent, click-through and `inert` (set in the markup) until the reveal makes it static. */
+.pay-live[data-revealed="false"] {
+  position: absolute;
+  inset: 0 0 auto;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* v7.2's `.sk` grammar at the Element's geometry: the input box is drawn in the input's own chrome
+   (--cd fill + the --bd hairline — the hairline, not the fill, is what makes the real input legible
+   on --pg), so it reads as the field it becomes even when RM stops the bars. */
+.pay-skel {
+  display: grid;
+  gap: var(--s3);
+  --pay-input-h: calc(var(--s3) * 2 + var(--fs-field) * var(--lh-normal) + 2px);
+}
+
+.pay-skel-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s3);
+}
+
+.pay-skel-field {
+  display: grid;
+  gap: var(--field-gap);
+}
+
+.pay-skel-label {
+  display: flex;
+  align-items: center;
+  block-size: calc(var(--fs-label) * var(--lh-normal));
+}
+
+.pay-skel-input {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  block-size: var(--pay-input-h);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+}
+
+/* A warm reveal keeps the wallet slot the skeleton held until Express settles; the hold bar sits
+   over the (still-blank) Express iframe and leaves in the commit that shows the real button. */
+.pay-wallet {
+  position: relative;
+}
+
+.pay-wallet-hold {
+  position: absolute;
+  inset: 0;
+}
+
+/* One EN row + one MY row, as a grid (never a whitespace text node — §6); the box is kept when the
+   row is empty (a failure), so nothing below it moves. */
+.pay-note {
+  display: grid;
+  justify-items: center;
+  margin: var(--s3) 0 0;
+  min-block-size: calc(var(--fs-sm) * var(--lh-snug) + var(--s1) + var(--fs-sm) * var(--lh-my));
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+  color: var(--t2);
+  text-align: center;
+}
+
+.pay-note-en {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.pay-note-my,
+.pay-fail-my,
+.pay-status-my {
+  display: block;
+  margin-top: var(--s1);
+  font-family: var(--font-my);
+  line-height: var(--lh-my);
+}
+
+.pay-note-my {
+  color: var(--t3);
+}
+
+.pay-fail-my {
+  color: var(--t2);
+}
+
+.pay-action-my {
+  margin-inline-start: var(--s2);
+  font-family: var(--font-my);
 }

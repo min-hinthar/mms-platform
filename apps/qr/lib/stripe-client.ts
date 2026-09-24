@@ -1,53 +1,55 @@
 "use client";
 import { loadStripe, type Stripe } from "@stripe/stripe-js";
-import type { Appearance } from "@stripe/stripe-js";
+import type { Appearance, CustomFontSource } from "@stripe/stripe-js";
 import { resolvePublishableKey } from "./stripe-env";
+import { buildStripeAppearance, buildStripeFonts, STRIPE_LENGTH_TOKENS } from "./stripe-appearance";
 
-// Build the Payment/Setup Element appearance from the document's resolved design tokens (light =
-// editorial, .dark = Night) — the iframe can't read our CSS vars, so we pass resolved values. Shared by
-// PaymentSection (pay) and SecureTabButton (card-save) so both match the live theme. SSR-safe fallback.
 /**
- * W22d — the FALLBACKS have to follow the theme too.
+ * The DOM ADAPTER for `lib/stripe-appearance.ts` (Phase 1c — F17). The iframe can't read our CSS
+ * vars, so the Payment/Setup Element gets resolved values: colours and weights via
+ * `getPropertyValue`, LENGTHS through one hidden probe element (`probe.style.width = var(--x)`, then
+ * the computed px) because Stripe parses no rem/max()/calc(). Shared by PaymentSection (pay),
+ * SharePay (split share) and SecureTabButton (card-save), so every Element surface mirrors the
+ * live theme and loads the same first-party Hanken face. Mount-time by design (see ThemeSync).
  *
- * Every fallback here used to be the LIGHT hex, while `theme` correctly branched on `.dark`. The
- * fallback fires when `getPropertyValue` comes back empty — and the honest account of WHEN is
- * narrower than it first looks: a parser-inserted stylesheet link is script-blocking, so on a merely
- * SLOW load hydration waits too and this never runs against an unstyled tree. The reachable case is
- * the stylesheet FAILING — a 404 against a stale chunk after a deploy, a blocked request — which is
- * rarer but real, and precisely when you least want a surprise. `.dark` is still trustworthy there
- * because the blocking inline script in `layout.tsx` sets it before any of this.
- *
- * The consequence is also narrower than "unreadable": light text on a light card is internally
- * consistent, so what a diner gets is a bright card form sitting in a dark page — jarring and
- * off-brand rather than illegible. Worth fixing, not worth overclaiming.
- *
- * The values mirror tokens.css and are pinned by `scripts/check-theme-parity.mjs` (which reads this
- * FALLBACK map by name — the earlier version of this sentence claimed that before it was true).
+ * The mapping and its FALLBACK table live in `stripe-appearance.ts` (pure, unit-tested, and pinned
+ * to tokens.css by `scripts/check-theme-parity.mjs`); this file only reads the document.
  */
-const FALLBACK = {
-  light: { ac: "#a65f10", cd: "#fffdf8", tx: "#1b1714", t2: "#6e6358", warn: "#a44b34" },
-  dark: { ac: "#e7a53a", cd: "#2b213c", tx: "#f3ecdf", t2: "#bcafc8", warn: "#e0855f" },
-} as const;
+function withTokenReader<T>(fn: (read: (token: string) => string) => T): T {
+  const root = document.documentElement;
+  const cs = getComputedStyle(root);
+  const probe = document.createElement("div");
+  probe.setAttribute("aria-hidden", "true");
+  probe.style.cssText =
+    "position:absolute;visibility:hidden;pointer-events:none;inset-block-start:0;inset-inline-start:0;block-size:0;overflow:hidden";
+  (document.body ?? root).appendChild(probe);
+  try {
+    return fn((token) => {
+      // An EMPTY property is the fallback case (a stylesheet that failed): probing it would answer
+      // `0px` for an invalid `var()`, which is a confident wrong value, so it is never probed.
+      const raw = cs.getPropertyValue(token).trim();
+      if (!raw || !STRIPE_LENGTH_TOKENS.has(token)) return raw;
+      probe.style.width = `var(${token})`;
+      const px = getComputedStyle(probe).width.trim();
+      return /^\d+(?:\.\d+)?px$/.test(px) ? px : ""; // unresolved (no layout engine) → fallback
+    });
+  } finally {
+    probe.remove();
+  }
+}
 
 export function stripeAppearance(): Appearance {
   if (typeof window === "undefined") return { theme: "stripe" };
-  const cs = getComputedStyle(document.documentElement);
   const isDark = document.documentElement.classList.contains("dark");
-  const fb = isDark ? FALLBACK.dark : FALLBACK.light;
-  const v = (name: string, fallback: string) => cs.getPropertyValue(name).trim() || fallback;
-  return {
-    theme: isDark ? "night" : "stripe",
-    variables: {
-      colorPrimary: v("--ac", fb.ac),
-      colorBackground: v("--cd", fb.cd),
-      colorText: v("--tx", fb.tx),
-      colorTextSecondary: v("--t2", fb.t2),
-      colorDanger: v("--warn", fb.warn),
-      fontFamily: v("--font-body", "system-ui, sans-serif"),
-      borderRadius: v("--r-sm", "12px"),
-      spacingUnit: "4px",
-    },
-  };
+  // Guarded: jsdom (and very old engines) have no matchMedia — no signal means no preference.
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  return withTokenReader((read) => buildStripeAppearance(read, { isDark, reducedMotion }));
+}
+
+/** The iframe's first-party font (the family `stripeAppearance` names). [] on the server. */
+export function stripeFonts(): CustomFontSource[] {
+  if (typeof window === "undefined") return [];
+  return withTokenReader((read) => buildStripeFonts(window.location.origin, read));
 }
 
 // Browser Stripe.js singleton — loaded once and reused (loadStripe injects a script tag; calling it
@@ -64,4 +66,18 @@ export function getStripePromise(): Promise<Stripe | null> | null {
   if (!key) return null;
   if (!_promise) _promise = loadStripe(key);
   return _promise;
+}
+
+/**
+ * Phase 1c — forget a Stripe.js load so the NEXT `getStripePromise()` injects the script again
+ * (stripe-js clears its own cached promise on a failed load, so a fresh `loadStripe` really does
+ * retry).
+ *
+ * ONE caller: `PaymentSection`'s retry, and only after Stripe.js ITSELF rejected
+ * (`retryResetsLoader`). ⚠️ The accessor above must NEVER reset on its own: `SharePay` and
+ * `SecureTabButton` call `getStripePromise()` in their RENDER bodies, so an auto-reset on rejection
+ * would mint a fresh `loadStripe` — a fresh script injection — on every render after a failure.
+ */
+export function resetStripePromise(): void {
+  _promise = null;
 }

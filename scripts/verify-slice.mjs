@@ -6364,6 +6364,99 @@ const MUTANTS = [
     find: 'export const COUNTER_TENDERS = ["cash", "terminal"] as const;\n',
     replace: 'export const COUNTER_TENDERS = ["cash", "terminal", "card"] as const;\n',
   },
+  // ── Phase 1c · pay-element ──────────────────────────────────────────────────────────────────
+  {
+    id: "pay-element/reveal-ignores-wallet",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — the reveal waits for the wallet to settle (or its grace): revealing on the card alone lets Apple Pay pop in ABOVE a form the diner has started typing into, moving the Pay button under a thumb already aimed at it",
+    find: 'const revealed = s.card === "ready" && (s.wallet !== "loading" || s.graceElapsed);',
+    replace: 'const revealed = s.card === "ready";',
+  },
+  {
+    id: "pay-element/payable-skips-settle",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — `payable` IS the card-path charge gate (the CTA's aria-disabled and confirm() both read it). Without the settle term a tap aimed before the reveal moved the layout lands on a live Pay button and charges",
+    find: "    payable: revealed && s.settled,",
+    replace: "    payable: revealed,",
+  },
+  {
+    id: "pay-element/stale-attempt-accepted",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — a retry re-keys Elements; a late `ready` from the DESTROYED mount must not reveal (and arm the charge gate for) the one that replaced it, whose iframe has not loaded",
+    find: '  if ("attempt" in e && e.attempt !== s.attempt) return s; // a destroyed mount\'s late event\n',
+    replace: "",
+  },
+  {
+    id: "pay-element/intent-classified-as-network",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — an ended intent (succeeded, cancelled, superseded) cannot be retried on the same secret, and it may have SUCCEEDED: classifying it as network offers a Try again that can never work instead of sending the diner to see where their order stands",
+    find: '  if (errorType === "invalid_request_error") return "intent";',
+    replace: '  if (errorType === "invalid_request_error") return "network";',
+  },
+  {
+    id: "pay-element/config-retries",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — a bad or mismatched publishable key is nothing the diner can fix: routing it through network offers a Try again that fails forever while the pay-window lock holds the table read-only",
+    find: '  if (errorType === "authentication_error") return "config";',
+    replace: '  if (errorType === "authentication_error") return "network";',
+  },
+  {
+    id: "pay-element/escalation-keeps-retrying",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — after two failed retries the card must stop offering the door that keeps failing and send the diner back to review (where the counter door is): an escalated card that still says Try again strands them",
+    find: '          body: both(counterDoor ? "payFailEscalatedCounter" : "payFailEscalated"),\n          action: "review",',
+    replace:
+      '          body: both(counterDoor ? "payFailEscalatedCounter" : "payFailEscalated"),\n          action: "retry",',
+  },
+  {
+    id: "pay-element/stall-ignores-late-ready",
+    file: "apps/qr/lib/pay-element.ts",
+    suite: "lib/pay-element.test.ts",
+    why: "Phase 1c — the timeout card keeps the mount alive precisely so a slow iframe can still arrive: ignoring its late `ready` leaves a working form hidden behind a card that says it may still appear",
+    find: '      return { ...s, card: "ready", cardFailure: null, retrying: false };',
+    replace:
+      '      return s.card === "failed" ? s : { ...s, card: "ready", cardFailure: null, retrying: false };',
+  },
+  {
+    id: "pay-section/submit-ignores-payable",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c — the card path's confirm() reads `payElementView().payable` (via canConfirm) at call time; a submit path that skips it charges before the form it charges exists (an IntegrationError at best, the latch this change closes at worst)",
+    find: "    if (!handles || !canConfirm(view, source) || hold || inFlightRef.current) {",
+    replace:
+      '    if (\n      !handles ||\n      (source === "wallet" && !canConfirm(view, source)) ||\n      hold ||\n      inFlightRef.current\n    ) {',
+  },
+  {
+    id: "pay-section/double-submit",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c (LEARNINGS #126) — two submits inside one frame both read `submitting === false` from the same render; only the in-flight REF read at call time stops the second confirmPayment",
+    find: "    if (!handles || !canConfirm(view, source) || hold || inFlightRef.current) {",
+    replace: "    if (!handles || !canConfirm(view, source) || hold) {",
+  },
+  {
+    id: "pay-section/throw-latches",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c — a REJECTING confirmPayment (an IntegrationError, a stale handle) must clear submitting/paying: latched, the CTA reads Processing forever, Edit order and Back to review refuse, and the pagehide release skips — the diner and the table frozen until the lock's TTL",
+    find: '      setError({ en: t("en", "payConfirmFailed"), my: t("my", "payConfirmFailed") });\n      release();',
+    replace:
+      '      setError({ en: t("en", "payConfirmFailed"), my: t("my", "payConfirmFailed") });',
+  },
+  {
+    id: "pay-section/express-refusal-hangs",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c — a refused wallet confirmation (not ready, a hold, one already in flight) must call paymentFailed, or the Apple Pay / Google Pay sheet spins until Stripe's own timeout",
+    find: '      event?.paymentFailed({ reason: "fail" });\n',
+    replace: "",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { Appearance, StripeElementsOptions } from "@stripe/stripe-js";
-import { getStripePromise, stripeAppearance } from "@/lib/stripe-client";
+import { getStripePromise, stripeAppearance, stripeFonts } from "@/lib/stripe-client";
 import { TIP_LADDER, tipWithinAmountCap } from "@/lib/tip";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import { confirmCopy } from "@/lib/confirm-copy";
@@ -65,6 +65,8 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   // Shared with PaymentSection (was an inline duplicate — drift risk). Resolves the theme from the
   // live tokens at mount; .dark (R2) makes "night" reachable. Mount-time by design — see ThemeSync.
   const appearance = useMemo<Appearance>(() => stripeAppearance(), []);
+  // Phase 1c (F17) — the iframe's first-party Hanken face, so the typeface holds across the form.
+  const fonts = useMemo(() => stripeFonts(), []);
 
   // (Re)mint this payer's PaymentIntent for the chosen tip. Re-runs on a tip change (the route cancels
   // the prior pending PI). setState lives in the async callbacks (the allowed "sync from an external
@@ -129,8 +131,8 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
   }
 
   const options = useMemo<StripeElementsOptions | null>(
-    () => (clientSecret ? { clientSecret, appearance } : null),
-    [clientSecret, appearance],
+    () => (clientSecret ? { clientSecret, appearance, fonts } : null),
+    [clientSecret, appearance, fonts],
   );
 
   return (
