@@ -12,6 +12,8 @@ import { Chrome } from "@/components/staff/Chrome";
 import { readStaffLang } from "@/lib/staff-lang-server";
 import { safeImageUrl } from "@/lib/media-url";
 import { requiredChoiceUnavailable, shapeModifierGroups } from "@/lib/menu/modifiers";
+import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
+import { staffOwedSendUnits } from "@/lib/staff-send-view";
 
 export const metadata = { title: "Add items — Mandalay Morning Star" };
 export const dynamic = "force-dynamic";
@@ -37,7 +39,9 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
   const res = await getTableDetail(id);
   if (res.kind === "outage") return <StaffOutageShell what="what.table" />;
   if (res.kind === "signin") redirect("/staff/login"); // gate race between requireStaffPage and the read
-  if (res.kind === "closed") redirect("/staff");
+  // The floor BY NAME: a bare `/staff` resolves by the door cookie, and a kitchen door would land a
+  // server who was adding to a table on the kitchen board (the tablet fix, applied here too).
+  if (res.kind === "closed") redirect(STAFF_DOOR_TARGET.counter);
   const detail = res.detail;
   if (detail.cartId == null) redirect(`/staff/table/${id}`); // settled/no open order — nothing to add to
 
@@ -81,6 +85,10 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
     .sort((a, b) => a[1] - b[1])
     .map(([name]) => name);
 
+  // Phase 2a · send — what the bridge may call "not sent": only what STAFF own at a host table (the
+  // diners' own round in progress is theirs to send — a count there teaches staff to fire it), every
+  // sendable dish at a hostless one. The floor's one reading of that rule (`staffOwedSendUnits`).
+  const owedUnits = staffOwedSendUnits(detail.hostPresent, detail.send);
   // A4·2 — a counter order's way back up is the counter's one screen (the register is a zone of it).
   const backHref = counterOrder ? "/staff?floor=1" : `/staff/table/${id}`;
   const lang = await readStaffLang();
@@ -105,13 +113,14 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
             <Link href={`/staff/table/${id}`} className="staff-back staff-press">
               <Chrome lang={lang} k="browse.review" />
             </Link>
-          ) : detail.send.sendable > 0 ? (
+          ) : owedUnits > 0 ? (
             // Phase 2a · send — an interim BRIDGE (the 2c order pad replaces it with its own Send):
             // "Start a table" lands here, and nothing told a table its dishes were unsent. Labelled for
             // what it DOES; it lands focused on the Send, one tap away, under the tagged lines. N is
-            // the table's one count (`detail.send`), refreshed after every add (router.refresh()).
+            // what staff own of the table's one count (`owedUnits` above), refreshed after every add
+            // (router.refresh() — both add surfaces).
             <Link href={`/staff/table/${id}?send=1`} className="staff-back staff-press">
-              <Chrome lang={lang} k="browse.reviewUnsent" vars={{ n: detail.send.sendable }} />
+              <Chrome lang={lang} k="browse.reviewUnsent" vars={{ n: owedUnits }} />
             </Link>
           ) : undefined
         }
