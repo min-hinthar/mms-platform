@@ -212,7 +212,9 @@ export default async function StaffHome({ searchParams }: StaffHomeProps) {
           provider, so a "Something's wrong" filed from a frozen lane still says `not_updating`. */}
       <LiveConnectionProvider>
         {header}
-        <div className="staff-col" style={wrapWide}>
+        {/* Phase 2b · feedback — `staff-col-dock`: the last controls scroll clear of the lane's
+            thumb-zone Undo pill. */}
+        <div className="staff-col staff-col-dock" style={wrapWide}>
           {greeting}
           {/* 1 · START — the one action taken most, first. The zone's region is `RegisterStart`'s own,
             named by this heading. */}

@@ -1,12 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Field, Toast, type ToastMessage } from "@mms/ui";
+import { Button, Field, SAME_GESTURE_MS, Toast, TOAST_LEAVE_MS, type ToastMessage } from "@mms/ui";
 
 /** The interactive half of /kit — the states a static render cannot show (busy, a toast, an error). */
-export function KitDemos({ part }: { part: "buttons" | "toast" | "field" | "empty-action" }) {
+export function KitDemos({
+  part,
+}: {
+  part: "buttons" | "toast" | "toast-xl" | "field" | "empty-action";
+}) {
   if (part === "buttons") return <ButtonsDemo />;
   if (part === "toast") return <ToastDemo />;
+  if (part === "toast-xl") return <ThumbUndoDemo />;
   if (part === "field") return <FieldDemo />;
   return (
     <Button variant="primary" arrow="fwd">
@@ -107,6 +112,86 @@ function ToastDemo() {
         Spoken to screen readers, draws nothing — for a change already visible where you tapped.
       </p>
       <Toast message={msg} />
+    </>
+  );
+}
+
+/**
+ * Phase 2b · feedback — the staff lane's thumb-zone Undo, on the kit: `live={false}` (the lane's own
+ * region speaks the pick), `size="xl"`, the drain over the real 6 s window, the Undo refused until
+ * it arms, the visible shield after it, and the leave. A keyboard focus on Undo (Tab to it) pauses
+ * the drain — the hold the lane gives a keyboard user. Review both themes by flipping the OS theme.
+ */
+const XL_WINDOW_MS = 6000;
+const XL_ARM_MS = 400;
+function ThumbUndoDemo() {
+  const [pick, setPick] = useState<{
+    key: number;
+    phase: "showing" | "shield" | "leaving";
+    armed: boolean;
+    held: boolean;
+  } | null>(null);
+  const timers = useRef<number[]>([]);
+  const clear = () => {
+    for (const id of timers.current) window.clearTimeout(id);
+    timers.current = [];
+  };
+  useEffect(
+    () => () => {
+      for (const id of timers.current) window.clearTimeout(id);
+    },
+    [],
+  );
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(window.setTimeout(fn, ms));
+  };
+  const leave = () => {
+    setPick((p) => (p ? { ...p, phase: "leaving" } : p));
+    later(() => setPick(null), TOAST_LEAVE_MS);
+  };
+  const open = () => {
+    clear();
+    setPick({ key: Date.now(), phase: "showing", armed: false, held: false });
+    later(() => setPick((p) => (p ? { ...p, armed: true } : p)), XL_ARM_MS);
+    later(leave, XL_WINDOW_MS);
+  };
+  const undo = () => {
+    clear();
+    setPick((p) => (p ? { ...p, phase: "shield" } : p));
+    later(leave, SAME_GESTURE_MS);
+  };
+  return (
+    <>
+      <div style={row}>
+        <Button variant="secondary" onClick={open}>
+          Picked up · Table 7
+        </Button>
+      </div>
+      <p style={{ margin: "var(--s2) 0 0", color: "var(--t2)", fontSize: "var(--fs-label)" }}>
+        Silent (the page&rsquo;s own region speaks it), 64px, the whole pill takes the tap. The bar
+        drains over the real window; Tab to Undo and it pauses (this demo does not extend the
+        window).
+      </p>
+      <Toast
+        live={false}
+        size="xl"
+        shield={pick?.phase === "shield"}
+        leaving={pick?.phase === "leaving"}
+        message={
+          pick && {
+            key: pick.key,
+            text: "Table 7 picked up",
+            action: {
+              label: "Undo",
+              onAction: undo,
+              disabled: !pick.armed || pick.phase !== "showing",
+              onHold: (held) => setPick((p) => (p ? { ...p, held } : p)),
+            },
+            drainMs: XL_WINDOW_MS,
+            held: pick.held,
+          }
+        }
+      />
     </>
   );
 }

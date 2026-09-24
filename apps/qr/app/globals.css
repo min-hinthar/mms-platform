@@ -12608,3 +12608,9 @@ a.aisle-tile {
     scroll-padding-top: calc(var(--staff-bar-h, 128px) + var(--s2));
   }
 }
+/* The counter column's bottom reserve for the lane's thumb-zone Undo pill (`@mms/ui` Toast xl,
+   64px at 16px + the safe area): the page's LAST controls always scroll clear of it, so the pill
+   never sits over the only way to reach them. */
+.staff-col.staff-col-dock {
+  padding-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
+}

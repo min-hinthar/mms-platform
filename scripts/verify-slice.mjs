@@ -7237,6 +7237,56 @@ const MUTANTS = [
     find: "  return offlineSince !== null && now - offlineSince >= ms;",
     replace: "  return offlineSince !== null;",
   },
+  {
+    id: "undo-hold/an-unheld-release-counts",
+    file: "apps/qr/lib/undo-hold.ts",
+    suite: "lib/undo-hold.test.ts",
+    why: "Phase 2b · feedback — the blur of a TAP-focused Undo releases a source that never held. Counted, it folds time into the window while another source still holds it, and the bag sits on the guest's tracker and the wall for a hold nobody made",
+    find: "  if (!h.sources.has(source)) return h;",
+    replace:
+      "  if (!h.sources.has(source)) return { ...h, heldMs: h.heldMs + (now - (h.since ?? now)) };",
+  },
+  {
+    id: "undo-hold/one-release-frees-every-source",
+    file: "apps/qr/lib/undo-hold.ts",
+    suite: "lib/undo-hold.test.ts",
+    why: "Phase 2b · feedback — the pill's Undo and the card's Undo can both be focused inside one window. One blur freeing both runs the window out under the keyboard user still sitting on the other (WCAG 2.2.1)",
+    find: "  if (sources.size > 0) return { sources, since: h.since, heldMs: h.heldMs };\n",
+    replace: "",
+  },
+  {
+    id: "undo-hold/the-hold-has-no-cap",
+    file: "apps/qr/lib/undo-hold.ts",
+    suite: "lib/undo-hold.test.ts",
+    why: "Phase 2b · feedback — a focus left parked on Undo (a tablet walked away from) must not hold a bag on the guest's tracker and the wall forever; the minute's cap is what lets the pick land",
+    find: "  return Math.min(capMs, h.heldMs + (h.since === null ? 0 : now - h.since));",
+    replace: "  return h.heldMs + (h.since === null ? 0 : now - h.since);",
+  },
+  {
+    id: "expo-rules/the-toast-falls-back-to-an-older-pick",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "Phase 2b · feedback — the pill shows only the pick that opened it. Falling back to an older pick still in its window, the second tap of a double-tapped Undo takes a SECOND bag back: one handed-over bag goes back to 'ready' on the guest's tracker",
+    find: "  return p !== undefined && !p.committing ? toastFor : null;",
+    replace:
+      "  return p !== undefined && !p.committing\n    ? toastFor\n    : ([...picked].find(([, q]) => !q.committing)?.[0] ?? null);",
+  },
+  {
+    id: "expo-rules/a-committing-pick-keeps-the-toast",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "Phase 2b · feedback — once the window closes the write is in flight and Undo can do nothing. Kept, a write held in flight (or an outage) leaves a dead 64px pill over the counter whose Undo refuses every tap",
+    find: "  return p !== undefined && !p.committing ? toastFor : null;",
+    replace: "  return p !== undefined ? toastFor : null;",
+  },
+  {
+    id: "expo-rules/scan-go-by-any-line",
+    file: "apps/qr/lib/expo-rules.ts",
+    suite: "lib/expo-rules.test.ts",
+    why: "Phase 2b · feedback — a scan-and-go basket is ALL grocery lines. By any line, a mixed bag of food reads as a basket: 'Verified' / 'Handed over' on food the counter still has to bag, no kitchen badge, and the counts miscount the lane",
+    find: '  return lines.every((l) => l.fulfillment === "grocery");',
+    replace: '  return lines.some((l) => l.fulfillment === "grocery");',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
