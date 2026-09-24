@@ -6381,7 +6381,9 @@ html[data-seen-surface] .mms-stagger {
   box-shadow: inset 0 1px 0 var(--sheen);
   white-space: nowrap;
 }
-.aisle-tile[aria-pressed="true"] {
+/* Phase 1c — the chips are NAVIGATION links now, so the current view is `aria-current`, not a
+   toggle's `aria-pressed` (this selector and its `-my` child below migrated together). */
+.aisle-tile[aria-current="true"] {
   /* A solid lit cap (not a 10% tint that vanishes on Night) — the selected aisle reads at a glance. */
   border-color: var(--ac);
   background: var(--ac);
@@ -6408,10 +6410,12 @@ html[data-seen-surface] .mms-stagger {
   /* W16e review LOW — was 10.5px/1.15: the smallest Burmese in the app, and its own line-height
      OVERRODE the new [lang="my"] leading, so /grocery kept clipping stacked diacritics while the
      rest of the app breathed. Size to the scale; leading inherits. */
-  font-size: var(--fs-xs);
+  /* Phase 1c — up to the §6 Burmese floor (13px) — it was --fs-xs, the smallest Burmese on the
+     market's first screen. The chip stays ~44px. */
+  font-size: var(--fs-sm);
   color: var(--t3);
 }
-.aisle-tile[aria-pressed="true"] .aisle-tile-my {
+.aisle-tile[aria-current="true"] .aisle-tile-my {
   color: color-mix(in oklab, var(--oa) 78%, transparent);
 }
 
@@ -12063,4 +12067,156 @@ html[data-fx="lite"] .mms-scrim {
   .scan-video {
     transition: none;
   }
+}
+
+/* ── Phase 1c · grocery — Browse: the market home's shelves and the aisle view ─────────────────── */
+/* The rail's chips are <a> links now. */
+a.aisle-tile {
+  text-decoration: none;
+}
+/* A shelf: the heading row, then six cards. */
+.aisle-shelf-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-top: var(--s5);
+}
+.aisle-shelf-head .aisle-heading {
+  flex-wrap: wrap;
+  row-gap: 0;
+  min-width: 0;
+  margin: 0;
+}
+.aisle-shelf-head .aisle-heading-count {
+  flex: none;
+}
+/* "See all {n}" — a 44px link in the strong accent (the tinted-surface text variant, AA on --pg). */
+.aisle-shelf-all {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  min-height: 44px;
+  margin-inline-end: calc(-1 * var(--s2));
+  padding-inline: var(--s2);
+  border-radius: var(--r-full);
+  color: var(--ac-strong);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  text-decoration: none;
+}
+@media (hover: hover) {
+  .aisle-shelf-all:hover {
+    text-decoration: underline;
+  }
+}
+/* The phone shelf is a snap rail: two whole cards and a ~40% peek at 390, bled into the gutter
+   (§21 — a lit card's shadow is otherwise sliced square at the scroller's edge), with block padding
+   so a 2px + 3px-offset focus ring is never clipped. */
+.shelf-rail {
+  list-style: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 2 * var(--s2)) / 2.4);
+  gap: var(--s2);
+  margin: 0 calc(-1 * var(--s5));
+  padding: var(--s2) var(--s5);
+  scroll-padding-inline: var(--s5);
+  scroll-snap-type: x mandatory;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.shelf-rail::-webkit-scrollbar {
+  display: none;
+}
+.shelf-rail > * {
+  scroll-snap-align: start;
+}
+/* The trailing fade says "this scrolls" — dropped while a card inside has keyboard focus, so the
+   ring is never masked (the `.aisle-rail-scroll` precedent, WCAG 2.4.7). */
+.shelf-rail:not(:focus-within) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 22px), transparent);
+}
+/* From the tablet tier the shelf is a 3-across grid of its two rows: a mouse has no sideways swipe
+   (§18), so no mouse-unswipeable rails. */
+@media (min-width: 48em) {
+  .shelf-rail {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    padding: var(--s2) 0;
+    overflow: visible;
+    scroll-snap-type: none;
+  }
+  .shelf-rail:not(:focus-within) {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+/* The aisle view lands UNDER the pinned rail (header + ~the rail's own height on a phone; the rail
+   is static from the desktop tier). Its heading takes focus on entry — a visible ring for keyboard,
+   none for a pointer-initiated move. */
+.aisle-view {
+  scroll-margin-top: calc(
+    var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 72px
+  );
+}
+@media (min-width: 64em) {
+  .aisle-view {
+    scroll-margin-top: calc(
+      var(--header-height) + env(safe-area-inset-top, 0px) + var(--lend-offset, 0px) + 8px
+    );
+  }
+}
+.aisle-view .aisle-heading:focus {
+  outline: none;
+}
+.aisle-view .aisle-heading:focus-visible {
+  outline: 2px solid var(--ac);
+  outline-offset: 3px;
+  border-radius: var(--r-sm);
+}
+/* Browse's loading skeleton, in the new geometry (the shimmer + its RM gate are `.mms-skeleton`). */
+.gb-skeleton {
+  margin-top: var(--s3);
+}
+.gb-skel-line {
+  display: block;
+  width: 70%;
+  height: 12px;
+  border-radius: var(--r-full);
+}
+.gb-skel-rail {
+  display: flex;
+  gap: var(--s2);
+  margin: var(--s3) 0;
+  overflow: hidden;
+}
+.gb-skel-pill {
+  flex: none;
+  width: 96px;
+  height: 44px;
+  border-radius: var(--r-full);
+}
+.gb-skel-heading {
+  display: block;
+  width: 45%;
+  height: 18px;
+  margin: var(--s5) 0 var(--s2);
+  border-radius: var(--r-sm);
+}
+.gb-skel-shelf {
+  overflow: hidden;
+}
+.gb-skel-text {
+  display: block;
+  width: 85%;
+  height: 12px;
+  border-radius: var(--r-sm);
+}
+.gb-skel-text-short {
+  width: 55%;
 }

@@ -211,6 +211,9 @@ export default function Grocery() {
     },
     [persistTab],
   );
+  // (j) A popped aisle entry while Scan shows IS a Browse entry — show it, so Back never lands
+  // somewhere invisible. Not persisted: the shopper did not choose it.
+  const showBrowseForPop = useCallback(() => setTab("browse"), []);
   const browseTabRef = useRef<HTMLButtonElement>(null);
   const scanTabRef = useRef<HTMLButtonElement>(null);
   // The basket sheet's close-restore target (see onCloseAutoFocus) — Radix can't restore here
@@ -1041,15 +1044,8 @@ export default function Grocery() {
         </div>
       </div>
 
-      {/* Honest EBT/SNAP disclosure — demoted from the old top-of-page text-wall to one quiet line
-          under the toolbar (undated per the W4a rule; the per-item EBT chips + the Scan-door
-          EBT-eligible subtotal carry the detail). */}
-      <p className="grocery-ebt-note">
-        <span className="grocery-ebt-note-tag" aria-hidden>
-          EBT
-        </span>
-        EBT-eligible items are tagged — SNAP checkout coming; pay by card today.
-      </p>
+      {/* Phase 1c — the EBT/SNAP note moved INTO the Browse panel, where the card EBT tags it
+          explains live; on Scan the EBT-eligible subtotal line under the figure says it. */}
 
       {hits !== null && (
         <ul role="list" aria-label="Search results" className="grocery-results">
@@ -1155,6 +1151,9 @@ export default function Grocery() {
           busyLineId={busyLine}
           onAdd={addFromBrowse}
           onStep={stepQty}
+          active={tab === "browse"}
+          onAnnounce={flash}
+          onAislePop={showBrowseForPop}
         />
       </div>
       {/* The tabpanel stays mounted so the Scan tab's aria-controls never dangles (L3); the
