@@ -86,6 +86,13 @@ export type StaffControl =
       name: string;
       nameMy: string | null;
       modifiers: readonly string[];
+      /**
+       * Phase 2b — REQUIRED, so the one production caller must decide. The line button's
+       * `aria-label` REPLACES its content for assistive tech, so the "Off the menu" tag drawn
+       * inside it is never announced; before 2b a band OUTSIDE the button said it, and 2b deleted
+       * that band. The fact now rides the name.
+       */
+      soldOut: boolean;
     }
   /** The full-width bump. Visible: BUMP / ပြီးပြီ. */
   | { kind: "bump"; id: string; items: number; echo?: ChromeEcho }
@@ -177,10 +184,14 @@ export function al(lang: StaffLang, control: StaffControl): StaffLabel {
       // so one KDS line announced "ပြီး — 2 မုန့်ဟင်းခါး" beside a floor card saying "ပစ္စည်း ၉ ခု".
       // Found by a blind audit; the dictionary's own `kds.bump.what` puts an item count on an `{n}`
       // slot, which is what settles it as prose rather than an identifier.
-      return {
+      const name = {
         visible: dish,
         aria: `${verb} — ${localizeCount(control.qty, lang)} ${dish}${mods}`,
       };
+      // Phase 2b — the sold-out clause, appended AFTER the name above (which stays byte-identical:
+      // it is a verify:slice anchor), so a line that is on the menu reads exactly as before.
+      if (!control.soldOut) return name;
+      return { ...name, aria: `${name.aria} — ${ts(lang, "kds.86.done")}` };
     }
     case "bump": {
       const visible = chromeVisible(lang, "kds.bump", control.echo);

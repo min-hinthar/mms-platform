@@ -24,9 +24,11 @@ import { staffGate } from "./staff";
  * Role floor is SERVER, deliberately lower than `setMenuPrice`'s manager. The person who discovers a
  * dish is out is at the wok or the counter, not at a manager tablet, and an 86 is operational and
  * reversible where a price change is a money decision. The ledger is what keeps it accountable.
- * The floor is reached through the KDS, which every cook can open; /staff/menu is manager-gated at
- * the page, so on that surface the effective floor is manager. That is not a redundancy to tidy
- * away — this action is a public POST endpoint, and the floor here is what actually holds.
+ * The floor is reached through the KDS (behind each line's ⋯ since Phase 2b), which every cook can
+ * open, and through /staff/menu, which is server-and-up too (`app/staff/menu/page.tsx`) — that page
+ * is where a dish is put back once the KDS's 6-second undo has passed. The gate here is not a
+ * redundancy to tidy away — this action is a public POST endpoint, and the floor here is what
+ * actually holds.
  *
  * ⚠️ NO auto-clear. The owner chose a manual lifetime with a visible "sold out since 6:40pm" stamp:
  * a flag that expires on a timer can quietly put a genuinely-empty dish back on sale mid-service,

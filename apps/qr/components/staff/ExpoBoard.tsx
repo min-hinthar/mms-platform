@@ -22,7 +22,7 @@ import { formatSlotLong } from "@/lib/pickupTime";
 import { tf } from "@/lib/i18n/fill";
 import { al, sx } from "@/lib/staff-labels";
 import type { ExpoLine, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
-import { ExpoLineMy } from "./TicketText";
+import { ExpoLineMy, TicketNote } from "./TicketText";
 import { MsgText } from "./StaffMsg";
 import { StaggerList } from "./StaggerList";
 import { Badge, EmptyState, Icon } from "@mms/ui";
@@ -780,8 +780,18 @@ function ExpoLineRow({ line }: { line: ExpoLine }) {
         {line.modifiers.length > 0 && (
           <span style={{ color: "var(--t2)" }}> · {line.modifiers.join(" · ")}</span>
         )}
-        {/* W3b: the allergy/request note rides to the bag too — pack the sauce separately, etc. */}
-        {line.notes && <span style={noteInline}>“{line.notes}”</span>}
+        {/* W3b: the allergy/request note rides to the bag too — pack the sauce separately, etc.
+            Phase 2b: the kitchen's own note (⚠, sr prefix, each Myanmar run marked), as a <span>
+            because this parent is phrasing content; the ⚠ and the warn rule replace the quotes. */}
+        {line.notes && (
+          <TicketNote
+            as="span"
+            id={`expo-note-${line.id}`}
+            lang={lang}
+            note={line.notes}
+            className="expo-note"
+          />
+        )}
       </span>
       <span style={destTag} lang={lang}>
         {ts(lang, line.fulfillment === "grocery" ? "expo.dest.grocery" : "expo.dest.togo")}
@@ -816,12 +826,6 @@ const codeSuffix: CSSProperties = {
 };
 // K27 — the pickup slot, the phone and the scan-and-go note at body size: read at arm's length.
 const secondaryLine: CSSProperties = { margin: 0, fontSize: "var(--fs-body)", color: "var(--t2)" };
-// The note is safety-adjacent — full text color (not muted), quoted so it reads as the diner's words.
-const noteInline: CSSProperties = {
-  display: "block",
-  fontWeight: "var(--fw-bold)",
-  color: "var(--tx)",
-};
 const readyTag: CSSProperties = {
   fontSize: "var(--fs-xs)",
   fontWeight: "var(--fw-heavy)",

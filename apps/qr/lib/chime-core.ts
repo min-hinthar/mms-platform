@@ -110,6 +110,36 @@ export class ChimeEngine {
   private ctx: AudioContext | null = null;
 
   /**
+   * Phase 2b — who wants to hear that the context's state moved (§15: "enabled" and "armed" are two
+   * facts). A tablet that sleeps, a phone call, an OS audio interruption all SUSPEND the context
+   * out from under an armed engine, and nothing told the UI: the KDS kept showing its volume slider
+   * while every ticket landed silent. Listeners are held here; ONE handler that calls them all is
+   * attached to the context's `statechange` when `arm` creates the context (so a subscription made
+   * before or after that hears it alike), and they are notified once more after `arm` settles.
+   * Additive: no envelope and no arm behaviour changed.
+   */
+  private listeners = new Set<() => void>();
+  private readonly notify = () => {
+    for (const cb of [...this.listeners]) cb();
+  };
+  /** Idempotent: an EventTarget ignores a second add of the SAME listener, so re-arming never
+   *  stacks one. A context without EventTarget (a stub) simply never reports a change. */
+  private attach(ctx: AudioContext): void {
+    if (typeof ctx.addEventListener === "function")
+      ctx.addEventListener("statechange", this.notify);
+  }
+
+  /** Hear every change of `armed`. Returns the unsubscribe. */
+  subscribe(cb: () => void): () => void {
+    // Nothing to attach here: `arm` attaches the ONE `notify` handler to the context the moment it
+    // creates it, and `notify` reads this set at dispatch time — before or after, same listener.
+    this.listeners.add(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
+  }
+
+  /**
    * Create/resume the context. MUST be called synchronously from a user gesture — browsers create an
    * AudioContext `suspended` and only resume from a real interaction, strictly so on iOS.
    * Returns whether audio is actually usable; a device without WebAudio answers false rather than
@@ -118,10 +148,15 @@ export class ChimeEngine {
   async arm(): Promise<boolean> {
     try {
       this.ctx ??= new AudioContext();
+      this.attach(this.ctx);
       if (this.ctx.state === "suspended") await this.ctx.resume();
       return this.ctx.state === "running";
     } catch {
       return false;
+    } finally {
+      // Phase 2b — once more after the arm settles, whatever it answered: a resume that resolved
+      // with the context still suspended fires no `statechange`, and the UI must still hear it.
+      this.notify();
     }
   }
 

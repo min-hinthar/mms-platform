@@ -312,3 +312,87 @@ describe("ChimeEngine — the node graph, asserted rather than assumed", () => {
     expect(calls).toStrictEqual([]);
   });
 });
+
+// ── Phase 2b · kitchen ──
+describe("ChimeEngine.subscribe — the UI hears the context's state move (§15)", () => {
+  /** A context that IS an EventTarget, so `statechange` can be dispatched the way a browser does. */
+  function eventAudio() {
+    const made: EventTarget[] = [];
+    class Ctx extends EventTarget {
+      state: AudioContextState = "suspended";
+      currentTime = 0;
+      destination = {};
+      constructor() {
+        super();
+        made.push(this);
+      }
+      async resume() {
+        this.state = "running";
+        this.dispatchEvent(new Event("statechange"));
+      }
+    }
+    Object.defineProperty(globalThis, "AudioContext", { configurable: true, value: Ctx });
+    return made;
+  }
+
+  it("a subscription made BEFORE the context exists hears it once arm() creates it", async () => {
+    const made = eventAudio();
+    const engine = new ChimeEngine();
+    const seen: boolean[] = [];
+    engine.subscribe(() => seen.push(engine.armed));
+    expect(made).toHaveLength(0);
+    expect(await engine.arm()).toBe(true);
+    expect(seen.at(-1)).toBe(true);
+    // The OS suspends the context out from under the armed engine (sleep, a call). MUTATION (by
+    // hand): never attach the listener — the arm-settled notify alone misses this, red.
+    const before = seen.length;
+    const ctx = made[0] as EventTarget & { state: AudioContextState };
+    ctx.state = "suspended";
+    ctx.dispatchEvent(new Event("statechange"));
+    expect(seen.length).toBe(before + 1);
+    expect(seen.at(-1)).toBe(false);
+  });
+
+  it("a subscription made AFTER the context exists is attached too, and unsubscribe stops it", async () => {
+    const made = eventAudio();
+    const engine = new ChimeEngine();
+    await engine.arm();
+    let calls = 0;
+    const off = engine.subscribe(() => calls++);
+    const ctx = made[0] as EventTarget & { state: AudioContextState };
+    ctx.state = "suspended";
+    ctx.dispatchEvent(new Event("statechange"));
+    expect(calls).toBe(1);
+    off();
+    ctx.dispatchEvent(new Event("statechange"));
+    expect(calls).toBe(1);
+    // ONE context, and re-arming never stacks a second listener: one event, one call.
+    let again = 0;
+    engine.subscribe(() => again++);
+    ctx.state = "suspended";
+    await engine.arm(); // resume() dispatches one statechange, then the settle notifies once
+    expect(made).toHaveLength(1);
+    expect(again).toBe(2);
+    ctx.dispatchEvent(new Event("statechange"));
+    expect(again).toBe(3);
+  });
+
+  it("is told once after an arm that answers false with no state change (no statechange fires)", async () => {
+    // iOS without activation: resume() settles, the context stays suspended, no event. The UI must
+    // still re-read `armed` rather than wait for an event that never comes.
+    Object.defineProperty(globalThis, "AudioContext", {
+      configurable: true,
+      value: class extends EventTarget {
+        state: AudioContextState = "suspended";
+        currentTime = 0;
+        destination = {};
+        async resume() {}
+      },
+    });
+    const engine = new ChimeEngine();
+    let calls = 0;
+    engine.subscribe(() => calls++);
+    expect(await engine.arm()).toBe(false);
+    expect(calls).toBe(1);
+  });
+});

@@ -48,6 +48,8 @@ import {
 } from "lucide-react";
 // ── Phase 1c · grocery ── the Scan door's glyphs (all three present in lucide-react@0.562.0)
 import { Camera, CameraOff, ScanBarcode } from "lucide-react";
+// ── Phase 2b · kitchen ── the KDS line's ⋯ (present in lucide-react@0.562.0)
+import { Ellipsis } from "lucide-react";
 
 /**
  * The brand icon set (W2b) — retires functional emoji-as-chrome (🔍🗑🧾🪑♥💳🔥🥡🎁🛒📍…) with a
@@ -115,6 +117,8 @@ const ICONS = {
   scan: ScanBarcode,
   camera: Camera,
   "camera-off": CameraOff,
+  // ── Phase 2b · kitchen ── the KDS line's ⋯ (the 86 lives behind it)
+  more: Ellipsis,
 } satisfies Record<string, LucideIcon>;
 
 export type IconName = keyof typeof ICONS;

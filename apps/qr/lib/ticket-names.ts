@@ -142,3 +142,38 @@ export function allDayRows(lines: Iterable<AllDayLine>): AllDayRow[] {
   }
   return [...rows.values()].sort((a, b) => b.qty - a.qty);
 }
+
+/** One run of a free-text note in a single script — `my` when it is Burmese. */
+export type NoteRun = { text: string; my: boolean };
+
+/** A letter or a combining mark in ANY script — what makes a character belong to a run. */
+const LETTER_OR_MARK = /[\p{L}\p{M}]/u;
+
+/**
+ * Phase 2b · kitchen — a diner's or a server's free-text kitchen note, split into maximal runs by
+ * script, so the renderer can mark each Burmese run `lang="my"` (Padauk, `--lh-my`, a Burmese voice)
+ * while the Latin runs stay bare text — an unmarked note is typeset in the body face's fallback,
+ * clips stacked marks at line-height 1.3, and is announced as English (DESIGN-LANGUAGE §6).
+ *
+ * Classification reuses `MYANMAR_SCRIPT` (no third copy of the script test). A NEUTRAL character —
+ * whitespace, punctuation, a symbol, a Latin digit — joins the run before it, or the run after it
+ * when the note starts with one, so `no peanuts — မြေပဲ` is `no peanuts — ` + `မြေပဲ`: the space and
+ * the dash ride the English. A note of nothing but neutrals is one Latin run; a blank note is `[]`.
+ */
+export function noteRuns(note: string): NoteRun[] {
+  if (note.trim() === "") return [];
+  const runs: NoteRun[] = [];
+  let lead = "";
+  for (const ch of note) {
+    const my = MYANMAR_SCRIPT.test(ch);
+    const last = runs[runs.length - 1];
+    if (!my && !LETTER_OR_MARK.test(ch)) {
+      if (last) last.text += ch;
+      else lead += ch;
+      continue;
+    }
+    if (last && last.my === my) last.text += ch;
+    else runs.push({ text: runs.length === 0 ? lead + ch : ch, my });
+  }
+  return runs.length > 0 ? runs : [{ text: lead, my: false }];
+}

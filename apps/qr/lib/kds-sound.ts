@@ -16,7 +16,7 @@ import { ChimeEngine, type ChimeNote } from "./chime-core";
  * level, and the persisted per-device volume. The diner's policy inverts on every one of those axes
  * (`chime.ts` has the table), so the two policies are still two files — only the oscillator plumbing
  * is one. `KdsChime`'s surface (`arm` · `armed` · `play(channel, soft)`) is unchanged, so no KDS
- * caller was touched by that move.
+ * caller was touched by that move. Phase 2b added `subscribe` (a passthrough to the engine's).
  */
 
 const VOLUME_KEY = "mms.kds.volume"; // 0..1, persisted per device
@@ -50,6 +50,11 @@ export class KdsChime {
 
   get armed(): boolean {
     return this.engine.armed;
+  }
+
+  /** Phase 2b — hear every change of `armed` (the context suspended under a sleeping tablet). */
+  subscribe(cb: () => void): () => void {
+    return this.engine.subscribe(cb);
   }
 
   /** Play the channel's tone. `soft` halves the level (the 60–90s un-started re-chime). */

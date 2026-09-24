@@ -7291,6 +7291,7 @@ a .chrome-en {
    reads the tier off the first `.kds-root {` in this sheet, so `.kds-root` stays the last selector
    here and this block stays above the root's layout block below. */
 .help-pic,
+.kds-menu-body,
 .kds-root {
   --kfs-id: 2rem; /* 32px ticket identity (table # / first name) */
   --kfs-item: 1.75rem; /* 28px item lines, weight 800 — the signage rule */
@@ -7532,25 +7533,43 @@ a .chrome-en {
   padding: 0;
   flex: 1;
 }
-/* Per-line check-off (Toast's partial-fulfillment tap): the WHOLE row is the button — ≥56px, full
-   width, giant text. data-state=in_progress washes the row so "started" is visible at a glance. */
+/* Phase 2b · kitchen — a food line is an ITEM: the row (the Start/Done tap and its ⋯), then the
+   dish's note. The divider and the started wash live on the item, so the wash covers the row, the ⋯
+   and the note together, and a note can only belong to the dish ABOVE it (the divider closes one
+   dish and opens the next). */
+.kds-item {
+  border-top: 1px solid var(--bd);
+}
+.kds-item[data-state="in_progress"] {
+  background: color-mix(in srgb, var(--ac) 12%, transparent);
+  /* Phase 2b (commit 2) — a started dish is a bar down the ticket's left edge (--ac ≈7:1 on --cd),
+     seen in peripheral vision from across the pass, so two cooks stop starting the same plate. The
+     COOKING tag stays, so colour is never the only signal. A state, not an animation. */
+  box-shadow: inset 4px 0 0 var(--ac);
+}
+.kds-item-row {
+  display: flex;
+  align-items: stretch;
+}
+/* Per-line check-off (Toast's partial-fulfillment tap): the WHOLE row is the button — ≥56px, giant
+   text, filling the row beside its ⋯. */
 .kds-line {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   padding: 10px 14px;
   min-height: 56px;
   border: 0;
-  border-top: 1px solid var(--bd);
   background: none;
   color: inherit;
   text-align: left;
   font: inherit;
   cursor: pointer;
 }
-.kds-line[data-state="in_progress"] {
-  background: color-mix(in srgb, var(--ac) 12%, transparent);
+.kds-item-row > .kds-line:not(:last-child) {
+  padding-right: 8px;
 }
 /* §17: `aria-disabled`, never `:disabled` — a native disabled button drops focus to <body> the
    moment it is tapped, and the busy name is then spoken from nowhere. The handler refuses re-entry. */
@@ -7558,6 +7577,40 @@ a .chrome-en {
   cursor: default;
   opacity: var(--kds-line-off-op);
 }
+/* Phase 2b (K22) — the line's ⋯, where the 86 lives now. 48px wide (over the 44px floor, sized for
+   wet gloves) and the row's full height, so its hit box shares the line's edge; a hairline on its
+   left separates the two targets with no gap a finger could fall into. The glyph is sized in em
+   against the dial (≈24/28/31px at S/M/L). A ghost: the bump and the rows outrank it. */
+.kds-line-more {
+  flex: none;
+  width: 48px;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--bd);
+  background: none;
+  color: var(--t2);
+  font-size: var(--kfs-mod);
+  cursor: pointer;
+}
+.kds-line-more > svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+.kds-line-more[aria-expanded="true"] {
+  color: var(--tx);
+}
+@media (hover: hover) {
+  .kds-line-more:hover:not([aria-disabled="true"]) {
+    color: var(--tx);
+    background: color-mix(in srgb, var(--tx) 6%, transparent);
+  }
+}
+/* Phase 2b (commit 2) — the quantity chip. A single is QUIET: a --tx numeral in a 2px --bd ring;
+   only a multiple (`data-many`, `qtyStands`) wears the lit accent fill, so a 2 jumps off the ticket
+   instead of reading like a 1. The owner's call, reversible in this one rule pair. */
 .kds-qty {
   flex: none;
   min-width: 44px;
@@ -7565,12 +7618,18 @@ a .chrome-en {
   padding: 0 6px;
   display: grid;
   place-items: center;
-  background: var(--ac);
-  color: var(--oa);
+  background: transparent;
+  color: var(--tx);
+  box-shadow: inset 0 0 0 2px var(--bd);
   border-radius: 10px;
   font-size: var(--kfs-item);
   font-weight: var(--fw-heavy);
   line-height: 1;
+}
+.kds-qty[data-many="true"] {
+  background: var(--ac);
+  color: var(--oa);
+  box-shadow: none;
 }
 .kds-line-main {
   min-width: 0;
@@ -7597,6 +7656,21 @@ a .chrome-en {
   text-transform: uppercase;
   letter-spacing: var(--track-wide);
   color: var(--ac);
+}
+/* Phase 2b — OFF THE MENU, a fact on the line: --tx ink (warn measures 4.44:1 on the started tint,
+   under 4.5 at 13px; --tx is ≥10:1) with the hue carried by a ≥3:1 warn dot, so colour is never the
+   only signal. Pinned by composite-contrast.test.ts. */
+.kds-line-off {
+  color: var(--tx);
+}
+.kds-line-off-dot {
+  display: inline-block;
+  width: 0.55em;
+  height: 0.55em;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-right: var(--s1);
+  vertical-align: 0.05em;
 }
 /* P1 — the Burmese-first line. The catalog's name_my takes the primary slot (lang="my") and the
    English snapshot echoes beneath (.kds-line-en); an English-only line is BYTE-IDENTICAL to pre-P1
@@ -7681,56 +7755,58 @@ a .chrome-en {
   font-size: var(--kfs-meta);
   font-weight: var(--fw-semibold);
 }
-/* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b). */
-/* W23a — the per-line 86 control. A quiet SECONDARY next to the full-width bump target: taking a
-   dish off the menu is a deliberate act, and it must never compete for the tap that moves the ticket.
-   Still a real 44px target — kitchen hands, wet gloves, a tablet on a shelf. */
-.kds-line-86 {
-  display: block;
-  width: calc(100% - 28px);
-  min-height: 44px;
-  margin: 6px 14px 0;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--warn) 45%, var(--bd));
-  background: transparent;
-  color: var(--warn);
-  font: inherit;
-  font-weight: var(--fw-heavy);
-  font-size: var(--kfs-mod);
-  cursor: pointer;
-}
-.kds-line-86[aria-disabled="true"] {
-  opacity: 0.55;
-  cursor: default;
-}
-@media (hover: hover) {
-  .kds-line-86:hover:not([aria-disabled="true"]) {
-    background: color-mix(in srgb, var(--warn) 14%, transparent);
-  }
-}
-/* Already 86'd — a statement where the control was, so the row keeps its rhythm and nobody reaches
-   for an action that no longer exists. Filled rather than outlined: this is a fact, not an offer. */
-.kds-line-86-done {
-  display: block;
-  margin: 6px 14px 0;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--warn) 22%, transparent);
-  color: var(--warn);
-  font-weight: var(--fw-heavy);
-  font-size: var(--kfs-mod);
-  text-align: center;
-}
+/* The note band — the HIGHEST-contrast element on the card (allergy channel, W3b), and since Phase 2b
+   the ONLY warn band inside a ticket. It sits directly under its dish (outside the line button, so a
+   held line's fade never reaches it). A flex row with EXACTLY two children — the ⚠ and ONE text span
+   (`TicketNote`): §6, a flex container drops whitespace-only children, so the script runs live
+   inside that one inline span where the spaces between them survive. */
 .kds-note {
-  margin: 8px 14px 4px;
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  margin: 2px 14px 10px;
   padding: 8px 12px;
   border-radius: 8px;
   border: 2px solid var(--warn);
   background: color-mix(in srgb, var(--warn) 30%, var(--cd));
+  color: var(--tx);
   font-size: var(--kfs-mod);
   font-weight: var(--fw-heavy);
   line-height: 1.3;
   overflow-wrap: anywhere;
+}
+.kds-note > svg,
+.expo-note > svg {
+  flex: none;
+  width: 1em;
+  height: 1em;
+  margin-top: 0.15em;
+}
+.kds-note > .ticket-note-text,
+.expo-note > .ticket-note-text {
+  flex: 1;
+  min-width: 0;
+}
+/* A Burmese run of the note: Padauk at its heaviest cut (700 — a declared 800 resolves to the same
+   face), never faux-bolded, at the Burmese leading (1.3 clips stacked marks; P1 measured it). */
+.kds-note [lang="my"],
+.expo-note [lang="my"] {
+  font-family: var(--font-my);
+  font-weight: var(--fw-bold);
+  font-synthesis: none;
+  line-height: var(--lh-my);
+}
+/* The expo bag line's note (a <span>: its parent is phrasing content). The ⚠ and the warn rule mark
+   it as the diner's words, so the quotes are gone. */
+.expo-note {
+  display: flex;
+  gap: var(--s1);
+  margin-top: var(--s1);
+  padding-left: var(--s2);
+  border-left: 3px solid var(--warn);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  color: var(--tx);
 }
 
 .kds-bump {
@@ -7752,12 +7828,19 @@ a .chrome-en {
 .kds-bump-fire {
   background: var(--ac);
 }
+/* Phase 2b (commit 2) — the ✓ scales with its label (--kfs-clock follows the dial: 21.6/25.2/28.8px)
+   instead of a fixed 22px; the same rule reaches help card 1's replica. */
+.kds-bump > svg {
+  width: 0.9em;
+  height: 0.9em;
+}
 /* §17 — busy is the ATTRIBUTE (the handler refuses re-entry), shown as a dim, never a label swap or
    native `disabled`: the bump, the recall buttons and the undo bar each keep their name and their
    focus through the round trip. */
 .kds-bump[aria-disabled="true"],
 .kds-recall-btn[aria-disabled="true"],
-.kds-undo > button[aria-disabled="true"] {
+.kds-undo > button[aria-disabled="true"],
+.kds-line-more[aria-disabled="true"] {
   opacity: 0.6;
   cursor: progress;
 }
@@ -7951,7 +8034,8 @@ a .chrome-en {
 /* The 6s undo toast after a ticket bump. */
 .kds-undo {
   position: fixed;
-  bottom: 18px;
+  /* Phase 2b (xcut-10) — clear of the home indicator on a notched tablet or phone. */
+  bottom: calc(var(--s4) + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   z-index: var(--z-toast); /* a transient notice: above a sheet, below the recovery alert */
@@ -7979,6 +8063,32 @@ a .chrome-en {
   font-weight: var(--fw-heavy);
   font-size: var(--kfs-meta);
   cursor: pointer;
+}
+
+/* Phase 2b (K22) — the ⋯ sheet: the hint, the ONE region (zero-height until a refusal; it sits
+   ABOVE the button, so a message grows the bottom-anchored sheet upward and the button never moves
+   under the finger), then the 86 (a danger xl Button). `.kds-menu-body` is a `--kfs-*` tier host,
+   so the sheet follows the board's text dial like help-1's pictures. */
+.kds-menu .kds-menu-hint {
+  margin: 0 0 var(--s3);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-semibold);
+  color: var(--tx);
+}
+.kds-menu .kds-menu-msg {
+  margin: 0 0 var(--s3);
+  font-size: var(--kfs-meta);
+  font-weight: var(--fw-bold);
+  color: var(--warn);
+}
+.kds-menu .kds-menu-msg:empty {
+  margin: 0;
+}
+.kds-menu .kds-menu-off {
+  margin: 0;
+  font-size: var(--kfs-mod);
+  font-weight: var(--fw-heavy);
+  color: var(--tx);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -10087,6 +10197,7 @@ html[data-fx="lite"] .mms-scrim {
    board behind it drew Large. `.kds-root` stays the LAST selector: `kds-size.test.ts` reads each
    stop off `.kds-root[data-size="…"] {`. */
 .help-pic[data-size="m"],
+.kds-menu-body[data-size="m"],
 .kds-root[data-size="m"] {
   --kfs-id: 2.25rem; /* 36 */
   --kfs-item: 2rem; /* 32 */
@@ -10097,6 +10208,7 @@ html[data-fx="lite"] .mms-scrim {
   --kfs-label: 0.9375rem; /* 15 */
 }
 .help-pic[data-size="l"],
+.kds-menu-body[data-size="l"],
 .kds-root[data-size="l"] {
   --kfs-id: 2.5rem; /* 40 */
   --kfs-item: 2.25rem; /* 36 */

@@ -336,3 +336,32 @@ describe("counter-7 — the header wears the bag's due-ness, and nothing before 
     expect(heads[1]!.querySelector(".expo-age")).toBeNull();
   });
 });
+
+// ── Phase 2b · kitchen ──
+describe("Phase 2b — the bag line's note is the kitchen's TicketNote: ⚠, sr prefix, marked runs", () => {
+  it("a noted bag line renders a SPAN .expo-note; a note-less line renders none", () => {
+    // MUTATION (red-first, by hand): restore the quoted `<span style={noteInline}>“…”</span>` — no
+    // .expo-note, no ⚠, and the Burmese run is typeset and voiced as English, red.
+    const noted = ticket({
+      lines: [
+        { ...ticket().lines[0]!, id: "l-1", notes: "no peanuts — မြေပဲ" },
+        { ...ticket().lines[0]!, id: "l-2", name: "Tea Leaf Salad", notes: null },
+      ],
+    });
+    const { container } = mount("en", queue([noted]));
+    const notes = container.querySelectorAll(".expo-note");
+    expect(notes).toHaveLength(1);
+    const note = notes[0]!;
+    expect(note.tagName).toBe("SPAN");
+    expect(note.id).toBe("expo-note-l-1");
+    expect(note.children).toHaveLength(2);
+    expect(note.children[0]!.tagName.toLowerCase()).toBe("svg");
+    expect(note.children[0]!.getAttribute("aria-hidden")).toBe("true");
+    const text = note.querySelector(".ticket-note-text")!;
+    expect(text.firstElementChild!.className).toBe("sr-only");
+    expect(text.firstElementChild!.textContent).toBe(`${ts("en", "kds.note.sr")} — `);
+    expect(text.querySelector('[lang="my"]')?.textContent).toBe("မြေပဲ");
+    // The quotes are gone: the ⚠ and the warn rule mark it as the diner's words.
+    expect(note.textContent).not.toContain("“");
+  });
+});
