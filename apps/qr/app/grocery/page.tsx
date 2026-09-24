@@ -1,12 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { TransitionLink, useJourneyRouter } from "@/components/nav/TransitionNav"; // J1 journey grammar
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { useCtaDock } from "@/lib/hooks/useCtaDock";
 import posthog from "posthog-js";
-import { Icon, NumberFlow, Toast } from "@mms/ui";
-import { BarcodeScanner } from "@/components/BarcodeScanner";
+import { Card, Icon, NumberFlow, Toast } from "@mms/ui";
 import { BlurUpImage } from "@/components/menu/BlurUpImage";
 import { PhotoPlaceholder } from "@/components/menu/PhotoPlaceholder";
 import {
@@ -19,6 +18,11 @@ import {
 } from "@/lib/grocery";
 import { GroceryBrowse } from "@/components/grocery/GroceryBrowse";
 import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
+import { ScanStage } from "@/components/grocery/ScanStage";
+import { ScanResult } from "@/components/grocery/ScanResult";
+import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
+import { slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
+import { t as kioskT } from "@/lib/kiosk/strings";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
 import { menuHref } from "@/lib/menu-href";
@@ -83,6 +87,21 @@ export default function Grocery() {
   // as a repeat, so the "Add another" path is on screen BEFORE the shopper presents a second copy.
   const [lastScanned, setLastScanned] = useState<string | null>(null);
   const [busyLine, setBusyLine] = useState<string | null>(null); // one in-flight stepper op at a time
+  // Phase 1c — the Scan door's result bar (chip or notice), written at EVERY outcome in `add()`
+  // through the pure `slotAfter` (lib/scan-notice.ts): a miss persists where the eye is, and a
+  // repeat after a miss brings the chip — and "Add another" — back.
+  const [slot, setSlot] = useState<ScanSlot>(null);
+  const slotSeq = useRef(0);
+  const noteOutcome = useCallback(
+    (outcome: ScanOutcome, via: "scan" | "rescan" | "search" | "browse", barcode: string) => {
+      const key = ++slotSeq.current; // taken OUTSIDE the updater (StrictMode re-runs updaters)
+      setSlot((prev) => slotAfter(prev, { outcome, via, barcode, key }));
+    },
+    [],
+  );
+  // `grocery_scan_miss` fires once per barcode per page life — the 1.5s re-announce cannot inflate
+  // it. It harvests the real shelf codes shoppers try (C6: the catalog's codes are synthetic).
+  const missedRef = useRef<Set<string>>(new Set());
 
   // K5 — reads land out of order on flaky mobile radios (a visibilitychange sync issued on a waking
   // radio can resolve AFTER a scan that was issued later — the stale snapshot would make the just-
@@ -135,30 +154,73 @@ export default function Grocery() {
   const [searchFailed, setSearchFailed] = useState(false); // a failed search ≠ an empty one — say so
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // W4b — the Browse|Scan tab. Browse is the default door (discovery-first; the camera permission
-  // ask waits until the shopper actually chooses Scan). The choice sticks for the visit via
-  // sessionStorage, read AFTER mount (an initializer read would diverge from the SSR'd markup).
-  const [tab, setTab] = useState<"browse" | "scan">("browse");
-  useEffect(() => {
-    // Microtask defer (the TableCartProvider pattern) — the restore setState lands async, so the
-    // effect body itself schedules no render.
-    void Promise.resolve(window.sessionStorage.getItem("mms-grocery-tab")).then((stored) => {
-      if (stored === "scan") setTab("scan");
-    });
-  }, []);
-  const pickTab = useCallback((t: "browse" | "scan") => {
-    setTab(t);
+  // W4b — the Browse|Scan tab. Browse is the DEFAULT door (lib/grocery-landing.ts says why and what
+  // switching it would owe); the camera ask waits until the shopper chooses Scan. Phase 1c — the
+  // landing ladder: `?tab=scan|browse` (an in-store link) → the visit's stored tap → an `#aisle-*`
+  // hash → the default.
+  //  · `?tab` is read by the SERVER render too (`app/layout.tsx` is force-dynamic, so SSR and the
+  //    first client render agree — the AccountUpgrade precedent), so a `?tab=scan` visitor sees the
+  //    Scan door from the first frame. Captured ONCE: the strip below must not re-derive it.
+  //  · the stored tap and the hash are read in the post-mount microtask. The only flip that can
+  //    happen after mount is browse → scan, so the camera never starts on a door about to flip away.
+  //  · only taps and `?tab` write storage; the default never does.
+  const searchParams = useSearchParams();
+  const [tabParam] = useState(() => searchParams.get("tab"));
+  const [tab, setTab] = useState<GroceryDoor>(
+    () => groceryLanding({ tabParam, stored: null, aisleHash: null }).door,
+  );
+  const persistTab = useCallback((door: GroceryDoor) => {
     try {
-      window.sessionStorage.setItem("mms-grocery-tab", t);
+      window.sessionStorage.setItem("mms-grocery-tab", door);
     } catch {
       /* deliberate: storage full/blocked only loses tab persistence, never function */
     }
   }, []);
+  useEffect(() => {
+    // Microtask defer (the TableCartProvider pattern) — the restore setState lands async, so the
+    // effect body itself schedules no render.
+    void Promise.resolve().then(() => {
+      let stored: string | null = null;
+      try {
+        stored = window.sessionStorage.getItem("mms-grocery-tab");
+      } catch {
+        /* deliberate: an unreadable store is simply no stored tap */
+      }
+      const landing = groceryLanding({ tabParam, stored, aisleHash: window.location.hash });
+      if (landing.door === "scan") setTab("scan");
+      if (landing.reason === "link" && parseDoor(tabParam)) {
+        // The link becomes the visit's choice, and leaves the URL — so a later Browse tap survives
+        // a reload instead of being overruled by the stale `?tab`. `history.state` passes through so
+        // Next's patched history bails (the Checkout precedent).
+        persistTab(landing.door);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("tab");
+        window.history.replaceState(
+          window.history.state,
+          "",
+          `${url.pathname}${url.search}${url.hash}`,
+        );
+      }
+      posthog.capture("grocery_landing", { door: landing.door, reason: landing.reason });
+    });
+  }, [tabParam, persistTab]);
+  const pickTab = useCallback(
+    (door: GroceryDoor) => {
+      setTab(door);
+      persistTab(door);
+    },
+    [persistTab],
+  );
   const browseTabRef = useRef<HTMLButtonElement>(null);
   const scanTabRef = useRef<HTMLButtonElement>(null);
   // The basket sheet's close-restore target (see onCloseAutoFocus) — Radix can't restore here
   // itself because the Sheet primitive renders no Dialog.Trigger.
   const basketBtnRef = useRef<HTMLButtonElement>(null);
+  // Phase 1c (k) — the Scan panel unmounts its stage for a FINISHED basket (W9d). If focus was inside
+  // it, it lands on the banner's "Start a fresh basket" instead of falling to <body>.
+  const scanPanelRef = useRef<HTMLDivElement>(null);
+  const freshBtnRef = useRef<HTMLButtonElement>(null);
+  const freshFocusRef = useRef(false);
   // M126 (Codex #238 P1) — the grocery dock publishes its height too. Without this the ambient's
   // pause coin sits UNDER this bar on a coarse pointer: same lower-left band, same --z-toolbar,
   // and this rule is later in globals.css, so it paints over the coin AND swallows its taps —
@@ -188,6 +250,12 @@ export default function Grocery() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (!cartGone || !freshFocusRef.current) return;
+    freshFocusRef.current = false;
+    freshBtnRef.current?.focus();
+  }, [cartGone]);
 
   // Warm /cart so tapping "Check out" navigates without a cold server round-trip (matches CartBar).
   useEffect(() => {
@@ -225,6 +293,7 @@ export default function Grocery() {
   const markCartGone = useCallback(
     (seq: number, reason: CartUnavailable) => {
       if (seq <= appliedSeq.current) return; // stale — a fresher view already applied
+      if (scanPanelRef.current?.contains(document.activeElement)) freshFocusRef.current = true;
       applyLines(seq, []);
       setHydrated(true);
       setSyncFailed(false);
@@ -371,7 +440,7 @@ export default function Grocery() {
   // is the attempt's identity minted by add() — the SAME id the live attempt carried (or would
   // have), so a lost-response live add and its queued retry dedupe to one write (review HIGH).
   const queueOffline = useCallback(
-    (barcode: string, scanId: string) => {
+    (barcode: string, scanId: string, via: "scan" | "rescan" | "search" | "browse") => {
       if (!cartId) return false;
       if (!storageWorks()) {
         flash("You look offline — scanning needs a connection on this device.");
@@ -390,9 +459,10 @@ export default function Grocery() {
       );
       syncPending();
       setLastScanned(barcode); // the chip's "Add another" is the offline second copy too
+      noteOutcome("queued", via, barcode);
       return true;
     },
-    [cartId, flash, syncPending],
+    [cartId, flash, syncPending, noteOutcome],
   );
 
   // The ONE add path — a scan and a tapped search hit both go through here. Memoized on cartId so the
@@ -417,6 +487,7 @@ export default function Grocery() {
           // Never silent: the toast says what happened and the chip below the viewfinder carries
           // the one-tap path. A refusal the shopper can't see is a wrong number on the receipt.
           setLastScanned(barcode);
+          noteOutcome("repeat", via, barcode);
           flash(
             verdict.where === "basket"
               ? `${verdict.name} is already in your basket (×${verdict.qty}) — tap “Add another” for a second.`
@@ -437,7 +508,7 @@ export default function Grocery() {
       // honest refusal — scan verdicts (unknown/weighed/terminal) can only come from the server,
       // and a queued scan later refused is a lie about money.
       if (typeof navigator !== "undefined" && !navigator.onLine && cartId) {
-        queueOffline(barcode, scanId);
+        queueOffline(barcode, scanId, via);
         return;
       }
       if (!cartId) {
@@ -463,13 +534,14 @@ export default function Grocery() {
           if (
             typeof navigator !== "undefined" &&
             !navigator.onLine &&
-            queueOffline(barcode, scanId)
+            queueOffline(barcode, scanId, via)
           )
             return;
           // ONE toast, immediately, using the truth we already hold (the module-cached verdict, so
           // the second failure in an outage is already attributed). The probe runs fire-and-forget
           // to warm that cache — deliberately NOT awaited: a re-flash after the 1800ms toast timer
           // would announce twice for one failure and pop a toast seconds after the tap.
+          noteOutcome("transport", via, barcode); // leaves the bar as it was — the toast speaks
           flash(failureCopy(truth, "add that"));
           void diagnose();
         }
@@ -482,6 +554,9 @@ export default function Grocery() {
       // SAME-cart stale-view case stays fully live: a later sync applying first only makes
       // markCartAlive skip the view — the add really happened, so its toast/analytics still run.
       if (cartIdRef.current !== cartId) return;
+      // Phase 1c — every refusal goes through the ONE slot rule: a catalog miss plants a notice
+      // (camera paths only), a basket reason leaves the bar as it was (lib/scan-notice.ts).
+      if (!r.ok) noteOutcome(r.reason, via, barcode);
       if (r.ok) {
         // W13 — deliberately POST-verdict (unlike the menu's optimistic buzz): a scan's outcome
         // (unknown barcode / unavailable / weighed) only the server can give — buzzing "added"
@@ -493,6 +568,7 @@ export default function Grocery() {
         // precisely when a second sighting would otherwise bill again.
         billedRef.current.add(barcode);
         setLastScanned(barcode);
+        noteOutcome("ok", via, barcode);
         // The scan's OWN response carries the fresh server view (one round trip, the addItem
         // pattern) — the list is cart truth, not a parallel client ledger. `lines: null` = the
         // post-write read failed: keep the current list (a failed read is never an empty basket);
@@ -513,12 +589,23 @@ export default function Grocery() {
           cart_size: addedRef.current,
           via,
         });
-      } else if (r.reason === "weighed_item") {
-        flash("Weighed item — see staff");
-      } else if (r.reason === "unavailable") {
-        flash("Out of stock right now");
-      } else if (r.reason === "unknown_barcode") {
-        flash(`Not found: ${barcode} — try searching by name`);
+      } else if (
+        r.reason === "weighed_item" ||
+        r.reason === "unavailable" ||
+        r.reason === "unknown_barcode"
+      ) {
+        // Phase 1c — a catalog miss persists in the stage's result bar (a camera miss only — see
+        // the `noteOutcome` above the chain); the toast says the same words once, as the view's
+        // announcement. The weighed / unavailable wording is the kiosk's shipped copy, named once.
+        if (r.reason === "unknown_barcode") {
+          flash("Barcode not on file — search by name.");
+          if (!missedRef.current.has(barcode)) {
+            missedRef.current.add(barcode);
+            posthog.capture("grocery_scan_miss", { barcode });
+          }
+        } else {
+          flash(kioskT("en", r.reason === "weighed_item" ? "scanWeighed" : "scanUnavailable"));
+        }
       } else if (isTerminal(r.reason)) {
         // W9d — the add failed because the BASKET is finished, not because of the radio: the
         // shared, seq-guarded transition (list empties · banner · sheet reset · toast).
@@ -541,7 +628,7 @@ export default function Grocery() {
         void diagnose();
       }
     },
-    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose, queueOffline],
+    [cartId, sessionError, flash, markCartAlive, markCartGone, diagnose, queueOffline, noteOutcome],
   );
 
   // W7b — the reconnect drain: strictly serialized FIFO through the SAME discipline as a live add
@@ -641,6 +728,23 @@ export default function Grocery() {
     (lastScanned ? lookupCachedItem(lastScanned)?.name : undefined) ??
     null;
   const showRescanChip = Boolean(lastScanned) && (Boolean(lastScannedLine) || lastScannedQueued);
+
+  // Phase 1c — "Search by name" from any stage panel or the unknown-barcode notice: the one field,
+  // centred (instant under reduced motion), focused without a second scroll.
+  const focusSearch = useCallback(() => {
+    const el = searchRef.current;
+    if (!el) return;
+    const reduce =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ block: "center", behavior: reduce ? "instant" : "smooth" });
+    el.focus({ preventScroll: true });
+  }, []);
+  // Dismiss clears the bar and hands focus back to the stage box (the ✕ that held it unmounts).
+  const dismissSlot = useCallback(() => {
+    setSlot(null);
+    document.getElementById("scan-stage")?.focus();
+  }, []);
 
   // W4b — a browse card's one-tap add: the same authorized scanAdd path, serialized so a double-tap
   // can't double-add (the card swaps to a stepper as soon as the returned cart view lands). When the
@@ -841,6 +945,7 @@ export default function Grocery() {
               : "Start a fresh basket to keep shopping."}
           </p>
           <button
+            ref={freshBtnRef}
             type="button"
             className="grocery-retry"
             onClick={() => {
@@ -865,6 +970,7 @@ export default function Grocery() {
               // paid for must scan cleanly into the fresh one.
               billedRef.current = new Set();
               setLastScanned(null);
+              setSlot(null); // Phase 1c — the dead basket's result bar goes with it
               // W7b — the dead basket's queued scans die with it: replaying them into the fresh
               // cart would charge it for the abandoned basket's scans (the queue's terminal rule).
               if (cartId) flushCart(cartId);
@@ -915,7 +1021,7 @@ export default function Grocery() {
               if (e.key === "ArrowRight" || e.key === "ArrowLeft") browseTabRef.current?.focus();
             }}
           >
-            <Icon name="cart" size={18} />
+            <Icon name="scan" size={18} />
             Scan
           </button>
         </div>
@@ -924,6 +1030,7 @@ export default function Grocery() {
           <Icon name="search" size={18} />
           <input
             ref={searchRef}
+            id="grocery-search"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -1057,60 +1164,57 @@ export default function Grocery() {
         role="tabpanel"
         aria-labelledby="grocery-tab-scan"
         hidden={tab !== "scan"}
+        ref={scanPanelRef}
       >
-        {/* Don't open the camera until the basket exists — a scan without a cart only flashes an
-            error. Gate on cartId with an inline note (pre-merge review). */}
+        {/* Phase 1c — the stage owns every camera state (primer · live · recovery) and renders
+            BEFORE the basket exists: sightings are held (`decodeHold`) until it does, then the item
+            in frame adds once. It never renders against a finished or unavailable basket (W9d:
+            no camera held open against a basket that cannot take a scan) — those two keep today's
+            lines, as compact paper notes. Switching to Browse unmounts it, releasing the camera. */}
         {tab === "scan" &&
-          (cartId && !cartGone ? (
-            <>
-              <BarcodeScanner onScan={onScan} />
-              {/* M186 — the second-copy path, on screen from the moment the FIRST scan lands (not
-                  only once a repeat is refused), because the shopper holding a second identical jar
-                  needs to see it BEFORE they present it. Deliberately not a live region: the toast
-                  is this view's one live region (QA §A) and it already announced the scan. */}
-              {showRescanChip && lastScanned && (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    flexWrap: "wrap",
-                    marginTop: 12,
-                    padding: "10px 12px",
-                    borderRadius: "var(--r-card)",
-                    border: "1px solid var(--bd)",
-                    background: "var(--cd)",
-                  }}
-                >
-                  <span style={{ color: "var(--t2)", fontSize: "var(--fs-sm)" }}>
-                    {lastScannedName ?? lastScanned}
-                    {lastScannedLine
-                      ? ` · in your basket ×${lastScannedLine.qty}`
-                      : " · waiting to sync"}
-                  </span>
-                  <button
-                    type="button"
-                    className="grocery-retry"
-                    onClick={() => void addAnother()}
-                    disabled={addingBarcode === lastScanned || !!busyLine}
-                    aria-label={`Add another ${lastScannedName ?? lastScanned}`}
-                  >
-                    Add another
-                  </button>
-                </div>
-              )}
-            </>
+          (!cartGone && !sessionError ? (
+            <ScanStage
+              onScan={onScan}
+              cartReady={Boolean(cartId)}
+              sheetOpen={basketOpen && !cartGone}
+              onSearch={focusSearch}
+              result={
+                slot?.kind === "notice" ? (
+                  <ScanResult
+                    key={slot.key}
+                    slot={slot}
+                    chip={null}
+                    onSearch={focusSearch}
+                    onDismiss={dismissSlot}
+                  />
+                ) : slot?.kind === "chip" && showRescanChip && lastScanned ? (
+                  // M186 — the second-copy path, where the eye is, from the moment the FIRST scan
+                  // lands. Named from the basket (see lastScannedName), never from the response.
+                  <ScanResult
+                    key={slot.key}
+                    slot={slot}
+                    chip={{
+                      name: lastScannedName ?? lastScanned,
+                      meta: lastScannedLine
+                        ? `In your basket ×${lastScannedLine.qty}`
+                        : "Waiting to sync",
+                      busy: addingBarcode === lastScanned || !!busyLine,
+                      onAddAnother: () => void addAnother(),
+                    }}
+                    onSearch={focusSearch}
+                    onDismiss={dismissSlot}
+                  />
+                ) : null
+              }
+            />
           ) : (
-            <p style={{ color: "var(--t3)", marginTop: 12 }}>
+            <Card as="p" className="scan-paper-note">
               {cartGone
                 ? // W9d — don't hold the camera open against a finished basket: every scan would
                   // round-trip just to be refused. The banner above carries the recovery.
                   "This basket is finished — start a fresh one above to keep scanning."
-                : sessionError
-                  ? "Basket unavailable — use Retry above, then scan."
-                  : "Starting your basket… scanning opens in a moment."}
-            </p>
+                : "Basket unavailable — use Retry above, then scan."}
+            </Card>
           ))}
       </div>
 

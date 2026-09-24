@@ -410,3 +410,21 @@ for (const [theme, map] of [
     }
   });
 }
+
+// ── Phase 1c · grocery ──
+describe("the scan stage's constant ink pair — read THROUGH the .dark merge", () => {
+  /**
+   * `--on-ink` (the Scan door's light ink on the constant --ink box) is declared once in `:root` and
+   * deliberately NOT re-declared in `.dark`, exactly like `--ink`. So the Night case below can only
+   * resolve through the merge above: revert `dark` to `parseBlock(".dark")` alone and `tok(dark,
+   * "--on-ink")` throws. That makes this the merge's first FALSIFIABLE assertion — the docblock on
+   * `dark` labels it prophylactic because, before this pair, nothing that read it could fail.
+   * Red-first: that revert was induced and ONLY this case failed (1 of 90).
+   */
+  it.each([
+    ["light", light],
+    ["dark", dark],
+  ] as const)("%s · --on-ink on --ink clears 7:1", (_theme, map) => {
+    expect(contrastRatio(tok(map, "--on-ink"), tok(map, "--ink"))).toBeGreaterThanOrEqual(7);
+  });
+});
