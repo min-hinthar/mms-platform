@@ -1366,17 +1366,20 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 (Codex round 1 on #251, P2) — both writes flash their outcome OPTIMISTICALLY on tap, so publishing nothing on `unconfirmed` is not neutrality: it leaves standing a claim `mayClaimLanding` forbids. `AddButton` and `ItemSheet` never speak after the provider, so for them the optimistic sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing if the claim is already on screen and the code merely declines to retract it",
-    find: "    flash(unconfirmedWriteNotice(), 3000);",
-    replace: "    void unconfirmedWriteNotice;",
+    // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the retraction now names the dish when it
+    // can and is flashed as a CORRECTION; silencing the whole call is still the defect.
+    find: '      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {\n        kind: "correction",\n      });',
+    replace: "      void [name, namedUnconfirmedWriteNotice, unconfirmedWriteNotice];",
   },
   {
     id: "refusal/unconfirmed-lent-a-refusals-sentence",
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "T18 — `publishUnconfirmed` deliberately does NOT write `lastRefusalRef`, which means “a refusal the caller decided is real” and is carried into `YourUsual`'s copy. Lending an unconfirmed write a refusal's cause attaches a diagnosis to a write nobody established anything about — the fabricated-diagnosis class, arriving through the retraction built to prevent it",
-    find: "  const publishUnconfirmed = useCallback(() => {",
+    // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the callback now takes the dish `name`.
+    find: "  const publishUnconfirmed = useCallback(\n    (name?: string) => {",
     replace:
-      "  const publishUnconfirmed = useCallback(() => {\n    lastRefusalRef.current = unconfirmedWriteNotice();",
+      "  const publishUnconfirmed = useCallback(\n    (name?: string) => {\n      lastRefusalRef.current = unconfirmedWriteNotice();",
   },
   {
     id: "refusal/settle-freeze-never-classified",
@@ -1408,8 +1411,11 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: "The SIBLING the #252 retarget left uncovered, found by the #254 blind pass. `add`'s publish fork is textually identical to `setItemQty`'s, so one anchor could never cover both \u2014 and after the retarget NEITHER was covered, on the exact line whose own note says the stepper's refusal had been pinned by nothing. This one is anchored through `add`'s interleaved comment, which is what makes it unique; the sibling spans its own if/else pair instead",
-    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal);\n        // The optimistic "Added to your order" is still on screen; retract it rather than let an\n        // outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed();',
-    replace: '        if (result.state === "unconfirmed") publishUnconfirmed();',
+    // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the fork now carries `opts?.name` (the
+    // corrections name the dish) and its interleaved comment was reworded. Still drops the refusal
+    // publish and keeps the unconfirmed arm.
+    find: '        if (result.state === "refused" && refusal) publishRefusal(refusal, opts?.name);\n        // The optimistic claim is still standing \u2014 ours, or the one the caller spoke at the tap;\n        // retract it rather than let an outcome that may not claim a landing stand as one.\n        else if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
+    replace: '        if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);',
   },
   {
     id: "refusal/qty-landing-becomes-a-presence-test",
@@ -6363,6 +6369,63 @@ const MUTANTS = [
     why: "A1 — `COUNTER_TENDERS` is the ONE list three membership-gated reads key off (`getCartOrderRef`, `getMyOrderFallback`, `counterPayOutcome`). Admitting 'card' here widens all three at once: every card receipt becomes readable by table membership. Pinned as a value so the list cannot drift under the guards that name it",
     find: 'export const COUNTER_TENDERS = ["cash", "terminal"] as const;\n',
     replace: 'export const COUNTER_TENDERS = ["cash", "terminal", "card"] as const;\n',
+  },
+  // ── Phase 1c · add-feedback ──────────────────────────────────────────────────────────────────────
+  {
+    id: "refusal/add-correction-loses-its-dish",
+    file: "apps/qr/components/TableCartProvider.tsx",
+    suite: "components/TableCartProvider.test.tsx",
+    why: "Phase 1c — with several rows in flight, or an item sheet that has already closed, \u201cThat didn\u2019t go through\u201d does not say WHICH dish did not, and the diner is the one who has to act on it. Dropping the name at the add fork restores the unnamed sentence everywhere the caller supplied a dish",
+    find: "publishRefusal(refusal, opts?.name);",
+    replace: "publishRefusal(refusal);",
+  },
+  {
+    id: "refusal/named-opener-drops-hedge",
+    file: "apps/qr/lib/cart-freeze.ts",
+    suite: "lib/cart-freeze.test.ts",
+    why: "Phase 1c — the named twin must keep the per-cause opener. `unknown` is the cause `setItemQty`'s forgeable comparison produces with no lock or settle behind it (T41), so the assertive \u201cMohinga didn\u2019t go through\u201d there asserts a non-landing nobody established \u2014 the fabricated-diagnosis class, now with the dish's name on it",
+    find: 'refusal.cause === "unknown" ? `We couldn\u2019t confirm ${name}` : `${name} didn\u2019t go through`',
+    replace: "`${name} didn\u2019t go through`",
+  },
+  {
+    id: "add-feedback/unconfirmed-cues-a-revert",
+    file: "apps/qr/lib/add-feedback.ts",
+    suite: "lib/add-feedback.test.ts",
+    why: "Phase 1c — an `unconfirmed` create may well be on the bill. Drawing the \u201cset back down\u201d cue over it tells the diner a dish that landed did not, and invites the re-tap that charges it twice",
+    find: 'input.state === "refused" ||',
+    replace: 'input.state !== "applied" ||',
+  },
+  {
+    id: "add-feedback/unknown-seat-cues-a-revert",
+    file: "apps/qr/lib/add-feedback.ts",
+    suite: "lib/add-feedback.test.ts",
+    why: "Phase 1c — `lineVisible: null` means there was nothing to read the line off (session recovery blanks the seat; an overtaken read yields no view). Treating that as \u201cno line\u201d draws a SUCCESS as a revert",
+    find: "input.lineVisible === false",
+    replace: "input.lineVisible !== true",
+  },
+  {
+    id: "notice/claim-erases-a-correction",
+    file: "apps/qr/lib/notice-slot.ts",
+    suite: "lib/notice-slot.test.ts",
+    why: "Phase 1c — claims are spoken at the TAP now, so a claim can arrive a beat after the correction that retracted an earlier one. Letting it take the slot erases the retraction: the diner's last word is the claim the app just withdrew",
+    find: '  if (incoming.kind === "claim" && current.kind === "correction") return "defer";\n',
+    replace: "",
+  },
+  {
+    id: "notice/quiet-erases-visible-text",
+    file: "apps/qr/lib/notice-slot.ts",
+    suite: "lib/notice-slot.test.ts",
+    why: "Phase 1c — a QUIET line draws nothing, so letting it take the slot blanks the visible pill someone is reading (a tablemate's add, a lock) and puts nothing on screen in its place",
+    find: '  if (incoming.quiet && !current.quiet) return "defer";\n',
+    replace: "",
+  },
+  {
+    id: "notice/retracted-claim-spoken-late",
+    file: "apps/qr/lib/notice-slot.ts",
+    suite: "lib/notice-slot.test.ts",
+    why: "Phase 1c — a claim waiting in the deferred slot may be the one a correction just retracted. Keeping it speaks \u201cMohinga added\u201d AFTER \u201cWe couldn\u2019t confirm Mohinga\u201d \u2014 a retracted claim, stated as the final word",
+    find: '  return incoming.kind === "correction" && deferred.kind === "claim";',
+    replace: "  return false;",
   },
 ];
 
