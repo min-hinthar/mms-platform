@@ -137,6 +137,14 @@ server database first."_ The doctrine that survived two adversarial reviews and 
   from the delivery repo's production constants. There are NO business hours anywhere in either
   repo, so the receipts and emails offer none — inventing "Open 11–9" would read exactly like a
   promise the owner made.
+- **Plain words (owner, 2026-09-24: _"86 this dish doesn't make sense to my parents … same for
+  customer facing"_).** Every visible string uses the words a guest or a parent would say out loud —
+  no trade slang (86, fire, comp, void, bump), no payments/tech jargon; internal names stay in code.
+  On the guest screens that means: "pay", never "settle"; "approved", never "authorized" / "hold" /
+  "captured"; "the person who started your table", never "the host"; "the code on the package",
+  never "barcode"; "on the house", never "comped"; "another window", never "another tab"; "table
+  code", never "party code". A legal disclosure says what the charge is FOR, never a statute number.
+  The Order / Basket nouns of §21 still bind — plain words never fork a settled vocabulary.
 
 ## 6 · Bilingual — one surface, two tongues
 
