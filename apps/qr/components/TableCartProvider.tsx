@@ -16,6 +16,7 @@ import { addItem as addItemAction, setQty as setQtyAction, getCartView } from "@
 import {
   cartFreeze,
   classifyRefusedWrite,
+  namedRefusedWriteNotice,
   refusalNeedsRemint,
   refusedWriteClause,
   refusedWriteNotice,
@@ -27,7 +28,14 @@ import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
 import { addShortfallNotice, classifyAddLanding } from "@/lib/add-landing";
 import { peerDisplayName } from "@/lib/peer-name";
 import { acceptView, issueRead, newViewSeq, readReachedServer, type ViewSeq } from "@/lib/view-seq";
-import { recoveredWrite, unconfirmedWriteNotice, type WriteResult } from "@/lib/write-outcome";
+import {
+  namedUnconfirmedWriteNotice,
+  recoveredWrite,
+  unconfirmedWriteNotice,
+  type WriteResult,
+} from "@/lib/write-outcome";
+import { admitNotice, purgesDeferred, type NoticeKind, type SlotNotice } from "@/lib/notice-slot";
+import type { CartClaim } from "@/lib/add-feedback";
 import {
   explainedByRefusal,
   explanationHolds,
@@ -64,18 +72,28 @@ type CartCtx = {
    *  read as "did it work", and it does not: `null` meant BOTH "refused" and "committed, view
    *  unreadable", so `YourUsual` retried committed adds and charged the dish twice. Ask the question
    *  you mean — `mayRetry`, `threadableView`, `mayClaimLanding` (lib/write-outcome.ts) — never
-   *  truthiness. */
+   *  truthiness.
+   *
+   *  Phase 1c — `opts`, and who speaks the CLAIM. Omitted, the provider speaks the visible
+   *  "Added to your order" on call, byte-for-byte what it always has (`YourUsual` relies on it).
+   *  `claim` replaces that sentence (`ItemSheet` passes the named, visible `sheetAddClaim`); `null`
+   *  means the CALLER already spoke at the tap (`AddButton` says "Mohinga added" quietly before its
+   *  queued write even starts). `name` is the dish the corrections name if the write does not land
+   *  ("Mohinga didn’t go through — …"), so a correction arriving after a sheet has closed, or with
+   *  several rows in flight, still says WHICH dish. Amounts are never claimed. */
   add: (
     menuItemId: string,
     modifierIds?: string[],
     notes?: string,
     qty?: number,
+    opts?: { claim?: CartClaim | null; name?: string },
   ) => Promise<WriteResult<CartItem[]>>;
   /** Set a cart line's quantity (server-authoritative `setQty`; `qty<=0` removes). Used by the menu's
    *  inline quick-qty stepper (R5c) to decrement/remove the viewer's own line without leaving the menu.
    *  Re-syncs from the returned view; a refused write (locked/closed) recovers like `add`. `announce` (the
-   *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region so
-   *  the decrement is announced symmetrically with the "+"/add path (WCAG 4.1.3). */
+   *  caller's outcome string, e.g. "Removed Tea Leaf Salad") is flashed through the single live region as
+   *  a CLAIM when the op starts. Phase 1c: the menu stepper no longer passes it — it speaks its claim
+   *  itself, quietly, at the TAP (`stepClaim`), so a queued "−" is not heard a round trip late. */
   setItemQty: (
     cartItemId: string,
     qty: number,
@@ -99,8 +117,20 @@ type CartCtx = {
    *  `ms` (W22c) exists because the default 2200 was written for "Added Mohinga", and a caller can
    *  legitimately need longer: the menu-freshness sentence names dishes in two clauses and a price
    *  count, and a notice that leaves before it can be read is the same defect as no notice. Derive
-   *  it (`freshnessDurationMs`) rather than picking a number per call site. */
-  announce: (msg: string, ms?: number) => void;
+   *  it (`freshnessDurationMs`) rather than picking a number per call site.
+   *
+   *  Phase 1c — the slot is no longer last-caller-wins; `lib/notice-slot.ts` arbitrates it. `my` is
+   *  the Burmese half (its own `lang="my"` span). `opts.kind` says what the sentence IS — a `claim`
+   *  (the diner's own change, said for them), a `correction` (a retraction or diagnosis), or `news`
+   *  (the default: everything else) — and `opts.quiet` marks a claim that is SPOKEN BUT NOT DRAWN,
+   *  for a change already visible where the diner acted. A claim waits behind a correction still in
+   *  its window, a quiet line waits behind visible text, and news always shows. */
+  announce: (
+    msg: string,
+    ms?: number,
+    my?: string,
+    opts?: { quiet?: boolean; kind?: NoticeKind },
+  ) => void;
   /** T14 — the CLAUSE the provider last published for a REFUSED write, or null if none.
    *
    *  `announce` is a single slot: the last caller wins. So a consumer that announces its own outcome
@@ -492,7 +522,10 @@ export function TableCartProvider({
   // confirmation on success and a generic message on failure (WCAG 4.1.3 status messages) — but
   // never the rolling total itself (the CartBar/total deliberately aren't aria-live, so SR users
   // don't hear the amount re-read on every tap). Server errors are redacted in prod → generic text.
-  const [notice, setNotice] = useState<{ text: string; my?: string } | null>(null);
+  // Phase 1c — `seq` is the Toast's key: MONOTONIC, never the text. Keyed on the text, a repeated
+  // sentence (two sheet adds of one dish, two identical peer adds) changed no DOM and was never
+  // re-announced. `kind`/`quiet` are what `admitNotice` arbitrates on (lib/notice-slot.ts).
+  const [notice, setNotice] = useState<(SlotNotice & { seq: number }) | null>(null);
   // Signed optimistic count delta for in-flight mutations (instant CartBar count in BOTH directions:
   // an add is +1, a stepper decrement/lower is −N). Reconciled to 0 as each write's returned view
   // re-derives the true count from `items`. The MONEY total stays server-derived — only the count is
@@ -527,20 +560,66 @@ export function TableCartProvider({
   const [noticeLeaving, setNoticeLeaving] = useState(false);
   // W13 — `my` is an optional Burmese segment rendered as its own lang="my" span (WCAG 3.1.2 —
   // correct SR pronunciation; the mixed-string alternative would read Burmese with EN rules).
-  const flash = useCallback((msg: string, ms = 2200, my?: string) => {
-    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
-    if (noticeExitTimer.current !== null) window.clearTimeout(noticeExitTimer.current);
-    setNoticeLeaving(false);
-    setNotice({ text: msg, my });
-    noticeTimer.current = window.setTimeout(() => {
-      setNoticeLeaving(true);
-      // 200ms > the RM-collapsed exit; under reduced motion the node just lingers invisibly.
-      noticeExitTimer.current = window.setTimeout(() => {
-        setNotice(null);
+  //
+  // Phase 1c — the slot is ARBITRATED, not last-caller-wins (`admitNotice`, lib/notice-slot.ts):
+  // claims are now spoken at the TAP, so a quiet "Mohinga added" could otherwise erase a tablemate's
+  // news before anyone read it, and a queued claim could un-say the correction that retracted it.
+  // `showingRef` is the notice INSIDE its display window (null through the leave phase, so anything
+  // may take the slot then); `deferredRef` is one-deep, newest wins, shown when the window ends.
+  const showingRef = useRef<(SlotNotice & { seq: number }) | null>(null);
+  const deferredRef = useRef<{ notice: SlotNotice; ms: number } | null>(null);
+  const noticeSeq = useRef(0);
+  const flash = useCallback(
+    (msg: string, ms = 2200, my?: string, opts: { quiet?: boolean; kind?: NoticeKind } = {}) => {
+      // Put a notice in the slot and run its window. `keepSeq` (an `extend`) keeps the node's key, so
+      // the identical correction is not spoken twice; the window restarts.
+      function display(n: SlotNotice, dur: number, keepSeq: boolean) {
+        if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+        if (noticeExitTimer.current !== null) window.clearTimeout(noticeExitTimer.current);
+        const current = showingRef.current;
+        const seq = keepSeq && current ? current.seq : (noticeSeq.current += 1);
+        const shown = { ...n, seq };
+        showingRef.current = shown;
         setNoticeLeaving(false);
-      }, 200);
-    }, ms);
-  }, []);
+        setNotice(shown);
+        noticeTimer.current = window.setTimeout(() => {
+          // The window ended: a notice that waited for it goes next, otherwise the slot leaves.
+          const next = deferredRef.current;
+          if (next) {
+            deferredRef.current = null;
+            display(next.notice, next.ms, false);
+            return;
+          }
+          showingRef.current = null;
+          setNoticeLeaving(true);
+          // 200ms > the RM-collapsed exit; under reduced motion the node just lingers invisibly.
+          noticeExitTimer.current = window.setTimeout(() => {
+            setNotice(null);
+            setNoticeLeaving(false);
+          }, 200);
+        }, dur);
+      }
+
+      const incoming: SlotNotice = {
+        text: msg,
+        my,
+        quiet: opts.quiet ?? false,
+        kind: opts.kind ?? "news",
+      };
+      // A correction drops a claim still waiting: it may be the very claim being retracted, and a
+      // retracted claim spoken a beat later is a lie.
+      const waiting = deferredRef.current;
+      if (waiting && purgesDeferred(incoming, waiting.notice)) deferredRef.current = null;
+      const verdict = admitNotice(showingRef.current, incoming);
+      if (verdict === "defer") {
+        deferredRef.current = { notice: incoming, ms };
+        return;
+      }
+      // Five refused taps under one lock → one sentence: an identical correction EXTENDS.
+      display(incoming, ms, verdict === "extend");
+    },
+    [],
+  );
   // W5a — resume-intent honesty: the home card promised an existing table, but the mint CREATED a
   // fresh session (the old one expired, or staff cleared the table — the advisory card can't know).
   // Say so once, through the SAME single live region every notice uses (microtask-deferred, the
@@ -855,7 +934,7 @@ export function TableCartProvider({
    * the same verdict.
    */
   const publishRefusal = useCallback(
-    (refusal: PublishableRefusal) => {
+    (refusal: PublishableRefusal, name?: string) => {
       lastRefusalRef.current = refusedWriteClause(refusal);
       // T33 — record WHICH freeze this sentence explained, so the banner for that same freeze stays
       // silent instead of overwriting it a microtask later. Derived from the CAUSE, never from the
@@ -881,7 +960,14 @@ export function TableCartProvider({
         // lock is on screen now" with the one derivation both sides already share.
         lockedByYou: cartFreeze(freezeRef.current) === "self",
       });
-      flash(refusedWriteNotice(refusal), 2600);
+      // Phase 1c — a CORRECTION, and it names the dish when the caller handed `add` one: with rows
+      // in flight or a sheet already closed, "That didn’t go through" does not say which.
+      flash(
+        name ? namedRefusedWriteNotice(refusal, name) : refusedWriteNotice(refusal),
+        2600,
+        undefined,
+        { kind: "correction" },
+      );
     },
     [flash],
   );
@@ -936,14 +1022,24 @@ export function TableCartProvider({
    * NOT `publishRefusal`: this deliberately does not touch `lastRefusalRef`, which means "a refusal
    * the caller decided is real" and is carried into `YourUsual`'s copy. An unconfirmed write has not
    * been refused, and lending it a refusal's sentence is the fabricated-diagnosis class again.
+   *
+   * Phase 1c — the claim may now have been spoken by the CALLER, at the tap, rather than by `add`
+   * (`AddButton` passes `claim: null` and says "Mohinga added" itself), and it may have been QUIET.
+   * The duty is unchanged: whoever made the claim, this retracts it — visibly, as a CORRECTION the
+   * slot never defers — and names the dish when the caller handed `add` one.
    */
-  const publishUnconfirmed = useCallback(() => {
-    // Latch BEFORE the flash: `explainCaught` has already fired `revalidate()` on the arm that could
-    // not read the cart, so the recovery effect may run at any point after this and must find the
-    // flag set. Cleared by that effect, so a later ordinary re-mint still says "try that again".
-    recoveryWriteUnconfirmedRef.current = true;
-    flash(unconfirmedWriteNotice(), 3000);
-  }, [flash]);
+  const publishUnconfirmed = useCallback(
+    (name?: string) => {
+      // Latch BEFORE the flash: `explainCaught` has already fired `revalidate()` on the arm that could
+      // not read the cart, so the recovery effect may run at any point after this and must find the
+      // flag set. Cleared by that effect, so a later ordinary re-mint still says "try that again".
+      recoveryWriteUnconfirmedRef.current = true;
+      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {
+        kind: "correction",
+      });
+    },
+    [flash],
+  );
 
   /**
    * Correct the optimistic announce when the server took FEWER units than were asked for.
@@ -975,7 +1071,7 @@ export function TableCartProvider({
     (before: CartItem[], after: CartItem[], menuItemId: string, requested: number) => {
       const { outcome } = classifyAddLanding({ before, after, menuItemId, requested });
       const correction = addShortfallNotice(outcome);
-      if (correction) flash(correction, 3000);
+      if (correction) flash(correction, 3000, undefined, { kind: "correction" });
     },
     [flash],
   );
@@ -986,6 +1082,7 @@ export function TableCartProvider({
       modifierIds: string[] = [],
       notes?: string,
       qty: number = 1,
+      opts?: { claim?: CartClaim | null; name?: string },
     ): Promise<WriteResult<CartItem[]>> => {
       // T31 — drop any latched cause FIRST, above the guard below. A cause belongs to the write that
       // established it; nothing else ever cleared it, so a consumer reading it after an unrelated
@@ -999,7 +1096,19 @@ export function TableCartProvider({
       // stepper) bumps the count by the whole pre-add quantity — one write, one flash.
       setPendingDelta((n) => n + qty);
       // Honest count for a multi-unit sheet add — an SR user hears how many units landed (4.1.3).
-      flash(qty > 1 ? `Added ${qty} to your order` : "Added to your order", 2000, "ထည့်ပြီးပါပြီ");
+      // Phase 1c — the CALLER may speak instead: `undefined` keeps this default byte-for-byte, a
+      // claim replaces it (the sheet's named, visible one), and `null` means the caller already
+      // spoke at the tap (AddButton's quiet "Mohinga added"), so nothing is said here.
+      const claim =
+        opts?.claim === undefined
+          ? {
+              text: qty > 1 ? `Added ${qty} to your order` : "Added to your order",
+              my: "ထည့်ပြီးပါပြီ",
+              ms: 2000,
+            }
+          : opts.claim;
+      if (claim)
+        flash(claim.text, claim.ms ?? 2000, claim.my, { quiet: claim.quiet, kind: "claim" });
       // The pre-add lines (from the ref, never a stale render closure). BOTH the success path and the
       // recovery path below compare against this one snapshot through `classifyAddLanding`, so they
       // cannot disagree about how many units landed — the "name it ONCE" rule applied to a count.
@@ -1136,10 +1245,10 @@ export function TableCartProvider({
         // that read failed — so the two can never disagree. It is written as a narrowing rather than
         // a cast because the mutant `refusal/unreadable-cart-yields-a-list` proves the coupling
         // instead of asserting it.
-        if (result.state === "refused" && refusal) publishRefusal(refusal);
-        // The optimistic "Added to your order" is still on screen; retract it rather than let an
-        // outcome that may not claim a landing stand as one.
-        else if (result.state === "unconfirmed") publishUnconfirmed();
+        if (result.state === "refused" && refusal) publishRefusal(refusal, opts?.name);
+        // The optimistic claim is still standing — ours, or the one the caller spoke at the tap;
+        // retract it rather than let an outcome that may not claim a landing stand as one.
+        else if (result.state === "unconfirmed") publishUnconfirmed(opts?.name);
         // ⚠️ Read by AddButton and YourUsual, NOT by ItemSheet: W20 made the sheet close on tap
         // (`void add(...)` then `onClose()`, ItemSheet.tsx:225-226) so adding feels instant, and it
         // never awaits this. The older comment here claimed the sheet stays open "keeping the diner's
@@ -1185,7 +1294,7 @@ export function TableCartProvider({
       if (!cartId) return { state: "refused", view: null };
       // Announce the outcome immediately (optimistic, like `add`'s "Added to your order") so SR users get
       // instant confirmation; the error path below replaces it with the recovery message if the write fails.
-      if (announce) flash(announce, 2000);
+      if (announce) flash(announce, 2000, undefined, { kind: "claim" });
       // Instant CartBar count: shift the signed optimistic delta by this line's change (new qty − current;
       // a remove is qty 0). Reconciled to 0 in `finally` once the returned view re-derives the true count.
       const line = itemsRef.current.find((i) => i.id === cartItemId);
@@ -1559,10 +1668,14 @@ export function TableCartProvider({
       )}
       {/* Phase 0 — the ONE diner toast (`@mms/ui` Toast): always-mounted live region, docked on the
           published CTA band (`--cta-dock-h`, which CartBar writes) instead of the hard 84px that
-          assumed one bar height; keyed on the text so a replacement replays the spring. The MY
-          half rides its own lang="my" span on the Padauk stack inside the primitive. */}
+          assumed one bar height. The MY half rides its own lang="my" span on the Padauk stack inside
+          the primitive. Phase 1c — keyed on the monotonic `seq`, not the text, so a repeated
+          sentence is announced again; `quiet` claims are spoken through this same region and drawn
+          nowhere (a change the diner can already see where they tapped). */}
       <Toast
-        message={notice ? { key: notice.text, text: notice.text, my: notice.my } : null}
+        message={
+          notice ? { key: notice.seq, text: notice.text, my: notice.my, quiet: notice.quiet } : null
+        }
         leaving={noticeLeaving}
       />
     </Ctx.Provider>

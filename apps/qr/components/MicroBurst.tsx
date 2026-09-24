@@ -2,11 +2,15 @@
 import { useRef, useState } from "react";
 
 /**
- * W13 — the v7.2 `microGems` moment: five ✦/◆ particles bursting from the add control on success.
+ * W13 — the v7.2 `microGems` moment: five ✦/◆ particles bursting from the add control.
  * The Confetti idiom, miniaturized: DETERMINISTIC offsets (no Math.random — SSR/replay-safe),
  * token colors, transform/opacity only, and the `--dur-slow` token duration so the reduced-motion
- * token collapse freezes it at its final (invisible) frame. Re-keyed by `burstKey` so every add replays
- * the animation; `aria-hidden` — pure celebration, the toast is the announcement.
+ * token collapse freezes it at its final (invisible) frame. Re-keyed by `burstKey`.
+ *
+ * Phase 1c — it acknowledges INTENT, like the morph: it fires on the Add pill's 0→1 TAP (v7.2
+ * quickAdd), not per stepper step (v7.2 `bump()` has no gems) and not on confirmation. It ends ≤560ms
+ * after the tap, long before a non-landing can arrive, which is retracted by the "+" glyph's settle cue
+ * and the named correction. `aria-hidden` — pure celebration; the one live region is the announcement.
  */
 const GEMS: { glyph: string; x: number; y: number; d: number }[] = [
   { glyph: "✦", x: -26, y: -30, d: 0 },

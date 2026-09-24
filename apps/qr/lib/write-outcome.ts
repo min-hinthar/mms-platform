@@ -125,6 +125,18 @@ export function unconfirmedWriteNotice(): string {
 }
 
 /**
+ * Phase 1c — the same retraction, naming the dish.
+ *
+ * NOT a parameter on `unconfirmedWriteNotice`: that function's return line is a `verify:slice`
+ * anchor (`written/the-unconfirmed-notice-asserts-a-currency-it-lacks`), and moving it would leave
+ * the rule it guards unguarded. A parity test holds the two together instead: with the name "that"
+ * this equals `unconfirmedWriteNotice()`, so the tail cannot drift.
+ */
+export function namedUnconfirmedWriteNotice(name: string): string {
+  return `We couldn’t confirm ${name} — check your order below.`;
+}
+
+/**
  * What to say when a write was NOT sent because we had no trustworthy baseline to compute it from.
  *
  * ⚠️ Distinct from `unconfirmedWriteNotice`, and the difference is the whole point (Codex round 6 on

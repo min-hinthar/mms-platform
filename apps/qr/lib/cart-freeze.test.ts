@@ -7,6 +7,7 @@ import {
   freezeBanner,
   freezeBlocksPayment,
   freezeNotice,
+  namedRefusedWriteNotice,
   refusalNeedsRemint,
   refusedWriteClause,
   refusedWriteNotice,
@@ -574,5 +575,49 @@ describe("freezeBanner — the banner with somewhere to go wins", () => {
 
   it("shows nothing when settling without a cart and no lock", () => {
     expect(freezeBanner({ locked: false, settling: true, cartId: null })).toBeNull();
+  });
+});
+
+/**
+ * Phase 1c — the refusal sentence, naming the dish. Beside `refusedWriteNotice`, never a fork of it:
+ * the parity case below is what holds the two together, derived over every refusal the classifier
+ * can actually PRODUCE rather than over a hand-written list.
+ */
+describe("namedRefusedWriteNotice — the correction names WHICH dish did not go through", () => {
+  it("a peer lock: the dish, the assertive opener, the lock clause", () => {
+    expect(namedRefusedWriteNotice({ cause: "frozen", freeze: "peer" }, "Mohinga")).toBe(
+      "Mohinga didn’t go through — the order’s locked while someone checks out.",
+    );
+  });
+
+  it("a settling cart: the table-pays clause", () => {
+    expect(namedRefusedWriteNotice({ cause: "settling" }, "Mohinga")).toBe(
+      "Mohinga didn’t go through — the order’s locked while your table pays.",
+    );
+  });
+
+  it("an unknown cause keeps the HEDGE — the same per-cause rule as the unnamed sentence", () => {
+    expect(namedRefusedWriteNotice({ cause: "unknown" }, "Mohinga")).toBe(
+      "We couldn’t confirm Mohinga — the order below is up to date.",
+    );
+  });
+
+  it("PARITY: named with 'that', capitalised, IS the unnamed sentence — for every producible refusal", () => {
+    // Derived from the producer: every combination of the three facts a re-read carries, classified
+    // by the real `classifyRefusedWrite`. `unreachable` is not publishable (T30) and cannot reach here.
+    const seen = new Set<string>();
+    for (const locked of [false, true])
+      for (const lockedBy of [null, SEAT, PEER])
+        for (const settling of [false, true]) {
+          const refusal = classifyRefusedWrite(OK({ locked, lockedBy, settling }));
+          seen.add(JSON.stringify(refusal));
+          const named = namedRefusedWriteNotice(refusal, "that");
+          const capitalised = `${named[0]?.toUpperCase() ?? ""}${named.slice(1)}`;
+          expect(capitalised).toBe(refusedWriteNotice(refusal));
+        }
+    // The grid really reached every publishable cause — a degenerate grid would pass vacuously.
+    expect([...seen].map((s) => (JSON.parse(s) as { cause: string }).cause).sort()).toEqual(
+      expect.arrayContaining(["frozen", "settling", "unknown"]),
+    );
   });
 });
