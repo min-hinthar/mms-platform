@@ -510,6 +510,22 @@ export function refusedWriteNotice(refusal: PublishableRefusal): string {
 }
 
 /**
+ * Phase 1c — the same sentence, naming the dish the diner added.
+ *
+ * With several rows in flight, or a sheet that has already closed, "That didn’t go through" does not
+ * say WHICH dish did not — and the diner is the one who has to act on it. The provider speaks this
+ * when the caller handed `add` a name.
+ *
+ * Written BESIDE `refusedWriteNotice`, not by parameterising it, so every existing anchor on that
+ * function stays put. The per-cause opener is the same rule (the hedge rides `unknown`), and the
+ * CLAUSE is `refusedWriteClause` — the fragment is still named once. A parity test pins the two
+ * together: with the name "that", capitalised, this equals `refusedWriteNotice`.
+ */
+export function namedRefusedWriteNotice(refusal: PublishableRefusal, name: string): string {
+  return `${refusal.cause === "unknown" ? `We couldn’t confirm ${name}` : `${name} didn’t go through`} — ${refusedWriteClause(refusal)}.`;
+}
+
+/**
  * T22(d) — WHICH freeze banner the guest list shows, when a cart can be under both at once.
  *
  * `GuestList` used to answer this with branch ORDER: an `if (locked)` early-return sat 74 lines

@@ -452,3 +452,20 @@
     animation: none;
   }
 }
+
+/* ── Phase 1c · add-feedback ──────────────────────────────────────────────────────────────────────
+   The QUIET toast: spoken through the always-mounted `.ui-toast-region`, drawn nowhere — for a change
+   the diner can already see where they acted (the pill morphing into a stepper). The visually-hidden
+   recipe, defined here because `.sr-only` lives only in the app's stylesheet and this primitive ships
+   in the package. It carries NO animation, so it needs no reduced-motion entry. */
+.ui-toast-quiet {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}

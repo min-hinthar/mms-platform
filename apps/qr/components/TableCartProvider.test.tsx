@@ -4,8 +4,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
-import { classifyRefusedWrite, refusedWriteClause, refusedWriteNotice } from "@/lib/cart-freeze";
-import { mayClaimLanding, mayRetry, threadableView } from "@/lib/write-outcome";
+import {
+  classifyRefusedWrite,
+  namedRefusedWriteNotice,
+  refusedWriteClause,
+  refusedWriteNotice,
+} from "@/lib/cart-freeze";
+import {
+  mayClaimLanding,
+  mayRetry,
+  namedUnconfirmedWriteNotice,
+  threadableView,
+} from "@/lib/write-outcome";
+import { pillAddClaim, sheetAddClaim } from "@/lib/add-feedback";
 import type { WriteResult } from "@/lib/write-outcome";
 
 /**
@@ -1000,5 +1011,165 @@ describe("M192 — the context value is stable across state the value does not c
     expect(spoken()).toContain("Mohinga"); // the announce really did land, so state really moved
 
     expect(ctxIdentities).toBe(before);
+  });
+});
+
+/**
+ * Phase 1c — the one slot is ARBITRATED (`lib/notice-slot.ts`), and the add path's corrections name
+ * the dish.
+ *
+ * Claims are now spoken at the TAP, often QUIETLY, by the caller — so the slot has to stop a quiet
+ * line from blanking visible text, stop a claim from erasing the correction that retracted it, and
+ * stop a retracted claim from being spoken late. Every expectation below is DERIVED from the module
+ * that produces the sentence (the copy is pinned as a value in `lib/`, never transcribed here).
+ */
+describe("Phase 1c — the one slot: quiet claims, named corrections, precedence", () => {
+  const MOHINGA = pillAddClaim("Mohinga");
+  const quietly = (c: { quiet?: boolean }) => ({ quiet: c.quiet, kind: "claim" as const });
+  const region = () => screen.getByRole("status");
+  /** The Toast's PILL, i.e. what is DRAWN. A quiet line renders `.ui-toast-quiet` instead. */
+  const pill = () => region().querySelector(".ui-toast");
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("a quiet claim speaks without a pill", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    act(() => ctl.announce(MOHINGA.text, MOHINGA.ms, MOHINGA.my, quietly(MOHINGA)));
+
+    expect(spoken()).toMatch(/Mohinga added/);
+    expect(spoken()).toContain(MOHINGA.my ?? "∅");
+    expect(pill()).toBeNull();
+    expect(region().querySelector(".ui-toast-quiet")).not.toBeNull();
+  });
+
+  it("a quiet claim never ends visible text early — it waits for the window", async () => {
+    vi.useFakeTimers();
+    mount();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => ctl.announce("Aung added Tea", 2600));
+    act(() => ctl.announce(MOHINGA.text, MOHINGA.ms, MOHINGA.my, quietly(MOHINGA)));
+
+    // The tablemate's news is still what is drawn — the quiet line did not blank it.
+    expect(pill()?.textContent).toContain("Aung added Tea");
+    expect(spoken()).not.toMatch(/Mohinga added/);
+
+    await act(() => vi.advanceTimersByTimeAsync(2700));
+    expect(spoken()).toMatch(/Mohinga added/);
+  });
+
+  it("a claim cannot erase a correction, and the correction names the dish", async () => {
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await drainDeferredAnnounces();
+
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    await drainDeferredAnnounces();
+
+    const named = namedRefusedWriteNotice(REFUSAL.peerLock, "Mohinga");
+    expect(spoken()).toBe(named);
+    // Separating: the unnamed sentence is a different string, so a publish that dropped the name
+    // cannot satisfy the line above.
+    expect(named).not.toBe(NOTICE.peerLock);
+
+    // A VISIBLE claim (a sheet add right after the refusal) — rule 3, not rule 4, is what holds it.
+    const sheet = sheetAddClaim("Tea Leaf Salad", 1);
+    act(() => ctl.announce(sheet.text, sheet.ms, sheet.my, quietly(sheet)));
+    expect(spoken()).toBe(named);
+    // And a quiet one.
+    act(() => ctl.announce(MOHINGA.text, MOHINGA.ms, MOHINGA.my, quietly(MOHINGA)));
+    expect(spoken()).toBe(named);
+  });
+
+  it("a correction drops the claim waiting behind it — a retracted claim is never spoken late", async () => {
+    vi.useFakeTimers();
+    mount();
+    await act(() => vi.advanceTimersByTimeAsync(0));
+    act(() => ctl.announce("Aung added Tea", 2600));
+    act(() => ctl.announce(MOHINGA.text, MOHINGA.ms, MOHINGA.my, quietly(MOHINGA))); // deferred
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockRejectedValue(new Error("unreachable"));
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    // Sample the region every 100ms through every window, each step inside `act` so React commits
+    // what the timers set — "never spoken" is a claim about EVERY moment, not the last one. (A
+    // MutationObserver cannot answer it: React's commit can land after a whole fake-timer advance,
+    // coalescing a short-lived line out of the record — measured, when the first draft of this test
+    // stayed green against `purgesDeferred → false`.)
+    const seen: string[] = [spoken()];
+    for (let t = 0; t < 10_000; t += 100) {
+      await act(() => vi.advanceTimersByTimeAsync(100));
+      seen.push(spoken());
+    }
+
+    // The correction really was spoken (the proposition is not vacuous)...
+    expect(seen.some((t) => t.includes(namedUnconfirmedWriteNotice("Mohinga")))).toBe(true);
+    // ...and the claim it retracted never was.
+    expect(seen.some((t) => t.includes(MOHINGA.text))).toBe(false);
+  });
+
+  it("an unconfirmed add names the dish", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockRejectedValue(new Error("unreachable"));
+
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedUnconfirmedWriteNotice("Mohinga"));
+  });
+
+  it("{ claim: null } says nothing on call — the caller already spoke at the tap", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    let land: () => void = () => {};
+    h.addItem.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          land = () => resolve(view({ items: [line(1)] }));
+        }),
+    );
+
+    let pending: Promise<unknown> = Promise.resolve();
+    act(() => {
+      pending = ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" });
+    });
+    expect(spoken()).toBe("");
+    land();
+    await act(() => pending);
+  });
+
+  it("identical text is announced again — the slot is keyed on a sequence, not the words", async () => {
+    mount();
+    await drainDeferredAnnounces();
+    act(() => ctl.announce("Aung added Tea", 2600));
+    const first = region().firstElementChild;
+    act(() => ctl.announce("Aung added Tea", 2600));
+    const second = region().firstElementChild;
+
+    expect(first).not.toBeNull();
+    expect(second).not.toBeNull();
+    // A NEW node is what makes the region speak again; the same node with the same text is silence.
+    expect(second).not.toBe(first);
+  });
+
+  it("an IDENTICAL correction extends instead — repeated refusals under one lock are one sentence", async () => {
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await drainDeferredAnnounces();
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    await drainDeferredAnnounces();
+    const first = region().firstElementChild;
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    await drainDeferredAnnounces();
+
+    expect(spoken()).toBe(namedRefusedWriteNotice(REFUSAL.peerLock, "Mohinga"));
+    expect(region().firstElementChild).toBe(first);
   });
 });
