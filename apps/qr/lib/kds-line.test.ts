@@ -5,6 +5,7 @@ import {
   lineMenuSubject,
   overlaySoldOut,
   pruneSoldOut,
+  qtyStands,
   recordSoldOut,
   type SoldOutOverride,
 } from "./kds-line";
@@ -139,5 +140,14 @@ describe("overlaySoldOut — the ONE binding every consumer reads", () => {
     const tickets = [ticket("c1", [line({ soldOut: true })])];
     const out = overlaySoldOut(tickets, recordSoldOut(new Map(), "mi-1", false, 3));
     expect(out[0]!.lines[0]!.soldOut).toBe(false);
+  });
+});
+
+describe("qtyStands — only a multiple lights the quantity chip (commit 2)", () => {
+  it("1 is quiet; 2 and up stand out", () => {
+    // MUTATION kds-line/qty-one-stands: `>= 1` — every chip lit again, a 2 reads like a 1.
+    expect(qtyStands(1)).toBe(false);
+    expect(qtyStands(2)).toBe(true);
+    expect(qtyStands(12)).toBe(true);
   });
 });

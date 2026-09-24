@@ -1108,3 +1108,44 @@ describe("Phase 2b — the stylesheet: the 86 band is gone, the ⋯ sheet is a t
     for (const r of tier) expect(r.selectors.at(-1), r.selectors.join()).toMatch(/^\.kds-root/);
   });
 });
+
+describe("Phase 2b (commit 2) — the glanceability pass: quiet singles, a started edge, a scaling ✓", () => {
+  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/@(media|supports|layer|container)[^{]*\{/g, "");
+  const rules = [...css.matchAll(/([^{}]+)\{([^}]*)\}/g)].map((m) => ({
+    selectors: m[1]!
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean),
+    body: m[2]!,
+  }));
+
+  it("exactly one .kds-qty rule declares the --ac fill, and it is the multiple's", () => {
+    // MUTATION (by hand): leave the rest chip lit — two rules declare the fill, red.
+    const lit = rules.filter(
+      (r) =>
+        r.selectors.some((x) => x.startsWith(".kds-qty")) &&
+        /background:\s*var\(--ac\)/.test(r.body),
+    );
+    expect(lit).toHaveLength(1);
+    expect(lit[0]!.selectors).toEqual(['.kds-qty[data-many="true"]']);
+  });
+
+  it("a started item declares the inset left edge", () => {
+    const started = rules.filter((r) =>
+      r.selectors.includes('.kds-item[data-state="in_progress"]'),
+    );
+    expect(started).toHaveLength(1);
+    expect(started[0]!.body).toMatch(/box-shadow:\s*inset 4px 0 0 var\(--ac\)/);
+  });
+
+  it("the row marks a multiple, never a single", () => {
+    const q = queue();
+    q.tickets[0]!.lines.push({ ...q.tickets[0]!.lines[0]!, id: "line-2", qty: 3 });
+    const { container } = mount("en", q);
+    const chips = container.querySelectorAll(".kds-qty");
+    expect(chips[0]!.getAttribute("data-many")).toBeNull();
+    expect(chips[1]!.getAttribute("data-many")).toBe("true");
+  });
+});

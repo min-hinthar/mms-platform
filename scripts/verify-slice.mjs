@@ -7325,6 +7325,14 @@ const MUTANTS = [
     find: '      <span className="chrome-en">{line.name}</span>\n',
     replace: "",
   },
+  {
+    id: "kds-line/qty-one-stands",
+    file: "apps/qr/lib/kds-line.ts",
+    suite: "lib/kds-line.test.ts",
+    why: "Phase 2b (commit 2) — only a multiple lights the quantity chip. Light a single too and every chip is the same lit block again: a 2 reads like a 1 at arm's length, which is how short plates go out",
+    find: "  return qty > 1;\n",
+    replace: "  return qty >= 1;\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));

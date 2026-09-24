@@ -111,3 +111,13 @@ export function overlaySoldOut(
     return changed ? { ...t, lines } : t;
   });
 }
+
+/**
+ * Phase 2b · kitchen (commit 2, the owner's droppable glanceability pass) — whether a line's quantity
+ * chip wears the lit accent fill. A single is quiet (a ringed numeral); only a multiple lights up,
+ * so a 2 no longer reads like a 1 at arm's length and short plates stop going out. Reversible in
+ * this one predicate and its one CSS rule.
+ */
+export function qtyStands(qty: number): boolean {
+  return qty > 1;
+}

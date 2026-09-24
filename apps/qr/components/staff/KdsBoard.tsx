@@ -28,6 +28,7 @@ import {
   lineMenuSubject,
   overlaySoldOut,
   pruneSoldOut,
+  qtyStands,
   recordSoldOut,
   type SoldOutOverride,
 } from "@/lib/kds-line";
@@ -1432,7 +1433,9 @@ function KdsLineRow({
             }).aria
           }
         >
-          <span className="kds-qty" aria-hidden="true">
+          {/* Phase 2b (commit 2) — a single is a quiet ringed numeral; only a multiple wears the lit
+              accent fill (`qtyStands`), so a 2 no longer reads like a 1 at arm's length. */}
+          <span className="kds-qty" data-many={qtyStands(line.qty) || undefined} aria-hidden="true">
             {line.qty}
           </span>
           <span className="kds-line-main">

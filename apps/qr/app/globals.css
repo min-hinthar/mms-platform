@@ -7542,6 +7542,10 @@ a .chrome-en {
 }
 .kds-item[data-state="in_progress"] {
   background: color-mix(in srgb, var(--ac) 12%, transparent);
+  /* Phase 2b (commit 2) — a started dish is a bar down the ticket's left edge (--ac ≈7:1 on --cd),
+     seen in peripheral vision from across the pass, so two cooks stop starting the same plate. The
+     COOKING tag stays, so colour is never the only signal. A state, not an animation. */
+  box-shadow: inset 4px 0 0 var(--ac);
 }
 .kds-item-row {
   display: flex;
@@ -7604,6 +7608,9 @@ a .chrome-en {
     background: color-mix(in srgb, var(--tx) 6%, transparent);
   }
 }
+/* Phase 2b (commit 2) — the quantity chip. A single is QUIET: a --tx numeral in a 2px --bd ring;
+   only a multiple (`data-many`, `qtyStands`) wears the lit accent fill, so a 2 jumps off the ticket
+   instead of reading like a 1. The owner's call, reversible in this one rule pair. */
 .kds-qty {
   flex: none;
   min-width: 44px;
@@ -7611,12 +7618,18 @@ a .chrome-en {
   padding: 0 6px;
   display: grid;
   place-items: center;
-  background: var(--ac);
-  color: var(--oa);
+  background: transparent;
+  color: var(--tx);
+  box-shadow: inset 0 0 0 2px var(--bd);
   border-radius: 10px;
   font-size: var(--kfs-item);
   font-weight: var(--fw-heavy);
   line-height: 1;
+}
+.kds-qty[data-many="true"] {
+  background: var(--ac);
+  color: var(--oa);
+  box-shadow: none;
 }
 .kds-line-main {
   min-width: 0;
@@ -7814,6 +7827,12 @@ a .chrome-en {
 }
 .kds-bump-fire {
   background: var(--ac);
+}
+/* Phase 2b (commit 2) — the ✓ scales with its label (--kfs-clock follows the dial: 21.6/25.2/28.8px)
+   instead of a fixed 22px; the same rule reaches help card 1's replica. */
+.kds-bump > svg {
+  width: 0.9em;
+  height: 0.9em;
 }
 /* §17 — busy is the ATTRIBUTE (the handler refuses re-entry), shown as a dim, never a label swap or
    native `disabled`: the bump, the recall buttons and the undo bar each keep their name and their
