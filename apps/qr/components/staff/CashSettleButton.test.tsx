@@ -232,6 +232,45 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 800 });
   });
 
+  it("'5,00' typed KEY BY KEY into the tip records 500 cents — never 50000", async () => {
+    settleCash.mockReturnValueOnce(new Promise(() => {}));
+    const { open, settle } = mount();
+    const dialog = open();
+    const field = document.getElementById("cash-tip") as HTMLInputElement;
+    // One change event per key, each carrying what the field held plus the new character — the
+    // path real hands take (a paste is one event and never showed the bug).
+    for (const ch of "5,00") fireEvent.change(field, { target: { value: field.value + ch } });
+    expect(field.value).toBe("5,00");
+    expect(settle().textContent).toBe("Settle $47.10");
+    // The chip lit by VALUE, not by the field's spelling: a $8.00 chip is not lit by "5,00", and
+    // "8,00" typed by hand lights it.
+    const chip = within(dialog).getByRole("button", { name: /^20%/ });
+    expect(chip.getAttribute("aria-pressed")).toBe("false");
+    fireEvent.change(field, { target: { value: "" } });
+    for (const ch of "8,00") fireEvent.change(field, { target: { value: field.value + ch } });
+    expect(chip.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.change(field, { target: { value: "" } });
+    for (const ch of "5,00") fireEvent.change(field, { target: { value: field.value + ch } });
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: restore the per-keystroke comma drop in the field's onChange — the field builds
+    // "500" and the settle carries 50000; red.
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500 });
+  });
+
+  it("a tip past seven whole-dollar digits is refused as over the cap, never read as zero", async () => {
+    const { open, settle } = mount();
+    open();
+    fireEvent.change(document.getElementById("cash-tip")!, { target: { value: "123456789" } });
+    expect(settle().getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById("cash-tip-cap")?.textContent).toContain("$1,000.00");
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).not.toHaveBeenCalled();
+  });
+
   it("an over-cap tip dims Settle with the cap named, and the tap is refused", async () => {
     const { open, settle } = mount();
     open();
