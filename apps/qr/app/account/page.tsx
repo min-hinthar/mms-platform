@@ -1,10 +1,17 @@
 import { PageMasthead } from "@mms/ui";
 import type { Metadata } from "next";
 import { TransitionLink as Link } from "@/components/nav/TransitionNav"; // J1 journey grammar
-import { getRewardsState, getOrderHistory, getWelcomeBack, ensureProfile } from "@/lib/rewards";
+import {
+  getRewardsState,
+  getOrderHistory,
+  getWelcomeBack,
+  ensureProfile,
+  getSessionKind,
+} from "@/lib/rewards";
 import { getMyLiveOrders } from "@/lib/orders";
 import { getFavoriteDishes } from "@/lib/favorites";
-import { RewardsHub } from "@/components/RewardsHub";
+import { chooserLeavesNote } from "@/lib/save-stars";
+import { RewardsDetails, RewardsSummary } from "@/components/RewardsHub";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
@@ -22,6 +29,14 @@ export const metadata: Metadata = { title: "Rewards & account · Morning Star" }
 // /account — Morning Star Rewards hub + order history + the anon→account upgrade (M4 P4.1/P4.2). Server-
 // rendered; the diner reads only their OWN rewards + orders (auth.uid()). ensureProfile() finalizes the
 // profile row when an upgrade has just confirmed (e.g. the Google redirect returns here).
+//
+// Phase 1c · account-star — THE ORDER IS THE DESIGN: what is happening now (the live row), then what
+// you own (identity — the save/sign-in door — and the Stars + the rewards you can spend today), then the
+// record this app promised (five surfaces send diners here to find a receipt), then reference (the
+// tier ladder, "How it works"), then settings. Plain JSX in that order, no section array standing in
+// for the page — app/account/page.test.tsx renders THIS component and pins the order it produces.
+// No hash/anchor landing: Next's loading boundary consumes a hash on the skeleton's commit, and the
+// save card already sits at the top, where a plain /account navigation lands.
 export default async function Account() {
   await ensureProfile();
   // W14: the two recognition reads (greeting + favorites) join the fan-out — both decorative,
@@ -37,6 +52,11 @@ export default async function Account() {
   // or a repeat month); absent data renders the masthead exactly as before, never a hollow greeting.
   const firstName = firstNameOf(welcome?.name ?? null);
   const repeatMonth = (welcome?.ordersThisMonth ?? 0) >= 2;
+  // Phase 1c — a failed rewards read used to remove the identity card with it, so a guest who arrived
+  // to SAVE landed on an alert with no save flow and no sign-in. Ask who this is, but ONLY on the
+  // failed branch (a healthy visit pays for no extra staff lookup), and let a failed ask resolve to
+  // "no card" — exactly today's degraded page, never a thrown one.
+  const kind = state ? null : await getSessionKind().catch(() => null);
 
   return (
     // W22a — the paper ambient behind the account hub (no isolation: the page ground lives on
@@ -75,7 +95,13 @@ export default async function Account() {
         <div className="account-masthead-rule" aria-hidden />
       </PageMasthead>
 
-      {/* W9c — the alert is now a BANNER, not a replacement. Making `getRewardsState` fail loudly was
+      {/* 1 · NOW — the diner's live orders (renders nothing when none). The ONLY order status on this
+          route (the header pill is off here — two claims about one order is what W22b removed), seeded
+          by the server snapshot and refreshed on wake/focus. Its rows link back to /track (resume=1):
+          the documented way back after saving. */}
+      <TodayOrders orders={live} />
+
+      {/* W9c — the alert is a BANNER, not a replacement. Making `getRewardsState` fail loudly was
           right, but gating the whole page on it meant one failed rewards RPC also hid the order
           history — and /track, the /cart complete-order notice and the snapshot notice all send diners
           here specifically to find a receipt. Degrade the hub, never the history. */}
@@ -85,47 +111,52 @@ export default async function Account() {
           below either way.
         </p>
       )}
-      {state && (
-        <>
-          {/* K3a: quiet when signed in — an upgraded diner gets an identity/sign-out status card
-              instead of the "Save your Stars" upgrade pitch. */}
-          <div style={{ marginBottom: "var(--s4)" }}>
-            {state.isUpgraded ? (
-              <>
-                {/* K7: records this signed-in identity (hints only, no token) so the switcher can offer a
-                    one-tap return next time; also clears any lingering lend flag. Renders null. */}
-                <RememberIdentity displayName={state.displayName} tierId={state.tierId} />
-                <AccountStatus
-                  email={state.email}
-                  displayName={state.displayName}
-                  tierId={state.tierId}
-                  stars={state.stars}
-                  memberSince={state.memberSince}
-                />
-              </>
-            ) : (
-              <AccountUpgrade stars={state.stars} />
-            )}
-          </div>
-          <RewardsHub state={state} />
-          {/* K3a: the old "Signed in as …" footer note is now the AccountStatus card above. */}
-        </>
-      )}
 
-      {/* W9c — the ORDERS sit OUTSIDE the rewards gate, and that placement is the whole point. An
-          earlier attempt "fixed" this by rewriting `{!state ? alert : hub}` as `{!state && alert}` +
-          `{state && hub}` — semantically the identical tree, with the orders still inside it, while
-          the new copy promised orders that were not rendered. A failed `mms_rewards_summary` must
-          cost the diner their Stars panel, never their receipts: /track's "Find it in your account",
-          /cart's "See it in your account" and the tracker's snapshot notice all send them here for
-          exactly this list. */}
-      {/* W14 — the hearts finally have a home on the profile (renders nothing without any). */}
-      <AccountFavorites dishes={favorites} />
-      {/* W22f — the ONE place sound can be switched on. It lives here, on the diner's own surface,
-          rather than "beside reduced motion" as the proposal said: there is no reduced-motion
-          control to sit beside (it is honored from the OS media query alone). */}
-      <SoundToggle />
-      <TodayOrders orders={live} />
+      {/* 2 · YOU — identity, directly under the live row: the save + sign-in door for a guest (K3a: a
+          signed-in diner gets the quiet identity/sign-out card instead). On the failed branch a GUEST
+          still gets the door, with stars={0} (its count-free copy — no number is claimed) and the
+          count-free chooser note. `chooserNote` says what a Welcome-back chip tap would leave behind,
+          BEFORE the tap (lib/save-stars.ts `chooserLeavesNote`). */}
+      {state ? (
+        <div style={{ marginBottom: "var(--s4)" }}>
+          {state.isUpgraded ? (
+            <>
+              {/* K7: records this signed-in identity (hints only, no token) so the switcher can offer a
+                  one-tap return next time; also clears any lingering lend flag. Renders null. */}
+              <RememberIdentity displayName={state.displayName} tierId={state.tierId} />
+              <AccountStatus
+                email={state.email}
+                displayName={state.displayName}
+                tierId={state.tierId}
+                stars={state.stars}
+                memberSince={state.memberSince}
+              />
+            </>
+          ) : (
+            <AccountUpgrade
+              stars={state.stars}
+              chooserNote={chooserLeavesNote({ stars: state.stars, inProgress: live.length })}
+            />
+          )}
+        </div>
+      ) : kind === "anon" ? (
+        <div style={{ marginBottom: "var(--s4)" }}>
+          <AccountUpgrade
+            stars={0}
+            chooserNote={chooserLeavesNote({ stars: null, inProgress: live.length })}
+          />
+        </div>
+      ) : null}
+
+      {/* 3 · WHAT YOU OWN — the tier-up moment, the Stars ring, and the coupons spendable today. */}
+      {state && <RewardsSummary state={state} />}
+
+      {/* 4 · THE RECORD — W9c: the ORDERS sit OUTSIDE the rewards gate, and that placement is the whole
+          point. An earlier attempt "fixed" this by rewriting `{!state ? alert : hub}` as `{!state &&
+          alert}` + `{state && hub}` — semantically the identical tree, with the orders still inside it,
+          while the new copy promised orders that were not rendered. A failed `mms_rewards_summary`
+          must cost the diner their Stars panel, never their receipts. Pinned by
+          app/account/page.test.tsx, which renders this page with the rewards read failing. */}
       {history === null ? (
         <p
           style={{
@@ -140,6 +171,19 @@ export default async function Account() {
       ) : (
         <OrderHistory entries={history} />
       )}
+
+      {/* W14 — the hearts have a home on the profile (renders nothing without any). Below history:
+          the hearts already live on the menu rail, where ordering happens. */}
+      <AccountFavorites dishes={favorites} />
+
+      {/* 5 · REFERENCE — the tier ladder + lifetime spend, then "How it works". */}
+      {state && <RewardsDetails state={state} />}
+
+      {/* 6 · SETTINGS — W22f: the ONE place sound can be switched on. It lives here, on the diner's own
+          surface, rather than "beside reduced motion" as the proposal said: there is no reduced-motion
+          control to sit beside (it is honored from the OS media query alone). Last, as in the
+          prototype's account screen. */}
+      <SoundToggle />
 
       <div style={{ marginTop: 8 }}>
         {/* W9a — /account is a side-room off every door, so there is no one mode to carry: route to

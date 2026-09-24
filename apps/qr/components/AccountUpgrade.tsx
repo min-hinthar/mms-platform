@@ -47,7 +47,15 @@ import { Card } from "@mms/ui";
  * only confirmed staff, never an upgraded diner — so there's no client marker to set (and no marker-write
  * that could fail before the Google redirect and orphan the account).
  */
-export function AccountUpgrade({ stars }: { stars: number }) {
+export function AccountUpgrade({
+  stars,
+  chooserNote = null,
+}: {
+  stars: number;
+  /** Phase 1c — what a Welcome-back chip tap would leave behind (`chooserLeavesNote`), passed through
+   *  to the chooser so it is said BEFORE the tap; null = nothing at stake. */
+  chooserNote?: { en: string; my: string } | null;
+}) {
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "code">("idle");
   const [email, setEmail] = useState("");
@@ -591,7 +599,12 @@ export function AccountUpgrade({ stars }: { stars: number }) {
       {/* K7: remembered-identity chips for a one-tap (merge-suppressed) return — renders null for a
           first-time guest with no history. Only on the idle step (the code step is mid-sign-in). */}
       {phase === "idle" && (
-        <WelcomeBackChooser onSelect={selectIdentity} busy={busy} selectedEmail={selectedEmail} />
+        <WelcomeBackChooser
+          onSelect={selectIdentity}
+          busy={busy}
+          selectedEmail={selectedEmail}
+          note={chooserNote}
+        />
       )}
 
       {phase === "idle" ? (

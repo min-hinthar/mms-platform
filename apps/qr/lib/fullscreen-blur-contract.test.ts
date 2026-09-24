@@ -12,8 +12,8 @@ import path from "node:path";
  *
  * The defect this exists to prevent was REAL and was in the first draft of the glass layer, not
  * hypothetical: `.mms-scrim`, `.tier-up` and `.merge-beat` were given the defocus together, and
- * `MergeRedeemer` (apps/qr/app/account/page.tsx:48) and `RewardsHub` -> `TierUpCelebration`
- * (:138) are BOTH rendered on /account — with MergeRedeemer's own comment stating that it
+ * `MergeRedeemer` (apps/qr/app/account/page.tsx:69) and `RewardsSummary` -> `TierUpCelebration`
+ * (:152) are BOTH rendered on /account — with MergeRedeemer's own comment stating that it
  * refreshes the hub so merged Stars appear, i.e. the exact path that can award a tier and mount
  * the second overlay. Nothing in the type system, the linter, the contrast audit or `verify:slice`
  * can see a stylesheet, and the failure mode is a dead tab on a diner's phone rather than a red
