@@ -7,8 +7,8 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### Phase 2a — the console sends to the kitchen (2026-09-24)
 
 The first staff slice of the owner's polish plan, built as four parallel worktree branches (`p2a/*`:
-send · padserver · tablet · register) merged here. Decided in pure `lib/` modules with mutants (44
-new; 836 total across 146 files). DESIGN-LANGUAGE §17.
+send · padserver · tablet · register) merged here. Decided in pure `lib/` modules with mutants (62
+new; 854 total across 147 files). DESIGN-LANGUAGE §17.
 
 - **The console sends to the kitchen (P2k).** A phone-less table ("Start a table") no longer waits
   for its settle to cook: the table page gains "Send to kitchen · N items" with a 10s
@@ -39,6 +39,17 @@ new; 836 total across 146 files). DESIGN-LANGUAGE §17.
   the cap. A secure-tab close whose action rejected no longer latches on "Charging…": the confirm
   closes, focus returns to the trigger, and the alert says the card may or may not have been charged
   (`settle.card.unknown`). `CashSettleButton` and `CloseSecureTabButton` join the mutate set.
+- **Blind review (3 lenses, 3× REJECT) — fixed:**
+  - money: a dot typed after a decimal comma is refused ("5,00." stays "5,00" → $5.00, not $500), and a pasted "5,00." / "5,5.0" reads as no amount; the 8+-digit tip arm gained its mutant.
+  - send count (Codex round 1): "Sent N items" now repeats the fired UNITS (Σ qty of the batch), not the rows `mms_fire_cart` reports — the row count is only the lower-bound fallback.
+  - undo, lost response: a retry that finds its batch already brought back answers `gone` ("Nothing from that send is still with the kitchen…"), never "too late"; a thrown undo says "Couldn’t confirm the take-back…" and keeps its window.
+  - undo hold: "Bringing it back…" is baselined at the answer, not the tap, and releases when the detail read degrades.
+  - refresh: a re-read asked for while a poll is in flight runs once more after it instead of being dropped.
+  - region: degraded now outranks any send line (writeError > degraded > send warn > send ok), and a send line retires once the slot it spoke over changes.
+  - add page (7c from Codex round 1): a closed table goes to the floor by name; "Review · N not sent" counts only what staff own at a host table; the quick add re-reads after an ok add.
+  - add outcome: the insert guard's "not open" is a typed `CartClosedError` → `closed` (definite), while an RPC error stays `unconfirmed`.
+  - guards: the undo's signin/outage gate is pinned; the unreachable `role` refusal is gone (`server` is the ladder's floor).
+  - add key (Codex round 1, P1 — closes P2aj): `StaffAddButton` and `StaffMenuBrowser` send an add key, resend it on a retry of an unknown add, and say "Couldn’t confirm that add — check the order before adding again."
 - **Owner decisions for Phase 2 (2026-09-24).** Counter (phone / walk-up) orders will be sendable
   before payment with an "Unpaid — collect at pickup" flag — its own later slice, **2f**, which needs
   a migration; until then the console refuses a counter send and says "The kitchen starts this order
