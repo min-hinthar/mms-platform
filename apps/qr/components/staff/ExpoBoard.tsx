@@ -3,6 +3,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useId,
   useRef,
   useState,
   useTransition,
@@ -19,7 +20,16 @@ import {
   pickedUndoOpen,
   toastPick,
 } from "@/lib/expo-rules";
-import { heldFor, NO_HOLD, setHeld, type Hold, type HoldSource } from "@/lib/undo-hold";
+import {
+  capRelease,
+  heldFor,
+  holdCapPhase,
+  NO_HOLD,
+  pruneToLive,
+  setHeld,
+  type Hold,
+  type HoldSource,
+} from "@/lib/undo-hold";
 import { expoErrOutcome, expoFailedMsg, type ExpoMsg, type ExpoSubject } from "@/lib/expo-errors";
 import { actionErrorStale, ERR_DWELL_MS } from "@/lib/kds-errors";
 import { fmtElapsed, spokenElapsed } from "@/lib/kds-time";
@@ -175,6 +185,17 @@ export function ExpoBoard({
   // When each card was last UNDONE — the slot refuses a re-pick for the same gesture after it, so
   // the second half of a double-tapped Undo cannot pick the bag straight back up.
   const undoneAt = useRef<Map<string, number>>(new Map());
+  // Blind review (2026-09-24) — the windows whose write the tick has SENT, read at tap time. The
+  // `committing` flag in `picked` reaches a handler only after React re-renders, so an Undo landing
+  // between the tick's send and that render read a stale "not committing", dropped the pick and
+  // announced "back on the counter" for a bag whose picked_up write was already on the wire. The
+  // REF is written in the same synchronous turn as the send (LEARNINGS #126: the guard read at tap
+  // time is a ref; the state is what renders).
+  const committingRef = useRef<Set<string>>(new Set());
+  // The hold cap's two sayings, each once per window: warned before the cap, and released AT it
+  // (so the commit that follows is announced — the keyboard user was told it was coming).
+  const capWarnedRef = useRef<Set<string>>(new Set());
+  const cappedRef = useRef<Set<string>>(new Set());
   // The pill: the pick that opened it (never an older one — `toastPick`), its phase, and whether its
   // Undo has armed. `key` replays the entrance when a new pick replaces it.
   const [toast, setToast] = useState<{
@@ -208,7 +229,7 @@ export function ExpoBoard({
         // was never recorded — the same outcome, minus the silence.
         await Promise.allSettled(
           [...pickedRef.current]
-            .filter(([, p]) => !p.committing)
+            .filter(([id, p]) => !p.committing && !committingRef.current.has(id))
             .map(([orderId]) => setTogoStatus({ orderId, to: "picked_up" })),
         );
         window.location.assign(res.reason === "locked" ? "/staff/lock" : "/staff/login");
@@ -225,6 +246,18 @@ export function ExpoBoard({
           ? prev
           : new Map([...prev].filter(([id]) => live.has(id))),
       );
+      // …and every per-window entry beside it goes too — DELETED, never reset to NO_HOLD (blind
+      // review, 2026-09-24): a lane that runs all shift must not keep one dead entry per bag.
+      const goneHolds = pruneToLive(holdsRef.current, live);
+      if (goneHolds.length > 0)
+        setHeldIds((ids) =>
+          goneHolds.some((id) => ids.has(id))
+            ? new Set([...ids].filter((id) => live.has(id)))
+            : ids,
+        );
+      pruneToLive(undoneAt.current, live);
+      for (const set of [committingRef.current, capWarnedRef.current, cappedRef.current])
+        for (const id of [...set]) if (!live.has(id)) set.delete(id);
       if (actionErrorStale(errSince.current, Date.now(), ERR_DWELL_MS)) {
         errSince.current = null;
         setErr(null);
@@ -254,6 +287,9 @@ export function ExpoBoard({
         return next;
       });
       markHeld(orderId, NO_HOLD); // Phase 2b · feedback — a gone window holds nothing
+      committingRef.current.delete(orderId);
+      capWarnedRef.current.delete(orderId);
+      cappedRef.current.delete(orderId);
     },
     [markHeld],
   );
@@ -283,29 +319,66 @@ export function ExpoBoard({
     const id = setInterval(() => {
       const localNow = Date.now();
       setNowMs(stampNow());
+      // Blind review (2026-09-24) — THE CAP, SAID OUT LOUD. A keyboard user parked on Undo holds the
+      // window for at most a minute (lib/undo-hold). Five seconds before that minute is up the
+      // lane's region says the pick is about to go through; AT it the hold is let go, so the pill's
+      // drain visibly runs again (no `data-held` over a window that is really closing); and the
+      // commit that follows is announced, because the person was told it was coming.
+      for (const [id, p] of picked) {
+        if (p.committing || committingRef.current.has(id)) continue;
+        const h = holdsRef.current.get(id) ?? NO_HOLD;
+        const phase = holdCapPhase(h, localNow);
+        if (phase === "release") {
+          markHeld(id, capRelease(h, localNow));
+          cappedRef.current.add(id);
+        } else if (phase === "warn" && !capWarnedRef.current.has(id)) {
+          capWarnedRef.current.add(id);
+          setNotice(
+            p.subject.kind === "table"
+              ? { k: "expo.live.capSoonTable", vars: { id: p.subject.id } }
+              : p.subject.kind === "verify"
+                ? { k: "expo.live.capSoonHanded", vars: { x: p.subject.x } }
+                : { k: "expo.live.capSoon", vars: { x: p.subject.x } },
+          );
+        }
+      }
       // Phase 2b · feedback — a held window's start slides by the time held (capped).
       const due = [...picked].filter(
         ([id, p]) =>
           !p.committing &&
+          !committingRef.current.has(id) &&
           !pickedUndoOpen(p.at + heldFor(holdsRef.current.get(id) ?? NO_HOLD, localNow), localNow),
       );
       if (due.length === 0) return;
+      // The ref FIRST, in this same turn — an Undo tapped before the render below reads it.
+      for (const [orderId] of due) committingRef.current.add(orderId);
       setPicked((prev) => {
         const next = new Map(prev);
         for (const [orderId, p] of due) next.set(orderId, { ...p, committing: true });
         return next;
       });
-      for (const [orderId, p] of due) void commitPicked(orderId, p.subject);
+      for (const [orderId, p] of due) {
+        if (cappedRef.current.has(orderId))
+          setNotice(
+            p.subject.kind === "table"
+              ? { k: "expo.live.capDoneTable", vars: { id: p.subject.id } }
+              : p.subject.kind === "verify"
+                ? { k: "expo.live.capDoneHanded", vars: { x: p.subject.x } }
+                : { k: "expo.live.capDone", vars: { x: p.subject.x } },
+          );
+        void commitPicked(orderId, p.subject);
+      }
     }, 1000);
     return () => clearInterval(id);
-  }, [picked, commitPicked, stampNow]);
+  }, [picked, commitPicked, stampNow, markHeld]);
   // The lane leaving with windows open (a route change, a remount) sends their writes at once —
   // the counter saw "picked up" and handed the bag over; the undo affordance is what is gone, not
   // the pick. Fire-and-forget: a server action outlives the component that called it.
   useEffect(
     () => () => {
       for (const [orderId, p] of pickedRef.current)
-        if (!p.committing) void setTogoStatus({ orderId, to: "picked_up" });
+        if (!p.committing && !committingRef.current.has(orderId))
+          void setTogoStatus({ orderId, to: "picked_up" });
     },
     [],
   );
@@ -344,7 +417,15 @@ export function ExpoBoard({
       const entry = picked.get(orderId);
       // Inert while the write is in flight, and for the arm after the pick: the second tap of a
       // double-tap lands here (same slot, same node) and is not a change of mind.
-      if (!entry || entry.committing || !pickedUndoArmed(entry.at, Date.now())) return false;
+      if (
+        !entry ||
+        entry.committing ||
+        // The ref, not only the render's flag: the tick may have SENT the write since this closure
+        // was made (blind review, 2026-09-24 — see `committingRef`).
+        committingRef.current.has(orderId) ||
+        !pickedUndoArmed(entry.at, Date.now())
+      )
+        return false;
       haptic("commit");
       showErr(null);
       dropPicked(orderId);
@@ -411,6 +492,8 @@ export function ExpoBoard({
   // dead 64px strip over the page. The pill is `live={false}`: the lane's region above already
   // speaks the pick — one voice per fact.
   const sectionRef = useRef<HTMLElement>(null);
+  // The pill's text is its Undo's DESCRIPTION: "Undo" alone names no bag (blind review, 2026-09-24).
+  const pillTextId = useId();
   const toastOpen =
     toast !== null && toast.phase === "open" && toastPick(picked, toast.id) !== null;
   const toastPhase =
@@ -662,6 +745,7 @@ export function ExpoBoard({
                   onAction: onToastUndo,
                   disabled: !toast.armed || toastPhase !== "showing",
                   onHold: (held) => hold(toast.id, "toast", held),
+                  describedById: pillTextId,
                 },
                 drainMs: PICKED_UNDO_MS,
                 held: heldIds.has(toast.id),

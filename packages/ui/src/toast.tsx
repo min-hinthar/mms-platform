@@ -24,7 +24,9 @@ import { matchesFocusVisible } from "./focus-visible";
  * `action` renders a real button inside the pill (an Undo). Its NAME is its visible label — a
  * ReactNode, so a staff caller passes its marked `<Chrome>` — and there is deliberately NO
  * aria-label channel: a name passed as an object property is invisible to the staff-language
- * guard's attribute rules, and the visible text is the name WCAG 2.5.3 wants anyway. `disabled`
+ * guard's attribute rules, and the visible text is the name WCAG 2.5.3 wants anyway. What the
+ * action is ABOUT rides `describedById` instead: the pill's own visible text becomes the button's
+ * description, so a screen reader hears "Undo — Table 7 picked up" without a second name. `disabled`
  * refuses the tap (aria-disabled, the label kept — never natively disabled, which drops focus).
  * ⚠️ WCAG 2.2.1: a caller that passes an `action` must not tear the message down on a fixed timer
  * while a keyboard or screen-reader user is on it. `onHold(true)` fires when focus arrives the
@@ -53,6 +55,10 @@ export type ToastAction = {
   disabled?: boolean;
   /** `true` when focus arrives the keyboard way, `false` on blur — the caller holds its window. */
   onHold?: (held: boolean) => void;
+  /** An id for the pill's TEXT, which the action is then `aria-describedby`: a bare "Undo" heard
+   *  on its own says nothing about WHAT it undoes, so the subject the pill names rides along as its
+   *  description. The caller owns the id (unique on the page); the name stays the visible label. */
+  describedById?: string;
 };
 
 export type ToastMessage = {
@@ -105,7 +111,9 @@ export function Toast({
     ? ({ role: "status", "aria-live": "polite", "aria-atomic": "true" } as const)
     : {};
   const action = message?.action;
-  const inert = shield || action?.disabled === true;
+  // A LEAVING pill's action refers to a window that is already closing: refused in the handler too,
+  // not only by the stylesheet's `pointer-events` (a keyboard Enter never asks the stylesheet).
+  const inert = shield || leaving || action?.disabled === true;
   const onHold = action?.onHold;
   return (
     <div {...region} className="ui-toast-region" style={style}>
@@ -129,7 +137,7 @@ export function Toast({
           data-shield={shield || undefined}
           data-held={message.held || undefined}
         >
-          <span>
+          <span id={action?.describedById}>
             {message.text}
             {message.my ? (
               <span lang="my" className="ui-toast-my">
@@ -143,6 +151,7 @@ export function Toast({
               type="button"
               className="ui-toast-action"
               aria-disabled={inert || undefined}
+              aria-describedby={action.describedById}
               onClick={() => {
                 if (!inert) action.onAction();
               }}

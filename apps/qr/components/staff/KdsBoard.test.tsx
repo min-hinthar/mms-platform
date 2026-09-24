@@ -540,6 +540,50 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(document.activeElement?.id).not.toBe("kds-line-line-1");
   });
 
+  it("an 86 landing while ANOTHER line's sheet is open leaves that sheet alone and parks its Undo until it closes", async () => {
+    // Blind review (2026-09-24). MUTATION (by hand): close/unmount on every success — B's sheet
+    // vanishes under the cook, and A's Undo mounts in the footprint of B's sold-out button, red.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const d = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => d.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q); // A: Mohinga, in flight
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    fireEvent.click(q.getByRole("button", { name: moreFor("Laphet") })); // B opens
+    const dialogB = await q.findByRole("dialog");
+    expect(dialogB.textContent).toContain("Laphet");
+    await act(async () => {
+      d.resolve({ ok: true, soldOut: true });
+    });
+    // B is still open, still B, and its own sold-out button is still the thing under the finger.
+    expect(q.getByRole("dialog")).toBe(dialogB);
+    expect(dialogB.getAttribute("data-state")).toBe("open");
+    expect(within(dialogB).getByRole("button", { name: eightySixName })).toBeTruthy();
+    expect(q.container.querySelector(".kds-undo")).toBeNull();
+    // The fact is in the board's region.
+    expect(q.container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "kds.live.86", { x: "Mohinga" }),
+    );
+    // B closes: A's Undo arrives, naming A.
+    fireEvent.keyDown(dialogB, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    expect(q.container.querySelector(".kds-undo")!.textContent).toContain(
+      tf("en", "kds.undo.86", { x: "Mohinga" }),
+    );
+  });
+
   it("a refusal renders in the sheet's region, keeps the sheet open, and refreshes", async () => {
     // MUTATIONS (by hand): route every refusal to the board region — the sheet's region is empty,
     // red; refresh only on ok — no queue read, red.

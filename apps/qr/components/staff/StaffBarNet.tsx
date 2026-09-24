@@ -13,9 +13,15 @@ import { Chrome } from "./Chrome";
  *    bar — never over a control, and the bar stays the page's only sticky element. It hides the
  *    moment the device is back (no "back online" dwell): one reflow per real transition. A feed page
  *    (`feed`) draws NO row — its status slot already says Offline and its boards' frozen copy carries
- *    the paper escalation, so nothing ever covers or moves the KDS head. `role="note"`: ambient, not a
- *    new live region. A `we-down` probe verdict never shows here — the device is fine, and the
- *    boards' outage voice owns that case.
+ *    the paper escalation, so nothing ever covers or moves the KDS head. A `we-down` probe verdict
+ *    never shows here — the device is fine, and the boards' outage voice owns that case.
+ *    `role="status"` (blind review, 2026-09-24 — it was `note`, which is SILENT): on a feedless page
+ *    this row is the ONLY carrier of "offline", so it must be spoken. The region is ALWAYS MOUNTED
+ *    on a feedless page (visually hidden and empty while online) and only its text comes and goes —
+ *    several screen-reader/browser pairs skip a live region born with its text (the Toast's rule).
+ *    Hidden, it is absolutely positioned, so it is no flex item and takes no gap. It speaks ONE fact
+ *    no other region on those pages carries (their own regions speak their own outcomes), so it
+ *    never repeats a sentence — the QA §A rule is about redundancy (StaffLangSwitch's reading).
  *
  * 2. THE ONE PUBLISHER of `--staff-bar-h` (plan conflict: tablet-split × feedback): the header's
  *    measured height, on `<html>`, kept current by a ResizeObserver and removed on unmount. The root's
@@ -45,15 +51,19 @@ export function StaffBarNet({ lang, feed }: { lang: StaffLang; feed: boolean }) 
   }, []);
   return (
     <>
-      <span ref={probe} hidden />
-      {offline && !feed && (
-        <div className="staff-net mms-rise" role="note">
-          <Icon name="offline" size={18} />
-          <span>
-            <Chrome lang={lang} k="shell.net.offline" />
-          </span>
+      {!feed && (
+        <div className={offline ? "staff-net mms-rise" : "sr-only"} role="status">
+          {offline && (
+            <>
+              <Icon name="offline" size={18} />
+              <span>
+                <Chrome lang={lang} k="shell.net.offline" />
+              </span>
+            </>
+          )}
         </div>
       )}
+      <span ref={probe} hidden />
     </>
   );
 }

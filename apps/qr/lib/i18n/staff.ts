@@ -2791,6 +2791,32 @@ export const STAFF = {
     en: "{x} handed over — undo available.",
     my: "{x} လွှဲပေးပြီး — ပြန်ဖျက်နိုင်သေးသည်။",
   }, // grounded: expo.verb.handedOver + expo.live.picked's tail
+  // Blind review (2026-09-24) — THE HOLD CAP, SAID OUT LOUD (lib/undo-hold `holdCapPhase`). A
+  // keyboard user parked on Undo holds the window for at most a minute; five seconds before it is
+  // up the lane's region warns, and the commit that follows is announced. Per SUBJECT shape, like
+  // every expo sentence. All six are Claude-authored K15 drafts: the verbs are grounded on
+  // expo.live.picked (ယူသွားပြီ) / expo.verb.handedOver (လွှဲပေးပြီး) and kds.undo (ပြန်ဖျက်).
+  "expo.live.capSoon": {
+    en: "{x} will be marked picked up in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် {x} ကို ယူသွားပြီ လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capSoonTable": {
+    en: "Table {id} will be marked picked up in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် စားပွဲ {id} ကို ယူသွားပြီ လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capSoonHanded": {
+    en: "{x} will be marked handed over in a few seconds — Undo now to stop it.",
+    my: "ခဏနေရင် {x} ကို လွှဲပေးပြီး လို့ မှတ်ပါမယ် — ရပ်ချင်ရင် အခု ပြန်ဖျက်ပါ။",
+  },
+  "expo.live.capDone": { en: "{x} marked picked up.", my: "{x} ကို ယူသွားပြီ လို့ မှတ်ပြီးပြီ။" },
+  "expo.live.capDoneTable": {
+    en: "Table {id} marked picked up.",
+    my: "စားပွဲ {id} ကို ယူသွားပြီ လို့ မှတ်ပြီးပြီ။",
+  },
+  "expo.live.capDoneHanded": {
+    en: "{x} marked handed over.",
+    my: "{x} ကို လွှဲပေးပြီး လို့ မှတ်ပြီးပြီ။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;

@@ -181,6 +181,36 @@ describe("Toast — the staff lane's silent xl pill", () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 
+  it("a LEAVING pill's action refuses in the handler too — a keyboard Enter never asks the stylesheet", () => {
+    // MUTATION (by hand): drop `leaving` from `inert` — the fading Undo acts, red.
+    const onAction = vi.fn();
+    const btn = actionOf(
+      Toast({
+        live: false,
+        size: "xl",
+        leaving: true,
+        message: xlMessage({ action: { label: MY, onAction } }),
+      }),
+    );
+    expect(btn.props["aria-disabled"]).toBe(true);
+    (btn.props.onClick as () => void)();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("describedById makes the pill's own text the action's DESCRIPTION — the name stays its visible word", () => {
+    // MUTATION (by hand): drop aria-describedby — "Undo" is heard with no subject, red.
+    const html = silentXl(
+      xlMessage({ action: { label: MY, onAction: () => {}, describedById: "pill-7" } }),
+    );
+    expect(html).toMatch(/<span id="pill-7">Table 7 picked up<\/span>/);
+    expect(html).toMatch(/<button[^>]*aria-describedby="pill-7"[^>]*>/);
+    expect(/<button[^>]*>/.exec(html)![0]).not.toContain("aria-label");
+    // Without an id, neither attribute appears (no dangling reference).
+    const bare = silentXl(xlMessage());
+    expect(bare).not.toContain("aria-describedby");
+    expect(bare).not.toMatch(/<span id=/);
+  });
+
   it("the shield is drawn on the pill — it stays VISIBLE while it refuses", () => {
     expect(silentXl(xlMessage(), { shield: true })).toMatch(
       /class="ui-toast ui-toast-xl" data-shield="true"/,
@@ -232,23 +262,6 @@ describe("Toast — the xl pill's hit area, in the stylesheet", () => {
     fileURLToPath(new URL("../primitives.css", import.meta.url)),
     "utf8",
   ).replace(/\/\*[\s\S]*?\*\//g, "");
-  /** Every `@media <query> { … }` block's body, brace-walked (the LockButton.test pattern). */
-  function mediaBlocks(query: string): string[] {
-    const out: string[] = [];
-    let i = css.indexOf(query);
-    while (i !== -1) {
-      const open = css.indexOf("{", i);
-      let depth = 0;
-      let j = open;
-      for (; j < css.length; j++) {
-        if (css[j] === "{") depth++;
-        else if (css[j] === "}" && --depth === 0) break;
-      }
-      out.push(css.slice(open + 1, j));
-      i = css.indexOf(query, j);
-    }
-    return out;
-  }
   const rule = (src: string, sel: string) =>
     new RegExp(`(?:^|[}\\s])${sel.replace(/[.[\]()"=]/g, "\\$&")}\\s*\\{([^}]*)\\}`).exec(src)?.[1];
   const outside = css.replace(/@media[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, "");
@@ -256,13 +269,110 @@ describe("Toast — the xl pill's hit area, in the stylesheet", () => {
   it("a showing xl pill takes pointer events over its WHOLE body — a missed Undo lands on the pill", () => {
     expect(rule(outside, ".ui-toast-xl")).toMatch(/pointer-events:\s*auto/);
   });
-  it("a LEAVING xl pill takes none — an invisible pill never eats a tap", () => {
-    expect(rule(outside, ".ui-toast-xl.ui-toast-leaving")).toMatch(/pointer-events:\s*none/);
+  /**
+   * The EFFECTIVE value, not the presence of a rule (blind review, 2026-09-24): the reduced-motion
+   * override that stood here was DEAD — it sat inside an `@media` block EARLIER in the file than
+   * the top-level rule it meant to override, at the same specificity, so the top-level rule won and
+   * a visible leaving pill passed every tap through. A test that only asked "does the RM block
+   * declare auto?" was green over it. This walks the sheet the way the cascade does: every rule
+   * whose selector matches the element, in or out of the RM query, the highest specificity then
+   * the LAST in source order winning.
+   */
+  type Rule = { sels: string[]; decls: Record<string, string>; rm: boolean; order: number };
+  function rules(): Rule[] {
+    const out: Rule[] = [];
+    const walk = (src: string, rm: boolean) => {
+      let i = 0;
+      while (i < src.length) {
+        const open = src.indexOf("{", i);
+        if (open === -1) break;
+        const prelude = src.slice(i, open).trim();
+        let depth = 0;
+        let j = open;
+        for (; j < src.length; j++) {
+          if (src[j] === "{") depth++;
+          else if (src[j] === "}" && --depth === 0) break;
+        }
+        const body = src.slice(open + 1, j);
+        if (prelude.startsWith("@media")) {
+          if (/prefers-reduced-motion:\s*reduce/.test(prelude)) walk(body, true);
+          else if (!/prefers-reduced-motion/.test(prelude)) walk(body, rm);
+        } else if (!prelude.startsWith("@")) {
+          const decls: Record<string, string> = {};
+          for (const d of body.split(";")) {
+            const k = d.indexOf(":");
+            if (k > 0) decls[d.slice(0, k).trim()] = d.slice(k + 1).trim();
+          }
+          out.push({
+            sels: prelude.split(",").map((x) => x.trim().replace(/\s+/g, " ")),
+            decls,
+            rm,
+            order: out.length,
+          });
+        }
+        i = j + 1;
+      }
+    };
+    walk(css, false);
+    return out;
+  }
+  const spec = (sel: string) => (sel.match(/[.[:]/g) ?? []).length;
+  /** The winning value of `prop` for an element every selector in `matches` applies to. */
+  function effective(matches: string[], prop: string, rm: boolean): string | undefined {
+    let best: { s: number; o: number; v: string } | undefined;
+    for (const r of rules()) {
+      if ((r.rm && !rm) || !(prop in r.decls)) continue;
+      for (const sel of r.sels) {
+        if (!matches.includes(sel)) continue;
+        const s = spec(sel);
+        if (!best || s > best.s || (s === best.s && r.order > best.o))
+          best = { s, o: r.order, v: r.decls[prop]! };
+      }
+    }
+    return best?.v;
+  }
+  const LEAVING_PILL = [
+    ".ui-toast",
+    ".ui-toast-leaving",
+    ".ui-toast-xl",
+    ".ui-toast-xl.ui-toast-leaving",
+  ];
+  const SHOWING_PILL = [".ui-toast", ".ui-toast-xl"];
+  const actionIn = (pill: string[]) => [
+    ".ui-toast-action",
+    ...pill.flatMap((p) => (p.includes(".", 1) ? [] : [`${p} .ui-toast-action`])),
+  ];
+
+  it("a LEAVING xl pill takes no pointer — an invisible pill never eats a tap", () => {
+    expect(effective(LEAVING_PILL, "pointer-events", false)).toBe("none");
   });
-  it("under reduced motion the leaving pill is still VISIBLE, so it takes them back; the drain is not drawn", () => {
-    const rm = mediaBlocks("@media (prefers-reduced-motion: reduce)").join("\n");
-    expect(rule(rm, ".ui-toast-xl.ui-toast-leaving")).toMatch(/pointer-events:\s*auto/);
-    expect(rule(rm, ".ui-toast-drain")).toMatch(/display:\s*none/);
+  it("under reduced motion the leaving pill is still VISIBLE, so it EFFECTIVELY takes them back", () => {
+    // MUTATION (by hand): move the RM block back above the top-level rule — `none` wins, red.
+    expect(effective(LEAVING_PILL, "pointer-events", true)).toBe("auto");
+    expect(effective([".ui-toast-drain"], "display", true)).toBe("none");
+  });
+  it("a leaving pill's ACTION is inert under every motion setting — its window is already closing", () => {
+    // MUTATION (by hand): drop `.ui-toast-leaving .ui-toast-action` — the child's own `auto` beats
+    // the pill's `none`, and the fading Undo still takes the tap, red.
+    for (const rm of [false, true])
+      expect(effective(actionIn(LEAVING_PILL), "pointer-events", rm)).toBe("none");
+    // A showing pill's action takes the tap, in both.
+    for (const rm of [false, true]) {
+      expect(effective(actionIn(SHOWING_PILL), "pointer-events", rm)).toBe("auto");
+      expect(effective(SHOWING_PILL, "pointer-events", rm)).toBe("auto");
+    }
+  });
+  it("while an xl pill SHOWS, the page's scroll padding clears its footprint (WCAG 2.4.11)", () => {
+    const pad = effective(
+      [":root:has(.ui-toast-xl:not(.ui-toast-leaving))"],
+      "scroll-padding-bottom",
+      false,
+    );
+    // The region's own offset (the same three terms as `.ui-toast-region`'s bottom) + the pill.
+    const bottom = rule(outside, ".ui-toast-region")!.match(/bottom:\s*calc\(([\s\S]*?)\);/)![1]!;
+    for (const term of bottom.split("+").map((t) => t.trim()))
+      expect(pad?.replace(/\s+/g, " ")).toContain(term);
+    expect(pad).toContain("var(--tap-bump)");
   });
   it("the drain pauses while the pill is held", () => {
     expect(rule(outside, ".ui-toast[data-held] .ui-toast-drain")).toMatch(

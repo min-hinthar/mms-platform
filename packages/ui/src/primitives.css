@@ -452,13 +452,11 @@
     animation: none;
   }
   /* Phase 2b · feedback — the xl pill's drain is motion: not drawn (the window still closes on
-     time and still holds on :focus-visible). A leaving pill has no exit animation here, so it is
-     still VISIBLE for its leave phase — and a visible pill must take the tap it sits over. */
+     time and still holds on :focus-visible). The leaving pill's hit area is handed back BELOW, after
+     the rule it overrides: same specificity, so only a later rule wins (blind review, 2026-09-24 —
+     the override that lived here was dead). */
   .ui-toast-drain {
     display: none;
-  }
-  .ui-toast-xl.ui-toast-leaving {
-    pointer-events: auto;
   }
 }
 
@@ -507,9 +505,32 @@
   cursor: default;
 }
 /* A leaving pill is fading out: it takes no pointer, so a tap lands on what is becoming visible
-   beneath it (the reduced-motion block above hands it back — there it is still drawn). */
+   beneath it (the reduced-motion block just below hands it back — there it is still drawn). */
 .ui-toast-xl.ui-toast-leaving {
   pointer-events: none;
+}
+/* …and a LEAVING pill's action is inert under every motion setting and every size: its Undo refers
+   to a window that is already closing. `.ui-toast-action` declares `pointer-events: auto` for the
+   md pill inside a pointer-less region, and a child's `auto` beats its parent's `none` — so without
+   this, the button of a fading pill still took the tap its pill refused. */
+.ui-toast-leaving .ui-toast-action {
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  /* No exit animation here, so the leaving pill is still VISIBLE for its leave phase — and a visible
+     pill must take the tap it sits over (its action stays inert, above). AFTER the rule above: the
+     same specificity, so source order decides. */
+  .ui-toast-xl.ui-toast-leaving {
+    pointer-events: auto;
+  }
+}
+/* While an xl pill shows, the page keeps its footprint clear: a keyboard-focused control scrolled
+   into view (WCAG 2.4.11) never parks under the fixed 64px pill. The region's own offset, plus the
+   pill, plus a gutter — only while one is showing, so the page's end is unchanged otherwise. */
+:root:has(.ui-toast-xl:not(.ui-toast-leaving)) {
+  scroll-padding-bottom: calc(
+    var(--cta-dock-h, 72px) + 16px + env(safe-area-inset-bottom, 0px) + var(--tap-bump) + var(--s2)
+  );
 }
 /* The drain: the caller's REAL window (`--toast-drain`), emptied linearly along the pill's floor;
    paused while the caller holds the window (a keyboard user on the action). transform only. */

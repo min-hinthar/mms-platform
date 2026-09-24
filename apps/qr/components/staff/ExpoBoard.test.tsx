@@ -417,6 +417,13 @@ describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
     // The pill's Undo is named by its visible word, and is NOT the card's "Undo — Table 7".
     expect(pillUndo(container).textContent).toBe(ts("en", "kds.undo"));
     expect(pillUndo(container).getAttribute("aria-label")).toBeNull();
+    // Blind review (2026-09-24): "Undo" alone names no bag — the pill's own text is its
+    // DESCRIPTION, so a screen reader hears what it undoes (the name stays the visible word).
+    // MUTATION (by hand): drop `describedById` — the Undo has no subject, red.
+    const described = document.getElementById(
+      pillUndo(container).getAttribute("aria-describedby") ?? "",
+    );
+    expect(described?.textContent).toBe(tf("en", "expo.toast.pickedTable", { id: 7 }));
     // The drain carries the REAL window.
     expect(
       container
@@ -670,11 +677,18 @@ describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
       fireEvent.click(container.querySelector<HTMLElement>("[data-expo-slot]")!);
       await advance(500);
       fv.keyboard.add(pillUndo(container));
+      const slot = container.querySelector<HTMLElement>('[data-expo-slot="order-1"]')!;
+      // A browser matches `:focus-visible` on a script focus that follows keyboard input — so the
+      // restored slot's focus handler DOES see a keyboard focus, on the Undo node it still is.
+      fv.keyboard.add(slot);
       act(() => pillUndo(container).focus());
       fireEvent.click(pillUndo(container));
-      const slot = container.querySelector<HTMLElement>('[data-expo-slot="order-1"]')!;
       // MUTATION: leave focus on the pill — it shields, leaves, unmounts, and focus falls to <body>.
       expect(document.activeElement).toBe(slot);
+      // Blind review (2026-09-24) — that focus held a window that no longer exists, and only the
+      // post-Undo `markHeld(NO_HOLD)` lets it go. MUTATION (by hand): drop it — the shielded pill
+      // wears data-held (a paused drain) over a pick that was already taken back, red.
+      expect(pill(container)?.hasAttribute("data-held")).toBe(false);
       expect(slot.textContent).toContain(ts("en", "expo.verb.pickedUp"));
       await advance(SAME_GESTURE);
       await advance(LEAVE);
@@ -683,6 +697,59 @@ describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
     } finally {
       fv.restore();
     }
+  });
+
+  it("the hold cap WARNS before it lets go, the drain visibly resumes, and the commit is announced", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      const { getByRole, container } = mount();
+      const region = () => container.querySelector('[role="status"]')?.textContent;
+      fireEvent.click(getByRole("button", { name: pickedUpName("en") })); // t = 0
+      await advance(1_000);
+      fv.keyboard.add(pillUndo(container));
+      act(() => pillUndo(container).focus()); // held from 1 s
+      expect(pill(container)?.getAttribute("data-held")).toBe("true");
+      await advance(54_000); // t = 55 s — 54 s held: nothing to say yet
+      expect(region()).not.toBe(tf("en", "expo.live.capSoonTable", { id: 7 }));
+      await advance(1_000); // t = 56 s — 55 s held: five seconds from the cap
+      // MUTATION (by hand): no warning — the pick lands under the keyboard user unannounced, red.
+      expect(region()).toBe(tf("en", "expo.live.capSoonTable", { id: 7 }));
+      expect(pill(container)?.getAttribute("data-held")).toBe("true");
+      await advance(5_000); // t = 61 s — the cap
+      // MUTATION (by hand): never release — data-held stays over a window that is really running.
+      expect(pill(container)?.hasAttribute("data-held")).toBe(false);
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      // The window's own rest: 1 s ran before the hold, so 5 s remain.
+      await advance(4_000);
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      await advance(1_000); // t = 66 s
+      expect(setTogoStatus).toHaveBeenCalledTimes(1);
+      expect(region()).toBe(tf("en", "expo.live.capDoneTable", { id: 7 }));
+      // A focus after the release never re-holds: the hold is spent.
+      expect(pill(container)?.hasAttribute("data-held") ?? false).toBe(false);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("an Undo landing after the tick SENT the write, before React re-rendered, is refused", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await advance(5_999);
+    const undo = cardUndo(container); // the node, and the handler closure, of the last render
+    // The tick fires OUTSIDE act: it sends the write; React has not re-rendered the card.
+    vi.advanceTimersByTime(1);
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    fireEvent.click(undo);
+    await advance(0);
+    // MUTATION (by hand): read only the render's `committing` — the Undo drops a pick whose
+    // picked_up write is already on the wire, and the region says it is back on the counter, red.
+    expect(container.querySelector('[role="status"]')?.textContent).not.toBe(
+      tf("en", "expo.live.pickedUndoneTable", { id: 7 }),
+    );
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBe("true");
   });
 
   it("a scan-and-go hand-over is spoken, and drawn, as 'handed over' — the word its button said", () => {

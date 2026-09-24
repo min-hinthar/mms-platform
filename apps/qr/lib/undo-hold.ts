@@ -33,10 +33,23 @@ export const NO_HOLD: Hold = { sources: new Set(), since: null, heldMs: 0 };
 /** The most a window can be held in total — one minute on top of its own six seconds. */
 export const PICKED_HOLD_CAP_MS = 60_000;
 
-/** `source` starts (`held`) or stops holding at `now`. */
-export function setHeld(h: Hold, source: HoldSource, held: boolean, now: number): Hold {
+/** How long before the cap the lane WARNS that the pick is about to go through (blind review,
+ *  2026-09-24): a hold that simply ran out would commit a pick under a keyboard user with no word
+ *  first. Five seconds of warning while still held, then the release, then the window's own rest. */
+export const PICKED_HOLD_WARN_MS = 5_000;
+
+/** `source` starts (`held`) or stops holding at `now`. A hold that has reached its cap is spent: a
+ *  new focus never re-holds it (the drain would pause again over a window that is really running). */
+export function setHeld(
+  h: Hold,
+  source: HoldSource,
+  held: boolean,
+  now: number,
+  capMs = PICKED_HOLD_CAP_MS,
+): Hold {
   if (held) {
     if (h.sources.has(source)) return h;
+    if (h.heldMs >= capMs) return h;
     return { sources: new Set(h.sources).add(source), since: h.since ?? now, heldMs: h.heldMs };
   }
   if (!h.sources.has(source)) return h;
@@ -49,4 +62,37 @@ export function setHeld(h: Hold, source: HoldSource, held: boolean, now: number)
 /** How long the window has been held at `now`, capped. */
 export function heldFor(h: Hold, now: number, capMs = PICKED_HOLD_CAP_MS): number {
   return Math.min(capMs, h.heldMs + (h.since === null ? 0 : now - h.since));
+}
+
+/**
+ * Where a live hold stands against its cap at `now`:
+ *   - `release` — the cap is reached: the lane lets go (`capRelease`), the drain visibly resumes,
+ *     and the window runs out its own remaining time;
+ *   - `warn` — within `PICKED_HOLD_WARN_MS` of the cap: say, once, that the pick goes through soon;
+ *   - `none` — nothing holds, or the cap is still far off.
+ */
+export function holdCapPhase(
+  h: Hold,
+  now: number,
+  capMs = PICKED_HOLD_CAP_MS,
+  warnMs = PICKED_HOLD_WARN_MS,
+): "none" | "warn" | "release" {
+  if (h.sources.size === 0) return "none";
+  const held = heldFor(h, now, capMs);
+  if (held >= capMs) return "release";
+  if (held >= capMs - warnMs) return "warn";
+  return "none";
+}
+
+/** The hold, let go at the cap: no source holds, and the time held is spent in full. */
+export function capRelease(h: Hold, now: number, capMs = PICKED_HOLD_CAP_MS): Hold {
+  return { sources: new Set(), since: null, heldMs: heldFor(h, now, capMs) };
+}
+
+/** Drop every entry whose order has left the lane — DELETED, not reset to `NO_HOLD`, so a lane
+ *  that runs all shift does not keep one dead entry per bag it ever picked. Returns the ids dropped. */
+export function pruneToLive<V>(m: Map<string, V>, live: ReadonlySet<string>): string[] {
+  const gone = [...m.keys()].filter((id) => !live.has(id));
+  for (const id of gone) m.delete(id);
+  return gone;
 }

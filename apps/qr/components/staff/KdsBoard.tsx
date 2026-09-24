@@ -625,6 +625,21 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   useEffect(() => {
     menuLineRef.current = menuLineId;
   }, [menuLineId]);
+  // Blind review (2026-09-24) — an 86 that lands while ANOTHER line's sheet is open. The success
+  // path used to close whatever sheet was open (`setMenuLineId(null)`) and mount the Undo bar in
+  // the footprint of that sheet's own sold-out button: the cook reading dish B lost B's sheet, and
+  // a tap meant for B's button could land on A's Undo and put A straight back on sale. Now that
+  // sheet is left alone, the fact goes to the board's region, and A's Undo waits HERE until the
+  // open sheet closes — then it mounts with its own fresh window (and its own same-gesture hold).
+  // A REF, read when the sheet id changes: parking changes nothing on screen, so it re-renders
+  // nothing; the unpark is the commit where `menuLineId` goes null (Esc, a dismiss, the line leaving).
+  const parked86 = useRef<{ menuItemId: string; label: string } | null>(null);
+  useEffect(() => {
+    const p = parked86.current;
+    if (menuLineId !== null || p === null) return;
+    parked86.current = null;
+    onEightySixed(p);
+  }, [menuLineId, onEightySixed]);
   // The line whose 86 just landed — focus goes to its own button once, and only if focus was
   // orphaned. Set only on OK, consumed by the commit that applied the override, whatever happened.
   const landRef = useRef<string | null>(null);
@@ -673,13 +688,20 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         expectedSoldOut: line.soldOut,
       });
       if (res.ok) {
-        // ONE commit: the override (OFF THE MENU, the ⋯ gone), the sheet unmounted, the undo bar,
-        // the region's notice, and the focus landing's flag.
-        landRef.current = line.id;
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
-        setLandedKey(key);
-        setMenuLineId(null);
-        onEightySixed({ menuItemId: id, label: dish });
+        if (menuLineRef.current === null || menuLineRef.current === line.id) {
+          // ONE commit: the override (SOLD OUT, the ⋯ gone), the sheet unmounted, the undo bar,
+          // the region's notice, and the focus landing's flag.
+          landRef.current = line.id;
+          setLandedKey(key);
+          setMenuLineId(null);
+          onEightySixed({ menuItemId: id, label: dish });
+        } else {
+          // ANOTHER line's sheet is open (the refusal path's mirror): never touch it. The notice
+          // goes to the board's region; the Undo is parked until that sheet closes (above).
+          setNotice(tf(lang, "kds.live.86", { x: dish }));
+          parked86.current = { menuItemId: id, label: dish };
+        }
       } else {
         // After a `stale` refusal (someone else 86'd it) or the landed-but-unlogged ledger sentence,
         // the refresh below shows the dish sold out and the sheet's body turns into the statement.

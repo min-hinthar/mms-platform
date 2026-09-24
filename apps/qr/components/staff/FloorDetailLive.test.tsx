@@ -64,6 +64,7 @@ vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.f
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
 const { tf } = await import("@/lib/i18n/fill");
+const { ts } = await import("@/lib/i18n/staff");
 
 const line = (id: string, name: string): TableLineView => ({
   id,
@@ -257,14 +258,14 @@ describe("FloorDetailLive — the running-bill nudge (blind review, 2026-09-24)"
   it("a party at a table with a running bill ALREADY open is pointed at that bill, never offered one", () => {
     // MUTATION (by hand): drop the `tab === "trust"` fork — the open bill is suggested again, red.
     const open = nudgeText({ nudgeSecure: "party", tab: "trust" });
-    expect(open).toContain(tf("en", "table.detail.nudge.partyOpen"));
-    expect(open).not.toContain(tf("en", "table.detail.nudge.party"));
+    expect(open).toContain(ts("en", "table.detail.nudge.partyOpen"));
+    expect(open).not.toContain(ts("en", "table.detail.nudge.party"));
     cleanup();
     const none = nudgeText({ nudgeSecure: "party", tab: "none" });
-    expect(none).toContain(tf("en", "table.detail.nudge.party"));
+    expect(none).toContain(ts("en", "table.detail.nudge.party"));
     cleanup();
     expect(nudgeText({ nudgeSecure: "age", tab: "trust" })).toContain(
-      tf("en", "table.detail.nudge.age"),
+      ts("en", "table.detail.nudge.age"),
     );
   });
 });

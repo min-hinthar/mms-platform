@@ -47,17 +47,25 @@ const fire = (type: string) =>
   });
 
 describe("the offline row", () => {
-  it("a device offline at mount shows the row only after the sustain — as a note, in flow", async () => {
+  it("a device offline at mount shows the row only after the sustain — SPOKEN, in flow", async () => {
     vi.useFakeTimers();
     onLine = false;
     const { container } = render(bar());
+    // Blind review (2026-09-24): the region is mounted BEFORE its text arrives — a live region born
+    // with its text is skipped by several screen readers. MUTATION (by hand): mount it only while
+    // offline — there is no region here yet, red.
+    const region = container.querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent).toBe("");
     // MUTATION: key the row on the raw `navigator.onLine` — it is here at once, red.
     expect(row(container)).toBeNull();
     await tick(NET_SHOW_MS - 1);
     expect(row(container)).toBeNull();
     await tick(1);
     const r = row(container)!;
-    expect(r.getAttribute("role")).toBe("note");
+    // MUTATION (by hand): `role="note"` — the only carrier of "offline" on this page is silent, red.
+    expect(r).toBe(region);
+    expect(r.getAttribute("role")).toBe("status");
     expect(r.textContent).toBe(STAFF["shell.net.offline"].en);
     // In flow: a child of the header, never a fixed overlay over a control.
     expect(r.parentElement?.classList.contains("staff-bar")).toBe(true);
@@ -122,6 +130,8 @@ describe("the offline row", () => {
     await tick(NET_SHOW_MS * 2);
     // MUTATION: drop the `!feed` gate — the KDS head is pushed down under the cook's finger, red.
     expect(row(container)).toBeNull();
+    // …and no second region: the feed page's status slot is its voice for this.
+    expect(container.querySelector('[role="status"]')).toBeNull();
   });
 });
 
