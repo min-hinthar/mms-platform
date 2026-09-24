@@ -693,13 +693,19 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           // ONE commit: the override (SOLD OUT, the ⋯ gone), the sheet unmounted, the undo bar,
           // the region's notice, and the focus landing's flag.
           landRef.current = line.id;
+          // Codex round 2 on #304 — THIS dish's Undo wins. An older 86 parked under this very sheet
+          // would otherwise be published by the drain above the moment this sheet unmounts,
+          // overwriting the one Undo slot: the dish the cook just marked would lose its way back.
+          // The older dish stays sold out (its notice promised no undo) and returns from
+          // /staff/menu like any other.
+          parked86.current = null;
           setLandedKey(key);
           setMenuLineId(null);
           onEightySixed({ menuItemId: id, label: dish });
         } else {
           // ANOTHER line's sheet is open (the refusal path's mirror): never touch it. The notice
           // goes to the board's region; the Undo is parked until that sheet closes (above).
-          setNotice(tf(lang, "kds.live.86", { x: dish }));
+          setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
           parked86.current = { menuItemId: id, label: dish };
         }
       } else {

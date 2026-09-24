@@ -275,6 +275,13 @@ export const STAFF = {
     en: "{x} marked sold out — undo available.",
     my: "{x} ကုန်သွားပြီ လို့ မှတ်ပြီးပြီ — ပြန်ဖျက်လို့ ရသေးတယ်။",
   },
+  // Codex round 2 on #304 — an 86 that landed under ANOTHER dish's open sheet: its Undo waits for that
+  // sheet to close and may be superseded by the newer dish's own, so this line promises none.
+  // Claude-authored MY draft pending Min's native check (K15).
+  "kds.live.86.parked": {
+    en: "{x} marked sold out.",
+    my: "{x} ကုန်သွားပြီ လို့ မှတ်ပြီးပြီ။",
+  },
   "kds.live.86.undone": { en: "{x} back on the menu.", my: "{x} မီနူးပေါ် ပြန်တင်ပြီးပြီ။" },
 
   // ── KDS: failures (read at the moment the tablet is not working) ──────────

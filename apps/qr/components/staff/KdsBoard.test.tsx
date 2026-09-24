@@ -573,7 +573,7 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(q.container.querySelector(".kds-undo")).toBeNull();
     // The fact is in the board's region.
     expect(q.container.querySelector('[role="status"]')?.textContent).toBe(
-      tf("en", "kds.live.86", { x: "Mohinga" }),
+      tf("en", "kds.live.86.parked", { x: "Mohinga" }),
     );
     // B closes: A's Undo arrives, naming A.
     fireEvent.keyDown(dialogB, { key: "Escape" });
@@ -582,6 +582,47 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(q.container.querySelector(".kds-undo")!.textContent).toContain(
       tf("en", "kds.undo.86", { x: "Mohinga" }),
     );
+  });
+
+  it("an 86 made in the OPEN sheet keeps its own Undo — an older parked 86 never overwrites it", async () => {
+    // Codex round 2 on #304 (P2). A lands while B's sheet is open (parked); then B's own 86 lands and
+    // closes B's sheet. RED before the fix: the park-drain effect saw the sheet close and published
+    // A over B, so the dish the cook had JUST marked sold out lost its six-second way back.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const dA = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dA.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q); // A in flight
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    const dB = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dB.promise);
+    await tapEightySix(q, "Laphet"); // B in flight, B's sheet open
+    await act(async () => {
+      dA.resolve({ ok: true, soldOut: true }); // A lands under B's sheet: parked
+    });
+    // The parked notice promises no undo it may never get to offer.
+    expect(q.container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "kds.live.86.parked", { x: "Mohinga" }),
+    );
+    await act(async () => {
+      dB.resolve({ ok: true, soldOut: true }); // B lands in its own sheet: B's Undo
+    });
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    await act(async () => {}); // let every effect of the closing commit run
+    const bar = q.container.querySelector(".kds-undo")!;
+    expect(bar.textContent).toContain(tf("en", "kds.undo.86", { x: "Laphet" }));
+    expect(bar.textContent).not.toContain("Mohinga");
   });
 
   it("a refusal renders in the sheet's region, keeps the sheet open, and refreshes", async () => {

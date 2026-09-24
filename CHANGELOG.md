@@ -226,6 +226,8 @@ to the dictionary).
   A kitchen 86 that lands while ANOTHER line's sheet is open leaves that sheet alone and parks its
   Undo until it closes.
 
+- **Codex round 2 (P2, fixed).** A sold-out made in the open ⋯ sheet keeps its OWN six-second Undo: an older sold-out that had landed under that sheet (parked) used to be published the moment the sheet closed and overwrote it. The parked one now says "{x} marked sold out." (no undo promise, `kds.live.86.parked`, K15 draft) and is dropped when a newer one lands; it goes back on from /staff/menu.
+
 ### Plain words — customer screens (2026-09-24)
 
 Owner, 2026-09-24: _"make UI/UX intuitive world class. 86 this dish doesn't make sense to my parents"_ → _"same for customer facing"_. Every guest-visible string was swept for trade slang and payments/tech jargon and rewritten in the words a parent would say out loud; dictionary KEYS are unchanged, values and inline copy only. Rule recorded in DESIGN-LANGUAGE §5 (Plain words). New Burmese is K15-draft (OPEN-ITEMS K15); the "approved" call waits on the owner (OPEN-ITEMS C24); the blind review then corrected three picks — the host is named by ROLE ("the person sending your table’s orders"; "started the table" was false for a staff-opened table), ASAP is one phrase ("as soon as possible", no ⚡; the earliest scheduled slot is "⚡ Earliest time"), and the historical service-charge disclosure is a record, restored verbatim. Mutants re-anchored: `freeze/self-claims-a-takeover`, `t33/release-invites-editing-while-settling`, `dropped-view/timed-out-screen-claims-a-completed-payment` (plus the two takeover-sentence `replace` texts, same meaning).
