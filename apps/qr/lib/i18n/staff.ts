@@ -2637,6 +2637,16 @@ export const STAFF = {
   "table.line.state.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: kds.served.chip
   // The add page's bridge to the Send (removed with `browse.review` by the 2c order pad).
   "browse.reviewUnsent": { en: "Review · {n} not sent →", my: "စစ်ရန် · {n} ခု မပို့ရသေး →" },
+
+  // ── Phase 2a · register ──
+  // A secure-tab close whose Server Action REJECTED (the connection dropped): the off-session charge
+  // may or may not have landed, and `closeSecureTab`'s unknown-outcome arm HOLDS the freeze — so the
+  // write-outage twin ("that change wasn’t saved") would be false here. Same promise as that server
+  // arm's own sentence. Claude-authored MY draft pending Min's native check (K15).
+  "settle.card.unknown": {
+    en: "The connection dropped, so we don’t know if the card was charged. Don’t take cash or another card yet — if the charge went through, this tab settles itself in a minute. If it doesn’t, try again.",
+    my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ကတ်ကနေ ဖြတ်ပြီးပြီလား မသိရပါ။ ငွေသား ဒါမှမဟုတ် တခြားကတ် မယူပါနဲ့ဦး — ဖြတ်ပြီးသားဆိုရင် ဒီစာရင်း တစ်မိနစ်အတွင်း သူ့ဘာသာ ပိတ်သွားပါမယ်။ မပိတ်ရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — read while a charge's outcome is unknown; a misread collects the guest twice
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2791,6 +2801,8 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.err.unknown",
   "table.line.notSent",
   "table.line.state.fired",
+  // ── Phase 2a · register ──
+  "settle.card.unknown",
 ]);
 
 /**

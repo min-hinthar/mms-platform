@@ -7002,6 +7002,60 @@ const MUTANTS = [
     find: "    hostPresent: session.host_seat != null,\n",
     replace: "    hostPresent: false,\n",
   },
+  // ── Phase 2a · register ──
+  // The two live register hotfixes. lib/money-input.ts is the ONE reading of a typed money amount
+  // (value-falsified in its own suite); the two components are the wiring that calls it / survives
+  // a rejected charge, which only their jsdom suites see.
+  {
+    id: "p2a-register/money-input-sanitizer-drops-commas",
+    file: "apps/qr/lib/money-input.ts",
+    suite: "lib/money-input.test.ts",
+    why: "Phase 2a · register — the per-keystroke filter must never drop a comma: judged per key, '5,' has no digits after the comma yet, so dropping it builds '500' from '5,00' and the cash settle records a $500 tip for a $5 one (the W21d P1 on the path real hands take)",
+    find: '    } else if (ch === ",") {\n',
+    replace: '    } else if (ch === "," && false) {\n',
+  },
+  {
+    id: "p2a-register/money-input-no-decimal-comma",
+    file: "apps/qr/lib/money-input.ts",
+    suite: "lib/money-input.test.ts",
+    why: "Phase 2a · register — comma-only text ending in 1–2 digits is a DECIMAL comma. Without the branch '5,00' is grouping and reads 50000 cents",
+    find: '    : text.replace(/,(?=\\d{1,2}$)/, ".").replace(/,/g, "");\n',
+    replace: '    : text.replace(/,/g, "");\n',
+  },
+  {
+    id: "p2a-register/money-input-third-decimal",
+    file: "apps/qr/lib/money-input.ts",
+    suite: "lib/money-input.test.ts",
+    why: "Phase 2a · register — a third digit after the dot is REFUSED at the keystroke, never kept for a silent round later: the field must show exactly the cents that will be recorded",
+    find: "        if (decimals >= 2) continue;",
+    replace: "        if (decimals >= 3) continue;",
+  },
+  {
+    id: "p2a-register/money-input-float-times-100",
+    file: "apps/qr/lib/money-input.ts",
+    suite: "lib/money-input.test.ts",
+    why: "Phase 2a · register — typed money is read in integer cents. parseFloat × 100 turns '0.29' into 28.999999999999996, a non-integer the settle schema refuses (and a silent round everywhere else)",
+    find: '  return Number(whole || "0") * 100 + Number(frac.padEnd(2, "0"));\n',
+    replace: "  return Number.parseFloat(normalized) * 100;\n",
+  },
+  {
+    id: "p2a-register/cash-tip-field-drops-commas-per-keystroke",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2a · register — the tip field's onChange must only REFUSE characters. Restore the old per-keystroke comma drop and '5,00' typed key by key builds '500': the settle carries tipCents 50000 — $500 recorded for a $5 tip, under the cap, refused by nothing",
+    find: "                  setTip(sanitizeMoneyInput(e.target.value));\n",
+    replace:
+      '                  setTip(sanitizeMoneyInput(e.target.value.replace(/,(?!\\d{1,2}$)/g, "")));\n',
+  },
+  {
+    id: "p2a-register/secure-close-rejection-escapes",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "Phase 2a · register — a REJECTED closeSecureTab (the connection dropped mid-charge) must clear busy, close the confirm and say the outcome is unknown. Let it escape and the card latches on 'Charging…' with focus on <body> until a reload, and the one true sentence — the card may or may not have been charged — is never said",
+    find: "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n",
+    replace:
+      "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n      throw e;\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
