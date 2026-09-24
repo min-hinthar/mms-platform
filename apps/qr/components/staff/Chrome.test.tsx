@@ -25,7 +25,7 @@ describe("the English branch is a BRANCH", () => {
   it("mounts one text node and ZERO elements", () => {
     const { container } = render(<Chrome lang="en" k="kds.bump" echo="stack" />);
     expect(container.querySelectorAll("*")).toHaveLength(0);
-    expect(container.textContent).toBe("BUMP");
+    expect(container.textContent).toBe(STAFF["kds.bump"].en);
   });
 
   it("mounts no elements even with slots and an echo", () => {
@@ -46,10 +46,10 @@ describe("under Burmese, the English echo is a SIBLING", () => {
   it("puts Burmese first and English after it, outside the Burmese span", () => {
     const { container } = render(<Chrome lang="my" k="kds.bump" echo="stack" />);
     const my = container.querySelector('[lang="my"]')!;
-    expect(my.textContent).toBe("ပြီးပြီ");
+    expect(my.textContent).toBe(STAFF["kds.bump"].my);
 
     const en = container.querySelector(".chrome-en")!;
-    expect(en.textContent).toBe("BUMP");
+    expect(en.textContent).toBe(STAFF["kds.bump"].en);
     // Nesting it would typeset English in Padauk and announce it as Burmese — P1's hole, one tier up.
     expect(my.contains(en)).toBe(false);
     expect(en.hasAttribute("lang")).toBe(false);
@@ -65,7 +65,7 @@ describe("under Burmese, the English echo is a SIBLING", () => {
 
   it('echo="inline" separates the two with a middot text node', () => {
     const { container } = render(<Chrome lang="my" k="kds.recall" echo="inline" />);
-    expect(container.textContent).toBe("ပြန်ခေါ် · Recall");
+    expect(container.textContent).toBe(`${STAFF["kds.recall"].my} · ${STAFF["kds.recall"].en}`);
   });
 });
 

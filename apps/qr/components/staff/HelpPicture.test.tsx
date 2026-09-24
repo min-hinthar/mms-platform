@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import ts from "typescript";
 import { HELP_SCREENS, helpCardCount, type HelpDoorScreen } from "@/lib/help";
+import { STAFF } from "@/lib/i18n/staff";
 import { HelpPicture } from "./HelpPicture";
 
 /**
@@ -305,7 +306,7 @@ describe("help-1 — pictures are declarations, never drawings", () => {
     expect(eightySix.querySelector(".kds-line-more")!.className).toBe("kds-line-more");
     expect(eightySix.querySelector(".kds-line-more > svg")).not.toBeNull();
     expect(eightySix.querySelector(".ui-btn")!.className).toBe("ui-btn ui-btn-danger ui-btn-xl");
-    expect(eightySix.querySelector(".ui-btn")!.textContent).toBe("86 this dish");
+    expect(eightySix.querySelector(".ui-btn")!.textContent).toBe(STAFF["kds.86"].en);
     // …and the ⋯ class is a LIVE rule in the stylesheet, not a name nothing draws.
     expect(css).toMatch(/(^|[\s,])\.kds-line-more\s*\{/m);
   });

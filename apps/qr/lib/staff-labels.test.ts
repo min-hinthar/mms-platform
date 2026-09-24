@@ -205,10 +205,10 @@ describe("the visible label is what the screen actually shows", () => {
     expect(al("en", { ...base, soldOut: true }).aria).toBe(
       `Start — 1 Mohinga, No egg — ${ts("en", "kds.86.done")}`,
     );
-    expect(ts("en", "kds.86.done")).toBe("Off the menu");
+    // The clause is the STATE word, never the action the sheet's button names.
+    expect(ts("en", "kds.86.done")).not.toBe(ts("en", "kds.86"));
     const my = al("my", { ...base, soldOut: true }).aria;
     expect(my.endsWith(` — ${ts("my", "kds.86.done")}`)).toBe(true);
-    expect(my.endsWith(" — မီနူးက ဖြုတ်ထားပြီ")).toBe(true);
     // soldOut:false gives exactly the pre-2b string.
     expect(al("en", { ...base, soldOut: false }).aria).toBe("Start — 1 Mohinga, No egg");
     expect(al("en", { ...base, soldOut: false }).aria).not.toContain(ts("en", "kds.86.done"));

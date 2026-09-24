@@ -203,7 +203,8 @@ const { SAME_GESTURE_MS } = await import("@mms/ui");
 
 /** The ⋯ of a line, by its sr-only dictionary name (it carries NO aria-label). */
 const moreFor = (dish = "Mohinga") => tf("en", "kds.line.more", { x: dish });
-const eightySixName = /86 this dish/;
+/** The sheet's danger button, by its dictionary word (the plain-words pass retired "86 this dish"). */
+const eightySixName = new RegExp(ts("en", "kds.86"));
 
 /** Open the ⋯ sheet, wait out the same-gesture hold, and tap its 86. Returns the dialog. */
 async function tapEightySix(q: ReturnType<typeof render>, dish = "Mohinga") {
@@ -298,7 +299,7 @@ describe("K22 — an 86 from the ticket can be undone from the bar, like a bump"
 });
 
 describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the sheet", () => {
-  it("nothing is named '86 this dish' until the ⋯ opens the dialog; then exactly one control is", async () => {
+  it("nothing is named `kds.86` until the ⋯ opens the dialog; then exactly one control is", async () => {
     // MUTATION (by hand): render the sheet's Button inline in the row — an 86 on the board, red.
     const q = mount();
     expect(q.queryAllByRole("button", { name: eightySixName })).toHaveLength(0);

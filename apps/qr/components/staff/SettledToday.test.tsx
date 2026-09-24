@@ -256,7 +256,9 @@ describe("SettledToday — the refund console, reading the receipt", () => {
   it("never speaks unprompted: no live region until a Refund is opened; counts and the cap are plain text", () => {
     mount(snapshot([order("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaa0001")], true));
     expect(screen.queryByRole("status")).toBeNull();
-    expect(screen.getByText(/1 settled/)).toBeTruthy();
+    expect(
+      screen.getByText(new RegExp(STAFF["floor.settled.count.one"].en.replace("{n}", "1"))),
+    ).toBeTruthy();
     expect(screen.getByText(/the newest 50/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { expanded: false }));
     fireEvent.click(screen.getByRole("button", { name: "Refund — Mohinga" }));

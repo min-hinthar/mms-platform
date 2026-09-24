@@ -230,11 +230,14 @@ describe("P6 — the kitchen pulse band", () => {
   it("shows the table strip by number and status, and never a dish beside a table", async () => {
     const { container } = await renderPulse("en", pulse());
     const chips = [...container.querySelectorAll(".orb-table")].map((c) => c.textContent);
-    expect(chips).toEqual(["Table 2Cooking", "Table 3Food up"]);
+    expect(chips).toEqual([
+      `Table 2${STAFF["kds.line.cooking"].en}`,
+      `Table 3${STAFF["board.pulse.up"].en}`,
+    ]);
     // NOT "Ready". Nothing records that a plate reached a table — `bumped_at` means the pass
     // finished the food — and on a screen a dining room reads, "Ready" is an instruction aimed at a
     // guest who has nothing to do about it. The word must stay what the stamp supports.
-    expect(container.textContent).not.toMatch(/Table 3\s*Ready/);
+    expect(chips[1]).not.toBe(`Table 3${STAFF["board.col.ready"].en}`);
     // The lit-gold cap marks only the table a runner must act on — the ONE selection vocabulary.
     expect(container.querySelectorAll(".orb-table-up")).toHaveLength(1);
     expect(container.querySelector(".orb-table-up")!.textContent).toContain("Table 3");
@@ -287,7 +290,7 @@ describe("P6 — the kitchen pulse band", () => {
     await renderPulse("en", pulse());
     expect(screen.getByRole("region", { name: "Kitchen" })).toBeTruthy();
     expect(screen.getByRole("list", { name: "Table status" })).toBeTruthy();
-    expect(screen.getByRole("list", { name: "All-day counts" })).toBeTruthy();
+    expect(screen.getByRole("list", { name: STAFF["kds.a11y.allDay"].en })).toBeTruthy();
   });
 
   describe("the bilingual rules hold on the new markup too", () => {
@@ -393,7 +396,7 @@ describe("P6 — the kitchen pulse band", () => {
 
       // Live: the band is showing real numbers and the announcement this test exists to expire.
       expect(container.querySelector(".orb-pulse-body")).not.toBeNull();
-      expect(container.textContent).toContain("Food up");
+      expect(container.textContent).toContain(STAFF["board.pulse.up"].en);
       expect(container.textContent).toContain("A1B2C3");
 
       answering = false;
@@ -404,7 +407,7 @@ describe("P6 — the kitchen pulse band", () => {
 
       await tick(5_000); // the miss that makes it stale
       expect(container.querySelector(".orb-pulse-body")).toBeNull();
-      expect(container.textContent).not.toContain("Food up");
+      expect(container.textContent).not.toContain(STAFF["board.pulse.up"].en);
       // …and the note replaces it, so the band says it cannot read the kitchen rather than going
       // silently absent — the same `null`-is-unknown contract the route uses for a dropped read.
       expect(container.querySelector(".orb-pulse-note")).not.toBeNull();
