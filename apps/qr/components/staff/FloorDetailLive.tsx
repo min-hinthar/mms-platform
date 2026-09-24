@@ -318,7 +318,9 @@ export function FloorDetailLive({
   const onWriteError = useCallback((e: ReactNode) => {
     setWriteError(e);
     setSendNote(null);
-  }, []);
+    // `setSendNote` is named because the React Compiler cannot prove a setter stable once the render
+    // body also calls it (the supersede check above); it IS stable, so this changes nothing.
+  }, [setSendNote]);
   const onSendNotice = useCallback((n: SendNotice | null) => {
     // An expired staff session is a verdict, not a blip — the honest surface is login (the poll's rule).
     if (n === "signin") {
@@ -329,7 +331,7 @@ export function FloorDetailLive({
     // baseline it (see `sendNoteAfterCommit`). Read in a callback, never during render.
     setSendNote(n ? { ...n, raisedAt: reads.current, against: null } : null);
     if (n) setWriteError(null);
-  }, []);
+  }, [setSendNote]);
   // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
   // the Send reads at tap time; the state re-renders only when the derived hold actually changes.
   const lineEdits = useRef(new Map<string, StaffLineEdit>());
