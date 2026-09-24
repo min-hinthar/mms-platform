@@ -11,7 +11,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@mms/db/server", () => ({ serviceClient: () => ({}) }));
 
 const { addFailureCode } = await import("./staff-add-outcome");
-const { ItemUnsellableError, ItemUnreadableError } = await import("./order-lines");
+const { ItemUnsellableError, ItemUnreadableError, CartClosedError } = await import("./order-lines");
 
 describe("addFailureCode — the write phase", () => {
   it("any throw after pricing is UNCONFIRMED — it may have landed", () => {
@@ -24,6 +24,14 @@ describe("addFailureCode — the write phase", () => {
     expect(addFailureCode("write", new ItemUnsellableError("x", "sold_out"))).toBe("unconfirmed");
     expect(addFailureCode("write", new ItemUnreadableError("id"))).toBe("unconfirmed");
     expect(addFailureCode("write", "not even an Error")).toBe("unconfirmed");
+  });
+});
+
+describe("addFailureCode — a DEFINITE refusal from the write", () => {
+  it("the insert RPC's typed 'not open' answer is `closed` — the database wrote nothing", () => {
+    // MUTATION: drop the arm — a refused add reads `unconfirmed` and staff are told to check the
+    // order for a dish that was never added; red.
+    expect(addFailureCode("write", new CartClosedError())).toBe("closed");
   });
 });
 

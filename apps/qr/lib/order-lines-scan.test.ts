@@ -12,6 +12,11 @@ vi.mock("server-only", () => ({}));
 
 let rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
 let siblingRows: { id: string; modifiers: unknown }[] = [];
+/** What the insert RPC answers: a line id, `null` (the cart is not open), or a transport error. */
+let insertAnswer: { data: string | null; error: { message: string } | null } = {
+  data: "line-1",
+  error: null,
+};
 vi.mock("@mms/db/server", () => ({
   serviceClient: () => ({
     from: () => {
@@ -26,15 +31,14 @@ vi.mock("@mms/db/server", () => ({
     },
     rpc: (fn: string, args: Record<string, unknown>) => {
       rpcCalls.push({ fn, args });
-      return Promise.resolve({
-        data: fn === "mms_cart_item_insert_if_open" ? "line-1" : null,
-        error: null,
-      });
+      return Promise.resolve(
+        fn === "mms_cart_item_insert_if_open" ? insertAnswer : { data: null, error: null },
+      );
     },
   }),
 }));
 
-const { insertOrIncLine } = await import("./order-lines");
+const { insertOrIncLine, CartClosedError } = await import("./order-lines");
 
 const CART = "11111111-1111-4111-8111-111111111111";
 const SCAN = "22222222-2222-4222-8222-222222222222";
@@ -50,6 +54,7 @@ const LINE = {
 beforeEach(() => {
   rpcCalls = [];
   siblingRows = [];
+  insertAnswer = { data: "line-1", error: null };
 });
 
 describe("insertOrIncLine — p_scan_id threading", () => {
@@ -71,5 +76,25 @@ describe("insertOrIncLine — p_scan_id threading", () => {
     await insertOrIncLine(CART, LINE, "seat-1");
     const call = rpcCalls.find((c) => c.fn === "mms_cart_item_insert_if_open");
     expect(call && "p_scan_id" in call.args).toBe(false);
+  });
+});
+
+describe("insertOrIncLine — a definite non-write is TYPED, a maybe-write is not", () => {
+  it("the insert RPC answering null (the cart is not open) throws CartClosedError — nothing written", async () => {
+    insertAnswer = { data: null, error: null };
+    const e = await insertOrIncLine(CART, LINE, "seat-1").catch((x: unknown) => x);
+    // MUTATION: throw a plain Error — the staff add reports `unconfirmed` ("check before adding
+    // again") for an add the database definitely refused; red.
+    expect(e).toBeInstanceOf(CartClosedError);
+    // Existing callers match the sentence (reorder.ts) — unchanged.
+    expect((e as Error).message).toBe("Cart is no longer open");
+  });
+
+  it("an RPC ERROR is NOT typed closed — the response may have been lost after the insert committed", async () => {
+    insertAnswer = { data: null, error: { message: "fetch failed" } };
+    const e = await insertOrIncLine(CART, LINE, "seat-1").catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(Error);
+    expect(e).not.toBeInstanceOf(CartClosedError);
+    expect((e as Error).message).toBe("Cart is no longer open");
   });
 });

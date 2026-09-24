@@ -26,8 +26,9 @@ let priceItemThrows = false;
  *  cardinality Error (`priceItemThrows`). Built from the MOCK's own classes (below), which are the
  *  classes `staff-add-outcome.ts` checks with `instanceof` under this mock. */
 let priceItemRejects: unknown = null;
-/** Phase 2a · padserver — the write throws (a lost response, a closed-cart race). */
-let insertThrows = false;
+/** Phase 2a · padserver — the write throws (a lost response), or the insert RPC answers "not open"
+ *  (`"closed"` → the mock's CartClosedError, a definite non-write). */
+let insertThrows: boolean | "closed" = false;
 const insertCalls: {
   cartId: string;
   bySeat: string | null;
@@ -37,7 +38,7 @@ const insertCalls: {
   taxCents: unknown;
 }[] = [];
 
-const { MockUnsellable, MockUnreadable } = vi.hoisted(() => {
+const { MockUnsellable, MockUnreadable, MockCartClosed } = vi.hoisted(() => {
   class MockUnsellable extends Error {
     constructor(
       message: string,
@@ -47,12 +48,14 @@ const { MockUnsellable, MockUnreadable } = vi.hoisted(() => {
     }
   }
   class MockUnreadable extends Error {}
-  return { MockUnsellable, MockUnreadable };
+  class MockCartClosed extends Error {}
+  return { MockUnsellable, MockUnreadable, MockCartClosed };
 });
 
 vi.mock("./order-lines", () => ({
   ItemUnsellableError: MockUnsellable,
   ItemUnreadableError: MockUnreadable,
+  CartClosedError: MockCartClosed,
   priceItem: (menuItemId: string, modifierIds: string[], opts?: unknown) => {
     priceItemCalls.push({ menuItemId, modifierIds, opts });
     if (priceItemRejects) return Promise.reject(priceItemRejects);
@@ -79,6 +82,8 @@ vi.mock("./order-lines", () => ({
       fulfillment: line.fulfillment,
       taxCents: line.taxCents,
     });
+    if (insertThrows === "closed")
+      return Promise.reject(new MockCartClosed("Cart is no longer open"));
     if (insertThrows) return Promise.reject(new Error("Cart is no longer open"));
     return Promise.resolve();
   },
@@ -252,6 +257,13 @@ describe("staffAddItem — the failure CODE is decided by where it happened (Pha
     expect(r).toMatchObject({ ok: false, code: "unconfirmed" });
     // The sentence the existing callers show is unchanged.
     expect(r).toMatchObject({ error: "Couldn’t add that item." });
+  });
+
+  it("the insert refused as NOT OPEN is a definite `closed` — nothing was written", async () => {
+    insertThrows = "closed";
+    const r = await staffAddItem({ sessionId: SESSION, menuItemId: ITEM });
+    // MUTATION: classify the write phase without its thrown value — `unconfirmed`; red.
+    expect(r).toMatchObject({ ok: false, code: "closed" });
   });
 
   it("forwards the add key to the ledger as the scan id (the idempotent resend)", async () => {

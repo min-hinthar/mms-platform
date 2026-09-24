@@ -69,6 +69,20 @@ export class ItemUnreadableError extends Error {
   }
 }
 
+/**
+ * Phase 2a (blind review) — the insert RPC answered "not open" (`mms_cart_item_insert_if_open`
+ * returned null with NO error): the status-atomic guard refused, so NOTHING was written. Typed so a
+ * caller can tell that DEFINITE refusal from a throw whose response was lost after the write
+ * committed (an RPC error, an inc-qty raise) — the staff add codes it `closed`, never `unconfirmed`.
+ * The message is the one every existing caller matches (reorder.ts), unchanged.
+ */
+export class CartClosedError extends Error {
+  constructor() {
+    super("Cart is no longer open");
+    this.name = "CartClosedError";
+  }
+}
+
 export async function priceItem(
   menuItemId: string,
   modifierIds: string[],
@@ -278,7 +292,7 @@ export async function insertOrIncLine(
     });
     if (incErr) throw new Error("Cart is no longer open");
   } else {
-    const { data: insertedId } = await db.rpc("mms_cart_item_insert_if_open", {
+    const { data: insertedId, error: insertErr } = await db.rpc("mms_cart_item_insert_if_open", {
       p_cart_id: cartId,
       p_menu_item_id: line.menuItemId,
       p_name: line.name,
@@ -298,9 +312,14 @@ export async function insertOrIncLine(
       // a DB without 20260815100000 still resolves every option-less caller.
       ...(line.optionIds && line.optionIds.length ? { p_option_ids: line.optionIds } : {}),
     });
+    // An RPC ERROR is not a verdict: the response may have been lost after the insert committed, so
+    // it stays an untyped throw (the staff add reads it `unconfirmed`). Same sentence as ever — the
+    // callers that match it (reorder.ts) behave exactly as before.
+    if (insertErr) throw new Error("Cart is no longer open");
     // A duplicate scan_id returns the NIL-uuid sentinel — truthy, so it passes this closed-cart
-    // check as the idempotent success it is (the write already landed on a prior attempt).
-    if (!insertedId) throw new Error("Cart is no longer open");
+    // check as the idempotent success it is (the write already landed on a prior attempt). A null
+    // with no error is the guard's own refusal: nothing was written (`CartClosedError`).
+    if (!insertedId) throw new CartClosedError();
   }
 }
 

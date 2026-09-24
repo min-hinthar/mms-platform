@@ -138,13 +138,15 @@ export async function staffAddItem(raw: unknown): Promise<StaffWriteResult> {
     );
     await touchCart(cart.id, "staffAddItem");
     await maybeRenewSession(serviceClient(), session.id, session.expires_at);
-  } catch {
-    // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy. The sentence is
-    // unchanged for the existing callers; the CODE says whether the add may have landed.
+  } catch (e) {
+    // priceItem (unknown item) or a closed-cart race — honest, non-leaking copy. The CODE says
+    // whether the add may have landed: pricing is classified by what IT threw (captured above), the
+    // write by what the write threw — a typed "not open" is a definite non-write.
+    const code = addFailureCode(phase, phase === "write" ? e : priceFailure);
     return {
       ok: false,
-      error: "Couldn’t add that item.",
-      code: addFailureCode(phase, priceFailure),
+      error: code === "closed" ? "This table has no open order." : "Couldn’t add that item.",
+      code,
     };
   }
 
