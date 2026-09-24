@@ -105,7 +105,12 @@ afterEach(() => {
 });
 
 const mount = (
-  extra: { unsentCount?: number; counterDoor?: boolean; clientSecret?: string } = {},
+  extra: {
+    unsentCount?: number;
+    counterDoor?: boolean;
+    clientSecret?: string;
+    hold?: boolean;
+  } = {},
 ) =>
   render(
     <PaymentSection
@@ -114,6 +119,7 @@ const mount = (
       totals={TOTALS}
       unsentCount={extra.unsentCount ?? 0}
       counterDoor={extra.counterDoor}
+      hold={extra.hold}
       onEdit={onEdit}
       onPayingChange={onPayingChange}
     />,
@@ -284,6 +290,53 @@ describe("Phase 1c — the Pay button cannot charge before its form exists, and 
     });
     expect(h.confirmPayment).toHaveBeenCalledTimes(1);
     expect(sheet).not.toHaveBeenCalled();
+  });
+});
+
+describe("Phase 1c — a releasing lock (`hold`) refuses every charge path", () => {
+  // The pay button is `aria-disabled`, never native disabled, so a submit still FIRES; `hold` (a
+  // leave releasing the pay-window lock, cancelling the intent) must be refused inside confirm().
+  // MUTANT pay-section/hold-ignored (drop `|| hold`) — both cases red.
+  async function liveHeld() {
+    mount({ hold: true });
+    await flush();
+    await cardReady();
+    await walletReady(true);
+    await advance(PAY_ELEMENT_TIMING.settleMs);
+  }
+
+  it("a card submit under a hold never reaches Stripe", async () => {
+    h.confirmPayment.mockReturnValue(new Promise(() => {}));
+    await liveHeld();
+    await submit();
+    expect(h.confirmPayment).not.toHaveBeenCalled();
+    expect(onPayingChange).not.toHaveBeenCalledWith(true);
+  });
+
+  it("a wallet confirm under a hold fails the sheet and never reaches Stripe", async () => {
+    h.confirmPayment.mockReturnValue(new Promise(() => {}));
+    await liveHeld();
+    const sheet = vi.fn();
+    await act(async () => {
+      h.express!.onConfirm!({ paymentFailed: sheet });
+    });
+    expect(h.confirmPayment).not.toHaveBeenCalled();
+    expect(sheet).toHaveBeenCalledWith({ reason: "fail" });
+  });
+
+  it("a wallet confirm that REJECTS fails the sheet too, and gives the button back", async () => {
+    // A rejected confirmPayment never reached Stripe's sheet flow; an untold sheet spins until
+    // Stripe's own timeout. RED without the paymentFailed call in the catch.
+    h.confirmPayment.mockRejectedValue(new Error("IntegrationError"));
+    await live();
+    const sheet = vi.fn();
+    await act(async () => {
+      h.express!.onConfirm!({ paymentFailed: sheet });
+    });
+    await flush();
+    expect(h.confirmPayment).toHaveBeenCalledTimes(1);
+    expect(sheet).toHaveBeenCalledWith({ reason: "fail" });
+    expect(onPayingChange).toHaveBeenLastCalledWith(false);
   });
 });
 

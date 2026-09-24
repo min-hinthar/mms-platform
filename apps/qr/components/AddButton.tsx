@@ -14,7 +14,7 @@ import {
 } from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
-import { createRevertCue, pillAddClaim, stepClaim } from "@/lib/add-feedback";
+import { createRevertCue, pillAddClaim, stepClaim, stepOvertakenNotice } from "@/lib/add-feedback";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
 
@@ -207,11 +207,16 @@ export function AddButton({
     if (createSettled === 0 || handledSettle.current === createSettled) return;
     handledSettle.current = createSettled;
     if (!focusOrphaned()) return;
+    // `preventScroll` (blind review): on iOS a tap does not focus, so `activeElement` is <body> after
+    // every pill tap and this landing runs ~1.7s later — a plain focus() would scroll the menu back to
+    // the row if the diner had scrolled on. The row is where their finger just was; it needs no jump.
     if (inCart) {
       refocusStepper.current = false; // a landed create supersedes a pending revert-refocus
-      (plusBtnRef.current?.disabled ? minusBtnRef : plusBtnRef).current?.focus();
+      (plusBtnRef.current?.disabled ? minusBtnRef : plusBtnRef).current?.focus({
+        preventScroll: true,
+      });
     } else {
-      addBtnRef.current?.focus();
+      addBtnRef.current?.focus({ preventScroll: true });
     }
   }, [createSettled, inCart]);
 
@@ -385,6 +390,9 @@ export function AddButton({
           const target = lines.find((l) => l.qty <= 1) ?? lines[lines.length - 1];
           if (!target) {
             setOptimistic((n) => n + 1); // nothing to remove (already gone) → drop the optimistic step
+            // The claim was spoken at the TAP (Phase 1c) and nothing was sent — retract it (blind
+            // review). The sibling `source === null` arm does; this one used to revert silently.
+            announceCart(stepOvertakenNotice(name), undefined, undefined, { kind: "correction" });
             // Nothing was written, so the next op may trust the snapshot exactly as a first op does.
             return null;
           }

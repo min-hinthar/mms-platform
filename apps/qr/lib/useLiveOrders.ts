@@ -1,6 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getMyLiveOrders } from "./orders";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { readMyLiveOrders } from "./orders";
 import type { LiveOrder } from "./live-order";
 
 /**
@@ -13,7 +13,9 @@ import type { LiveOrder } from "./live-order";
  *
  * `enabled` gates the whole thing (the header only needs live orders where the pill can show — not on
  * `/`/`/track`). A stale-response guard (a monotonic request id) drops out-of-order responses; a transient
- * failure keeps the last good list rather than flashing empty (the badge shouldn't blink on a blip).
+ * failure keeps the last good list rather than flashing empty (the badge shouldn't blink on a blip) —
+ * a REJECTION and, since Phase 1c's blind review, a read that RESOLVED as failed (`readMyLiveOrders`
+ * `ok: false`: `getMyLiveOrders` answers every read error with [], which used to be applied).
  *
  * Phase 1c · account-star — `initial`, a SERVER SNAPSHOT to start from (/account "Today", whose page has
  * just read the same `getMyLiveOrders`). Given one: the list starts there with `loading` false, the first
@@ -41,14 +43,22 @@ export function useLiveOrders(
     setSeed(initial);
     if (initial !== undefined) setOrders(initial);
   }
+  // A NEW server snapshot supersedes every read already in flight (M225's rule, blind review): an
+  // older response landing after it would overwrite the fresh snapshot — after a sign-in's
+  // `router.refresh()`, possibly the previous uid's orders. A ref write is not render-legal, so the
+  // bump rides a layout effect, which runs in the same commit that applies the snapshot.
+  useLayoutEffect(() => {
+    reqRef.current += 1;
+  }, [seed]);
 
   const load = useCallback(() => {
     if (!enabled) return;
     const req = ++reqRef.current;
-    getMyLiveOrders()
-      .then((o) => {
+    readMyLiveOrders()
+      .then((r) => {
         if (req === reqRef.current) {
-          setOrders(o);
+          // A failed read keeps the last good list (see the docblock).
+          if (r.ok) setOrders(r.orders);
           setLoading(false);
         }
       })

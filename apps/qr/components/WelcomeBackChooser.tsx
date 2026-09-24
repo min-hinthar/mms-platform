@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { tierMeta, tierTint } from "@/lib/rewards-tiers";
 import {
   readIdentities,
@@ -47,6 +47,10 @@ export function WelcomeBackChooser({
 }) {
   const [identities, setIdentities] = useState<DeviceIdentity[]>([]);
   const [ready, setReady] = useState(false); // gates the entrance animation to the post-hydration populate
+  // Phase 1c — the note is each chip's accessible DESCRIPTION: a screen reader tabbing into the list
+  // announces the chip's aria-label and skips a preceding static <p>, so document order alone would
+  // leave the cost unsaid at the tap.
+  const noteId = useId();
 
   useEffect(() => {
     // Deferred read — first render is empty (SSR-parity), then the chips animate in. While the phone is LENT,
@@ -78,7 +82,7 @@ export function WelcomeBackChooser({
         Welcome back — pick up where you left off
       </p>
       {note ? (
-        <p className="wb-note">
+        <p id={noteId} className="wb-note">
           {note.en}
           <span lang="my" className="wb-note-my">
             {note.my}
@@ -104,6 +108,7 @@ export function WelcomeBackChooser({
                 className="wb-chip"
                 disabled={busy}
                 aria-busy={loading}
+                aria-describedby={note ? noteId : undefined}
                 onClick={() => onSelect(id)}
                 aria-label={`Sign back in as ${who}, ${masked}, ${tier.english} tier, via ${
                   id.method === "google" ? "Google" : "email"

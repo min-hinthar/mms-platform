@@ -1368,7 +1368,7 @@ const MUTANTS = [
     why: "T18 (Codex round 1 on #251, P2) — both writes flash their outcome OPTIMISTICALLY on tap, so publishing nothing on `unconfirmed` is not neutrality: it leaves standing a claim `mayClaimLanding` forbids. `AddButton` and `ItemSheet` never speak after the provider, so for them the optimistic sentence was the only one the diner ever heard. A predicate that bars a claim is worth nothing if the claim is already on screen and the code merely declines to retract it",
     // Phase 1c · add-feedback — RE-ANCHORED, same mutation: the retraction now names the dish when it
     // can and is flashed as a CORRECTION; silencing the whole call is still the defect.
-    find: '      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {\n        kind: "correction",\n      });',
+    find: '      flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {\n        kind: "correction",\n        family: name ? { text: unconfirmedWriteNotice() } : undefined,\n      });',
     replace: "      void [name, namedUnconfirmedWriteNotice, unconfirmedWriteNotice];",
   },
   {
@@ -6460,8 +6460,26 @@ const MUTANTS = [
     file: "apps/qr/components/PaymentSection.tsx",
     suite: "components/PaymentSection.test.tsx",
     why: "Phase 1c — a refused wallet confirmation (not ready, a hold, one already in flight) must call paymentFailed, or the Apple Pay / Google Pay sheet spins until Stripe's own timeout",
-    find: '      event?.paymentFailed({ reason: "fail" });\n',
-    replace: "",
+    find: '      // A refused wallet sheet must be told, or it spins until Stripe\'s own timeout.\n      event?.paymentFailed({ reason: "fail" });\n',
+    replace:
+      "      // A refused wallet sheet must be told, or it spins until Stripe's own timeout.\n",
+  },
+  {
+    id: "pay-section/hold-ignored",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c (blind review) — the Pay button is aria-disabled, never native disabled, so a submit still fires: `hold` (a leave releasing the pay-window lock and cancelling the intent) is refused ONLY inside confirm(). Drop it and a tap confirms against the intent the release is cancelling",
+    find: "!canConfirm(view, source) || hold || inFlightRef.current",
+    replace: "!canConfirm(view, source) || inFlightRef.current",
+  },
+  {
+    id: "pay-section/wallet-reject-hangs",
+    file: "apps/qr/components/PaymentSection.tsx",
+    suite: "components/PaymentSection.test.tsx",
+    why: "Phase 1c (blind review) — a confirmPayment that REJECTS never reached Stripe's sheet flow, so an open Apple Pay / Google Pay sheet is still waiting; without paymentFailed in the catch it spins until Stripe's own timeout",
+    find: "      // waiting: tell it, or it spins until Stripe's timeout (the refusal path's rule, above).\n      event?.paymentFailed({ reason: \"fail\" });\n",
+    replace:
+      "      // waiting: tell it, or it spins until Stripe's timeout (the refusal path's rule, above).\n",
   },
   // ── Phase 1c · add-feedback ──────────────────────────────────────────────────────────────────────
   {
@@ -6517,8 +6535,24 @@ const MUTANTS = [
     file: "apps/qr/lib/notice-slot.ts",
     suite: "lib/notice-slot.test.ts",
     why: "Phase 1c — a claim waiting in the deferred slot may be the one a correction just retracted. Keeping it speaks \u201cMohinga added\u201d AFTER \u201cWe couldn\u2019t confirm Mohinga\u201d \u2014 a retracted claim, stated as the final word",
-    find: '  return incoming.kind === "correction" && deferred.kind === "claim";',
+    find: '  if (incoming.kind === "correction") return true;\n',
+    replace: "",
+  },
+  {
+    id: "notice/news-leaves-a-stale-visible-claim",
+    file: "apps/qr/lib/notice-slot.ts",
+    suite: "lib/notice-slot.test.ts",
+    why: "Phase 1c (blind review) — a VISIBLE claim deferred behind a correction and then out-waited by NEWS is older than that news; drawn after it, a stale \u201cAdded to your order\u201d becomes the last word under an honest \u201cwe couldn\u2019t confirm all of them\u201d summary",
+    find: '  return incoming.kind === "news" && !deferred.quiet;',
     replace: "  return false;",
+  },
+  {
+    id: "notice/two-dishes-erase-each-other",
+    file: "apps/qr/lib/notice-slot.ts",
+    suite: "lib/notice-slot.test.ts",
+    why: "Phase 1c (blind review) — two dishes refused under one lock inside one window: each named correction erases the other, and the first dish's claim (spoken at its tap) is left with no retraction on screen. One family collides into its unnamed sentence, which covers both",
+    find: '      return "generalize";',
+    replace: '      return "show";',
   },
   // ── Phase 1c · account-star ──
   {
@@ -6609,6 +6643,14 @@ const MUTANTS = [
     why: "Phase 1c — the sheet's pause must SWALLOW, never hold: a hold resets the throttle on the way out, so closing the basket sheet over a jar still in frame announces it as new and `add()` charges it — an item added behind a modal the shopper could not see",
     find: '  if (i.sheetOpen) return "swallow";\n',
     replace: '  if (i.sheetOpen) return "hold";\n',
+  },
+  {
+    id: "grocery/a-minted-basket-judges-scans-unloaded",
+    file: "apps/qr/lib/camera-state.ts",
+    suite: "lib/camera-state.test.ts",
+    why: "Phase 1c (blind review) — the camera's hold lifts the moment the basket is READY and the jar in frame is judged against its lines then. Keyed on the cart id alone, a REJOINED basket's lines are still [] at that frame, so the item it already pays for is classified new and charged a second time",
+    find: "  return Boolean(i.cartId) && i.hydrated;\n",
+    replace: "  return Boolean(i.cartId);\n",
   },
   // ── Phase 1c · cart-motion ──
   // /cart's removal wiring. The rules are pure (lib/line-motion.ts, value-falsified in its own

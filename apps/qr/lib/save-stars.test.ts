@@ -190,10 +190,10 @@ describe("saveStarsCopy — what the card says", () => {
 
   it("the reward clause appears only when this order unlocked one", () => {
     expect(saveStarsCopy(3, false, false).body).toBe(
-      "Guest Stars live only on this phone. Save them to an account with an email code or Google, and your orders come along too.",
+      "Guest Stars live only on this phone. Save them to an account with an email code or Google, and the orders that earned them come along too.",
     );
     expect(saveStarsCopy(3, true, false).body).toBe(
-      "Guest Stars — and the reward you just unlocked — live only on this phone. Save them to an account with an email code or Google, and your orders come along too.",
+      "Guest Stars — and the reward you just unlocked — live only on this phone. Save them to an account with an email code or Google, and the orders that earned them come along too.",
     );
     expect(saveStarsCopy(3, false, false).body).not.toContain("the reward you just unlocked");
   });
@@ -216,19 +216,14 @@ describe("saveStarsCopy — what the card says", () => {
 });
 
 describe("saveStarsBlockedReason — the CTA stays rendered and says why", () => {
-  it("offline wins over the platform verdict", () => {
-    // RED when the offline branch is dropped (the we-down line would show to an offline diner).
-    expect(saveStarsBlockedReason({ offline: true, platformDown: true })).toBe(
+  it("offline names itself", () => {
+    // RED when the offline branch is dropped.
+    expect(saveStarsBlockedReason({ offline: true })).toBe(
       "You look offline — saving needs a connection.",
     );
   });
-  it("a platform outage names itself", () => {
-    expect(saveStarsBlockedReason({ offline: false, platformDown: true })).toBe(
-      "Our system isn’t reachable right now — your Stars stay on this phone until you save.",
-    );
-  });
   it("otherwise nothing is withheld", () => {
-    expect(saveStarsBlockedReason({ offline: false, platformDown: false })).toBeNull();
+    expect(saveStarsBlockedReason({ offline: false })).toBeNull();
   });
 });
 
@@ -239,17 +234,17 @@ describe("chooserLeavesNote — a disclosure BEFORE a costly tap names every cos
 
   it("names the Stars and the orders that earned them", () => {
     expect(chooserLeavesNote({ stars: 3, inProgress: 0 })?.en).toBe(
-      "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring everything along.",
+      "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring your Stars and the orders that earned them along.",
     );
     expect(chooserLeavesNote({ stars: 1, inProgress: 0 })?.en).toBe(
-      "Tapping a name signs in without this phone’s 1 guest Star or the order that earned it — use your email or Google below to bring everything along.",
+      "Tapping a name signs in without this phone’s 1 guest Star or the order that earned it — use your email or Google below to bring your Stars and the orders that earned them along.",
     );
   });
 
   it("names the order in progress when one is live", () => {
     // RED when the in-progress branch is dropped.
     expect(chooserLeavesNote({ stars: 3, inProgress: 1 })?.en).toBe(
-      "Tapping a name signs in without this phone’s 3 guest Stars or its orders, including the one in progress — use your email or Google below to bring everything along.",
+      "Tapping a name signs in without this phone’s 3 guest Stars or its orders, including the one in progress — use your email or Google below to bring your Stars and the orders that earned them along.",
     );
     expect(chooserLeavesNote({ stars: 3, inProgress: 2 })?.en).toContain(
       "including the 2 in progress",
@@ -260,11 +255,11 @@ describe("chooserLeavesNote — a disclosure BEFORE a costly tap names every cos
     // RED when null is coerced to 0 (the failed-read landing would get no note at all).
     const note = chooserLeavesNote({ stars: null, inProgress: 0 });
     expect(note?.en).toBe(
-      "Tapping a name signs in without anything this phone earned as a guest — use your email or Google below to bring everything along.",
+      "Tapping a name signs in without anything this phone earned as a guest — use your email or Google below to bring your Stars and the orders that earned them along.",
     );
     expect(note?.en).not.toMatch(/[0-9]/);
     expect(chooserLeavesNote({ stars: null, inProgress: 1 })?.en).toBe(
-      "Tapping a name signs in without anything this phone earned as a guest, including your order in progress — use your email or Google below to bring everything along.",
+      "Tapping a name signs in without anything this phone earned as a guest, including your order in progress — use your email or Google below to bring your Stars and the orders that earned them along.",
     );
     expect(chooserLeavesNote({ stars: null, inProgress: 2 })?.en).toContain(
       ", including your 2 orders in progress",

@@ -11,8 +11,8 @@ import { cleanup, render, screen } from "@testing-library/react";
 const { WelcomeBackChooser } = await import("./WelcomeBackChooser");
 
 const NOTE = {
-  en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring everything along.",
-  my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
+  en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring your Stars and the orders that earned them along.",
+  my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ကြယ်တွေ ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
 };
 
 beforeEach(() => {
@@ -47,6 +47,24 @@ describe("the chooser note — said before the tap", () => {
     expect(note.hasAttribute("aria-live")).toBe(false);
     expect(note.querySelector('[role="status"], [role="alert"], [aria-live]')).toBeNull();
     expect(note.querySelector('[lang="my"]')?.textContent).toBe(NOTE.my);
+  });
+
+  it("is each chip's accessible DESCRIPTION, so Tab-and-listen hears the cost before the tap", async () => {
+    // A screen reader tabbing into the list announces the chip's aria-label and skips a preceding
+    // static <p>; document order alone never reaches it. RED without aria-describedby on the chip.
+    render(<WelcomeBackChooser onSelect={() => {}} busy={false} note={NOTE} />);
+    const chip = await screen.findByRole("button", { name: /Sign back in as Min/ });
+    const ids = (chip.getAttribute("aria-describedby") ?? "").split(/\s+/).filter(Boolean);
+    expect(ids.length).toBe(1);
+    const described = document.getElementById(ids[0] as string);
+    expect(described?.classList.contains("wb-note")).toBe(true);
+    expect(described?.textContent).toContain(NOTE.en);
+  });
+
+  it("describes nothing when there is no note", async () => {
+    render(<WelcomeBackChooser onSelect={() => {}} busy={false} note={null} />);
+    const chip = await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(chip.hasAttribute("aria-describedby")).toBe(false);
   });
 
   it("renders no note when nothing is at stake", async () => {

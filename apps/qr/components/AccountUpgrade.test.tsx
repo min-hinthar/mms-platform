@@ -655,8 +655,8 @@ describe("the chooser note — passed through to the Welcome-back chips", () => 
       { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
     ];
     const note = {
-      en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring everything along.",
-      my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
+      en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring your Stars and the orders that earned them along.",
+      my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ကြယ်တွေ ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
     };
     render(<AccountUpgrade stars={3} chooserNote={note} />);
     await screen.findByRole("button", { name: /Sign back in as Min/ });

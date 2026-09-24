@@ -1488,13 +1488,13 @@ export function OrderTracker({
           and its actions, ABOVE) → keeping what you earned → the farewell, which stays the flow's
           last warm word (J4 peak-end). A guest earner only, on the success moment only, and only
           once the receipt row has settled (`door.card`). Inline, never focus-stealing, no live
-          region. `weDown` is the W10c platform verdict that already withholds the /account link. */}
+          region. No platform-down arm: the order just ARRIVED, so the backend answered (`weDown`
+          needs `!order` and cannot hold here). */}
       {arrived && offer && door.card && (
         <SaveStarsPrompt
           stars={offer.stars}
           rewardJustUnlocked={offer.rewardJustUnlocked}
           receiptEmail={receipt?.emailEnabled ?? false}
-          platformDown={weDown}
           onDismiss={decline}
         />
       )}

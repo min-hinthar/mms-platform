@@ -133,7 +133,8 @@ type CartCtx = {
   ) => void;
   /** T14 — the CLAUSE the provider last published for a REFUSED write, or null if none.
    *
-   *  `announce` is a single slot: the last caller wins. So a consumer that announces its own outcome
+   *  `announce` is ONE slot (arbitrated since Phase 1c, lib/notice-slot.ts — but a later caller's news
+   *  or correction still replaces what is on screen). So a consumer that announces its own outcome
    *  after `add` resolves would otherwise overwrite the established cause with generic advice — and
    *  "try from the menu below" is dead advice under a freeze, which is the exact string this slice's
    *  ancestor removed one layer down. Read it and carry it.
@@ -570,7 +571,12 @@ export function TableCartProvider({
   const deferredRef = useRef<{ notice: SlotNotice; ms: number } | null>(null);
   const noticeSeq = useRef(0);
   const flash = useCallback(
-    (msg: string, ms = 2200, my?: string, opts: { quiet?: boolean; kind?: NoticeKind } = {}) => {
+    (
+      msg: string,
+      ms = 2200,
+      my?: string,
+      opts: { quiet?: boolean; kind?: NoticeKind; family?: SlotNotice["family"] } = {},
+    ) => {
       // Put a notice in the slot and run its window. `keepSeq` (an `extend`) keeps the node's key, so
       // the identical correction is not spoken twice; the window restarts.
       function display(n: SlotNotice, dur: number, keepSeq: boolean) {
@@ -605,6 +611,7 @@ export function TableCartProvider({
         my,
         quiet: opts.quiet ?? false,
         kind: opts.kind ?? "news",
+        family: opts.family,
       };
       // A correction drops a claim still waiting: it may be the very claim being retracted, and a
       // retracted claim spoken a beat later is a lie.
@@ -613,6 +620,11 @@ export function TableCartProvider({
       const verdict = admitNotice(showingRef.current, incoming);
       if (verdict === "defer") {
         deferredRef.current = { notice: incoming, ms };
+        return;
+      }
+      // Two dishes refused under one lock → the unnamed sentence, which covers both (rule 2).
+      if (verdict === "generalize" && incoming.family) {
+        display({ ...incoming, text: incoming.family.text, my: incoming.family.my }, ms, false);
         return;
       }
       // Five refused taps under one lock → one sentence: an identical correction EXTENDS.
@@ -966,7 +978,7 @@ export function TableCartProvider({
         name ? namedRefusedWriteNotice(refusal, name) : refusedWriteNotice(refusal),
         2600,
         undefined,
-        { kind: "correction" },
+        { kind: "correction", family: name ? { text: refusedWriteNotice(refusal) } : undefined },
       );
     },
     [flash],
@@ -1036,6 +1048,7 @@ export function TableCartProvider({
       recoveryWriteUnconfirmedRef.current = true;
       flash(name ? namedUnconfirmedWriteNotice(name) : unconfirmedWriteNotice(), 3000, undefined, {
         kind: "correction",
+        family: name ? { text: unconfirmedWriteNotice() } : undefined,
       });
     },
     [flash],

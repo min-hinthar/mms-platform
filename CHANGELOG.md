@@ -7,7 +7,7 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 ### Phase 1c — the add, the removal, the card form, the Stars and the market's front door (2026-09-24)
 
 Five guest surfaces brought to the §20 primitives and the v7.2 bar, each decided in a pure `lib/`
-module with mutants (33 new; 787 total across 139 files). DESIGN-LANGUAGE §23–§27.
+module with mutants (38 new; 792 total across 139 files). DESIGN-LANGUAGE §23–§27.
 
 - **The add speaks the dish, quietly** (§23). A menu "+" claims "Mohinga added" · "ထည့်ပြီးပါပြီ" to
   screen readers at the tap and draws nothing over the menu (the row already changed under the
@@ -37,6 +37,17 @@ module with mutants (33 new; 787 total across 139 files). DESIGN-LANGUAGE §23�
   added while the basket sheet is open; the camera stops when the page is hidden; shelves of six
   with "See all", aisles as Back-able entries; a two-line masthead; "Subtotal · before tax" labels
   (M187's label half). Browse stays the default door; `/grocery?tab=scan` is the in-store entry.
+- **The blind pre-merge review (three lenses, three REJECTs) — every verified finding fixed.** The
+  camera's hold now lifts only on a LOADED basket, so a rejoined basket's jar in frame is not charged
+  twice (`scanBasketReady`, a mutant, and a second proposition in `check:scan-repeat`); the pay step's
+  `hold` refusal and a rejected wallet confirm are pinned (the sheet is told either way); two dishes'
+  corrections of one family say the unnamed sentence instead of erasing each other, and news drops a
+  waiting visible claim; a "−" whose line changed underneath retracts its spoken claim; /account's live
+  row keeps its last good list on a failed read (`readMyLiveOrders`) and a new server snapshot
+  supersedes a read in flight; the celebration latch waits for the capture; "Add another" keeps focus
+  across its re-key; the chooser note is each chip's accessible description and promises only what a
+  save carries; a Back into an aisle before the catalog loads keeps its entry; the save card's
+  platform-down arm (unreachable once an order has arrived) is gone.
 
 ### Phase 1b — one tap to send, one tap to pay, and a bill that is final before it is paid (2026-09-23)
 

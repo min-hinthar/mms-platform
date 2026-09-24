@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import type { CartItem } from "@mms/db";
 import type { WriteResult } from "@/lib/write-outcome";
-import { pillAddClaim, stepClaim, type CartClaim } from "@/lib/add-feedback";
+import { pillAddClaim, stepClaim, stepOvertakenNotice, type CartClaim } from "@/lib/add-feedback";
 import { inertReason } from "@/lib/inert-reason";
 
 /**
@@ -176,6 +176,26 @@ describe("the stepper '+' — spoken at the tap, no gems", () => {
 
     write.resolve({ state: "applied", view: [ownLine(2)] });
     await settle();
+  });
+});
+
+describe("the stepper '−' — a claim spoken at the tap is retracted when nothing is sent", () => {
+  it("a queued '−' whose line changed underneath retracts its claim (blind review)", async () => {
+    // Op 1's own view shows no draft line of the viewer's (a host fired or comped it inside the
+    // round trip), so op 2 has nothing to write. Its claim — "Mohinga, quantity 1" — was already
+    // spoken at the tap. RED when that arm reverts the digit silently and leaves the claim standing.
+    ctx.current.items = [ownLine(3)];
+    ctx.current.setItemQty.mockResolvedValue({ state: "applied", view: [] });
+    renderRow();
+
+    fireEvent.click(minus());
+    fireEvent.click(minus());
+    await settle();
+
+    expect(ctx.current.setItemQty).toHaveBeenCalledTimes(1);
+    const last = ctx.current.announce.mock.calls.at(-1)!;
+    expect(last[0]).toBe(stepOvertakenNotice(NAME));
+    expect(last[3]).toMatchObject({ kind: "correction" });
   });
 });
 

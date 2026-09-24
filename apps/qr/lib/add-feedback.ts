@@ -60,6 +60,16 @@ export function stepClaim(name: string, qty: number): CartClaim {
 }
 
 /**
+ * The correction for a stepper claim that was spoken at the tap but never sent: by the time the
+ * queued step ran, the line it meant had changed underneath it (a host fired or comped it, a
+ * tablemate's view moved on). Not "we couldn't reach your order" — the order WAS reached — and no
+ * count: the rows below are the truth. English only, like the step claims it retracts (K15).
+ */
+export function stepOvertakenNotice(name: string): string {
+  return `${name} changed before your tap reached it — the order below is up to date.`;
+}
+
+/**
  * A configured dish from the item sheet: VISIBLE, because the sheet closed on the tap and the row it
  * opened from may be scrolled away. "2 Mohinga added", never "2 × Mohinga" — VoiceOver reads the
  * sign as "times". Held for as long as the sentence takes to read (`freshnessDurationMs`, the one

@@ -346,6 +346,9 @@ function PayStep({
         release();
       }
     } catch {
+      // A REJECTION never reached Stripe's own sheet flow, so a wallet sheet is still open and
+      // waiting: tell it, or it spins until Stripe's timeout (the refusal path's rule, above).
+      event?.paymentFailed({ reason: "fail" });
       setError({ en: t("en", "payConfirmFailed"), my: t("my", "payConfirmFailed") });
       release();
     }

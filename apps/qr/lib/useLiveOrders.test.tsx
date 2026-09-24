@@ -9,8 +9,8 @@ import type { LiveOrder } from "./live-order";
  * with `loading` true, a load on mount, a reload whenever `pokeKey` changes, and nothing at all when
  * disabled. This pins the unseeded contract so the seed cannot quietly change it.
  */
-const h = vi.hoisted(() => ({ getMyLiveOrders: vi.fn() }));
-vi.mock("./orders", () => ({ getMyLiveOrders: h.getMyLiveOrders }));
+const h = vi.hoisted(() => ({ readMyLiveOrders: vi.fn() }));
+vi.mock("./orders", () => ({ readMyLiveOrders: h.readMyLiveOrders }));
 
 const { useLiveOrders } = await import("./useLiveOrders");
 
@@ -27,11 +27,11 @@ function Probe({ enabled, poke }: { enabled: boolean; poke?: string | null }) {
 const probe = () => screen.getByTestId("probe").textContent;
 
 beforeEach(() => {
-  h.getMyLiveOrders.mockResolvedValue([ORDER]);
+  h.readMyLiveOrders.mockResolvedValue({ ok: true, orders: [ORDER] });
 });
 afterEach(() => {
   cleanup();
-  h.getMyLiveOrders.mockReset();
+  h.readMyLiveOrders.mockReset();
 });
 
 describe("useLiveOrders without a seed — the AppHeader call, unchanged", () => {
@@ -39,14 +39,14 @@ describe("useLiveOrders without a seed — the AppHeader call, unchanged", () =>
     render(<Probe enabled poke="a" />);
     expect(probe()).toBe("loading:0");
     await waitFor(() => expect(probe()).toBe("idle:1"));
-    expect(h.getMyLiveOrders).toHaveBeenCalledTimes(1);
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
   });
 
   it("reloads when pokeKey changes", async () => {
     const { rerender } = render(<Probe enabled poke="a" />);
-    await waitFor(() => expect(h.getMyLiveOrders).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1));
     rerender(<Probe enabled poke="b" />);
-    await waitFor(() => expect(h.getMyLiveOrders).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(h.readMyLiveOrders).toHaveBeenCalledTimes(2));
   });
 
   it("does nothing while disabled", async () => {
@@ -55,6 +55,51 @@ describe("useLiveOrders without a seed — the AppHeader call, unchanged", () =>
     await act(async () => {
       await new Promise((r) => setTimeout(r, 60));
     });
-    expect(h.getMyLiveOrders).not.toHaveBeenCalled();
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
+  });
+});
+
+describe("useLiveOrders with a seed — /account's live row (blind review)", () => {
+  const A = { id: "a" } as LiveOrder;
+  const B = { id: "b" } as LiveOrder;
+  function Seeded({ initial }: { initial: LiveOrder[] }) {
+    const { orders } = useLiveOrders(true, null, initial);
+    return <p data-testid="seeded">{orders.map((o) => o.id).join(",") || "none"}</p>;
+  }
+  const seeded = () => screen.getByTestId("seeded").textContent;
+  const wake = () =>
+    act(async () => {
+      window.dispatchEvent(new Event("focus"));
+      await new Promise((r) => setTimeout(r, 60));
+    });
+
+  it("a FAILED read keeps the last good list — the only order status on /account never blinks out", async () => {
+    // RED when a failure is applied as an empty list: `getMyLiveOrders` swallows every read error
+    // into [], so the wake refetch erased the section on a transient blip.
+    h.readMyLiveOrders.mockResolvedValue({ ok: false, orders: [] });
+    render(<Seeded initial={[A]} />);
+    await wake();
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
+    expect(seeded()).toBe("a");
+  });
+
+  it("a NEW server snapshot supersedes a read already in flight (M225's rule)", async () => {
+    // RED without the invalidation: the older response lands after the fresh snapshot and
+    // overwrites it — after a sign-in refresh, possibly the previous uid's orders.
+    let land: (v: { ok: true; orders: LiveOrder[] }) => void = () => {};
+    h.readMyLiveOrders.mockReturnValue(
+      new Promise((resolve) => {
+        land = resolve;
+      }),
+    );
+    const { rerender } = render(<Seeded initial={[A]} />);
+    await wake(); // a read is now in flight
+    rerender(<Seeded initial={[B]} />);
+    expect(seeded()).toBe("b");
+    await act(async () => {
+      land({ ok: true, orders: [A] });
+      await Promise.resolve();
+    });
+    expect(seeded()).toBe("b");
   });
 });

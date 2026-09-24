@@ -17,6 +17,9 @@
  *   1. an empty slot → show;
  *   2. a correction over an IDENTICAL correction → extend (the timer resets; the node is not
  *      re-keyed, so five refused taps under one lock speak ONE sentence);
+ *      a correction over a correction of the same FAMILY for a different dish → generalize: say
+ *      the family's unnamed sentence, which covers both (blind review — "Tea didn't go through"
+ *      replacing "Mohinga didn't go through" a beat later left Mohinga's claim unretracted);
  *      any other correction → show (a correction is never held back);
  *   3. a claim over a correction → defer (a retracted claim must not erase its own retraction);
  *   4. a quiet line over visible text → defer (a quiet line must not blank visible text early);
@@ -29,8 +32,12 @@
  *
  * The deferred slot is ONE deep, newest wins, and is shown when the current notice's window ends.
  * `purgesDeferred` drops a waiting claim whenever a correction arrives: the claim may be the one the
- * correction retracts, and a retracted claim spoken afterwards is a lie. The cost is sometimes
- * losing a claim for a DIFFERENT dish — losing a confirmation is the safe direction.
+ * correction retracts, and a retracted claim spoken afterwards is a lie. NEWS drops a waiting
+ * VISIBLE claim too (blind review): drawn after the news it would be the last word on screen while
+ * older than it — a deferred "Added to your order" under an honest "we couldn't confirm all of
+ * them" summary. A waiting QUIET claim survives news: it is a late spoken confirmation of the
+ * diner's own tap, and the row already shows the truth. The cost is sometimes losing a claim for a
+ * DIFFERENT dish — losing a confirmation is the safe direction.
  */
 
 export type NoticeKind = "claim" | "correction" | "news";
@@ -40,25 +47,34 @@ export type SlotNotice = {
   my?: string;
   quiet: boolean;
   kind: NoticeKind;
+  /** A named correction's unnamed FAMILY sentence (`refusedWriteNotice` / `unconfirmedWriteNotice`),
+   *  said instead when two dishes' corrections of one family collide (rule 2). */
+  family?: { text: string; my?: string };
 };
 
 export function admitNotice(
   current: SlotNotice | null,
   incoming: SlotNotice,
-): "show" | "extend" | "defer" {
+): "show" | "extend" | "defer" | "generalize" {
   if (current === null) return "show";
-  if (incoming.kind === "correction")
-    return current.kind === "correction" &&
-      current.text === incoming.text &&
-      current.my === incoming.my
-      ? "extend"
-      : "show";
+  if (incoming.kind === "correction") {
+    if (current.kind !== "correction") return "show";
+    if (current.text === incoming.text && current.my === incoming.my) return "extend";
+    const fam = incoming.family;
+    if (fam && current.text === fam.text && current.my === fam.my) return "extend";
+    if (fam && current.family?.text === fam.text && current.family.my === fam.my)
+      return "generalize";
+    return "show";
+  }
   if (incoming.kind === "claim" && current.kind === "correction") return "defer";
   if (incoming.quiet && !current.quiet) return "defer";
   return "show";
 }
 
-/** Does `incoming` drop the notice waiting in the one-deep deferred slot? A correction drops a claim. */
+/** Does `incoming` drop the notice waiting in the one-deep deferred slot? A correction drops a
+ *  claim; news drops a VISIBLE claim. */
 export function purgesDeferred(incoming: SlotNotice, deferred: SlotNotice): boolean {
-  return incoming.kind === "correction" && deferred.kind === "claim";
+  if (deferred.kind !== "claim") return false;
+  if (incoming.kind === "correction") return true;
+  return incoming.kind === "news" && !deferred.quiet;
 }

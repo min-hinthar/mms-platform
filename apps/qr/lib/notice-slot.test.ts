@@ -52,6 +52,29 @@ describe("admitNotice — the five rules, in order", () => {
     ).toBe("show");
   });
 
+  it("two dishes' corrections of ONE family generalize to the unnamed sentence (blind review)", () => {
+    // RED when the second named correction simply SHOWS: "Tea didn't go through" replaces "Mohinga
+    // didn't go through" a beat later, both claims were already spoken at the taps, and the only
+    // retraction left standing covers Tea. The unnamed family sentence covers both.
+    const LOCKED = "That didn’t go through — the order’s locked while someone checks out.";
+    const mohinga = { ...REFUSED, family: { text: LOCKED } };
+    const tea = {
+      ...correction("Tea didn’t go through — the order’s locked while someone checks out."),
+      family: { text: LOCKED },
+    };
+    expect(admitNotice(mohinga, tea)).toBe("generalize");
+    // Once generalized, a third dish of the same family EXTENDS the sentence already covering it.
+    const generalized = { ...correction(LOCKED), family: { text: LOCKED } };
+    expect(admitNotice(generalized, tea)).toBe("extend");
+    // A different family (or a correction with none) still simply shows.
+    const unconfirmed = {
+      ...correction("We couldn’t confirm Tea — check your order below."),
+      family: { text: "We couldn’t confirm that — check your order below." },
+    };
+    expect(admitNotice(mohinga, unconfirmed)).toBe("show");
+    expect(admitNotice(REFUSED, tea)).toBe("show");
+  });
+
   it("a visible claim over a quiet claim shows", () => {
     expect(admitNotice(claim("Mohinga, quantity 2"), claim("2 Mohinga added", false))).toBe("show");
   });
@@ -62,8 +85,20 @@ describe("purgesDeferred — a correction drops the claim waiting behind it", ()
     expect(purgesDeferred(REFUSED, claim("Mohinga added"))).toBe(true);
   });
 
-  it("news does not purge a deferred claim", () => {
+  it("news does not purge a deferred QUIET claim (a late spoken confirmation of your own tap)", () => {
     expect(purgesDeferred(news("Aung added Tea"), claim("Mohinga added"))).toBe(false);
+  });
+
+  it("news DOES purge a deferred VISIBLE claim (blind review)", () => {
+    // RED when it survives: a visible "Added to your order" deferred behind a correction would be
+    // drawn AFTER a later honest summary ("2 sent — we couldn't confirm all of them"), as the last
+    // word on screen — a claim older than the news that superseded it.
+    expect(
+      purgesDeferred(
+        news("2 sent — we couldn’t confirm all of them. Check your order below."),
+        claim("Added to your order", false),
+      ),
+    ).toBe(true);
   });
 
   it("a correction does not purge deferred news", () => {

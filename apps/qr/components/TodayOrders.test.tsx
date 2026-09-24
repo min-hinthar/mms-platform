@@ -10,8 +10,8 @@ import type { LiveOrder } from "@/lib/live-order";
  * hidden→visible wake — which is exactly the email-code round trip to Mail and back — and replaced by
  * any new server snapshot (router.refresh after a sign-in or a merge).
  */
-const h = vi.hoisted(() => ({ getMyLiveOrders: vi.fn() }));
-vi.mock("@/lib/orders", () => ({ getMyLiveOrders: h.getMyLiveOrders }));
+const h = vi.hoisted(() => ({ readMyLiveOrders: vi.fn() }));
+vi.mock("@/lib/orders", () => ({ readMyLiveOrders: h.readMyLiveOrders }));
 vi.mock("./nav/TransitionNav", () => ({
   TransitionLink: ({
     href,
@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
-  h.getMyLiveOrders.mockReset();
+  h.readMyLiveOrders.mockReset();
 });
 
 describe("TodayOrders — seeded, then kept fresh", () => {
@@ -66,19 +66,22 @@ describe("TodayOrders — seeded, then kept fresh", () => {
     render(<TodayOrders orders={[row({})]} />);
     expect(screen.getByText("Preparing")).toBeTruthy();
     await frames();
-    expect(h.getMyLiveOrders).not.toHaveBeenCalled();
+    expect(h.readMyLiveOrders).not.toHaveBeenCalled();
   });
 
   it("a hidden→visible wake refetches, and the status word updates", async () => {
     // RED when the wake refetch is removed — the word stays "Preparing" after the order is Ready.
     render(<TodayOrders orders={[row({})]} />);
     await frames();
-    h.getMyLiveOrders.mockResolvedValue([row({ statusWord: "Ready", togoStatus: "ready" })]);
+    h.readMyLiveOrders.mockResolvedValue({
+      ok: true,
+      orders: [row({ statusWord: "Ready", togoStatus: "ready" })],
+    });
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
     await waitFor(() => expect(screen.getByText("Ready")).toBeTruthy());
-    expect(h.getMyLiveOrders).toHaveBeenCalledTimes(1);
+    expect(h.readMyLiveOrders).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Preparing")).toBeNull();
   });
 

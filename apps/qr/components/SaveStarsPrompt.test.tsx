@@ -45,14 +45,13 @@ afterEach(() => {
   });
 });
 
-const prompt = (o: Partial<{ receiptEmail: boolean; platformDown: boolean }> = {}) => {
+const prompt = (o: Partial<{ receiptEmail: boolean }> = {}) => {
   const onDismiss = vi.fn();
   const ui = (
     <SaveStarsPrompt
       stars={3}
       rewardJustUnlocked={false}
       receiptEmail={o.receiptEmail ?? false}
-      platformDown={o.platformDown ?? false}
       onDismiss={onDismiss}
     />
   );
@@ -75,7 +74,7 @@ describe("the save card — a door, not a second flow", () => {
 
   it("adds no live region to /track", () => {
     // RED when role="status" (or alert / aria-live) is added — /track already has three.
-    const { container } = render(prompt({ receiptEmail: true, platformDown: true }).ui);
+    const { container } = render(prompt({ receiptEmail: true }).ui);
     const section = container.querySelector("section.save-stars") as HTMLElement;
     expect(section).not.toBeNull();
     expect(section.querySelector('[role="status"], [role="alert"], [aria-live]')).toBeNull();
@@ -111,7 +110,6 @@ describe("Not now — focus lands before the card leaves", () => {
           stars={3}
           rewardJustUnlocked={false}
           receiptEmail={false}
-          platformDown={false}
           onDismiss={onDismiss}
         />
         <a id="next" href="#back">
@@ -151,7 +149,6 @@ describe("Not now — focus lands before the card leaves", () => {
           stars={3}
           rewardJustUnlocked={false}
           receiptEmail={false}
-          platformDown={false}
           onDismiss={onDismiss}
         />
         <a id="next" href="#back">
@@ -185,16 +182,6 @@ describe("offline / outage — the CTA stays, disabled, with a reason", () => {
     // "Not now" is local, so it stays live.
     expect(screen.getByRole("button", { name: "Not now" }).getAttribute("aria-disabled")).toBe(
       null,
-    );
-  });
-
-  it("platform down: the we-down line instead", () => {
-    render(prompt({ platformDown: true }).ui);
-    const blocked = cta();
-    expect(blocked.getAttribute("aria-disabled")).toBe("true");
-    const reason = document.getElementById(blocked.getAttribute("aria-describedby") ?? "");
-    expect(reason?.textContent).toBe(
-      "Our system isn’t reachable right now — your Stars stay on this phone until you save.",
     );
   });
 });

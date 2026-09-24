@@ -1172,4 +1172,23 @@ describe("Phase 1c — the one slot: quiet claims, named corrections, precedence
     expect(spoken()).toBe(namedRefusedWriteNotice(REFUSAL.peerLock, "Mohinga"));
     expect(region().firstElementChild).toBe(first);
   });
+
+  it("two DIFFERENT dishes refused under one lock say the unnamed sentence, covering both", async () => {
+    // Blind review — RED when the second named correction simply replaces the first: "Tea didn't go
+    // through" a beat after "Mohinga didn't go through" leaves Mohinga's claim (already spoken at
+    // the tap) with no retraction on screen.
+    h.getCartView.mockResolvedValue(view());
+    mount();
+    await drainDeferredAnnounces();
+    h.addItem.mockRejectedValue(new Error("redacted"));
+    h.getCartView.mockResolvedValue(LOCKED_BY_PEER);
+
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Mohinga" }));
+    await drainDeferredAnnounces();
+    expect(spoken()).toBe(namedRefusedWriteNotice(REFUSAL.peerLock, "Mohinga"));
+    await act(() => ctl.add(ITEM, [], undefined, 1, { claim: null, name: "Tea" }));
+    await drainDeferredAnnounces();
+
+    expect(spoken()).toBe(refusedWriteNotice(REFUSAL.peerLock));
+  });
 });

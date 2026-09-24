@@ -74,3 +74,24 @@ describe("the celebration latch — one celebration per payment per tab", () => 
     expect(h.haptic.mock.calls.filter(([m]) => m === "celebrate")).toHaveLength(2);
   });
 });
+
+describe("the latch waits for the money (manual capture)", () => {
+  it("a reload BEFORE the capture lands still rings the paid chime when it does", () => {
+    // RED when the latch is recorded at mount: the awaiting-capture visit marks the payment
+    // celebrated, the reload reads `replay`, and the chime — which waits for the capture — never
+    // rings for this payment at all.
+    const first = render(<PaySuccess starsEarned={1} celebrationKey="pi_M" awaitingCapture />);
+    expect(h.chime).not.toHaveBeenCalled();
+    act(() => first.unmount());
+    // The reload, still awaiting…
+    const again = render(<PaySuccess starsEarned={1} celebrationKey="pi_M" awaitingCapture />);
+    expect(h.chime).not.toHaveBeenCalled();
+    // …and then the capture lands.
+    again.rerender(<PaySuccess starsEarned={1} celebrationKey="pi_M" awaitingCapture={false} />);
+    expect(h.chime.mock.calls.filter(([m]) => m === "paid")).toHaveLength(1);
+    act(() => again.unmount());
+    // Once it has rung, the payment IS celebrated: a later Back replays nothing.
+    expect(visit("pi_M")).toBe(false);
+    expect(h.chime.mock.calls.filter(([m]) => m === "paid")).toHaveLength(1);
+  });
+});

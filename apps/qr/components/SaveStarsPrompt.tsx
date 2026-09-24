@@ -63,7 +63,6 @@ export function SaveStarsPrompt({
   stars,
   rewardJustUnlocked,
   receiptEmail,
-  platformDown,
   onDismiss,
 }: {
   /** The server total after attribution (`progress.stars`). */
@@ -72,8 +71,6 @@ export function SaveStarsPrompt({
   rewardJustUnlocked: boolean;
   /** ReceiptActions reported its email capture is ON — only then may the copy mention it. */
   receiptEmail: boolean;
-  /** OrderTracker's existing `weDown` (the W10c gate on its own /account link). */
-  platformDown: boolean;
   onDismiss: () => void;
 }) {
   const headingId = useId();
@@ -81,7 +78,7 @@ export function SaveStarsPrompt({
   const sectionRef = useRef<HTMLElement>(null);
   const { truth } = useConnectionTruth();
   const copy = saveStarsCopy(stars, rewardJustUnlocked, receiptEmail);
-  const reason = saveStarsBlockedReason({ offline: truth === "you-offline", platformDown });
+  const reason = saveStarsBlockedReason({ offline: truth === "you-offline" });
 
   function dismiss() {
     // Focus moves BEFORE the removal, and only if it was inside the card (a touch tap on iOS does

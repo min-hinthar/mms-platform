@@ -5,6 +5,7 @@ import {
   cameraOpening,
   decodeHold,
   gateOnHoldChange,
+  scanBasketReady,
   instantRefusal,
   isInAppBrowser,
   isPaper,
@@ -191,5 +192,18 @@ describe("readCameraPermission — never reads as granted by accident", () => {
       query: () => Promise.resolve({ state: "weird", onchange: null }),
     });
     expect(odd.reading).toBe("unknown");
+  });
+});
+
+describe("scanBasketReady — a sighting is judged against a LOADED basket", () => {
+  it("a minted basket whose first read has not landed is not ready (the rejoin double charge)", () => {
+    // RED when readiness keys on the cart id alone: a REJOINED basket already holding the jar in
+    // frame lifts the hold before its lines load, `classifyScan` sees [] and the jar is charged again.
+    expect(scanBasketReady({ cartId: "cart-1", hydrated: false })).toBe(false);
+  });
+  it("a loaded basket is ready; no basket never is", () => {
+    expect(scanBasketReady({ cartId: "cart-1", hydrated: true })).toBe(true);
+    expect(scanBasketReady({ cartId: null, hydrated: true })).toBe(false);
+    expect(scanBasketReady({ cartId: null, hydrated: false })).toBe(false);
   });
 });

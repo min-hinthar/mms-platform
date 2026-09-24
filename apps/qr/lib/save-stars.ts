@@ -150,10 +150,11 @@ export type SaveStarsCopy = {
 
 /**
  * Why each claim holds: the count is server-derived; "only on this phone" UNDERSTATES the fragility
- * (Safari and an installed PWA are separate stores), which is the safe direction; "your orders come
- * along too" holds for every order this uid earned on all four save paths (email_change and
- * linkIdentity keep the uid; the email-taken sign-in and the Google bounce merge and re-stamp
- * earned_by); "the reward you just unlocked" is `rewardJustUnlocked()`, the binding PaySuccess reads.
+ * (Safari and an installed PWA are separate stores), which is the safe direction; "the orders that
+ * earned them come along too" holds for every order this uid EARNED on all four save paths
+ * (email_change and linkIdentity keep the uid; the email-taken sign-in and the Google bounce merge
+ * and re-stamp earned_by). It says nothing about a split share this phone only PAID: the merge does
+ * not re-stamp `qr_order_payers.payer_uid` (M237), so "your orders" would overclaim; "the reward you just unlocked" is `rewardJustUnlocked()`, the binding PaySuccess reads.
  */
 export function saveStarsCopy(
   stars: number,
@@ -161,7 +162,7 @@ export function saveStarsCopy(
   receiptEmail: boolean,
 ): SaveStarsCopy {
   const rest =
-    "live only on this phone. Save them to an account with an email code or Google, and your orders come along too.";
+    "live only on this phone. Save them to an account with an email code or Google, and the orders that earned them come along too.";
   return {
     heading: stars === 1 ? "Keep your Star" : `Keep your ${stars} Stars`,
     headingMy: SAVE_STARS_HEADING_MY,
@@ -176,32 +177,33 @@ export function saveStarsCopy(
 
 /**
  * The reason the CTA is withheld (§7: a control that cannot work stays rendered, disabled, and says
- * why). Offline wins — it is the diner's own, fixable state; the platform verdict is OrderTracker's
- * existing `weDown` (the W10c gate on the tracker's own /account link), never a new probe.
+ * why). Offline only — the diner's own, fixable state. There is deliberately NO platform arm: the
+ * card renders only once the order has ARRIVED, i.e. the backend just answered, and OrderTracker's
+ * W10c `weDown` verdict (`gaveUp` needs `!order`) can never be true there. An arm that cannot fire
+ * was a decorative promise with a decorative test (the blind review of Phase 1c); a /account that
+ * later fails says so itself.
  */
-export function saveStarsBlockedReason(i: {
-  offline: boolean;
-  platformDown: boolean;
-}): string | null {
-  if (i.offline) return "You look offline — saving needs a connection.";
-  if (i.platformDown)
-    return "Our system isn’t reachable right now — your Stars stay on this phone until you save.";
-  return null;
+export function saveStarsBlockedReason(i: { offline: boolean }): string | null {
+  return i.offline ? "You look offline — saving needs a connection." : null;
 }
 
 // ── The chooser disclosure (/account) ─────────────────────────────────────────────────────────────
 
 /**
  * K15 — both Burmese lines are NEW copy, flagged for a native check; neither carries a numeral.
- *   STRANDS  ≈ "tapping a name won't bring this phone's Stars and orders — to bring them, sign in
- *              with the email or Google below".
+ *   STRANDS  ≈ "tapping a name won't bring this phone's Stars and orders — to bring the Stars, sign
+ *              in with the email or Google below" (the promise names the Stars only: M237).
  *   ORDER    ≈ "tapping a name won't bring the order in progress".
  */
 const CHOOSER_NOTE_MY_STRANDS =
-  "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ";
+  "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ကြယ်တွေ ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ";
 const CHOOSER_NOTE_MY_ORDER = "နာမည်ကို နှိပ်ရင် လုပ်နေဆဲ အော်ဒါ မပါလာပါဘူး";
 
-const BRING_ALONG = "use your email or Google below to bring everything along.";
+// What the merge actually carries: the Stars and the orders that EARNED them (`earned_by` is
+// re-stamped). NOT "everything" — a split share this phone only paid stays on the anon uid (M237),
+// and a chip strands it either way, so the promise names only what a save keeps.
+const BRING_ALONG =
+  "use your email or Google below to bring your Stars and the orders that earned them along.";
 
 /**
  * What a one-tap Welcome-back chip leaves behind, said BEFORE the tap. A chip signs in with the
@@ -211,8 +213,10 @@ const BRING_ALONG = "use your email or Google below to bring everything along.";
  *
  *  - Stars known (> 0): names the count and the orders, plus the order in progress when one is live.
  *  - Stars unknown (null — the failed rewards read): count-free, plus the in-progress clause.
- *  - 0 Stars with an order in progress: names only the order, and deliberately makes NO "bring
- *    everything along" promise — a share-payer's order is not re-stamped by the merge (M29 lineage).
+ *  - 0 Stars with an order in progress: names only the order, and deliberately makes NO bring-along
+ *    promise — a share-payer's order is not re-stamped by the merge (M237, the M29 lineage).
+ *  The bring-along promise, where made, names only the Stars and the orders that EARNED them — the
+ *  in-progress order it lists as stranded may be a paid-only split share the save cannot carry.
  *  - Nothing at stake: no note.
  */
 export function chooserLeavesNote(i: {

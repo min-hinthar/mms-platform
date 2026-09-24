@@ -124,14 +124,30 @@ export function instantRefusal(i: { failure: CameraFailure; elapsedMs: number })
  *     throttle but none is announced, before or after the sheet: a jar resting in frame behind the
  *     modal is never charged unseen, and never charged the moment the sheet closes either.
  *     Checked FIRST — a sheet over a basket that is still minting is still a sheet.
- *   · `hold` — the basket does not exist yet. Sightings are recorded; when the hold lifts the
- *     scanner resets its throttle, so the jar the shopper is already pointing at adds ONCE, the
- *     moment the basket exists.
+ *   · `hold` — the basket is not READY (`scanBasketReady`: minted AND its first read landed).
+ *     Sightings are recorded; when the hold lifts the scanner resets its throttle, so the jar the
+ *     shopper is already pointing at is judged ONCE, against the basket's real lines.
  *   · `none` — announce as normal.
  *
  * Decoding itself continues under both (ZXing decodes continuously). Nothing here claims frames go
  * unread; it claims no sighting is ANNOUNCED.
  */
+/**
+ * Is the basket ready to judge a camera sighting? It must be LOADED, not merely minted: `add()`
+ * classifies a sighting against the basket's lines (the M186 repeat stop — a barcode this basket
+ * already pays for is never charged again), and until the first server read lands those lines are
+ * []. The hold lifts the moment this turns true and the scanner resets its throttle, so keying it on
+ * the cart id alone judged the jar already in frame — and already in a REJOINED basket — against an
+ * empty basket and charged it a second time. A first read that FAILED keeps the hold, matching
+ * Browse's refusal of an add against a basket the shopper cannot see.
+ */
+export function scanBasketReady(i: {
+  cartId: string | null | undefined;
+  hydrated: boolean;
+}): boolean {
+  return Boolean(i.cartId) && i.hydrated;
+}
+
 export type DecodeHold = "none" | "hold" | "swallow";
 export function decodeHold(i: { cartReady: boolean; sheetOpen: boolean }): DecodeHold {
   if (i.sheetOpen) return "swallow";

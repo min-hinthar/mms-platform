@@ -960,9 +960,12 @@ confirmed.
 
 **The one slot has a precedence** (`lib/notice-slot.ts`): every notice is a CLAIM, a CORRECTION or
 NEWS. Empty → show; a correction over an identical correction → extend (five refused taps under one
-lock are one sentence); a claim over a live correction → defer; a quiet line over visible text →
-defer; anything else → show. News never defers. The deferred slot is one deep, and a correction drops
-a waiting claim, so a retracted claim is never spoken afterwards.
+lock are one sentence); two dishes' corrections of ONE family → the family's unnamed sentence, which
+covers both (a second name must never erase the first dish's retraction); a claim over a live
+correction → defer; a quiet line over visible text → defer; anything else → show. News never defers.
+The deferred slot is one deep; a correction drops a waiting claim and news drops a waiting VISIBLE
+one, so a retracted or superseded claim is never the last word. A "−" whose line changed before its
+queued write ran retracts the claim it spoke at the tap.
 
 **Rejected:** fly-to-cart (launches for adds that later fail), a check-morph on "+" (shows ✓ before
 anything is confirmed), a haptic after the round trip (§3), a burst gated on confirmation (~1.7s
@@ -1036,9 +1039,11 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
 - **Only claims the data holds.** Asked only when this order earned THIS guest a Star; the count is
   the server total after attribution, never "+1"; "the reward you just unlocked" reads the same
   `rewardJustUnlocked` binding PaySuccess reads.
-- **A disclosure before a costly tap names every cost.** A Welcome-back chip strands this phone's
-  guest Stars AND its guest orders, so the chooser says so before the chips — count-free when the
-  Stars read failed.
+- **A disclosure before a costly tap names every cost** — and is the control's accessible
+  DESCRIPTION, because a screen reader tabbing onto a labelled button skips the paragraph above it. A
+  Welcome-back chip strands this phone's guest Stars AND its guest orders; the note promises to carry
+  only what a save carries (the Stars and the orders that EARNED them — never a split share this phone
+  only paid, M237).
 - **/account reads now → you → what you own → the record → reference → settings**: today's orders
   first (seeded by the server, refreshed on wake and focus), identity, Stars with today's coupons,
   history, favourites, tiers, sound.
@@ -1058,10 +1063,14 @@ Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
 - **The camera prompt follows a tap or a prior grant** — a primer first, never a cold OS prompt. A
   denial answered in under 400ms opens the settings help itself.
 - **The camera runs only while the page is visible and the Scan door is open.**
+- **The hold lifts on a LOADED basket, never a minted one** (`scanBasketReady`, pinned by
+  `check:scan-repeat`): the jar in frame is judged against the basket's lines the frame the hold
+  lifts, and a rejoined basket's lines are [] until its first read lands.
 - **The lock says "read", never "added"**: the reticle's gold corners on a sighting; the server's
   verdict (haptic, toast, row) is the add. No sound (§15), no new haptic (§12).
 - **The result sits where the eye is, and a miss persists** — inside the viewfinder, never below the
-  fold. A sheet over the stage SWALLOWS sightings (`decodeHold`), so nothing is added behind a modal.
+  fold. It is re-keyed per outcome and hands focus across its own remount, so "Add another" keeps a
+  keyboard or screen-reader shopper where they were. A sheet over the stage SWALLOWS sightings (`decodeHold`), so nothing is added behind a modal.
 - **Shelves of six, aisles as history.** One shelf per aisle with "See all {n}"; an aisle is a
   `#aisle-*` entry — home → aisle pushes, aisle → aisle replaces, so Back returns to the market.
   Chips are links with `aria-current` (the lit cap).

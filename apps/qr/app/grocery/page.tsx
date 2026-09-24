@@ -42,6 +42,7 @@ import { haptic } from "@/lib/haptics";
 import { setQty } from "@/lib/cart";
 import { useTableSession } from "@/lib/useTableSession";
 import { usePublishCart } from "@/components/ActiveOrderProvider";
+import { scanBasketReady } from "@/lib/camera-state";
 
 // The grocery market (W4b) — TWO doors over ONE catalog + ONE cart: Browse (aisle tiles, bilingual
 // Weee!-anatomy cards, one-tap add) and Scan (camera on shelf barcodes), with the shared name-search
@@ -92,6 +93,8 @@ export default function Grocery() {
   // repeat after a miss brings the chip — and "Add another" — back.
   const [slot, setSlot] = useState<ScanSlot>(null);
   const slotSeq = useRef(0);
+  // Carries focus across the result bar's per-outcome re-key (see ScanResult's docblock).
+  const resultFocusRef = useRef(false);
   const noteOutcome = useCallback(
     (outcome: ScanOutcome, via: "scan" | "rescan" | "search" | "browse", barcode: string) => {
       const key = ++slotSeq.current; // taken OUTSIDE the updater (StrictMode re-runs updaters)
@@ -1155,7 +1158,7 @@ export default function Grocery() {
           (!cartGone && !sessionError ? (
             <ScanStage
               onScan={onScan}
-              cartReady={Boolean(cartId)}
+              cartReady={scanBasketReady({ cartId, hydrated })}
               sheetOpen={basketOpen && !cartGone}
               onSearch={focusSearch}
               result={
@@ -1166,6 +1169,7 @@ export default function Grocery() {
                     chip={null}
                     onSearch={focusSearch}
                     onDismiss={dismissSlot}
+                    focusHandoffRef={resultFocusRef}
                   />
                 ) : slot?.kind === "chip" && showRescanChip && lastScanned ? (
                   // M186 — the second-copy path, where the eye is, from the moment the FIRST scan
@@ -1183,6 +1187,7 @@ export default function Grocery() {
                     }}
                     onSearch={focusSearch}
                     onDismiss={dismissSlot}
+                    focusHandoffRef={resultFocusRef}
                   />
                 ) : null
               }

@@ -27,7 +27,10 @@ vi.mock("@/lib/rewards", () => ({
   ensureProfile: h.ensureProfile,
   getSessionKind: h.getSessionKind,
 }));
-vi.mock("@/lib/orders", () => ({ getMyLiveOrders: h.getMyLiveOrders }));
+vi.mock("@/lib/orders", () => ({
+  getMyLiveOrders: h.getMyLiveOrders,
+  readMyLiveOrders: async () => ({ ok: true, orders: [] }),
+}));
 vi.mock("@/lib/favorites", () => ({ getFavoriteDishes: h.getFavoriteDishes }));
 
 const slot = (s: string) =>

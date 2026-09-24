@@ -91,8 +91,9 @@ export function PaySuccess({
   );
 
   // One-shot success haptic — an external-system write (not React state), so it's effect-legal. Fires once
-  // per mount, and (Phase 1c) once per PAYMENT per tab: the first celebration records the latch here, so
-  // a refresh or a Back to the Stripe return URL does not re-buzz — nor replay the confetti or the chime.
+  // per mount, and (Phase 1c) once per PAYMENT per tab: the latch (recorded by the chime effect below,
+  // once the money has moved) keeps a refresh or a Back to the Stripe return URL from re-buzzing — or
+  // replaying the confetti or the chime.
   //
   // W22c — this used to inline its own `matchMedia` reduced-motion guard and call
   // `navigator.vibrate([10, 40, 18])` directly, a second copy of a rule `lib/haptics` already owned.
@@ -101,9 +102,8 @@ export function PaySuccess({
   useEffect(() => {
     if (hapticDone.current || replay) return;
     hapticDone.current = true;
-    if (celebrationKey != null) markCelebrated(safeSessionStorage(), celebrationKey);
     haptic("celebrate");
-  }, [replay, celebrationKey]);
+  }, [replay]);
 
   // W22f — the same beat, the other channel. Silent unless the diner asked for it; the confetti and
   // the receipt carry this moment on their own for everyone else (rule 2 — sound is never the only
@@ -116,12 +116,19 @@ export function PaySuccess({
   // chime's whole documented meaning is "the payment resolved home"; ringing it under a headline
   // softened for exactly that reason would put two contradicting claims on one screen — and the
   // audible one is the one no reviewer sees.
+  //
+  // Phase 1c (blind review) — the celebration LATCH is recorded HERE, when the moment completes, not
+  // at mount: on the manual-capture path a mount-time latch meant a reload before the capture landed
+  // read `replay` and this chime — which waits for the capture — never rang for that payment at all.
+  // A reload while still awaiting replays the confetti and the buzz once more; the moment has not
+  // happened yet, so that is the honest direction.
   const chimeDone = useRef(false);
   useEffect(() => {
     if (chimeDone.current || awaitingCapture || replay) return;
     chimeDone.current = true;
+    if (celebrationKey != null) markCelebrated(safeSessionStorage(), celebrationKey);
     chime("paid");
-  }, [awaitingCapture, replay]);
+  }, [awaitingCapture, replay, celebrationKey]);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger
   // for the page's life. setState in the timeout callback is async (not a synchronous setState-in-effect).

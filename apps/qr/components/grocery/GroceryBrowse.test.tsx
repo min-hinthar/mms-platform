@@ -321,6 +321,19 @@ describe("the aisle view lives in history", () => {
     expect(chip(/All aisles/).getAttribute("aria-current")).toBe("true");
   });
 
+  it("a Back INTO an aisle before the catalog has loaded keeps the entry (it is not 'unstocked' yet)", async () => {
+    // RED when the pop handler replaces away every #aisle it cannot resolve: with the catalog still
+    // loading, EVERY aisle is unresolvable, so a valid history entry would be erased by a Back.
+    h.catalog.mockReturnValue(new Promise(() => {})); // still loading
+    mount();
+    await flush();
+    window.history.replaceState({ __NA: true }, "", "/grocery#aisle-cooking");
+    await act(async () => {
+      window.dispatchEvent(new PopStateEvent("popstate", { state: window.history.state }));
+    });
+    expect(window.location.hash).toBe("#aisle-cooking");
+  });
+
   it("an unstocked #aisle hash is replaced away, never a dead end", async () => {
     window.history.replaceState({ __NA: true }, "", "/grocery#aisle-snacks-sweets");
     await market();

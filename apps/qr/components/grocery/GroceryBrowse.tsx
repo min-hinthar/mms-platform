@@ -128,6 +128,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
   /** The aisle the screen shows, readable from any callback before the state commits. */
   const aisleRef = useRef<string | null>(null);
   const stockedRef = useRef<string[]>([]);
+  // Has a catalog answered yet? Before it has, EVERY #aisle is unresolvable, so "unstocked" cannot
+  // be told apart from "not loaded" — the pop handler must not replace a valid entry away (the load
+  // path resolves the hash itself when the catalog lands).
+  const catalogReadyRef = useRef(false);
   const homeScrollRef = useRef<number | null>(null);
   const openerRef = useRef<Opener | null>(null);
   const pendingViewRef = useRef<PendingView | null>(null);
@@ -184,8 +188,10 @@ export const GroceryBrowse = memo(function GroceryBrowse({
     const onPop = () => {
       const raw = window.location.hash;
       const next = aisleFromHash(raw, stockedRef.current);
-      // An `#aisle-*` we do not stock (a stale or hand-typed link) is replaced away.
-      if (next === null && aisleSlugFromHash(raw) !== null) writeHash("replace", null);
+      // An `#aisle-*` we do not stock (a stale or hand-typed link) is replaced away — once there is a
+      // catalog to ask; before that, the load path resolves it.
+      if (next === null && aisleSlugFromHash(raw) !== null && catalogReadyRef.current)
+        writeHash("replace", null);
       const before = aisleRef.current;
       if (popShowsBrowse({ tab: activeRef.current ? "browse" : "scan", before, after: next }))
         onAislePopRef.current();
@@ -205,6 +211,7 @@ export const GroceryBrowse = memo(function GroceryBrowse({
         if (cancelled) return;
         const slugs = stockedAisles(items).map((s) => s.aisle.slug);
         stockedRef.current = slugs;
+        catalogReadyRef.current = true;
         // The hash is resolved against what is actually STOCKED, once there is a catalog to ask.
         const raw = window.location.hash;
         const fromHash = aisleFromHash(raw, slugs);
