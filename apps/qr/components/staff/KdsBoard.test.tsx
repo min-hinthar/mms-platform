@@ -625,6 +625,72 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(bar.textContent).not.toContain("Mohinga");
   });
 
+  it("the NEWEST sold-out keeps the Undo even when the OLDER one's answer lands last", async () => {
+    // Codex round 3 on #304 (P2). A in flight, dismissed; B tapped and answered FIRST (B's Undo);
+    // then A answers. RED before the tap sequence: A's late success took the null-sheet branch and
+    // overwrote B's Undo.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const dA = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dA.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q);
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    setItemSoldOut.mockImplementationOnce(() => Promise.resolve({ ok: true, soldOut: true }));
+    await tapEightySix(q, "Laphet");
+    await waitFor(() => expect(q.container.querySelector(".kds-undo")).not.toBeNull());
+    await act(async () => {
+      dA.resolve({ ok: true, soldOut: true }); // the OLDER answer lands last
+    });
+    await act(async () => {});
+    const bar = q.container.querySelector(".kds-undo")!;
+    expect(bar.textContent).toContain(tf("en", "kds.undo.86", { x: "Laphet" }));
+    expect(bar.textContent).not.toContain("Mohinga");
+    expect(q.container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "kds.live.86.parked", { x: "Mohinga" }),
+    );
+  });
+
+  it("a late refusal while ANOTHER dish's sheet is open is shown inside that open sheet", async () => {
+    // Codex round 3 on #304 (P2). The modal sheet makes the board behind it aria-hidden, so the
+    // board's region cannot be heard. RED before: A's refusal went to the board region.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const dA = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dA.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q);
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    fireEvent.click(q.getByRole("button", { name: moreFor("Laphet") }));
+    const dialogB = await q.findByRole("dialog");
+    await act(async () => {
+      dA.resolve({ ok: false, error: "That changed.", code: "stale" });
+    });
+    const sentence = tf("en", "kds.err.stale", { x: "Mohinga" });
+    await waitFor(() => expect(within(dialogB).getByRole("status").textContent).toBe(sentence));
+    expect(q.getByRole("dialog")).toBe(dialogB);
+  });
+
   it("a refusal renders in the sheet's region, keeps the sheet open, and refreshes", async () => {
     // MUTATIONS (by hand): route every refusal to the board region — the sheet's region is empty,
     // red; refresh only on ok — no queue read, red.

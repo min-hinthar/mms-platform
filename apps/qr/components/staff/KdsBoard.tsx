@@ -633,12 +633,16 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
   // open sheet closes — then it mounts with its own fresh window (and its own same-gesture hold).
   // A REF, read when the sheet id changes: parking changes nothing on screen, so it re-renders
   // nothing; the unpark is the commit where `menuLineId` goes null (Esc, a dismiss, the line leaving).
-  const parked86 = useRef<{ menuItemId: string; label: string } | null>(null);
+  const parked86 = useRef<{ menuItemId: string; label: string; seq: number } | null>(null);
+  // Codex rounds 2–3 on #304 — ONE Undo slot, so only the NEWEST sold-out tap may fill it, whichever
+  // response lands first. Every tap takes the next number; a result whose number is no longer the
+  // latest says what happened and offers no Undo (the newer dish owns the slot).
+  const tap86Seq = useRef(0);
   useEffect(() => {
     const p = parked86.current;
     if (menuLineId !== null || p === null) return;
     parked86.current = null;
-    onEightySixed(p);
+    if (p.seq === tap86Seq.current) onEightySixed(p);
   }, [menuLineId, onEightySixed]);
   // The line whose 86 just landed — focus goes to its own button once, and only if focus was
   // orphaned. Set only on OK, consumed by the commit that applied the override, whatever happened.
@@ -667,14 +671,17 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
     if (!canEightySix(line) || id === null || pending86Ref.current.has(id)) return;
     const key = menu.key;
     const dish = dishVisible(lang, line.name, line.nameMy);
+    const seq = ++tap86Seq.current;
     pending86Ref.current.add(id);
     setPending86((p) => new Map(p).set(id, line.id));
     haptic("commit"); // §3 — at the tap, synchronously; the busy button is the visible half
     setMenuMsg(null);
-    // A refusal lands where the cook is looking: in the sheet while it is open for this line, else
-    // the board's one region (with its 8 s dwell).
+    // A refusal lands where the cook is looking: in the sheet that is open — this line's, or (Codex
+    // round 3 on #304) ANOTHER line's, because a modal sheet makes the board behind it aria-hidden
+    // and a refusal spoken there would never be heard; the sentence names its dish either way.
+    // With no sheet open, the board's one region (with its 8 s dwell).
     const refuse = (m: KdsMsg) => {
-      if (menuLineRef.current === line.id) setMenuMsg(m);
+      if (menuLineRef.current !== null) setMenuMsg(m);
       else showErr(m);
     };
     try {
@@ -689,24 +696,31 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
       });
       if (res.ok) {
         setSoldOverrides((p) => recordSoldOut(p, id, true, fetchSeq.current));
+        const newest = seq === tap86Seq.current;
         if (menuLineRef.current === null || menuLineRef.current === line.id) {
           // ONE commit: the override (SOLD OUT, the ⋯ gone), the sheet unmounted, the undo bar,
           // the region's notice, and the focus landing's flag.
           landRef.current = line.id;
-          // Codex round 2 on #304 — THIS dish's Undo wins. An older 86 parked under this very sheet
-          // would otherwise be published by the drain above the moment this sheet unmounts,
-          // overwriting the one Undo slot: the dish the cook just marked would lose its way back.
-          // The older dish stays sold out (its notice promised no undo) and returns from
-          // /staff/menu like any other.
-          parked86.current = null;
           setLandedKey(key);
           setMenuLineId(null);
-          onEightySixed({ menuItemId: id, label: dish });
+          if (newest) {
+            // THIS dish's Undo wins: an older result parked under this sheet is dropped (the
+            // drain would otherwise publish it the moment this sheet unmounts).
+            parked86.current = null;
+            onEightySixed({ menuItemId: id, label: dish });
+          } else {
+            // A NEWER sold-out was tapped after this one (Codex round 3 — the older response
+            // landing LAST): that dish owns the one Undo slot. This one stays sold out, says so,
+            // promises nothing, and goes back on from /staff/menu like any other.
+            setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
+          }
+        } else if (!newest) {
+          setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
         } else {
           // ANOTHER line's sheet is open (the refusal path's mirror): never touch it. The notice
           // goes to the board's region; the Undo is parked until that sheet closes (above).
           setNotice(tf(lang, "kds.live.86.parked", { x: dish }));
-          parked86.current = { menuItemId: id, label: dish };
+          parked86.current = { menuItemId: id, label: dish, seq };
         }
       } else {
         // After a `stale` refusal (someone else 86'd it) or the landed-but-unlogged ledger sentence,
