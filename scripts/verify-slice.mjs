@@ -3388,8 +3388,8 @@ const MUTANTS = [
     file: "apps/qr/lib/staff-cart.ts",
     suite: "lib/staff-cart.test.ts",
     why: "W6a — dropping the qty forward silently turns '3 × curry' into one unit while the cashier quotes three; the cash reconcile then charges for one",
-    find: "      null,\n      qty,\n    );",
-    replace: "      null,\n    );",
+    find: "      null,\n      qty,\n      addKey,\n    );",
+    replace: "      null,\n      1,\n      addKey,\n    );",
   },
   {
     id: "register/name-write-ignores-cart-status",
@@ -6686,6 +6686,74 @@ const MUTANTS = [
     why: "Phase 1c — a leaving row must render inert, aria-hidden and `.mms-remove`. Drop the flag and the removed dish is drawn as a LIVE row for its whole exit: a second listitem a screen reader reads, and a stepper a finger can still press on a line the server has already deleted",
     find: "                      .map((r) => renderLine(r.item, r.leaving))}\n",
     replace: "                      .map((r) => renderLine(r.item))}\n",
+  },
+  // ── Phase 2a · padserver ──
+  // The staff add's coded refusal (lib/staff-add-outcome.ts), its wiring in staffAddItem (the phase
+  // flag, the captured pricing error, the add key riding the existing scan-event ledger), and
+  // priceItem's options read failing closed.
+  {
+    id: "p2a-padserver/write-throw-reads-as-failed",
+    file: "apps/qr/lib/staff-add-outcome.ts",
+    suite: "lib/staff-add-outcome.test.ts",
+    why: "Phase 2a — a throw out of the write may have COMMITTED (the RPC ran, the response was lost). Classify it by its class instead of its phase and it reads `failed`, a definite refusal the pad answers with a fresh tap under a NEW key — the one double-add the add key exists to make impossible",
+    find: '  if (phase === "write") return "unconfirmed";\n',
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/sold-out-reads-as-failed",
+    file: "apps/qr/lib/staff-add-outcome.ts",
+    suite: "lib/staff-add-outcome.test.ts",
+    why: "Phase 2a — a sold-out dish carries its reason on the error (M119). Dropping the arm reports a generic failure, and staff tap it again for a dish the kitchen already 86'd",
+    find: "  if (err instanceof ItemUnsellableError) return err.reason;\n",
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/unreadable-catalog-reads-as-failed",
+    file: "apps/qr/lib/staff-add-outcome.ts",
+    suite: "lib/staff-add-outcome.test.ts",
+    why: "Phase 2a — an unreadable catalog is an OUTAGE (keep it on paper), not a verdict about the dish or the request. Folding it into `failed` tells staff something is wrong with THIS add when nothing can be added",
+    find: '  if (err instanceof ItemUnreadableError) return "outage";\n',
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/phase-never-flips-to-write",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "Phase 2a — the flag is what makes a throw out of insertOrIncLine `unconfirmed`. Without it every write failure is reported as a definite `failed`, inviting a re-add of a line that may already be on the ticket",
+    find: '    phase = "write";\n',
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/pricing-error-not-captured",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "Phase 2a — the catch keeps its binding-free shape, so the pricing error reaches the classifier only through this capture. Drop it and a sold-out or unreadable dish is reported as a generic `failed`",
+    find: "      priceFailure = e;\n",
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/add-key-not-forwarded",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "Phase 2a — the add key IS the idempotency: it rides the existing `p_scan_id` ledger, claimed in the same transaction as the write. Drop the forward and a resend of a lost-response add lands a second line while the pad believes it retried the same one",
+    find: "      qty,\n      addKey,\n    );",
+    replace: "      qty,\n    );",
+  },
+  {
+    id: "p2a-padserver/pay-refusal-uncoded",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/staff-cart.test.ts",
+    why: "Phase 2a — the payment mutex's refusal must be CODED `paying`: the pad keys its lock notice on the code, and an uncoded refusal falls to the generic failed copy while a card is mid-authorization",
+    find: '      code: "paying",\n',
+    replace: "",
+  },
+  {
+    id: "p2a-padserver/options-read-error-priced-as-none",
+    file: "apps/qr/lib/order-lines.ts",
+    suite: "lib/order-lines-availability.test.ts",
+    why: "Phase 2a — a failed modifier_options read folded into `[]` priced and named the line WITHOUT the add-on the guest chose: a silent under-charge on the diner path and a dish cooked wrong on the staff path. It must fail closed as an outage, like the item read (M119)",
+    find: "    if (optError) throw new ItemUnreadableError(menuItemId);",
+    replace: "    if (false) throw new ItemUnreadableError(menuItemId);",
   },
 ];
 
