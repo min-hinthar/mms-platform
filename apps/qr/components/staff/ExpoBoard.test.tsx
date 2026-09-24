@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExpoPoll, ExpoQueue, ExpoTicket } from "@/lib/expo-types";
 import type { ExpoActionResult } from "@/lib/expo";
@@ -74,6 +74,7 @@ const { StaffLangProvider } = await import("./StaffLangProvider");
 const { ExpoBoard } = await import("./ExpoBoard");
 const { tf } = await import("@/lib/i18n/fill");
 const { ts } = await import("@/lib/i18n/staff");
+const { SAME_GESTURE_MS: SAME_GESTURE, TOAST_LEAVE_MS: LEAVE } = await import("@mms/ui");
 
 afterEach(() => {
   cleanup();
@@ -101,6 +102,12 @@ function deferred<T>() {
 }
 
 const pickedUpName = (lang: "en" | "my") => new RegExp(`^${ts(lang, "expo.verb.pickedUp")}`);
+/** The CARD's in-slot Undo. Phase 2b · feedback — scoped to the card's article: the thumb-zone
+ *  pill's own "Undo" also matches /^Undo/, so an unscoped lookup finds two and throws. */
+const cardUndo = (root: HTMLElement, orderIndex = 0) =>
+  within(root.querySelectorAll("article")[orderIndex] as HTMLElement).getByRole("button", {
+    name: /^Undo/,
+  });
 
 describe("counter-1 — Picked up waits on its window, and Undo is the way back", () => {
   it("flips the card at once, writes nothing for the window, then writes picked_up once", async () => {
@@ -109,7 +116,7 @@ describe("counter-1 — Picked up waits on its window, and Undo is the way back"
     fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
     const card = container.querySelector("article")!;
     expect(card.getAttribute("data-picked")).toBe("true");
-    expect(getByRole("button", { name: /^Undo/ })).toBeTruthy();
+    expect(cardUndo(container)).toBeTruthy();
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       tf("en", "expo.live.pickedTable", { id: 7 }),
     );
@@ -131,7 +138,7 @@ describe("counter-1 — Picked up waits on its window, and Undo is the way back"
     // MUTATION: drop the map entry BEFORE the write — the card flips back to a live "Picked up"
     // for the whole round trip, and a tap in that gap opens a second window; red here.
     expect(card.getAttribute("data-picked")).toBe("true");
-    expect(getByRole("button", { name: /^Undo/ }).getAttribute("aria-busy")).toBe("true");
+    expect(cardUndo(container).getAttribute("aria-busy")).toBe("true");
     expect(() => getByRole("button", { name: pickedUpName("en") })).toThrow();
     currentQueue = queue([]);
     await act(async () => {
@@ -149,12 +156,12 @@ describe("counter-1 — Picked up waits on its window, and Undo is the way back"
       await vi.advanceTimersByTimeAsync(100);
     });
     // MUTATION: drop the arm guard — this second tap lands on Undo (same slot, same node), red.
-    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    fireEvent.click(cardUndo(container));
     expect(container.querySelector("article")?.getAttribute("data-picked")).toBe("true");
     await act(async () => {
       await vi.advanceTimersByTimeAsync(400);
     });
-    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    fireEvent.click(cardUndo(container));
     expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
   });
 
@@ -193,7 +200,7 @@ describe("counter-1 — Picked up waits on its window, and Undo is the way back"
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3_000);
     });
-    fireEvent.click(getByRole("button", { name: /^Undo/ }));
+    fireEvent.click(cardUndo(container));
     expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       tf("en", "expo.live.pickedUndoneTable", { id: 7 }),
@@ -363,5 +370,340 @@ describe("Phase 2b — the bag line's note is the kitchen's TicketNote: ⚠, sr 
     expect(text.querySelector('[lang="my"]')?.textContent).toBe("မြေပဲ");
     // The quotes are gone: the ⚠ and the warn rule mark it as the diner's words.
     expect(note.textContent).not.toContain("“");
+  });
+});
+
+// ── Phase 2b · feedback ──
+/**
+ * THE THUMB-ZONE UNDO — the pill that puts "Picked up"'s way back where the thumb is. The rules are
+ * pure (`toastPick` in lib/expo-rules.ts, `setHeld`/`heldFor` in lib/undo-hold.ts, the Toast's
+ * refusals in @mms/ui); these pin the WIRING: the pill is silent (the lane's region speaks the
+ * pick), its Undo cancels the deferred write, it never outlives or out-names its pick, it shields
+ * the second half of a double-tap VISIBLY, it holds the window for a keyboard user only, and focus
+ * lands on the restored card rather than falling to <body>.
+ */
+const pill = (c: HTMLElement) => c.querySelector<HTMLElement>(".ui-toast");
+const pillUndo = (c: HTMLElement) => c.querySelector<HTMLButtonElement>(".ui-toast-action")!;
+const advance = (ms: number) =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+/** jsdom never matches `:focus-visible`; these elements are treated as keyboard-focused. */
+function stubFocusVisible() {
+  const keyboard = new Set<Element>();
+  const real = Element.prototype.matches;
+  const spy = vi.spyOn(Element.prototype, "matches").mockImplementation(function (
+    this: Element,
+    selector: string,
+  ) {
+    return selector === ":focus-visible" ? keyboard.has(this) : real.call(this, selector);
+  });
+  return { keyboard, restore: () => spy.mockRestore() };
+}
+
+describe("Phase 2b · feedback — the thumb-zone Undo pill", () => {
+  it("a pick draws a SILENT pill naming the bag while the lane's region speaks it; its Undo cancels the write", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    expect(pill(container)?.textContent).toContain(tf("en", "expo.toast.pickedTable", { id: 7 }));
+    // MUTATION: leave the Toast at its live default — a second polite region repeats the pick.
+    expect(container.querySelector(".ui-toast-region")?.hasAttribute("role")).toBe(false);
+    expect(container.querySelector(".ui-toast-region")?.hasAttribute("aria-live")).toBe(false);
+    expect(container.querySelectorAll('[role="status"]')).toHaveLength(1);
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "expo.live.pickedTable", { id: 7 }),
+    );
+    // The pill's Undo is named by its visible word, and is NOT the card's "Undo — Table 7".
+    expect(pillUndo(container).textContent).toBe(ts("en", "kds.undo"));
+    expect(pillUndo(container).getAttribute("aria-label")).toBeNull();
+    // The drain carries the REAL window.
+    expect(
+      container
+        .querySelector<HTMLElement>(".ui-toast-drain")
+        ?.style.getPropertyValue("--toast-drain"),
+    ).toBe("6000ms");
+    await advance(500);
+    fireEvent.click(pillUndo(container));
+    // MUTATION: a no-op onAction — the card stays picked and the write goes out at 6 s, red.
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "expo.live.pickedUndoneTable", { id: 7 }),
+    );
+    await advance(7_000);
+    expect(setTogoStatus).not.toHaveBeenCalled();
+  });
+
+  it("the pill's Undo is refused until it arms — the pick's own double-tap cannot land on it", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    expect(pillUndo(container).getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(pillUndo(container));
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBe("true");
+    await advance(400);
+    expect(pillUndo(container).getAttribute("aria-disabled")).toBeNull();
+  });
+
+  it("two picks, Undo the latest from the pill: the pill leaves and never re-labels itself to the older bag", async () => {
+    vi.useFakeTimers();
+    currentQueue = queue([ticket({ orderId: "a", tableNumber: 3 }), ticket()]);
+    const { getAllByRole, container } = mount("en", currentQueue);
+    fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // Table 3
+    await advance(200);
+    fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // Table 7
+    expect(pill(container)?.textContent).toContain(tf("en", "expo.toast.pickedTable", { id: 7 }));
+    await advance(500);
+    fireEvent.click(pillUndo(container));
+    // Two advances: React commits between timers only when each advance's act() ends.
+    await advance(SAME_GESTURE);
+    await advance(LEAVE);
+    // MUTATION `the-toast-falls-back-to-an-older-pick`: the pill now offers Table 3's Undo, and the
+    // second tap of the Undo that took Table 7 back takes Table 3 back too — red.
+    expect(pill(container)).toBeNull();
+    const cards = container.querySelectorAll("article");
+    expect(cards[0]!.getAttribute("data-picked")).toBe("true"); // Table 3 still in its window…
+    expect(cardUndo(container, 0)).toBeTruthy(); // …with its own in-slot Undo
+    expect(cards[1]!.getAttribute("data-picked")).toBeNull();
+  });
+
+  it("an in-slot Undo of the pill's pick takes the pill away at once — it never stays up for an older pick", async () => {
+    vi.useFakeTimers();
+    currentQueue = queue([ticket({ orderId: "a", tableNumber: 3 }), ticket()]);
+    const { getAllByRole, container } = mount("en", currentQueue);
+    fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // Table 3
+    await advance(200);
+    fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // Table 7
+    await advance(500);
+    fireEvent.click(cardUndo(container, 1)); // Table 7, from its own card
+    // MUTATION `the-toast-falls-back-to-an-older-pick`: Table 3 is still open, so the pill stays
+    // up — naming Table 7 over an Undo that can no longer do anything — red.
+    expect(pill(container)?.className).toContain("ui-toast-leaving");
+    await advance(LEAVE);
+    expect(pill(container)).toBeNull();
+    expect(container.querySelectorAll("article")[0]!.getAttribute("data-picked")).toBe("true");
+  });
+
+  it("the window closing takes the pill straight to leaving, then away — a committing pick never keeps it", async () => {
+    vi.useFakeTimers();
+    const d = deferred<ExpoActionResult>();
+    setTogoStatus.mockImplementationOnce(() => d.promise);
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await advance(6_000);
+    expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    // MUTATION `a-committing-pick-keeps-the-toast`: a write held in flight leaves a 64px strip
+    // whose Undo refuses every tap — red.
+    expect(pill(container)?.className).toContain("ui-toast-leaving");
+    expect(pill(container)?.hasAttribute("data-shield")).toBe(false);
+    await advance(LEAVE - 1);
+    expect(pill(container)).not.toBeNull();
+    await advance(1);
+    expect(pill(container)).toBeNull();
+    // The card keeps its committing Undo: inert and busy until the refetch drops the bag.
+    expect(cardUndo(container).getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      d.resolve({ ok: true });
+    });
+  });
+
+  it("after the pill's own Undo it stays VISIBLE and shielded for the same gesture, then leaves", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await advance(500);
+    fireEvent.click(pillUndo(container));
+    expect(pill(container)?.getAttribute("data-shield")).toBe("true");
+    expect(pill(container)?.className).not.toContain("ui-toast-leaving");
+    expect(pillUndo(container).getAttribute("aria-disabled")).toBe("true");
+    haptic.mockClear();
+    fireEvent.click(pillUndo(container)); // the double-tap's second half: sees it, does nothing
+    expect(haptic).not.toHaveBeenCalled();
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
+    await advance(SAME_GESTURE - 1);
+    // MUTATION: drop the shield — the pill is already leaving (or gone) here, red.
+    expect(pill(container)?.getAttribute("data-shield")).toBe("true");
+    await advance(1);
+    expect(pill(container)?.className).toContain("ui-toast-leaving");
+    await advance(LEAVE);
+    expect(pill(container)).toBeNull();
+  });
+
+  it("after an Undo the restored slot refuses a re-pick for the same gesture", async () => {
+    vi.useFakeTimers();
+    const { getByRole, container } = mount();
+    fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+    await advance(500);
+    fireEvent.click(cardUndo(container));
+    const slot = getByRole("button", { name: pickedUpName("en") });
+    await advance(300);
+    fireEvent.click(slot);
+    // MUTATION: drop the removeHeld refusal — the second half of a double-tapped Undo picks the
+    // bag straight back up, red.
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBeNull();
+    await advance(100);
+    fireEvent.click(slot);
+    expect(container.querySelector("article")?.getAttribute("data-picked")).toBe("true");
+  });
+
+  it("a KEYBOARD focus on the pill's Undo holds the window (the drain pauses); blur resumes it — a tap's focus never holds", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      const { getByRole, container } = mount();
+      fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+      await advance(5_000);
+      fv.keyboard.add(pillUndo(container));
+      act(() => pillUndo(container).focus());
+      expect(pill(container)?.getAttribute("data-held")).toBe("true");
+      await advance(5_000); // t = 10 s
+      // MUTATION: onHold unwired — the write went out at 6 s under the keyboard user, red.
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      act(() => pillUndo(container).blur());
+      expect(pill(container)?.hasAttribute("data-held")).toBe(false);
+      // Held 5 s: the window closes at 6 + 5 = 11 s.
+      await advance(999);
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      await advance(101);
+      expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("a new pick taking the pill over ends the keyboard hold the old pill held — its button unmounts without a blur", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      currentQueue = queue([ticket({ orderId: "a", tableNumber: 3 }), ticket()]);
+      const { getAllByRole, container } = mount("en", currentQueue);
+      fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // Table 3 at 0 s
+      await advance(1_000);
+      fv.keyboard.add(pillUndo(container));
+      act(() => pillUndo(container).focus()); // held from 1 s…
+      await advance(1_000);
+      fireEvent.click(getAllByRole("button", { name: pickedUpName("en") })[0]!); // …Table 7 at 2 s
+      expect(pill(container)?.textContent).toContain(tf("en", "expo.toast.pickedTable", { id: 7 }));
+      // Table 3 was held for 1 s: its window closes at 7 s.
+      await advance(4_999);
+      expect(setTogoStatus).not.toHaveBeenCalledWith({ orderId: "a", to: "picked_up" });
+      await advance(1);
+      // MUTATION: keep the stale hold — Table 3 stays on the tracker and the wall until the cap.
+      expect(setTogoStatus).toHaveBeenCalledWith({ orderId: "a", to: "picked_up" });
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("a plain (tap) focus on the pill's Undo does NOT hold the window", async () => {
+    vi.useFakeTimers();
+    // jsdom matches `:focus-visible` on ANY focused element; a tap's focus in a browser does not.
+    const fv = stubFocusVisible();
+    try {
+      const { getByRole, container } = mount();
+      fireEvent.click(getByRole("button", { name: pickedUpName("en") }));
+      await advance(1_000);
+      act(() => pillUndo(container).focus());
+      // MUTATION: every focus holds — a touch that focused the pill stalls the write it was about.
+      expect(pill(container)?.hasAttribute("data-held")).toBe(false);
+      await advance(5_000);
+      expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("a KEYBOARD pick sits on Undo by morph and holds the window until focus leaves it", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      const { getByRole } = mount();
+      const btn = getByRole("button", { name: pickedUpName("en") });
+      fv.keyboard.add(btn);
+      act(() => btn.focus());
+      fireEvent.click(btn); // Enter on a focused button is a click
+      expect(document.activeElement).toBe(btn); // the same node, now the Undo
+      await advance(7_000);
+      // MUTATION: the pick opens no slot hold — no focus event fires on a morph, so the window runs
+      // under the keyboard user and the write goes out at 6 s, red.
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      act(() => btn.blur()); // Tab away at 7 s: 7 s held, the window closes at 13 s
+      await advance(5_999);
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      await advance(1);
+      expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("a keyboard user Tabbing onto the CARD's Undo holds the window too; leaving it resumes", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      const { getByRole, container } = mount();
+      fireEvent.click(getByRole("button", { name: pickedUpName("en") })); // a tap: no hold
+      await advance(2_000);
+      const undo = cardUndo(container);
+      fv.keyboard.add(undo);
+      act(() => undo.focus());
+      // The pill's drain pauses for ANY source's hold — the window is one window.
+      expect(pill(container)?.getAttribute("data-held")).toBe("true");
+      await advance(8_000); // t = 10 s
+      // MUTATION: the in-slot onFocus unwired — the write went out at 6 s, red.
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      act(() => undo.blur()); // held 8 s: closes at 14 s
+      await advance(3_999);
+      expect(setTogoStatus).not.toHaveBeenCalled();
+      await advance(1);
+      expect(setTogoStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("after a keyboard Undo from the pill, focus lands on the card's restored slot — never <body>", async () => {
+    vi.useFakeTimers();
+    const fv = stubFocusVisible();
+    try {
+      const { container } = mount();
+      fireEvent.click(container.querySelector<HTMLElement>("[data-expo-slot]")!);
+      await advance(500);
+      fv.keyboard.add(pillUndo(container));
+      act(() => pillUndo(container).focus());
+      fireEvent.click(pillUndo(container));
+      const slot = container.querySelector<HTMLElement>('[data-expo-slot="order-1"]')!;
+      // MUTATION: leave focus on the pill — it shields, leaves, unmounts, and focus falls to <body>.
+      expect(document.activeElement).toBe(slot);
+      expect(slot.textContent).toContain(ts("en", "expo.verb.pickedUp"));
+      await advance(SAME_GESTURE);
+      await advance(LEAVE);
+      expect(pill(container)).toBeNull();
+      expect(document.activeElement).toBe(slot);
+    } finally {
+      fv.restore();
+    }
+  });
+
+  it("a scan-and-go hand-over is spoken, and drawn, as 'handed over' — the word its button said", () => {
+    vi.useFakeTimers();
+    currentQueue = queue([
+      ticket({
+        tableNumber: null,
+        lines: [{ ...ticket().lines[0]!, fulfillment: "grocery" }],
+      }),
+    ]);
+    const { getByRole, container } = mount("en", currentQueue);
+    fireEvent.click(
+      getByRole("button", { name: new RegExp(`^${ts("en", "expo.verb.handedOver")}`) }),
+    );
+    // MUTATION: `expo.live.picked` for a verify subject — "#A1B2C3 picked up" after a button that
+    // said "Handed over", red.
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      tf("en", "expo.live.handedOver", { x: "#A1B2C3" }),
+    );
+    expect(pill(container)?.textContent).toContain(
+      tf("en", "expo.toast.handedOver", { x: "#A1B2C3" }),
+    );
   });
 });

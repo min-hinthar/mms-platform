@@ -746,6 +746,7 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
         titleRef={headingRef}
         titleTabIndex={-1}
         lock={hasPin}
+        live={degraded ? "not_updating" : "live"} // Phase 2b · feedback — the banner's own truth
         // A4·5 — the wall (`/board`, the TV the kitchen keeps an eye on) is the KITCHEN's, so its
         // link rides this bar as a circle now that the doors' More is three tiles; it was the one
         // surface reachable in-app only from that grid (before P7, only by bookmark). Named by

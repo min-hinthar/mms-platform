@@ -26,8 +26,10 @@ export { Card } from "./card";
 // Interaction primitives (Phase 0) — styled by `@mms/ui/primitives.css` (.ui-*)
 export { Button, buttonClass } from "./button";
 export type { ButtonVariant, ButtonSize } from "./button";
-export { Toast } from "./toast";
-export type { ToastMessage } from "./toast";
+export { Toast, TOAST_LEAVE_MS } from "./toast";
+export type { ToastAction, ToastMessage, SilentToastMessage } from "./toast";
+// Phase 2b · feedback — "did focus arrive the keyboard way?" (the toast's hold and the lane's slot)
+export { matchesFocusVisible } from "./focus-visible";
 export { Field } from "./field";
 export type { FieldControlProps } from "./field";
 export { PageMasthead, Kicker } from "./masthead";

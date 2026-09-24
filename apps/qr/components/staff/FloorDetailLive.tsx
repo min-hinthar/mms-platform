@@ -391,6 +391,7 @@ export function FloorDetailLive({
         // WITHOUT re-dooring the tablet (the cookie is written only by a door tap).
         leading={{ kind: "back", href: STAFF_DOOR_TARGET.counter, k: "floor.back" }}
         lock={hasPin}
+        live={degraded ? "not_updating" : "live"} // Phase 2b · feedback — the banner's own truth
       />
       <div className="staff-col" style={wrap}>
         <div style={header}>

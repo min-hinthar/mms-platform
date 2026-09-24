@@ -173,7 +173,18 @@ describe("glass floor — the frosted chrome over its worst possible backdrop", 
    * ⚠️ This bound dies the moment anything adds `brightness()` above 1 to a text-bearing pane.
    */
   const pane = over(t(dark, "--glass-chrome"), WHITE);
-  for (const token of ["--tx", "--t2", "--ac", "--jade-strong", "--ruby-strong", "--t3"]) {
+  // Phase 2b · feedback — `--warn` joins: the bar's status slot draws "Not updating" / "Offline" in
+  // it on the KDS's Night glass bar. It clears at 4.5598 (this guard's own output) — the tightest
+  // token on the list; watched RED with Night --warn at #d8774f before being committed green.
+  for (const token of [
+    "--tx",
+    "--t2",
+    "--ac",
+    "--jade-strong",
+    "--ruby-strong",
+    "--t3",
+    "--warn",
+  ]) {
     it(`glass floor · ${token} on frosted chrome over white`, () => {
       expect(ratio(t(dark, token), pane)).toBeGreaterThanOrEqual(AA);
     });

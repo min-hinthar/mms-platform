@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { NET_SHOW_MS, offlineSustained } from "./live-connection";
 
 /**
  * W10a — the three truths behind a failed request, so copy can stop guessing:
@@ -122,4 +123,75 @@ export function failureCopy(truth: ConnectionTruth, what: string): string {
     default:
       return `Couldn’t ${what} just now — try again.`;
   }
+}
+
+// ── Phase 2b · feedback ──
+/**
+ * The DEVICE's offline truth for the staff console's chrome — the `you-offline` fact above, read as
+ * a store instead of an event handler. `useConnectionTruth` starts every mount at `unknown` and
+ * changes only on an online/offline EVENT, so a soft navigation (the staff bar remounts per page)
+ * forgot an outage that was already under way, and an event fired while the page sat in bfcache was
+ * never seen. Here:
+ *
+ *  - `offlineSince` is MODULE state, so a remount keeps the clock (the sustain does not restart);
+ *  - every read is `navigator.onLine` itself, re-synced on `online`, `offline` and `pageshow` (a
+ *    bfcache restore) and at the first subscribe — never a stale copy of the last event;
+ *  - the server snapshot is `online`, so SSR and hydration never draw an offline state.
+ *
+ * The verdict is `offlineSustained` (lib/live-connection.ts): true only after `sustainMs` of
+ * UNBROKEN offline, so a one-second wifi blip never flaps a row. One timer re-checks at
+ * `offlineSince + sustainMs`; nothing reads a clock during render except the lazy first state.
+ */
+let offlineSince: number | null = null;
+const netListeners = new Set<() => void>();
+
+/** Re-read the device; true when `offlineSince` changed. */
+function syncOffline(): boolean {
+  const online = typeof navigator === "undefined" || navigator.onLine !== false;
+  const next = online ? null : (offlineSince ?? Date.now());
+  if (next === offlineSince) return false;
+  offlineSince = next;
+  return true;
+}
+function onNetChange() {
+  if (syncOffline()) for (const l of netListeners) l();
+}
+function subscribeNet(listener: () => void): () => void {
+  netListeners.add(listener);
+  if (netListeners.size === 1) {
+    window.addEventListener("online", onNetChange);
+    window.addEventListener("offline", onNetChange);
+    window.addEventListener("pageshow", onNetChange);
+  }
+  // An outage that began while nothing was listening (a device already offline at the first
+  // mount) starts its clock HERE — and every listener hears it, not only this one.
+  onNetChange();
+  return () => {
+    netListeners.delete(listener);
+    if (netListeners.size === 0) {
+      window.removeEventListener("online", onNetChange);
+      window.removeEventListener("offline", onNetChange);
+      window.removeEventListener("pageshow", onNetChange);
+    }
+  };
+}
+const readOfflineSince = () => offlineSince;
+const serverOfflineSince = () => null;
+
+export function useDeviceOffline(sustainMs = NET_SHOW_MS): boolean {
+  const since = useSyncExternalStore(subscribeNet, readOfflineSince, serverOfflineSince);
+  // The `since` whose sustain has been SEEN to elapse. A remount mid-outage (a soft navigation)
+  // starts already shown, so the row never blinks out and back across a page change.
+  const [shownFor, setShownFor] = useState<number | null>(() =>
+    offlineSustained(since, Date.now(), sustainMs) ? since : null,
+  );
+  useEffect(() => {
+    if (since === null || shownFor === since) return;
+    const id = setTimeout(
+      () => setShownFor(offlineSustained(since, Date.now(), sustainMs) ? since : null),
+      Math.max(0, since + sustainMs - Date.now()),
+    );
+    return () => clearTimeout(id);
+  }, [since, shownFor, sustainMs]);
+  return since !== null && shownFor === since;
 }

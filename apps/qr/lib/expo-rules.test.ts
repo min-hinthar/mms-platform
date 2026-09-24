@@ -3,11 +3,13 @@ import {
   compareExpoTickets,
   EXPO_TONE_MIN,
   expoAge,
+  isScanGoBasket,
   kitchenStateOf,
   PICKED_UNDO_ARM_MS,
   PICKED_UNDO_MS,
   pickedUndoArmed,
   pickedUndoOpen,
+  toastPick,
   type ExpoOrderKey,
 } from "./expo-rules";
 
@@ -144,5 +146,37 @@ describe("pickedUndoOpen — the deferred picked-up write waits exactly the wind
     expect(pickedUndoArmed(1_000, 1_000 + PICKED_UNDO_ARM_MS - 1)).toBe(false);
     expect(pickedUndoArmed(1_000, 1_000 + PICKED_UNDO_ARM_MS)).toBe(true);
     expect(pickedUndoArmed(0, 50, 100)).toBe(false);
+  });
+});
+
+// ── Phase 2b · feedback ──
+describe("toastPick — the pill shows ONLY the pick that opened it (the thumb-zone Undo)", () => {
+  const pick = (committing: boolean) => ({ committing });
+  it("shows the pick that opened it while its window is open", () => {
+    expect(toastPick(new Map([["a", pick(false)]]), "a")).toBe("a");
+  });
+  it("never falls back to an older pick once its own has left — a double-tapped Undo undoes ONE bag", () => {
+    // MUTATION `the-toast-falls-back-to-an-older-pick`: the pill re-labels itself with the older
+    // bag still in its window, and the second tap of the Undo that just took Table 7 back takes
+    // Table 3 back too.
+    const older = new Map([["older", pick(false)]]);
+    expect(toastPick(older, "newest")).toBeNull();
+    expect(toastPick(older, null)).toBeNull();
+  });
+  it("a committing pick never keeps the pill — the write is in flight and Undo can do nothing", () => {
+    // MUTATION `a-committing-pick-keeps-the-toast`: a write held in flight (or an outage) leaves a
+    // 64px strip whose Undo refuses every tap.
+    expect(toastPick(new Map([["a", pick(true)]]), "a")).toBeNull();
+  });
+});
+
+describe("isScanGoBasket — the card's scan-and-go predicate, named once", () => {
+  const line = (fulfillment: "togo" | "grocery") => ({ fulfillment });
+  it("every line grocery is a scan-and-go basket; any food line makes it a bag", () => {
+    expect(isScanGoBasket([line("grocery"), line("grocery")])).toBe(true);
+    // MUTATION `scan-go-by-any-line`: a mixed bag with one grocery line reads as a basket — "Handed
+    // over" on a bag of food the counter still has to hand OUT, and no kitchen badge.
+    expect(isScanGoBasket([line("togo"), line("grocery")])).toBe(false);
+    expect(isScanGoBasket([line("togo")])).toBe(false);
   });
 });

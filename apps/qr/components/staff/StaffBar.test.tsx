@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
@@ -9,6 +9,7 @@ vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), replace: vi.fn() }) }));
 
 const { StaffBar } = await import("./StaffBar");
+const { NET_SHOW_MS } = await import("@/lib/live-connection");
 
 /**
  * P7·1b — the one chrome. What is worth pinning: the leading slot is a REAL link to the doors that
@@ -160,9 +161,66 @@ describe("the bar-title CSS matches the DOM the bar renders", () => {
   it.each(selectors)("%s matches a rendered bar", (selector) => {
     const langs: ("my" | "en")[] = /\[lang="my"\]|\.chrome-/.test(selector) ? ["my"] : ["my", "en"];
     for (const lang of langs) {
-      const { container, unmount } = render(<StaffBar lang={lang} title="kds.title" />);
+      // Phase 2b · feedback — a selector through the head wrapper is held to a FEED bar: the
+      // wrapper exists only there (a feedless bar keeps today's DOM).
+      const live = /\.staff-bar-head/.test(selector) ? ("live" as const) : undefined;
+      const { container, unmount } = render(<StaffBar lang={lang} title="kds.title" live={live} />);
       expect(container.querySelector(selector), `${selector} under lang=${lang}`).not.toBeNull();
       unmount();
     }
+  });
+});
+
+/**
+ * Phase 2b · feedback — the same guard for the status slot and the offline row: every rule
+ * globals.css writes against `.staff-bar-head`, `.staff-live*` or `.staff-net` must match a bar the
+ * component actually renders, in SOME state (a pseudo-element is stripped — the element it hangs
+ * off is what must exist). A selector no state matches is dead CSS: a slot drawn at no size, a row
+ * with no ground.
+ */
+describe("the status-slot and offline-row CSS match the DOM the bar renders", () => {
+  const css = readFileSync(join(__dirname, "../../app/globals.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+  const selectors = [
+    ...css.matchAll(/([^{}]*(?:\.staff-bar-head|\.staff-live|\.staff-net)[^{}]*)\{/g),
+  ]
+    .flatMap((m) => m[1]!.split(","))
+    .map((sel) => sel.trim())
+    .filter((sel) => sel !== "" && !sel.startsWith("@"));
+  let onLine = true;
+  it("names the head, the slot's three states and word, and the row", () => {
+    expect(selectors.length).toBeGreaterThanOrEqual(10);
+  });
+  it.each(selectors)("%s matches a bar in some state", async (selector) => {
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, get: () => onLine });
+    const bare = selector.replace(/::?(?:before|after)\b/g, "");
+    const states: [string, () => ReturnType<typeof render>, boolean][] = [
+      ["feed live", () => render(<StaffBar lang="en" title="kds.title" live="live" />), false],
+      [
+        "feed stale",
+        () => render(<StaffBar lang="en" title="kds.title" live="not_updating" />),
+        false,
+      ],
+      ["feed offline", () => render(<StaffBar lang="en" title="kds.title" live="live" />), true],
+      ["feedless offline", () => render(<StaffBar lang="en" title="kds.title" />), true],
+    ];
+    const hits: string[] = [];
+    for (const [name, mount, offline] of states) {
+      vi.useFakeTimers();
+      onLine = !offline;
+      const { unmount } = mount();
+      await act(async () => {
+        window.dispatchEvent(new Event(offline ? "offline" : "online"));
+        await vi.advanceTimersByTimeAsync(NET_SHOW_MS);
+      });
+      if (document.querySelector(bare)) hits.push(name);
+      unmount();
+      onLine = true;
+      window.dispatchEvent(new Event("online"));
+      vi.useRealTimers();
+    }
+    expect(hits, `${selector} matched no rendered state`).not.toEqual([]);
   });
 });
