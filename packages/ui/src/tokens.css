@@ -383,6 +383,12 @@
   --z-tierup: 70;
   /* Modal scrim — dims the WHOLE page (incl. pinned chrome) so a sheet reads as a lifted layer. */
   --scrim: rgba(15, 10, 5, 0.42);
+  /* ── Phase 1c · pay-element ── the Field's geometry and the focus ring, named ONCE: the Field
+     primitive, the global :focus-visible ring and the Stripe iframe mirror (lib/stripe-appearance)
+     all read these. Theme-independent, so there is no .dark entry. Values unchanged by reference. */
+  --field-gap: 6px;
+  --focus-w: 2.5px;
+  --field-focus-offset: 1px;
 }
 .dark {
   /* v4 Night. The ground is indigo-purple at HSL 259°, and it STAYS there.

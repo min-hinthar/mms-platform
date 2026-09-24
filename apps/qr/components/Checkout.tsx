@@ -2464,6 +2464,7 @@ export function Checkout({
               // While a leave is releasing the pay-window lock, the charge must not start under it.
               hold={leavingPay}
               onPayingChange={setPaying}
+              counterDoor={isDineIn}
             />
           </>
         ) : (
