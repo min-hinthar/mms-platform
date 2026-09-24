@@ -11768,3 +11768,103 @@ html[data-fx="lite"] .mms-scrim {
   margin-inline-start: var(--s2);
   font-family: var(--font-my);
 }
+
+/* ── Phase 1c · account-star ─────────────────────────────────────────────────────────────────────────
+   Keeping what you earned. Two surfaces, tokens only, no glass, nothing nested, nothing selected.
+
+   1 · `.save-stars` — the save-your-Stars card on the /track success moment (SaveStarsPrompt). Vellum
+   (`.surface-vellum`, §1's "moment of consideration" tier — ConfirmSwap is the precedent), a 40px
+   medallion column + the copy. The wash's ink floors (--tx, --t2) over the room's worst pixel, both
+   themes and both groove states, are pinned by composite-contrast.test.ts ("vellum wash"); --t2 is the
+   tight one, which is why nothing on the wash is --ac text (4.1:1 in light). Enters on `.mms-rise`
+   with GoodbyeBeat's "after the spike" 420ms offset so the stacked cards share a beat (0,2,0 beats the
+   shorthand). Dismiss and the offline flip are INSTANT cuts, on purpose (no exit idiom exists for
+   inline cards; an animationend-driven unmount is a strand risk).
+
+   2 · `.wb-note` — the one static line between "Welcome back" and its chips that says what a chip tap
+   leaves behind, BEFORE the tap. Bilingual on one surface: the Burmese line is a block span separated
+   by a MARGIN, never a whitespace node. */
+.save-stars {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  column-gap: var(--s3);
+  padding: var(--s4);
+  border-radius: var(--r-card);
+  margin-top: 14px;
+}
+.save-stars.mms-rise {
+  animation-delay: 420ms;
+}
+.save-stars-medallion {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--grad);
+  box-shadow: inset 0 1px 0 var(--sheen);
+  color: var(--ac);
+  font-size: var(--fs-h3);
+  line-height: 1;
+}
+.save-stars-h {
+  margin: 0;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-heavy);
+  color: var(--tx);
+  line-height: 1.3;
+}
+.save-stars-h [lang="my"] {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  color: var(--t2);
+  line-height: 1.6;
+}
+.save-stars-body {
+  grid-column: 2;
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  line-height: 1.5;
+}
+.save-stars-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.save-stars-actions > .ui-btn-secondary {
+  flex: 1 1 auto;
+}
+.save-stars-reason {
+  grid-column: 1 / -1;
+  margin: var(--s2) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+
+/* The entrance's reduced-motion escort. The shared `.mms-rise` block already sets `animation: none`,
+   which makes the 420ms delay inert — the card appears at rest. Restated at the card's own
+   specificity so the delay rule above can never out-rank the off-switch. */
+@media (prefers-reduced-motion: reduce) {
+  .save-stars.mms-rise {
+    animation: none;
+  }
+}
+
+.wb-note {
+  margin: var(--s2) 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  line-height: 1.5;
+}
+.wb-note-my {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-my);
+  font-size: var(--fs-sm);
+}

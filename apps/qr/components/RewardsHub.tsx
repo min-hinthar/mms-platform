@@ -17,12 +17,14 @@ const dollars = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`;
  * the-line) is demo fiction — QR only delivers the milestone reward coupon (`reward_base_cents` every
  * `milestone_step` orders) + spend tiers, and `isEarlyAccess` has no consumers. So "How it works" states
  * only the real mechanics rather than copying perks the app can't keep.
+ *
+ * Phase 1c · account-star — SPLIT in two, so /account can order its sections by what a returning diner
+ * comes for (app/account/page.tsx): `RewardsSummary` (the tier-up moment, the Stars ring, and the
+ * wallet of coupons the diner can spend TODAY, directly under the progress toward the next one) sits
+ * high; `RewardsDetails` (the tier ladder + lifetime spend, then "How it works" — reference) sits low.
+ * The card markup, styles and copy are byte-identical to the old composite; only the grouping moved.
  */
-export function RewardsHub({ state }: { state: RewardsState }) {
-  const current = tierMeta(state.tierId);
-  const nxt = nextTier(state.tierId);
-  const toNextSpend = spendToNextTierCents(state.spendCents, state.tierId);
-  const currentIdx = REWARD_TIERS.findIndex((t) => t.id === current.id);
+export function RewardsSummary({ state }: { state: RewardsState }) {
   // Honest milestone caption (ordersToNext is strictly ≥1; a fresh cycle reads as "step to your next reward").
   const ringCaption =
     state.stars === 0
@@ -64,6 +66,50 @@ export function RewardsHub({ state }: { state: RewardsState }) {
         </p>
       </Card>
 
+      {/* Wallet — earned rewards (redeemable at checkout in P4.2). */}
+      {state.coupons.length > 0 && (
+        <Card as="section" style={card} aria-labelledby="wallet-h">
+          <h2 id="wallet-h" style={cardH}>
+            Your rewards
+          </h2>
+          <ul
+            role="list"
+            style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}
+          >
+            {state.coupons.map((c) => (
+              <li key={c.code} className="reward-coupon">
+                <span style={{ fontSize: "var(--fs-h3)" }} aria-hidden>
+                  🎁
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ margin: 0, fontWeight: "var(--fw-heavy)", color: "var(--tx)" }}>
+                    {dollars(c.amountCents)} reward
+                  </p>
+                  <p style={{ margin: "1px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
+                    Code {c.code} · expires {new Date(c.expiresAt).toLocaleDateString()}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
+            Apply a reward at checkout — it’s waiting for you on your order.
+          </p>
+        </Card>
+      )}
+    </>
+  );
+}
+
+/** The reference half of the hub: where the diner stands on the tier ladder, and how Stars work. */
+export function RewardsDetails({ state }: { state: RewardsState }) {
+  const current = tierMeta(state.tierId);
+  const nxt = nextTier(state.tierId);
+  const toNextSpend = spendToNextTierCents(state.spendCents, state.tierId);
+  const currentIdx = REWARD_TIERS.findIndex((t) => t.id === current.id);
+
+  return (
+    <>
       {/* Tier — current standing, spend-to-next, and the ladder ribbon. */}
       <Card as="section" textured style={card} aria-labelledby="tier-h">
         <h2 id="tier-h" style={cardH}>
@@ -208,38 +254,6 @@ export function RewardsHub({ state }: { state: RewardsState }) {
           </li>
         </ul>
       </Card>
-
-      {/* Wallet — earned rewards (redeemable at checkout in P4.2). */}
-      {state.coupons.length > 0 && (
-        <Card as="section" style={card} aria-labelledby="wallet-h">
-          <h2 id="wallet-h" style={cardH}>
-            Your rewards
-          </h2>
-          <ul
-            role="list"
-            style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 8 }}
-          >
-            {state.coupons.map((c) => (
-              <li key={c.code} className="reward-coupon">
-                <span style={{ fontSize: "var(--fs-h3)" }} aria-hidden>
-                  🎁
-                </span>
-                <div style={{ minWidth: 0 }}>
-                  <p style={{ margin: 0, fontWeight: "var(--fw-heavy)", color: "var(--tx)" }}>
-                    {dollars(c.amountCents)} reward
-                  </p>
-                  <p style={{ margin: "1px 0 0", fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-                    Code {c.code} · expires {new Date(c.expiresAt).toLocaleDateString()}
-                  </p>
-                </div>
-              </li>
-            ))}
-          </ul>
-          <p style={{ margin: "10px 0 0", fontSize: "var(--fs-sm)", color: "var(--t3)" }}>
-            Apply a reward at checkout — it’s waiting for you on your order.
-          </p>
-        </Card>
-      )}
     </>
   );
 }

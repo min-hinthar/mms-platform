@@ -22,11 +22,19 @@ import {
  *
  * Hydration-safe: localStorage is client-only, so we render nothing on first paint and populate the list in an
  * effect (deferred state write, matching ActiveOrderProvider) — no SSR/client mismatch.
+ *
+ * Phase 1c · account-star — a disclosure BEFORE a costly tap names every cost. Because a chip suppresses the
+ * merge, and every order read authorizes by auth.uid(), a tap leaves this phone's guest Stars AND its guest
+ * orders (the live tracker, the receipt, the live row) on the abandoned anonymous uid. `note` — computed by
+ * `chooserLeavesNote` (lib/save-stars.ts) from what is actually at stake — says so in one static line
+ * between the heading and the chips, i.e. before the tap. Static content, not a live region: it is there
+ * when the chips are, and says nothing new afterwards. The merge policy itself is unchanged.
  */
 export function WelcomeBackChooser({
   onSelect,
   busy,
   selectedEmail,
+  note = null,
 }: {
   /** Hand the chosen identity up to AccountUpgrade to drive the (merge-suppressed) sign-in. */
   onSelect: (identity: DeviceIdentity) => void;
@@ -34,6 +42,8 @@ export function WelcomeBackChooser({
   busy: boolean;
   /** The email currently mid-sign-in (from a `?resume=` return) — shows a spinner on that chip. */
   selectedEmail?: string | null;
+  /** Phase 1c — what a chip tap leaves behind (EN + a K15 Burmese line); null = nothing at stake. */
+  note?: { en: string; my: string } | null;
 }) {
   const [identities, setIdentities] = useState<DeviceIdentity[]>([]);
   const [ready, setReady] = useState(false); // gates the entrance animation to the post-hydration populate
@@ -67,6 +77,14 @@ export function WelcomeBackChooser({
       <p id="wb-heading" className="wb-heading">
         Welcome back — pick up where you left off
       </p>
+      {note ? (
+        <p className="wb-note">
+          {note.en}
+          <span lang="my" className="wb-note-my">
+            {note.my}
+          </span>
+        </p>
+      ) : null}
       <ul className="wb-list" role="list">
         {identities.map((id, i) => {
           const tier = tierMeta(id.tierId);

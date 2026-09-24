@@ -14,14 +14,33 @@ import type { LiveOrder } from "./live-order";
  * `enabled` gates the whole thing (the header only needs live orders where the pill can show — not on
  * `/`/`/track`). A stale-response guard (a monotonic request id) drops out-of-order responses; a transient
  * failure keeps the last good list rather than flashing empty (the badge shouldn't blink on a blip).
+ *
+ * Phase 1c · account-star — `initial`, a SERVER SNAPSHOT to start from (/account "Today", whose page has
+ * just read the same `getMyLiveOrders`). Given one: the list starts there with `loading` false, the first
+ * mount load is SKIPPED (the server read it a moment ago — refetching would only flash the same rows),
+ * and a NEW snapshot (a `router.refresh()` after a sign-in or a merge re-renders the server page)
+ * replaces the list via the render-time previous-prop compare, the sanctioned pattern AppHeader uses for
+ * its pathname. The wake/focus refetch is unchanged, and it is the point: the email-code round trip
+ * (switch to Mail, come back) is exactly a hidden→visible wake. Without `initial` — the AppHeader call —
+ * nothing here changes: an empty start, `loading === enabled`, and a load on every mount.
  */
 export function useLiveOrders(
   enabled: boolean,
   pokeKey?: string | null,
+  initial?: LiveOrder[],
 ): { orders: LiveOrder[]; loading: boolean; refetch: () => void } {
-  const [orders, setOrders] = useState<LiveOrder[]>([]);
-  const [loading, setLoading] = useState(enabled);
+  const [orders, setOrders] = useState<LiveOrder[]>(() => initial ?? []);
+  const [loading, setLoading] = useState(enabled && initial === undefined);
   const reqRef = useRef(0);
+  // The first mount load is skipped ONLY for a seeded caller. A ref, read and cleared inside the effect
+  // (never during render), so a later `pokeKey` change still reloads as it always did. (React's dev-only
+  // StrictMode effect re-run does load once — the second run finds the ref cleared; production does not.)
+  const skipFirstLoad = useRef(initial !== undefined);
+  const [seed, setSeed] = useState(initial);
+  if (initial !== seed) {
+    setSeed(initial);
+    if (initial !== undefined) setOrders(initial);
+  }
 
   const load = useCallback(() => {
     if (!enabled) return;
@@ -44,7 +63,9 @@ export function useLiveOrders(
     // Defer the initial load a frame so the setState it reaches isn't a synchronous setState-in-effect
     // (lint-safe, matching TierUpCelebration / MergeRedeemer). The listeners below call load() from event
     // callbacks, where setState is allowed.
-    const raf = requestAnimationFrame(load);
+    let raf: number | undefined;
+    if (skipFirstLoad.current) skipFirstLoad.current = false;
+    else raf = requestAnimationFrame(load);
     // A tab return fires visibilitychange AND focus near-simultaneously — coalesce them into ONE load via a
     // short timer (the two would otherwise be two round-trips). Only wakes when actually visible. The poke
     // (deps below) + manual refetch still call load() directly, un-coalesced.
@@ -59,7 +80,7 @@ export function useLiveOrders(
     document.addEventListener("visibilitychange", onWake);
     window.addEventListener("focus", onWake);
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf !== undefined) cancelAnimationFrame(raf);
       if (wake) clearTimeout(wake);
       document.removeEventListener("visibilitychange", onWake);
       window.removeEventListener("focus", onWake);

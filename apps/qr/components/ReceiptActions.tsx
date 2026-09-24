@@ -13,7 +13,20 @@ import { getReceiptLink, setReceiptEmail, type ReceiptLinkResult } from "@/lib/r
  * (account email pre-fills, never auto-submits), and "Sent" is only claimed after the server
  * accepted the ask. Feature-off (C8 from-address unset) simply never renders the email half.
  */
-export function ReceiptActions({ orderId }: { orderId: string }) {
+export function ReceiptActions({
+  orderId,
+  onSettled,
+}: {
+  orderId: string;
+  /**
+   * Phase 1c · account-star — called EXACTLY ONCE per mount, when the mint has answered either way
+   * (link minted, refused, or failed). The save-your-Stars card mounts below this row only after it,
+   * so the row it would otherwise push is already in place; `emailEnabled` tells the card whether
+   * the email capture is on screen (only then may it say "Emailing a receipt doesn't save them").
+   * A refused or failed mint reports `false` — it must never strand the card waiting.
+   */
+  onSettled?: (r: { emailEnabled: boolean }) => void;
+}) {
   const [link, setLink] = useState<Extract<ReceiptLinkResult, { ok: true }> | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -38,11 +51,13 @@ export function ReceiptActions({ orderId }: { orderId: string }) {
           setLink(r);
           setSentTo(r.emailedTo);
         }
+        onSettled?.({ emailEnabled: r.ok ? r.emailEnabled : false });
       })
       .catch(() => {
         /* deliberate: the artifact door is decorative here — the tracker itself is unaffected */
+        onSettled?.({ emailEnabled: false });
       });
-  }, [orderId]);
+  }, [orderId, onSettled]);
 
   // Focus follows the form open/close (WCAG 2.4.3 — the AccountNameEditor idiom).
   useEffect(() => {

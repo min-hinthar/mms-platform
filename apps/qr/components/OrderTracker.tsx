@@ -13,6 +13,9 @@ import { FeedbackPrompt } from "./FeedbackPrompt";
 import { GoodbyeBeat } from "./GoodbyeBeat";
 import { PaySuccess } from "./PaySuccess";
 import { ReceiptActions } from "./ReceiptActions";
+import { SaveStarsPrompt } from "./SaveStarsPrompt";
+import { useSaveStarsAsk } from "./useSaveStarsAsk";
+import { saveStarsOffer, successRewardsDoor } from "@/lib/save-stars";
 import { PaperAmbient } from "./PaperAmbient";
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
 import {
@@ -423,6 +426,10 @@ export function OrderTracker({
   const resolvedOrderId = order?.id ?? null; // the landed order's id (distinct from the `orderId` split prop)
   const progressDone = useRef(false);
   const progressTries = useRef(0);
+  // Phase 1c — the poll's "settled" as STATE, because a render now depends on it (the one-rewards-door
+  // decision below): `progressDone` is a ref, and reading a ref during render is exactly what the
+  // compiler forbids. Set in the same async callbacks that latch the ref, never in the effect body.
+  const [pollSettled, setPollSettled] = useState(false);
   useEffect(() => {
     if (!justPaid || !resolvedOrderId || progressDone.current) return;
     let cancelled = false;
@@ -436,13 +443,17 @@ export function OrderTracker({
         .then((p) => {
           if (cancelled) return;
           if (p) setProgress(p); // keep the latest snapshot even before attribution lands
-          if (p?.earnedThisOrder || progressTries.current >= MAX_TRIES) progressDone.current = true;
-          else timer = setTimeout(poll, 1200);
+          if (p?.earnedThisOrder || progressTries.current >= MAX_TRIES) {
+            progressDone.current = true;
+            setPollSettled(true);
+          } else timer = setTimeout(poll, 1200);
         })
         .catch(() => {
           if (cancelled) return;
-          if (progressTries.current >= MAX_TRIES) progressDone.current = true;
-          else timer = setTimeout(poll, 1200);
+          if (progressTries.current >= MAX_TRIES) {
+            progressDone.current = true;
+            setPollSettled(true);
+          } else timer = setTimeout(poll, 1200);
         });
     };
     poll();
@@ -452,6 +463,20 @@ export function OrderTracker({
     };
   }, [justPaid, resolvedOrderId]);
   const starsEarned = progress?.earnedThisOrder ? 1 : 0;
+  // Phase 1c · account-star — keeping what you earned. WHO is asked (`saveStarsOffer`) and WHICH
+  // rewards door the success screen shows (`successRewardsDoor`) are decided ONCE, in lib/save-stars.ts;
+  // the card and GoodbyeBeat both render from `door`, neither re-derives it. `receipt` is ReceiptActions'
+  // settle report — the card waits for it, so the receipt row it sits under is already in place.
+  const [receipt, setReceipt] = useState<{ emailEnabled: boolean } | null>(null);
+  const offer = saveStarsOffer({ justPaid, progress, refunded });
+  const { asked, decline } = useSaveStarsAsk(order?.id ?? null);
+  const door = successRewardsDoor({
+    progress,
+    pollSettled,
+    offer,
+    asked,
+    receiptSettled: receipt !== null,
+  });
   // W9a — name the channel the diner is actually in. `Table 4` when the sticker is registered;
   // plain "Dine-in" when it isn't (never a fabricated table number).
   const modeLabel = isPickup
@@ -517,6 +542,9 @@ export function OrderTracker({
             // "Paid — thank you!" is a claim about money that has not moved. Only until then: once
             // the order exists it really was captured, and the celebration is true again.
             awaitingCapture={awaitingCapture && !order}
+            // Phase 1c — the per-payment celebration latch: a Back to the Stripe return URL (or a
+            // reload) is not an arrival, so it must not replay the confetti, haptic or chime.
+            celebrationKey={paymentIntent ?? orderId}
           />
           <div className="track-statusrow">
             <div className="eyebrow">
@@ -1454,7 +1482,22 @@ export function OrderTracker({
           capture (the server action re-authorizes earner/payer on every ask; renders nothing for
           a viewer it refuses). Sits under the compact card — the card stays the summary, the
           artifact is the itemized lasting copy. */}
-      {arrived && <ReceiptActions orderId={order.id} />}
+      {arrived && <ReceiptActions orderId={order.id} onSettled={setReceipt} />}
+
+      {/* Phase 1c · account-star — the save-your-Stars ask: confirmation → status → proof (the slip
+          and its actions, ABOVE) → keeping what you earned → the farewell, which stays the flow's
+          last warm word (J4 peak-end). A guest earner only, on the success moment only, and only
+          once the receipt row has settled (`door.card`). Inline, never focus-stealing, no live
+          region. `weDown` is the W10c platform verdict that already withholds the /account link. */}
+      {arrived && offer && door.card && (
+        <SaveStarsPrompt
+          stars={offer.stars}
+          rewardJustUnlocked={offer.rewardJustUnlocked}
+          receiptEmail={receipt?.emailEnabled ?? false}
+          platformDown={weDown}
+          onDismiss={decline}
+        />
+      )}
 
       {/* J4 — one clock for the exit arc: the goodbye + the review ask land when the FOOD is where it
           belongs, not merely when money moved. Keyed on the LINES, not `togoStatus`: nothing to-go is
@@ -1466,7 +1509,7 @@ export function OrderTracker({
           it's race-immune; a permanently failed init is healed by the pg_cron fulfillment reconciler.
           Both rise (realtime) the moment the expo hands the bag over, which IS the visit's end. */}
       {justPaid && arrived && !refunded && (!order.hasTogoFood || togo === "picked_up") && (
-        <GoodbyeBeat progress={progress} />
+        <GoodbyeBeat progress={progress} door={door.goodbye} />
       )}
 
       {/* Post-order feedback (M4 P4.3, timed by J4 on the same food-in-hand clock) — renders nothing
@@ -1521,9 +1564,9 @@ export function OrderTracker({
             {menuLinkText(backMode)}
           </Link>
           {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
-            On a fresh payment the goodbye beat carries the rewards door for everyone instead — one
-            clear door, decided once at mount (never a link that vanishes underfoot when the progress
-            poll resolves — focus would drop to <body>). */}
+            On a fresh payment the door is decided by `successRewardsDoor` instead (Phase 1c: the save
+            card for a guest earner, else the goodbye beat's link) — one clear door, and never a link
+            that vanishes underfoot when the progress poll resolves (focus would drop to <body>). */}
           {arrived && !justPaid && (
             <Link href="/account" className="nav-link">
               View your rewards{" "}

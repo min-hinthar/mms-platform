@@ -42,8 +42,23 @@ vi.mock("next/navigation", () => ({
 const mintMergeToken = vi.fn();
 vi.mock("@/lib/merge", () => ({ mintMergeToken: () => mintMergeToken() }));
 vi.mock("@/lib/rewards", () => ({ ensureProfile: () => Promise.resolve() }));
-// WelcomeBackChooser is a child of the card and reads both of these on its own frame.
-vi.mock("@/lib/deviceIdentity", () => ({ readIdentities: () => [], readLend: () => null }));
+// WelcomeBackChooser is a child of the card and reads both of these on its own frame. `identities`
+// stays empty (no chips) except in the Phase 1c chooser-note case, which seeds one; the chip's own
+// render then reaches `maskEmail`, so the mock carries it (and the two forget helpers) too.
+let identities: {
+  email: string;
+  firstName: string | null;
+  tierId: string;
+  method: "email" | "google";
+  lastSeen: number;
+}[] = [];
+vi.mock("@/lib/deviceIdentity", () => ({
+  readIdentities: () => identities,
+  readLend: () => null,
+  maskEmail: (e: string) => e,
+  forgetIdentity: () => {},
+  forgetAllIdentities: () => {},
+}));
 
 // A real-enough token store: the carry decision reads back what the stash wrote, and a fake that always
 // answers null (or always answers the token) would make the read-back assertion vacuous.
@@ -127,6 +142,7 @@ beforeEach(() => {
   refresh.mockReset();
   stored = null;
   stashDisabled = false;
+  identities = [];
   params = new URLSearchParams();
   window.sessionStorage.clear();
   window.history.replaceState(null, "", "/account");
@@ -627,5 +643,23 @@ describe("a11y", () => {
     await flushFrames();
     const label = screen.getByRole("button", { name: /Sign in with Google/i }).textContent ?? "";
     expect(screen.getByRole("status").textContent).toContain(label.trim());
+  });
+});
+
+// ── Phase 1c · account-star ──
+describe("the chooser note — passed through to the Welcome-back chips", () => {
+  it("renders the page's note above the chips when an identity is remembered", async () => {
+    // RED when the prop is not passed to WelcomeBackChooser (the page computes a disclosure the
+    // diner never sees, and taps a chip without knowing what it leaves behind).
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    const note = {
+      en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring everything along.",
+      my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
+    };
+    render(<AccountUpgrade stars={3} chooserNote={note} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(screen.getByText(note.en, { exact: false })).toBeTruthy();
   });
 });

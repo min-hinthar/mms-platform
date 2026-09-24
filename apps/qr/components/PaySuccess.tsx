@@ -4,6 +4,8 @@ import { useAnimationPreference, useDeviceTier } from "@mms/ui";
 import { Confetti } from "./Confetti";
 import { haptic } from "@/lib/haptics";
 import { chime } from "@/lib/diner-sound";
+import { rewardJustUnlocked } from "@/lib/rewards-progress";
+import { hasCelebrated, markCelebrated, safeSessionStorage } from "@/lib/celebration-latch";
 
 // Longest particle fall (Confetti: max dur 1700+6·160=2660ms + max delay 270ms) + buffer → unmount after.
 const CONFETTI_MS = 3200;
@@ -24,6 +26,15 @@ const CONFETTI_MS = 3200;
  * (mobile GPU budget) — computed at render, so no setState-in-effect. The haptic is a one-shot
  * external-system write (ref-guarded, all tiers). No live region here — the tracker's single `role="status"`
  * carries the spoken confirmation.
+ *
+ * Phase 1c · account-star — A RESUME IS NOT AN ARRIVAL (§15), now for the browser's own Back too.
+ * Every link the app builds to /track carries `resume=1`, but the Stripe return URL IS the history
+ * entry, so /track → /account (to save the Stars) → Back remounted this and replayed the confetti,
+ * the haptic and the chime for a payment that moved no money this time. `celebrationKey` (the
+ * PaymentIntent, or the split order id) latches the celebration per payment in sessionStorage
+ * (lib/celebration-latch.ts); a remount of the same payment skips all three. Storage that throws
+ * celebrates as before. The 1.05s thermal print still replays — its class is SSR'd, and reading a
+ * latch there would be a hydration mismatch.
  */
 export function PaySuccess({
   starsEarned,
@@ -32,6 +43,7 @@ export function PaySuccess({
   milestoneStep = null,
   isUpgraded = false,
   awaitingCapture = false,
+  celebrationKey = null,
 }: {
   /** Stars earned by this order — the honest constant (1 per paid order), 0 if the viewer isn't the earner. */
   starsEarned: number;
@@ -61,25 +73,37 @@ export function PaySuccess({
    * on, so today's celebration is untouched.
    */
   awaitingCapture?: boolean;
+  /** Phase 1c — the payment this celebration belongs to (PaymentIntent, else the split order id);
+   *  null = no latch (celebrates on every mount, as before). */
+  celebrationKey?: string | null;
 }) {
   const { shouldAnimate } = useAnimationPreference();
   const tier = useDeviceTier();
   const celebrate = shouldAnimate && tier !== "low";
   const [confettiDone, setConfettiDone] = useState(false);
   const hapticDone = useRef(false);
+  // Phase 1c — has THIS payment already celebrated in this tab (a reload, or Back from /account to the
+  // Stripe return URL)? Read once, in an initializer. SSR reads no storage (false) while the client may
+  // read true; that cannot mismatch, because the only thing it gates at render is the confetti, and
+  // `celebrate` is false on the server AND at hydration (useDeviceTier starts "low").
+  const [replay] = useState(
+    () => celebrationKey != null && hasCelebrated(safeSessionStorage(), celebrationKey),
+  );
 
   // One-shot success haptic — an external-system write (not React state), so it's effect-legal. Fires once
-  // per mount; a page refresh re-mounts and may re-buzz (acceptable, same as the confetti).
+  // per mount, and (Phase 1c) once per PAYMENT per tab: the first celebration records the latch here, so
+  // a refresh or a Back to the Stripe return URL does not re-buzz — nor replay the confetti or the chime.
   //
   // W22c — this used to inline its own `matchMedia` reduced-motion guard and call
   // `navigator.vibrate([10, 40, 18])` directly, a second copy of a rule `lib/haptics` already owned.
   // Two implementations of one guard is how a reduced-motion user eventually gets buzzed by exactly
   // one of them. `celebrate` IS this pattern, and this is its only caller.
   useEffect(() => {
-    if (hapticDone.current) return;
+    if (hapticDone.current || replay) return;
     hapticDone.current = true;
+    if (celebrationKey != null) markCelebrated(safeSessionStorage(), celebrationKey);
     haptic("celebrate");
-  }, []);
+  }, [replay, celebrationKey]);
 
   // W22f — the same beat, the other channel. Silent unless the diner asked for it; the confetti and
   // the receipt carry this moment on their own for everyone else (rule 2 — sound is never the only
@@ -94,30 +118,31 @@ export function PaySuccess({
   // audible one is the one no reviewer sees.
   const chimeDone = useRef(false);
   useEffect(() => {
-    if (chimeDone.current || awaitingCapture) return;
+    if (chimeDone.current || awaitingCapture || replay) return;
     chimeDone.current = true;
     chime("paid");
-  }, [awaitingCapture]);
+  }, [awaitingCapture, replay]);
 
   // Unmount the confetti overlay once the particles have fallen, so a fixed full-screen layer doesn't linger
   // for the page's life. setState in the timeout callback is async (not a synchronous setState-in-effect).
   useEffect(() => {
-    if (!celebrate) return;
+    if (!celebrate || replay) return;
     const t = setTimeout(() => setConfettiDone(true), CONFETTI_MS);
     return () => clearTimeout(t);
-  }, [celebrate]);
+  }, [celebrate, replay]);
 
   // The milestone caption is gated on THIS viewer having actually earned the Star (starsEarned > 0) — a
   // split-tender non-host (who earns nothing; only the host does) gets no progress claim, just the pill-less
   // "Paid — thank you!". When this order completed a cycle (stars is a multiple of the step), the reward was
   // issued server-side → acknowledge it instead of the deflating "{step} orders to your next reward".
+  // Phase 1c — the rule lives in lib/rewards-progress (moved verbatim): the save-your-Stars card quotes
+  // "the reward you just unlocked" from the SAME binding, so the two claims cannot disagree.
   const earned = starsEarned > 0;
-  const justUnlocked =
-    earned && stars != null && milestoneStep != null && stars > 0 && stars % milestoneStep === 0;
+  const justUnlocked = rewardJustUnlocked({ earned, stars, milestoneStep });
 
   return (
     <div className="pay-success">
-      {celebrate && !confettiDone && <Confetti />}
+      {celebrate && !replay && !confettiDone && <Confetti />}
       {/* CSS-animated checkmark (ring scale-in + stroke draw). CSS — not framer — so the reduced-motion
           off-switch is a pure `@media (prefers-reduced-motion)` rule with no first-render shouldAnimate race
           and no SSR/hydration concern; framer's reducedMotion doesn't disable SVG pathLength anyway. */}
