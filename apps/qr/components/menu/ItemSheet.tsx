@@ -21,6 +21,7 @@ import {
 } from "@/lib/menu/modifiers";
 import type { MenuItem } from "./MenuBrowser";
 import { haptic } from "@/lib/haptics";
+import { sheetAddClaim } from "@/lib/add-feedback";
 
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const delta = (cents: number) =>
@@ -215,14 +216,20 @@ function ItemSheetBody({
     // only multiplies the SERVER-priced unit, bounded again by Zod + the SQL. The kitchen note (W3b)
     // rides along — free text, trimmed here, length-bounded again server-side.
     // W20 (owner: "adding feels lagged … why not make optimistic and instant feedback") — close NOW,
-    // not after the round trip. The provider's add() is already optimistic (count bump + "Added"
-    // flash the instant it is called) and owns BOTH outcomes: a refusal is NAMED from a fresh read
-    // ("someone's checking out", "the table is splitting the bill") and only the arm that could not
-    // read the cart at all re-mints — T14 replaced the blanket "Reconnecting to your table…" this
-    // comment used to describe — and the reconciled view simply won't carry the line. Deliberate
-    // trade: on that rare refusal the diner re-opens the sheet and re-picks — every-tap latency was
-    // the wrong price for keeping their choices warm.
-    void add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty);
+    // not after the round trip. The provider's add() is already optimistic (count bump the instant it
+    // is called) and owns BOTH outcomes: a refusal is NAMED from a fresh read ("someone's checking
+    // out", "the table is splitting the bill") and only the arm that could not read the cart at all
+    // re-mints — and the reconciled view simply won't carry the line. Deliberate trade: on that rare
+    // refusal the diner re-opens the sheet and re-picks — every-tap latency was the wrong price for
+    // keeping their choices warm.
+    // Phase 1c — the words NAME the dish, both ways, and the sheet still never awaits: the provider
+    // speaks the VISIBLE `sheetAddClaim` at t = 0 ("2 Mohinga added" — the sheet has closed, taking the
+    // place the diner tapped with it, so only words can say which dish went in), and if the write does
+    // not land, its correction names the same dish ("Mohinga didn’t go through — …").
+    void add(item.id, selectedIds(groups, selected), notes.trim() || undefined, qty, {
+      claim: sheetAddClaim(item.name_en, qty),
+      name: item.name_en,
+    });
     onClose(); // Radix restores focus to the trigger row
   }
 

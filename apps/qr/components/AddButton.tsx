@@ -14,6 +14,7 @@ import {
 } from "@/lib/write-outcome";
 import { haptic } from "@/lib/haptics";
 import { inertReason } from "@/lib/inert-reason";
+import { createRevertCue, pillAddClaim, stepClaim } from "@/lib/add-feedback";
 
 const MAX_QTY = 99; // matches the cart Stepper's upper bound (setQty is the authority; this is the UI gate)
 
@@ -38,6 +39,12 @@ function matchOwnLines(
       !i.comped &&
       i.bySeat === mySeat,
   );
+}
+
+/** Is keyboard focus orphaned — nowhere, or dropped to <body> because the focused node left the DOM? */
+function focusOrphaned(): boolean {
+  const active = document.activeElement;
+  return !active || active === document.body;
 }
 
 /**
@@ -153,38 +160,60 @@ export function AddButton({
   // <body>. When the removal lands (qty → 0), move focus to the Add pill that replaces it. Gate on `!blocked`
   // so we focus only a focusable pill (`frozen` natively-disables it). The decrement no longer holds `busy`,
   // so at qty 0 the pill is focusable at once and focus lands immediately. Set only on a remove-via-"−".
+  // ⚠️ ORPHAN-GUARDED (Phase 1c). The flag can wait behind a freeze for as long as the freeze lasts, and
+  // when the freeze lifts the diner may be anywhere — so it CONSUMES itself, and moves focus only if focus
+  // is still orphaned (<body>/null). A landing place, never a steal.
   const addBtnRef = useRef<HTMLButtonElement>(null);
   const refocusAfterRemove = useRef(false);
   useEffect(() => {
     if (qty === 0 && refocusAfterRemove.current && !blocked) {
       refocusAfterRemove.current = false;
+      if (!focusOrphaned()) return;
       addBtnRef.current?.focus();
     }
   }, [qty, blocked]);
 
-  // Symmetric to the remove path: a morph that mounts the stepper unmounts whatever was focused, so move
-  // focus back onto a stepper button (WCAG 2.4.3). Gated on `!blocked` (a create holds `busy`; focus lands
-  // once it clears). Two arming cases, mutually exclusive:
-  //  • `refocusAfterAdd` — this instance's 0→1 create tap → focus the "+" (never a peer's add / a stepper
-  //    "+", so it can't steal focus from another element).
-  //  • `refocusStepper` — a "−" optimistically emptied the line (focus moved to the Add pill), but the write
-  //    was REVERTED (transient error left the draft line), so the stepper REMOUNTS and the pill's focus would
-  //    drop to <body>. Land focus back on the "−" the user was operating.
+  // `refocusStepper` — a "−" optimistically emptied the line (focus moved to the Add pill), but the write
+  // was REVERTED (transient error left the draft line), so the stepper REMOUNTS and the pill's focus would
+  // drop to <body>. Land focus back on the "−" the user was operating. Gated on `!blocked`, and — Phase 1c
+  // — orphan-guarded like the remove path above: a freeze lifting later can never pull focus back here.
+  // (Phase 1c deleted its old sibling `refocusAfterAdd`: a PERSISTENT flag armed on every pill tap, which a
+  // create that did not land left armed until the line appeared some other way — then it fired from
+  // wherever the diner had gone. The pill's create now lands focus ONCE, below.)
   const plusBtnRef = useRef<HTMLButtonElement>(null);
   const minusBtnRef = useRef<HTMLButtonElement>(null);
-  const refocusAfterAdd = useRef(false);
   const refocusStepper = useRef(false);
   useEffect(() => {
     if (!inCart || blocked) return;
-    if (refocusAfterAdd.current) {
-      refocusAfterAdd.current = false;
-      refocusStepper.current = false; // an add supersedes a pending revert-refocus
-      plusBtnRef.current?.focus();
-    } else if (refocusStepper.current) {
+    if (refocusStepper.current) {
       refocusStepper.current = false;
+      if (!focusOrphaned()) return;
       minusBtnRef.current?.focus();
     }
   }, [inCart, blocked]);
+
+  // Phase 1c — the pill's create lands focus ONCE, when it settles (never a persistent flag). The chain
+  // bumps `createSettled` only if, at the settle, focus was orphaned or inside THIS row's stepper; this
+  // effect then re-checks after the reconcile commit and moves focus only if it is STILL orphaned —
+  // landed → the "+" (or "−" when "+" is disabled), reverted → the pill. Anywhere else, nothing moves.
+  // `holdFocus` keeps a freeze-disabled pill focusable (`aria-disabled`) for exactly this landing.
+  const stepperRef = useRef<HTMLSpanElement>(null);
+  const [createSettled, setCreateSettled] = useState(0);
+  const handledSettle = useRef(0);
+  const [holdFocus, setHoldFocus] = useState(false);
+  // Phase 1c — the "+" glyph's "set back down" cue after a DEFINITE non-landing (`createRevertCue`).
+  const [revertCue, setRevertCue] = useState(false);
+  useEffect(() => {
+    if (createSettled === 0 || handledSettle.current === createSettled) return;
+    handledSettle.current = createSettled;
+    if (!focusOrphaned()) return;
+    if (inCart) {
+      refocusStepper.current = false; // a landed create supersedes a pending revert-refocus
+      (plusBtnRef.current?.disabled ? minusBtnRef : plusBtnRef).current?.focus();
+    } else {
+      addBtnRef.current?.focus();
+    }
+  }, [createSettled, inCart]);
 
   // Record a CONFIRMED add only: the provider's `add` never throws, and it reports a refused or an
   // unreadable add rather than a landing, so an unconditional capture would log phantom adds.
@@ -197,30 +226,57 @@ export function AddButton({
     return result;
   }
 
-  // W13 — the micro-gem burst + haptic ride the OPTIMISTIC moment (the tap), like the morph: the
-  // celebratory feedback confirms the intent instantly; a refused write reverts the qty and the
-  // provider's live region says why. The burst mounts on the STEPPER shell (the surviving branch
-  // after the pill→stepper morph); re-keying replays it on every "+".
+  // W13 — the micro-gem burst rides the INTENT (the tap), like the morph — Phase 1c: the pill's 0→1 tap
+  // ONLY (v7.2 quickAdd's `microGems`); a stepper step is a reversible adjustment and v7.2's `bump()`
+  // has no gems. The gems end ≤560ms after the tap, well before a non-landing can arrive (~1.7s
+  // measured, CartBar), which is then retracted in place (the glyph's settle cue) and in words (the
+  // provider's named correction). The burst mounts on the STEPPER shell (the surviving branch after
+  // the pill→stepper morph).
   const [burstKey, setBurstKey] = useState(0);
 
   // Every increment (the 0→1 create tap from the pill AND a stepper "+") runs through `writeChain` so it
   // orders with any in-flight "−" and threads THIS add's server truth to the next op. `fromPill` additionally
-  // holds `busy` (the pill's double-create guard + the focus-after-morph timing) and arms the "+" refocus.
-  // The morph/digit is instant via the optimistic delta; the write drains in the background, in tap order.
+  // holds `busy` (the pill's double-create guard). The morph/digit is instant via the optimistic delta and
+  // the CLAIM is spoken at the tap (Phase 1c) — a queued tap is heard when it is made, not a round trip
+  // later when its write starts. The write drains in the background, in tap order.
   function increment(fromPill: boolean) {
     haptic(fromPill ? "add" : "pick"); // W13/W22c — the v7.2 hierarchy, named: add (8) · pick (6)
-    setBurstKey((k) => k + 1);
+    if (fromPill) setBurstKey((k) => k + 1);
+    setRevertCue(false);
+    setHoldFocus(false);
+    // Quiet: the pill morph / the digit already SHOW the change where the diner tapped; the one live
+    // region SAYS it, naming the dish. `qty + 1` is the optimistic aggregate the digit will read.
+    const claim = fromPill ? pillAddClaim(name) : stepClaim(name, qty + 1);
+    announceCart(claim.text, claim.ms, claim.my, { quiet: claim.quiet, kind: "claim" });
     setOptimistic((n) => n + 1); // instant morph / digit bump — before the round-trip resolves
-    if (fromPill) {
-      refocusAfterAdd.current = true; // Add-pill tap → focus the "+" once the stepper mounts
-      setBusy(true);
-    }
+    if (fromPill) setBusy(true);
     writeChain.current = writeChain.current
       .then(async () => {
         let res: WriteResult<CartItem[]> | null = null;
         try {
-          res = captureAdd(await add(menuItemId));
+          // `claim: null` — spoken above, at the tap; `name` — so a correction names the dish.
+          res = captureAdd(await add(menuItemId, [], undefined, 1, { claim: null, name }));
         } finally {
+          if (fromPill) {
+            // The REVERSAL cue — only for a DEFINITE non-landing. `lineVisible` is null when the seat is
+            // unknown (session recovery) or no current view came back, so a success is never drawn
+            // as reverted.
+            const view = res ? threadableView(res) : null;
+            const lineVisible =
+              view === null || !mySeat
+                ? null
+                : matchOwnLines(view, menuItemId, defaultFulfillment, mySeat).some(
+                    (l) => l.qty > 0,
+                  );
+            setRevertCue(res ? createRevertCue({ state: res.state, lineVisible }) : false);
+            // One-shot focus: only when focus was orphaned by the morph, or is inside this row's own
+            // stepper. Batches with the reconcile below, so the effect sees the settled row.
+            const active = document.activeElement;
+            if (!active || active === document.body || stepperRef.current?.contains(active)) {
+              setHoldFocus(true);
+              setCreateSettled((t) => t + 1);
+            }
+          }
           // Reconcile: on success the returned view already includes the add (delta nets to 0, no flicker);
           // on failure serverQty is unchanged, so the delta reverting drops back to the Add pill.
           setOptimistic((n) => n - 1);
@@ -237,13 +293,12 @@ export function AddButton({
     haptic("pick"); // W13/W22c — a stepper step is reversible (no burst on remove — celebration is add-only)
     setOptimistic((n) => n - 1); // instant digit drop
     const emptying = nextAgg <= 0;
-    if (emptying) {
-      refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
-      refocusAfterAdd.current = false; // a removal moots any pending create-focus (avoids a stuck flag)
-    }
-    // Announce through the provider's ONE polite live region (WCAG 4.1.3), symmetric with the add path's
-    // "Added to your order"; the provider flashes it optimistically on tap so the SR user hears it at once.
-    const announce = emptying ? `Removed ${name}` : `${name}, quantity ${nextAgg}`;
+    if (emptying) refocusAfterRemove.current = true; // aggregate empties → focus the Add pill that replaces us
+    // Announce through the provider's ONE polite live region (WCAG 4.1.3), symmetric with the "+": Phase 1c
+    // speaks it QUIETLY at the TAP (`stepClaim`, shared with the "+"), not when the queued write starts,
+    // so five fast taps are not heard trickling out behind a digit that already reads the last one.
+    const claim = stepClaim(name, nextAgg);
+    announceCart(claim.text, claim.ms, claim.my, { quiet: claim.quiet, kind: "claim" });
     // If an emptying "−" is REVERTED (the write fails and the draft line survives), the optimistic +1 below
     // remounts the stepper — arm a refocus so the pill's focus doesn't drop to <body> (WCAG 2.4.3).
     // ⚠️ ARM ON EVERY OUTCOME WHERE THE LINE MAY SURVIVE (T26 + Codex round 2 on #251, P2). The flag
@@ -321,7 +376,7 @@ export function AddButton({
             // arms it — the skip branch was new in round 6 and did not.
             if (emptying) refocusStepper.current = true;
             setOptimistic((n) => n + 1); // revert the optimistic step — nothing was sent
-            announceCart(unsentWriteNotice());
+            announceCart(unsentWriteNotice(), undefined, undefined, { kind: "correction" });
             // Still no view, so the NEXT op must refresh too: hand the prior result back rather
             // than `null`, which would claim there was no preceding write.
             return prior;
@@ -333,7 +388,8 @@ export function AddButton({
             // Nothing was written, so the next op may trust the snapshot exactly as a first op does.
             return null;
           }
-          const res = await setItemQty(target.id, target.qty - 1, announce);
+          // No `announce` arg: the claim was spoken at the tap (Phase 1c).
+          const res = await setItemQty(target.id, target.qty - 1);
           armRevertRefocus(res); // set BEFORE the reconcile so the flag is armed when the stepper remounts
           setOptimistic((n) => n + 1); // reconcile: the returned view's serverQty now reflects the removal
           return res;
@@ -346,10 +402,24 @@ export function AddButton({
       .catch(() => null);
   }
 
+  // Phase 1c — render-time adjusts (the sanctioned "adjust state when inputs change" pattern, as in
+  // AppHeader): each is guarded by its own condition, so it converges in one pass.
+  //  • Back on the pill, the burst is spent. A stepper that REMOUNTS later (a reverted emptying "−", a line
+  //    re-appearing after a refresh) must not replay the last add's gems — MicroBurst's own `doneKey`
+  //    dies with it, so a stale `burstKey` here would celebrate a failed removal.
+  //  • On the stepper, the pill's revert cue and focus-hold are moot — clear them so neither survives to
+  //    the next time the pill appears.
+  if (!inCart && burstKey !== 0) setBurstKey(0);
+  if (inCart && (revertCue || holdFocus)) {
+    setRevertCue(false);
+    setHoldFocus(false);
+  }
+
   // Morphed state: the viewer has this item in their own line → the accent quick-qty stepper.
   if (inCart) {
     return (
       <span
+        ref={stepperRef}
         // Pop on mount (the prototype's `.stp{animation:pop}`); reuses `.mms-pop` + its reduced-motion gate.
         // W13: position:relative hosts the micro-gem burst (the pill clips overflow; this shell doesn't).
         className={`mms-qty-stepper${shouldAnimate ? " mms-pop" : ""}`}
@@ -419,15 +489,23 @@ export function AddButton({
   // button can't receive focus, which would drop focus to <body> (WCAG 2.4.3); (b) it stays perceivable to AT
   // as "sold out". The truly-transient inert states (no cart / busy / locked) stay NATIVELY disabled (out of
   // the tab order). `inactive` = no add can fire either way; both the gesture + the click are gated on it.
-  const nativeDisabled = blocked;
+  // Phase 1c — ONE exception: `holdFocus`. When this pill's own create was refused under a freeze (a lock or
+  // split refusal applies the frozen view before `add` returns), the pill that comes back is blocked — and a
+  // natively-disabled pill cannot take the focus the morph orphaned. So THIS pill, only after its own create
+  // settled with focus orphaned or in its row, stays focusable as `aria-disabled` with its reason in its name
+  // (the sold-out pattern), until it blurs. The click is still gated on `inactive`.
+  const nativeDisabled = blocked && !holdFocus;
   const inactive = blocked || soldOut;
   return (
     <m.button
       ref={addBtnRef}
       type="button"
       disabled={nativeDisabled}
-      aria-disabled={soldOut || undefined}
+      aria-disabled={soldOut || (blocked && holdFocus) || undefined}
       aria-busy={busy || minting}
+      onBlur={() => {
+        if (holdFocus) setHoldFocus(false);
+      }}
       aria-label={
         soldOut ? `${name}, sold out` : reason ? `${name} — ${reason}` : `Add ${name} to your order`
       }
@@ -457,14 +535,23 @@ export function AddButton({
         cursor: inactive ? "default" : "pointer",
         background: soldOut ? "var(--sf)" : "var(--ac)",
         color: soldOut ? "var(--t3)" : "var(--oa)",
-        opacity: !soldOut && nativeDisabled ? 0.6 : 1,
+        // Keyed on `blocked`, not `nativeDisabled`: a focus-held frozen pill still LOOKS inert.
+        opacity: !soldOut && blocked ? 0.6 : 1,
       }}
     >
       {shouldAnimate &&
         ripples.map((r) => (
           <span key={r.id} className="mms-ripple" style={{ left: r.x, top: r.y }} aria-hidden />
         ))}
-      <span style={{ position: "relative" }} aria-hidden={!soldOut || undefined}>
+      {/* Phase 1c — the REVERSAL cue: after a definite non-landing the "+" glyph plays `.mms-settle` (320ms,
+          opacity .4→1, 5px drop, no overshoot) — "set back down", not "arrived", so it never invites a
+          re-tap the way `.mms-pop`'s 1.18 would. On the GLYPH (a grid item of `.menu-add-plus`), never the
+          button, so framer's whileTap transform and the frozen dim are untouched. RM-gated here and in CSS. */}
+      <span
+        className={revertCue && shouldAnimate ? "mms-settle" : undefined}
+        style={{ position: "relative" }}
+        aria-hidden={!soldOut || undefined}
+      >
         {busy ? "…" : soldOut ? "Sold out" : "+"}
       </span>
     </m.button>

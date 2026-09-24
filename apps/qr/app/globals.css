@@ -856,6 +856,8 @@ html[data-fx="off"] .pa-mid {
 }
 /* No fill mode ON PURPOSE: with `both`, the end keyframe's opacity:1 would keep overriding the
    consumer's inline pending-dim (opacity .7) forever after the settle finishes. */
+/* Phase 1c · add-feedback — also the menu "+" GLYPH's "set back down" after a DEFINITE non-landing
+   (AddButton, `createRevertCue`): on the glyph, never the button, so whileTap and the frozen dim hold. */
 .mms-settle {
   animation: mmsSettle 320ms var(--ease-out);
 }
@@ -2355,6 +2357,8 @@ html[data-fx="off"] .pa-mid {
   font-variant-numeric: tabular-nums;
 }
 
+/* Phase 1c · add-feedback — the burst is the Add PILL's 0→1 tap only (intent, v7.2 quickAdd), never a
+   stepper step (v7.2 bump() has none). */
 /* The micro-gem burst (v7.2 microGems): five glyphs fly outward and fade. Absolute over the add
    control (the wrapper is position:relative, overflow visible — the PILL clips its ripple, so the
    burst lives on the wrapper, not inside the button). Token duration → RM collapse lands them at
