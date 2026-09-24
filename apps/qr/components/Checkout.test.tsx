@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
@@ -119,6 +119,22 @@ const ITEM: CartItem = {
   taxCents: 0,
   lineState: "draft",
   fulfillment: "dinein",
+};
+
+/** A second and third line — the neighbours a removal's focus lands on (hoisted for Phase 1c). */
+const LINE_B = "line-ohnno";
+const ITEM_B: CartItem = {
+  ...ITEM,
+  id: LINE_B,
+  menuItemId: "menu-ohnno",
+  name: "Ohn No Khao Swè",
+};
+const LINE_C = "line-shan";
+const ITEM_C: CartItem = {
+  ...ITEM,
+  id: LINE_C,
+  menuItemId: "menu-shan",
+  name: "Shan Noodles",
 };
 
 const TOTALS: CartTotals = {
@@ -794,13 +810,7 @@ describe("Codex round 3 — an OLDER edit's success cannot retire a NEWER refusa
    * there. Two lines have two chains, so the responses may answer in either order, which is the
    * whole of round 3's finding.
    */
-  const LINE_B = "line-ohnno";
-  const ITEM_B: CartItem = {
-    ...ITEM,
-    id: LINE_B,
-    menuItemId: "menu-ohnno",
-    name: "Ohn No Khao Swè",
-  };
+  // LINE_B / ITEM_B live at module scope (Phase 1c · cart-motion reads them too).
   const bothLines = (over: Partial<View> = {}) => view({ items: [ITEM, ITEM_B], ...over });
 
   // No freeze in any of these: the point is the ORDERING, and a lock would drag T33 in beside it.
@@ -1499,5 +1509,338 @@ describe("Phase 1b — a bill the page OPENS on still has its Order step behind 
     });
     expect(window.location.hash).toBe("");
     expect(window.history.length).toBe(before);
+  });
+});
+
+/**
+ * Phase 1c · cart-motion — a removed line leaves IN PLACE, and focus lands on the user's own place.
+ *
+ * Every removal case mocks the POST-removal truth: `setQty` and `getCartView` resolve the view
+ * WITHOUT the removed line. The file's default (`view()`, i.e. Mohinga back in the list) would make
+ * an accepted removal's refresh put the line straight back — a degenerate fixture on which "the
+ * ghost dropped" and "the line returned" look the same.
+ *
+ * jsdom has no layout (every rect is 0), no `Element.animate`, no `inert` behaviour and no
+ * `matchMedia`, so the hook takes its no-motion path here — which is also the reduced-motion path.
+ * The cases that need a measured layout install `stubLayout()`: each element's top is its
+ * in-flow sibling index × 100px plus its parent's, so taking a row out of flow moves exactly the rows
+ * after it, the way the real list does. Timing cases hold the clock (`vi.useFakeTimers`, the file's
+ * pattern) and advance it by frames.
+ */
+const truth = (items: CartItem[]) => {
+  h.setQty.mockResolvedValue(view({ items }));
+  h.getCartView.mockResolvedValue(view({ items }));
+};
+const lineLi = (id: string) =>
+  Array.from(document.querySelectorAll<HTMLLIElement>(`li[data-line-id="${id}"]`));
+const ghosts = () => Array.from(document.querySelectorAll<HTMLLIElement>("li.mms-remove"));
+const nameOf = (id: string) =>
+  document.querySelector<HTMLElement>(`li[data-line-id="${id}"]:not(.mms-remove) [data-line-name]`);
+async function frames(ms = 32) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
+/** A one-dimensional layout: each element sits at (in-flow siblings before it) × 100px below its
+ *  parent's top, and an element written `position: absolute` inline leaves the flow. */
+function stubLayout() {
+  const ROW = 100;
+  const top = (el: Element): number => {
+    const parent = el.parentElement;
+    if (!parent) return 0;
+    let n = 0;
+    for (let s = el.previousElementSibling; s; s = s.previousElementSibling)
+      if ((s as HTMLElement).style?.position !== "absolute") n += 1;
+    return top(parent) + n * ROW;
+  };
+  return vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: Element,
+  ) {
+    const t = top(this);
+    return {
+      top: t,
+      bottom: t + ROW,
+      left: 0,
+      right: 0,
+      width: 0,
+      height: ROW,
+      x: 0,
+      y: t,
+      toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
+
+describe("Phase 1c — a removed line leaves in place", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("removing a dish leaves an inert, hidden ghost in its place", async () => {
+    truth([ITEM_B]);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    await press("Remove Mohinga");
+    await frames();
+    const ohn = lineLi(LINE_B)[0]!;
+    // MUTATION: stop passing `r.leaving` — the ghost renders as a live row, 2 listitems, red.
+    expect(within(ohn.closest("ul")!).getAllByRole("listitem")).toHaveLength(1);
+    const g = document.querySelectorAll(
+      `li.mms-remove[inert][aria-hidden="true"][data-line-id="${LINE}"]`,
+    );
+    // MUTATION: the <ul> maps `viewItems` — no ghost at all, red.
+    expect(g).toHaveLength(1);
+    // MUTATION: anchor the ghost after the FOLLOWING row — it trails Ohn No, red.
+    expect(g[0]!.compareDocumentPosition(ohn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("the ghost ends on its OWN animationend, not a descendant's", async () => {
+    truth([ITEM_B]);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    await press("Remove Mohinga");
+    const ghost = ghosts()[0]!;
+    // The stepper's count digit carries `.mms-pop`; its animationend bubbles through the row.
+    await act(async () => {
+      ghost.querySelector("button")!.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+    // MUTATION: drop `e.target === e.currentTarget` — a descendant's pop ends the exit, red.
+    expect(ghosts()).toHaveLength(1);
+    await act(async () => {
+      ghost.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+    expect(ghosts()).toHaveLength(0);
+  });
+
+  it("a ghost is gone by its bound — the gesture window without motion, a second with it", async () => {
+    truth([ITEM_B]);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    await press("Remove Mohinga");
+    await frames(349);
+    expect(ghosts()).toHaveLength(1);
+    // MUTATION: delete the SAME_GESTURE_MS drop — the no-motion ghost waits for the full bound, red.
+    await frames(1);
+    expect(ghosts()).toHaveLength(0);
+    cleanup();
+
+    // With WAAPI present the hook takes the motion path, and only the bound backs up the fade.
+    const animate = vi.fn(() => ({ finished: Promise.resolve(), cancel: vi.fn() }));
+    Object.defineProperty(Element.prototype, "animate", { value: animate, configurable: true });
+    try {
+      mount({ initialItems: [ITEM, ITEM_B] });
+      await press("Remove Mohinga");
+      await frames(999);
+      expect(ghosts()).toHaveLength(1);
+      // MUTATION: delete LEAVE_BOUND_MS — a ghost whose animationend never comes stays forever, red.
+      await frames(1);
+      expect(ghosts()).toHaveLength(0);
+    } finally {
+      delete (Element.prototype as { animate?: unknown }).animate;
+    }
+  });
+
+  it("rows BELOW a removal are held from taps; rows above are not", async () => {
+    truth([ITEM, ITEM_C]);
+    mount({ initialItems: [ITEM, ITEM_B, ITEM_C] });
+    await press("Remove Ohn No Khao Swè");
+    // MUTATION: skip the hold — a quick second tap lands on Shan Noodles as it slides up, red.
+    expect(lineLi(LINE_C)[0]!.hasAttribute("data-settling")).toBe(true);
+    // MUTATION: hold the whole list — Mohinga never moved and would eat a deliberate tap, red.
+    expect(lineLi(LINE)[0]!.hasAttribute("data-settling")).toBe(false);
+    await frames(350);
+    // MUTATION: never release — the rest of the list stays dead to taps, red.
+    expect(document.querySelectorAll("[data-settling]")).toHaveLength(0);
+  });
+
+  it("a refused removal comes back once, in place, and holds the rows below", async () => {
+    stubLayout();
+    let refuse!: (e: Error) => void;
+    h.setQty.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        refuse = reject;
+      }),
+    );
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] }));
+    mount({ initialItems: [ITEM, ITEM_B] });
+    await press("Remove Mohinga");
+    expect(ghosts()).toHaveLength(1);
+    // The refusal lands 300ms in: the tap's own hold on Ohn No has 50ms left. Anything still holding
+    // it at 400ms is the hold the RETURN put on it.
+    await frames(300);
+    await act(async () => {
+      refuse(new Error("Order is locked while someone checks out"));
+    });
+    await frames(32);
+    // MUTATION: drop BOTH live-wins filters (reconcileLines' and mergeLeaving's) — two Mohinga rows,
+    // red. In the render either filter alone suffices, so each is pinned by itself in
+    // line-motion.test.ts ("a returning id loses its ghost and is reported").
+    expect(lineLi(LINE)).toHaveLength(1);
+    expect(ghosts()).toHaveLength(0);
+    expect(screen.getByRole("button", { name: "Remove Mohinga" })).toBeTruthy();
+    expect(
+      lineLi(LINE)[0]!.compareDocumentPosition(lineLi(LINE_B)[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // No out-of-flow style survives on the returned row.
+    expect(lineLi(LINE)[0]!.style.position).toBe("");
+    await frames(68); // 400ms after the tap
+    // MUTATION: skip the returned-id hold — Ohn No slides DOWN under a finger with no hold, red.
+    expect(lineLi(LINE_B)[0]!.hasAttribute("data-settling")).toBe(true);
+  });
+});
+
+describe("Phase 1c — focus lands on the user's own place", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    cleanup();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("removing a dish lands focus on the NEXT dish's name, in place", async () => {
+    truth([ITEM_B]);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    screen.getByRole("button", { name: "Remove Mohinga" }).focus();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    await press("Remove Mohinga");
+    await frames();
+    const a = document.activeElement as HTMLElement;
+    // MUTATION: land on the heading — an H1 at the top of the page, red.
+    // MUTATION: land on the neighbour's stepper — a BUTTON whose "−" at qty 1 IS "Remove Ohn No", red.
+    expect(a.hasAttribute("data-line-name")).toBe(true);
+    expect(a.textContent).toBe(ITEM_B.name);
+    expect(a.closest("li")!.getAttribute("data-line-id")).toBe(LINE_B);
+    expect(focus).toHaveBeenCalled();
+    // MUTATION: drop `preventScroll` — the page jumps to wherever the name is, red.
+    for (const call of focus.mock.calls) expect(call[0]).toEqual({ preventScroll: true });
+  });
+
+  it("removing the last dish in the list lands on the PREVIOUS dish", async () => {
+    truth([ITEM]);
+    mount({ initialItems: [ITEM, ITEM_B] });
+    screen.getByRole("button", { name: `Remove ${ITEM_B.name}` }).focus();
+    await press(`Remove ${ITEM_B.name}`);
+    await frames();
+    // MUTATION: forward-only landing — nothing after it, focus stays in the inert ghost, red.
+    expect(document.activeElement).toBe(nameOf(LINE));
+  });
+
+  it("removing the ONLY dish lands on the empty-cart heading", async () => {
+    truth([]);
+    mount({ initialItems: [ITEM] });
+    screen.getByRole("button", { name: "Remove Mohinga" }).focus();
+    await press("Remove Mohinga");
+    await frames();
+    expect(screen.getByText("Nothing in your cart yet")).toBeTruthy();
+    // MUTATION: drop `ref={headingRef}` from the empty h1, or the swap effect — <body>, red.
+    const a = document.activeElement as HTMLElement;
+    expect(a.tagName).toBe("H1");
+    expect(a.textContent).toContain("Your order");
+  });
+
+  it("a tablemate removes a row you are NOT on: focus does not move", async () => {
+    mount({ initialItems: [ITEM, ITEM_B] });
+    const mine = screen.getByRole("button", { name: `Add another ${ITEM.name}` });
+    mine.focus();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: land whenever ANY row is removed — the diner is yanked off their own control, red.
+    expect(document.activeElement).toBe(mine);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("on a phone where taps never take focus, a tablemate's removal of a DRAFT line moves nothing", async () => {
+    mount({ initialItems: [ITEM, ITEM_B] });
+    expect(document.activeElement).toBe(document.body);
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: revert S2.2 to `draftCount < prev` — a REMOVED draft reads as fired, heading, red.
+    // MUTATION: treat <body> alone as "focus was in the removed row" — every iOS removal lands, red.
+    expect(document.activeElement).toBe(document.body);
+    expect(focus).not.toHaveBeenCalled();
+  });
+
+  it("a tablemate removes the row you ARE on: focus lands on its neighbour, in place", async () => {
+    mount({ initialItems: [ITEM, ITEM_B] });
+    screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
+    const focus = vi.spyOn(HTMLElement.prototype, "focus");
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: no server-driven landing — focus stays inside the inert ghost, red.
+    expect(document.activeElement).toBe(nameOf(LINE));
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it("same-length interleaving: one refresh removes your row and adds another", async () => {
+    mount({ initialItems: [ITEM, ITEM_B] });
+    screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_C] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: key the landing on a length DECREASE — two in, two out, nothing fires, red.
+    expect(document.activeElement).toBe(nameOf(LINE));
+  });
+
+  it("a section that empties under you (no ghost) still lands", async () => {
+    mount({ initialItems: [ITEM, { ...ITEM_B, fulfillment: "togo" }] });
+    screen.getByRole("button", { name: `Add another ${ITEM_B.name}` }).focus();
+    h.getCartView.mockResolvedValue(view({ items: [ITEM] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: detect only by activeElement inside [inert] (drop the list's focus record) — the row
+    // unmounted outright, focus is on <body>, and nothing can tell it was there, red.
+    expect(document.activeElement).toBe(nameOf(LINE));
+  });
+
+  it("S2.2 kept: a line FIRED under a lost focus still parks focus on the heading", async () => {
+    mount({ initialItems: [ITEM] });
+    h.getCartView.mockResolvedValue(view({ items: [{ ...ITEM, lineState: "fired" }] }));
+    await syncFromServer();
+    await frames();
+    // MUTATION: firedSince always false — a fired line's stepper unmounts and focus is left on
+    // <body> with no cue, red.
+    const a = document.activeElement as HTMLElement;
+    expect(a.tagName).toBe("H1");
+  });
+});
+
+describe("Phase 1c — a Remove that was a “−” a moment ago ignores the tap", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("swallows the second half of a double-tap, and takes the next tap after the window", async () => {
+    const ONE: CartItem = { ...ITEM, qty: 1 };
+    h.setQty.mockResolvedValue(view({ items: [ONE] }));
+    h.getCartView.mockResolvedValue(view({ items: [ONE] }));
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    mount({ initialItems: [{ ...ITEM, qty: 2 }] });
+    await press(`Decrease ${ITEM.name} quantity`);
+    now.mockReturnValue(1200);
+    await press(`Remove ${ITEM.name}`);
+    // MUTATION: delete the removeHeld check in stepper.tsx — the double-tap deletes the dish, red.
+    expect(h.setQty).not.toHaveBeenCalledWith(LINE, 0);
+    now.mockReturnValue(1350);
+    await press(`Remove ${ITEM.name}`);
+    expect(h.setQty).toHaveBeenCalledWith(LINE, 0);
+  });
+
+  it("a Remove that MOUNTED at the minimum is never held", async () => {
+    truth([]);
+    vi.spyOn(performance, "now").mockReturnValue(0);
+    mount({ initialItems: [ITEM] });
+    await press(`Remove ${ITEM.name}`);
+    // MUTATION: arm on EVERY "−" (not just the morph) — the first Remove of a qty-1 line is eaten, red.
+    expect(h.setQty).toHaveBeenCalledWith(LINE, 0);
   });
 });

@@ -11653,3 +11653,31 @@ html[data-fx="lite"] .mms-scrim {
   font-weight: var(--fw-heavy);
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Phase 1c · cart-motion ── */
+/* A REMOVED line on /cart (a ghost — `useLineMotion` keeps the row drawn, inert and aria-hidden, while
+   the list closes over it). `mmsRise` reversed = the prototype `fade` (v7.2:47) played backwards: the
+   house arrival run the other way, so the ease-out curve becomes the ease-in exit. The word is
+   REMOVED, not LEAVES (`.mms-send-beat` owns that one). `both` holds the end state (opacity 0) until
+   the ghost drops on its own animationend. No `display` rule anywhere: the row's inline
+   `display:flex` would beat it, which is why reduced motion hides the ghost with opacity instead. */
+.mms-remove {
+  animation: mmsRise var(--dur-base) var(--ease-out) reverse both;
+  pointer-events: none;
+}
+/* Whatever moved under a finger after a removal (the rows below, a tip chip, the Pay CTA) is held
+   from taps for SAME_GESTURE_MS, so a quick second tap never lands on something that slid there. */
+[data-settling] {
+  pointer-events: none;
+}
+/* The FLIP's two reads sit in one synchronous block; scroll anchoring must not move the page
+   between them, so it is off while any element is mid-FLIP. */
+:root:has([data-flip]) {
+  overflow-anchor: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mms-remove {
+    animation: none;
+    opacity: 0;
+  }
+}
