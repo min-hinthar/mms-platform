@@ -7096,9 +7096,9 @@ const MUTANTS = [
     file: "apps/qr/lib/floor.ts",
     suite: "lib/floor-send.test.ts",
     why: "Phase 2a — the Send's count and each line's tag rest on `fulfillment`. Unread, no line is sendable: the table page offers no Send over a table full of unsent food",
-    find: '        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment",\n',
+    find: '        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids",\n',
     replace:
-      '        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers",\n',
+      '        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,modifier_option_ids",\n',
   },
   {
     id: "floor/line-sendable-tags-a-togo-draft",

@@ -157,3 +157,14 @@ export function toggleOption(group: ModGroup, current: string[], optionId: strin
   if (current.length >= group.maxSelect) return current; // at cap — ignore (the UI also disables it)
   return [...current, optionId];
 }
+
+// ── Phase 2c · pad ──
+/**
+ * The QUICK-ADD gate, named once: a dish goes on the order in one tap unless one of its groups
+ * REQUIRES a choice (`minSelect ≥ 1` — a curry's style, a Kyay-O's noodle). Optional groups (spice,
+ * add-ons) never block the tap: the order pad keeps them one corner away. The diner surfaces still
+ * carry inline copies of this predicate (filed; adopting it is their slice, not this one).
+ */
+export function needsChoice(groups: readonly Pick<ModGroup, "minSelect">[]): boolean {
+  return groups.some((g) => g.minSelect >= 1);
+}

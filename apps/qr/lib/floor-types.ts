@@ -118,6 +118,19 @@ export type TableLineView = {
    *  the line at full price there tells staff the guest paid for a dish the restaurant already
    *  returned the money for. */
   refundedCents: number;
+  // ── Phase 2c · pad ──
+  /** The dish this line is (`qr_cart_items.menu_item_id` — a soft ref: a grocery line carries a
+   *  barcode). The order pad's tile badge counts the confirmed units per dish from it. Null on a
+   *  settled record line (the pad never reads a settled record). */
+  menuItemId: string | null;
+  /** Where the line goes — the ticket groups a to-go draft at a dine-in table apart ("goes to the
+   *  kitchen when paid"). A settled record line reads "dinein" (a record is never re-grouped). */
+  fulfillment: "dinein" | "togo" | "grocery";
+  /** The catalog's Burmese name (`catalogNameMy`-validated) — advisory: a failed name read gives
+   *  null and the line renders its English snapshot, never an outage. */
+  nameMy: string | null;
+  /** Per-slot Burmese for `modifiers` (`pairModifiersMy`), each null where unknown. */
+  modifiersMy: (string | null)[];
 };
 
 export type TableMemberView = { seatId: string; name: string; isHost: boolean };

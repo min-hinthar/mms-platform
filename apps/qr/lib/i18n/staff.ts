@@ -2824,6 +2824,159 @@ export const STAFF = {
     en: "{x} marked handed over.",
     my: "{x} ကို လွှဲပေးပြီး လို့ မှတ်ပြီးပြီ။",
   },
+  // ── Phase 2c · pad ──
+  // The order pad (app/staff/table/[id]/add) — tiles beside ONE ticket. The Send controller's
+  // strings stay `table.send.*` (the pad REUSES them); only pad-only strings are `pad.*`. Every MY
+  // value in this block is a Claude-authored K15 draft pending Min's native check, EXCEPT where a
+  // `grounded:` comment names its in-repo source. {x} is a dish name, verbatim; {n} a prose count
+  // (Burmese digits); {m} preformatted money and {id} a table number, both Latin.
+  "pad.a11y.skipToOrder": { en: "Skip to the order", my: "အော်ဒါဆီ တန်းသွား" },
+  // The tile corner's sr-only name — spice, add-ons, qty and a kitchen note, one corner away.
+  "pad.a11y.options": { en: "Options for {x}", my: "{x} အတွက် ရွေးချယ်စရာ" },
+  "pad.search.clear": { en: "Clear search", my: "ရှာတာ ရှင်း" },
+  "pad.search.none": { en: "No dish matches “{x}”.", my: "“{x}” နဲ့ ကိုက်တဲ့ ဟင်း မရှိပါ။" },
+  "pad.menu.outage": {
+    en: "The menu didn’t load — the order still works.",
+    my: "မီနူး မတက်လာပါ — အော်ဒါကတော့ ဆက်သုံးလို့ရပါတယ်။",
+  },
+  "pad.menu.retry": { en: "Try again", my: "ထပ်စမ်း" },
+  // The ticket (StaffTicket) — its heading names the section and is the focus fallback.
+  "pad.ticket.title": { en: "Order", my: "အော်ဒါ" }, // glossary: အော်ဒါ
+  "pad.ticket.empty": {
+    en: "Nothing on this order yet — tap a dish to add it.",
+    my: "ဒီအော်ဒါထဲ ဘာမှ မရှိသေးပါ — ဟင်းတစ်ခုကို နှိပ်ပြီး ထည့်ပါ။",
+  },
+  "pad.group.unsent": { en: "Not sent yet", my: "မပို့ရသေး" }, // grounded: table.line.notSent
+  "pad.group.togo": {
+    en: "To-go · goes to the kitchen when paid",
+    my: "ပါဆယ် · ငွေရှင်းမှ မီးဖိုချောင် ရောက်မယ်",
+  },
+  "pad.group.kitchen": { en: "In the kitchen", my: "မီးဖိုချောင်မှာ" },
+  "pad.group.served": { en: "Served", my: "ထုတ်ပြီး" }, // grounded: table.line.state.served
+  // A ghost row's status — an add the server has not confirmed. Never a price (§23).
+  "pad.ghost.adding": { en: "Adding…", my: "ထည့်နေပါတယ်…" }, // grounded: browse.mod.adding
+  "pad.ghost.checking": { en: "Checking…", my: "စစ်နေပါတယ်…" },
+  // Resends the SAME add (the same key), so it can never put the dish on twice.
+  "pad.ghost.verb.resend": { en: "Send again", my: "ထပ်ပို့" },
+  "pad.reload": { en: "Reload the order", my: "အော်ဒါ ပြန်ဖွင့်" },
+  // The phone bar's view button.
+  "pad.bar.order.one": { en: "Order · {n} item", my: "အော်ဒါ · {n} ခု" },
+  "pad.bar.order.many": { en: "Order · {n} items", my: "အော်ဒါ · {n} ခု" },
+  "pad.bar.menu": { en: "Menu", my: "မီနူး" },
+  // Take payment — it NAVIGATES to the table's payment section (it charges nothing here), and
+  // names the server's tax-inclusive total only when nothing is pending.
+  "pad.settle": { en: "Take payment · {m}", my: "ငွေရှင်း · {m}" }, // K15-HIGH — the door to taking the money, with the amount
+  "pad.settle.tab": { en: "Close bill · {m}", my: "စာရင်းပိတ် · {m}" }, // K15-HIGH — closes a running bill; grounded: settle.cash.triggerTab
+  "pad.settle.bare": { en: "Take payment", my: "ငွေရှင်း" },
+  "pad.settle.busy": {
+    en: "Waiting for the last dish…",
+    my: "နောက်ဆုံး ဟင်း ရောက်အောင် စောင့်နေပါတယ်…",
+  },
+  "pad.reason.empty": { en: "Add a dish first", my: "ဟင်း အရင် ထည့်ပါ" },
+  "pad.nameNotSaved": {
+    en: "The name didn’t save — tap Take payment again to go on without it.",
+    my: "နာမည် မသိမ်းရသေးပါ — နာမည်မပါဘဲ ဆက်သွားဖို့ ငွေရှင်း ကို ထပ်နှိပ်ပါ။",
+  },
+  "pad.done": { en: "Done · Table {id}", my: "ပြီးပြီ · စားပွဲ {id}" },
+  "pad.settled.note": {
+    en: "This order is paid — nothing more can go on it.",
+    my: "ဒီအော်ဒါ ငွေရှင်းပြီးပါပြီ — ထပ်ထည့်လို့ မရတော့ပါ။",
+  },
+  "pad.paused": {
+    en: "A guest is paying for this table — adding is paused.",
+    my: "ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ် — ထည့်တာ ခဏရပ်ထားပါတယ်။",
+  },
+  "pad.soldOut": {
+    en: "{x} is sold out — it can’t be added.",
+    my: "{x} ကုန်သွားပြီ — ထည့်လို့ မရပါ။",
+  }, // grounded: browse.add.verb.soldOut (ကုန်သွားပြီ)
+  // An add that did NOT go on, by name, and each one's unnamed FAMILY sentence — said instead when
+  // two dishes are refused for one cause (lib/notice-slot.ts rule 2).
+  "pad.err.add.paying": {
+    en: "{x} didn’t go on — a guest is paying for this table right now.",
+    my: "{x} မထည့်ရသေးပါ — ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ်။",
+  },
+  "pad.err.add.paying.family": {
+    en: "Some dishes didn’t go on — a guest is paying for this table right now.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ်။",
+  },
+  "pad.err.add.soldOut": {
+    en: "{x} just sold out — it isn’t on the order.",
+    my: "{x} ကုန်သွားပြီ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.soldOut.family": {
+    en: "Some dishes just sold out — they aren’t on the order.",
+    my: "ဟင်းတချို့ ကုန်သွားပြီ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.gone": {
+    en: "{x} is off the menu — it isn’t on the order.",
+    my: "{x} မီနူးမှာ မရှိတော့ပါ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.gone.family": {
+    en: "Some dishes are off the menu — they aren’t on the order.",
+    my: "ဟင်းတချို့ မီနူးမှာ မရှိတော့ပါ — အော်ဒါထဲ မထည့်ရပါ။",
+  },
+  "pad.err.add.closed": {
+    en: "{x} didn’t go on — this order is closed or already paid.",
+    my: "{x} မထည့်ရသေးပါ — ဒီအော်ဒါ ပိတ်ပြီး (သို့) ငွေရှင်းပြီးသားပါ။",
+  },
+  "pad.err.add.closed.family": {
+    en: "Some dishes didn’t go on — this order is closed or already paid.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ဒီအော်ဒါ ပိတ်ပြီး (သို့) ငွေရှင်းပြီးသားပါ။",
+  },
+  "pad.err.add.outage": {
+    en: "{x} didn’t go on — we can’t reach the system. Try again.",
+    my: "{x} မထည့်ရသေးပါ — စနစ်နဲ့ ဆက်သွယ်မရပါ။ ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.outage.family": {
+    en: "Some dishes didn’t go on — we can’t reach the system.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — စနစ်နဲ့ ဆက်သွယ်မရပါ။",
+  },
+  "pad.err.add.failed": {
+    en: "{x} didn’t go on — try again.",
+    my: "{x} မထည့်ရသေးပါ — ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.failed.family": {
+    en: "Some dishes didn’t go on — try again.",
+    my: "ဟင်းတချို့ မထည့်ရသေးပါ — ထပ်စမ်းပါ။",
+  },
+  "pad.err.add.unconfirmed": {
+    en: "We couldn’t confirm {x} — check the order, or send it again. It won’t go on twice.",
+    my: "{x} ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်ပို့ပါ။ နှစ်ခါ မထည့်ပါဘူး။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.add.unconfirmed.family": {
+    en: "We couldn’t confirm some dishes — check the order.",
+    my: "ဟင်းတချို့ ထည့်ပြီးမပြီး မသေချာပါ — အော်ဒါကို စစ်ကြည့်ပါ။",
+  }, // K15-HIGH — adds that may have landed
+  "pad.err.add.offline": {
+    en: "You’re offline — {x} didn’t go on.",
+    my: "အင်တာနက် မရှိပါ — {x} မထည့်ရသေးပါ။",
+  },
+  "pad.err.add.offline.family": {
+    en: "You’re offline — some dishes didn’t go on.",
+    my: "အင်တာနက် မရှိပါ — ဟင်းတချို့ မထည့်ရသေးပါ။",
+  },
+  // The Send controller, reused by the pad (Phase 2a's namespace). BARE while an add is still in
+  // flight — a count is a claim only from a view that has seen the cart.
+  "table.send.cta.bare": { en: "Send to kitchen", my: "မီးဖိုချောင် ပို့" }, // K15-HIGH — the tap that starts cooking
+  // A Send or Take payment held by an add whose fate is unknown (it may already be on the order).
+  "table.send.hold.add": {
+    en: "Waiting to hear back about {x}",
+    my: "{x} အတွက် အဖြေ စောင့်နေပါတယ်",
+  },
+  // The line editor's stepper names (K25 for this control) — `Stepper`'s `labels`. Aria-only: the
+  // controls show only − + ✕ glyphs.
+  "table.line.a11y.less": { en: "One fewer {x}", my: "{x} တစ်ခု လျှော့" }, // grounded: browse.mod.a11y.less
+  "table.line.a11y.more": { en: "One more {x}", my: "{x} တစ်ခု ထပ်ထည့်" }, // grounded: browse.mod.a11y.more
+  "table.line.a11y.remove": {
+    en: "Remove {x} from the order",
+    my: "{x} ကို အော်ဒါထဲက ဖျက်",
+  }, // K15-HIGH — takes the dish off the order; grounded: table.detail.line.voided (ဖျက်)
+  "table.line.a11y.soldOut": {
+    en: "{x} is sold out — can’t add more",
+    my: "{x} ကုန်သွားပြီ — ထပ်မထည့်နိုင်ပါ",
+  },
+  "table.line.a11y.max": { en: "At the most for {x}", my: "{x} အများဆုံး ဖြစ်ပြီ" }, // grounded: browse.mod.a11y.moreMax
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2856,6 +3009,8 @@ export const STAFF_PLURAL_PAIRS: ReadonlyArray<readonly [StaffKey, StaffKey]> = 
   ["table.send.cta.one", "table.send.cta.many"],
   ["table.send.sent.one", "table.send.sent.many"],
   ["table.send.togoAtPay.one", "table.send.togoAtPay.many"],
+  // ── Phase 2c · pad ──
+  ["pad.bar.order.one", "pad.bar.order.many"],
 ];
 
 /**
@@ -2987,6 +3142,13 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.86.hint",
   // ── Phase 2b · feedback ──
   "shell.net.offline",
+  // ── Phase 2c · pad ──
+  "pad.settle",
+  "pad.settle.tab",
+  "pad.err.add.unconfirmed",
+  "pad.err.add.unconfirmed.family",
+  "table.send.cta.bare",
+  "table.line.a11y.remove",
 ]);
 
 /**
