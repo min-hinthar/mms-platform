@@ -2542,3 +2542,30 @@ payload plus a `<meta http-equiv="refresh" content="1;url=…">` — the guest s
 page they were leaving, then jumps. Measured on the bare-`/menu` rule: `curl` said 200. A redirect a
 person must never see belongs in `proxy.ts` (a true 307 before render); keep the page-level call as
 the belt for paths the proxy matcher skips.
+
+## #133
+
+**Parallel branches that each pass every gate can still fail the gate together — typecheck the
+MERGE, not the branches.** Phase 1c was built as five worktree branches off one base, each green on
+lint, typecheck, build, the full suites and the fast lane. Merged, `tsc` failed: one branch had lifted
+`responsive-contract.test.ts`'s CSS walker (and its `Decl` type) into `lib/css-declarations.ts`,
+while another added four cases to that same file typed on the old local `Decl`. Git merged the two
+hunks cleanly because they touched different lines. Additive conflicts (appended mutants, CSS
+blocks) are the ones git shows you; a MOVED symbol is the one it hides. After the last merge, run
+the whole gate once more before any doc work.
+
+## #134
+
+**In a multi-worktree setup the "is a verify:slice run live?" check is machine-wide.** CLAUDE.md's
+`ps -eo pid,comm,args | awk '$2=="node" && /verify-slice\.mjs/'` lists sibling worktrees' runs too.
+Before committing, map each pid to its checkout (`readlink /proc/<pid>/cwd`). A sibling's run in
+another worktree does not rewrite your files; a run in yours does.
+
+## #135
+
+**A spec's mutation line is a claim too — induce it before trusting it.** The grocery spec said
+`/line/i` would redden the in-app-browser test on the Android fixture because its UA contains
+"Linux". It does not: "Linux" has no "line", so the mutation survived. The looser prefix `\bLin` is
+the real hazard, and it was pinned instead. Same shape in two other areas: a spec named a mutation
+that one guard alone could not expose because a second guard in series already refused, so each
+guard's mutant needed its own case that got past the other one.
