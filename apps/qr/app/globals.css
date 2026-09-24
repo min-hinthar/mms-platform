@@ -6031,25 +6031,19 @@ html[data-seen-surface] .mms-stagger {
 /* ===== W4g — grocery editorial polish: one type-led masthead + one token system for the chrome
    (replaces the eyebrow + generic h1 + EBT text-wall and a pile of ad-hoc inline styles). ===== */
 
-/* Masthead: a display-serif title over one quiet bilingual subline. Space, not rules, sets it off. */
+/* Masthead — Phase 1c: the §21 menu rhythm (eyebrow over one --fs-h1 title; the sub and the exit
+   tile are gone), so the toolbar lands ~58px under the header instead of ~170px. */
 .grocery-head {
-  margin: 2px 0 18px;
+  margin: 0;
 }
 .grocery-title {
-  margin: 4px 0 6px;
+  margin: var(--s1) 0 var(--s3);
   font-family: var(--font-display);
-  font-size: var(--fs-display);
+  font-size: var(--fs-h1);
   font-weight: var(--fw-semibold);
-  line-height: 1.02;
-  letter-spacing: -0.015em;
+  line-height: var(--lh-tight);
+  letter-spacing: var(--track-display);
   color: var(--tx);
-}
-.grocery-sub {
-  margin: 0;
-  max-width: 32ch;
-  color: var(--t2);
-  font-size: var(--fs-sm);
-  line-height: 1.45;
 }
 
 /* Toolbar cluster: the Browse|Scan segmented control + the search field read as one group. */
@@ -12219,4 +12213,9 @@ a.aisle-tile {
 }
 .gb-skel-text-short {
   width: 55%;
+}
+/* The market's named exit, at the page foot (Phase 1c — it was a 260px tile in the masthead). */
+.grocery-foot {
+  margin: var(--s6) 0 0;
+  text-align: center;
 }

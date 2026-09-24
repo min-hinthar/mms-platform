@@ -876,9 +876,9 @@ export default function Grocery() {
     // so the fixed z:-1 layer is visible without trapping the toast (.ui-toast-region) under the sheet).
     <main className="page-col" style={{ padding: 20, paddingBottom: 120 }}>
       <PaperAmbient />
-      {/* W4g — editorial masthead: display-serif title + one quiet subline. The EBT disclaimer
-          moved off the top (it lived here as a text-wall) — the honest "SNAP coming; pay by card
-          today" copy still rides the per-item EBT chips and the Scan-door EBT-eligible line. */}
+      {/* Phase 1c — the masthead on the §21 menu rhythm: the eyebrow over one title, nothing else
+          before the toolbar (~58px, down from ~170 — the sub and the exit tile are gone; the exit
+          moved to the page foot, and the AppHeader brand still goes home). */}
       <header className="grocery-head">
         {/* SR reads just "Grocery"; the bilingual flourish is decorative. */}
         <p className="eyebrow">
@@ -888,25 +888,6 @@ export default function Grocery() {
           </span>
         </p>
         <h1 className="grocery-title">Shop the market</h1>
-        <p className="grocery-sub">Browse the aisles or scan shelf barcodes as you shop.</p>
-        {/* W20 (owner: "To-go and groceries should also have leave options") — the named exit the
-            menu's arrival beat carries, on the market's masthead: leaving is a navigation (the
-            per-device scango session rejoins this same open basket), never a basket mutation.
-            R1 — the SAME tile the menu's arrival beat uses (`.arrival-exit-link`: title + promise),
-            not a 44px pill dropped into a running sentence: that inline link stretched its line box
-            to 67px and stranded "your" after the dash at 375/390/430 (three reviewers, one finding).
-            One exit vocabulary on both doors. */}
-        <div style={{ marginTop: 10, maxWidth: 260 }}>
-          <TransitionLink href={menuHref(null)} className="arrival-exit-link">
-            <span className="arrival-exit-title">
-              Back to the start
-              <span aria-hidden className="nav-arrow nav-arrow-fwd">
-                →
-              </span>
-            </span>
-            <span className="arrival-exit-note">your basket stays saved on this device</span>
-          </TransitionLink>
-        </div>
       </header>
 
       {/* W4b — the session gates the BASKET, not the MARKET: the catalog is a public read, so the
@@ -1291,7 +1272,9 @@ export default function Grocery() {
           figure doesn't sit buried under the whole aisle grid. Display only; NOT a live region. */}
       {tab === "scan" && lines.length > 0 && (
         <div className="grocery-total mms-rise" aria-hidden>
-          <span className="grocery-total-label">Running total</span>
+          {/* Phase 1c — the honest-label half of M187: this is Σ unit × qty, PRE-TAX (the retail
+              non-food SKUs are taxed at checkout). Only the words change; the figure is the same. */}
+          <span className="grocery-total-label">Subtotal · before tax</span>
           <span className="grocery-total-figure">
             <NumberFlow value={totalCents / 100} format={{ style: "currency", currency: "USD" }} />
           </span>
@@ -1390,6 +1373,15 @@ export default function Grocery() {
         )}
       </ul>
 
+      {/* W20 → Phase 1c — the named exit, moved from the masthead to the page FOOT as a quiet link
+          (both halves verbatim from the old tile). Leaving is a navigation — the per-device scango
+          session rejoins this same open basket — never a basket mutation. */}
+      <p className="grocery-foot">
+        <TransitionLink href={menuHref(null)} className="nav-link">
+          Back to the start — your basket stays saved on this device
+        </TransitionLink>
+      </p>
+
       {/* Phase 0 — the ONE diner toast (`@mms/ui` Toast). The primitive carries this surface's own
           hard-won rules: the region is ALWAYS mounted (adversarial MED-6 — several SR/browser pairs
           skip a region born with its text) and carries an explicit aria-live, which is what keeps it
@@ -1419,9 +1411,9 @@ export default function Grocery() {
           <button
             type="button"
             className="grocery-cta"
-            aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
+            aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, subtotal $${(
               totalCents / 100
-            ).toFixed(2)}`}
+            ).toFixed(2)} before tax`}
             onClick={checkout}
           >
             <span>
