@@ -44,7 +44,12 @@ export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrd
   const supa = serverClient(await cookies());
   const {
     data: { user },
+    error: authErr,
   } = await supa.auth.getUser();
+  // An auth lookup that ERRORED could not tell us who this is — a failed read, not "signed out"
+  // (Codex round 2 on #302: the wake refresh applied the [] and erased the live row). Only a
+  // confirmed no-session answer is a real, empty result.
+  if (authErr && authErr.name !== "AuthSessionMissingError") return { ok: false, orders: [] };
   if (!user) return { ok: true, orders: [] };
   const db = serviceClient();
   const cutoff = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();

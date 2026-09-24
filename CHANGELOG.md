@@ -53,6 +53,8 @@ module with mutants (38 new; 792 total across 139 files). DESIGN-LANGUAGE §23�
   order that has finished; a stalled receipt mint no longer hides every rewards door on /track
   (`RECEIPT_SETTLE_BOUND_MS`); the save card that mounts already-offline withholds its link; a second
   identical grocery toast is announced again; `grocery_scan_miss` counts shelf (camera) misses only.
+- **Codex round 2 (one P2, fixed):** an auth lookup that ERRORS is a failed live-order read, not a
+  signed-out one — /account's live row no longer blanks on a transient auth failure.
 
 ### Phase 1b — one tap to send, one tap to pay, and a bill that is final before it is paid (2026-09-23)
 
