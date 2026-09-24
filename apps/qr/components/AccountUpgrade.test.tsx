@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveOrder } from "@/lib/live-order";
+import { chooserLeavesNote } from "@/lib/save-stars";
 
 /**
  * A7b — the Google recovery, end to end in a DOM.
@@ -62,6 +64,9 @@ vi.mock("@/lib/deviceIdentity", () => ({
 
 // A real-enough token store: the carry decision reads back what the stash wrote, and a fake that always
 // answers null (or always answers the token) would make the read-back assertion vacuous.
+// Phase 1c (Codex round 1) — the chooser note reads /account's ONE refreshed live-orders list.
+let liveOrders: LiveOrder[] | null = null;
+vi.mock("./AccountLiveOrders", () => ({ useAccountLiveOrders: () => liveOrders }));
 let stored: string | null = null;
 vi.mock("@/lib/mergeTokenStore", () => ({
   stashMergeToken: (t: string) => {
@@ -647,19 +652,45 @@ describe("a11y", () => {
 });
 
 // ── Phase 1c · account-star ──
-describe("the chooser note — passed through to the Welcome-back chips", () => {
-  it("renders the page's note above the chips when an identity is remembered", async () => {
-    // RED when the prop is not passed to WelcomeBackChooser (the page computes a disclosure the
-    // diner never sees, and taps a chip without knowing what it leaves behind).
+describe("the chooser note — computed from the REFRESHED live orders, said before the chips", () => {
+  it("renders the note above the chips when an identity is remembered", async () => {
+    // RED when the note is not passed to WelcomeBackChooser (a disclosure the diner never sees).
     identities = [
       { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
     ];
-    const note = {
-      en: "Tapping a name signs in without this phone’s 3 guest Stars or the orders that earned them — use your email or Google below to bring your Stars and the orders that earned them along.",
-      my: "နာမည်ကို နှိပ်ရင် ဒီဖုန်းက ကြယ်တွေနဲ့ အော်ဒါတွေ မပါလာပါဘူး — ကြယ်တွေ ယူလာချင်ရင် အောက်က အီးမေးလ် ဒါမှမဟုတ် Google နဲ့ ဝင်ပါ",
-    };
-    render(<AccountUpgrade stars={3} chooserNote={note} />);
+    liveOrders = [];
+    render(<AccountUpgrade stars={3} chooserStars={3} />);
     await screen.findByRole("button", { name: /Sign back in as Min/ });
+    const note = chooserLeavesNote({ stars: 3, inProgress: 0 })!;
     expect(screen.getByText(note.en, { exact: false })).toBeTruthy();
+    liveOrders = null;
+  });
+
+  it("follows the live list as it refreshes — an order that starts or finishes changes the note", async () => {
+    // Codex round 1 — RED when the count is the page's server snapshot: "Today" refreshes on wake
+    // and focus, so the note kept naming an order that had finished (or missed one that started).
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    liveOrders = [];
+    const { rerender } = render(<AccountUpgrade stars={3} chooserStars={3} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(screen.queryByText(/in progress/)).toBeNull();
+    liveOrders = [{ id: "o1" } as LiveOrder];
+    rerender(<AccountUpgrade stars={3} chooserStars={3} />);
+    const withOrder = chooserLeavesNote({ stars: 3, inProgress: 1 })!;
+    expect(screen.getByText(withOrder.en, { exact: false })).toBeTruthy();
+    liveOrders = null;
+  });
+
+  it("no chooserStars → no note (a caller that computes none)", async () => {
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    liveOrders = [{ id: "o1" } as LiveOrder];
+    const { container } = render(<AccountUpgrade stars={3} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(container.querySelector(".wb-note")).toBeNull();
+    liveOrders = null;
   });
 });

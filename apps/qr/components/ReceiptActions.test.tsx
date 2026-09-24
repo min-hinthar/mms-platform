@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { RECEIPT_SETTLE_BOUND_MS } from "@/lib/save-stars";
 
 /**
  * Phase 1c · account-star — ReceiptActions reports when its mint has SETTLED, exactly once, whatever
@@ -72,5 +73,38 @@ describe("onSettled — once per mount, whatever the mint answers", () => {
     const onSettled = await settle(() => Promise.reject(new Error("network")));
     expect(onSettled).toHaveBeenCalledTimes(1);
     expect(onSettled).toHaveBeenCalledWith({ emailEnabled: false });
+  });
+});
+
+describe("onSettled — BOUNDED, so a stalled mint never hides every rewards door", () => {
+  it("a mint that never answers reports emailEnabled:false at the bound, and a late answer adds nothing", async () => {
+    // Codex round 1 — RED without the bound: a stalled Server Action never settles, the tracker's
+    // `successRewardsDoor` stays `pending`, and the success screen shows NO rewards door at all.
+    vi.useFakeTimers();
+    let answer: (v: unknown) => void = () => {};
+    h.getReceiptLink.mockImplementation(
+      () =>
+        new Promise((r) => {
+          answer = r;
+        }),
+    );
+    const onSettled = vi.fn();
+    render(<ReceiptActions orderId="11111111-1111-4111-8111-111111111111" onSettled={onSettled} />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(RECEIPT_SETTLE_BOUND_MS - 1);
+    });
+    expect(onSettled).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    expect(onSettled).toHaveBeenCalledWith({ emailEnabled: false });
+    // The mint lands late: the row may render, but the report stays exactly once.
+    await act(async () => {
+      answer({ ok: true, path: "/r/abc", accountEmail: null, emailEnabled: true, emailedTo: null });
+      await Promise.resolve();
+    });
+    expect(onSettled).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
   });
 });

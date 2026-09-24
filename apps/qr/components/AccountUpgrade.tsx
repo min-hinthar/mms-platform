@@ -36,6 +36,8 @@ import {
 } from "@/lib/oauthCallbackStore";
 import { readIdentities, type DeviceIdentity } from "@/lib/deviceIdentity";
 import { WelcomeBackChooser } from "./WelcomeBackChooser";
+import { useAccountLiveOrders } from "./AccountLiveOrders";
+import { chooserLeavesNote } from "@/lib/save-stars";
 import { Card } from "@mms/ui";
 
 /**
@@ -49,13 +51,19 @@ import { Card } from "@mms/ui";
  */
 export function AccountUpgrade({
   stars,
-  chooserNote = null,
+  chooserStars,
 }: {
   stars: number;
-  /** Phase 1c — what a Welcome-back chip tap would leave behind (`chooserLeavesNote`), passed through
-   *  to the chooser so it is said BEFORE the tap; null = nothing at stake. */
-  chooserNote?: { en: string; my: string } | null;
+  /** Phase 1c — the Stars the Welcome-back chooser's disclosure names (`chooserLeavesNote`, said
+   *  BEFORE the tap): the count, or null when the rewards read failed (count-free). Omitted = no
+   *  note. The in-progress half reads /account's ONE refreshed live-orders list (Codex round 1). */
+  chooserStars?: number | null;
 }) {
+  const liveOrders = useAccountLiveOrders();
+  const chooserNote =
+    chooserStars === undefined
+      ? null
+      : chooserLeavesNote({ stars: chooserStars, inProgress: liveOrders?.length ?? 0 });
   const router = useRouter();
   const [phase, setPhase] = useState<"idle" | "code">("idle");
   const [email, setEmail] = useState("");

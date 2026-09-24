@@ -1,7 +1,6 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { chooserLeavesNote } from "@/lib/save-stars";
 
 /**
  * Phase 1c · account-star — /account's ORDER is the design (now → you → what you own → the record →
@@ -18,7 +17,7 @@ const h = vi.hoisted(() => ({
   getSessionKind: vi.fn(),
   getMyLiveOrders: vi.fn(),
   getFavoriteDishes: vi.fn(),
-  upgradeProps: [] as { stars: number; chooserNote?: unknown }[],
+  upgradeProps: [] as { stars: number; chooserStars?: number | null }[],
 }));
 vi.mock("@/lib/rewards", () => ({
   getRewardsState: h.getRewardsState,
@@ -39,7 +38,7 @@ const slot = (s: string) =>
   };
 vi.mock("@/components/TodayOrders", () => ({ TodayOrders: slot("live") }));
 vi.mock("@/components/AccountUpgrade", () => ({
-  AccountUpgrade: (p: { stars: number; chooserNote?: unknown }) => {
+  AccountUpgrade: (p: { stars: number; chooserStars?: number | null }) => {
     h.upgradeProps.push(p);
     return <section data-s="identity" />;
   },
@@ -117,13 +116,11 @@ describe("/account — the order is the design", () => {
     ]);
   });
 
-  it("the healthy guest's chooser note is computed from the real Stars and the live count", async () => {
+  it("the healthy guest's chooser note is fed the real Stars (the live count comes from the client list)", async () => {
     await slots();
     expect(h.upgradeProps).toHaveLength(1);
     expect(h.upgradeProps[0]?.stars).toBe(3);
-    expect(h.upgradeProps[0]?.chooserNote).toEqual(
-      chooserLeavesNote({ stars: 3, inProgress: LIVE.length }),
-    );
+    expect(h.upgradeProps[0]?.chooserStars).toBe(3);
   });
 
   it("a healthy visit never asks who the viewer is (no extra staff lookup)", async () => {
@@ -151,9 +148,8 @@ describe("W9c — a failed rewards read costs the Stars panel, never the history
     expect(await slots()).toEqual(["live", "alert", "identity", "history", "favorites", "sound"]);
     expect(h.upgradeProps).toHaveLength(1);
     expect(h.upgradeProps[0]?.stars).toBe(0);
-    expect(h.upgradeProps[0]?.chooserNote).toEqual(
-      chooserLeavesNote({ stars: null, inProgress: LIVE.length }),
-    );
+    // Count-free: the failed read cannot claim a number of Stars.
+    expect(h.upgradeProps[0]?.chooserStars).toBeNull();
   });
 
   it("a signed-in diner on the failed branch gets no identity card, as before", async () => {

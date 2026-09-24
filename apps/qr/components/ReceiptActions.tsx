@@ -1,6 +1,14 @@
 "use client";
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+} from "react";
 import { getReceiptLink, setReceiptEmail, type ReceiptLinkResult } from "@/lib/receipt";
+import { RECEIPT_SETTLE_BOUND_MS } from "@/lib/save-stars";
 
 /**
  * W7a — the /track receipt card's door to the ARTIFACT: the durable `?r=` link ("view & print")
@@ -42,6 +50,23 @@ export function ReceiptActions({
   const wasEditing = useRef(false);
   const asked = useRef(false);
 
+  // The report is EXACTLY ONCE per mount, whichever comes first: the mint's answer or the bound
+  // (Codex round 1 — a stalled Server Action must not leave the success screen with no rewards door).
+  const onSettledRef = useRef(onSettled);
+  useEffect(() => {
+    onSettledRef.current = onSettled;
+  });
+  const reported = useRef(false);
+  const report = useCallback((emailEnabled: boolean) => {
+    if (reported.current) return;
+    reported.current = true;
+    onSettledRef.current?.({ emailEnabled });
+  }, []);
+  useEffect(() => {
+    const t = window.setTimeout(() => report(false), RECEIPT_SETTLE_BOUND_MS);
+    return () => window.clearTimeout(t);
+  }, [report]);
+
   useEffect(() => {
     if (asked.current) return; // one mint per mount — the action is idempotent but not free
     asked.current = true;
@@ -51,13 +76,13 @@ export function ReceiptActions({
           setLink(r);
           setSentTo(r.emailedTo);
         }
-        onSettled?.({ emailEnabled: r.ok ? r.emailEnabled : false });
+        report(r.ok ? r.emailEnabled : false);
       })
       .catch(() => {
         /* deliberate: the artifact door is decorative here — the tracker itself is unaffected */
-        onSettled?.({ emailEnabled: false });
+        report(false);
       });
-  }, [orderId, onSettled]);
+  }, [orderId, report]);
 
   // Focus follows the form open/close (WCAG 2.4.3 — the AccountNameEditor idiom).
   useEffect(() => {

@@ -164,6 +164,26 @@ describe("Not now — focus lands before the card leaves", () => {
 });
 
 describe("offline / outage — the CTA stays, disabled, with a reason", () => {
+  it("ALREADY offline at mount: the CTA starts withheld (Codex round 1)", async () => {
+    // RED without the mount-time diagnose: `useConnectionTruth` starts "unknown" and only learns
+    // "you-offline" from an `offline` EVENT — which fired before this card existed (the connection
+    // dropped while the progress and receipt reads were settling) — so a live /account link showed.
+    vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    render(prompt().ui);
+    await act(async () => {
+      for (let i = 0; i < 5; i++) await Promise.resolve();
+    });
+    const blocked = cta();
+    expect(blocked.getAttribute("aria-disabled")).toBe("true");
+    expect(blocked.hasAttribute("href")).toBe(false);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
   it("offline: an href-less aria-disabled link described by the offline line; a click goes nowhere", () => {
     // RED when the blocked branch is removed (the live link stays under an offline diner).
     render(prompt().ui);

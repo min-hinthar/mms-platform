@@ -1,5 +1,5 @@
 "use client";
-import { useId, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { Button, buttonClass } from "@mms/ui";
 import { TransitionLink as Link } from "./nav/TransitionNav"; // J1 journey grammar
 import { useConnectionTruth } from "@/lib/useConnectionTruth";
@@ -76,7 +76,15 @@ export function SaveStarsPrompt({
   const headingId = useId();
   const reasonId = useId();
   const sectionRef = useRef<HTMLElement>(null);
-  const { truth } = useConnectionTruth();
+  const { truth, diagnose } = useConnectionTruth();
+  // Codex round 1 — the hook learns "you-offline" from an `offline` EVENT, and this card mounts only
+  // after the progress poll and the receipt row settle: a connection that dropped meanwhile fired its
+  // event before the card existed, and the CTA rendered as a live link. Ask once, on mount, when the
+  // browser already says it is offline (the probe re-derives from navigator.onLine; the setState
+  // lands in its async callback — the established effect-safe pattern).
+  useEffect(() => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) void diagnose();
+  }, [diagnose]);
   const copy = saveStarsCopy(stars, rewardJustUnlocked, receiptEmail);
   const reason = saveStarsBlockedReason({ offline: truth === "you-offline" });
 

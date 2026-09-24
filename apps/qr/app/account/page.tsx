@@ -10,11 +10,11 @@ import {
 } from "@/lib/rewards";
 import { getMyLiveOrders } from "@/lib/orders";
 import { getFavoriteDishes } from "@/lib/favorites";
-import { chooserLeavesNote } from "@/lib/save-stars";
 import { RewardsDetails, RewardsSummary } from "@/components/RewardsHub";
 import { PaperAmbient } from "@/components/PaperAmbient";
 import { OrderHistory } from "@/components/OrderHistory";
 import { TodayOrders } from "@/components/TodayOrders";
+import { AccountLiveOrders } from "@/components/AccountLiveOrders";
 import { AccountUpgrade } from "@/components/AccountUpgrade";
 import { AccountStatus } from "@/components/AccountStatus";
 import { SoundToggle } from "@/components/SoundToggle";
@@ -99,54 +99,54 @@ export default async function Account() {
           route (the header pill is off here — two claims about one order is what W22b removed), seeded
           by the server snapshot and refreshed on wake/focus. Its rows link back to /track (resume=1):
           the documented way back after saving. */}
-      <TodayOrders orders={live} />
+      {/* Codex round 1 — ONE live-orders list for "Today" AND the chooser note below, seeded by the
+          server read and refreshed on wake/focus (components/AccountLiveOrders), so the note never
+          names an order "Today" has already dropped. It spans sections 1 and 2 and draws nothing. */}
+      <AccountLiveOrders initial={live}>
+        <TodayOrders />
 
-      {/* W9c — the alert is a BANNER, not a replacement. Making `getRewardsState` fail loudly was
+        {/* W9c — the alert is a BANNER, not a replacement. Making `getRewardsState` fail loudly was
           right, but gating the whole page on it meant one failed rewards RPC also hid the order
           history — and /track, the /cart complete-order notice and the snapshot notice all send diners
           here specifically to find a receipt. Degrade the hub, never the history. */}
-      {!state && (
-        <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
-          We couldn’t load your Stars and rewards just now — try again in a moment. Your orders are
-          below either way.
-        </p>
-      )}
+        {!state && (
+          <p role="alert" style={{ fontSize: "var(--fs-sm)", color: "var(--warn)" }}>
+            We couldn’t load your Stars and rewards just now — try again in a moment. Your orders
+            are below either way.
+          </p>
+        )}
 
-      {/* 2 · YOU — identity, directly under the live row: the save + sign-in door for a guest (K3a: a
+        {/* 2 · YOU — identity, directly under the live row: the save + sign-in door for a guest (K3a: a
           signed-in diner gets the quiet identity/sign-out card instead). On the failed branch a GUEST
           still gets the door, with stars={0} (its count-free copy — no number is claimed) and the
-          count-free chooser note. `chooserNote` says what a Welcome-back chip tap would leave behind,
-          BEFORE the tap (lib/save-stars.ts `chooserLeavesNote`). */}
-      {state ? (
-        <div style={{ marginBottom: "var(--s4)" }}>
-          {state.isUpgraded ? (
-            <>
-              {/* K7: records this signed-in identity (hints only, no token) so the switcher can offer a
+          count-free chooser note. `chooserStars` feeds the note saying what a Welcome-back chip tap would
+          leave behind, BEFORE the tap (lib/save-stars.ts `chooserLeavesNote`), computed in the client
+          from the refreshed live list. */}
+        {state ? (
+          <div style={{ marginBottom: "var(--s4)" }}>
+            {state.isUpgraded ? (
+              <>
+                {/* K7: records this signed-in identity (hints only, no token) so the switcher can offer a
                   one-tap return next time; also clears any lingering lend flag. Renders null. */}
-              <RememberIdentity displayName={state.displayName} tierId={state.tierId} />
-              <AccountStatus
-                email={state.email}
-                displayName={state.displayName}
-                tierId={state.tierId}
-                stars={state.stars}
-                memberSince={state.memberSince}
-              />
-            </>
-          ) : (
-            <AccountUpgrade
-              stars={state.stars}
-              chooserNote={chooserLeavesNote({ stars: state.stars, inProgress: live.length })}
-            />
-          )}
-        </div>
-      ) : kind === "anon" ? (
-        <div style={{ marginBottom: "var(--s4)" }}>
-          <AccountUpgrade
-            stars={0}
-            chooserNote={chooserLeavesNote({ stars: null, inProgress: live.length })}
-          />
-        </div>
-      ) : null}
+                <RememberIdentity displayName={state.displayName} tierId={state.tierId} />
+                <AccountStatus
+                  email={state.email}
+                  displayName={state.displayName}
+                  tierId={state.tierId}
+                  stars={state.stars}
+                  memberSince={state.memberSince}
+                />
+              </>
+            ) : (
+              <AccountUpgrade stars={state.stars} chooserStars={state.stars} />
+            )}
+          </div>
+        ) : kind === "anon" ? (
+          <div style={{ marginBottom: "var(--s4)" }}>
+            <AccountUpgrade stars={0} chooserStars={null} />
+          </div>
+        ) : null}
+      </AccountLiveOrders>
 
       {/* 3 · WHAT YOU OWN — the tier-up moment, the Stars ring, and the coupons spendable today. */}
       {state && <RewardsSummary state={state} />}

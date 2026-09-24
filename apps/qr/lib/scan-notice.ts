@@ -38,6 +38,13 @@ export type ScanSlot =
 export type ScanOutcome = "ok" | "repeat" | "queued" | ScanAddFailure | "transport";
 export type ScanVia = "scan" | "rescan" | "search" | "browse";
 
+/** Did this attempt come off a SHELF — the camera, or its "Add another"? The ONE rule behind both
+ *  the in-stage notice (a Browse or search miss never plants one on the hidden Scan door) and the
+ *  `grocery_scan_miss` harvest of real shelf codes (G22's switch-on measurement, Codex round 1). */
+export function fromCamera(via: ScanVia): boolean {
+  return via === "scan" || via === "rescan";
+}
+
 /**
  * The slot after one outcome.
  *
@@ -54,8 +61,7 @@ export function slotAfter(
     return { kind: "chip", key: e.key };
   if (e.outcome === "transport") return prev;
   const notice = scanNoticeFor(e.outcome, e.barcode);
-  if (notice && (e.via === "scan" || e.via === "rescan"))
-    return { kind: "notice", notice, key: e.key };
+  if (notice && fromCamera(e.via)) return { kind: "notice", notice, key: e.key };
   return prev;
 }
 

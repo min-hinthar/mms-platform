@@ -29,6 +29,7 @@ vi.mock("./nav/TransitionNav", () => ({
 }));
 
 const { TodayOrders } = await import("./TodayOrders");
+const { AccountLiveOrders } = await import("./AccountLiveOrders");
 
 const row = (o: Partial<LiveOrder>): LiveOrder => ({
   id: "order-1",
@@ -45,6 +46,13 @@ const row = (o: Partial<LiveOrder>): LiveOrder => ({
   cartId: null,
   ...o,
 });
+
+/** "Today" as the page mounts it: inside the ONE live-orders provider. */
+const today = (orders: LiveOrder[]) => (
+  <AccountLiveOrders initial={orders}>
+    <TodayOrders />
+  </AccountLiveOrders>
+);
 
 /** Real frames: the hook defers its mount load a rAF, and the wake is coalesced over 50ms. */
 const frames = () =>
@@ -63,7 +71,7 @@ afterEach(() => {
 describe("TodayOrders — seeded, then kept fresh", () => {
   it("renders the server snapshot with NO fetch on mount", async () => {
     // RED when the seeded mount fetch is not skipped.
-    render(<TodayOrders orders={[row({})]} />);
+    render(today([row({})]));
     expect(screen.getByText("Preparing")).toBeTruthy();
     await frames();
     expect(h.readMyLiveOrders).not.toHaveBeenCalled();
@@ -71,7 +79,7 @@ describe("TodayOrders — seeded, then kept fresh", () => {
 
   it("a hidden→visible wake refetches, and the status word updates", async () => {
     // RED when the wake refetch is removed — the word stays "Preparing" after the order is Ready.
-    render(<TodayOrders orders={[row({})]} />);
+    render(today([row({})]));
     await frames();
     h.readMyLiveOrders.mockResolvedValue({
       ok: true,
@@ -87,14 +95,14 @@ describe("TodayOrders — seeded, then kept fresh", () => {
 
   it("a new server snapshot replaces the list", () => {
     // RED when the prop change is ignored (the seeded list sticks after router.refresh).
-    const { rerender } = render(<TodayOrders orders={[row({})]} />);
-    rerender(<TodayOrders orders={[row({ id: "order-2", statusWord: "Ready for pickup" })]} />);
+    const { rerender } = render(today([row({})]));
+    rerender(today([row({ id: "order-2", statusWord: "Ready for pickup" })]));
     expect(screen.getByText("Ready for pickup")).toBeTruthy();
     expect(screen.queryByText("Preparing")).toBeNull();
   });
 
   it("renders nothing when nothing is live", () => {
-    const { container } = render(<TodayOrders orders={[]} />);
+    const { container } = render(today([]));
     expect(container.innerHTML).toBe("");
   });
 });

@@ -187,6 +187,16 @@ export function saveStarsBlockedReason(i: { offline: boolean }): string | null {
   return i.offline ? "You look offline — saving needs a connection." : null;
 }
 
+/**
+ * How long the success screen waits for the receipt row to report before deciding its rewards door
+ * without it (Codex round 1). The door waits for that report so the save card never lands above the
+ * row it would push; a Server Action that STALLS (neither resolves nor rejects) would otherwise leave
+ * `successRewardsDoor` pending — no save card and no GoodbyeBeat link — for good. Past the bound the
+ * row reports "email capture off" (the card then makes no email claim); a late row still renders.
+ * A starting value, not a measurement (F26).
+ */
+export const RECEIPT_SETTLE_BOUND_MS = 5000;
+
 // ── The chooser disclosure (/account) ─────────────────────────────────────────────────────────────
 
 /**

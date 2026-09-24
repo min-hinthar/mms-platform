@@ -21,7 +21,7 @@ import { GroceryBasketSheet } from "@/components/grocery/GroceryBasketSheet";
 import { ScanStage } from "@/components/grocery/ScanStage";
 import { ScanResult } from "@/components/grocery/ScanResult";
 import { groceryLanding, parseDoor, type GroceryDoor } from "@/lib/grocery-landing";
-import { slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
+import { fromCamera, slotAfter, type ScanOutcome, type ScanSlot } from "@/lib/scan-notice";
 import { t as kioskT } from "@/lib/kiosk/strings";
 import { saleInfo, sizeLabel } from "@/lib/grocery-aisles";
 import { isTerminal, type CartUnavailable } from "@/lib/cart-unavailable";
@@ -74,7 +74,10 @@ export default function Grocery() {
   // re-mint against a merely-unreadable cart would find-or-create a NEW cart and silently abandon
   // the shopper's real lines. Only `isTerminal` reasons ever land here.
   const [cartGone, setCartGone] = useState<CartUnavailable | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Keyed by a monotonic sequence, never the text (Codex round 1): two misses in a row say the SAME
+  // sentence, and a text key changed no DOM, so the second was never announced.
+  const [toast, setToast] = useState<{ key: number; text: string } | null>(null);
+  const toastSeq = useRef(0);
   const addedRef = useRef(0); // success count for analytics cart_size — stable across the memoized adder
   // M186 — what this basket has already been CHARGED for, read by the scan classifier. REFS, not
   // deps: `add` is memoized so `onScan` keeps a stable identity, and the scanner effect is keyed on
@@ -247,7 +250,8 @@ export default function Grocery() {
   const toastTimer = useRef<number | null>(null);
   const flash = useCallback((msg: string) => {
     if (toastTimer.current !== null) window.clearTimeout(toastTimer.current);
-    setToast(msg);
+    toastSeq.current += 1;
+    setToast({ key: toastSeq.current, text: msg });
     toastTimer.current = window.setTimeout(() => setToast(null), 1800);
   }, []);
   useEffect(
@@ -605,7 +609,8 @@ export default function Grocery() {
         // announcement. The weighed / unavailable wording is the kiosk's shipped copy, named once.
         if (r.reason === "unknown_barcode") {
           flash("Barcode not on file — search by name.");
-          if (!missedRef.current.has(barcode)) {
+          // A SHELF miss only: a stale Browse card or search result is not a shelf code (G22).
+          if (fromCamera(via) && !missedRef.current.has(barcode)) {
             missedRef.current.add(barcode);
             posthog.capture("grocery_scan_miss", { barcode });
           }
@@ -1392,7 +1397,7 @@ export default function Grocery() {
           skip a region born with its text) and carries an explicit aria-live, which is what keeps it
           OUT of Radix's modal aria-hidden sweep while the basket sheet is open. It docks on the
           published band height (`--cta-dock-h`, written by useCtaDock below). */}
-      <Toast message={toast ? { key: toast, text: toast } : null} />
+      <Toast message={toast} />
 
       {lines.length > 0 && cartId && (
         // W9d — the pinned bar: basket-review trigger + checkout CTA. The Browse door (the DEFAULT)

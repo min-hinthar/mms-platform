@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scanHint, scanNoticeFor, slotAfter, type ScanSlot } from "./scan-notice";
+import { fromCamera, scanHint, scanNoticeFor, slotAfter, type ScanSlot } from "./scan-notice";
 
 /** Phase 1c — the Scan door's result bar. Each MUTATION was induced and watched go red. */
 
@@ -99,5 +99,17 @@ describe("scanHint — one line of guidance", () => {
   it("all good → aim", () => {
     expect(scanHint({ cartReady: true, online: true, storage: true })).toBe("aim");
     expect(scanHint({ cartReady: true, online: true, storage: false })).toBe("aim");
+  });
+});
+
+describe("fromCamera — one rule for 'this miss came from a shelf'", () => {
+  it("only the camera and its Add another are camera attempts (Codex round 1)", () => {
+    // RED if Browse / Search count: `grocery_scan_miss` harvests the SHELF codes shoppers try and
+    // decides when scan-first may switch on (G22) — a stale Browse card counted as a camera miss
+    // corrupts that measurement and burns the per-barcode dedupe before a real scan.
+    expect(fromCamera("scan")).toBe(true);
+    expect(fromCamera("rescan")).toBe(true);
+    expect(fromCamera("browse")).toBe(false);
+    expect(fromCamera("search")).toBe(false);
   });
 });

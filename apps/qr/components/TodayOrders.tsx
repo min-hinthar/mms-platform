@@ -1,7 +1,6 @@
 "use client";
 import { LiveOrderRow } from "./LiveOrderRow";
-import type { LiveOrder } from "@/lib/live-order";
-import { useLiveOrders } from "@/lib/useLiveOrders";
+import { useAccountLiveOrders } from "./AccountLiveOrders";
 
 /**
  * K4 — the /account "Today" section: the same live-orders read as the header tray, rendered at the top
@@ -15,8 +14,9 @@ import { useLiveOrders } from "@/lib/useLiveOrders";
  * pill and this row would be two claims about one order on one screen (W22b removed exactly that).
  * Renders nothing when there's nothing in flight, so it never leaves an empty shell above the page.
  */
-export function TodayOrders({ orders }: { orders: LiveOrder[] }) {
-  const { orders: live } = useLiveOrders(true, null, orders);
+export function TodayOrders() {
+  // The list `AccountLiveOrders` owns (Codex round 1): the chooser note reads the SAME refreshed list.
+  const live = useAccountLiveOrders() ?? [];
   if (live.length === 0) return null;
   const label = live.length === 1 ? "1 order in progress" : `${live.length} orders in progress`;
   return (
