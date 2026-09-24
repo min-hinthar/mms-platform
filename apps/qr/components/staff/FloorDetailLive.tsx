@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import { getTableDetail } from "@/lib/floor";
 import { frozenBoardCopy, nextDegraded, raceTimeout, type StaffDegraded } from "@/lib/staff-outage";
@@ -33,6 +33,18 @@ import { Chrome, OutageText } from "./Chrome";
 import { plural } from "@/lib/i18n/fill";
 import { sx } from "@/lib/staff-labels";
 import type { StaffKey } from "@/lib/i18n/staff";
+// ── Phase 2a · send ──
+import { counterAskLive } from "@/lib/counter-pay-state";
+import {
+  sendHoldFrom,
+  staffSendView,
+  type SendNotice,
+  type StaffLineEdit,
+  type StaffSendHold,
+} from "@/lib/staff-send-view";
+import { StaffSendButton } from "./StaffSendButton";
+import { MsgText, type StaffMsg } from "./StaffMsg";
+import { useStaffSend } from "./useStaffSend";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 // P2 — keys, not labels. The three modes already have dictionary entries on the floor card
@@ -58,9 +70,13 @@ export function FloorDetailLive({
   sessionId,
   terminalReady = false,
   hasPin = false,
+  arrivedToSend = false,
 }: {
   initial: TableDetail;
   sessionId: string;
+  /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
+   *  Send (or the status row, if a colleague sent in between), then drop the param. */
+  arrivedToSend?: boolean;
   /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
   hasPin?: boolean;
   /** W6c: STRIPE_TERMINAL_READER_ID is configured (server-checked by the page) — the Card settle
@@ -230,6 +246,81 @@ export function FloorDetailLive({
     };
   }, [refresh]);
 
+  // ── Phase 2a · send ── the table page's "Send to kitchen" (P2k). ─────────────────────────────────
+  // The controller lives HERE, in the component that owns the detail, so the refresh that follows a
+  // send (which zeroes the "not sent" count and swaps the slot) can never kill the open undo.
+  const pathname = usePathname();
+  const orderCardRef = useRef<HTMLElement>(null);
+  // Detail commits, counted by identity (React's guarded set-during-render): the post-undo hold ends
+  // on the drafts coming back, or two commits later (the first may be a poll that began before it).
+  const [seenDetail, setSeenDetail] = useState(detail);
+  const [detailSeq, setDetailSeq] = useState(0);
+  if (seenDetail !== detail) {
+    setSeenDetail(detail);
+    setDetailSeq((n) => n + 1);
+  }
+  // The send's line in the ONE region below. Precedence: writeError > send warn > degraded > send
+  // ok — a standing "Sent" never masks the frozen-board signal (S2-audit S9), and each setter clears
+  // the other, so a stale line never resurfaces when a newer one clears.
+  const [sendNote, setSendNote] = useState<{ tone: "ok" | "warn"; msg: StaffMsg } | null>(null);
+  const onWriteError = useCallback((e: ReactNode) => {
+    setWriteError(e);
+    setSendNote(null);
+  }, []);
+  const onSendNotice = useCallback((n: SendNotice | null) => {
+    // An expired staff session is a verdict, not a blip — the honest surface is login (the poll's rule).
+    if (n === "signin") {
+      window.location.assign("/staff/login");
+      return;
+    }
+    setSendNote(n);
+    if (n) setWriteError(null);
+  }, []);
+  // DRAIN BEFORE FIRE — each line editor reports its unsaved note / write in flight. The REF is what
+  // the Send reads at tap time; the state re-renders only when the derived hold actually changes.
+  const lineEdits = useRef(new Map<string, StaffLineEdit>());
+  const [sendHold, setSendHold] = useState<StaffSendHold>(null);
+  const onEditState = useCallback((lineId: string, edit: StaffLineEdit | null) => {
+    if (edit) lineEdits.current.set(lineId, edit);
+    else lineEdits.current.delete(lineId);
+    const next = sendHoldFrom([...lineEdits.current.values()]);
+    setSendHold((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  }, []);
+  const getHold = useCallback(() => sendHoldFrom([...lineEdits.current.values()]), []);
+  const sendView = staffSendView({
+    mode: detail.mode,
+    counterOrder: isCounter,
+    cartOpen: detail.cartId != null && !detail.settled,
+    paymentInFlight: detail.paymentInFlight,
+    hostPresent: detail.hostPresent,
+    counterAsk: counterAskLive(detail.counterRequestedAt),
+    counts: detail.send,
+  });
+  const send = useStaffSend({
+    sessionId,
+    view: sendView,
+    detailSeq,
+    getHold,
+    rootRef: orderCardRef,
+    onNotice: onSendNotice,
+    onRefresh: refresh,
+  });
+  // `?send=1` — land on the thing the link promised: the Send; the status row if a colleague sent in
+  // between; otherwise the order heading. Then drop the param so a reload does not re-focus.
+  const arrival = useRef(arrivedToSend);
+  useEffect(() => {
+    if (!arrival.current) return;
+    arrival.current = false;
+    const target =
+      sendView.kind === "send"
+        ? send.controlRef.current
+        : sendView.kind === "none"
+          ? orderHeadingRef.current
+          : send.statusRef.current;
+    (target ?? orderHeadingRef.current)?.focus();
+    router.replace(pathname, { scroll: false });
+  }, [sendView.kind, send.controlRef, send.statusRef, router, pathname]);
+
   return (
     <main className="staff-main" onFocusCapture={markFocus}>
       {/* P7·1b — the staff bar is the h1 and the language control (rule 4 reaches the switch
@@ -393,7 +484,12 @@ export function FloorDetailLive({
         </section>
 
         {/* Order so far */}
-        <section className="card card-textured" style={sectionCard} aria-labelledby="order-h">
+        <section
+          ref={orderCardRef}
+          className="card card-textured"
+          style={sectionCard}
+          aria-labelledby="order-h"
+        >
           <div
             style={{
               display: "flex",
@@ -460,7 +556,8 @@ export function FloorDetailLive({
                   sessionId={sessionId}
                   line={l}
                   disabled={false}
-                  onError={setWriteError}
+                  onError={onWriteError}
+                  onEditState={onEditState}
                 />
               ))}
             </ul>
@@ -604,6 +701,16 @@ export function FloorDetailLive({
               <Chrome lang={lang} k="table.detail.pretaxNote" echo="stack" />
             </p>
           )}
+          {/* Phase 2a · send — the slot sits between the order and its one region, so the page
+              reads "send, then settle". It mounts no region of its own. */}
+          <StaffSendButton
+            lang={lang}
+            ctl={send}
+            controlRef={send.controlRef}
+            statusRef={send.statusRef}
+            hold={sendHold}
+            hostName={detail.members.find((m) => m.isHost)?.name ?? null}
+          />
           {/* One shared live region for staff line-edit feedback + the stale-poll signal (S2-audit S9): a
             frozen detail view mustn't look live. The write error takes precedence over the reconnect note. */}
           {/* P2 — EACH ARM MARKS ITS OWN SCRIPT, so the region itself carries no `lang`. The frozen-
@@ -627,14 +734,24 @@ export function FloorDetailLive({
               ...muted,
               marginTop: 6,
               fontSize: "var(--fs-sm)",
-              minHeight: writeError || degraded ? 16 : 0,
-              color: writeError || degraded ? "var(--warn)" : "var(--t3)",
+              // Phase 2a · send — while the slot is mounted the line is reserved, so an outcome
+              // appearing never pushes the settle triggers below it.
+              minHeight:
+                writeError || degraded || sendNote || send.display.kind !== "none" ? 16 : 0,
+              color:
+                writeError || degraded || sendNote?.tone === "warn"
+                  ? "var(--warn)"
+                  : sendNote
+                    ? "var(--t2)"
+                    : "var(--t3)",
             }}
           >
             {typeof writeError === "string" ? (
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
+            ) : sendNote?.tone === "warn" ? (
+              <MsgText lang={lang} msg={sendNote.msg} />
             ) : degraded ? (
               <span lang={lang}>
                 {frozenBoardCopy(
@@ -645,6 +762,8 @@ export function FloorDetailLive({
                   degraded.cause,
                 )}
               </span>
+            ) : sendNote ? (
+              <MsgText lang={lang} msg={sendNote.msg} />
             ) : null}
           </p>
         </section>
@@ -660,7 +779,7 @@ export function FloorDetailLive({
             promoCode={detail.promoCode}
             promoCents={detail.settlePromoCents}
             canWrite={canWrite}
-            onError={setWriteError}
+            onError={onWriteError}
             onChanged={onChange}
           />
         )}

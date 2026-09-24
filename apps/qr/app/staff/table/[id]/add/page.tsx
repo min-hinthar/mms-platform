@@ -105,6 +105,14 @@ export default async function StaffAddItems({ params }: { params: Promise<{ id: 
             <Link href={`/staff/table/${id}`} className="staff-back staff-press">
               <Chrome lang={lang} k="browse.review" />
             </Link>
+          ) : detail.send.sendable > 0 ? (
+            // Phase 2a · send — an interim BRIDGE (the 2c order pad replaces it with its own Send):
+            // "Start a table" lands here, and nothing told a table its dishes were unsent. Labelled for
+            // what it DOES; it lands focused on the Send, one tap away, under the tagged lines. N is
+            // the table's one count (`detail.send`), refreshed after every add (router.refresh()).
+            <Link href={`/staff/table/${id}?send=1`} className="staff-back staff-press">
+              <Chrome lang={lang} k="browse.reviewUnsent" vars={{ n: detail.send.sendable }} />
+            </Link>
           ) : undefined
         }
         lock={hasPin}

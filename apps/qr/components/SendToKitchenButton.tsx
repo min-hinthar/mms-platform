@@ -5,6 +5,7 @@ import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
 import { sentCopy } from "@/lib/confirm-copy";
+import { graceDeadlineMs, graceRemainingSec } from "@/lib/send-grace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
 // example is this very CTA). T() keeps the call sites; the MY half renders with per-span lang="my".
@@ -114,7 +115,8 @@ export function SendToKitchenButton({
     };
   }, [undoUntil]);
 
-  const remaining = undoUntil === null ? 0 : Math.max(0, Math.ceil((undoUntil - nowMs) / 1000));
+  // Phase 2a · send — the one client reading of the grace (lib/send-grace.ts), shared with the staff Send.
+  const remaining = graceRemainingSec(undoUntil, nowMs);
 
   // W12 — window state up to the parent (see the prop doc). The unmount cleanup is the stuck-open
   // guard: a settling/lock view flip can unmount this component while the grace is live.
@@ -158,14 +160,13 @@ export function SendToKitchenButton({
           // now()+graceMs. Using the measured DURATION (not the absolute server timestamp) keeps the
           // count immune to client-clock skew, and re-seeding `nowMs` to the same instant avoids a
           // first-paint flash. null undoUntil ⇒ no window shown (still sent). The server re-checks
-          // fire_at on undo regardless, so the countdown is advisory.
-          const graceMs = res.undoUntil ? Date.parse(res.undoUntil) - Date.parse(res.serverNow) : 0;
+          // fire_at on undo regardless, so the countdown is advisory. Phase 2a · send — the
+          // arithmetic is `graceDeadlineMs` (lib/send-grace.ts), byte-equivalent to the inline copy
+          // it replaced: it opens the window only with BOTH a positive grace and a batch to target.
           const startNow = Date.now();
           setNowMs(startNow);
-          // Only open the undo window if we have BOTH a grace and the batch id to target on undo.
-          const canUndo = graceMs > 0 && res.undoBatch !== null;
           setUndoBatch(res.undoBatch);
-          setUndoUntil(canUndo ? startNow + graceMs : null);
+          setUndoUntil(graceDeadlineMs(res, startNow));
           setSendBeat((n) => n + 1); // W22a — one paper beat per successful send
           onChanged(); // steppers → "Sent to kitchen" chips
         } else {

@@ -13,6 +13,7 @@
 import type { LineState } from "@mms/db";
 import type { RefundSummary } from "./refund-view";
 import type { RegisterQueueRow } from "./register-queue";
+import type { StaffSendCounts } from "./staff-send-view";
 
 /** A table's at-a-glance state on the floor. Payment-level only — kitchen statuses (fired/served)
  *  arrive with S2's line lifecycle; until then a paid order rests at "paid". */
@@ -93,6 +94,10 @@ export type TableLineView = {
   /** Kitchen-life state (S2.1) — drives the staff line controls: a 'draft' line edits via the stepper; a
    *  fired/cooking/served line is post-fire (the void/comp loss path, S2.3); 'voided' is terminal. */
   state: LineState;
+  /** Phase 2a · send — this line is what the table page's Send fires: a dine-in session's DRAFT
+   *  whose fulfillment is dine-in (`mms_fire_cart`'s own predicate). The editor tags it "Not sent";
+   *  a to-go draft (cooks at pay) and every settled record line are false. */
+  sendable: boolean;
   /** Comped (S2.3) — given away free; the kitchen still makes it, the charge excludes it. */
   comped: boolean;
   /** An open void/comp approval request is pending for this line (S2.4) — a manager resolves it from the
@@ -213,6 +218,13 @@ export type TableDetail = {
   /** True while a single-payer lock or a split freeze is live — clear-table / staff write / cash settle
    *  are all refused mid-payment. */
   paymentInFlight: boolean;
+  /** Phase 2a · send — the session has a diner host (`host_seat` set): create-intent's binding for
+   *  "someone at the table can send". Decides the Send's emphasis (owner decision #3). */
+  hostPresent: boolean;
+  /** Phase 2a · send — the table's send counts, computed ONCE here from the open cart's rows
+   *  (`staffSendCounts`; `sendable` is `kitchenDraftUnitsFromRows` on a dine-in session). All zero
+   *  with no open cart. */
+  send: StaffSendCounts;
   serverNow: string;
 };
 

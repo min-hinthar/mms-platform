@@ -1,16 +1,25 @@
 "use client";
-import { useState, useTransition, type CSSProperties } from "react";
+import { useEffect, useState, useTransition, type CSSProperties } from "react";
 import { setLineNotes, staffSetQty } from "@/lib/staff-cart";
-import { STAFF_STATE_COPY } from "@/lib/line-state-copy";
 import type { TableLineView } from "@/lib/floor-types";
+import type { StaffLineEdit } from "@/lib/staff-send-view";
 import { Stepper, useSheetSubject } from "@mms/ui";
-import { ts } from "@/lib/i18n/staff";
+import { ts, type StaffKey } from "@/lib/i18n/staff";
 import { al } from "@/lib/staff-labels";
 import { LossActionSheet } from "./LossActionSheet";
 import { Chrome } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/** Phase 2a · send (K25 for this surface) — a post-fire line's state in the DEVICE language. It
+ *  replaced the English-only `STAFF_STATE_COPY`, so on a Burmese console the one word that separates
+ *  a sent dish from an unsent one is no longer half-translated. */
+const LINE_STATE_KEY: Record<"fired" | "in_progress" | "served", StaffKey> = {
+  fired: "table.line.state.fired",
+  in_progress: "table.line.state.inProgress",
+  served: "table.line.state.served",
+};
 
 /**
  * One cart line on the staff drill-down. The control depends on the line's kitchen state (S2.1/S2.3):
@@ -25,11 +34,17 @@ export function StaffLineEditor({
   line,
   disabled,
   onError,
+  onEditState,
 }: {
   sessionId: string;
   line: TableLineView;
   disabled: boolean;
   onError: (msg: string) => void;
+  /** Phase 2a · send — DRAIN BEFORE FIRE. The line reports what is still unsaved or in flight, so
+   *  the table page's Send holds while a sendable dish's note is typed but not saved (`setLineNotes`
+   *  is draft-guarded: a note still in the field when its line fires is lost — and the note is
+   *  where an allergy lives). `null` = this line left the list. */
+  onEditState?: (lineId: string, edit: StaffLineEdit | null) => void;
 }) {
   // P2 — the staff device's language, from app/staff/layout.tsx.
   //
@@ -72,6 +87,21 @@ export function StaffLineEditor({
   }
   const qty = optimisticQty ?? line.qty;
   const busy = pending || disabled;
+
+  // Phase 2a · send — reported from an effect (never during render), and withdrawn on unmount so a
+  // removed line, or a list that went read-only, cannot keep holding the Send.
+  const noteDirty = noteDraft !== null && noteDraft.trim() !== (line.notes ?? "");
+  const writing = pending || notePending;
+  useEffect(() => {
+    onEditState?.(line.id, {
+      lineId: line.id,
+      name: line.name,
+      noteDirty,
+      writing,
+      sendable: line.sendable,
+    });
+  }, [onEditState, line.id, line.name, line.sendable, noteDirty, writing]);
+  useEffect(() => () => onEditState?.(line.id, null), [onEditState, line.id]);
 
   function setQty(next: number) {
     setOptimisticQty(next);
@@ -141,12 +171,15 @@ export function StaffLineEditor({
   // ── Post-fire (fired / in_progress / served): Void / Comp instead of a silent stepper ────────────────
   const postFire = line.state !== "draft";
   if (postFire) {
-    const stateLabel = STAFF_STATE_COPY[line.state]; // S12: one shared vocabulary
     return (
       <li style={row}>
         <span style={{ minWidth: 0, flex: 1 }}>
           {line.qty}× {line.name}
-          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}> · {stateLabel}</span>
+          <span style={{ color: "var(--t3)", fontSize: "var(--fs-sm)" }}>
+            {" · "}
+            {/* S12's one vocabulary, now the dictionary's — no echo: a tag inside a dense row. */}
+            <Chrome lang={lang} k={LINE_STATE_KEY[line.state as keyof typeof LINE_STATE_KEY]} />
+          </span>
           {mods}
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "var(--s3)" }}>
@@ -210,6 +243,15 @@ export function StaffLineEditor({
     <li style={{ ...row, flexWrap: "wrap" }}>
       <span style={{ minWidth: 0, flex: 1 }}>
         <span style={{ fontWeight: "var(--fw-semibold)" }}>{qty}×</span> {line.name}
+        {/* Phase 2a · send — the WORD marks what the kitchen has not got, never colour alone. Only a
+            line the Send fires wears it: a to-go draft cooks at pay, so "not sent" there is no call
+            to action. */}
+        {line.sendable && (
+          <span style={notSentTag}>
+            {" · "}
+            <Chrome lang={lang} k="table.line.notSent" />
+          </span>
+        )}
         {mods}
         {line.soldOut && (
           <span
@@ -286,6 +328,9 @@ export function StaffLineEditor({
           </label>
           <input
             id={`note-${line.id}`}
+            // Phase 2a · send — the Send's note hold finds this field by the LINE, within the order
+            // card, rather than by the id (which the order pad may re-mint with useId()).
+            data-note-for={line.id}
             type="text"
             value={noteDraft}
             maxLength={160}
@@ -323,6 +368,12 @@ const row: CSSProperties = {
   padding: "8px 0",
   borderTop: "1px solid var(--bd)",
   fontSize: "var(--fs-sm)",
+};
+// Phase 2a · send — the "Not sent" tag: secondary ink, bold, never colour alone (the word carries it).
+const notSentTag: CSSProperties = {
+  color: "var(--t2)",
+  fontSize: "var(--fs-sm)",
+  fontWeight: "var(--fw-bold)",
 };
 const priceCell: CSSProperties = {
   fontVariantNumeric: "tabular-nums",
