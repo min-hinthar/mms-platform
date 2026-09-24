@@ -1690,6 +1690,35 @@ describe("Phase 1c — a removed line leaves in place", () => {
     // MUTATION: skip the returned-id hold — Ohn No slides DOWN under a finger with no hold, red.
     expect(lineLi(LINE_B)[0]!.hasAttribute("data-settling")).toBe(true);
   });
+
+  it("a refusal that lands after the ghost dropped: the row remounts in place and the rows below are held", async () => {
+    stubLayout();
+    let refuse!: (e: Error) => void;
+    h.setQty.mockReturnValueOnce(
+      new Promise((_, reject) => {
+        refuse = reject;
+      }),
+    );
+    h.getCartView.mockResolvedValue(view({ items: [ITEM, ITEM_B] }));
+    mount({ initialItems: [ITEM, ITEM_B] });
+    await press("Remove Mohinga");
+    await frames(400); // the ghost dropped at 350, and every hold from the tap has released
+    expect(lineLi(LINE)).toHaveLength(0);
+    expect(lineLi(LINE_B)[0]!.hasAttribute("data-settling")).toBe(false);
+    await act(async () => {
+      refuse(new Error("Order is locked while someone checks out"));
+    });
+    await frames(32);
+    expect(lineLi(LINE)).toHaveLength(1);
+    expect(
+      lineLi(LINE)[0]!.compareDocumentPosition(lineLi(LINE_B)[0]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(lineLi(LINE)[0]!.style.position).toBe("");
+    // MUTATION: measure a remounted row without first taking it out of flow — 'before' equals
+    // 'after', nothing reads as moved, and Ohn No slides down under a finger unheld, red.
+    expect(lineLi(LINE_B)[0]!.hasAttribute("data-settling")).toBe(true);
+  });
 });
 
 describe("Phase 1c — focus lands on the user's own place", () => {

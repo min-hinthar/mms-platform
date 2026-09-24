@@ -337,15 +337,26 @@ export function useLineMotion<T extends { id: string }>(
       dropTimers.current.delete(id);
       const el = rowEl(id);
       if (!el) continue;
-      if (styled.current.has(el)) backInFlow(el);
-      if (el.getBoundingClientRect().bottom <= 0) continue; // above the fold: anchoring keeps it still
       const anim = !reduced && typeof el.animate === "function";
-      measure(
-        tailOf(el),
-        () => backInFlow(el),
-        anim,
-        () => outOfFlow(el), // 'before' is the list as the diner saw it: without the row
-      );
+      if (styled.current.has(el)) {
+        // Still its ghost, out of flow at its own spot: this commit did not move it, so reading it
+        // changes nothing. Entirely above the fold → put it back and let anchoring hold the page.
+        if (el.getBoundingClientRect().bottom <= 0) {
+          backInFlow(el);
+          continue;
+        }
+        measure(tailOf(el), () => backInFlow(el), anim);
+      } else {
+        // Remounted (its ghost had already dropped), so it is IN flow in this commit. 'Before' — the
+        // list as the diner saw it — is taken with it made absolute, and only after `data-flip` is on,
+        // so no anchoring adjustment slips between the reads.
+        measure(
+          tailOf(el),
+          () => backInFlow(el),
+          anim,
+          () => outOfFlow(el),
+        );
+      }
     }
 
     // A new ghost: out of flow, the rows below close over it, and it drops on its own fade.
