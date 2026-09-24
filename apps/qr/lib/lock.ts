@@ -397,7 +397,8 @@ export async function releaseStaleSettlement(
  * the paths a happy-path read skips:
  *
  *   1. AN INLINE DECLINE DOES NOT END THE ATTEMPT. `PaymentSection.confirm()` keeps the same
- *      Elements and the same clientSecret mounted and returns the diner to a live Pay button, so
+ *      clientSecret — Elements are re-created only after a LOAD failure, never after a decline —
+ *      and returns the diner to a live Pay button, so
  *      the SAME PaymentIntent is retried at its original, grant-inclusive amount. Clearing the pin
  *      on `payment_intent.payment_failed` means a successful retry captures a discount that
  *      fulfillment can no longer re-derive — a charged guest with no order, and a REGRESSION on a
