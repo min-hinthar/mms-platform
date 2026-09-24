@@ -99,6 +99,8 @@ export function FloorDetailLive({
   const [nowMs, setNowMs] = useState(() => Date.now());
   const fails = useRef(0);
   const inFlight = useRef(false);
+  // A refresh requested while one is in flight (see `refresh`).
+  const rerun = useRef(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -193,41 +195,54 @@ export function FloorDetailLive({
   const alive = useRef(true);
 
   const refresh = useCallback(async () => {
-    if (inFlight.current) return;
+    // Phase 2a (blind review) — a refresh asked for while a read is in the air is REMEMBERED, not
+    // dropped: the Send's "re-read NOW" after a send or an undo usually lands mid-poll, and the poll
+    // already in flight began BEFORE the write — so dropping the ask left the line tags stale for up
+    // to 5s. One more read runs after the current one (never more than one queued, and never after
+    // the effect cleaned up: the loop re-checks `alive`).
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
     inFlight.current = true;
     try {
-      // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
-      const res = await raceTimeout(getTableDetail(sessionId));
-      if (!alive.current) return;
-      if (res.kind === "detail") {
-        setDetail(res.detail);
-        fails.current = 0;
-        setDegraded(null);
-      } else if (res.kind === "closed") {
-        // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
-        // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
-        // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
-        // bouncing now would yank the collect panel / #CODE handoff card out from under the
-        // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
-        // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
-        if (!terminalFlowLive.current) {
-          router.replace(STAFF_DOOR_TARGET.counter);
-          router.refresh();
+      do {
+        rerun.current = false;
+        try {
+          // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
+          const res = await raceTimeout(getTableDetail(sessionId));
+          if (!alive.current) return;
+          if (res.kind === "detail") {
+            setDetail(res.detail);
+            fails.current = 0;
+            setDegraded(null);
+          } else if (res.kind === "closed") {
+            // Genuinely closed/cleared — the detail no longer exists; go back to the floor. (The old
+            // `null` also fired on OUTAGE, kicking staff off a live table's order mid-service — M32.)
+            // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
+            // bouncing now would yank the collect panel / #CODE handoff card out from under the
+            // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
+            // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
+            if (!terminalFlowLive.current) {
+              router.replace(STAFF_DOOR_TARGET.counter);
+              router.refresh();
+            }
+          } else if (res.kind === "signin") {
+            // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
+            window.location.assign("/staff/login");
+          } else {
+            setNowMs(Date.now());
+            setDegraded((d) => nextDegraded(d, "outage", Date.now()));
+          }
+        } catch (e) {
+          if (!alive.current) return;
+          // Cause `unknown` — this end failed, which isn't evidence the platform is down.
+          fails.current += 1;
+          setNowMs(Date.now());
+          if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
+          console.error("[FloorDetailLive] refresh failed", e);
         }
-      } else if (res.kind === "signin") {
-        // An expired/invalid staff session is a verdict, not a blip — the honest surface is login.
-        window.location.assign("/staff/login");
-      } else {
-        setNowMs(Date.now());
-        setDegraded((d) => nextDegraded(d, "outage", Date.now()));
-      }
-    } catch (e) {
-      if (!alive.current) return;
-      // Cause `unknown` — this end failed, which isn't evidence the platform is down.
-      fails.current += 1;
-      setNowMs(Date.now());
-      if (fails.current >= 2) setDegraded((d) => nextDegraded(d, "unknown", Date.now()));
-      console.error("[FloorDetailLive] refresh failed", e);
+      } while (rerun.current && alive.current);
     } finally {
       inFlight.current = false;
     }

@@ -207,3 +207,31 @@ describe("?send=1 — the add page's bridge lands on what it promised", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 });
+
+describe("the Send's 're-read NOW' is never dropped by a poll already in the air", () => {
+  it("a refresh asked for mid-poll runs once more after it — not 5s later", async () => {
+    mount(detail());
+    await flush();
+    // The 5s poll starts, and hangs on the wire (it began BEFORE the send).
+    let answer!: (r: TableDetailResult) => void;
+    getTableDetail.mockReturnValueOnce(new Promise((res) => (answer = res)));
+    await flush(5000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // The send lands mid-poll and asks for a read NOW.
+    fire.mockResolvedValueOnce({ ok: false, reason: "nothing" });
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: detail() });
+    fireEvent.click(sendBtn());
+    await flush();
+    expect(getTableDetail).toHaveBeenCalledTimes(1); // one read at a time
+    await act(async () => {
+      answer({ kind: "detail", detail: detail() });
+    });
+    await flush();
+    // MUTATION: drop the ask while a read is in flight — the stale pre-send read is the last word
+    // until the next poll; red.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+    // Exactly one re-run: nothing else was asked for.
+    await flush(1000);
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+  });
+});
