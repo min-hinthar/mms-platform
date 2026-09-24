@@ -703,6 +703,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           landRef.current = line.id;
           setLandedKey(key);
           setMenuLineId(null);
+          // Codex round 4 on #304 — the routing ref follows the CLOSE now, not the effect after it:
+          // another answer settling in this same batch (an older refusal) must see "no sheet" and
+          // reach the board's region, not a sheet that is unmounting under it.
+          menuLineRef.current = null;
           if (newest) {
             // THIS dish's Undo wins: an older result parked under this sheet is dropped (the
             // drain would otherwise publish it the moment this sheet unmounts).
@@ -1209,7 +1213,10 @@ export function KdsBoard({ initial, hasPin = false }: { initial: KitchenQueue; h
           msg={menuMsg}
           on86={(l) => void eightySix(l)}
           onOpenChange={(o) => {
-            if (!o) setMenuLineId(null);
+            if (!o) {
+              setMenuLineId(null);
+              menuLineRef.current = null; // see the 86 success path (Codex round 4)
+            }
           }}
         />
       )}

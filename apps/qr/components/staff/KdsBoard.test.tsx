@@ -691,6 +691,40 @@ describe("Phase 2b (K22) — the 86 is two deliberate taps, resolved inside the 
     expect(q.getByRole("dialog")).toBe(dialogB);
   });
 
+  it("an older refusal settling in the SAME batch as a success that closes the sheet reaches the board", async () => {
+    // Codex round 4 on #304 (P2). B's success unmounts B's sheet; A's refusal lands in the same
+    // batch. RED before: the routing ref still named B's sheet, so A's refusal went into the
+    // unmounting sheet and was lost — the cook would believe A was sold out while it stayed orderable.
+    holdClock();
+    const two = queue();
+    two.tickets.push({
+      ...two.tickets[0]!,
+      cartId: "cart-2",
+      sessionId: "sess-2",
+      tableNumber: 5,
+      label: "T5",
+      lines: [{ ...two.tickets[0]!.lines[0]!, id: "line-2", menuItemId: "mi-2", name: "Laphet" }],
+    });
+    currentQueue = two;
+    const dA = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dA.promise);
+    const q = mount("en", two);
+    const dialogA = await tapEightySix(q);
+    fireEvent.keyDown(dialogA, { key: "Escape" });
+    await waitFor(() => expect(q.queryByRole("dialog")).toBeNull());
+    const dB = deferred<SoldOutRes>();
+    setItemSoldOut.mockImplementationOnce(() => dB.promise);
+    await tapEightySix(q, "Laphet");
+    await act(async () => {
+      dB.resolve({ ok: true, soldOut: true });
+      dA.resolve({ ok: false, error: "That changed.", code: "stale" });
+    });
+    const sentence = tf("en", "kds.err.stale", { x: "Mohinga" });
+    await waitFor(() =>
+      expect(q.container.querySelector('[role="status"]')?.textContent).toBe(sentence),
+    );
+  });
+
   it("a refusal renders in the sheet's region, keeps the sheet open, and refreshes", async () => {
     // MUTATIONS (by hand): route every refusal to the board region — the sheet's region is empty,
     // red; refresh only on ok — no queue read, red.

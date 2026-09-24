@@ -228,6 +228,7 @@ to the dictionary).
 
 - **Codex round 2 (P2, fixed).** A sold-out made in the open ⋯ sheet keeps its OWN six-second Undo: an older sold-out that had landed under that sheet (parked) used to be published the moment the sheet closed and overwrote it. The parked one now says "{x} marked sold out." (no undo promise, `kds.live.86.parked`, K15 draft) and is dropped when a newer one lands; it goes back on from /staff/menu.
 - **Codex round 3 (2× P2, fixed).** The one Undo slot now goes to the NEWEST sold-out tap whichever answer lands first (a tap sequence; the older one says "{x} marked sold out." and offers no Undo), and a late refusal while another dish's sheet is open is shown inside that open sheet (a modal sheet hides the board's region from screen readers).
+- **Codex round 4 (P2 fixed, P2 filed).** The sheet-routing ref now clears in the same step as the sheet closes, so an older refusal that settles in the same batch as a newer success reaches the board instead of vanishing with the unmounting sheet. The second finding (an older success spoken under a newer open sheet) is filed as P2by(c) under the round-3+ rule.
 
 ### Plain words — customer screens (2026-09-24)
 
