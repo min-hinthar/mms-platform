@@ -242,17 +242,17 @@ export function TimelineStrip({
           {onMenu ? (
             cartHref ? (
               <>
-                Whenever you’re ready — settle up from your{" "}
+                Whenever you’re ready — pay from your{" "}
                 <Link href={cartHref} className="nav-link">
                   order
                 </Link>
                 .
               </>
             ) : (
-              <>Settle up whenever you’re ready.</>
+              <>Pay whenever you’re ready.</>
             )
           ) : (
-            <>Whenever you’re ready — settle up below.</>
+            <>Whenever you’re ready — pay below.</>
           )}
         </p>
       )}

@@ -193,7 +193,7 @@ function openSplitRefusal(r: Exclude<SettleResult, "acquired">): string {
     case "closed":
       return "This order is no longer open";
     case "settling_other":
-      return "Another host is already splitting this order";
+      return "Someone else is already splitting this bill";
     case "unavailable":
       return "Couldn’t check this order just now — try again in a moment";
     case "locked":
@@ -227,7 +227,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
       "Splitting the bill across phones isn’t available — pay together here, or at the counter.",
     );
   const { uid, sessionId, role } = await assertCartMember(id);
-  if (role !== "host") throw new Error("Only the host can start the split");
+  if (role !== "host") throw new Error("Only the person who started the table can split the bill");
   // W21 (pre-merge review MED) — split-tender is a DINE-IN table settlement, and this "use server"
   // action is directly POST-able: gating SplitSection client-side left a SECOND charge boundary
   // that skipped every pickup-only rule create-intent enforces (the W5e slot/ASAP honesty gates,
@@ -580,7 +580,8 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
 export async function abortSettlement(cartId: string): Promise<void> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid, role } = await assertCartMember(id);
-  if (role !== "host") throw new Error("Only the host can cancel the split");
+  if (role !== "host")
+    throw new Error("Only the person who started the table can cancel the split");
   await assertMutationRate(uid); // W1·Q6 — abort churns Stripe cancels + ledger deletes; bound it
   const db = serviceClient();
 
@@ -617,7 +618,7 @@ export async function abortSettlement(cartId: string): Promise<void> {
     const foreignFresh =
       row?.settle_at != null && new Date(row.settle_at).getTime() > Date.now() - SETTLE_TTL_MS;
     if (foreignFresh)
-      throw new Error("This table is being settled another way — try again in a moment");
+      throw new Error("This table is being paid another way — try again in a moment");
     if (row?.settle_at != null) {
       // ⚠️ A STALE FOREIGN FREEZE IS CLEARED BEFORE ANYTHING DESTRUCTIVE (Codex round 1 on A3, P1).
       // The first A3 draft walked past it as "it can no longer protect anything" — but
@@ -637,7 +638,7 @@ export async function abortSettlement(cartId: string): Promise<void> {
           .maybeSingle();
         if (againErr) throw new Error("Couldn’t cancel the split just now — try again in a moment");
         if (again?.settle_at != null)
-          throw new Error("This table is being settled another way — try again in a moment");
+          throw new Error("This table is being paid another way — try again in a moment");
       }
     }
   }

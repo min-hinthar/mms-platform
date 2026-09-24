@@ -6,7 +6,7 @@ import { formatSlotLong } from "@/lib/pickupTime";
 /**
  * Menu-header pill for pickup mode: shows the chosen slot ("Pickup · 11:45 AM") and reopens the
  * picker to change it. W5e made ASAP the DEFAULT (a null slot fires immediately at settlement), so
- * with no slot the chip reads "Pickup · ASAP" + "Schedule ›" — an OPTIONAL upgrade, not a required
+ * with no slot the chip reads "Pickup · as soon as possible" + "Schedule ›" — an OPTIONAL upgrade, not a required
  * gate (the diner is never blocked from ordering; they confirm/change timing again at checkout).
  * Reads the slot from the cart context (server-authoritative), so it stays honest with what's scheduled.
  */
@@ -38,7 +38,7 @@ export function PickupSlotChip() {
       }}
     >
       <Icon name="bag" size={16} />
-      {pickupSlot ? `Pickup · ${formatSlotLong(pickupSlot)}` : "Pickup · ASAP"}
+      {pickupSlot ? `Pickup · ${formatSlotLong(pickupSlot)}` : "Pickup · as soon as possible"}
       <span aria-hidden style={{ color: "var(--ac)", fontWeight: "var(--fw-heavy)" }}>
         {pickupSlot ? "Change" : "Schedule ›"}
       </span>

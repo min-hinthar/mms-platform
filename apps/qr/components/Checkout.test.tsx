@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CartItem, CartTotals } from "@mms/db";
 import type { getCartView } from "@/lib/cart";
 import { freezeRecheckDelayMs } from "@/lib/lock-ttl";
+import { t } from "@/lib/i18n";
 
 /**
  * M227 — the WIRING of /cart's refusal explanation, which until this file nothing could see.
@@ -1787,7 +1788,7 @@ describe("Phase 1c — focus lands on the user's own place", () => {
     screen.getByRole("button", { name: "Remove Mohinga" }).focus();
     await press("Remove Mohinga");
     await frames();
-    expect(screen.getByText("Nothing in your cart yet")).toBeTruthy();
+    expect(screen.getByText(t("en", "emptyCartTitle"))).toBeTruthy();
     // MUTATION: drop `ref={headingRef}` from the empty h1, or the swap effect — <body>, red.
     const a = document.activeElement as HTMLElement;
     expect(a.tagName).toBe("H1");

@@ -56,9 +56,9 @@ export function serviceDisclosed(b: ReceiptBreakdownish): boolean {
 /** Verbatim from the checkout's one disclosure element — the receipt repeats the charge, so it
  *  repeats the explanation, word for word. */
 export const SERVICE_CHARGE_DISCLOSURE =
-  "A 5% service charge supports fair kitchen wages and is shared with the team (CA SB-1524). It " +
-  "is not a tip — anything extra above is yours to give. Card fees are built into menu prices; we " +
-  "never add a surcharge on debit.";
+  "The 5% service charge goes toward fair pay for our kitchen staff and is shared with the team. " +
+  "It is not a tip — anything extra above is yours to give. Card fees are already in our menu " +
+  "prices; we never charge extra for paying with a debit card.";
 
 const TZ = "America/Los_Angeles"; // the restaurant's clock — the same TZ rule as every date surface
 const fmtFull = new Intl.DateTimeFormat("en-US", {

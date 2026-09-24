@@ -32,7 +32,7 @@ export type CarryDecision =
 const MINT_FAILED =
   "We couldn’t get this device’s Stars ready to move just now. Try again — or sign in without them.";
 const STASH_FAILED =
-  "This browser wouldn’t save the hand-off for your Stars — private browsing usually does this. Try again in a normal window, or sign in without them.";
+  "This browser wouldn’t let us get your Stars ready to move — private browsing usually does this. Try again in a normal window, or sign in without them.";
 
 /**
  * Decide from the mint's own answer plus what the stash actually reads back.

@@ -3,6 +3,7 @@ import {
   confirmCopy,
   dollars,
   hostSendsCopy,
+  TABLE_STARTER,
   payProceedLabel,
   sentCopy,
   unsentPayNote,
@@ -113,7 +114,7 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
   });
 
   it("falls back to the role, never a blank name", () => {
-    expect(hostSendsCopy(null).en).toMatch(/^Your host sends/);
-    expect(hostSendsCopy("  ").en).toMatch(/^Your host sends/);
+    expect(hostSendsCopy(null).en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
+    expect(hostSendsCopy("  ").en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
   });
 });

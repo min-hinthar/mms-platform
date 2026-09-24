@@ -584,15 +584,16 @@ const MUTANTS = [
     why: 'Codex P2 on #246 \u2014 the escape hatch that was not one. `releasePayAttempt` fails closed without an era (M124, deliberate: the other tab may be behind a live Payment Element), and a SECOND tab on the same device never minted one \u2014 it shares the uid from the cookie session, so it sees the lock as its own and cannot name it. Ignoring `canRelease` restores a sentence that tells that diner to "reopen it" beside a button that can only call refresh(). A control that looks like the way out and is not is worse than no control, and it was the shipped state of this PR\'s first draft',
     find: "      return canRelease",
     replace:
-      '      return true\n        ? "Your checkout still has this order held \u2014 reopen it to make changes."\n        : false',
+      '      return true\n        ? "Your checkout still has this order locked \u2014 reopen the order to make changes."\n        : false',
   },
   {
     id: "freeze/self-claims-a-takeover",
     file: "apps/qr/lib/cart-freeze.ts",
     suite: "lib/cart-freeze.test.ts",
     why: "M116/M119 on a new surface. `superseded` is established ONLY by a release that succeeded and matched nothing (`classifyZeroRow`), and it is reachable from an ordinary declined card \u2014 the webhook calls `releaseCartLock(cartId, null)` cart-wide while the Element stays mounted. These three fields prove the cart is held by this seat and nothing more, so borrowing that vocabulary tells the diner something false AND implies a state they cannot exit",
-    find: '        ? "Your checkout still has this order held \u2014 reopen it to make changes."',
-    replace: '        ? "Another tab took over this checkout \u2014 reopen the order to edit it."',
+    find: '        ? "Your checkout still has this order locked \u2014 reopen the order to make changes."',
+    replace:
+      '        ? "Another window on this phone took over paying for this order \u2014 reopen the order to change it."',
   },
   {
     id: "freeze/tip-follows-the-edit-gate",
@@ -769,7 +770,7 @@ const MUTANTS = [
     file: "apps/qr/components/TableCartProvider.tsx",
     suite: "components/TableCartProvider.test.tsx",
     why: 'The release copy must be true of BOTH axes (blind pass, MEDIUM). A pay-lock can lift while the table is still splitting, and "you can edit again" is then false \u2014 every `addItem`/`setQty` still refuses on `settling`. Rule 1 PINS the release as always-spoken, so without this branch the slice would have guarded a false sentence IN rather than merely left it standing',
-    find: '        ? "The pay-lock lifted \u2014 the order stays locked while your table splits the bill"',
+    find: '        ? "Checkout ended \u2014 the order stays locked while your table splits the bill"',
     replace: '        ? "The order\u2019s unlocked \u2014 you can edit again"',
   },
   {
@@ -1465,7 +1466,7 @@ const MUTANTS = [
     why: "M116/M119 on the recovery sentence. `superseded` is the ONLY reason `classifyZeroRow` establishes a live successor for \u2014 it requires a lock that is still fresh AND stamped with a different era. A rate-limit or a transport failure is OUR outage and establishes nothing about anyone's tab, so borrowing the takeover sentence there tells the diner a live successor is paying when the truth is that our request did not go through",
     find: '    case "rate_limited":\n      return "That was a lot of changes at once',
     replace:
-      '    case "rate_limited":\n      return "Another tab took over this checkout. That was a lot of changes at once',
+      '    case "rate_limited":\n      return "Another window on this phone took over paying for this order. That was a lot of changes at once',
   },
   {
     id: "settle/pay-lock-term-has-no-way-out",
@@ -2432,7 +2433,7 @@ const MUTANTS = [
     file: "apps/qr/lib/dropped-view.ts",
     suite: "lib/dropped-view.test.ts",
     why: 'W23d (adversarial review, HIGH) — every give-up arm on the tracker, visible and spoken, leads with a completed payment ("Your payment went through", "Your payment is safe"). Under manual capture that is false until the order lands, and PaySuccess beside them now says the card is only authorized — so leaving these alone put two contradictory money claims on ONE screen. The claim is named once here precisely so a future edit to either sentence cannot drift from the state it describes.',
-    find: '  return notYetCharged ? "Your card is authorized, not charged yet" : "Your payment went through";',
+    find: '  return notYetCharged ? "Your card is approved, not charged yet" : "Your payment went through";',
     replace: '  return "Your payment went through";',
   },
   {

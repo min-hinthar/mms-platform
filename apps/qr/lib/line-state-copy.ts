@@ -10,7 +10,7 @@ import type { LineState } from "@mms/db";
 
 /** Diner-facing (the cart): warmer phrasing; a voided line reads "Removed". */
 export const DINER_STATE_COPY: Record<LineState, string> = {
-  draft: "In your cart",
+  draft: "Not sent yet",
   fired: "Sent to kitchen",
   in_progress: "Cooking",
   served: "Served",

@@ -24,8 +24,8 @@ export const CONFIRM = {
   // ── authorize a split share (a real hold on the card) ──────────────────────
   confirmAuthorizeLabel: { en: "Confirm your share", my: "သင့်ဝေစု အတည်ပြုပါ" },
   confirmAuthorizeDetail: {
-    en: "It’s a hold on your card — you’re charged once everyone’s authorized.",
+    en: "We reserve the amount on your card now — you’re charged once everyone at the table has put in their card.",
     my: "ကတ်ပေါ်မှာ ကြိုပိတ်ထားတာပါ — အားလုံး အတည်ပြုပြီးမှ ကောက်ခံပါမယ်",
   },
-  confirmAuthorizeProceed: { en: "Yes, authorize", my: "ဟုတ်ကဲ့၊ အတည်ပြုမယ်" },
+  confirmAuthorizeProceed: { en: "Yes, approve", my: "ဟုတ်ကဲ့၊ အတည်ပြုမယ်" },
 } satisfies Record<string, Entry>;

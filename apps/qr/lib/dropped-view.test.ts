@@ -133,8 +133,9 @@ describe("the money claim the timed-out screen may make", () => {
     // lone wrong sentence into two contradictory claims on one screen.
     expect(paidClaim(true)).not.toMatch(/went through|payment (is )?(safe|complete)/i);
     expect(safeClaim(true)).not.toMatch(/payment is safe|went through/i);
-    expect(paidClaim(true)).toMatch(/authorized/i);
-    expect(safeClaim(true)).toMatch(/authorized/i);
+    // Plain words (2026-09-24): the authorization is said as "approved" — still never "went through".
+    expect(paidClaim(true)).toMatch(/approved/i);
+    expect(safeClaim(true)).toMatch(/approved/i);
   });
 
   it("keeps today's wording for every automatic-capture payment", () => {

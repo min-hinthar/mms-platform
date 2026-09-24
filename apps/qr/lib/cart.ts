@@ -85,7 +85,8 @@ export async function addItem(
   const { uid, locked, settling, mode } = await assertCartMember(input.cartId);
   await assertMutationRate(uid); // per-device flood guard (P3.4) — after authz, before the write
   if (locked) throw new Error("Order is locked while someone checks out");
-  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
+  if (settling)
+    throw new Error("Your table is paying — you can’t change the order while everyone pays");
 
   // M108 — the mode comes from `assertCartMember`, which read it off the SAME row it used to prove
   // the session is active and throws 503 when that read fails. The second read this replaced
@@ -153,15 +154,16 @@ export async function setQty(cartItemId: string, qty: number) {
     await assertCartItemMember(input.cartItemId);
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
-  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
+  if (settling)
+    throw new Error("Your table is paying — you can’t change the order while everyone pays");
   // canMutate (M3·P3.3a → S2.1a): a diner may change/remove only an OWN, still-'draft' line (host any
   // draft; guest own). Once fired, editing is staff-only. A comped line is immutable (S2-audit B1). Honest
   // reason per case — a fired line isn't an ownership problem (S2.2 also disables the control client-side).
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     throw new Error(
       lineState === "draft"
-        ? "Only the host can change someone else’s item"
-        : "Ask a server to change an item that’s already gone to the kitchen",
+        ? "Only the person who started the table can change someone else’s item"
+        : "Ask our staff to change an item that’s already gone to the kitchen",
     );
   const db = serviceClient();
   // Status-atomic set/delete (qty<=0 removes) — applies only while the parent cart is 'open' in one
@@ -194,12 +196,13 @@ export async function assignLine(cartItemId: string, seatId: string) {
     await assertCartItemMember(input.cartItemId);
   await assertMutationRate(uid); // per-device flood guard (P3.4)
   if (locked) throw new Error("Order is locked while someone checks out");
-  if (settling) throw new Error("The table is settling up — you can’t edit while everyone pays");
+  if (settling)
+    throw new Error("Your table is paying — you can’t change the order while everyone pays");
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     throw new Error(
       lineState === "draft"
-        ? "Only the host can reassign someone else’s item"
-        : "Ask a server to change an item that’s already gone to the kitchen",
+        ? "Only the person who started the table can move someone else’s item"
+        : "Ask our staff to change an item that’s already gone to the kitchen",
     );
   const db = serviceClient();
   // The target must be at this table — never assign a line to a non-member seat.
@@ -227,7 +230,7 @@ export async function assignLine(cartItemId: string, seatId: string) {
     .from("qr_cart_items")
     .update({ by_seat: input.seatId })
     .eq("id", input.cartItemId);
-  if (error) throw new Error("Could not reassign that item");
+  if (error) throw new Error("Couldn’t move that item");
   const { error: touchErr } = await db
     .from("qr_carts")
     .update({ updated_at: new Date().toISOString() })

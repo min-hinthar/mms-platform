@@ -53,7 +53,7 @@ function contextFor(o: LiveOrder): string {
       // formatSlotLong prefixes the day when it isn't today, so a later pickup never reads ambiguously.
       return o.pickupSlot ? `Pickup · ${formatSlotLong(o.pickupSlot)}` : "Pickup";
     case "grocery":
-      return "Show your exit pass on the way out";
+      return "Show this screen on your way out";
     default:
       return "To-go";
   }

@@ -140,7 +140,7 @@ export function PickupWhenChoice({
     if (asap) return; // already ASAP — nothing to do
     if (!asapAvailable) {
       // Kitchen closed / fully booked — can't go ASAP; keep the current slot and nudge to Schedule.
-      onStatus("The kitchen isn’t taking ASAP orders right now — please schedule a time.");
+      onStatus("The kitchen can’t take right-away orders just now — please pick a time.");
       return;
     }
     const token = ++writeToken.current;
@@ -163,13 +163,13 @@ export function PickupWhenChoice({
             ? "This order is already being paid."
             : r.reason === "locked"
               ? RACED_NOTE
-              : "Couldn’t switch to ASAP — please try again.",
+              : "Couldn’t switch to the soonest time — please try again.",
         );
       } catch {
         if (token !== writeToken.current) return;
         onSlotChange(confirmedSlot.current);
         onRevert();
-        onStatus("Couldn’t switch to ASAP — check your connection and try again.");
+        onStatus("Couldn’t switch to the soonest time — check your connection and try again.");
       }
     });
   }
@@ -252,7 +252,7 @@ export function PickupWhenChoice({
           onClick={chooseAsap}
         >
           <span>
-            <span aria-hidden>⚡ </span>ASAP
+            <span aria-hidden>⚡ </span>Soonest
           </span>
           <small style={subStyle}>{asapAvailable ? `~${prepMinutes} min` : "Unavailable"}</small>
         </button>
@@ -293,7 +293,7 @@ export function PickupWhenChoice({
             ? // Frame ~prep as the cook estimate and point to /track for the confirmed pickup time, so the
               // two surfaces read as one story (create-intent snaps a slot for capacity; /track echoes it).
               `We’ll start it the moment you pay — ready in about ${prepMinutes} min; we’ll confirm your pickup time next.`
-            : "ASAP isn’t available right now — please schedule a pickup time above."
+            : "The soonest time isn’t available right now — please pick a pickup time above."
           : `Ready for pickup ${formatSlotLong(slot)}.`}
       </p>
       <PickupSlotSheet

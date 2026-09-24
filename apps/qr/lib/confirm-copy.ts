@@ -46,7 +46,7 @@ export function confirmCopy(d: ConfirmDecision): ConfirmCopy {
       return {
         ...shared,
         label: t("en", "confirmAuthorizeLabel"),
-        questionEn: `Authorize ${amount} on your card?`,
+        questionEn: `Approve ${amount} on your card?`,
         questionMy: `သင့်ကတ်ပေါ်မှာ ${amount} အတည်ပြုမှာ သေချာပါသလား?`,
         detailEn: t("en", "confirmAuthorizeDetail"),
         detailMy: t("my", "confirmAuthorizeDetail"),
@@ -96,10 +96,15 @@ export function unsentPayNote(unsent: number): { en: string; my: string } | null
  * nothing there at all — their dishes sat in a cart with no sign of how they reach the kitchen.
  * Names the host when the table knows them. The MY line is Claude-authored: K15 check-before-trust.
  */
+/** Plain words (2026-09-24): who the table's "host" is, said the way a guest would say it. "Host" is
+ *  the system's role name; a parent at the table does not know it means "the phone that started the
+ *  table". Read by `hostSendsCopy` and Checkout's unsent-dishes note — one binding, never retyped. */
+export const TABLE_STARTER = "The person who started your table";
+
 export function hostSendsCopy(hostName: string | null): { en: string; my: string } {
   const who = hostName?.trim() || null;
   return {
-    en: `${who ?? "Your host"} sends the table’s order to the kitchen — your dishes go with it.`,
-    my: `${who ? `${who} က` : "အိမ်ရှင်က"} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
+    en: `${who ?? TABLE_STARTER} sends the table’s order to the kitchen — your dishes go with it.`,
+    my: `${who ? `${who} က` : "စားပွဲ စဖွင့်တဲ့သူက" /* K15 draft (plain words 2026-09-24) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
   };
 }

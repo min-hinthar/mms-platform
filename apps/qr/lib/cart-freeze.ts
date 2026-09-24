@@ -224,8 +224,8 @@ export function freezeNotice(
       // close. So the copy has to differ, or the button promises something that cannot happen —
       // which is worse than no button, and was the shipped state of the first draft.
       return canRelease
-        ? "Your checkout still has this order held — reopen it to make changes."
-        : "Another checkout on this device is holding this order. It frees up on its own shortly.";
+        ? "Your checkout still has this order locked — reopen the order to make changes."
+        : "This order is open for paying in another window on this phone. It unlocks on its own shortly.";
     case "held":
       return "This order’s locked while a checkout finishes.";
     default:
@@ -262,7 +262,7 @@ export function reopenFailureNotice(
   if (outcome.released) return null;
   switch (outcome.reason) {
     case "superseded":
-      return "Another tab took over this checkout — that one is paying. This order unlocks when it finishes.";
+      return "Another window on this phone took over paying for this order. It unlocks when that finishes.";
     case "not_held":
       return "That checkout is already over. If the order still shows as locked, it clears on its own in a moment.";
     case "paying":

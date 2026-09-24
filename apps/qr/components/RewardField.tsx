@@ -19,7 +19,7 @@ const REASON: Record<ApplyRewardReason, string> = {
   // one moment" promise: a pay attempt abandoned mid-lock leaves that state standing (the lock
   // TTL lives in the app layer, not this predicate — OPEN-ITEMS M53), so a time claim could be
   // false and never resolve. Name the state, promise nothing.
-  in_use: "That reward’s held by an order that’s mid-payment.",
+  in_use: "That reward is being used on an order that’s being paid right now.",
   busy: "The order’s being paid — you can’t change it right now.",
   cart_closed: "This order is already being paid.",
   rate_limited: "Too many tries — wait a minute, then try again.",

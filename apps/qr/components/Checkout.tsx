@@ -95,7 +95,7 @@ import {
   type CheckoutStage,
 } from "@/lib/checkout-stage";
 import { normalizeHash, onHistoryPop, type CheckoutHash } from "@/lib/checkout-history";
-import { hostSendsCopy } from "@/lib/confirm-copy";
+import { hostSendsCopy, TABLE_STARTER } from "@/lib/confirm-copy";
 import { t, type DictKey } from "@/lib/i18n";
 
 // W16b — ALWAYS bilingual (owner directive): EN is the primary voice, MY the Padauk accent on the
@@ -1773,7 +1773,7 @@ export function Checkout({
       // nobody re-asked. The re-read below is issued after, so it still wins normally.
       confirmedWrite(viewSeqRef.current);
       setCounterAt(r.counterRequestedAt);
-      setStatus("We’ll settle up at the counter — show them this screen whenever you’re ready.");
+      setStatus("We’ll pay at the counter — show them this screen whenever you’re ready.");
       void refresh();
     } catch {
       setCounterAt(confirmed);
@@ -1976,7 +1976,7 @@ export function Checkout({
       }
       if (!readReachedServer(outcome))
         setPayError(
-          "Couldn’t check just now — try again in a moment. The lock also clears on its own.",
+          "Couldn’t check just now — try again in a moment. The order also unlocks on its own.",
         );
     } finally {
       setRecheckingLock(false);
@@ -2093,7 +2093,7 @@ export function Checkout({
         // through because none is an established fact — land on a frozen screen that says why and
         // offers Reopen, instead of one that accepts taps and discards them.
         setPayError(
-          "Another tab took over this checkout — that one is paying. Reopen the order to edit it.",
+          "Another window on this phone took over paying for this order. Reopen the order to change it.",
         );
         return false;
       }
@@ -2988,7 +2988,7 @@ export function Checkout({
                     {sendBlocksPay
                       ? canSendToKitchen
                         ? "Send them to the kitchen, then pay the bill."
-                        : `${hostName ?? "Your host"} sends them — then the bill is ready to pay.`
+                        : `${hostName ?? TABLE_STARTER} sends them — then the bill is ready to pay.`
                       : "They’ll be sent to the kitchen the moment you pay."}
                   </span>
                   <span
@@ -3756,7 +3756,8 @@ export function Checkout({
                 }}
               >
                 <Icon name="check" size={15} />
-                Card on file — pay here anytime, or just leave and we’ll close your bill.
+                Your card is saved — pay here anytime, or just leave and we’ll charge the bill to
+                it.
               </p>
             )}
 
@@ -3772,7 +3773,7 @@ export function Checkout({
                   textAlign: "center",
                 }}
               >
-                The split above is just a reference for settling up among yourselves.
+                The split above is just a guide for sharing the cost among yourselves.
               </p>
             )}
             {/* The ONE polite live region for the review step (QA §A P1) — carries the pay-start
@@ -3847,7 +3848,7 @@ const customTipWrap: CSSProperties = {
 // per line). `comped` takes precedence over `state` (a comped line keeps its kitchen state but reads
 // "Comped" to the diner).
 function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped: boolean }) {
-  const label = comped ? "Comped" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
+  const label = comped ? "On the house" : DINER_STATE_COPY[state]; // S12: one shared vocabulary
   const glyph = comped ? (
     <Icon name="gift" size={15} />
   ) : state === "served" ? (
@@ -3862,8 +3863,8 @@ function LineStateChip({ state, comped }: { state: CartItem["lineState"]; comped
   const hint = comped
     ? " — on the house, no charge"
     : state === "voided"
-      ? " — removed by a server"
-      : " — ask a server to make changes";
+      ? " — removed by our staff"
+      : " — ask our staff to make changes";
   return (
     <span
       style={{
@@ -4060,7 +4061,7 @@ function BillLines({
                 to-go pay step. Branch on the line's OWN fulfillment, the same key BILL_GROUPS
                 uses — never on the session mode, since one basket can hold all three. */}
             {i.comped
-              ? "Comped — on the house"
+              ? "On the house — no charge"
               : i.lineState === "draft"
                 ? i.fulfillment === "dinein"
                   ? "Not sent yet — on your bill"

@@ -142,7 +142,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
           reason below, so a screen-reader user hears why "20%" is dimmed instead of just that it is. */}
       <div
         role="group"
-        aria-label={held ? "Tip — locked in with your authorization" : "Add a tip to your share"}
+        aria-label={held ? "Tip — set when your card was approved" : "Add a tip to your share"}
         aria-describedby={held ? "share-tip-locked" : undefined}
         style={{ display: "flex", gap: 8 }}
       >
@@ -194,7 +194,7 @@ export function SharePay({ cartId, onAuthorized }: { cartId: string; onAuthorize
           id="share-tip-locked"
           style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", margin: "8px 0 0" }}
         >
-          Your card is authorized for this amount, so the tip is set.
+          Your card is approved for this amount, so the tip is set.
         </p>
       )}
 
@@ -317,7 +317,7 @@ function ShareForm({
       redirect: "if_required",
     });
     if (payErr) {
-      setError(payErr.message ?? "Payment couldn’t be authorized. Please try another card.");
+      setError(payErr.message ?? "Your card wasn’t accepted. Please try another card.");
       setSubmitting(false);
       setConfirming(false); // back to a live button so a declined card can be retried
       return;
@@ -332,7 +332,9 @@ function ShareForm({
     }
     // Rare non-terminal status (e.g. still processing) with no error — re-enable + tell the diner
     // honestly rather than leaving a dead button.
-    setError("Your payment is still processing — watch the board for your status.");
+    setError(
+      "Your payment is still processing — watch your row in the table’s list for your status.",
+    );
     setSubmitting(false);
     setConfirming(false);
   }
@@ -373,8 +375,8 @@ function ShareForm({
                   The second sentence is the part we had to ASK about — blaming ourselves needs the
                   probe's verdict, and "it'll catch up" was a promise the code can't keep during a
                   real outage. */}
-              Your card is authorized — no charge yet; nothing is captured until the whole table is
-              in.{" "}
+              Your card is approved — no charge yet; nobody is charged until everyone at the table
+              has put in their card.{" "}
               {truth === "we-down"
                 ? "We’re having trouble on our end, so your row may still say Waiting."
                 : truth === "you-offline"
@@ -426,7 +428,7 @@ function ShareForm({
         <ConfirmSwap
           copy={confirmCopy({ kind: "authorizeShare", amountCents })}
           busy={submitting}
-          busyLabel="Authorizing…"
+          busyLabel="Approving…"
           onCancel={() => setConfirming(false)}
           onProceed={() => void authorize()}
         />
@@ -454,12 +456,12 @@ function ShareForm({
             opacity: boardStale ? 1 : !stripe || submitting ? 0.7 : 1,
           }}
         >
-          {boardStale ? "Card authorized" : submitting ? "Authorizing…" : `Authorize ${dollars}`}
+          {boardStale ? "Card approved" : submitting ? "Approving…" : `Approve ${dollars}`}
         </button>
       )}
       <p style={{ fontSize: "var(--fs-xs)", color: "var(--t3)", marginTop: 8, lineHeight: 1.5 }}>
-        You’re only authorized now — your card is charged when everyone at the table has paid their
-        share.
+        Nothing is charged yet — your card is charged when everyone at the table has put in their
+        card.
       </p>
     </form>
   );
