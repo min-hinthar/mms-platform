@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { changeDue, laDayStartIso, summarizeDay } from "./register-math";
+import {
+  CASH_LADDER_CENTS,
+  cashSettleBlocked,
+  changeAsTipCents,
+  changeDue,
+  handoffRows,
+  laDayStartIso,
+  quickCashTenders,
+  summarizeDay,
+  tenderState,
+} from "./register-math";
+import { TIP_AMOUNT_MAX_CENTS } from "./tip";
 
 describe("summarizeDay — the Z-report buckets", () => {
   it("buckets paid orders by tender and keeps refunded APART (never netted)", () => {
@@ -143,5 +154,145 @@ describe("laDayStartIso — the LA day window", () => {
   it("early-UTC evening still maps to the LA date, not the UTC date", () => {
     // 2026-07-16T03:00Z is 2026-07-15 20:00 PDT — the LA day is still the 15th.
     expect(laDayStartIso(new Date("2026-07-16T03:00:00Z"))).toBe("2026-07-15T07:00:00.000Z");
+  });
+});
+
+// ── Phase 2c · register ── the cash moment: what the cashier counts at the drawer ────────────────
+
+describe("quickCashTenders — Exact plus three round-ups (the owner's ladder)", () => {
+  // Computed in node from the algorithm (scratch `ladder.mjs`), pasted — never typed by hand.
+  it.each([
+    [425, [500, 1000, 2000]],
+    [987, [1000, 2000, 5000]],
+    [1347, [1400, 1500, 2000]],
+    [1860, [1900, 2000, 5000]],
+    [2000, [2500, 3000, 4000]],
+    [2150, [2200, 2500, 3000]],
+    [2780, [2800, 3000, 4000]],
+    [3415, [3500, 4000, 5000]],
+    [4210, [4300, 4500, 5000]],
+    [4500, [5000, 6000, 10000]],
+    [5010, [5100, 5500, 6000]],
+    [6210, [6300, 6500, 7000]],
+    [8840, [8900, 9000, 10000]],
+    [9950, [10000, 10500, 11000]],
+    [10000, [10500, 11000, 12000]],
+    [13625, [13700, 14000, 15000]],
+  ])("%i → %j", (due, notes) => {
+    // MUTATIONS: `ceil` for `floor+1` (2000 offers $20 — the Exact chip twice); no dedupe (425 offers
+    // $5 twice); no whole-dollar $1 skip (2000 offers $21, a note nobody hands over) — each red here.
+    expect(quickCashTenders(due)).toEqual(notes);
+  });
+
+  it("offers nothing for a due that is not a positive whole number of cents", () => {
+    for (const bad of [0, -1, Number.NaN, 13.5, Number.POSITIVE_INFINITY])
+      expect(quickCashTenders(bad)).toEqual([]);
+  });
+
+  it("a custom ladder that does not divide itself still reads ascending", () => {
+    // [300, 700] at 650 builds 900 then 700 then 1400 — only the sort puts them in order.
+    // MUTATION: drop the sort — [900, 700, 1400]; red.
+    expect(quickCashTenders(650, [300, 700])).toEqual([700, 900, 1400]);
+  });
+
+  it("the default ladder is the house's notes, $1 to $100", () => {
+    expect(CASH_LADDER_CENTS).toEqual([100, 500, 1000, 2000, 5000, 10000]);
+  });
+
+  it("property: every due in 1..200000 gets exactly three notes, each above it, strictly ascending", () => {
+    let violations = 0;
+    for (let due = 1; due <= 200_000; due++) {
+      const n = quickCashTenders(due);
+      const ok =
+        n.length === 3 &&
+        n.every((c, i) => Number.isInteger(c) && c > due && (i === 0 || c > n[i - 1]!));
+      if (!ok) violations += 1;
+    }
+    expect(violations).toBe(0);
+  });
+});
+
+describe("tenderState — what the readout says", () => {
+  it("no tender (empty, zero, not a whole number of cents) says nothing", () => {
+    expect(tenderState(1347, null)).toEqual({ kind: "none" });
+    // MUTATION: drop the ≤0 guard — a typed 0 reads Short $13.47 and blocks the settle; red.
+    expect(tenderState(1347, 0)).toEqual({ kind: "none" });
+    expect(tenderState(1347, -5)).toEqual({ kind: "none" });
+    expect(tenderState(1347, 20.5)).toEqual({ kind: "none" });
+  });
+  it("equal is exact; over is change (through changeDue); under is short", () => {
+    expect(tenderState(1347, 1347)).toEqual({ kind: "exact" });
+    // MUTATION: swap the change and short arms — 2000 reads short, 1300 reads change; red.
+    expect(tenderState(1347, 2000)).toEqual({ kind: "change", changeCents: 653 });
+    expect(tenderState(1347, 1300)).toEqual({ kind: "short", shortCents: 47 });
+  });
+});
+
+describe("cashSettleBlocked — the ONE binding Settle's dim, its description and its handler read", () => {
+  it("blocks on a short tender and never on the others", () => {
+    // MUTATION: ignore `short` — Settle stays live beside "Short $2.10"; red.
+    expect(cashSettleBlocked(0, { kind: "short", shortCents: 210 })).toBe("short");
+    expect(cashSettleBlocked(0, { kind: "none" })).toBeNull();
+    expect(cashSettleBlocked(0, { kind: "exact" })).toBeNull();
+    expect(cashSettleBlocked(0, { kind: "change", changeCents: 790 })).toBeNull();
+  });
+  it("blocks a tip over the house cap, at the cap exactly it does not — the cap named once (lib/tip)", () => {
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS + 1, { kind: "none" })).toBe("tipCap");
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS, { kind: "none" })).toBeNull();
+    // An unreadable tip WITH digits in it (past seven whole-dollar digits) is over any cap.
+    expect(cashSettleBlocked(null, { kind: "none" })).toBe("tipCap");
+    // The cap outranks short: the tip line is the one to fix first.
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS + 1, { kind: "short", shortCents: 1 })).toBe(
+      "tipCap",
+    );
+  });
+});
+
+describe("changeAsTipCents — keep the change is a FILL, offered only when change is owed", () => {
+  it("the whole over-tender becomes the tip", () => {
+    expect(changeAsTipCents(4210, 5000, 0)).toBe(790);
+    // An existing tip smaller than the over-tender still leaves change to keep.
+    expect(changeAsTipCents(4210, 5000, 300)).toBe(790);
+  });
+  it("is not offered once the tip already takes it all, on an exact tender, or with no tender", () => {
+    // MUTATION: `>` → `>=` — offered when the readout already says "Exact — no change"; red.
+    expect(changeAsTipCents(4210, 5000, 790)).toBeNull();
+    expect(changeAsTipCents(4210, 4210, 0)).toBeNull();
+    expect(changeAsTipCents(4210, null, 0)).toBeNull();
+    expect(changeAsTipCents(4210, 0, 0)).toBeNull();
+    expect(changeAsTipCents(4210, 4000, 0)).toBeNull();
+  });
+  it("never offers a tip the settle would refuse (over the house cap)", () => {
+    expect(changeAsTipCents(100, 100 + TIP_AMOUNT_MAX_CENTS, 0)).toBe(TIP_AMOUNT_MAX_CENTS);
+    expect(changeAsTipCents(100, 101 + TIP_AMOUNT_MAX_CENTS, 0)).toBeNull();
+  });
+});
+
+describe("handoffRows — the paid card's receipt rows, zero-gated, in order", () => {
+  it("total, tip, tendered, then the change (six-fifty-three on a $20 for $13.47)", () => {
+    expect(handoffRows(1347, null, 2000)).toEqual([
+      { k: "total", cents: 1347 },
+      { k: "tendered", cents: 2000 },
+      { k: "change", cents: 653 },
+    ]);
+    expect(handoffRows(5000, 790, 5000)).toEqual([
+      { k: "total", cents: 5000 },
+      { k: "tip", cents: 790 },
+      { k: "tendered", cents: 5000 },
+      // Exact is still a row — "Change $0.00" is the fact the cashier reads before closing the drawer.
+      { k: "change", cents: 0 },
+    ]);
+  });
+  it("a short tender says what is still to collect, never a change row", () => {
+    // MUTATION: emit change on a short tender — a card that reads "Change $0.00" while $2.10 is owed; red.
+    expect(handoffRows(4210, 0, 4000)).toEqual([
+      { k: "total", cents: 4210 },
+      { k: "tendered", cents: 4000 },
+      { k: "collect", cents: 210 },
+    ]);
+  });
+  it("no tender: the total alone (the reader's counter card, a counter exact settle)", () => {
+    expect(handoffRows(1347, null, null)).toEqual([{ k: "total", cents: 1347 }]);
+    expect(handoffRows(1347, 0, 0)).toEqual([{ k: "total", cents: 1347 }]);
   });
 });

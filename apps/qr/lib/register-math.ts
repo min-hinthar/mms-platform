@@ -1,8 +1,11 @@
 import { dayStartIso } from "./day-window";
-// Register money math (W6a) — pure, no I/O, mutation-tested via verify:slice. Two concerns:
-// the day summary (Z-report-lite buckets) and the counter's change arithmetic. Every value is
-// integer CENTS. The charge itself is NEVER computed here — getCartTotals owns it; this module
-// only aggregates already-settled orders and helps a cashier count drawer change.
+import { tipWithinAmountCap } from "./tip";
+// Register money math (W6a) — pure, no I/O, mutation-tested via verify:slice. Three concerns:
+// the day summary (Z-report-lite buckets), the counter's change arithmetic, and (Phase 2c) what the
+// cashier counts at the drawer — the quick-cash notes, the tender's readout, keep-the-change and the
+// paid card's rows. Every value is integer CENTS. The charge itself is NEVER computed here —
+// getCartTotals owns it; this module only aggregates already-settled orders and helps a cashier
+// count drawer change. Nothing below reaches a Server Action as an amount.
 
 export type DayOrderRow = {
   tender: string;
@@ -112,4 +115,129 @@ export function changeDue(totalCents: number, tenderedCents: number): number {
  *  verified there, never by a fixed-offset subtraction here. */
 export function laDayStartIso(now: Date): string {
   return dayStartIso(now.toISOString(), "America/Los_Angeles");
+}
+
+// ── Phase 2c · register ── the cash moment (DESIGN-LANGUAGE §29) ──────────────────────────────────
+
+/** The house's notes, $1 to $100 — the round-ups a guest actually hands over. A PARAMETER of
+ *  `quickCashTenders`, defaulted, so a custom ladder can prove the sort (see its test). */
+export const CASH_LADDER_CENTS: readonly number[] = [100, 500, 1000, 2000, 5000, 10000];
+
+/**
+ * The quick-cash chips after "Exact": the next THREE notes a guest is likely to hand over for `due`
+ * (owner decision: exact + round-ups, as Square and Toast do — $13.47 → $14 · $15 · $20). The Exact
+ * chip is rendered from `due` itself, never returned here.
+ *
+ * Each pass walks the ladder from the smallest note, offering the next multiple ABOVE the floor
+ * (`floor(floor/d)+1`, so a note never equals the floor — that would be Exact twice). The $1 step is
+ * skipped when the floor is already whole dollars ($20.00 is never offered $21). When a pass yields
+ * fewer than three (every note rounds to the same value — $99.50 → $100 six times), the next pass
+ * climbs from the highest note found. Sorted at the end: only a ladder whose steps do not divide one
+ * another can produce them out of order. Integer cents only; `[]` for anything that is not a
+ * positive whole number of cents.
+ */
+export function quickCashTenders(
+  dueCents: number,
+  ladder: readonly number[] = CASH_LADDER_CENTS,
+  max = 3,
+): number[] {
+  if (!Number.isSafeInteger(dueCents) || dueCents <= 0) return [];
+  const notes: number[] = [];
+  let floor = dueCents;
+  for (let pass = 0; pass < max && notes.length < max; pass++) {
+    for (const d of ladder) {
+      if (notes.length >= max) break;
+      if (d === ladder[0] && floor % d === 0) continue;
+      const c = (Math.floor(floor / d) + 1) * d;
+      if (!notes.includes(c)) notes.push(c);
+    }
+    floor = notes[notes.length - 1] ?? floor;
+  }
+  return notes.sort((a, b) => a - b);
+}
+
+/** What the tendered figure says against what is due. */
+export type TenderState =
+  | { kind: "none" }
+  | { kind: "exact" }
+  | { kind: "change"; changeCents: number }
+  | { kind: "short"; shortCents: number };
+
+/**
+ * The sheet's readout (and the paid card's last row). No tender — empty, zero, or not a whole number
+ * of cents — says NOTHING: the tender is optional (owner decision), so an untouched field must never
+ * read "Short" and block a cashier who simply did not type one. The change arm CALLS `changeDue`, so
+ * the one change rule (never negative) is the one this reads.
+ */
+export function tenderState(dueCents: number, tenderedCents: number | null): TenderState {
+  if (tenderedCents == null || !Number.isSafeInteger(tenderedCents) || tenderedCents <= 0)
+    return { kind: "none" };
+  if (tenderedCents === dueCents) return { kind: "exact" };
+  if (tenderedCents > dueCents)
+    return { kind: "change", changeCents: changeDue(dueCents, tenderedCents) };
+  return { kind: "short", shortCents: dueCents - tenderedCents };
+}
+
+/**
+ * Why the cash Settle refuses right now, or null (§22: a rule that gates a money action is ONE
+ * binding — the button's `aria-disabled`, its `aria-describedby` and its handler all read this).
+ *
+ *  - `tipCap` — the tip is over the house ceiling (`tipWithinAmountCap`, named once in lib/tip), or
+ *    it could not be read as an amount although it holds digits (`null`: more than seven whole-dollar
+ *    digits — past any cap, so never read as a zero tip). It outranks `short`: the tip is the line
+ *    to fix first, and the short figure depends on it.
+ *  - `short` — a tender WAS entered and is less than what is due. Tendered is optional; it blocks
+ *    only when it says the drawer would be short.
+ */
+export function cashSettleBlocked(
+  tipCents: number | null,
+  tender: TenderState,
+): "tipCap" | "short" | null {
+  if (tipCents == null || !tipWithinAmountCap(tipCents)) return "tipCap";
+  if (tender.kind === "short") return "short";
+  return null;
+}
+
+/**
+ * "Keep the change as tip": the tip that would make the tender exact — `tendered − total`, where
+ * `total` is the PRE-tip total the sheet quotes. Offered only while change is actually owed (the
+ * over-tender is MORE than the tip already typed) and only when the settle would accept it (inside
+ * the house cap). It is a FILL: the component writes it into the tip field, where it stays visible
+ * and editable in the Settle label before anything is recorded — it never commits.
+ */
+export function changeAsTipCents(
+  totalCents: number,
+  tenderedCents: number | null,
+  tipCents: number,
+): number | null {
+  if (tenderedCents == null || !Number.isSafeInteger(tenderedCents) || tenderedCents <= 0)
+    return null;
+  const keep = tenderedCents - totalCents;
+  if (!(keep > tipCents)) return null;
+  return tipWithinAmountCap(keep) ? keep : null;
+}
+
+export type HandoffRow = { k: "total" | "tip" | "tendered" | "change" | "collect"; cents: number };
+
+/**
+ * The paid card's receipt rows, in reading order and zero-gated: the persisted ALL-IN total always;
+ * the tip when one was recorded; the tender when one was entered; then — from `tenderState` against
+ * that total — the change (0 on an exact tender: the cashier reads "Change $0.00" before closing the
+ * drawer) or what is still to collect (a belt: the compare-and-swap and the short-block make it
+ * unreachable in normal flow). Nothing after the total when no tender was entered.
+ */
+export function handoffRows(
+  totalCents: number,
+  tipCents: number | null,
+  tenderedCents: number | null,
+): HandoffRow[] {
+  const rows: HandoffRow[] = [{ k: "total", cents: totalCents }];
+  if (tipCents != null && tipCents > 0) rows.push({ k: "tip", cents: tipCents });
+  if (tenderedCents == null) return rows;
+  const tender = tenderState(totalCents, tenderedCents);
+  if (tender.kind === "none") return rows;
+  rows.push({ k: "tendered", cents: tenderedCents });
+  if (tender.kind === "short") rows.push({ k: "collect", cents: tender.shortCents });
+  else rows.push({ k: "change", cents: tender.kind === "change" ? tender.changeCents : 0 });
+  return rows;
 }
