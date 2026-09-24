@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { clearTable } from "@/lib/floor";
+import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { tf } from "@/lib/i18n/fill";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -48,8 +49,9 @@ export function ClearTableButton({
       setError(res.error);
       return;
     }
-    // Session closed — return to the floor (this detail is now defunct).
-    router.replace("/staff");
+    // Session closed — return to the floor (this detail is now defunct). Phase 2a · tablet: the
+    // floor BY NAME — a bare `/staff` resolves by the door cookie and could land on the doors.
+    router.replace(STAFF_DOOR_TARGET.counter);
     router.refresh();
   }
 

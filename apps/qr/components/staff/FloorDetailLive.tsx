@@ -170,12 +170,19 @@ export function FloorDetailLive({
     hadRealFocus.current = document.activeElement !== document.body;
   }, [detail]);
 
+  // Phase 2a · tablet — false once the poll effect has cleaned up (unmount, or a new `refresh`). A
+  // read already in the air when the server taps "+ Add items" used to land on the unmounted page
+  // and, on a `closed` verdict, `router.replace` them OFF the add page they had just opened (the
+  // /add yank). Every setState and router call below the await is behind this.
+  const alive = useRef(true);
+
   const refresh = useCallback(async () => {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
       // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
       const res = await raceTimeout(getTableDetail(sessionId));
+      if (!alive.current) return;
       if (res.kind === "detail") {
         setDetail(res.detail);
         fails.current = 0;
@@ -186,8 +193,9 @@ export function FloorDetailLive({
         // W6c exception: the terminal webhook CLOSES a counter session moments after fulfilling —
         // bouncing now would yank the collect panel / #CODE handoff card out from under the
         // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
+        // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
         if (!terminalFlowLive.current) {
-          router.replace("/staff");
+          router.replace(STAFF_DOOR_TARGET.counter);
           router.refresh();
         }
       } else if (res.kind === "signin") {
@@ -198,6 +206,7 @@ export function FloorDetailLive({
         setDegraded((d) => nextDegraded(d, "outage", Date.now()));
       }
     } catch (e) {
+      if (!alive.current) return;
       // Cause `unknown` — this end failed, which isn't evidence the platform is down.
       fails.current += 1;
       setNowMs(Date.now());
@@ -223,8 +232,10 @@ export function FloorDetailLive({
   useFloorRealtime(true, onChange, sessionId, detail.cartId);
 
   useEffect(() => {
+    alive.current = true;
     const id = setInterval(refresh, 5000);
     return () => {
+      alive.current = false;
       clearInterval(id);
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

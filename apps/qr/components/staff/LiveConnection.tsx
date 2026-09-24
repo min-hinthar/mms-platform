@@ -22,6 +22,8 @@ type Ctx = {
   connection: ReportConnection;
   states: Readonly<Record<string, LiveBoardState>>;
   report: (board: string, state: LiveBoardState) => void;
+  /** Phase 2a · tablet — a board's report leaves with the board (its unmount). STABLE identity. */
+  remove: (board: string) => void;
 };
 const LiveConnectionContext = createContext<Ctx | null>(null);
 
@@ -30,10 +32,17 @@ export function LiveConnectionProvider({ children }: { children: ReactNode }) {
   const report = useCallback((board: string, state: LiveBoardState) => {
     setReports((r) => (r[board] === state ? r : { ...r, [board]: state }));
   }, []);
+  const remove = useCallback((board: string) => {
+    setReports((r) => {
+      if (!(board in r)) return r;
+      const { [board]: _gone, ...rest } = r;
+      return rest;
+    });
+  }, []);
   const connection = aggregateConnection(reports);
   const value = useMemo(
-    () => ({ connection, states: reports, report }),
-    [connection, reports, report],
+    () => ({ connection, states: reports, report, remove }),
+    [connection, reports, report, remove],
   );
   return <LiveConnectionContext.Provider value={value}>{children}</LiveConnectionContext.Provider>;
 }
@@ -56,4 +65,11 @@ export function useReportLive(board: string, state: LiveBoardState): void {
   useEffect(() => {
     ctx?.report(board, state);
   }, [ctx, board, state]);
+  // Phase 2a · tablet — and withdraws it when it unmounts, or a board that last said
+  // `not_updating` would hold the screen's word after it is gone. A SEPARATE, unmount-only effect
+  // keyed on the provider's STABLE `remove` — never on `ctx`, whose identity changes with every
+  // report: a cleanup on `ctx` would remove-then-re-add on each state change, and since the
+  // re-added map is a new object the provider would re-render into the same cycle forever.
+  const remove = ctx?.remove;
+  useEffect(() => () => remove?.(board), [remove, board]);
 }
