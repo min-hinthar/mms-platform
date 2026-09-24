@@ -1564,9 +1564,9 @@ export function OrderTracker({
             {menuLinkText(backMode)}
           </Link>
           {/* The rewards hub's diner-facing entry point on a REVISIT (viewport-prefetched by <Link>).
-            On a fresh payment the goodbye beat carries the rewards door for everyone instead — one
-            clear door, decided once at mount (never a link that vanishes underfoot when the progress
-            poll resolves — focus would drop to <body>). */}
+            On a fresh payment the door is decided by `successRewardsDoor` instead (Phase 1c: the save
+            card for a guest earner, else the goodbye beat's link) — one clear door, and never a link
+            that vanishes underfoot when the progress poll resolves (focus would drop to <body>). */}
           {arrived && !justPaid && (
             <Link href="/account" className="nav-link">
               View your rewards{" "}
