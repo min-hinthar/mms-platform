@@ -73,12 +73,17 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
   ref,
 ) {
   const inert = disabled || busy;
+  // A caller's own `aria-disabled` may ADD a refusal, never remove the primitive's: `...rest` is spread
+  // FIRST and the primitive's state last, because an explicit `aria-disabled={x || undefined}` is still a
+  // key and, spread after, erased a busy Button's refusal (Phase 2a, LEARNINGS #139).
+  const callerRefuses = rest["aria-disabled"] === true || rest["aria-disabled"] === "true";
   return (
     <button
+      {...rest}
       ref={ref}
       type={type}
       className={buttonClass({ variant, size, block, className })}
-      aria-disabled={inert || undefined}
+      aria-disabled={inert || callerRefuses || undefined}
       aria-busy={busy || undefined}
       onClick={(e: MouseEvent<HTMLButtonElement>) => {
         // The one refusal point. `preventDefault` also stops a type="submit" button's implicit form
@@ -89,7 +94,6 @@ export const Button = forwardRef<HTMLButtonElement, Props>(function Button(
         }
         onClick?.(e);
       }}
-      {...rest}
     >
       {busy ? <span className="ui-btn-spinner" aria-hidden /> : null}
       {arrow === "back" ? (

@@ -2611,3 +2611,8 @@ smallest: an over-cap tip would have settled as no tip.
 `undefined` explicitly is still a key in the spread. Spread the attribute only when it is true
 (`{...(x ? { "aria-disabled": true } : {})}`). Same family as the swipe hook whose `style` replaced
 an earlier `style` prop: the LAST spread wins wholesale.
+
+**Fixed at the source the same day:** `button.tsx` now spreads `...rest` FIRST and writes its own
+`aria-disabled` / `aria-busy` last, OR-ing in a caller's `aria-disabled={true}` (pinned by
+`packages/ui/src/__tests__/button-state.test.ts`, red on the old order). The rule generalises: a
+primitive that DERIVES an attribute from its props must spread caller props BEFORE it, never after.
