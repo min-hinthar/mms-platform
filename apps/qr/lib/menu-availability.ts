@@ -168,7 +168,7 @@ export async function setItemSoldOut(raw: unknown): Promise<SetItemSoldOutResult
     console.error("[menu-availability] audit insert failed", auditErr.message);
     return {
       ok: false,
-      error: `${before.name_en} is ${soldOut ? "off the menu" : "back on"}, but the change wasn’t logged — tell the owner it was you.`,
+      error: `${before.name_en} is ${soldOut ? "sold out" : "back on"}, but the change wasn’t logged — tell the owner it was you.`,
       code: "sentence",
     };
   }

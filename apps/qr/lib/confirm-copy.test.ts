@@ -3,7 +3,9 @@ import {
   confirmCopy,
   dollars,
   hostSendsCopy,
+  TABLE_SENDER_THIRD,
   TABLE_STARTER,
+  TABLE_STARTER_MID,
   payProceedLabel,
   sentCopy,
   unsentPayNote,
@@ -116,5 +118,23 @@ describe("Phase 1b — a guest who is not the host is told who sends", () => {
   it("falls back to the role, never a blank name", () => {
     expect(hostSendsCopy(null).en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
     expect(hostSendsCopy("  ").en.startsWith(`${TABLE_STARTER} sends`)).toBe(true);
+  });
+});
+
+describe("TABLE_STARTER — the host named by ROLE, one binding in every person (blind review)", () => {
+  it("names who SENDS the orders, never who started the table — a staff-opened table's host only scanned", () => {
+    // register.ts opens a staff table with host_seat NULL and /api/session hands the role to the
+    // first diner who scans: "started the table" was false for every such host.
+    for (const s of [TABLE_STARTER, TABLE_STARTER_MID, TABLE_SENDER_THIRD]) {
+      expect(s).toMatch(/sending (your|the) table’s orders$/);
+      expect(s).not.toMatch(/start/i);
+    }
+    expect(TABLE_STARTER_MID).toBe(TABLE_STARTER.charAt(0).toLowerCase() + TABLE_STARTER.slice(1));
+  });
+
+  it("the staff console's anonymous send note reads the SAME third-person words", async () => {
+    const { STAFF } = await import("./i18n/staff");
+    const third = TABLE_SENDER_THIRD.charAt(0).toUpperCase() + TABLE_SENDER_THIRD.slice(1);
+    expect(STAFF["table.send.hostNote.anon"].en.startsWith(`${third} `)).toBe(true);
   });
 });

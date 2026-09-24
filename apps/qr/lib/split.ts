@@ -16,6 +16,7 @@ import { SETTLE_TTL_MS } from "./lock-ttl";
 import { releaseHold } from "./split-hold";
 import { payBlockedByUnsent } from "./checkout-stage";
 import { kitchenDraftUnits } from "./unsent-read";
+import { TABLE_STARTER_MID } from "./confirm-copy";
 
 /**
  * W11 (M43) — the durable half of "we are knowingly walking away from money". Every call site below
@@ -227,7 +228,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
       "Splitting the bill across phones isn’t available — pay together here, or at the counter.",
     );
   const { uid, sessionId, role } = await assertCartMember(id);
-  if (role !== "host") throw new Error("Only the person who started the table can split the bill");
+  if (role !== "host") throw new Error(`Only ${TABLE_STARTER_MID} can split the bill`);
   // W21 (pre-merge review MED) — split-tender is a DINE-IN table settlement, and this "use server"
   // action is directly POST-able: gating SplitSection client-side left a SECOND charge boundary
   // that skipped every pickup-only rule create-intent enforces (the W5e slot/ASAP honesty gates,
@@ -580,8 +581,7 @@ export async function openSettlement(cartId: string, mode: "even" | "by_person")
 export async function abortSettlement(cartId: string): Promise<void> {
   const { cartId: id } = cartViewInput.parse({ cartId });
   const { uid, role } = await assertCartMember(id);
-  if (role !== "host")
-    throw new Error("Only the person who started the table can cancel the split");
+  if (role !== "host") throw new Error(`Only ${TABLE_STARTER_MID} can cancel the split`);
   await assertMutationRate(uid); // W1·Q6 — abort churns Stripe cancels + ledger deletes; bound it
   const db = serviceClient();
 

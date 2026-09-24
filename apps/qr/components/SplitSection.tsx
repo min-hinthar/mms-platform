@@ -9,6 +9,7 @@ import { assignLine } from "@/lib/cart";
 import { canMutateLine } from "@/lib/permissions";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { Avatar, NumberFlow } from "@mms/ui";
+import { TABLE_STARTER, TABLE_STARTER_MID } from "@/lib/confirm-copy";
 
 /**
  * Dine-in split-the-bill section on /cart (M3·P3.3a). Per-seat shares are computed CLIENT-side from
@@ -239,7 +240,7 @@ export function SplitSection({
               ? // Honest while frozen: the shares below are still true and still worth reading —
                 // only the reassignment is unavailable. Don't invite a tap the server will refuse.
                 `${FROZEN_NOTE} The shares below still apply.`
-              : "Tap a guest to choose who pays for your items; whoever started the table can move any item."}
+              : `Tap a guest to choose who pays for your items; ${TABLE_STARTER_MID} can move any item.`}
           </li>
         </ul>
       )}
@@ -340,8 +341,8 @@ export function SplitSection({
         </button>
       ) : (
         <p style={{ fontSize: "var(--fs-sm)", color: "var(--t2)", marginTop: 12, lineHeight: 1.5 }}>
-          Whoever started the table can split the bill so everyone pays with their own card — or pay
-          as one bill below.
+          {TABLE_STARTER} can split the bill so everyone pays with their own card — or pay as one
+          bill below.
         </p>
       )}
     </section>

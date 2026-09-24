@@ -237,10 +237,10 @@ export function PickupSlotSheet({
                       >
                         {soonest && (
                           <span className="slot-soonest-tag" aria-hidden>
-                            ⚡ Soonest
+                            ⚡ Earliest time
                           </span>
                         )}
-                        {soonest && <span className="sr-only">Soonest available, </span>}
+                        {soonest && <span className="sr-only">Earliest time, </span>}
                         {selected && <span className="sr-only">Your current time, </span>}
                         <span className="slot-time-h">{formatSlot(s.slot)}</span>
                         {selected && (

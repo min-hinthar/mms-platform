@@ -96,15 +96,25 @@ export function unsentPayNote(unsent: number): { en: string; my: string } | null
  * nothing there at all — their dishes sat in a cart with no sign of how they reach the kitchen.
  * Names the host when the table knows them. The MY line is Claude-authored: K15 check-before-trust.
  */
-/** Plain words (2026-09-24): who the table's "host" is, said the way a guest would say it. "Host" is
- *  the system's role name; a parent at the table does not know it means "the phone that started the
- *  table". Read by `hostSendsCopy` and Checkout's unsent-dishes note — one binding, never retyped. */
-export const TABLE_STARTER = "The person who started your table";
+/** Plain words (2026-09-24, corrected by the blind review): who the table's "host" is, said the way a
+ *  guest would say it. "Host" is the system's role name — and "the person who started your table"
+ *  was FALSE for a staff-opened table, whose host is simply the first diner to scan
+ *  (`register.ts` inserts `host_seat: null`; `/api/session` claims it on that first scan). So the
+ *  words name the ROLE — the one who sends the table's orders, which `mms_fire_cart` makes true for
+ *  every host — never an event that may not have happened. ONE binding, in two grammatical
+ *  persons: the guest's own table (`TABLE_STARTER`, sentence-initial; `TABLE_STARTER_MID` inside a
+ *  sentence) and a table spoken of from outside (`TABLE_SENDER_THIRD`). Read by `hostSendsCopy`,
+ *  Checkout, cart.ts, split.ts, SendToKitchenButton, SettlementBoard and SplitSection — never
+ *  retyped. */
+const SENDER = "person sending your table’s orders";
+export const TABLE_STARTER = `The ${SENDER}`;
+export const TABLE_STARTER_MID = `the ${SENDER}`;
+export const TABLE_SENDER_THIRD = "the person sending the table’s orders";
 
 export function hostSendsCopy(hostName: string | null): { en: string; my: string } {
   const who = hostName?.trim() || null;
   return {
     en: `${who ?? TABLE_STARTER} sends the table’s order to the kitchen — your dishes go with it.`,
-    my: `${who ? `${who} က` : "စားပွဲ စဖွင့်တဲ့သူက" /* K15 draft (plain words 2026-09-24) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
+    my: `${who ? `${who} က` : "စားပွဲရဲ့ အော်ဒါ ပို့သူက" /* K15 draft (blind review 2026-09-24; was စားပွဲ စဖွင့်တဲ့သူက) */} စားပွဲရဲ့ အော်ဒါကို မီးဖိုချောင်ဆီ ပို့ပေးပါမယ် — သင့်ဟင်းတွေလည်း တစ်ခါတည်း ပါသွားပါမယ်။`,
   };
 }

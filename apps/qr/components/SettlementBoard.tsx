@@ -7,6 +7,7 @@ import { useSettlementRealtime } from "@/lib/realtime";
 import { seatColor, seatInitial } from "@/lib/avatars";
 import { Avatar, Icon, NumberFlow, Skeleton } from "@mms/ui";
 import { SharePay } from "./SharePay";
+import { TABLE_STARTER_MID } from "@/lib/confirm-copy";
 
 /**
  * Live split-tender settlement board (M3·P3.3b). Once the host opens a split, the cart is frozen and
@@ -220,8 +221,7 @@ export function SettlementBoard({
   // correct answer, not a bug to paper over — `mms_fulfill_split_order` hard-raises when Σ(captured) ≠
   // the expected total, so minting a share mid-flight would break fulfillment for everyone. Name the
   // situation and give the two real ways out (restart the split, or pay together).
-  const hostName =
-    ctx.members.find((m) => m.role === "host")?.name ?? "the person who started the table";
+  const hostName = ctx.members.find((m) => m.role === "host")?.name ?? TABLE_STARTER_MID;
   const lateJoiner =
     loaded && !complete && !gone && shares.length > 0 && !shares.some((s) => s.seat === ctx.mySeat);
 
@@ -447,7 +447,7 @@ export function SettlementBoard({
                     format={{ style: "currency", currency: "USD" }}
                   />
                 </strong>{" "}
-                of ${(totalCents / 100).toFixed(2)} authorized
+                of ${(totalCents / 100).toFixed(2)} approved
                 {allIn ? " — finishing up…" : ""}
               </p>
 
@@ -572,7 +572,9 @@ function StatusBadge({ status }: { status: SettlementShare["status"] }) {
   const map: Record<SettlementShare["status"], { label: string; color: string; bg: string }> = {
     pending: { label: "Waiting", color: "var(--t3)", bg: "var(--sf)" },
     authorized: {
-      label: "Card in",
+      // Blind review (2026-09-24): ONE name for the `authorized` state — SharePay's button says
+      // "Card approved", so the board's badge does too (never "Card in" beside it).
+      label: "Card approved",
       color: "var(--ac-strong)",
       bg: "color-mix(in oklab, var(--ac) 10%, var(--cd))",
     },

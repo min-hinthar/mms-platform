@@ -30,6 +30,7 @@ import { classifyRelease, classifyZeroRow, normalizeEra, type PayLockRelease } f
 import { getPostHogClient } from "./posthog-server";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { safeImageUrl } from "./media-url";
+import { TABLE_STARTER_MID } from "./confirm-copy";
 
 /**
  * The view a MUTATION returns — and it must never fail the mutation.
@@ -162,7 +163,7 @@ export async function setQty(cartItemId: string, qty: number) {
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     throw new Error(
       lineState === "draft"
-        ? "Only the person who started the table can change someone else’s item"
+        ? `Only ${TABLE_STARTER_MID} can change someone else’s item`
         : "Ask our staff to change an item that’s already gone to the kitchen",
     );
   const db = serviceClient();
@@ -201,7 +202,7 @@ export async function assignLine(cartItemId: string, seatId: string) {
   if (!canMutateLine(lineState, { kind: "diner", role, isOwner: lineSeat === uid }, comped))
     throw new Error(
       lineState === "draft"
-        ? "Only the person who started the table can move someone else’s item"
+        ? `Only ${TABLE_STARTER_MID} can move someone else’s item`
         : "Ask our staff to change an item that’s already gone to the kitchen",
     );
   const db = serviceClient();

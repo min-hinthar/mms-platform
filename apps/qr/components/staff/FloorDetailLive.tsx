@@ -482,9 +482,13 @@ export function FloorDetailLive({
             <span>
               <Chrome
                 lang={lang}
+                // A running bill that is ALREADY open is pointed at, never suggested again: `age`
+                // only fires on one (lib/floor.ts), and `party` fires on either.
                 k={
                   detail.nudgeSecure === "party"
-                    ? "table.detail.nudge.party"
+                    ? detail.tab === "trust"
+                      ? "table.detail.nudge.partyOpen"
+                      : "table.detail.nudge.party"
                     : "table.detail.nudge.age"
                 }
                 echo="stack"

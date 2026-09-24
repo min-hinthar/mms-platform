@@ -244,3 +244,27 @@ describe("FloorDetailLive — a closed table", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 });
+
+describe("FloorDetailLive — the running-bill nudge (blind review, 2026-09-24)", () => {
+  const nudgeText = (over: Partial<TableDetail>) => {
+    const r = render(
+      <StaffLangProvider lang="en">
+        <FloorDetailLive initial={{ ...DETAIL, ...over }} sessionId="s1" />
+      </StaffLangProvider>,
+    );
+    return r.container.textContent ?? "";
+  };
+  it("a party at a table with a running bill ALREADY open is pointed at that bill, never offered one", () => {
+    // MUTATION (by hand): drop the `tab === "trust"` fork — the open bill is suggested again, red.
+    const open = nudgeText({ nudgeSecure: "party", tab: "trust" });
+    expect(open).toContain(tf("en", "table.detail.nudge.partyOpen"));
+    expect(open).not.toContain(tf("en", "table.detail.nudge.party"));
+    cleanup();
+    const none = nudgeText({ nudgeSecure: "party", tab: "none" });
+    expect(none).toContain(tf("en", "table.detail.nudge.party"));
+    cleanup();
+    expect(nudgeText({ nudgeSecure: "age", tab: "trust" })).toContain(
+      tf("en", "table.detail.nudge.age"),
+    );
+  });
+});

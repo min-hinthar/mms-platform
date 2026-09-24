@@ -107,7 +107,7 @@ export async function GET(req: NextRequest) {
     // on it (Codex round 2 on #222). Naming the reason makes the discriminator explicit rather than
     // a shape heuristic.
     return NextResponse.json(
-      { reason: "denied", error: "This screen isn’t authorized for the order-ready board." },
+      { reason: "denied", error: "This screen isn’t allowed to show the order-ready board." },
       { status: 401 },
     );
   }

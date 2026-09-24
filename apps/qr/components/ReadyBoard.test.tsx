@@ -200,7 +200,7 @@ describe("a refusal renders our copy, keyed on the reason", () => {
     await renderBoard("en", { status: 401, body: { reason: "denied", error: "Custom refusal" } });
     await waitFor(() =>
       expect(
-        screen.getByText("This screen isn’t authorized for the order-ready board."),
+        screen.getByText("This screen isn’t allowed to show the order-ready board."),
       ).toBeTruthy(),
     );
     expect(screen.queryByText("Custom refusal")).toBeNull();
@@ -237,7 +237,14 @@ describe("P6 — the kitchen pulse band", () => {
     // NOT "Ready". Nothing records that a plate reached a table — `bumped_at` means the pass
     // finished the food — and on a screen a dining room reads, "Ready" is an instruction aimed at a
     // guest who has nothing to do about it. The word must stay what the stamp supports.
-    expect(chips[1]).not.toBe(`Table 3${STAFF["board.col.ready"].en}`);
+    // Blind review (2026-09-24) — the WHOLE board, whitespace-tolerant, as before the plain-words
+    // pass narrowed it to one exact chip string: the ONE phrase allowed to contain the word is the
+    // runner's "Ready to serve" (the stamp's own meaning), so it is struck first and the bare column
+    // word "Ready" must then appear after "Table 3" nowhere.
+    const ready = STAFF["board.col.ready"].en;
+    expect(container.textContent!.replaceAll(STAFF["board.pulse.up"].en, "")).not.toMatch(
+      new RegExp(`Table 3\\s*${ready}`),
+    );
     // The lit-gold cap marks only the table a runner must act on — the ONE selection vocabulary.
     expect(container.querySelectorAll(".orb-table-up")).toHaveLength(1);
     expect(container.querySelector(".orb-table-up")!.textContent).toContain("Table 3");

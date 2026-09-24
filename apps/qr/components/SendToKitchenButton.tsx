@@ -4,7 +4,7 @@ import { chime } from "@/lib/diner-sound";
 import { Icon } from "@mms/ui";
 import { sendToKitchen, undoFire } from "@/lib/cart";
 import { t, type DictKey } from "@/lib/i18n";
-import { sentCopy } from "@/lib/confirm-copy";
+import { sentCopy, TABLE_STARTER_MID } from "@/lib/confirm-copy";
 import { graceDeadlineMs, graceRemainingSec } from "@/lib/send-grace";
 
 // W16b — ALWAYS bilingual: EN primary + a Padauk MY line on the same surface (the owner's named
@@ -352,7 +352,7 @@ const reasonCopy: Record<
   "not_host" | "locked" | "settling" | "nothing" | "rate_limited" | "error",
   string
 > = {
-  not_host: "Ask the person who started your table to send the order to the kitchen.",
+  not_host: `Ask ${TABLE_STARTER_MID} to send the order to the kitchen.`,
   // ⚠️ THE SAME STRING AS THE CLIENT-SIDE REFUSAL, DELIBERATELY (Codex round 2 on #247). This is
   // the RACED path: the tap started while the cart was editable and the server took the lock before
   // authorization, so `frozen` was false and the client said nothing. It used to read "Someone’s
