@@ -16,6 +16,17 @@ import { browserClient } from "@mms/db";
  * cookie session, so the hook reads it via getSession() and feeds it to realtime.setAuth before
  * subscribing. `onChange` is held in a ref so a fresh closure each render never resubscribes.
  */
+// Phase 2a · tablet — a per-MOUNT sequence for the session channel's name. The same collision as
+// A4·2 above, reached two more ways on ONE session: the real `removeChannel` is ASYNC (it awaits
+// the unsubscribe before dropping the channel from the singleton's list), so a table page that
+// unmounts and remounts before that settles — a route bounce, Strict Mode's double effect — got
+// the old, JOINED channel back and threw on `.on()` (an unhandled rejection, and a detail view with
+// no realtime); and two consumers of one session on one screen (the table page, the order pad)
+// shared a name. A module counter bumped INSIDE the effect makes every subscription its own
+// channel. Authorization does not read this name: these are non-private postgres_changes channels,
+// gated by each table's SELECT policy; the one `realtime.messages` policy matches `table:%` only.
+let seq = 0;
+
 export function useFloorRealtime(
   enabled: boolean,
   onChange: () => void,
@@ -31,6 +42,9 @@ export function useFloorRealtime(
   // so two boards on one screen sharing "floor" left one of them with no realtime at all and an
   // unhandled rejection on every load (the blind pass on A4·2, CRITICAL 1). The floor keeps
   // "floor"; the takeaway lane beside it names its own.
+  //
+  // Phase 2a · tablet — with a `sessionId` the topic is only the STEM of the name
+  // (`{topic}:{sessionId}:{seq}`): the table page keeps "floor", the order pad passes "pad".
   topic = "floor",
 ) {
   const cbRef = useRef(onChange);
@@ -56,7 +70,7 @@ export function useFloorRealtime(
 
       const fire = () => cbRef.current();
       channel = supa
-        .channel(sessionId ? `floor:${sessionId}` : topic)
+        .channel(sessionId ? `${topic}:${sessionId}:${++seq}` : topic)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "table_sessions", ...sessFilter },
