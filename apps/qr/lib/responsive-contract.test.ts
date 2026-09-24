@@ -2,7 +2,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { cssDeclarations, stripCssComments } from "./css-declarations";
+import { cssDeclarations, stripCssComments, type CssDecl } from "./css-declarations";
 
 /**
  * R1 — THE RESPONSIVE CONTRACT: one column knob, three tiers, and no page carrying a width of its own.
@@ -45,6 +45,7 @@ const PRIMITIVES = readFileSync(
 // The shared walker (lifted to lib/ when motion-contract.test.ts became its second reader).
 const strip = stripCssComments;
 const declarations = cssDeclarations;
+type Decl = CssDecl;
 
 const DECLS = declarations(CSS);
 const rem = (v: string) => {
