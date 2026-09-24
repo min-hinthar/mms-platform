@@ -3,6 +3,7 @@ import { CART_MONEY_KEYS, DICT, t } from "./index";
 import { CART } from "./cart";
 import { COMMON } from "./common";
 import { CONFIRM } from "./confirm";
+import { MARKET } from "./market"; // Phase 1c · grocery
 import { STAFF, STAFF_LATIN_BY_DESIGN, STAFF_PLURAL_PAIRS } from "./staff";
 
 /**
@@ -35,6 +36,8 @@ const ALL_MODULES: [string, Record<string, { en: string; my: string }>][] = [
   ["cart", CART],
   ["confirm", CONFIRM],
   ["staff", STAFF],
+  // ── Phase 1c · grocery ──
+  ["market", MARKET],
 ];
 
 const allEntries = ALL_MODULES.flatMap(([mod, m]) =>
@@ -305,6 +308,8 @@ describe("the dictionary guards", () => {
       ["common", COMMON],
       ["cart", CART],
       ["confirm", CONFIRM],
+      // ── Phase 1c · grocery ──
+      ["market", MARKET],
     ];
     const seen = new Map<string, string>();
     const collisions: string[] = [];

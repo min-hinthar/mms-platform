@@ -185,6 +185,48 @@ describe("glass floor — the frosted chrome over its worst possible backdrop", 
   });
 });
 
+// The room's worst pixel, per theme — hoisted to module scope (Phase 1c) so a surface that sits ON the
+// room (the vellum wash, below) composites over the same model the room's own floors are asserted on.
+// The reasoning behind each composition is in the room describe's docblock.
+function nightWorst(): Rgba {
+  const far = fade(
+    stack(
+      (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
+        t(dark, n),
+      ),
+      { r: 0, g: 0, b: 0, a: 0 },
+    ),
+    Number(raw(dark, "--pa-far-op")),
+  );
+  const ground = over(far, t(dark, "--pg"));
+  const mid = fade(
+    stack([t(dark, "--pa-pool"), t(dark, "--pa-lip")], { r: 0, g: 0, b: 0, a: 0 }),
+    Number(raw(dark, "--pa-mid-op")),
+  );
+  return grain(over(mid, ground), 0.66, Number(raw(dark, "--pa-grain-op")), "overlay");
+}
+/** @param grooveToken `--pa-groove` (motion) or `--pa-groove-still` (reduced motion). */
+function lightWorst(grooveToken: "--pa-groove" | "--pa-groove-still"): Rgba {
+  const pg = t(light, "--pg");
+  const far = fade(
+    stack(
+      (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
+        t(light, n),
+      ),
+      { r: 0, g: 0, b: 0, a: 0 },
+    ),
+    Number(raw(light, "--pa-far-op")),
+  );
+  const ground = over(far, pg);
+  const groove = t(light, grooveToken);
+  // The pool and a groove CROSSING (both grid axes paint at an intersection). No `--pa-lip`: it
+  // lightens, so including it would model something easier than the worst case.
+  const mid = fade(
+    stack([t(light, "--pa-pool"), groove, groove], { r: 0, g: 0, b: 0, a: 0 }),
+    Number(raw(light, "--pa-mid-op")),
+  );
+  return grain(over(mid, ground), 0.34, Number(raw(light, "--pa-grain-op")), "normal");
+}
 describe("the room — the worst pixel of the page ambient, both themes", () => {
   /**
    * Night's worst pixel is its BRIGHTEST: all four far-plane blob cores coincident, the warm pool,
@@ -203,45 +245,6 @@ describe("the room — the worst pixel of the page ambient, both themes", () => 
    * motion states are computed, because `--pa-groove-still` is a different alpha and reduced motion
    * is the TIGHTER of the two in this theme, not the looser one.
    */
-  function nightWorst(): Rgba {
-    const far = fade(
-      stack(
-        (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
-          t(dark, n),
-        ),
-        { r: 0, g: 0, b: 0, a: 0 },
-      ),
-      Number(raw(dark, "--pa-far-op")),
-    );
-    const ground = over(far, t(dark, "--pg"));
-    const mid = fade(
-      stack([t(dark, "--pa-pool"), t(dark, "--pa-lip")], { r: 0, g: 0, b: 0, a: 0 }),
-      Number(raw(dark, "--pa-mid-op")),
-    );
-    return grain(over(mid, ground), 0.66, Number(raw(dark, "--pa-grain-op")), "overlay");
-  }
-  /** @param grooveToken `--pa-groove` (motion) or `--pa-groove-still` (reduced motion). */
-  function lightWorst(grooveToken: "--pa-groove" | "--pa-groove-still"): Rgba {
-    const pg = t(light, "--pg");
-    const far = fade(
-      stack(
-        (["--pa-blob-1", "--pa-blob-2", "--pa-blob-3", "--pa-blob-4"] as const).map((n) =>
-          t(light, n),
-        ),
-        { r: 0, g: 0, b: 0, a: 0 },
-      ),
-      Number(raw(light, "--pa-far-op")),
-    );
-    const ground = over(far, pg);
-    const groove = t(light, grooveToken);
-    // The pool and a groove CROSSING (both grid axes paint at an intersection). No `--pa-lip`: it
-    // lightens, so including it would model something easier than the worst case.
-    const mid = fade(
-      stack([t(light, "--pa-pool"), groove, groove], { r: 0, g: 0, b: 0, a: 0 }),
-      Number(raw(light, "--pa-mid-op")),
-    );
-    return grain(over(mid, ground), 0.34, Number(raw(light, "--pa-grain-op")), "normal");
-  }
   it("room · Night worst pixel keeps --t3 above AA", () => {
     expect(ratio(t(dark, "--t3"), nightWorst())).toBeGreaterThanOrEqual(AA);
   });
@@ -644,5 +647,210 @@ describe("the KDS held card — two stacked fades the hex audit cannot see (P1)"
   });
   it("Night · the colour .kds-line-en actually declares clears the large-text floor through both fades", () => {
     expect(stacked(t(dark, echoToken))).toBeGreaterThanOrEqual(LARGE);
+  });
+});
+
+// ── Phase 1c · account-star ──
+describe("vellum wash — the save-your-Stars card's ground (.surface-vellum)", () => {
+  /**
+   * The save-your-Stars card on /track is the first `.surface-vellum` surface that carries BODY copy
+   * in `--t2` (the Burmese heading line, the body, the receipt note, the offline reason, "Not now").
+   * Its ground is a color-mix wash over a TRANSLUCENT `--surface-vellum` over the page ambient — three
+   * layers the main audit cannot name, because none of them is a token pair.
+   *
+   * ⚠️ READ OUT OF THE SHIPPED RULE, not named here (the reward-shimmer lesson, Codex P2 on #242): the
+   * two gradient stops are parsed from the live `.surface-vellum` block in globals.css — comments
+   * stripped first, the rule selected by what it DECLARES (a background), ambiguity refused — so a
+   * re-tuned wash is measured at its real value, and a re-shaped one (a third stop, a colour mixed
+   * with another colour, a different ground) throws instead of being silently half-read.
+   *
+   * Each END of the gradient is composited as the stop over `--surface-vellum` over the room's worst
+   * pixel — both groove states in light (reduced motion is the tighter one there), the brightest pixel
+   * in Night. `--t2` is the tight ink. This guard's own output, printed at authoring time: light
+   * reduced-motion `--t2` at the `--ac` end 4.9286 (the floor of the set), light `--tx` 14.9983,
+   * Night `--t2` 6.9210 and `--tx` 12.2434. `--ac` on the same light ground is 4.1462–4.1672 — under
+   * AA, which is why the card carries no `--ac` text at all.
+   *
+   * RED-FIRST, both watched fail and restored md5-identical: the light `--ac` stop 8% → 40% fails
+   * "light · --t2 on vellum"; a third stop added to the gradient makes the extraction throw.
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  );
+  const live = globals.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /** Split on commas at paren depth 0 (a gradient's stops contain commas of their own). */
+  const splitTopLevel = (s: string): string[] => {
+    const out: string[] = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of s) {
+      if (ch === "(") depth++;
+      if (ch === ")") depth--;
+      if (ch === "," && depth === 0) {
+        out.push(cur.trim());
+        cur = "";
+      } else cur += ch;
+    }
+    out.push(cur.trim());
+    return out;
+  };
+
+  const STOPS = (() => {
+    const painting = [...live.matchAll(/(?:^|[}\s,])\.surface-vellum\s*\{([^}]*)\}/g)]
+      .map((m) => m[1]!)
+      .filter((body) => /(?:^|[;\s])background\s*:/.test(body));
+    if (painting.length !== 1) {
+      throw new Error(
+        `globals.css has ${painting.length} live \`.surface-vellum\` rules that paint a background — ` +
+          "exactly one must own the wash, or it is ambiguous which ground the card's text sits on.",
+      );
+    }
+    const decl = /(?:^|[;\s])background\s*:\s*([^;]*);/
+      .exec(painting[0]!)![1]!
+      .replace(/\s+/g, " ");
+    const layers = splitTopLevel(decl.trim());
+    const grad = /^linear-gradient\((.*)\)$/.exec(layers[0] ?? "");
+    if (layers.length !== 2 || !grad || layers[1] !== "var(--surface-vellum)") {
+      throw new Error(
+        `\`.surface-vellum\`'s background is \`${decl.trim()}\` — this guard composites exactly ONE ` +
+          "linear-gradient over `var(--surface-vellum)`; teach it the new shape rather than half-read it.",
+      );
+    }
+    const parts = splitTopLevel(grad[1]!);
+    // An optional leading angle, then the stops.
+    const stops = /^[\d.]+deg$/.test(parts[0] ?? "") ? parts.slice(1) : parts;
+    const parsed = stops.map((s) =>
+      /^color-mix\(\s*in oklab\s*,\s*var\((--[\w-]+)\)\s+([\d.]+)%\s*,\s*transparent\s*\)$/.exec(s),
+    );
+    if (parsed.length !== 2 || parsed.some((m) => !m)) {
+      throw new Error(
+        `\`.surface-vellum\`'s wash has ${parsed.length} stop(s) (${stops.join(" | ")}). This guard ` +
+          "asserts the two `color-mix(in oklab, var(--X) N%, transparent)` ends; any other shape is refused.",
+      );
+    }
+    return parsed.map((m) => ({ token: m![1]!, pct: Number(m![2]) / 100 }));
+  })();
+
+  const end = (map: Record<string, string>, room: Rgba, stop: { token: string; pct: number }) => {
+    const ground = over(t(map, "--surface-vellum"), room);
+    const base = t(map, stop.token);
+    return over({ ...base, a: base.a * stop.pct }, ground);
+  };
+
+  it("reads exactly two stops out of the shipped rule", () => {
+    expect(STOPS).toHaveLength(2);
+    for (const s of STOPS) {
+      expect(s.pct).toBeGreaterThan(0);
+      expect(s.pct).toBeLessThan(1);
+    }
+  });
+
+  const ROOMS = [
+    { theme: "light", map: light, state: "", room: () => lightWorst("--pa-groove") },
+    {
+      theme: "light",
+      map: light,
+      state: " (reduced motion)",
+      room: () => lightWorst("--pa-groove-still"),
+    },
+    { theme: "Night", map: dark, state: "", room: () => nightWorst() },
+  ] as const;
+  for (const r of ROOMS) {
+    for (const ink of ["--tx", "--t2"] as const) {
+      for (const stop of STOPS) {
+        it(`${r.theme}${r.state} · ${ink} on vellum · the ${stop.token} end`, () => {
+          expect(ratio(t(r.map, ink), end(r.map, r.room(), stop))).toBeGreaterThanOrEqual(AA);
+        });
+      }
+    }
+  }
+});
+
+// ── Phase 1c · grocery ──
+describe("scan stage — the ink box, its scrim and its reticle over a live camera image", () => {
+  /**
+   * The Scan door's viewfinder is CONSTANT ink in both themes (--ink, --on-ink, --scan-scrim,
+   * --scan-dim, --gold), because what sits under it is a camera image, not a themed surface. The
+   * worst image a label can sit on is WHITE (a blown shelf label) — `over(…, WHITE)` is that bound —
+   * and the result bar's text, the reticle's halo and the `.scan-on-ink` button's edge each have to
+   * clear their floor on it.
+   *
+   * ⚠️ `--on-ink` is deliberately absent from `.dark` (--oa flips to #130d1e in Night and cannot
+   * sit on a video), so the Night assertions below read it THROUGH the `.dark` merge at the top of
+   * this file. Revert that merge to `parseBlock(".dark")` alone and they throw "not declared" —
+   * the merge's first falsifiable assertion. The absence itself is pinned by a parse, not assumed.
+   *
+   * ⚠️ BOUND TO THE CSS THAT CONSUMES THE TOKENS (the #242 lesson above): the result bar's ground
+   * and ink, the button's fill and label, and the lit corners' colour are read out of globals.css,
+   * so switching a rule to a different token re-points these assertions at it instead of leaving
+   * them measuring a constant nothing uses.
+   *
+   * Measured by this guard (not by hand): on-ink on ink 17.5174 (both themes); the result bar's
+   * on-ink over the scrim on white 6.9519; the scrim on white against white 7.0671; the lit gold
+   * against its halo on white 3.3981 light / 4.5042 Night — the tightest pin here.
+   *
+   * RED-FIRST — induced, watched fail, restored md5-identical (numbers are this guard's output):
+   *   --scan-scrim 72% → 40%            result bar 6.9519 → 2.4976, lit gold 3.3981 → 1.2208 FAIL
+   *   `--on-ink` redeclared in `.dark`   "absent from .dark"                                FAIL
+   *   `dark = parseBlock(".dark")`      every Night pin throws "--on-ink is not declared"    FAIL
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  /** The ONE live rule for `selector` that declares `prop`, as a bare token name. */
+  const consumed = (selector: string, prop: string): string => {
+    const rules = [...globals.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) =>
+      m[1]!.split(",").some((s) => s.trim() === selector),
+    );
+    const values = rules
+      .map((m) => new RegExp(`(?:^|;)\\s*${prop}\\s*:\\s*([^;]+)`).exec(m[2]!)?.[1]?.trim())
+      .filter((v): v is string => v !== undefined);
+    if (values.length !== 1)
+      throw new Error(`globals.css: ${values.length} \`${selector} { ${prop} }\` rules (need 1)`);
+    const tok = /^var\((--[\w-]+)\)$/.exec(values[0]!);
+    if (!tok) throw new Error(`globals.css: \`${selector} { ${prop} }\` is not a bare token`);
+    return tok[1]!;
+  };
+
+  const THREE = 3; // WCAG 1.4.11 non-text contrast (a focus-free UI edge, the reticle's corners)
+  const scrimOnWhite = (map: Record<string, string>) => over(t(map, "--scan-scrim"), WHITE);
+
+  for (const [theme, map] of [
+    ["light", light],
+    ["Night", dark],
+  ] as const) {
+    it(`${theme} · on-ink on ink ≥ 7 (the primer, on the solid box)`, () => {
+      expect(ratio(t(map, "--on-ink"), t(map, "--ink"))).toBeGreaterThanOrEqual(7);
+    });
+    it(`${theme} · the result bar's ink over its ground, on a white label, ≥ AA`, () => {
+      const ink = consumed(".scan-result", "color");
+      const ground = consumed(".scan-result", "background");
+      expect(ratio(t(map, ink), over(t(map, ground), WHITE))).toBeGreaterThanOrEqual(AA);
+    });
+    it(`${theme} · the lit corners' colour holds 3:1 against their own halo on white`, () => {
+      const lit = consumed(".scan-reticle-lit .scan-corner::before", "background");
+      expect(ratio(t(map, lit), scrimOnWhite(map))).toBeGreaterThanOrEqual(THREE);
+    });
+    it(`${theme} · the .scan-on-ink button's fill holds 3:1 against the scrim on white`, () => {
+      const fill = consumed(".ui-btn-primary.scan-on-ink", "background");
+      expect(ratio(t(map, fill), scrimOnWhite(map))).toBeGreaterThanOrEqual(THREE);
+      // …and its label on that fill is real text.
+      const label = consumed(".ui-btn-primary.scan-on-ink", "color");
+      expect(ratio(t(map, label), t(map, fill))).toBeGreaterThanOrEqual(AA);
+    });
+  }
+
+  it("the reticle's halo on white holds 3:1 against white (a corner never vanishes on a label)", () => {
+    expect(ratio(scrimOnWhite(light), WHITE)).toBeGreaterThanOrEqual(THREE);
+  });
+
+  it("--on-ink is a CONSTANT — declared in :root, absent from .dark", () => {
+    expect(parseBlock(":root")["--on-ink"]).toBeDefined();
+    expect(parseBlock(".dark")["--on-ink"]).toBeUndefined();
+    expect(parseBlock(".dark")["--scan-scrim"]).toBeUndefined();
+    expect(parseBlock(".dark")["--scan-dim"]).toBeUndefined();
   });
 });

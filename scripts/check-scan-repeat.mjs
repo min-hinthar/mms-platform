@@ -12,10 +12,15 @@
  * author called "the fix" lived where no test, no mutant and no mechanical gate could see it, and
  * moving it two lines rebuilt the bug with everything still green.
  *
- * So this guard owns one proposition, and only one:
+ * So this guard owns two propositions:
  *
- *   In `page.tsx`, the single `scanAdd` call is preceded — inside the same function — by a
- *   `classifyScan` call whose result gates an early `return`.
+ *   1. In `page.tsx`, the single `scanAdd` call is preceded — inside the same function — by a
+ *      `classifyScan` call whose result gates an early `return`.
+ *   2. (Phase 1c) Every live `<ScanStage>` takes `cartReady={scanBasketReady({ …, hydrated })}`.
+ *      The camera now mounts BEFORE the basket exists and holds sightings until `cartReady`; the
+ *      repeat stop in (1) judges a sighting against the basket's LINES, so a hold that lifts on the
+ *      cart id alone judges the jar already in a rejoined basket against [] and charges it again —
+ *      with (1) fully intact. The blind review of Phase 1c found exactly that.
  *
  * Without it, deleting the four-line guard clause turns every sighting of an item the basket
  * already holds back into a fresh charge, and nothing in CI notices.
@@ -240,6 +245,62 @@ if (!problems.length) {
   }
 }
 
+// ── (2) The camera's hold lifts only on a LOADED basket ─────────────────────────────────────────
+// Red-first, each induced against the real file and watched fail, then restored: `cartReady` keyed
+// on `Boolean(cartId)`; `scanBasketReady({ cartId, hydrated: true })` (a literal is not the state);
+// the prop deleted; a spread after it. A `{false && <ScanStage cartReady={scanBasketReady(…)} />}`
+// parked beside a live stage keyed on the id is refused because the LIVE stage is checked.
+const READY = "scanBasketReady";
+const stages = [];
+walk(src, (n) => {
+  if (
+    (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) &&
+    ts.isIdentifier(n.tagName) &&
+    n.tagName.text === "ScanStage"
+  )
+    stages.push(n);
+});
+const liveStages = stages.filter((st) => !isLiterallyDead(st));
+if (!liveStages.length)
+  fail(
+    `no live <ScanStage> in ${PAGE} — the camera's hold cannot be checked.\n` +
+      "  If the stage moved, move this proposition with it.",
+  );
+for (const st of liveStages) {
+  const props = st.attributes.properties;
+  const idx = props.findIndex((a) => ts.isJsxAttribute(a) && a.name.getText(src) === "cartReady");
+  const attr = idx >= 0 ? props[idx] : null;
+  const init = attr?.initializer;
+  const expr = init && ts.isJsxExpression(init) ? init.expression : null;
+  const arg = expr && ts.isCallExpression(expr) ? expr.arguments[0] : null;
+  const hydratedLive =
+    arg &&
+    ts.isObjectLiteralExpression(arg) &&
+    arg.properties.some(
+      (p) =>
+        (ts.isShorthandPropertyAssignment(p) && p.name.text === "hydrated") ||
+        (ts.isPropertyAssignment(p) &&
+          p.name.getText(src) === "hydrated" &&
+          p.initializer.kind !== ts.SyntaxKind.TrueKeyword),
+    );
+  const spreadAfter = props.some((a, i) => i > idx && ts.isJsxSpreadAttribute(a));
+  if (
+    !expr ||
+    !ts.isCallExpression(expr) ||
+    !ts.isIdentifier(expr.expression) ||
+    expr.expression.text !== READY ||
+    expr.arguments.length !== 1 ||
+    !hydratedLive ||
+    spreadAfter
+  )
+    fail(
+      `<ScanStage> must take \`cartReady={${READY}({ cartId, hydrated })}\` (no spread after it).\n` +
+        "  The hold lifts the moment cartReady turns true, and the jar in frame is judged against\n" +
+        "  the basket's lines THEN — before the first read lands they are [], so a rejoined\n" +
+        "  basket's item is charged a second time.",
+    );
+}
+
 if (problems.length) {
   console.error("scan repeat gate … \x1b[31m✗\x1b[0m\n");
   for (const p of problems) console.error("  " + p + "\n");
@@ -248,5 +309,6 @@ if (problems.length) {
 console.log(
   "scan repeat gate … \x1b[32mclean\x1b[0m\x1b[2m" +
     ` — ${PAGE}: the ${CHARGE}() call is gated by a live ${CLASSIFIER}() early return` +
-    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired)\x1b[0m`,
+    ` (${exemptedOwners.size} exempt call site${exemptedOwners.size === 1 ? "" : "s"}, reason fired);` +
+    ` ${liveStages.length} <ScanStage> holds on ${READY}()\x1b[0m`,
 );

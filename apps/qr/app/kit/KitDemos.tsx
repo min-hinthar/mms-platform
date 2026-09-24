@@ -96,7 +96,16 @@ function ToastDemo() {
         >
           Show an undo
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => show({ text: "Mohinga added", my: "ထည့်ပြီးပါပြီ", quiet: true })}
+        >
+          Speak quietly
+        </Button>
       </div>
+      <p style={{ margin: "var(--s2) 0 0", color: "var(--t2)", fontSize: "var(--fs-label)" }}>
+        Spoken to screen readers, draws nothing — for a change already visible where you tapped.
+      </p>
       <Toast message={msg} />
     </>
   );

@@ -30,11 +30,27 @@ const LIVE_LIMIT = 20; // count-bound — the tray stays a glance, not a history
  * has no mode column, so kind is derived from the line fulfillments (+ pickup_slot). Newest-first.
  */
 export async function getMyLiveOrders(): Promise<LiveOrder[]> {
+  return (await readMyLiveOrders()).orders;
+}
+
+/**
+ * Phase 1c (blind review) — the same read, saying whether it SUCCEEDED. `getMyLiveOrders` answers
+ * every read failure with [] (never throw, never strand the header), which is right for a server
+ * render and wrong for a client REFRESH: /account's live row refreshes on wake, and applying a
+ * failure's [] erased the only order status on the page. `ok: false` means "do not overwrite what
+ * you have"; `orders` is the same best-effort list `getMyLiveOrders` has always returned.
+ */
+export async function readMyLiveOrders(): Promise<{ ok: boolean; orders: LiveOrder[] }> {
   const supa = serverClient(await cookies());
   const {
     data: { user },
+    error: authErr,
   } = await supa.auth.getUser();
-  if (!user) return [];
+  // An auth lookup that ERRORED could not tell us who this is — a failed read, not "signed out"
+  // (Codex round 2 on #302: the wake refresh applied the [] and erased the live row). Only a
+  // confirmed no-session answer is a real, empty result.
+  if (authErr && authErr.name !== "AuthSessionMissingError") return { ok: false, orders: [] };
+  if (!user) return { ok: true, orders: [] };
   const db = serviceClient();
   const cutoff = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
 
@@ -48,6 +64,7 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
     .gte("created_at", cutoff)
     .limit(LIVE_LIMIT);
   if (payerErr) console.error("[orders] payer order-id read failed", payerErr);
+  let ok = !payerErr;
   const payerIds = (payerRows ?? []).map((r) => r.order_id);
 
   let live = db
@@ -69,7 +86,7 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
   // A read FAILURE → no tray (the badge just won't show); never throw and never strand the header. Note
   // this is NOT filtered on togo_status at the DB: `togo_status <> 'picked_up'` is NULL for a dine-in
   // order (togo_status null) and would silently drop it — so the terminal check is done in JS below.
-  if (error || !rows) return [];
+  if (error || !rows) return { ok: false, orders: [] };
 
   // Which referenced SESSIONS are still open? One extra query (vs. a per-row embed) keeps the gate explicit
   // and dependency-light. A session is live while not closed AND not past its sliding TTL — which is exactly
@@ -77,12 +94,14 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
   const sessionIds = [...new Set(rows.map((r) => r.session_id).filter((s): s is string => !!s))];
   const liveSessions = new Set<string>();
   if (sessionIds.length) {
-    const { data: sess } = await db
+    const { data: sess, error: sessErr } = await db
       .from("table_sessions")
       .select("id")
       .in("id", sessionIds)
       .neq("status", "closed")
       .gt("expires_at", new Date().toISOString());
+    // A failed session read drops EVERY row below (none can prove a live session) — report it.
+    if (sessErr) ok = false;
     for (const s of sess ?? []) liveSessions.add(s.id);
   }
 
@@ -121,7 +140,7 @@ export async function getMyLiveOrders(): Promise<LiveOrder[]> {
       statusWord: liveOrderStatusWord({ togoStatus: r.togo_status ?? null, kind, hasTogoFood }),
     });
   }
-  return out;
+  return { ok, orders: out };
 }
 
 /**

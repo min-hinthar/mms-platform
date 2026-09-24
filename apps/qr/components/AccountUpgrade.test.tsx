@@ -1,6 +1,8 @@
 /** @vitest-environment jsdom */
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { LiveOrder } from "@/lib/live-order";
+import { chooserLeavesNote } from "@/lib/save-stars";
 
 /**
  * A7b — the Google recovery, end to end in a DOM.
@@ -42,11 +44,29 @@ vi.mock("next/navigation", () => ({
 const mintMergeToken = vi.fn();
 vi.mock("@/lib/merge", () => ({ mintMergeToken: () => mintMergeToken() }));
 vi.mock("@/lib/rewards", () => ({ ensureProfile: () => Promise.resolve() }));
-// WelcomeBackChooser is a child of the card and reads both of these on its own frame.
-vi.mock("@/lib/deviceIdentity", () => ({ readIdentities: () => [], readLend: () => null }));
+// WelcomeBackChooser is a child of the card and reads both of these on its own frame. `identities`
+// stays empty (no chips) except in the Phase 1c chooser-note case, which seeds one; the chip's own
+// render then reaches `maskEmail`, so the mock carries it (and the two forget helpers) too.
+let identities: {
+  email: string;
+  firstName: string | null;
+  tierId: string;
+  method: "email" | "google";
+  lastSeen: number;
+}[] = [];
+vi.mock("@/lib/deviceIdentity", () => ({
+  readIdentities: () => identities,
+  readLend: () => null,
+  maskEmail: (e: string) => e,
+  forgetIdentity: () => {},
+  forgetAllIdentities: () => {},
+}));
 
 // A real-enough token store: the carry decision reads back what the stash wrote, and a fake that always
 // answers null (or always answers the token) would make the read-back assertion vacuous.
+// Phase 1c (Codex round 1) — the chooser note reads /account's ONE refreshed live-orders list.
+let liveOrders: LiveOrder[] | null = null;
+vi.mock("./AccountLiveOrders", () => ({ useAccountLiveOrders: () => liveOrders }));
 let stored: string | null = null;
 vi.mock("@/lib/mergeTokenStore", () => ({
   stashMergeToken: (t: string) => {
@@ -127,6 +147,7 @@ beforeEach(() => {
   refresh.mockReset();
   stored = null;
   stashDisabled = false;
+  identities = [];
   params = new URLSearchParams();
   window.sessionStorage.clear();
   window.history.replaceState(null, "", "/account");
@@ -627,5 +648,49 @@ describe("a11y", () => {
     await flushFrames();
     const label = screen.getByRole("button", { name: /Sign in with Google/i }).textContent ?? "";
     expect(screen.getByRole("status").textContent).toContain(label.trim());
+  });
+});
+
+// ── Phase 1c · account-star ──
+describe("the chooser note — computed from the REFRESHED live orders, said before the chips", () => {
+  it("renders the note above the chips when an identity is remembered", async () => {
+    // RED when the note is not passed to WelcomeBackChooser (a disclosure the diner never sees).
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    liveOrders = [];
+    render(<AccountUpgrade stars={3} chooserStars={3} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    const note = chooserLeavesNote({ stars: 3, inProgress: 0 })!;
+    expect(screen.getByText(note.en, { exact: false })).toBeTruthy();
+    liveOrders = null;
+  });
+
+  it("follows the live list as it refreshes — an order that starts or finishes changes the note", async () => {
+    // Codex round 1 — RED when the count is the page's server snapshot: "Today" refreshes on wake
+    // and focus, so the note kept naming an order that had finished (or missed one that started).
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    liveOrders = [];
+    const { rerender } = render(<AccountUpgrade stars={3} chooserStars={3} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(screen.queryByText(/in progress/)).toBeNull();
+    liveOrders = [{ id: "o1" } as LiveOrder];
+    rerender(<AccountUpgrade stars={3} chooserStars={3} />);
+    const withOrder = chooserLeavesNote({ stars: 3, inProgress: 1 })!;
+    expect(screen.getByText(withOrder.en, { exact: false })).toBeTruthy();
+    liveOrders = null;
+  });
+
+  it("no chooserStars → no note (a caller that computes none)", async () => {
+    identities = [
+      { email: "min@example.com", firstName: "Min", tierId: "jade", method: "email", lastSeen: 1 },
+    ];
+    liveOrders = [{ id: "o1" } as LiveOrder];
+    const { container } = render(<AccountUpgrade stars={3} />);
+    await screen.findByRole("button", { name: /Sign back in as Min/ });
+    expect(container.querySelector(".wb-note")).toBeNull();
+    liveOrders = null;
   });
 });

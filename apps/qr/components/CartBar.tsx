@@ -10,6 +10,11 @@ import { useCtaDock } from "@/lib/hooks/useCtaDock";
 // remount (the SurfaceMemory precedent: entrance effects don't replay on revisit). Module-scoped:
 // survives route remounts within the SPA session, resets on a full load — "appearing IS the
 // moment" stays true exactly once.
+// Phase 1c — and it is spent only by a CONFIRMED appearance. `MenuBrowser` mounts the bar
+// unconditionally, so spending it on MOUNT let an empty /menu visit (the bar rendering null) use up
+// the moment, and the first real appearance after navigating back had no entrance at all. A pending
+// appearance (an optimistic count beside a "—" amount) does not spend it either: that write may yet
+// be refused and the bar leave again.
 let cartBarSprung = false;
 
 /**
@@ -27,9 +32,14 @@ export function CartBar() {
   // Captured once per mount, BEFORE the effect below marks the spring spent — a remount while
   // the flag is already set renders without the entrance class.
   const [springIn] = useState(() => !cartBarSprung);
+  // A write is in flight exactly when the optimistic count differs from the sum of the confirmed lines
+  // (see the amount note below). Pure derivations, hoisted above the early return so the effect can
+  // read them.
+  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
+  const pending = totals === null || count !== confirmedCount;
   useEffect(() => {
-    cartBarSprung = true;
-  }, []);
+    if (cartId && count > 0 && !pending) cartBarSprung = true;
+  }, [cartId, count, pending]);
   const href = cartId ? `/cart?cart=${encodeURIComponent(cartId)}` : null;
   // M126 — the bar publishes its own dock height so the ambient's pause coin clears it. Shared with
   // the grocery CTA band through `useCtaDock` (Codex #238 P1 found the grocery dock unwired, which
@@ -53,9 +63,7 @@ export function CartBar() {
   // existed empty has a CONFIRMED total of $0.00, and the optimistic count of 1 rode beside it for
   // the whole 1.7s the add took — the same wrong number by another route. A write is in flight
   // exactly when the optimistic count differs from the sum of the confirmed lines (the provider
-  // commits `items` and `totals` in one apply, so the two are never half-updated).
-  const confirmedCount = items.reduce((a, i) => a + i.qty, 0);
-  const pending = totals === null || count !== confirmedCount;
+  // commits `items` and `totals` in one apply, so the two are never half-updated) — `pending`, above.
   const dollars = pending || !totals ? "updating" : `$${(totals.subtotalCents / 100).toFixed(2)}`;
 
   return (

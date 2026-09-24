@@ -72,17 +72,20 @@ Three hard rules learned the expensive way:
 
 ## 3 · Motion idioms — small, meaningful, always escorted
 
-| Idiom                     | Meaning                             | Where                                |
-| ------------------------- | ----------------------------------- | ------------------------------------ |
-| `.mms-pop`                | a VALUE changed under you           | tip previews, cart count capsule     |
-| `.mms-rise`               | something ARRIVED                   | tip reactions, notices, scanned rows |
-| `.mms-stagger`            | a once-per-session premiere         | arrival beat, Start-here band        |
-| press glow + sheen sweep  | you COMMITTED                       | Pay CTA, ConfirmSwap proceed         |
-| `--tip-heat` ladder       | encouragement as gradient, not nag  | tip chips warm 15%→30%               |
-| NumberFlow rolls          | money settles like an odometer      | Bill hero total                      |
-| `MarqueeRail` drift       | an ambient conveyor, never a hijack | Start-here twin rows (W22)           |
-| thermal print reveal      | the moment becomes an ARTIFACT      | /track paid slip (W22a·depth)        |
-| `.mms-send-beat` + settle | the order visibly LEAVES the table  | send-to-kitchen success              |
+| Idiom                          | Meaning                                                          | Where                                  |
+| ------------------------------ | ---------------------------------------------------------------- | -------------------------------------- |
+| `.mms-pop`                     | a VALUE changed under you                                        | tip previews, cart count capsule       |
+| `.mms-rise`                    | something ARRIVED                                                | tip reactions, notices, scanned rows   |
+| `.mms-stagger`                 | a once-per-session premiere                                      | arrival beat, Start-here band          |
+| press glow + sheen sweep       | you COMMITTED                                                    | Pay CTA, ConfirmSwap proceed           |
+| `--tip-heat` ladder            | encouragement as gradient, not nag                               | tip chips warm 15%→30%                 |
+| NumberFlow rolls               | money settles like an odometer                                   | Bill hero total                        |
+| `MarqueeRail` drift            | an ambient conveyor, never a hijack                              | Start-here twin rows (W22)             |
+| thermal print reveal           | the moment becomes an ARTIFACT                                   | /track paid slip (W22a·depth)          |
+| `.mms-send-beat` + settle      | the order visibly LEAVES the table                               | send-to-kitchen success                |
+| MicroBurst (✦◆)                | intent: the pill's 0→1 add                                       | menu row pill (never per stepper step) |
+| `.mms-settle` on the "+" glyph | your add did not land — set back down                            | menu row pill (§23)                    |
+| `.mms-remove` + FLIP close     | something was REMOVED — it sinks away as the list closes over it | /cart line removal (§24)               |
 
 Rules: transform/opacity only (60 fps); **every** new animation/transition joins a
 `prefers-reduced-motion` block the moment it's written; entrance effects premiere once per session
@@ -160,7 +163,10 @@ No Claude-authored Burmese reaches a ticket — every string is a DB row K15 cor
 second); focus moves on remove/route/step change — and lands on **the user's own selection**, not
 the app's default (the slot sheet focuses _your_ chip, not Soonest); toggles are `aria-pressed`;
 decorative seals/emoji are `aria-hidden` with an sr-only twin saying it in words; controls stay
-rendered-and-disabled with a reason, never vanish.
+rendered-and-disabled with a reason, never vanish. **On a removal, focus lands on the neighbouring
+item's NAME — never on a control that could repeat the action** (at qty 1 the neighbour's "−" IS
+"Remove {next dish}"); the heading takes focus only when the view swaps, and a tablemate's change
+moves focus only if it was inside what they removed (§24).
 
 ## 8 · Money surfaces — receipt language
 
@@ -317,8 +323,10 @@ let the gesture be the shortcut. "The browser can reload" is not the alternative
 of the in-place refetch is that a reload throws state away.
 
 **Ambient work stays silent unless it has news; a gesture is a question and is always owed an
-answer.** `announce` is a single-slot **visible** toast, so anything it says replaces whatever the
-diner was reading — an unrequested "Menu is up to date." on every app switch overwrites the "Added
+answer.** `announce` is the view's one arbitrated slot (`lib/notice-slot.ts`, §23): news and
+corrections are always visible, a claim may be quiet, a quiet line never blanks visible text and a
+claim never erases a correction — but NEWS still replaces whatever the diner was reading, so an
+unrequested "Menu is up to date." on every app switch overwrites the "Added
 Mohinga" confirmation of the thing they just tapped. Wake re-reads inherit the J3 pattern, which
 re-fetches _without speaking_; if a new surface makes an ambient path talk, that is the bug.
 
@@ -869,7 +877,9 @@ Every interaction primitive lives in `@mms/ui` and is styled once in `packages/u
   never solid. 44px is a floor at every size; `xl` is the counter/kitchen tap (`--tap-bump`). Disabled
   is `aria-disabled` and busy is `aria-busy` + a spinner at full ink — the component refuses the click.
   A link that looks like a button takes `buttonClass()`.
-- **Toast** — confirmation only, bottom-centred above the CTA dock, inverted and opaque. Its action is
+- **Toast** — the view's one live region: visible for news, corrections and claims whose origin is
+  gone; `quiet` (spoken, not drawn) for an in-place change (§23). Bottom-centred above the CTA dock,
+  inverted and opaque. Its action is
   the pill's own ink, underlined (the pill inverts per theme, so a fixed accent fails on one of them).
 - **Field** — label above, one note line below that is the hint or the error, never both.
 - **PageMasthead** — kicker → display title at `--fw-semibold` → Burmese line → lede.
@@ -919,3 +929,149 @@ scroll-padding-inline: gutter`): a lit pill's lift shadow is otherwise sliced sq
 - **Steps that live in state still get history entries** (a hash per step), so the platform Back
   button walks them — and Back runs the same handler as the in-page back control, never a shortcut
   around its side effects.
+
+## 23 · The add moment (Phase 1c)
+
+Three layers, and only the first is instant: **intent** on the tap (press, ripple, haptic, the
+pill→stepper morph, the digit and capsule pops, the pill's MicroBurst, the spoken claim), **receipt**
+when the server view lands (the CartBar's subtotal roll), **reversal** when it did not (a settle cue,
+a named correction, one focus landing). Amounts are never intent — the CartBar amount reads "—" until
+confirmed.
+
+- **The claim names the dish and is spoken at the tap**, not when a queued write starts ("Mohinga
+  added" · "ထည့်ပြီးပါပြီ"; the copy lives once in `lib/add-feedback.ts`). A claim is never a count: in
+  dine-in the basket count is a tablemate's tap away from wrong (§21).
+- **An in-place change is spoken, not drawn.** The pill and stepper claims are `quiet` — they ride the
+  Toast's live region and draw nothing, because the row already shows the change under the finger. A
+  claim whose origin is gone is drawn: the item sheet closes on the tap, so "2 Mohinga added" is
+  visible.
+- **Every non-landing retracts the claim visibly, by name** ("Mohinga didn’t go through — the order’s
+  locked while someone checks out."). The named sentences sit beside the unnamed ones
+  (`namedRefusedWriteNotice` · `namedUnconfirmedWriteNotice`), held to them by parity tests.
+- **The settle cue draws only a DEFINITE non-landing** — refused, or applied with no own line in a
+  current view; never `unconfirmed` (it may be on the bill), never when the seat or view is unknown.
+  It plays on the "+" glyph ("set back down", no overshoot, so it never invites a re-tap), never on
+  the button.
+- **The burst is the pill's alone** (v7.2 `quickAdd`); a stepper step has none (v7.2 `bump()`).
+- **Focus lands once, never later**, and only when it was orphaned or inside the row: landed → "+",
+  reverted → the pill (kept focusable as `aria-disabled` with its reason while a freeze holds it).
+  Every refocus flag is one-shot and orphan-guarded, so a freeze lifting later cannot pull focus back.
+- **The CartBar's entrance is spent by a CONFIRMED appearance** — never by a pending one.
+
+**The one slot has a precedence** (`lib/notice-slot.ts`): every notice is a CLAIM, a CORRECTION or
+NEWS. Empty → show; a correction over an identical correction → extend (five refused taps under one
+lock are one sentence); two dishes' corrections of ONE family → the family's unnamed sentence, which
+covers both (a second name must never erase the first dish's retraction); a claim over a live
+correction → defer; a quiet line over visible text → defer; anything else → show. News never defers.
+The deferred slot is one deep; a correction drops a waiting claim and news drops a waiting VISIBLE
+one, so a retracted or superseded claim is never the last word. A "−" whose line changed before its
+queued write ran retracts the claim it spoke at the tap.
+
+**Rejected:** fly-to-cart (launches for adds that later fail), a check-morph on "+" (shows ✓ before
+anything is confirmed), a haptic after the round trip (§3), a burst gated on confirmation (~1.7s
+later, random in timing, so it cannot be learned).
+
+## 24 · Removal — a row leaves in place, and focus stays where the diner is (Phase 1c)
+
+- **A removed row is the arrival reversed, and the list closes over it.** `.mms-remove` is `mmsRise`
+  played backwards on `--dur-base`; the row stays drawn as a GHOST (same node, `inert` +
+  `aria-hidden`) while every count, total and write has already dropped it. Amounts are never
+  optimistic: the ghost shows the line as last painted. A leaving row never writes, even where
+  `inert` is unsupported.
+- **The close is a FLIP measured in one synchronous block** (`useLineMotion`, rules in
+  `lib/line-motion.ts`): the tail is marked `data-flip` (scroll anchoring off), measured, the ghost
+  taken out of flow, measured again, and each delta played to zero on `--spring` — transform only,
+  `composite: "add"` so quick removals compose. A ghost exists only while its section survives;
+  emptying a section or the cart swaps the view in one frame.
+- **Whatever moved under a finger is held from taps for `SAME_GESTURE_MS`** (350ms — Android's
+  double-tap timeout plus a frame, exported once from `@mms/ui`). The same constant arms the
+  Stepper's Remove: when "−" at qty 2 becomes "Remove {name}", that Remove ignores the second half of
+  the same double-tap (every Stepper consumer, the staff line editor included).
+- **A refused removal reappears in place** and the rows below slide down — the same measurement run
+  the other way. Never an arrival idiom; the one live region says why.
+- **Focus lands on the neighbouring dish's name** (next, else previous; `data-line-name`,
+  `preventScroll`), before the write while the old control is still live — never on a control that
+  repeats the action. The heading takes focus only when the view swaps. A peer's removal moves focus
+  only if focus was inside the removed row, keyed on the removed id SET, never a count.
+- **Reduced motion keeps every safety, none of the motion:** no ghost fade, no FLIP; the hold, the
+  remove-arm and the focus landing still apply.
+
+## 25 · The card form — one wait, one reveal, a way out that works (Phase 1c)
+
+Decided by `lib/pay-element.ts`, drawn by `PaymentSection`.
+
+- **Our skeleton owns the wait; Stripe's loader is off** (`loader: "never"`). The stage draws v7.2's
+  `.sk` grammar in the Element's own geometry and reserves this device's last measured height (else
+  `PAY_ELEMENT_FALLBACK_PX`), so the Pay button never moves. A wallet shape is drawn only where this
+  device measured one — a first visit never implies Apple Pay.
+- **The live form loads underneath, invisible and `inert`, and is revealed once** — when the card is
+  ready and the wallet has settled or a measured grace has passed. Stripe fires `ready` under
+  `inert` + `opacity: 0` (measured in Chromium, 2026-09-24).
+- **The Pay control keeps its sum and states its reason.** `aria-disabled` + `aria-describedby`
+  (loading / slow / offline / the failure's title) until reveal + `settleMs` (300ms), so a tap aimed
+  before the layout moved cannot land. `payable` is named once — the button's attribute and
+  `confirm()` both read it. Wallets skip the settle window (their sheet IS the confirmation), and
+  every refused wallet confirm calls `paymentFailed`, so the sheet never spins.
+- **Nothing can latch.** An in-flight ref read at call time blocks a double confirm; a rejecting
+  `confirmPayment` is caught and clears every latch ("Payment couldn't start — try again."), so Pay,
+  Edit order, Back to review and the pagehide release always come back.
+- **A failure is an inline card whose one button can work.** Retry only after a real error (Stripe.js
+  rejected, a network loaderror) — escalating to "Back to review" after two; a timeout, a bad key or
+  an ended intent go back to review (naming the counter at a table). A retry re-keys Elements on the
+  SAME clientSecret: no new intent, no amount change, no lock write.
+- **Copy says only what we know**: "Nothing is lost"; an ended intent sends the diner to see where the
+  order stands, never "you were not charged". Offline, the `online` event really does retry.
+- **The iframe is a token mirror** (`lib/stripe-appearance.ts`, pinned by `check:theme`): the Field
+  (§20) in Hanken at the 16px floor, the lit cap's flat subset for the selected tab (`--gold` fill,
+  `--ink` label, `--ac` edge), white wallet buttons in Night, `disableAnimations` under reduced
+  motion. The font is the byte-identical latin subset next/font ships, served first-party.
+
+## 26 · Keeping what you earned (Phase 1c)
+
+- **A door, not a copy.** The /track save card has one action — a link to /account, where the one
+  save flow lives. Mounting that flow a second time was rejected (it reads `resume`, owns a live
+  region, and carries every merge rule).
+- **One rewards door at a time, decided once** (`successRewardsDoor`). While attribution is undecided
+  no rewards link renders anywhere, so a door can appear but never vanish under a finger.
+- **An ask on a success screen is quiet**: inline, mounted only after what sits above it has settled
+  (so it never pushes the receipt's buttons), never takes focus, adds no live region, `secondary`
+  CTA. "Not now" is remembered per device; two declines and the ask stops.
+- **Only claims the data holds.** Asked only when this order earned THIS guest a Star; the count is
+  the server total after attribution, never "+1"; "the reward you just unlocked" reads the same
+  `rewardJustUnlocked` binding PaySuccess reads.
+- **A disclosure before a costly tap names every cost** — and is the control's accessible
+  DESCRIPTION, because a screen reader tabbing onto a labelled button skips the paragraph above it. A
+  Welcome-back chip strands this phone's guest Stars AND its guest orders; the note promises to carry
+  only what a save carries (the Stars and the orders that EARNED them — never a split share this phone
+  only paid, M237).
+- **/account reads now → you → what you own → the record → reference → settings**: today's orders
+  first (seeded by the server, refreshed on wake and focus), identity, Stars with today's coupons,
+  history, favourites, tiers, sound.
+- **A resume is not an arrival — including the browser's Back.** PaySuccess latches its celebration
+  per payment in sessionStorage; a remount of the same payment skips the confetti, the haptic and the
+  chime.
+- **No hash landings behind a loading boundary** — Next consumes the hash on the skeleton's commit.
+
+## 27 · The market's front door (Phase 1c)
+
+- **The door says only what the catalog keeps.** Browse is the default (`GROCERY_DEFAULT_DOOR`),
+  because the catalog's barcodes are synthetic; `/grocery?tab=scan` is the in-store entry. Scan-first
+  waits on real shelf codes (G22).
+- **Ink box for the camera, paper for recovery.** The live states share one constant-`--ink` stage
+  (identical in both themes — a camera image is not a themed surface); blocked · busy · no camera ·
+  unsupported · in-app · failed are EmptyState panels with one action each.
+- **The camera prompt follows a tap or a prior grant** — a primer first, never a cold OS prompt. A
+  denial answered in under 400ms opens the settings help itself.
+- **The camera runs only while the page is visible and the Scan door is open.**
+- **The hold lifts on a LOADED basket, never a minted one** (`scanBasketReady`, pinned by
+  `check:scan-repeat`): the jar in frame is judged against the basket's lines the frame the hold
+  lifts, and a rejoined basket's lines are [] until its first read lands.
+- **The lock says "read", never "added"**: the reticle's gold corners on a sighting; the server's
+  verdict (haptic, toast, row) is the add. No sound (§15), no new haptic (§12).
+- **The result sits where the eye is, and a miss persists** — inside the viewfinder, never below the
+  fold. It is re-keyed per outcome and hands focus across its own remount, so "Add another" keeps a
+  keyboard or screen-reader shopper where they were. A sheet over the stage SWALLOWS sightings (`decodeHold`), so nothing is added behind a modal.
+- **Shelves of six, aisles as history.** One shelf per aisle with "See all {n}"; an aisle is a
+  `#aisle-*` entry — home → aisle pushes, aisle → aisle replaces, so Back returns to the market.
+  Chips are links with `aria-current` (the lit cap).
+- **Money labels say pre-tax** ("Subtotal · before tax"); the amounts are unchanged.

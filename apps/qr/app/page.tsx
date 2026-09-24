@@ -74,7 +74,7 @@ export default function Entry() {
           emoji="🛒"
           name="Grocery"
           my="ကုန်စုံဝယ်ရန်"
-          description="Scan barcodes, pay, walk out"
+          description="Browse the aisles or scan shelf barcodes as you shop"
           index={5}
         />
       </nav>

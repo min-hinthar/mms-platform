@@ -1,44 +1,55 @@
 import { Skeleton } from "@mms/ui";
 
 /**
- * Instant loading skeleton for /grocery (W2c). The page resolves the scan-and-go cart before the scanner
- * mounts; a cold hit would otherwise flash blank (rubric #1). Geometry mirrors the scan surface: header →
- * scanner viewport → a couple of basket rows (56px thumb + name + stepper) → the giant running total.
- * Decorative (`aria-hidden`); one `sr-only` cue.
+ * Instant loading skeleton for /grocery (W2c; Phase 1c geometry). It mirrors the DEFAULT door —
+ * Browse, the market home — so the swap does not jump: the eyebrow and the one-line title (the §21
+ * masthead), the Browse|Scan pill, the search field, the EBT line, four aisle-rail pills and one
+ * shelf (its heading + 2.4 cards on a phone). Radii from the tokens. Decorative (`aria-hidden`); one
+ * `sr-only` cue.
  */
 export default function GroceryLoading() {
   return (
     <main className="page-col" style={{ padding: 20, paddingBottom: 120 }}>
       <span className="sr-only">Loading your basket…</span>
       <div aria-hidden>
-        <Skeleton width={70} height={12} radius={6} style={{ marginBottom: 12 }} />
-        <Skeleton width="66%" height={30} radius={10} style={{ marginBottom: 8 }} />
-        <Skeleton width="90%" height={13} style={{ marginBottom: 18 }} />
-        {/* scanner viewport */}
-        <Skeleton width="100%" height={220} radius={18} style={{ marginBottom: 18 }} />
-        {/* basket rows */}
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="card"
-            style={{
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-              padding: 12,
-              marginBottom: 12,
-            }}
-          >
-            <Skeleton width={56} height={56} radius={12} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <Skeleton width="62%" height={15} style={{ marginBottom: 8 }} />
-              <Skeleton width="38%" height={12} />
+        {/* masthead: eyebrow + --fs-h1 title */}
+        <Skeleton width={96} height={11} radius="var(--r-full)" style={{ marginBottom: 8 }} />
+        <Skeleton width="58%" height={26} style={{ marginBottom: 12 }} />
+        {/* toolbar: the Browse|Scan pill + the search field */}
+        <Skeleton width="100%" height={54} radius="var(--r-full)" style={{ marginBottom: 10 }} />
+        <Skeleton width="100%" height={48} radius="var(--r-full)" style={{ marginBottom: 12 }} />
+        {/* the EBT line */}
+        <Skeleton width="76%" height={12} radius="var(--r-full)" style={{ marginBottom: 14 }} />
+        {/* the aisle rail */}
+        <div style={{ display: "flex", gap: 8, overflow: "hidden", marginBottom: 20 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <Skeleton key={i} width={i === 0 ? 112 : 132} height={44} radius="var(--r-full)" />
+          ))}
+        </div>
+        {/* one shelf: heading + 2.4 cards */}
+        <Skeleton width="48%" height={18} style={{ marginBottom: 12 }} />
+        <div
+          style={{
+            display: "grid",
+            gridAutoFlow: "column",
+            gridAutoColumns: "calc((100% - 2 * var(--s2)) / 2.4)",
+            gap: "var(--s2)",
+            overflow: "hidden",
+          }}
+        >
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="card" style={{ padding: 8 }}>
+              <Skeleton
+                width="100%"
+                height={132}
+                radius="var(--r-sm)"
+                style={{ marginBottom: 8 }}
+              />
+              <Skeleton width="85%" height={14} style={{ marginBottom: 6 }} />
+              <Skeleton width="55%" height={12} />
             </div>
-            <Skeleton width={92} height={40} radius={999} />
-          </div>
-        ))}
-        {/* running total */}
-        <Skeleton width="100%" height={72} radius={16} style={{ marginTop: 8 }} />
+          ))}
+        </div>
       </div>
     </main>
   );

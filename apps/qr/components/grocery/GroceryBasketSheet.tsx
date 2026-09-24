@@ -155,9 +155,11 @@ export function GroceryBasketSheet({
               <button
                 type="button"
                 className="item-add-btn"
-                aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, total $${(
+                // Phase 1c — "subtotal … before tax": the figure is Σ unit × qty, pre-tax (M187's
+                // honest-label half; the server totals are the open half).
+                aria-label={`Check out — ${itemCount} ${itemCount === 1 ? "item" : "items"}, subtotal $${(
                   totalCents / 100
-                ).toFixed(2)}`}
+                ).toFixed(2)} before tax`}
                 onClick={onCheckout}
               >
                 <span>

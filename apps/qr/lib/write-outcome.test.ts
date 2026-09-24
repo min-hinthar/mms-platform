@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   mayClaimLanding,
   mayRetry,
+  namedUnconfirmedWriteNotice,
   recoveredWrite,
   threadableView,
   unconfirmedWriteNotice,
@@ -192,5 +193,17 @@ describe("unsentWriteNotice — nothing was sent, so a retry is safe", () => {
     // The optimistic digit has just snapped back; without this the diner sees a tap vanish with no
     // explanation. It must not claim we know the cart's state — only that we did not write to it.
     expect(unsentWriteNotice()).toMatch(/nothing changed/i);
+  });
+});
+
+describe("namedUnconfirmedWriteNotice — the same retraction, naming the dish", () => {
+  it("names the dish and keeps the tail", () => {
+    expect(namedUnconfirmedWriteNotice("Mohinga")).toBe(
+      "We couldn’t confirm Mohinga — check your order below.",
+    );
+  });
+
+  it("PARITY: named with 'that' IS the unnamed sentence, so the two tails cannot drift", () => {
+    expect(namedUnconfirmedWriteNotice("that")).toBe(unconfirmedWriteNotice());
   });
 });
