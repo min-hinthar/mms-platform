@@ -7581,8 +7581,16 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — Settle's aria-disabled reads the ONE binding (cashSettleBlocked). Pinned open, Settle looks live beside 'Short $2.10' and the refusal is invisible until the tap does nothing",
-    find: "                disabled={blocked !== null}\n",
-    replace: "                disabled={false}\n",
+    find: '                {...(blocked !== null ? { "aria-disabled": true } : {})}\n',
+    replace: "",
+  },
+  {
+    id: "p2c-register/cash-settle-handler-ignores-the-binding",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — the handler refuses on the SAME binding the attribute reads (§22); the attribute alone is a hint, not a refusal (aria-disabled does not stop a click). Without it a tap beside 'Short $2.10' records the sale",
+    find: "  const canSettle = !pending && blocked === null;\n",
+    replace: "  const canSettle = !pending;\n",
   },
   {
     id: "p2c-register/cash-quote-dropped",

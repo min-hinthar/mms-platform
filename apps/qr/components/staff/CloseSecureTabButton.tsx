@@ -136,8 +136,12 @@ export function CloseSecureTabButton({
             <Button
               variant="secondary"
               size="lg"
-              disabled={busy}
-              onClick={() => setConfirming(false)}
+              // aria-disabled + the handler's guard (K35) — a charge in flight is not cancellable here.
+              {...(busy ? { "aria-disabled": true } : {})}
+              onClick={() => {
+                if (busy) return;
+                setConfirming(false);
+              }}
             >
               <Chrome lang={lang} k="settle.cancel" echo={false} />
             </Button>

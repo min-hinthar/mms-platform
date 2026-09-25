@@ -548,10 +548,14 @@ export function CashSettleButton({
               )}
             </div>
             <div style={buttonRow}>
+              {/* The refusal is the ATTRIBUTE plus the handler's own guard — never a native
+                  `disabled`, and not the primitive's `disabled` prop either, so the handler (and a
+                  mutant) is what refuses (K35's measure counts `disabled=` literally). Spread only
+                  when set: the primitive's own aria-disabled while busy must not be erased. */}
               <Button
                 variant="secondary"
                 size="lg"
-                disabled={pending}
+                {...(pending ? { "aria-disabled": true } : {})}
                 onClick={() => {
                   if (pending) return;
                   setConfirming(false);
@@ -565,7 +569,7 @@ export function CashSettleButton({
                 variant="primary"
                 size="xl"
                 style={{ flex: 1 }}
-                disabled={blocked !== null}
+                {...(blocked !== null ? { "aria-disabled": true } : {})}
                 busy={pending}
                 busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
                 aria-describedby={settleDescribedBy}
