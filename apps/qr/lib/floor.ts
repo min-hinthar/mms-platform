@@ -14,6 +14,9 @@ import { getPostHogClient } from "./posthog-server";
 import { tableDisplay } from "./floor-types";
 import { readRegisterQueue } from "./register-queue";
 import { staffSendCounts } from "./staff-send-view";
+// ── Phase 2c · pad ──
+import { loadLineNames } from "./line-names";
+import { catalogNameMy, pairModifiersMy } from "./ticket-names";
 import type {
   ClearTableResult,
   FloorPoll,
@@ -372,7 +375,7 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
     const { data: items, error: itemsError } = await db
       .from("qr_cart_items")
       .select(
-        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment",
+        "id,name,qty,unit_price_cents,by_seat,created_at,menu_item_id,state,comped,notes,modifiers,fulfillment,modifier_option_ids",
       )
       .eq("cart_id", cart.id)
       .order("created_at", { ascending: true });
@@ -391,11 +394,27 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       ),
     ];
     const soldOutIds = new Set<string>();
+    // Phase 2c · pad — the SAME read carries each dish's Burmese name (the order pad's ticket leads
+    // with it on a Burmese console). Advisory exactly like the sold-out flag beside it: a failed read
+    // renders the English snapshot, never an outage.
+    const nameMyById = new Map<string, string | null>();
     if (menuIds.length) {
       // Deliberate: an `{ error }` here is advisory — degrade to not-sold-out rather than fail the view.
-      const { data: mi } = await db.from("menu_items").select("id,is_sold_out").in("id", menuIds);
-      for (const m of mi ?? []) if (m.is_sold_out) soldOutIds.add(m.id);
+      const { data: mi } = await db
+        .from("menu_items")
+        .select("id,is_sold_out,name_my")
+        .in("id", menuIds);
+      for (const m of mi ?? []) {
+        if (m.is_sold_out) soldOutIds.add(m.id);
+        nameMyById.set(m.id, m.name_my);
+      }
     }
+    // Phase 2c · pad — the chosen options' Burmese, through the ONE line-name loader (the menu half is
+    // the read above, so `menu: "skip"`; a grocery barcode line keeps its English). Advisory.
+    const { optionNameMy } = await loadLineNames(db, items ?? [], {
+      tag: "floor-detail",
+      menu: "skip",
+    });
     // Lines with an OPEN approval request (S2.4) — so the editor shows "approval requested" instead of a
     // second Void/Comp button. One bounded read on the (non-hot) detail path.
     const pendingLineIds = new Set<string>();
@@ -422,6 +441,18 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       comped: i.comped ?? false,
       pendingApproval: pendingLineIds.has(i.id),
       notes: i.notes ?? null, // W3b: the kitchen note (staff can set/see it on draft lines)
+      // ── Phase 2c · pad ── the dish, where it goes, and its Burmese (advisory, validated).
+      menuItemId: i.menu_item_id ?? null,
+      fulfillment:
+        i.fulfillment === "togo" || i.fulfillment === "grocery"
+          ? i.fulfillment
+          : ("dinein" as const),
+      nameMy: catalogNameMy(i.menu_item_id ? nameMyById.get(i.menu_item_id) : null, i.name),
+      modifiersMy: pairModifiersMy(
+        i.modifier_option_ids,
+        Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
+        optionNameMy,
+      ),
       // K33 — the server-priced option labels, as stored on the line. `modifiers` is a jsonb column,
       // so narrow it the way every other reader does rather than trusting the row's type.
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],
@@ -484,6 +515,11 @@ export async function getTableDetail(sessionId: string): Promise<TableDetailResu
       state: "served" as TableLineView["state"],
       sendable: false, // Phase 2a · send — a settled record sends nothing
       comped: false, // a comped line never reaches qr_order_items — the fulfilment excludes it
+      // Phase 2c · pad — a settled RECORD: never badged on a tile, never re-grouped by the pad.
+      menuItemId: null,
+      fulfillment: "dinein" as const,
+      nameMy: null,
+      modifiersMy: [],
       pendingApproval: false, // approvals are cart-scoped and resolved before settlement
       notes: i.notes ?? null,
       modifiers: Array.isArray(i.modifiers) ? (i.modifiers as string[]) : [],

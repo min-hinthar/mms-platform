@@ -80,6 +80,11 @@ const line = (id: string, name: string): TableLineView => ({
   modifiers: [],
   refundedCents: 0,
   sendable: true,
+  // Phase 2c · pad — the line's dish, fulfillment and Burmese (the order pad's ticket reads them).
+  menuItemId: null,
+  fulfillment: "dinein",
+  nameMy: null,
+  modifiersMy: [],
 });
 const DETAIL: TableDetail = {
   sessionId: "s1",

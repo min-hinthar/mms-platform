@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   initialSelection,
   isSelectionValid,
+  needsChoice,
   selectedIds,
   selectionDeltaCents,
   toggleOption,
@@ -119,5 +120,21 @@ describe("selectedIds", () => {
     expect(
       selectedIds([reqSingle, optMulti], { "g-style": ["mild"], "g-addons": ["egg", "ghost"] }),
     ).toEqual(["mild", "egg"]);
+  });
+});
+
+// ── Phase 2c · pad ──
+describe("needsChoice — the quick-add gate", () => {
+  // The order pad adds a dish in ONE tap unless a choice is REQUIRED. Mohinga, Mee-Shay and Shan
+  // Noodles carry only optional groups (spice, add-ons) and are most of the adds in a service.
+  it("optional-only groups never block the one-tap add", () => {
+    // MUTATION: today's `groups.length > 0` rule ("Choose…" on ANY group) — red.
+    expect(needsChoice([optMulti])).toBe(false);
+    expect(needsChoice([])).toBe(false);
+  });
+  it("a single required group is a choice", () => {
+    // MUTATION: `>= 1` → `> 1` — a min-1 group would add a curry with no style; red.
+    expect(needsChoice([reqSingle])).toBe(true);
+    expect(needsChoice([optMulti, reqSingle])).toBe(true);
   });
 });

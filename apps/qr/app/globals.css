@@ -12726,3 +12726,698 @@ a.aisle-tile {
 .staff-col.staff-col-dock {
   padding-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
 }
+
+/* ── Phase 2c · pad ── */
+/* ── the order pad ─────────────────────────────────────────────────────────────────────────────────
+   DESIGN-LANGUAGE §28. An APP SHELL, not a scrolling document: `.pad-main` is exactly the viewport
+   (dvh absorbs the tablet toolbar), the StaffBar is its first row, and `.pad-shell` fills the rest.
+   Every pane scrolls INSIDE itself (overscroll contained), so the bar never moves and nothing sticks
+   above or beside it. ONE ticket and ONE node for the Send and for Take payment — CSS decides where
+   each shows per tier; nothing is duplicated for a breakpoint. Tokens only; every animated class is
+   a kit idiom (mms-pop / mms-settle / mms-rise / mms-remove / staff-press), escorted below. */
+.pad-main {
+  --pad-ticket-w: 20rem;
+  /* The Toast rides above the phone's dock: `--cta-dock-h` is the dock's MEASURED height, published
+     on the root by `useCtaDock` (OrderPad) — never a guessed constant. */
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: 0;
+  overflow: hidden;
+}
+.pad-main > .staff-bar {
+  margin-bottom: 0;
+}
+/* The skip link: the FIRST focusable element, visible only when a keyboard reaches it. */
+.pad-skip {
+  position: absolute;
+  top: var(--s2);
+  left: var(--s2);
+  z-index: calc(var(--z-toolbar) + 1);
+  min-height: 44px;
+  padding: 0 var(--s4);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+}
+.pad-skip:not(:focus) {
+  width: 1px;
+  height: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.pad-shell {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "tools"
+    "pane"
+    "dock";
+}
+
+/* ── the tools: a search circle, and the category rail ─────────────────────────────────────── */
+.pad-tools {
+  grid-area: tools;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 64px;
+  padding: var(--s2) var(--s4);
+  min-width: 0;
+}
+.pad-search-btn,
+.pad-search-clear {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--tx);
+  cursor: pointer;
+}
+.pad-search {
+  display: none;
+  flex: 1;
+  align-items: center;
+  gap: var(--s2);
+  min-width: 0;
+}
+.pad-search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font: inherit;
+  /* 16px — iOS never zooms a focused field (P5.2) */
+  font-size: var(--fs-body);
+}
+.pad-tools[data-search="open"] .pad-search {
+  display: flex;
+}
+.pad-tools[data-search="open"] .pad-search-btn,
+.pad-tools[data-search="open"] .pad-rail {
+  display: none;
+}
+/* One row on a phone, bleeding into the gutter (§21) with the §18 edge fade; a chip never shrinks. */
+.pad-rail {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: var(--s2);
+  overflow-x: auto;
+  /* W22c — a rail flicked back to its start must not walk the diner out through the back gesture */
+  overscroll-behavior-x: contain;
+  margin-inline-end: calc(var(--s4) * -1);
+  padding-inline-end: var(--s4);
+  scroll-padding-inline: var(--s4);
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+.pad-rail::-webkit-scrollbar {
+  display: none;
+}
+.pad-rail:not(:focus-within) {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent);
+}
+.pad-rail > .staff-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* ── the tiles ─────────────────────────────────────────────────────────────────────────────── */
+.pad-tiles {
+  grid-area: pane;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  padding: 0 var(--s4) var(--s4);
+}
+.pad-section + .pad-section {
+  margin-top: var(--s5);
+}
+.pad-section-h {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0 0 var(--s2);
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  color: var(--t2);
+}
+.pad-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s2);
+}
+.pad-tile {
+  position: relative;
+  min-width: 0;
+}
+/* Text-only (owner): the name leads, the other tongue echoes, the foot carries price · ×N · the mark.
+   Paper with a hairline — the ONE dotted card on this screen is the ticket, never a tile. */
+.pad-tile-main {
+  width: 100%;
+  height: 100%;
+  min-height: 8.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--s1);
+  padding: var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--cd);
+  color: var(--tx);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+/* the corner (44px) is the options button's — the name never runs under it */
+.pad-tile-main[data-action="add"] {
+  padding-inline-end: calc(44px + var(--s1));
+}
+.pad-tile-name {
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-snug);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.pad-tile-echo {
+  max-width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pad-tile-foot {
+  margin-top: auto;
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.pad-tile-price {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+/* still on its way — dim, never a claim */
+.pad-tile-pending {
+  font-size: var(--fs-label);
+  font-weight: var(--fw-semibold);
+  color: var(--t3);
+  font-variant-numeric: tabular-nums;
+}
+.pad-tile-plus {
+  margin-inline-start: auto;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-full);
+  background: var(--ac);
+  color: var(--oa);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+.pad-tile-glyph {
+  display: inline-block;
+}
+.pad-tile-choose {
+  margin-inline-start: auto;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--s3);
+  border: 1px solid var(--ac);
+  border-radius: var(--r-full);
+  background: var(--sf);
+  color: var(--ac-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+}
+.pad-tile-soldout {
+  margin-inline-start: auto;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--t3);
+}
+.pad-tile[data-soldout] .pad-tile-main {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.pad-tile-opts {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--t2);
+  cursor: pointer;
+}
+.pad-tile-opts:focus-visible {
+  outline-offset: -3px;
+}
+.pad-tile-opts[aria-disabled="true"] {
+  opacity: 0.55;
+}
+.pad-banner {
+  margin: 0 0 var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: var(--warnb);
+  color: var(--tx);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-snug);
+}
+.pad-outage,
+.pad-empty {
+  display: grid;
+  gap: var(--s3);
+  justify-items: start;
+  padding: var(--s5) 0;
+  color: var(--t2);
+}
+.pad-outage > p,
+.pad-empty > p {
+  margin: 0;
+}
+
+/* ── the ticket ────────────────────────────────────────────────────────────────────────────── */
+.pad-ticket {
+  grid-area: pane;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: var(--s2) var(--s4) var(--s3);
+  padding: var(--s4);
+  overflow: hidden;
+}
+.pad-ticket-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s2) var(--s4);
+}
+.pad-ticket-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  outline: none;
+}
+.pad-name {
+  flex: 1 1 100%;
+}
+.pad-name-row {
+  display: flex;
+  gap: var(--s2);
+}
+.pad-name-row > input {
+  flex: 1;
+  min-width: 0;
+}
+.pad-ticket-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  margin-top: var(--s2);
+}
+.pad-ticket-group-h {
+  margin: var(--s3) 0 var(--s1);
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-bold);
+  color: var(--t2);
+}
+/* the containing block a leaving row is placed in while the list closes over it (§24) */
+.pad-ticket-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.pad-ticket-empty {
+  margin: var(--s4) 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+/* An add still on its way: the line as it will read, in secondary ink, a dashed rule — never a price. */
+.pad-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 44px;
+  padding: var(--s2) 0;
+  border-top: 1px dashed var(--bd);
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+.pad-ghost-status {
+  font-size: var(--fs-caption);
+  font-weight: var(--fw-semibold);
+  color: var(--t3);
+  white-space: nowrap;
+}
+.pad-ticket-foot {
+  display: grid;
+  gap: var(--s2);
+  margin-top: var(--s2);
+  padding-top: var(--s3);
+  border-top: 2px solid var(--bd);
+}
+/* A receipt row: the words, a dotted leader, the server's figure (§8 — money surfaces speak receipt). */
+.pad-receipt {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--t2);
+}
+.pad-leader {
+  flex: 1;
+  min-width: var(--s4);
+  border-bottom: 1px dotted var(--bd);
+}
+.pad-receipt-amt {
+  color: var(--tx);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.pad-note {
+  margin: 0;
+  font-size: var(--fs-caption);
+  color: var(--t3);
+}
+.pad-stale {
+  margin: 0;
+  color: var(--warn);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+.pad-status {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+.pad-hint {
+  margin: var(--s2) 0 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+/* The line editor on the ticket (shared with the table page): the qty digit pops (a transform needs
+   a box), and the dish's echo sits under its lead. */
+.staff-qty {
+  display: inline-block;
+}
+.staff-line-echo {
+  display: block;
+  font-size: var(--fs-caption);
+  color: var(--t2);
+}
+
+/* ── the dock: the phone's bar (view · the state's one primary), a column under the ticket from
+   the tablet tier ──────────────────────────────────────────────────────────────────────────── */
+.pad-dock {
+  grid-area: dock;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  grid-template-areas: "view primary";
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2) var(--s4) calc(var(--s2) + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--bd);
+  background: var(--cd);
+  box-shadow: var(--sh-paper);
+}
+.pad-view {
+  grid-area: view;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0 var(--s3);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  background: var(--sf);
+  color: var(--tx);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  text-align: start;
+  cursor: pointer;
+}
+.pad-dock-primary {
+  grid-area: primary;
+  min-width: 0;
+}
+.pad-dock-settle {
+  grid-area: settle;
+  display: none;
+}
+.pad-dock .staff-send {
+  margin-top: 0;
+}
+.pad-shell[data-view="order"] .pad-dock {
+  grid-template-areas:
+    "settle settle"
+    "view primary";
+}
+.pad-shell[data-view="order"] .pad-dock-settle {
+  display: block;
+}
+/* A counter order has no Send: Take payment IS the primary slot, and there is no settle row. */
+.pad-shell[data-counter][data-view] .pad-dock {
+  grid-template-areas: "view primary";
+}
+
+/* The phone tier: one pane at a time, and the dock's hints are spoken, not drawn (the bar is one
+   64px row; a hint below it would sit off the screen). */
+@media (max-width: 47.99em) {
+  .pad-shell[data-view="menu"] .pad-ticket,
+  .pad-shell[data-view="order"] .pad-tiles,
+  .pad-shell[data-view="order"] .pad-tools {
+    display: none;
+  }
+  .pad-dock .staff-send-hint,
+  .pad-dock .pad-hint {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  /* The bar's slots are narrow (the primary about 12.75rem at 390px): the xl tap keeps its height,
+     not its 2rem gutters or its heading size, so "Send 3 to kitchen" and a stacked Burmese echo
+     each stay on one line. Unmeasured on a device (docs/p2c-notes/pad.md). */
+  .pad-dock .ui-btn-xl {
+    padding-inline: var(--s3);
+    font-size: var(--fs-lead);
+    text-wrap: balance;
+  }
+}
+
+/* The tablet tier: tiles beside the ticket, the rail WRAPPED (a touch device should not need swipes). */
+@media (min-width: 48em) {
+  .pad-main {
+    --cta-dock-h: 0px;
+  }
+  .pad-shell {
+    grid-template-columns: minmax(0, 1fr) var(--pad-ticket-w);
+    grid-template-areas:
+      "tools ticket"
+      "pane ticket"
+      "pane dock";
+    column-gap: var(--s4);
+    padding: 0 var(--s5) var(--s4);
+  }
+  .pad-tools {
+    padding-inline: 0;
+  }
+  .pad-rail {
+    flex-wrap: wrap;
+    overflow: visible;
+    margin: 0;
+    padding: 0;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  .pad-tiles {
+    padding-inline: 0;
+  }
+  .pad-grid {
+    grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+    gap: var(--s3);
+  }
+  .pad-tile-name {
+    font-size: var(--fs-h3);
+  }
+  .pad-ticket {
+    grid-area: ticket;
+    margin: var(--s2) 0 0;
+  }
+  .pad-dock {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "primary"
+      "settle";
+    padding: var(--s3) 0 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
+  }
+  .pad-shell[data-view] .pad-dock {
+    grid-template-areas:
+      "primary"
+      "settle";
+  }
+  .pad-shell[data-counter][data-view] .pad-dock {
+    grid-template-areas: "primary";
+  }
+  .pad-view {
+    display: none;
+  }
+  .pad-dock-settle,
+  .pad-shell[data-view] .pad-dock-settle {
+    display: block;
+  }
+  /* The Toast centres over the tiles — never over the Send or Take payment. */
+  .pad-main .ui-toast-region {
+    right: calc(var(--pad-ticket-w) + var(--s5) + var(--s4));
+  }
+}
+/* Short tablets (1024×768 landscape): the two dock buttons side by side, so about five ticket
+   lines stay in view. A starting layout — measure on the render (docs/p2c-notes/pad.md). */
+@media (min-width: 48em) and (max-height: 52em) {
+  .pad-dock,
+  .pad-shell[data-view] .pad-dock {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "settle primary";
+  }
+  /* two xl taps side by side in a 20–24rem column: the same narrow-slot trim as the phone bar */
+  .pad-dock .ui-btn-xl {
+    padding-inline: var(--s3);
+    font-size: var(--fs-lead);
+    text-wrap: balance;
+  }
+  .pad-shell[data-counter][data-view] .pad-dock {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "primary";
+  }
+}
+/* The desktop register: a wider ticket, the search FIELD always shown beside the rail, a bounded shell. */
+@media (min-width: 64em) {
+  .pad-main {
+    --pad-ticket-w: 24rem;
+  }
+  .pad-shell {
+    width: 100%;
+    max-width: 90rem;
+    margin-inline: auto;
+  }
+  .pad-search-btn {
+    display: none;
+  }
+  .pad-search,
+  .pad-tools[data-search="open"] .pad-search {
+    display: flex;
+    flex: 0 1 16rem;
+  }
+  .pad-tools[data-search="open"] .pad-rail {
+    display: flex;
+  }
+}
+
+/* ── the skeleton (add/loading.tsx and [id]/loading.tsx on a register mint) ──────────────── */
+.pad-skeleton-tile {
+  min-height: 8.5rem;
+}
+.pad-skeleton-tile > .mms-skeleton {
+  min-height: 8.5rem;
+}
+.pad-skeleton-ticket {
+  display: grid;
+  align-content: start;
+  gap: var(--s3);
+}
+/* 8 tile ghosts at two columns, 12 at three (the tablet), 16 at four (the desktop) */
+.pad-skeleton .pad-tile:nth-child(n + 9) {
+  display: none;
+}
+@media (min-width: 48em) {
+  .pad-skeleton .pad-tile:nth-child(n + 9) {
+    display: block;
+  }
+  .pad-skeleton .pad-tile:nth-child(n + 13) {
+    display: none;
+  }
+}
+@media (min-width: 64em) {
+  .pad-skeleton .pad-tile:nth-child(n + 13) {
+    display: block;
+  }
+}
+@media (max-width: 47.99em) {
+  .pad-skeleton .pad-ticket {
+    display: none;
+  }
+}
+
+/* ── reduced motion: every safety, none of the motion ────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .pad-rail {
+    scroll-behavior: auto;
+  }
+  .pad-tile-plus.mms-pop,
+  .pad-tile-glyph.mms-settle,
+  .pad-ghost.mms-rise,
+  .staff-qty.mms-pop {
+    animation: none;
+  }
+}

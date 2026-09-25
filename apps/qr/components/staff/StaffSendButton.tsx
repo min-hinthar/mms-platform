@@ -2,7 +2,7 @@
 import { useId } from "react";
 import { Button, Icon } from "@mms/ui";
 import { plural } from "@/lib/i18n/fill";
-import type { StaffSendHold } from "@/lib/staff-send-view";
+import { sendRefusalMsg, type StaffSendHold } from "@/lib/staff-send-view";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
 import type { StaffSendController } from "./useStaffSend";
@@ -34,6 +34,7 @@ export function StaffSendButton({
   statusRef,
   hold,
   hostName,
+  bare = false,
 }: {
   lang: StaffLang;
   ctl: SendState;
@@ -43,6 +44,10 @@ export function StaffSendButton({
   hold: StaffSendHold;
   /** The diner host's display name, for the "sends from their phone" hint. */
   hostName: string | null;
+  /** ── Phase 2c · pad ── a count is a claim only from a view that has SEEN the cart: while an add
+   *  is still in flight the order pad's Send reads "Send to kitchen" with no count. The table page
+   *  never passes it. */
+  bare?: boolean;
 }) {
   const ids = useId();
   const { display, phase } = ctl;
@@ -87,12 +92,11 @@ export function StaffSendButton({
   const held = live && !blocked && hold !== null;
   const noteId = `${ids}-note`;
   const reasonId = `${ids}-why`;
-  const reason = blocked ? (
-    <Chrome lang={lang} k="table.send.paying" echo="stack" />
-  ) : held && hold.kind === "note" ? (
-    <Chrome lang={lang} k="table.send.hold.note" vars={{ x: hold.name }} echo="stack" />
-  ) : held ? (
-    <Chrome lang={lang} k="table.send.hold.writing" echo="stack" />
+  // Phase 2c · pad — the sentence is `sendRefusalMsg` (paying outranks a hold), the ONE wording the
+  // order pad also says when a refused Send is tapped; the table page renders exactly what it did.
+  const refusal = live ? sendRefusalMsg(view, hold) : null;
+  const reason = refusal ? (
+    <Chrome lang={lang} k={refusal.k} vars={refusal.vars} echo="stack" />
   ) : null;
   const note =
     live && view.note === "host" ? (
@@ -148,6 +152,8 @@ export function StaffSendButton({
               <Chrome lang={lang} k="table.send.undoLeft" vars={{ n: ctl.remainingSec }} />
             </span>
           </span>
+        ) : view && bare ? (
+          <Chrome lang={lang} k="table.send.cta.bare" echo="stack" />
         ) : view ? (
           <Chrome
             lang={lang}

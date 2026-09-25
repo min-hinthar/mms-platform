@@ -148,7 +148,13 @@ export type StaffLineEdit = {
 export type StaffSendHold =
   | null
   | { kind: "note"; lineId: string; name: string }
-  | { kind: "writing" };
+  | { kind: "writing" }
+  // ── Phase 2c · pad ── an add whose fate is unknown (it may already be on the order): the order
+  // pad holds its Send until the add is confirmed, tried again or reloaded. `unconfirmed` is still
+  // waiting on its answer; `lost` answered and may have landed — nothing is coming, so the words
+  // name the fix instead of asking anyone to wait. Never produced on the table page
+  // (`sendHoldFrom` reads line edits only).
+  | { kind: "add"; name: string; state: "unconfirmed" | "lost" };
 
 /**
  * DRAIN BEFORE FIRE (DESIGN-LANGUAGE §4). `setLineNotes` is draft-guarded, so a note typed but not
@@ -160,6 +166,34 @@ export function sendHoldFrom(edits: ReadonlyArray<StaffLineEdit>): StaffSendHold
   if (note) return { kind: "note", lineId: note.lineId, name: note.name };
   if (edits.some((e) => e.writing)) return { kind: "writing" };
   return null;
+}
+
+// ── Phase 2c · pad ──
+/** A dictionary line with its slots — structurally the staff `StaffMsg`'s keyed form. */
+export type StaffKeyMsg = { k: StaffKey; vars?: Record<string, string | number> };
+
+/** What a hold SAYS — one sentence per kind, read by the Send's hint and by the order pad's
+ *  refused-tap and drain notices, so the three can never word one hold two ways. */
+export function sendHoldMsg(hold: NonNullable<StaffSendHold>): StaffKeyMsg {
+  switch (hold.kind) {
+    case "note":
+      return { k: "table.send.hold.note", vars: { x: hold.name } };
+    case "writing":
+      return { k: "table.send.hold.writing" };
+    case "add":
+      return {
+        k: hold.state === "lost" ? "table.send.hold.lost" : "table.send.hold.add",
+        vars: { x: hold.name },
+      };
+  }
+}
+
+/** Why the Send refuses a tap right now, or null when it would go: a payment holding the cart
+ *  outranks a hold (it is the one nobody at the counter can clear). */
+export function sendRefusalMsg(view: StaffSendView, hold: StaffSendHold): StaffKeyMsg | null {
+  if (view.kind !== "send") return null;
+  if (view.blocked === "paying") return { k: "table.send.paying" };
+  return hold === null ? null : sendHoldMsg(hold);
 }
 
 /**

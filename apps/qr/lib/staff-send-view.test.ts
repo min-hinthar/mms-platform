@@ -4,6 +4,8 @@ import { STAFF_WRITE_OUTAGE } from "./staff-outage";
 import {
   fireNotice,
   sendHoldFrom,
+  sendHoldMsg,
+  sendRefusalMsg,
   settleBlockedTarget,
   staffOwedSendUnits,
   staffSendCounts,
@@ -198,6 +200,43 @@ describe("sendHoldFrom — drain before fire", () => {
   it("nothing pending: no hold", () => {
     expect(sendHoldFrom([edit])).toBeNull();
     expect(sendHoldFrom([])).toBeNull();
+  });
+});
+
+// ── Phase 2c · pad ──
+describe("sendHoldMsg / sendRefusalMsg — one sentence per hold, wherever it is said", () => {
+  const SEND = {
+    kind: "send" as const,
+    units: 2,
+    emphasis: "primary" as const,
+    note: null,
+    blocked: null,
+    staffAdded: 2,
+    dinerUnits: 0,
+  };
+  it("each hold names its fix; a LOST add is never worded as a wait", () => {
+    expect(sendHoldMsg({ kind: "note", lineId: "l1", name: "Tea" })).toEqual({
+      k: "table.send.hold.note",
+      vars: { x: "Tea" },
+    });
+    expect(sendHoldMsg({ kind: "writing" })).toEqual({ k: "table.send.hold.writing" });
+    expect(sendHoldMsg({ kind: "add", name: "Tea", state: "unconfirmed" })).toEqual({
+      k: "table.send.hold.add",
+      vars: { x: "Tea" },
+    });
+    // MUTATION: a lost add read as "Waiting to hear back" — nothing is coming; red.
+    expect(sendHoldMsg({ kind: "add", name: "Tea", state: "lost" })).toEqual({
+      k: "table.send.hold.lost",
+      vars: { x: "Tea" },
+    });
+  });
+  it("a payment holding the cart outranks a hold; a Send that would go says nothing", () => {
+    expect(
+      sendRefusalMsg({ ...SEND, blocked: "paying" }, { kind: "note", lineId: "l1", name: "Tea" }),
+    ).toEqual({ k: "table.send.paying" });
+    expect(sendRefusalMsg(SEND, { kind: "writing" })).toEqual({ k: "table.send.hold.writing" });
+    expect(sendRefusalMsg(SEND, null)).toBeNull();
+    expect(sendRefusalMsg({ kind: "allSent" }, { kind: "writing" })).toBeNull();
   });
 });
 
