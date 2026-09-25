@@ -17,7 +17,7 @@ import { type TableDetail, tableDisplay } from "@/lib/floor-types";
 import { FloorStatusChip } from "./FloorStatusChip";
 import { RelativeTime } from "./RelativeTime";
 import { LiveMoney } from "./LiveMoney";
-import { Badge, Icon } from "@mms/ui";
+import { Badge, Icon, buttonClass } from "@mms/ui";
 import { ClearTableButton } from "./ClearTableButton";
 import { StaffLineEditor } from "./StaffLineEditor";
 import { CashSettleButton } from "./CashSettleButton";
@@ -48,6 +48,11 @@ import {
 import { StaffSendButton } from "./StaffSendButton";
 import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
+// ── Phase 2c · register ──
+import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
+import { inFlightMsg } from "@/lib/inflight-refusal";
+import { HandoffCard } from "./HandoffCard";
+import type { ReaderStatus } from "./TerminalSettle";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 // P2 — keys, not labels. The three modes already have dictionary entries on the floor card
@@ -74,12 +79,16 @@ export function FloorDetailLive({
   terminalReady = false,
   hasPin = false,
   arrivedToSend = false,
+  focusSettle = false,
 }: {
   initial: TableDetail;
   sessionId: string;
   /** Phase 2a · send — the add page's "Review · N not sent →" landed here (`?send=1`): focus the
    *  Send (or the status row, if a colleague sent in between), then drop the param. */
   arrivedToSend?: boolean;
+  /** Phase 2c · register — the order pad's Settle landed here (`?settle=1`): focus the settle
+   *  section's heading (scrolled into view — the jump is the point), then drop the param. */
+  focusSettle?: boolean;
   /** P7·1b — the bar's Lock circle renders only when the caller has a PIN (server-checked). */
   hasPin?: boolean;
   /** W6c: STRIPE_TERMINAL_READER_ID is configured (server-checked by the page) — the Card settle
@@ -112,16 +121,28 @@ export function FloorDetailLive({
 
   // Staff can write while there's an open cart and no payment in flight; once settled (cartId null) or
   // mid-payment the order goes read-only. The server enforces this too — this is just the affordance.
-  const canWrite = detail.cartId != null && !detail.paymentInFlight;
+  // Phase 2c · register (critic finding) — a COUNTER cash settle whose response was lost (it may
+  // have landed): `settleCash`'s after() closes the counter session behind a landed settle, so a
+  // `closed` read while the outcome is unknown most likely means it went through. The bounce to the
+  // floor is HELD (a ref the button sets through `onOutcomeUnknown`, read by `refresh`) and the page
+  // says so where the settle was (`closedAfterUnknown`), instead of yanking the cashier to the floor
+  // mid-sheet with the promised "the order shows paid" never shown anywhere.
+  const settleUnknown = useRef(false);
+  const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
+  const closedNoticeRef = useRef<HTMLElement>(null);
+  const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
+  // P2w — who holds an in-flight payment (the banner below); a missing holder is unsure, never phone.
+  const payingHolder = detail.paymentHolder ?? "unsure";
+  const payingMsg = inFlightMsg(payingHolder);
   const isCounter = detail.label.startsWith("reg-");
   // W6a review (confirmed HIGH): the settle handoff card must SURVIVE the settled detail state — the
   // settle button lives inside the open-cart conditional, and the realtime/poll refresh unmounts it
   // (client state included) within ~0.4-5s of the settle, mid-handoff. The card's data lives HERE.
-  const [handoff, setHandoff] = useState<{
-    orderId: string;
-    totalCents: number;
-    changeCents: number | null;
-  } | null>(null);
+  // Phase 2c · register — the CANONICAL shape (`Handoff`, lib/register-ui): the persisted total and
+  // tip, the tender the cashier entered, whether it is a counter order, and the cart that paid (so a
+  // table's card leaves when the next round's cart opens — `handoffStillCurrent`). It is never reset:
+  // a stale one is simply not rendered, and the next settle overwrites it.
+  const [handoff, setHandoff] = useState<Handoff | null>(null);
   // W6c: the live reader-collect window — SAME survival rule as the handoff card (the settlement
   // freeze flips paymentInFlight, which unmounts the settle section seconds after the start),
   // PLUS reload survival: the PI handle is mirrored to sessionStorage, so a mid-collect refresh /
@@ -147,9 +168,14 @@ export function FloorDetailLive({
     }, 0);
     return () => clearTimeout(id);
   }, [sessionId]);
+  // Phase 2c · register (P2r) — the reader panel's status, SAID through the ONE region below (the
+  // panel shows it, and carries no region of its own). A STATE mirrored from the live panel, not a
+  // one-shot note: no other setter clears it, and it goes when the panel goes.
+  const [readerStatus, setReaderStatus] = useState<ReaderStatus | null>(null);
   const setTerminalCollect = useCallback(
     (c: TerminalCollect | null) => {
       setTerminalCollectState(c);
+      if (!c) setReaderStatus(null);
       try {
         if (c) sessionStorage.setItem(`mms-terminal-collect:${sessionId}`, JSON.stringify(c));
         else sessionStorage.removeItem(`mms-terminal-collect:${sessionId}`);
@@ -157,20 +183,28 @@ export function FloorDetailLive({
         /* deliberate: storage may be unavailable — in-memory state still drives the panel */
       }
     },
-    [sessionId],
+    // `setReaderStatus` is named for the React Compiler (the `setSendNote` note below): it IS stable.
+    [sessionId, setReaderStatus],
   );
-  const handoffRef = useRef<HTMLDivElement>(null);
+  const handoffRef = useRef<HTMLElement>(null);
   // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
   // to the floor while the collect panel / handoff card IS the live surface — the cashier would
-  // never see the #CODE call-out (review finding). "← Floor" is the deliberate exit.
+  // never see the #CODE call-out (review finding). "← Floor" is the deliberate exit. Phase 2c: a
+  // COUNTER card only — a table's rows-only card does not hold the bounce (a table cleared elsewhere
+  // still returns to the floor).
   const terminalFlowLive = useRef(false);
   useEffect(() => {
-    terminalFlowLive.current = terminalCollect != null || handoff != null;
+    terminalFlowLive.current = terminalCollect != null || handoff?.isCounter === true;
   }, [terminalCollect, handoff]);
   useEffect(() => {
     // Focus the handoff card when it appears (the settle control it replaced has unmounted).
     if (handoff) handoffRef.current?.focus();
   }, [handoff]);
+  useEffect(() => {
+    // The closed-after-unknown notice replaces the settle section (and the sheet inside it) — carry
+    // focus to it, the way the paid card takes it.
+    if (closedAfterUnknown) closedNoticeRef.current?.focus();
+  }, [closedAfterUnknown]);
 
   // Focus catch-all (WCAG 2.4.3): ANY detail refresh can unmount the control that held focus — a line
   // removal (stepper row gone), a void/comp (row swaps to the no-controls variant), an approval request
@@ -233,7 +267,10 @@ export function FloorDetailLive({
             // bouncing now would yank the collect panel / #CODE handoff card out from under the
             // cashier before the poll ever reports it. Hold; "← Floor" is the deliberate exit.
             // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
-            if (!terminalFlowLive.current) {
+            // Phase 2c · register: HELD while a counter cash settle's outcome is unknown — the close
+            // is then most likely that settle landing (see `settleUnknown`); the page says so.
+            if (settleUnknown.current) setClosedAfterUnknown(true);
+            else if (!terminalFlowLive.current) {
               router.replace(STAFF_DOOR_TARGET.counter);
               router.refresh();
             }
@@ -361,16 +398,26 @@ export function FloorDetailLive({
   });
   // `?send=1` — land on the thing the link promised: the Send; the status row if a colleague sent in
   // between; otherwise the order heading. Then drop the param so a reload does not re-focus.
-  const arrival = useRef(arrivedToSend);
+  // Phase 2c · register — `?settle=1` (the order pad's Settle) is the SAME arrival with a second
+  // target: the settle section's heading, focused WITHOUT preventScroll (landing on it IS the jump the
+  // link promised; the root's scroll-padding keeps it clear of the sticky bar). With no settle section
+  // (paid, a payment in flight, nothing on the order) it falls back to the order heading.
+  const settleHeadingRef = useRef<HTMLHeadingElement>(null);
+  const arrival = useRef<"send" | "settle" | null>(
+    focusSettle ? "settle" : arrivedToSend ? "send" : null,
+  );
   useEffect(() => {
-    if (!arrival.current) return;
-    arrival.current = false;
+    const kind = arrival.current;
+    if (!kind) return;
+    arrival.current = null;
     const target =
-      sendView.kind === "send"
-        ? send.controlRef.current
-        : sendView.kind === "none"
-          ? orderHeadingRef.current
-          : send.statusRef.current;
+      kind === "settle"
+        ? settleHeadingRef.current
+        : sendView.kind === "send"
+          ? send.controlRef.current
+          : sendView.kind === "none"
+            ? orderHeadingRef.current
+            : send.statusRef.current;
     (target ?? orderHeadingRef.current)?.focus();
     router.replace(pathname, { scroll: false });
   }, [sendView.kind, send.controlRef, send.statusRef, router, pathname]);
@@ -786,7 +833,23 @@ export function FloorDetailLive({
             Burmese. `StaffPromoControl` passes an ALREADY-LOCALIZED `<Chrome>` element, because a
             promo refusal has a dictionary key and its Burmese is authored; wrapping that in
             `OutageText` would ask a string matcher to read a React element and would strip the
-            element's own script mark. Rendering the node as-is keeps that mark on the node. */}
+            element's own script mark. Rendering the node as-is keeps that mark on the node.
+
+            Phase 2c · register — THE VIEW'S ONLY POLITE REGION (P2r closes). The paid card is no
+            longer a `role="status"` (it is focused, and its NAME carries the facts), and the reader
+            panel's status line is SHOWN in the panel but SAID here. The written precedence:
+
+              writeError > settle line > degraded > send warn > send ok
+
+            - writeError — a line edit or promo refusal the person just caused.
+            - settle line — the reader's status while its collect panel is live (a charge in
+              progress; its own poll reads the processor, independent of the detail read `degraded`
+              describes). Rendered sr-only: the panel shows the same words. The settle gate's
+              "send them first" warn (Phase 2c, second wave) takes this rank too.
+            - degraded — the frozen-board signal. It outranks EVERY send line (2a's blind review,
+              2b63b65: a "Couldn't send" standing for a whole outage would hide the paper escalation
+              — S9). The bar's live mark says "Not updating" regardless.
+            - send warn / send ok — `sendNote`, which retires once its fact is superseded. */}
           <p
             role="status"
             style={{
@@ -809,6 +872,32 @@ export function FloorDetailLive({
               <OutageText lang={lang} error={writeError} />
             ) : writeError !== null ? (
               writeError
+            ) : readerStatus ? (
+              <>
+                <span className="sr-only">
+                  <MsgText lang={lang} msg={readerStatus.msg} />
+                </span>
+                {/* Outranked in what is SAID, never in what is SHOWN: a frozen view must not look
+                    live (S9), so the frozen line stays on screen, hidden from the reader's ears —
+                    and so does a standing send line (critic finding: "Couldn't send" vanished the
+                    moment a reader collect started). What is SHOWN keeps the region's own visible
+                    order below the settle line: degraded, else the send line. */}
+                {degraded ? (
+                  <span lang={lang} aria-hidden="true">
+                    {frozenBoardCopy(
+                      lang,
+                      detail.serverNow,
+                      nowMs - degraded.since,
+                      "what.order",
+                      degraded.cause,
+                    )}
+                  </span>
+                ) : sendNote ? (
+                  <span aria-hidden="true">
+                    <MsgText lang={lang} msg={sendNote.msg} />
+                  </span>
+                ) : null}
+              </>
             ) : degraded ? (
               <span lang={lang}>
                 {frozenBoardCopy(
@@ -870,28 +959,24 @@ export function FloorDetailLive({
           </section>
         )}
 
-        {/* Settle in cash — when there's an open order with items and no payment in flight. On a trust
-          tab this IS the tab close (re-framed copy); the money path is the same cash reconcile. */}
+        {/* Take payment — when there's an open order with items and no payment in flight. On a trust
+          tab the cash settle IS the tab close (re-framed copy); the money path is the same cash
+          reconcile. Phase 2c · register: ONE primary, FIRST in the DOM (`settlePrimary` — the card on
+          file on a secure running bill, cash otherwise), the reader after cash as a secondary, every
+          trigger a `@mms/ui` Button (xl, block), and a heading the order pad's `?settle=1` lands on. */}
         {canWrite && detail.itemCount > 0 && detail.settleTotalCents != null && (
-          <section
-            style={{ marginTop: "var(--s4)" }}
-            aria-label={sx(lang, "table.detail.a11y.settle")}
-          >
-            {/* Secure tab (S3.2): the off-session charge on the card on file is the primary close; cash
-              stays available as a fallback below. */}
-            {detail.tab === "secure" && (
-              <div style={{ marginBottom: "var(--s3)" }}>
-                <CloseSecureTabButton sessionId={sessionId} totalCents={detail.settleTotalCents} />
-              </div>
-            )}
-            {/* W6c: card-present on the reader — only when the reader env is configured. The collect
-              window itself renders BELOW, outside this open-cart conditional (it must survive the
-              freeze flipping paymentInFlight). */}
-            {terminalReady && terminalCollect == null && (
-              <TerminalSettleButton
+          <section className="staff-settle" aria-labelledby="settle-h">
+            {/* `echo={false}`: an aria-labelledby target AND a focus target — both scripts in either
+                would say everything twice. */}
+            <h2 id="settle-h" ref={settleHeadingRef} tabIndex={-1} style={settleHeading}>
+              <Chrome lang={lang} k="table.detail.settle.title" />
+            </h2>
+            {settlePrimary(detail.tab) === "secureTab" && (
+              <CloseSecureTabButton
                 sessionId={sessionId}
                 totalCents={detail.settleTotalCents}
-                onStarted={setTerminalCollect}
+                variant="primary"
+                onChanged={onChange}
               />
             )}
             <CashSettleButton
@@ -900,13 +985,34 @@ export function FloorDetailLive({
               tipBaseCents={detail.settleTipBaseCents}
               intendedTipCents={detail.intendedTipCents}
               isTab={detail.tab !== "none"}
-              // W6a: a counter (register) order ends in a handoff — tendered/change helper + the
-              // #CODE card the cashier calls out. Table settles keep the quiet flow.
+              variant={settlePrimary(detail.tab) === "cash" ? "primary" : "secondary"}
+              // W6a: a counter (register) order always ends in the paid card (#CODE to call out); a
+              // table gets the rows-only card when a tender was entered (owner decision 7).
               handoff={isCounter}
-              onHandoff={(h) => setHandoff(h)}
+              onSettled={(h) => setHandoff({ ...h, isCounter, cartId: detail.cartId })}
+              onChanged={onChange}
+              // Only a COUNTER session closes behind its settle; a table's landed settle shows paid.
+              onOutcomeUnknown={
+                isCounter
+                  ? (unknown) => {
+                      settleUnknown.current = unknown;
+                    }
+                  : undefined
+              }
             />
+            {/* W6c: card-present on the reader — only when the reader env is configured. The collect
+              window itself renders BELOW, outside this open-cart conditional (it must survive the
+              freeze flipping paymentInFlight). */}
+            {terminalReady && terminalCollect == null && (
+              <TerminalSettleButton
+                sessionId={sessionId}
+                totalCents={detail.settleTotalCents}
+                variant="secondary"
+                onStarted={setTerminalCollect}
+              />
+            )}
             {detail.tab === "trust" && (
-              <p style={{ ...muted, marginTop: 8, fontSize: "var(--fs-sm)" }}>
+              <p style={{ ...muted, fontSize: "var(--fs-sm)" }}>
                 {/* W6c: with a reader configured, card-at-the-counter is the button above — don't
                   send the guest back to their phone for a payment the reader takes right here. */}
                 <Chrome
@@ -923,79 +1029,77 @@ export function FloorDetailLive({
             sessionId={sessionId}
             collect={terminalCollect}
             isCounter={isCounter}
+            onStatus={setReaderStatus}
+            onChanged={onChange}
             onDone={(h) => {
               setTerminalCollect(null);
-              if (h) setHandoff(h);
+              // The reader records neither a tip nor a tender — the card is Total and #CODE.
+              if (h)
+                setHandoff({
+                  orderId: h.orderId,
+                  totalCents: h.totalCents,
+                  tipCents: null,
+                  tenderedCents: null,
+                  isCounter: true,
+                  cartId: detail.cartId,
+                });
             }}
           />
         )}
-        {handoff && (
-          <div
-            ref={handoffRef}
+        {/* Phase 2c · register (critic finding) — the counter order CLOSED while a cash settle's
+            outcome was unknown: most likely it landed. Said where the settle was, focused (the
+            sheet it replaced unmounted), named by its sentence; never a live region (the page has
+            ONE). The way back is the paid card's own link — it promises only the navigation. */}
+        {closedAfterUnknown && (
+          <section
+            ref={closedNoticeRef}
             tabIndex={-1}
-            role="status"
-            aria-label={sx(lang, "table.detail.a11y.paid")}
-            className="card"
-            style={{
-              marginTop: "var(--s4)",
-              padding: "var(--s4)",
-              textAlign: "center",
-              outline: "none",
-            }}
+            aria-labelledby="settle-closed-h"
+            className="card card-textured staff-settle-closed"
+            style={sectionCard}
           >
-            {/* The two amounts now go through `fmt()` — the SAME formatter the rest of this file
-              uses, and byte-for-byte what the inline `$${(cents / 100).toFixed(2)}` produced. They
-              ride `{m}` slots, so they stay Latin and <Chrome> marks them `lang="en"` inside the
-              Burmese run; no amount is recomputed and no rounding changes. */}
-            <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-              <Chrome
-                lang={lang}
-                k="table.detail.handoff.paid"
-                vars={{ m: fmt(handoff.totalCents) }}
-                echo="inline"
-              />
-              {handoff.changeCents != null && handoff.changeCents > 0 && (
-                <>
-                  {" — "}
-                  <Chrome
-                    lang={lang}
-                    k="table.detail.handoff.change"
-                    vars={{ m: fmt(handoff.changeCents) }}
-                    echo="inline"
-                  />
-                </>
-              )}
+            {/* `echo={false}`: an aria-labelledby target — both scripts would be the name. */}
+            <p id="settle-closed-h" style={{ margin: 0 }}>
+              <Chrome lang={lang} k="settle.cash.unknownClosed" echo={false} />
             </p>
-            <p
-              style={{
-                margin: 0,
-                fontFamily: "var(--font-display)",
-                fontSize: "var(--fs-h1)",
-                fontWeight: "var(--fw-heavy)",
-                letterSpacing: "var(--track-caps)",
-              }}
+            <Link
+              href={STAFF_DOOR_TARGET.counter}
+              className={buttonClass({ variant: "primary", size: "xl", block: true })}
             >
-              #{handoff.orderId.slice(-6).toUpperCase()}
-            </p>
-            <p style={{ margin: 0, fontSize: "var(--fs-sm)", color: "var(--t2)" }}>
-              <Chrome lang={lang} k="table.detail.handoff.callout" echo="stack" />
-            </p>
-          </div>
+              <Chrome lang={lang} k="table.detail.handoff.done" echo="stack" />
+            </Link>
+          </section>
+        )}
+        {/* The paid card (Phase 2c — HandoffCard, the canonical shape). Focused by the effect above,
+            named by its facts; never a status region. A table's card leaves once the next round's
+            cart opens (`handoffStillCurrent`). */}
+        {handoff && handoffStillCurrent(handoff, detail.cartId) && (
+          <HandoffCard ref={handoffRef} lang={lang} handoff={handoff} />
         )}
         {detail.paymentInFlight && terminalCollect == null && (
           <p style={{ ...muted, marginTop: "var(--s4)", fontSize: "var(--fs-sm)" }}>
-            {/* Two whole sentences, not one with a spliced clause: the differing phrase sits in the
-              middle in English and at the end in Burmese, and a template with a hole there would
-              have to be reordered per tongue. */}
-            <Chrome
-              lang={lang}
-              k={
-                detail.tab !== "none"
-                  ? "table.detail.payingPhone.tab"
-                  : "table.detail.payingPhone.cash"
-              }
-              echo="stack"
-            />
+            {/* Phase 2c · register (P2w, critic finding) — the banner names WHO holds the money
+              (`detail.paymentHolder`, the staff refusals' own rule): a guest's phone keeps its two
+              sentences; the register's own held attempt, or a holder nobody can read, says the
+              SAME sentence the settle refusal says (`inFlightMsg`) — never "a guest is paying on
+              their phone" over the register's own charge. A missing holder is unsure, never phone.
+
+              The phone arm: two whole sentences, not one with a spliced clause — the differing
+              phrase sits in the middle in English and at the end in Burmese, and a template with a
+              hole there would have to be reordered per tongue. */}
+            {payingHolder === "phone" ? (
+              <Chrome
+                lang={lang}
+                k={
+                  detail.tab !== "none"
+                    ? "table.detail.payingPhone.tab"
+                    : "table.detail.payingPhone.cash"
+                }
+                echo="stack"
+              />
+            ) : (
+              <Chrome lang={lang} k={payingMsg.k} vars={payingMsg.vars} echo="stack" />
+            )}
           </p>
         )}
 
@@ -1037,6 +1141,14 @@ const addLink: CSSProperties = {
 };
 
 const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
+// Phase 2c · register — the settle section's heading: the page's section-heading voice, and a focus
+// target (the `?settle=1` landing), so no outline of its own beyond the focus ring rule.
+const settleHeading: CSSProperties = {
+  fontSize: "var(--fs-sm)",
+  margin: 0,
+  color: "var(--t2)",
+  outline: "none",
+};
 // P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const header: CSSProperties = { marginBottom: "var(--s5)" };
 const sub: CSSProperties = { color: "var(--t2)", fontSize: "var(--fs-sm)", margin: "6px 0 0" };

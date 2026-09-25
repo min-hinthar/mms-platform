@@ -28,9 +28,12 @@ vi.mock("./staff", () => ({
   staffGate: () => Promise.resolve({ ok: true, caller: {} }),
   STAFF_WRITE_OUTAGE: "outage",
 }));
+// Phase 2c · register (P2w) — per case: whether the freeze reads fresh, and the mutex's answer.
+let fresh = false;
+let payReason: "mid_payment" | "split_in_progress" | "split_unreadable" | null = null;
 vi.mock("./pay-guard", () => ({
-  isFresh: () => false,
-  paymentInFlightReason: () => Promise.resolve(null),
+  isFresh: () => fresh,
+  paymentInFlightReason: () => Promise.resolve(payReason),
 }));
 vi.mock("@mms/db/schemas", () => ({
   clearTableInput: { safeParse: (x: unknown) => ({ success: true, data: x }) },
@@ -61,6 +64,8 @@ let orderItemRows: Row[] = [];
 let memberRows: Row[] = [];
 let cartItemRows: Row[] = [];
 let orderItemsFail = false;
+/** Phase 2c · register — every status flip a clear would write (none may run on a refusal). */
+const updates: string[] = [];
 
 function tableApi(name: string) {
   const eqs: [string, unknown][] = [];
@@ -116,6 +121,15 @@ function tableApi(name: string) {
       return api;
     },
     is() {
+      return api;
+    },
+    // Phase 2c · register — clearTable's writes, RECORDED (so a clear that should have been refused
+    // shows up as the flips it made, not as a crash on a missing method).
+    update() {
+      updates.push(name);
+      return api;
+    },
+    neq() {
       return api;
     },
     // A row satisfies the read only if every filter it can answer actually matches — a fixture that
@@ -197,6 +211,8 @@ const { getTableDetail } = await import("./floor");
 const SESSION = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 beforeEach(() => {
+  fresh = false;
+  payReason = null;
   cartRow = null; // the table has PAID — no open cart exists
   orderRows = [
     {
@@ -551,5 +567,71 @@ describe("K33 — a settled line still says who ordered it", () => {
     // Ma Ma, not the host — a lookup that returned the first member would pass on a one-seat table.
     expect(r.detail.lines[0]?.bySeatName).toBe("Ma Ma");
     expect(r.detail.lines[1]?.bySeatName).toBeNull();
+  });
+});
+
+// ── Phase 2c · register (P2w, critic finding) ── the page's paying banner reads WHO holds the money.
+describe("getTableDetail — `paymentHolder` names who holds an in-flight payment", () => {
+  const openCart = (settleBy: string) => {
+    fresh = true;
+    cartRow = {
+      id: "cart-1",
+      session_id: SESSION,
+      status: "open",
+      locked: false,
+      locked_at: null,
+      settle_at: new Date().toISOString(),
+      settle_by: settleBy,
+      counter_requested_at: null,
+      tab_type: "none",
+      tab_opened_at: null,
+      intended_tip_cents: null,
+      promo_code: null,
+    };
+    orderRows = [];
+    memberRows = [{ seat_id: "seat-host", session_id: SESSION, display_name: "Aye", role: "host" }];
+  };
+
+  it("a freeze no seat of the session owns is the REGISTER's — the banner must not say 'their phone'", async () => {
+    openCart("attempt-uuid");
+    const r = await getTableDetail(SESSION);
+    if (r.kind !== "detail") throw new Error(`expected detail, got ${r.kind}`);
+    expect(r.detail.paymentInFlight).toBe(true);
+    // MUTATION: drop `settle_by` from the cart read — the owner is unreadable and every register
+    // freeze reads 'unsure'; red.
+    expect(r.detail.paymentHolder).toBe("register");
+  });
+
+  it("a freeze a seat owns is a guest's split — their phone", async () => {
+    openCart("seat-host");
+    const r = await getTableDetail(SESSION);
+    if (r.kind !== "detail") throw new Error(`expected detail, got ${r.kind}`);
+    // MUTATION: read every owner as a non-seat — a guest's split reads as the register's; red.
+    expect(r.detail.paymentHolder).toBe("phone");
+  });
+
+  it("nothing in flight carries no holder", async () => {
+    const r = await getTableDetail(SESSION);
+    if (r.kind !== "detail") throw new Error(`expected detail, got ${r.kind}`);
+    expect(r.detail.paymentInFlight).toBe(false);
+    expect(r.detail.paymentHolder).toBeNull();
+  });
+});
+
+describe("clearTable — a FAILED share read refuses (fail closed), never clears", () => {
+  it("`split_unreadable` refuses the clear like a split in progress", async () => {
+    const { clearTable } = await import("./floor");
+    cartRow = { id: "cart-1", session_id: SESSION, status: "open", locked: false };
+    payReason = "split_unreadable";
+    updates.length = 0;
+    const r = await clearTable({ sessionId: SESSION });
+    // MUTATION: refuse only on `split_in_progress` — the unreadable read falls through and the
+    // table is cleared over cards that may be captured; red.
+    expect(r.ok).toBe(false);
+    expect(updates).toEqual([]);
+    // The harness can clear (the refusal above is the guard's, not a missing write path).
+    payReason = null;
+    expect((await clearTable({ sessionId: SESSION })).ok).toBe(true);
+    expect(updates).toEqual(["qr_carts", "table_sessions"]);
   });
 });

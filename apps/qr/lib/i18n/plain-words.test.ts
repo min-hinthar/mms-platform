@@ -164,6 +164,8 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "settled",
         "Close tab",
         "open tabs",
+        "settle again",
+        "Settled",
       ];
       for (const h of hits)
         expect(
@@ -186,6 +188,9 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "Table 7",
         "tablet",
         "unsettling",
+        "table",
+        "Tablet",
+        "Take payment",
         "stable",
       ];
       for (const m of misses)

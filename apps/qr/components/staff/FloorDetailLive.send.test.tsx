@@ -103,6 +103,7 @@ function detail(over: Partial<TableDetail> = {}): TableDetail {
     nudgeSecure: null,
     lastActivityAt: new Date(T).toISOString(),
     paymentInFlight: false,
+    paymentHolder: null,
     hostPresent: false,
     send: { sendable: 3, staffAdded: 3, togoDraft: 0, inKitchen: false, foodDraft: true },
     serverNow: new Date(T).toISOString(),

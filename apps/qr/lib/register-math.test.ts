@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { changeDue, laDayStartIso, summarizeDay } from "./register-math";
+import {
+  CASH_LADDER_CENTS,
+  cashSettleBlocked,
+  changeAsTipCents,
+  changeDue,
+  handoffRows,
+  laDayStartIso,
+  openQuote,
+  quickCashTenders,
+  quoteDrift,
+  reconcileQuote,
+  summarizeDay,
+  tenderState,
+} from "./register-math";
+import { TIP_AMOUNT_MAX_CENTS } from "./tip";
 
 describe("summarizeDay — the Z-report buckets", () => {
   it("buckets paid orders by tender and keeps refunded APART (never netted)", () => {
@@ -143,5 +157,192 @@ describe("laDayStartIso — the LA day window", () => {
   it("early-UTC evening still maps to the LA date, not the UTC date", () => {
     // 2026-07-16T03:00Z is 2026-07-15 20:00 PDT — the LA day is still the 15th.
     expect(laDayStartIso(new Date("2026-07-16T03:00:00Z"))).toBe("2026-07-15T07:00:00.000Z");
+  });
+});
+
+// ── Phase 2c · register ── the cash moment: what the cashier counts at the drawer ────────────────
+
+describe("quickCashTenders — Exact plus three round-ups (the owner's ladder)", () => {
+  // Computed in node from the algorithm (scratch `ladder.mjs`), pasted — never typed by hand.
+  it.each([
+    [425, [500, 1000, 2000]],
+    [987, [1000, 2000, 5000]],
+    [1347, [1400, 1500, 2000]],
+    [1860, [1900, 2000, 5000]],
+    [2000, [2500, 3000, 4000]],
+    [2150, [2200, 2500, 3000]],
+    [2780, [2800, 3000, 4000]],
+    [3415, [3500, 4000, 5000]],
+    [4210, [4300, 4500, 5000]],
+    [4500, [5000, 6000, 10000]],
+    [5010, [5100, 5500, 6000]],
+    [6210, [6300, 6500, 7000]],
+    [8840, [8900, 9000, 10000]],
+    [9950, [10000, 10500, 11000]],
+    [10000, [10500, 11000, 12000]],
+    [13625, [13700, 14000, 15000]],
+  ])("%i → %j", (due, notes) => {
+    // MUTATIONS: `ceil` for `floor+1` (2000 offers $20 — the Exact chip twice); no dedupe (425 offers
+    // $5 twice); no whole-dollar $1 skip (2000 offers $21, a note nobody hands over) — each red here.
+    expect(quickCashTenders(due)).toEqual(notes);
+  });
+
+  it("offers nothing for a due that is not a positive whole number of cents", () => {
+    for (const bad of [0, -1, Number.NaN, 13.5, Number.POSITIVE_INFINITY])
+      expect(quickCashTenders(bad)).toEqual([]);
+  });
+
+  it("a custom ladder that does not divide itself still reads ascending", () => {
+    // [300, 700] at 650 builds 900 then 700 then 1400 — only the sort puts them in order.
+    // MUTATION: drop the sort — [900, 700, 1400]; red.
+    expect(quickCashTenders(650, [300, 700])).toEqual([700, 900, 1400]);
+  });
+
+  it("the default ladder is the house's notes, $1 to $100", () => {
+    expect(CASH_LADDER_CENTS).toEqual([100, 500, 1000, 2000, 5000, 10000]);
+  });
+
+  it("property: every due in 1..200000 gets exactly three notes, each above it, strictly ascending", () => {
+    let violations = 0;
+    for (let due = 1; due <= 200_000; due++) {
+      const n = quickCashTenders(due);
+      const ok =
+        n.length === 3 &&
+        n.every((c, i) => Number.isInteger(c) && c > due && (i === 0 || c > n[i - 1]!));
+      if (!ok) violations += 1;
+    }
+    expect(violations).toBe(0);
+  });
+});
+
+describe("tenderState — what the readout says", () => {
+  it("no tender (empty, zero, not a whole number of cents) says nothing", () => {
+    expect(tenderState(1347, null)).toEqual({ kind: "none" });
+    // MUTATION: drop the ≤0 guard — a typed 0 reads Short $13.47 and blocks the settle; red.
+    expect(tenderState(1347, 0)).toEqual({ kind: "none" });
+    expect(tenderState(1347, -5)).toEqual({ kind: "none" });
+    expect(tenderState(1347, 20.5)).toEqual({ kind: "none" });
+  });
+  it("equal is exact; over is change (through changeDue); under is short", () => {
+    expect(tenderState(1347, 1347)).toEqual({ kind: "exact" });
+    // MUTATION: swap the change and short arms — 2000 reads short, 1300 reads change; red.
+    expect(tenderState(1347, 2000)).toEqual({ kind: "change", changeCents: 653 });
+    expect(tenderState(1347, 1300)).toEqual({ kind: "short", shortCents: 47 });
+  });
+});
+
+describe("cashSettleBlocked — the ONE binding Settle's dim, its description and its handler read", () => {
+  it("blocks on a short tender and never on the others", () => {
+    // MUTATION: ignore `short` — Settle stays live beside "Short $2.10"; red.
+    expect(cashSettleBlocked(0, { kind: "short", shortCents: 210 })).toBe("short");
+    expect(cashSettleBlocked(0, { kind: "none" })).toBeNull();
+    expect(cashSettleBlocked(0, { kind: "exact" })).toBeNull();
+    expect(cashSettleBlocked(0, { kind: "change", changeCents: 790 })).toBeNull();
+  });
+  it("blocks a tip over the house cap, at the cap exactly it does not — the cap named once (lib/tip)", () => {
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS + 1, { kind: "none" })).toBe("tipCap");
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS, { kind: "none" })).toBeNull();
+    // An unreadable tip WITH digits in it (past seven whole-dollar digits) is over any cap.
+    expect(cashSettleBlocked(null, { kind: "none" })).toBe("tipCap");
+    // The cap outranks short: the tip line is the one to fix first.
+    expect(cashSettleBlocked(TIP_AMOUNT_MAX_CENTS + 1, { kind: "short", shortCents: 1 })).toBe(
+      "tipCap",
+    );
+  });
+});
+
+describe("changeAsTipCents — keep the change is a FILL, offered only when change is owed", () => {
+  it("the whole over-tender becomes the tip", () => {
+    expect(changeAsTipCents(4210, 5000, 0)).toBe(790);
+    // An existing tip smaller than the over-tender still leaves change to keep.
+    expect(changeAsTipCents(4210, 5000, 300)).toBe(790);
+  });
+  it("is not offered once the tip already takes it all, on an exact tender, or with no tender", () => {
+    // MUTATION: `>` → `>=` — offered when the readout already says "Exact — no change"; red.
+    expect(changeAsTipCents(4210, 5000, 790)).toBeNull();
+    expect(changeAsTipCents(4210, 4210, 0)).toBeNull();
+    expect(changeAsTipCents(4210, null, 0)).toBeNull();
+    expect(changeAsTipCents(4210, 0, 0)).toBeNull();
+    expect(changeAsTipCents(4210, 4000, 0)).toBeNull();
+  });
+  it("never offers a tip the settle would refuse (over the house cap)", () => {
+    expect(changeAsTipCents(100, 100 + TIP_AMOUNT_MAX_CENTS, 0)).toBe(TIP_AMOUNT_MAX_CENTS);
+    expect(changeAsTipCents(100, 101 + TIP_AMOUNT_MAX_CENTS, 0)).toBeNull();
+  });
+});
+
+describe("handoffRows — the paid card's receipt rows, zero-gated, in order", () => {
+  it("total, tip, tendered, then the change (six-fifty-three on a $20 for $13.47)", () => {
+    expect(handoffRows(1347, null, 2000)).toEqual([
+      { k: "total", cents: 1347 },
+      { k: "tendered", cents: 2000 },
+      { k: "change", cents: 653 },
+    ]);
+    expect(handoffRows(5000, 790, 5000)).toEqual([
+      { k: "total", cents: 5000 },
+      { k: "tip", cents: 790 },
+      { k: "tendered", cents: 5000 },
+      // Exact is still a row — "Change $0.00" is the fact the cashier reads before closing the drawer.
+      { k: "change", cents: 0 },
+    ]);
+  });
+  it("a short tender says what is still to collect, never a change row", () => {
+    // MUTATION: emit change on a short tender — a card that reads "Change $0.00" while $2.10 is owed; red.
+    expect(handoffRows(4210, 0, 4000)).toEqual([
+      { k: "total", cents: 4210 },
+      { k: "tendered", cents: 4000 },
+      { k: "collect", cents: 210 },
+    ]);
+  });
+  it("no tender: the total alone (the reader's counter card, a counter exact settle)", () => {
+    expect(handoffRows(1347, null, null)).toEqual([{ k: "total", cents: 1347 }]);
+    expect(handoffRows(1347, 0, 0)).toEqual([{ k: "total", cents: 1347 }]);
+  });
+});
+
+describe("the settle quote — frozen at open, never moved under the cashier (Phase 2c · register)", () => {
+  it("opening freezes the live figure", () => {
+    expect(openQuote(null, 4210)).toEqual({ cents: 4210, basis: 4210 });
+    // A reopen after the page re-read a new figure adopts it — a new attempt reads a new total.
+    expect(openQuote({ cents: 4210, basis: 4210 }, 4610)).toEqual({ cents: 4610, basis: 4610 });
+  });
+
+  it("a reopen before the re-read keeps the SERVER's figure a refusal handed back", () => {
+    // MUTATION: always freeze the prop — the sheet reopens on the stale $42.10 the server just
+    // refused, and every tap is refused again until the poll catches up; red.
+    const refused = { cents: 4265, basis: 4210 };
+    expect(openQuote(refused, 4210)).toBe(refused);
+  });
+
+  it("a live figure that moves off the quote is a DRIFT naming both — never a silent new label", () => {
+    // MUTATION: `return null` — the sheet's figures stay frozen but nothing tells the cashier the
+    // order changed, and the tap sends a quote the server will refuse with no warning first; red.
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4610)).toEqual({ from: 4210, to: 4610 });
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4200)).toEqual({ from: 4210, to: 4200 });
+  });
+
+  it("no drift while the live figure is the quote, or still the basis a refusal left", () => {
+    expect(quoteDrift(null, 4610)).toBeNull();
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4210)).toBeNull();
+    // The server said 4265; the page still reads 4210 until its re-read lands — not a drift.
+    // MUTATION: drop the basis arm — a false "changed from $42.65 to $42.10" after every refusal; red.
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4210)).toBeNull();
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4265)).toBeNull();
+    // A third figure is a drift from what the sheet SHOWS (the server's), not from the old prop.
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4300)).toEqual({ from: 4265, to: 4300 });
+  });
+
+  it("once the page catches up with the server's figure, a move BACK to the old one is a drift", () => {
+    const refused = { cents: 4265, basis: 4210 };
+    const caughtUp = reconcileQuote(refused, 4265);
+    // MUTATION: never reconcile — the guest removes the item, the page reads $42.10 again, and it
+    // looks like the stale basis: the sheet keeps quoting $42.65 in silence; red.
+    expect(caughtUp).toEqual({ cents: 4265, basis: 4265 });
+    expect(quoteDrift(caughtUp, 4210)).toEqual({ from: 4265, to: 4210 });
+    // Nothing to reconcile → the SAME object (a render-time adjustment must be able to tell).
+    expect(reconcileQuote(refused, 4210)).toBe(refused);
+    const settled = { cents: 4210, basis: 4210 };
+    expect(reconcileQuote(settled, 4210)).toBe(settled);
+    expect(reconcileQuote(null, 4210)).toBeNull();
   });
 });

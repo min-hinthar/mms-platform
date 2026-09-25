@@ -15,6 +15,8 @@ import { lineTax } from "./tax";
 import { getCartTotals } from "./totals";
 import { insertOrIncLine, priceItem, touchCart } from "./order-lines";
 import { paymentInFlightReason } from "./pay-guard";
+import { inFlightRefusalFor } from "./inflight-read";
+import type { InFlightRefusal } from "./inflight-refusal";
 import { releaseSettlementFor } from "./lock";
 import { acquireSettlementSuperseding } from "./supersede";
 import { settleRefusal } from "./settle-refusal";
@@ -50,7 +52,27 @@ export type SettleCashResult =
        *  was recorded. */
       tipCents: number;
     }
-  | { ok: false; error: string };
+  | SettleCashRefusal;
+
+// ── Phase 2c · register ──
+/**
+ * A cash settle's refusal. `code` is decided by WHERE the refusal happened, never by message text:
+ *  - absent — every refusal that predates the code (gate, input, reads, freeze, the RPC); callers
+ *    render `error` through `<OutageText>` as before.
+ *  - `moved` — the compare-and-swap: the quote the cashier read (`quotedCents`) is not the total the
+ *    server just derived from the live lines. `totalCents` is that derived PRE-TIP total, so the sheet
+ *    can name both figures and re-quote the server's. Nothing was recorded.
+ *  - `inflight` — money is already moving on the cart (P2w): `holder` says who holds it (a guest's
+ *    phone, the register's own attempt, or unsure), and the component renders that holder's
+ *    `settle.inflight.*` key. Nothing was frozen.
+ * The settle gate (Phase 2c, second wave) adds its own arm here (`code: "unsent"`); a union member
+ * per code, so each carries exactly the facts its sentence needs.
+ */
+export type SettleCashRefusal =
+  | { ok: false; error: string; code?: undefined }
+  | { ok: false; error: string; code: "moved"; totalCents: number }
+  | InFlightRefusal;
+export type SettleCashCode = NonNullable<SettleCashRefusal["code"]>;
 
 // openCartFor lives in ./staff-open-cart (server-only, shared with the W6c Terminal settle) — an
 // export from THIS "use server" module would mint a public POST endpoint around a service-role read.
@@ -257,11 +279,14 @@ export async function setLineNotes(sessionId: string, raw: unknown): Promise<Sta
 /**
  * Settle the table order in CASH ("pay a human"). Re-derives the authoritative total server-side
  * (getCartTotals — the single tax engine), then records an idempotent cash order via
- * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). tip_cents=0:
- * a cash tip is in-hand / off-system (Min's call). W16a: the service charge is RETIRED — totals carry
- * serviceChargeCents = 0 (the RPC param stays for the order-snapshot contract; margin now lives in the
- * mode-derived line prices). Refused while a card payment / split is in flight (shared mutex) so cash
- * can't double-charge a table.
+ * mms_fulfill_cash_order (atomic open→paid flip, subtotal reconcile, cart-id idempotency). The cash
+ * tip the cashier typed IS recorded (`p_tip_cents`, W17c-2 — the old "off-system" sentence here was
+ * false from that slice on). Phase 2c: an optional `quotedCents` — the pre-tip total the cashier was
+ * shown — is COMPARED inside the held freeze against the derived total and a mismatch refuses with
+ * `code: "moved"` before anything is recorded; it is never read into an amount. W16a: the service
+ * charge is RETIRED — totals carry serviceChargeCents = 0 (the RPC param stays for the order-snapshot
+ * contract; margin now lives in the mode-derived line prices). Refused while a card payment / split is
+ * in flight (shared mutex) so cash can't double-charge a table.
  */
 export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const gate = await staffGate();
@@ -269,17 +294,15 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   const caller = gate.caller;
   const parsed = settleCashInput.safeParse(raw);
   if (!parsed.success) return { ok: false, error: "Invalid request." };
-  const { sessionId, tipCents } = parsed.data;
+  const { sessionId, tipCents, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // P2w — the refusal names who holds the money (a guest's phone, or the register's own attempt).
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table: "nothing to settle" on a table holding a full order
@@ -326,6 +349,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   // getCartTotals (or anywhere below) must never strand the table frozen for the 10-min TTL. Releasing
   // on the success path too is harmless (the cart is already 'paid', which blocks pays regardless).
   try {
+    // (The settle gate's unsent-dishes check sits HERE — after the freeze, before the totals.)
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
     // lines and reconciles it against this — a diner racing the settle raises instead of recording stale.
     // ⚠️ W10c pre-PR review — `.catch`, matching `closeSecureTab` below. `getCartTotals` now THROWS on
@@ -338,6 +362,19 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
       console.error("[staff-cart] settleCash totals unreadable", { sessionId, cartId: cart.id });
       return { ok: false, error: STAFF_WRITE_OUTAGE };
     }
+    // Phase 2c · register — the COMPARE-AND-SWAP. The cashier collected the figure they were shown;
+    // if the live lines now total something else (a qty step, a promo, a guest adding from their phone
+    // inside a poll window), recording `totals` would collect $X and book $Y. Refuse BEFORE the RPC,
+    // naming the server's figure so the sheet can show both. Compared against the PRE-tip total —
+    // the same quantity `detail.settleTotalCents` quotes — never total + tip. The quote is never read
+    // into an amount. Returned from INSIDE the try: the `finally` below releases this attempt's freeze.
+    if (quotedCents !== undefined && quotedCents !== totals.totalCents)
+      return {
+        ok: false,
+        code: "moved",
+        totalCents: totals.totalCents,
+        error: "The total changed — check the order, then take payment again.",
+      };
     // W17c-2 — the cash tip is RECORDED now (it used to be hardcoded 0 and described as
     // "in-hand/off-system"). It is the one figure here a human supplies, because the server has
     // nothing to derive it from: only the person who took the cash knows what was left. Bounded by
@@ -518,7 +555,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   }
 }
 
-export type CloseSecureTabResult = { ok: true } | { ok: false; error: string };
+export type CloseSecureTabResult = { ok: true } | SettleCashRefusal; // P2aa: the cash settle's refusal union — `moved` is the "Charge $x" confirm's compare-and-swap
 
 /**
  * Close a SECURE tab off-session (S3.2): charge the saved card-on-file for the final total. Staff-
@@ -539,7 +576,8 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // Deliberately NOT destructuring `tipCents`: a secure-tab close settles the AUTHORIZED amount and
   // adds no tip (see the "final total, NO added tip" note below). Naming it here would read as if
   // tab-close tips were supported and merely forgotten.
-  const { sessionId } = parsed.data;
+  // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
+  const { sessionId, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -565,11 +603,11 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (!secure?.stripe_payment_method_id)
     return { ok: false, error: "No card on file for this tab — settle by cash or card instead." };
 
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // P2w — after an unknown-outcome close this path's OWN freeze is still held (by design, below), so
+  // the retry `settle.card.unknown` invites lands here. The sentence names who holds the money: a
+  // guest's phone, or the register's own attempt — never the phone when it is the register's.
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return await inFlightRefusalFor(cart, inFlight, session.id);
 
   // Atomically freeze the table before charging (parity with settleCash's B2 race-closer): blocks a
   // concurrent cash settle / a diner's create-intent for the mint window.
@@ -602,6 +640,20 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (amount <= 0) {
     await releaseSettlementFor(cart.id, attempt);
     return { ok: false, error: "There’s nothing on this table to settle." };
+  }
+  // Phase 2c · register (P2aa) — the COMPARE-AND-SWAP, as on the cash settle: the confirm quoted the
+  // last-polled total; `amount` is the live one. A mismatch refuses BEFORE any PaymentIntent exists,
+  // naming the server's figure, and releases this attempt's freeze here — this path has no blanket
+  // `finally` (its success arm deliberately HOLDS the freeze for the webhook). The quote is never
+  // read into `amount`.
+  if (quotedCents !== undefined && quotedCents !== amount) {
+    await releaseSettlementFor(cart.id, attempt);
+    return {
+      ok: false,
+      code: "moved",
+      totalCents: amount,
+      error: "The total changed — check the order, then take payment again.",
+    };
   }
 
   // ⚠️ HOISTED OUT OF THE TRY, and the reason is money (Codex round 1 on #275, P2). `getStripe()`

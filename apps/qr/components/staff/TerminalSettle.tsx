@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
+import { Button, type ButtonVariant } from "@mms/ui";
 import { settleCard, terminalStatus, cancelTerminal } from "@/lib/terminal";
+import { inFlightMsg, type InFlightHolder } from "@/lib/inflight-refusal";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
+import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffLang } from "./StaffLangProvider";
 
 /**
@@ -14,8 +16,14 @@ import { useStaffLang } from "./StaffLangProvider";
  * `kind: "local"` is copy THIS file authors for a thrown/rejected action — routing that through
  * `<OutageText>` would pass it through as English forever while looking converted, so it branches
  * to its own dictionary key instead.
+ *
+ * `kind: "inflight"` (Phase 2c · register, P2w) — the start was refused while money is already
+ * moving on the table; `holder` picks the `settle.inflight.*` key (never the server's English).
  */
-type SettleError = { kind: "server"; text: string } | { kind: "local" };
+type SettleError =
+  | { kind: "server"; text: string }
+  | { kind: "local" }
+  | { kind: "inflight"; holder: InFlightHolder };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const POLL_MS = 2500;
@@ -40,27 +48,45 @@ const RECORDING_ESCALATE_MS = 20_000;
 
 export type TerminalCollect = { paymentIntentId: string; totalCents: number };
 
+/** What the collect panel says, handed to the page's ONE polite region (P2r) — the panel shows the
+ *  same words visibly but is no live region of its own. `tone` colours nothing here; the page's
+ *  region reads it for its precedence and tint. */
+export type ReaderStatus = { tone: "ok" | "warn"; msg: StaffMsg };
+
 export function TerminalSettleButton({
   sessionId,
   totalCents,
+  variant = "secondary",
   onStarted,
 }: {
   sessionId: string;
   totalCents: number;
+  /** Phase 2c — the reader is never the settle section's primary (`settlePrimary`, owner decision
+   *  8): it sits BELOW cash as a secondary. The prop exists so that decision stays one line. */
+  variant?: Extract<ButtonVariant, "primary" | "secondary">;
   onStarted: (c: TerminalCollect) => void;
 }) {
   const lang = useStaffLang();
   const [busy, setBusy] = useState(false);
+  // The tap-time guard: a REF, read when the finger lands (two taps in one frame both read the
+  // render before `busy`).
+  const inFlight = useRef(false);
   const [error, setError] = useState<SettleError | null>(null);
 
   async function start() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
       const res = await settleCard({ sessionId });
       setBusy(false);
       if (!res.ok) {
-        setError({ kind: "server", text: res.error });
+        setError(
+          res.code === "inflight"
+            ? { kind: "inflight", holder: res.holder }
+            : { kind: "server", text: res.error },
+        );
         return;
       }
       onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });
@@ -69,30 +95,26 @@ export function TerminalSettleButton({
       // "Starting…" — the W10c bug class.
       setBusy(false);
       setError({ kind: "local" });
+    } finally {
+      inFlight.current = false;
     }
   }
 
   return (
-    <div style={{ marginBottom: "var(--s3)" }}>
-      <button
-        className="staff-btn"
-        type="button"
-        onClick={start}
-        disabled={busy}
+    <div>
+      {/* Phase 2c — a `@mms/ui` Button: busy is aria-busy + aria-disabled with the label kept as a
+          stated word, never a native `disabled` that drops focus to <body> under the tap (K35). */}
+      <Button
+        variant={variant}
+        size="xl"
+        block
+        busy={busy}
+        busyLabel={<Chrome lang={lang} k="settle.reader.starting" echo={false} />}
         aria-describedby="terminal-hint"
-        style={{ ...payBtn, width: "100%" }}
+        onClick={start}
       >
-        {busy ? (
-          <Chrome lang={lang} k="settle.reader.starting" echo={false} />
-        ) : (
-          <Chrome
-            lang={lang}
-            k="settle.reader.trigger"
-            vars={{ m: fmt(totalCents) }}
-            echo="stack"
-          />
-        )}
-      </button>
+        <Chrome lang={lang} k="settle.reader.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
+      </Button>
       <p id="terminal-hint" style={hint}>
         <Chrome lang={lang} k="settle.reader.hint" echo="stack" />
       </p>
@@ -100,6 +122,13 @@ export function TerminalSettleButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "inflight" ? (
+            <Chrome
+              lang={lang}
+              k={inFlightMsg(error.holder).k}
+              vars={inFlightMsg(error.holder).vars}
+              echo={false}
+            />
           ) : (
             <Chrome lang={lang} k="settle.reader.startFailed" echo={false} />
           )}
@@ -113,22 +142,32 @@ type PanelPhase = "collecting" | "recording" | "failed" | "canceled";
 
 /**
  * The live collect window: polls the PI's truth until it lands somewhere terminal. On success it
- * hands the counter handoff up (the parent renders the #CODE card) — for a table settle there is
- * no handoff card; the detail's paid state is the quiet signal. `onDone(null)` just dismisses.
+ * hands the counter's paid order up (the parent maps it into the canonical paid card — no tip, no
+ * tender: the reader records neither) — for a table settle there is no card; the detail's paid state
+ * is the quiet signal. `onDone(null)` just dismisses.
+ *
+ * Phase 2c — the panel's status is SAID through the page's one polite region (`onStatus`, P2r) and
+ * SHOWN here as plain text; the settle that lands re-reads the page's own detail (`onChanged`), not a
+ * `router.refresh()` that updated nothing the page reads.
  */
 export function TerminalCollectPanel({
   sessionId,
   collect,
   isCounter,
   onDone,
+  onStatus,
+  onChanged,
 }: {
   sessionId: string;
   collect: TerminalCollect;
   isCounter: boolean;
-  onDone: (h: { orderId: string; totalCents: number; changeCents: number | null } | null) => void;
+  onDone: (h: { orderId: string; totalCents: number } | null) => void;
+  /** The page's ONE polite region takes the panel's status (and a cancel refusal) from here. */
+  onStatus?: (s: ReaderStatus) => void;
+  /** The page's own detail refresh. */
+  onChanged?: () => void;
 }) {
   const lang = useStaffLang();
-  const router = useRouter();
   const [phase, setPhase] = useState<PanelPhase>("collecting");
   // ⚠️ NOT an <OutageText> candidate, and the reason is narrower than "it is a server string".
   // `failCopy` is set ONLY in the `res.state === "failed"` arm below, whose `error` is
@@ -173,12 +212,8 @@ export function TerminalCollectPanel({
       setPollMisses(0);
       if (res.state === "succeeded") {
         if (res.orderId) {
-          onDone(
-            isCounter
-              ? { orderId: res.orderId, totalCents: res.totalCents, changeCents: null }
-              : null,
-          );
-          router.refresh();
+          onDone(isCounter ? { orderId: res.orderId, totalCents: res.totalCents } : null);
+          onChanged?.();
         } else {
           setPhase("recording"); // charged; the webhook is landing the order — keep polling
           setRecordingSince((t) => t ?? Date.now());
@@ -196,10 +231,13 @@ export function TerminalCollectPanel({
       stopped = true;
       clearInterval(id);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll keyed on the PI + phase; onDone/router read from the closure per tick
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- poll keyed on the PI + phase; onDone/onChanged read from the closure per tick
   }, [collect.paymentIntentId, sessionId, phase]);
 
+  const cancelInFlight = useRef(false);
   async function cancel() {
+    if (cancelInFlight.current) return;
+    cancelInFlight.current = true;
     setCancelBusy(true);
     setCancelError(null);
     try {
@@ -214,35 +252,45 @@ export function TerminalCollectPanel({
     } catch {
       setCancelBusy(false);
       setCancelError({ kind: "local" });
+    } finally {
+      cancelInFlight.current = false;
     }
   }
 
   const blind = pollMisses >= BLIND_AFTER_MISSES;
   const recordingLong = recordingSince != null && nowMs - recordingSince > RECORDING_ESCALATE_MS;
 
-  // ONE live region: the status line below carries every phase/degradation change. The panel root
-  // and its buttons stay OUTSIDE it (a status region wrapping interactive content re-announces the
-  // buttons on every tick; a nested alert inside a status double-fires — review finding).
-  //
-  // ⚠️ P2 — STILL ENGLISH, deliberately and reported rather than half-done. `statusText` is a plain
-  // `string`, and a Burmese run has to reach the DOM inside a marked element (`<Chrome>`, or a
-  // `lang=` host) or it renders in the Latin face at Latin leading. Marking the `<p>` itself is what
-  // the KDS does — but the KDS region holds ONLY dictionary text, while this one also carries the
-  // cancel error beside it, so a `lang="my"` host would re-lead an English sentence. Making these
-  // five sentences bilingual means turning this binding into a ReactNode (a `<Chrome>` per arm),
-  // which is a refactor of the panel's one live region and is left for the owner of that change.
-  const statusText =
+  // Phase 2c (P2r) — the status is a dictionary KEY per arm now (bilingual for the first time; the
+  // decline copy stays the server's sentence, passed through `<MsgText>`). ONE binding feeds both the
+  // visible line below and the page's region, so the two can never say different things.
+  const status: ReaderStatus =
     phase === "collecting"
       ? blind
-        ? "Can’t reach Stripe right now — the reader may still be live. Hold on, or cancel."
-        : "Waiting for the guest to tap or insert their card…"
+        ? { tone: "warn", msg: { k: "settle.reader.status.blind" } }
+        : { tone: "ok", msg: { k: "settle.reader.status.waiting" } }
       : phase === "recording"
         ? recordingLong
-          ? "The charge went through, but the order isn’t recorded yet. Don’t re-charge — note the amount and check Orders in a minute."
-          : "Recording the order…"
+          ? { tone: "warn", msg: { k: "settle.reader.status.recordingLong" } }
+          : { tone: "ok", msg: { k: "settle.reader.status.recording" } }
         : phase === "failed"
-          ? (failCopy ?? "The payment didn’t go through.")
-          : "Nothing was charged.";
+          ? { tone: "warn", msg: failCopy ?? { k: "settle.reader.status.failed" } }
+          : { tone: "ok", msg: { k: "settle.reader.status.canceled" } };
+  // What the region SPEAKS: a cancel refusal is the newer fact while it stands; otherwise the status.
+  const spoken: ReaderStatus =
+    cancelError === null
+      ? status
+      : {
+          tone: "warn",
+          msg:
+            cancelError.kind === "server" ? cancelError.text : { k: "settle.reader.cancelFailed" },
+        };
+  const spokenKey = JSON.stringify(spoken);
+  useEffect(() => {
+    // The parent's setter, from an effect (never during render); keyed on the VALUE so a poll tick
+    // that changes nothing re-announces nothing.
+    onStatus?.(JSON.parse(spokenKey) as ReaderStatus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the spoken VALUE; onStatus is the parent's stable setter
+  }, [spokenKey]);
 
   return (
     // `role="group"` is load-bearing, not decoration: a bare <div> maps to the `generic` role, which
@@ -280,8 +328,10 @@ export function TerminalCollectPanel({
           <Chrome lang={lang} k="settle.reader.canceledTitle" echo="stack" />
         )}
       </p>
-      <p role="status" style={{ ...panelSub, color: blind ? "var(--warn)" : "var(--t2)" }}>
-        {statusText}
+      {/* SHOWN here, SAID by the page's one polite region (`onStatus` above) — no `role` of its own:
+          a second polite region under one <main> was OPEN-ITEMS P2r. */}
+      <p style={{ ...panelSub, color: status.tone === "warn" ? "var(--warn)" : "var(--t2)" }}>
+        <MsgText lang={lang} msg={status.msg} />
         {/* Lifted out of the template literal it used to be spliced into: `<OutageText>` returns
             JSX and cannot live inside a string. */}
         {cancelError !== null && (
@@ -296,52 +346,31 @@ export function TerminalCollectPanel({
         )}
       </p>
       {phase === "collecting" && (
-        <button
-          className="staff-btn"
-          type="button"
+        <Button
+          variant="secondary"
+          size="lg"
+          style={{ alignSelf: "flex-start" }}
+          busy={cancelBusy}
+          busyLabel={<Chrome lang={lang} k="settle.reader.canceling" echo={false} />}
           onClick={cancel}
-          disabled={cancelBusy}
-          style={cancelBtn}
         >
-          {cancelBusy ? (
-            <Chrome lang={lang} k="settle.reader.canceling" echo={false} />
-          ) : (
-            <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
-          )}
-        </button>
+          <Chrome lang={lang} k="settle.reader.cancelBtn" echo="stack" />
+        </Button>
       )}
       {(phase === "failed" || phase === "canceled" || recordingLong) && (
-        <button className="staff-btn" type="button" onClick={() => onDone(null)} style={cancelBtn}>
+        <Button
+          variant="secondary"
+          size="lg"
+          style={{ alignSelf: "flex-start" }}
+          onClick={() => onDone(null)}
+        >
           <Chrome lang={lang} k="settle.reader.backToSettle" echo="stack" />
-        </button>
+        </Button>
       )}
     </div>
   );
 }
 
-const payBtn: CSSProperties = {
-  minHeight: 48,
-  padding: "0 20px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid transparent",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontSize: "var(--fs-body)",
-  fontWeight: "var(--fw-bold)",
-  cursor: "pointer",
-};
-const cancelBtn: CSSProperties = {
-  minHeight: 48,
-  padding: "0 20px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-body)",
-  fontWeight: "var(--fw-semibold)",
-  cursor: "pointer",
-  alignSelf: "flex-start",
-};
 const panel: CSSProperties = {
   marginTop: "var(--s4)",
   padding: "var(--s4)",

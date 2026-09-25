@@ -616,6 +616,21 @@ export const settleCashInput = z.object({
   // belt — a negative tip would otherwise REDUCE the recorded total, a silent discount wearing a
   // tip's name. Deliberately no ceiling relative to the bill: a tip larger than the order is real.
   tipCents: z.number().int().min(0).max(100000).default(0),
+  // ── Phase 2c · register ──
+  /**
+   * COMPARE-ONLY. The pre-tip all-in total the cashier was SHOWN (`detail.settleTotalCents`, i.e.
+   * `getCartTotals(cart, 0).totalCents` from the last poll). `settleCash` compares it, inside the
+   * held freeze, against the total it derives from the live lines, and refuses with `code: "moved"`
+   * when they differ — so the figure recorded is the figure the cashier read, or a refusal naming
+   * both. It is NEVER read into the RPC or any amount: the charge stays server-derived.
+   *
+   * Optional on purpose: a counter tablet left open across a deploy must still be able to settle
+   * (a required field would refuse every settle from the old bundle). `closeSecureTab` parses this
+   * same schema and compares the field the same way (P2aa — the "Charge $x" confirm's quote). The
+   * Terminal's `settleCard` parses it too and IGNORES it — its button never sends one: the reader
+   * shows the server's own figure to the guest, who approves that amount on the device.
+   */
+  quotedCents: z.number().int().min(0).max(10_000_000).optional(),
 });
 
 /** Terminal poll/cancel (W6c) — the register UI tracks / cancels a reader collect it started. The

@@ -26,7 +26,9 @@ export default async function TablePage({
 }: {
   params: Promise<{ id: string }>;
   // Phase 2a · send — `?send=1` is the add page's "Review · N not sent →": land focused on the Send.
-  searchParams: Promise<{ send?: string | string[] }>;
+  // Phase 2c · register — `?settle=1` is the order pad's Settle: land focused on the settle section.
+  // ONE read of the params, two focus targets (FloorDetailLive's arrival effect picks one).
+  searchParams: Promise<{ send?: string | string[]; settle?: string | string[] }>;
 }) {
   const caller = await requireStaffPage();
   const { id } = await params;
@@ -65,6 +67,7 @@ export default async function TablePage({
       sessionId={id}
       hasPin={hasPin}
       arrivedToSend={sp.send === "1"}
+      focusSettle={sp.settle === "1"}
       // W6c: the reader id is server-only config; the client gets only the boolean.
       terminalReady={Boolean(process.env.STRIPE_TERMINAL_READER_ID)}
     />

@@ -83,7 +83,10 @@ describe("paymentInFlightReason — the mutex must fail CLOSED", () => {
     // The defect. A blip on this one read used to green-light cash settle, clear-table, merge, voids,
     // comps and approvals over captured cards awaiting their fulfillment webhook.
     readError = { message: "connection reset" };
-    await expect(paymentInFlightReason(CART)).resolves.toBe("split_in_progress");
+    // Deliberately rewritten (Phase 2c · register, critic finding): still a REFUSAL, but its own
+    // reason — a failed read is not evidence that a guest is paying, so the staff sentence must not
+    // say "their phone" (lib/inflight-refusal maps it to "unsure").
+    await expect(paymentInFlightReason(CART)).resolves.toBe("split_unreadable");
   });
 
   it("allows the action when the read genuinely returns zero", async () => {
