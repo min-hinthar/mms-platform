@@ -467,7 +467,7 @@ export function CashSettleButton({
                   >
                     {i === 0 ? (
                       <>
-                        <Chrome lang={lang} k="settle.cash.exact" echo={false} />
+                        <Chrome lang={lang} k="settle.cash.exact" echo={false} />{" "}
                         <span className="staff-chip-amount">{fmt(cents)}</span>
                       </>
                     ) : (

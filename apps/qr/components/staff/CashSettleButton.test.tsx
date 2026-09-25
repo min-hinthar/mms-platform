@@ -308,7 +308,7 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(chip.getAttribute("aria-pressed")).toBe("true");
     expect(settle().textContent).toBe(take("$50.10"));
     // The quick-cash row re-derives from what is DUE (total + tip), not the pre-tip total.
-    expect(cashChips()).toEqual(["Exact$50.10", "$51", "$55", "$60"]);
+    expect(cashChips()).toEqual(["Exact $50.10", "$51", "$55", "$60"]);
     await act(async () => {
       fireEvent.click(settle());
     });
@@ -378,7 +378,7 @@ describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LAN
     const { open, cashChips } = mount();
     open();
     // $42.10 → Exact · $43 · $45 · $50 (quickCashTenders, pinned by value in register-math.test).
-    expect(cashChips()).toEqual(["Exact$42.10", "$43", "$45", "$50"]);
+    expect(cashChips()).toEqual(["Exact $42.10", "$43", "$45", "$50"]);
   });
 
   it("a chip FILLS the tender and lights; typing the same amount lights it too (by value); the readout says the change", () => {
@@ -483,7 +483,7 @@ describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LAN
     // MUTATION: never adopt the server's figure (`shownTotal = totalCents`) — Settle still reads the
     // stale $42.10 and the re-tap is refused again, forever while the poll lags; red.
     expect(settle().textContent).toBe(take("$42.65"));
-    expect(cashChips()[0]).toBe("Exact$42.65");
+    expect(cashChips()[0]).toBe("Exact $42.65");
     settleCash.mockReturnValueOnce(hang());
     await act(async () => {
       fireEvent.click(settle());
