@@ -7,6 +7,7 @@ import { staffGate, STAFF_WRITE_OUTAGE } from "./staff";
 import { openCartFor } from "./staff-open-cart";
 import { getCartTotals } from "./totals";
 import { paymentInFlightReason } from "./pay-guard";
+import { inFlightRefusalFor } from "./inflight-read";
 import {
   acquireSettlement,
   releaseSettlementFor,
@@ -98,11 +99,9 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
   if (!session) return { ok: false, error: "That table is closed." };
   if (!cart) return { ok: false, error: "This table has no open order to settle." };
-  if (await paymentInFlightReason(cart))
-    return {
-      ok: false,
-      error: "Someone’s already paying on their phone — wait for that to finish.",
-    };
+  // Phase 2c · register (P2w) — the refusal names who holds the money (lib/inflight-read).
+  const inFlight = await paymentInFlightReason(cart);
+  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };
 
   const db = serviceClient();
   // W10b — a failed count is not an EMPTY table (settleCash's rule, verbatim).

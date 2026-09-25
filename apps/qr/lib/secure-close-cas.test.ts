@@ -144,3 +144,19 @@ describe("closeSecureTab — the confirm's quote is compared before any charge (
     expect(created).toEqual([{ amount: 3868 }]);
   });
 });
+
+describe("closeSecureTab — the retry after an unknown outcome is refused TRUTHFULLY (P2w)", () => {
+  it("the register's own held freeze is named as the register's, never a guest's phone", async () => {
+    // The unknown-outcome arm HOLDS its freeze under a per-request uuid — no seat owns it.
+    inFlight = "mid_payment";
+    cartFreeze = { settle_at: new Date().toISOString(), settle_by: "attempt-uuid" };
+    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    // MUTATION: restore the fixed "their phone" sentence at this refusal — red.
+    expect(r.error).not.toMatch(/their phone/);
+    expect(r.error).toMatch(/started at the register/);
+    expect(created).toEqual([]);
+    expect(lockCalls).toEqual([]);
+  });
+});

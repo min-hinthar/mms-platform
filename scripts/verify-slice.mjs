@@ -7680,6 +7680,47 @@ const MUTANTS = [
     find: "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n",
     replace: "      res = await closeSecureTab({ sessionId });\n",
   },
+  {
+    id: "p2c-register/inflight-register-read-as-unsure",
+    file: "apps/qr/lib/inflight-refusal.ts",
+    suite: "lib/inflight-refusal.test.ts",
+    why: "Phase 2c · register (P2w) — a fresh freeze no seat owns is the REGISTER's own attempt (the unknown-outcome card close holds it by design). Dropped, it reads as 'unsure' and the cashier is never told the wait is the register's own charge",
+    find: '    if (i.settleByIsSeat === false) return "register";\n',
+    replace: "",
+  },
+  {
+    id: "p2c-register/inflight-seat-not-phone",
+    file: "apps/qr/lib/inflight-refusal.ts",
+    suite: "lib/inflight-refusal.test.ts",
+    why: "Phase 2c · register (P2w) — a freeze owned by a SEAT is a guest's split on their phone. Dropped, the staff refusal stops saying where the payment is",
+    find: '    if (i.settleByIsSeat === true) return "phone";\n',
+    replace: "",
+  },
+  {
+    id: "p2c-register/inflight-lock-ignored",
+    file: "apps/qr/lib/inflight-refusal.ts",
+    suite: "lib/inflight-refusal.test.ts",
+    why: "Phase 2c · register (P2w) — a fresh single-pay lock is always a guest paying on their phone. Ignored, the refusal hedges about a register attempt that does not exist",
+    find: '  if (i.locked && fresh(i.lockedAt, CART_LOCK_TTL_MS, i.nowMs)) return "phone";\n',
+    replace: "",
+  },
+  {
+    id: "p2c-register/inflight-owner-read-as-seat",
+    file: "apps/qr/lib/inflight-read.ts",
+    suite: "lib/inflight-read.test.ts",
+    why: "Phase 2c · register (P2w) — the freeze's owner is a seat only when the session's seats say so. Read as a seat regardless, the register's held freeze is blamed on a guest's phone again — the exact P2w defect",
+    find: "    return data != null;\n",
+    replace: "    return true;\n",
+  },
+  {
+    id: "p2c-register/tab-close-refusal-blames-the-phone",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/secure-close-cas.test.ts",
+    why: "Phase 2c · register (P2w) — the retry settle.card.unknown invites lands on the close's OWN held freeze. With the fixed sentence restored it is refused as 'Someone’s already paying on their phone' — false, and it sends staff to look for a guest who is not paying",
+    find: "  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };\n\n  // Atomically freeze",
+    replace:
+      '  if (inFlight)\n    return { ok: false, error: "Someone’s already paying on their phone — wait for that to finish." };\n\n  // Atomically freeze',
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
