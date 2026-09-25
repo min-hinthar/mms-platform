@@ -930,3 +930,82 @@ describe("the KDS line's OFF THE MENU tag — its ink and its dot over the card 
     expect(ratio(t(dark, "--warn"), started)).toBeLessThan(AA);
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("text on the DOTTED card — `.card-textured` over `.card`'s satin ramp, both themes", () => {
+  /**
+   * The blind review's open question: warn and --t3 text on the dotted staff cards — the pad's
+   * stale line (`.pad-stale`), the paid card's still-to-collect row (`.staff-handoff-row-collect`),
+   * the table page's --t3 captions — was audited against flat `--cd` only, because the main audit
+   * asserts token PAIRS and a card's face is not one token: it is `--cd` with a ramp to `--cd-foot`
+   * (`.card`'s background-image). Every layer here is read out of globals.css — bound to the rules
+   * that paint them, the KDS block's shape — never typed.
+   *
+   * What is asserted: every ink clears AA on the FACE at BOTH ends of the ramp, both themes (the
+   * foot darkens light's ground and lightens nothing in Night, so each end is the worst for one
+   * theme). This guard's own output at the commit — light faceTop / faceFoot, Night faceTop /
+   * faceFoot: --warn 5.6837 / 5.6767 · 5.5501 / 5.6095; --t3 5.3798 / 5.3731 · 5.8802 / 5.9431;
+   * --t2 5.7564 / 5.7492 · 7.2928 / 7.3709. Watched RED twice before being committed green — the
+   * --t3 row's ink swapped for `--warnb` (the warn FILL) here, and the `.pad-stale` rule in
+   * globals.css repainted `var(--warnb)`: 1.1675 light, 1.0097 Night each — the second proves the
+   * ink is READ from the rule, not assumed.
+   *
+   * What is NOT asserted, and why (filed in OPEN-ITEMS, not hidden): the `--tex-dot` dot CORE
+   * (`.card-textured::before`, the accent at 16% / 20%, at full strength where the mask is opaque).
+   * Composited under a glyph it measures BELOW AA — Night --warn 3.7610, Night --t3 3.9847, light
+   * --t3 4.3589 (this guard's model, the dot over the lit face) — for EVERY dotted card, since
+   * W22a. A 1px dot per 18px cell covers under 2% of the face, so whether a speck under a stroke
+   * is the text's "background" is a design call (mask the dots out behind text, or thin
+   * `--tex-dot`), not a number this guard should decide by asserting either side of it.
+   */
+  const globals = readFileSync(
+    fileURLToPath(new URL("../../../../apps/qr/app/globals.css", import.meta.url)),
+    "utf8",
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  const block = (selector: string) => {
+    const re = new RegExp(
+      "(?:^|\\}|,)\\s*" + selector.replace(/[.:[\]()]/g, "\\$&") + "\\s*\\{([^}]*)\\}",
+    );
+    const m = re.exec(globals);
+    if (!m) throw new Error(`globals.css: no \`${selector}\` block`);
+    return m[1] as string;
+  };
+  const declared = (selector: string, prop: string) => {
+    const m = new RegExp(`(?:^|;|\\n)\\s*${prop}\\s*:\\s*([^;]+)`).exec(block(selector));
+    if (!m) throw new Error(`globals.css: \`${selector}\` declares no \`${prop}\``);
+    return (m[1] as string).trim();
+  };
+  /** The one token a declaration paints — refused unless the value is exactly the given shape. */
+  const onlyToken = (value: string, shape: RegExp) => {
+    const m = shape.exec(value);
+    if (!m) throw new Error(`globals.css: \`${value}\` is not the shape this guard composites`);
+    return m[1] as string;
+  };
+  const VAR = /^var\((--[\w-]+)\)$/;
+  const face = onlyToken(declared(".card", "background-color"), VAR);
+  const foot = onlyToken(
+    declared(".card", "background-image"),
+    /^linear-gradient\(180deg,\s*transparent 0%,\s*var\((--[\w-]+)\) 100%\)$/,
+  );
+  const INKS: Array<[string, string]> = [
+    [".pad-stale", onlyToken(declared(".pad-stale", "color"), VAR)],
+    [
+      ".staff-handoff-row-collect",
+      onlyToken(declared(".staff-handoff-row-collect dd", "color"), VAR),
+    ],
+    ["--t3 captions", "--t3"],
+    ["--t2 hints", "--t2"],
+  ];
+  for (const theme of ["light", "dark"] as const) {
+    const map = theme === "dark" ? dark : light;
+    const top = t(map, face); // the lit top face
+    const bottom = over(t(map, foot), top); // the ramp's foot
+    for (const [where, ink] of INKS) {
+      it(`${theme} · ${where} (${ink}) clears AA on the card face, top and foot of the ramp`, () => {
+        const fg = t(map, ink);
+        expect(ratio(fg, top)).toBeGreaterThanOrEqual(AA);
+        expect(ratio(fg, bottom)).toBeGreaterThanOrEqual(AA);
+      });
+    }
+  }
+});
