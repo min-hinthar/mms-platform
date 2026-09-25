@@ -4,6 +4,143 @@ All notable changes to **MMS Platform**. Format: [Keep a Changelog](https://keep
 
 ## [Unreleased]
 
+### Phase 2c — the order pad, the register's cash moment, and no payment over unsent dishes (2026-09-25)
+
+Built as three worktree branches: `p2c/pad` and `p2c/register` in parallel off `1768979`, merged here
+(`f635dc8` · `07e34d7`), then `p2c/gate` off that merge (`97517ad`). Each area ran an independent
+critic round and fixed what it verified (below). No migration, no SQL, no prod DDL. Decided in pure
+`lib/` modules with mutants (171 new — pad 48 · register 55 · gate 68; 1056 total across 160 files).
+DESIGN-LANGUAGE §17, §28 and §29.
+
+**What staff and guests see first:**
+
+- **"+ Add items" opens an order pad** — dish tiles on the left and the order on the right (tablet)
+  or one tap away (phone), instead of a long list with per-row Add buttons. One tap adds a dish
+  instantly (the tile pops, the dish shows as "Adding…", the total reads "—" until the server
+  confirms); a dish that needs a choice opens its options sheet, others keep a small corner button
+  for spice, add-ons, quantity and a kitchen note. Names lead in Burmese on a Burmese console, with
+  the English beneath — on the tiles, the order and the table page's lines. Send to kitchen sits in
+  thumb reach (the bottom bar on a phone) and becomes "Done · Table N" once everything is sent. Take
+  payment waits for the last dish, saves a typed walk-up name, never leaves with a kitchen note typed
+  but unsaved (it puts the cursor in that note), and opens the table's payment section. The old
+  browse list, its add buttons and the "Review · N not sent →" bridge are gone.
+- **The cash sheet has a cash moment** — four big quick-cash tiles (Exact + three round-ups), an
+  optional "Cash received", a Change / Exact / Short line, and "Keep the change as tip · $x" (or,
+  with a tip already typed, "Keep the change — make the tip $x"). Take is dimmed, with the reason
+  read out, while the cash is short or the tip is over the limit; Take and Cancel stay pinned above
+  the number pad. The amounts no longer change under an open sheet: a total that moves is said with
+  both figures ("The total changed from $42.10 to $46.10 — check the order, then take payment
+  again."), the next tap switches to the new amount without recording anything, and the tap after
+  that takes payment. After paying, a "✓ Paid" card shows Total · Tip · Cash received · Change (big),
+  plus #CODE and "Back to the counter" on a counter order.
+- **No payment over dishes the kitchen hasn't got.** At a dine-in table with unsent dishes, "Take
+  cash", "Card on the reader", the card-on-file close and the pad's Take payment stay on screen with
+  their amounts but dimmed, under a warn line — "2 dishes haven’t gone to the kitchen — send them
+  first, then take payment." (a card-on-file running bill: "— send them, or remove them if the guest
+  has left."). A tap says the same sentence and takes staff to the fix: the Send, or the order's
+  lines on a running bill. The diner's "Pay at the counter" is dimmed the same way. Counter (pickup)
+  orders and to-go dishes are unaffected — they cook when they are paid.
+
+**As built:**
+
+- **The order pad (`p2c/pad`).** `OrderPad` + `StaffTicket` + `PadTile` over `lib/order-pad.ts`
+  (`tileAction`, `padDishName`, `padPickCat`, `padSettle` / `padSettleReason`, `padSendView`),
+  `lib/pad-pending.ts` (`pendingReduce`, `padAmountsSettled`), `lib/pad-errors.ts` and
+  `lib/menu/modifiers.ts` (`needsChoice`, the one required-choice rule). ONE ticket and ONE Send /
+  Take payment node placed by CSS (`.pad-dock`, the measured `--cta-dock-h` from `useCtaDock`); an
+  app shell whose panes scroll beneath the bar; each tap its own add key through one serialized
+  chain (`usePadWrites`); outcomes settled by key (`ok` · refused · `lost` → "Try again" under the
+  same key · `unconfirmed` at 15s → "Checking…" + "Reload the order"); the table page's
+  `useStaffSend` reused with a `drain` and a bare label; Take payment re-decided at the tap and
+  busy in the phase it is in, then `?settle=1`. `getTableDetail` carries `nameMy` / `modifiersMy`
+  (K25 narrowed); removals run `useLineMotion` (F35 narrowed, the pad half) and are raced at 15s. The
+  `@mms/ui` Stepper's `labels.max` takes the real ceiling. `StaffMenuBrowser` and `StaffAddButton`
+  are deleted.
+- **The register's cash moment (`p2c/register`).** `quickCashTenders` · `cashSettleBlocked` · the
+  frozen `SettleQuote` (`openQuote` / `reconcileQuote` / `quoteDrift`) in `lib/register-math.ts`;
+  `settlePrimary` · `handoffStillCurrent` · `Handoff` in `lib/register-ui.ts`. The cash settle and the
+  card-on-file close send `quotedCents` (compare-only); the server compares it inside the held
+  freeze and refuses a moved total with `code: "moved"` and its own figure (P2aa on the close). A
+  lost cash-settle response is an unknown outcome (`settle.cash.unknown`, the detail re-read — P2ab),
+  and a counter order that closes behind it holds its bounce and says it "most likely went through".
+  The settle section gains a visible "Take payment" heading (the pad's `?settle=1` lands there), one
+  primary per section, and the focused `HandoffCard` named by its facts. The reader's six status
+  lines are dictionary keys for the first time. The three settle controls are `@mms/ui` Buttons
+  (`CloseSecureTabButton` 2 → 0 and `TerminalSettle` 2 → 0 native `disabled`, K35).
+- **Who holds the money, and one polite region (P2w · P2r).** A mid-payment refusal is a typed code
+  (`code: "inflight"`, `holder: phone | register | unsure` — `lib/inflight-refusal.ts`,
+  `lib/inflight-read.ts`) that every settle control renders in the device language; the page's
+  paying banner reads the same holder (`detail.paymentHolder`). A failed share read is its own
+  reason (`split_unreadable` — still a refusal, and `clearTable` now refuses on ANY reason). The table
+  page ends with ONE polite region, the order card's: the paid card is focused and named, the
+  reader's status is shown in its panel and said through the page's region.
+- **The settle gate (`p2c/gate`, send-kitchen commit B).** `staffSettleBlockedByUnsent`
+  (`lib/checkout-stage.ts`, delegating to `payBlockedByUnsent(mode, units, true)`) on all five doors:
+  `settleCash`, `closeSecureTab` and the reader's `settleCard` refuse under the settle freeze, before
+  the totals, with `{ code: "unsent", units }` and the freeze released (no PaymentIntent minted);
+  `requestCounterPay` refuses the diner's ask (it reads `host_seat` and the drafts, failing open —
+  the ask moves no money); the pad's `padSettle` ranks `unsent` after the write holds. The table
+  page's note, dimmed triggers, region line and jump are pure rules in `lib/staff-send-view.ts`
+  (`settleBlockedMsg` · `settleGateAfterCommit` · `settleGateUnits`); the diner's counter button
+  gains `onRefusedTap` and a host/guest tap sentence (`counterUnsentTapCopy`). Two contrast pairs
+  are pinned in `packages/ui` (`--warn` on `--pg` and on the staff page's rule line, both themes).
+  `FloorDetailLive` and `OrderPad` join the mutate set.
+- **Owner decisions applied (2026-09-24).** ① **The settle gate — YES:** every settle door refuses
+  while dine-in dishes are unsent; the refusal names the fix and jumps to the Send; on a running-bill
+  close it offers "remove them if the guest has left" (P2k's commit-B half ships, so no P2k-c row is
+  filed). ② **The cash moment as specced:** quick cash, the optional tender with its Change / Exact /
+  Short readout, keep the change as a fill.
+- **Plain words, held.** Visible copy says "Take payment" / "Close bill", never settle / tab — the
+  plain-words guard now bans `settl*` and `tab(s)` in English staff copy — and an add's words never
+  say "send", the kitchen's verb (the ghost's retry is "Try again", pinned in `plain-words.test.ts`).
+- **Critic rounds — every verified finding fixed.**
+  - _Pad (17, all real):_ Take payment left an unsaved note behind (now held, focus to the note); a
+    refused tap was silent on the phone bar (now said once through the Toast on every tier); a LOST
+    add read as a wait (now names the fix); a removal that threw or hung left the row gone and the
+    Send held (now unknown, the row back, Reload offered); amounts showed over the ticket's own
+    writes; the busy label always said "Waiting for the last dish…"; a push that never landed
+    stranded the button (10s release); a sheet add queued behind a hung one kept the sheet busy
+    forever (freed 15s after its tap); the dock's offset was a guess (now measured); "Send again" on
+    the ghost (now "Try again"); during a search a tap on the (unlit) chosen chip switched it off
+    instead of picking it; `pad.settle.bare` is K15-HIGH.
+  - _Register (11 — ten fixed, one escalated):_ the confirm live-bound its quote, so a total moving
+    under an open sheet was swapped in silence (now frozen, said with both figures); the P2w
+    sentences were server English (now typed codes, bilingual); the paying banner blamed the phone
+    over a register freeze; a failed share read mapped to "phone"; a lost counter settle that landed
+    bounced to the floor; the send line vanished under the reader's status; "Keep the change" named
+    the change, not the tip it makes; the tall cash sheet's actions could fall below the fold (now a
+    pinned band). The escalated one — the region's precedence against the brief's literal order —
+    was confirmed by the gate's brief as built (writeError > settle line > degraded > send warn >
+    send ok) and is closed.
+  - _Gate (8, all fixed):_ the reader's and the running-bill close's raced line came back after the
+    dishes were sent (now dropped once the page catches up, `gateLive`); a running bill could show
+    two sentences for one fact (now one binding, `runningClose`); the lines jump centred the heading
+    (now the top); "Send everything to the kitchen first" reached guests who cannot send (now split
+    host / guest; the server's sentence orders nobody); the note took the heading token's leading
+    (now `--lh-normal`); two cited mutant ids did not exist, the pass-throughs had no mutant, and "the
+    check runs under the freeze and before the totals" was declared unmutable — it is not (28
+    mutants, incl. the ordering on all three staff doors).
+- **Mutate set.** `lib/menu/modifiers.ts`, `order-pad.ts`, `pad-errors.ts`, `pad-pending.ts`,
+  `inflight-refusal.ts`, `inflight-read.ts` join the lib bucket (132 → 138); `TerminalSettle.tsx`,
+  `FloorDetailLive.tsx`, `OrderPad.tsx` the components (15 → 18). Every mutant an area added or
+  re-anchored was KILLED by its own `--no-gate --only=` runs (the gate's last: `--only=unsent` 74
+  caught, `p2c-register/` 55, no STALE, no orphans); `check:mutant-anchors` clean at 1056.
+- **Words (K15).** 85 new staff keys, each with a Claude-authored Burmese draft (grounded words noted
+  in place in `lib/i18n/staff.ts`) — 28 of them K15-HIGH: the pad's money doors and its unknown add
+  / removal lines, the cash sheet's Change / Short / Exact / keep-the-change / moved / unknown lines,
+  the three in-flight holders, the reader's blind / recording / canceled lines, still-to-collect,
+  the bare Send, the lost-add hold, Remove, and the four settle-gate sentences. One re-draft
+  (`settle.cash.hint`, whose "handled separately" was false since W17c-2 — P2ao); 13 keys retired
+  with their last reader (7 `browse.*`, 6 `settle.cash.*` / `table.detail.*`), `settle.cash.change`
+  leaving `STAFF_K15_HIGH` with them. The diner's counter refusal stays English (its map is).
+- **OPEN-ITEMS.** Closed P2ai · P2r · P2w · P2aa · P2ab · P2ao; narrowed K25 · F35; K35 re-measured;
+  the rows 2c found are **P2bz–P2cu**.
+- **Gate at this head (measured):** 1056 `verify:slice` mutants across 160 target modules (138 lib ·
+  3 API routes · 18 components · 1 `packages/db`) · 3923 qr + 220 ui tests · `check:docs` and
+  `format:check` clean. The full 1056-mutant run with the gate belongs to the integration step and
+  is not recorded here. Nothing is device-measured — the pad, the cash sheet and the gate's note owe
+  their 390 / 768 / 1024 screenshots in both languages (P2ca · P2ci · P2cs).
+
 ### Phase 2b — the kitchen ticket and the live console (2026-09-24)
 
 Built as two parallel worktree branches (`p2b/kitchen` · `p2b/feedback`) merged here, then the

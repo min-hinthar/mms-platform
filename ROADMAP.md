@@ -372,8 +372,13 @@ the plan state.
         chip that follows the engine; the staff bar's live / not updating / offline mark, the offline
         row, `--staff-bar-h` scroll-padding, the lane's thumb-zone Undo; and the plain-words pass on
         every staff string (no 86 / bump / fire / void / comp / tab / settle).
-  - [ ] **2c — the order pad + register settle + the settle gate** (removes 2a's interim "Review · N
-        not sent" bridge).
+  - [x] **2c — the order pad + register settle + the settle gate** (2026-09-25): the order pad (dish
+        tiles beside one live ticket, Burmese-first names, the table page's Send reused, a Take
+        payment that waits for the last dish) replaces the browse list and 2a's "Review · N not sent"
+        bridge (P2ai); the register's cash moment (quick cash, Change / Exact / Short, keep the
+        change, a quote frozen at open, a compare-and-swap on the running-bill close — P2aa) with one
+        polite region (P2r) and holder-named mid-payment refusals (P2w); and the settle gate — every
+        payment door refuses while dine-in dishes are unsent and jumps to the fix.
   - [ ] **2d — the floor + the tablet split + the counter bell** (the floor's "not sent" signal).
   - [ ] **2e — staff language: Burmese / Both / English, per device, in Profile** (owner-chosen).
   - [ ] **2f — counter orders cook before paid** ("Unpaid — collect at pickup"; needs a migration).

@@ -5,6 +5,33 @@ Read it alongside [`docs/context/INDEX.md`](context/INDEX.md) (research map — 
 red-team, v7.2 prototype), [`ROADMAP.md`](../ROADMAP.md), [`.claude/LEARNINGS.md`](../.claude/LEARNINGS.md),
 [`CHANGELOG.md`](../CHANGELOG.md), and [`docs/BACKEND_ARCHITECTURE.md`](BACKEND_ARCHITECTURE.md).
 
+> ## ⏭️ NEXT SESSION — start here (2026-09-25 · Phase 2c — the order pad, the register's cash moment and the settle gate — on branch `claude/inspiring-cori-4rf37k`)
+>
+> **Phase 2c is built on this branch** as three worktree branches merged here — `p2c/pad` and
+> `p2c/register` in parallel, then `p2c/gate` on their merge — each through an independent critic
+> round whose verified findings are fixed. Its CHANGELOG entry is the as-built. DESIGN-LANGUAGE
+> §28 (the order pad) and §29 (the register's cash moment) are new; §17 carries the table page's ONE
+> polite region and its precedence (writeError > settle line > degraded > send warn > send ok), the
+> in-flight refusal that names who holds the money, the settle actions as `@mms/ui` Buttons, and the
+> settle gate. **Owner decisions applied (2026-09-24):** the settle gate YES — every payment door
+> refuses while dine-in dishes are unsent, names the fix and jumps to the Send (a running bill:
+> "remove them if the guest has left") — and the cash moment as specced. **Closed:** P2ai (the add
+> page's "Review · N not sent →" bridge is gone with the pad) · P2r · P2w · P2aa · P2ab · P2ao; K25
+> and F35 narrowed; K35 re-measured (12 in 9). The rows 2c found are **P2bz–P2cu** in OPEN-ITEMS.
+> **Nothing here is device-measured** — there was no browser or device: screenshots at 390 / 768 /
+> 1024 in both languages (Light and Night) are owed for the pad (P2ca), the cash sheet and the paid
+> card (P2ci), and the gate's note and dimmed triggers (P2cs); do not quote a pixel or a tap count to
+> the owner before those run. **85 new Burmese strings — 28 of them K15-HIGH (the money doors, the
+> cash sheet's Change / Short / moved / unknown lines, who holds a payment, the four settle-gate
+> sentences) — await Min's native check** (listed on K15). The full 1056-mutant `verify:slice` run
+> with the gate is the integration step's; each area's `--no-gate --only=` runs killed every mutant
+> it added or touched. **Next: 2d** — the floor strip (the floor's "not sent" signal, P2ah) + the
+> register's Start + the tablet split's tail + the counter bell · **2e** language · **2f** counter
+> cook-before-paid (the pad's dock gains a Send there — P2v).
+>
+> **Gate today:** 1056 `verify:slice` mutants · 160 target modules (138 `apps/qr/lib`, 3 API routes,
+> **18** components, 1 `packages/db`) · `check:docs` clean.
+
 > ## ⏭️ NEXT SESSION — start here (2026-09-24 · Phase 2b — the kitchen ticket and the live console — on branch `claude/inspiring-cori-4rf37k`)
 >
 > **Phase 2b is built on this branch** as two parallel worktree branches (`p2b/kitchen` ·
@@ -236,8 +263,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 >    fabrication on the screen that just removed it. One suite case asserts that silence and a mutant
 >    (`m230/toggle-fabricates-a-diagnosis`) kills the widened predicate. The real arm is **M230**.
 >
-> **Gate today:** 988 `verify:slice` mutants · 158 target modules (138 `apps/qr/lib`, 3 API routes,
-> **16** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
+> **Gate today:** 1056 `verify:slice` mutants · 160 target modules (138 `apps/qr/lib`, 3 API routes,
+> **18** components, 1 `packages/db`) · `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The first draft of this slice was REJECTED by both reviewers, on the same defect, and it
 > is the reusable lesson.** Codex round 1 and the blind pass independently found that the new
@@ -313,8 +340,8 @@ slice …` marker on each row a slice shipped. Two cautions the file repeats: th
 > cents and computes no money at all. Three display sites move: the giant Running total, the CTA's
 > accessible name, and `ebtCents`/`savedCents` (both display-only, both client sums today).
 >
-> **Gate today:** 988 `verify:slice` mutants · 158 target modules (138 `apps/qr/lib`, 3 API routes,
-> **16** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
+> **Gate today:** 1056 `verify:slice` mutants · 160 target modules (138 `apps/qr/lib`, 3 API routes,
+> **18** components, 1 `packages/db`) · `check:docs` clean · all **fourteen** fast-lane guards green.
 >
 > ⚠️ **Codex's review quota is exhausted** (it answered the `@codex review` ask with the usage-limit
 > message, twice). So #290's only independent review was the in-session blind pass, and the override
@@ -953,9 +980,9 @@ useCartRealtime` equally invisible, so the fix resolves alias chains in one help
 > counts below, which carry their own "as measured that day"; the mutant and module counts are
 > today's, by construction (blind adversarial pass on #288, LOW-7).
 >
-> **988 `verify:slice` mutants** · **158 target modules** (138 under `apps/qr/lib`, 3 API routes,
-> 16 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3860 + 216 today)** ·
-> 102 tracked docs files ·
+> **1056 `verify:slice` mutants** · **160 target modules** (138 under `apps/qr/lib`, 3 API routes,
+> 18 components, 1 in `packages/db`) · **1787 qr + 142 ui tests at the time (3923 + 220 today)** ·
+> 100 tracked docs files ·
 > `check:docs` clean · all thirteen fast-lane guards green.
 >
 > ⚠️ **The component bucket read EIGHT against a measured NINE while the total beside it said 112** —
@@ -1423,7 +1450,7 @@ per_session_limit 1 · min_subtotal_cents 0 · valid_until 2026-11-01T06:59:59Z`
 >
 > ### Counts on this head, measured not transcribed
 >
-> **334 mutants at the time (988 today)**, **1372 qr + 138 ui tests at the time (3860 + 216 today)**, 69 target modules at the time (138 under `apps/qr/lib` today, 158 in all), 97 local
+> **334 mutants at the time (1056 today)**, **1372 qr + 138 ui tests at the time (3923 + 220 today)**, 69 target modules at the time (138 under `apps/qr/lib` today, 160 in all), 97 local
 > migration files vs **98** prod history rows (M125's set-compare: the one new row is this migration).
 >
 > ### Next — the pilot sequence from `docs/PILOT_PLAN.md` §6
@@ -2315,7 +2342,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > review loop converges, it never terminates on its own. The in-session adversarial pass and its HARD
 > CAP are unchanged — Codex is the second reviewer, not a replacement for it.
 >
-> **Gate today:** 988 `verify:slice` mutants green · `pnpm check:docs` clean (102 files, 3860 qr tests + 216 ui tests) · CI green · then the two reviewers.
+> **Gate today:** 1056 `verify:slice` mutants green · `pnpm check:docs` clean (100 files, 3923 qr tests + 220 ui tests) · CI green · then the two reviewers.
 >
 > **W22c (the gesture layer) — no migration.** The plan-of-record listed five parts; the scout found
 > **three already built**, and this doc said otherwise in two places, which is why the first commit is
@@ -3037,7 +3064,7 @@ prevLocked.current) return;`). So an ownership change with `locked` staying true
 > sentinel; a refused write RAISES so a claim never commits without its write), price-free
 > `{scanId, cartId, barcode, queuedAt}` entries, ONE id per physical scan (live attempt + queued
 > retry share it — the review's HIGH), serialized FIFO drain, terminal verdict flushes the cart's
-> queue, catalog-cache "≈$" estimates. 88 mutants at the time (988 today) — and
+> queue, catalog-cache "≈$" estimates. 88 mutants at the time (1056 today) — and
 > `20260813210000_w7b_scan_events.sql` joins the restore `db push` list.
 >
 > **Next candidates (as of 2026-08-05 — all three now superseded):** W7a receipt (shipped, and
