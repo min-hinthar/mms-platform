@@ -910,6 +910,10 @@ describe("CashSettleButton — a refusal's figure is settled by the page's NEXT 
     await act(async () => {
       fireEvent.click(settle());
     });
-    expect(settleCash).toHaveBeenLastCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
+    expect(settleCash).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      tipCents: 0,
+      quotedCents: 4210,
+    });
   });
 });

@@ -357,10 +357,18 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   try {
     // ── Phase 2c · gate ── the settle gate (owner decision 3): a dine-in table pays only once every
     // dish has gone to the kitchen — otherwise this settle charges for dishes nobody sent and the
-    // after() fire below cooks them once the table has paid. UNDER the freeze (no add or fire can
-    // move the verdict before the RPC), BEFORE the totals (a refusal costs no totals read). The read
-    // fails OPEN (lib/unsent-read), which is today's settle-fires behaviour. Returned from INSIDE the
-    // try: the `finally` below releases this attempt's freeze.
+    // after() fire below cooks them once the table has paid. UNDER the freeze, BEFORE the totals (a
+    // refusal costs no totals read). The read fails OPEN (lib/unsent-read), which is today's
+    // settle-fires behaviour. Returned from INSIDE the try: the `finally` below releases this
+    // attempt's freeze.
+    // ⚠️ THE FREEZE DOES NOT STOP AN ADD LANDING AFTER THIS READ (Phase 2c · review, R7 — this
+    // comment used to claim "no add or fire can move the verdict before the RPC"). `staffAddItem`
+    // (and the diner's add) check the freeze with a READ before their write, and
+    // `mms_cart_item_insert_if_open` guards only `status = 'open'`, never `settle_at` — so an add
+    // whose check passed just before the acquire can insert a draft after this read. What catches it
+    // HERE is the compare-and-swap below: the new dish moves the live total off `quotedCents` and the
+    // settle refuses `moved` (whenever the sheet sent a quote). `settleCard` (lib/terminal) has no
+    // such compare; the real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
     const unsentUnits = await kitchenDraftUnits(cart.id);
     if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) return unsentRefusal(unsentUnits);
     // Authoritative breakdown (cents), tip=0 for cash. The RPC re-derives the subtotal from the live
@@ -642,6 +650,8 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // and long before any PaymentIntent. This close is the one where "the guest may have left", so a
   // dish nobody sent must never ride an off-session charge. No blanket `finally` on this path (its
   // success arm HOLDS the freeze for the webhook), so the refusal releases its own attempt here.
+  // (R7: the freeze does not stop an add landing after this read — see settleCash; here too the
+  // compare-and-swap below is what refuses it, when the confirm sent its quote.)
   const unsentUnits = await kitchenDraftUnits(cart.id);
   if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
     await releaseSettlementFor(cart.id, attempt);

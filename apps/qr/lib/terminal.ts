@@ -144,8 +144,12 @@ export async function settleCard(raw: unknown): Promise<SettleCardResult> {
     };
 
   // ── Phase 2c · gate ── the settle gate (lib/staff-cart's rule, the same binding): under the freeze,
-  // before the totals, so no PaymentIntent is ever minted over dishes the kitchen never got. Released
-  // here, scoped to THIS attempt (no blanket `finally` — the success path holds the freeze).
+  // before the totals, so no PaymentIntent is minted over dishes THIS READ saw unsent. Released here,
+  // scoped to THIS attempt (no blanket `finally` — the success path holds the freeze).
+  // ⚠️ Phase 2c · review (R7) — not a lock against a racing add: the add paths check the freeze with a
+  // read before their write and the insert RPC guards only `status = 'open'`, so a dish added after
+  // this read rides the PaymentIntent below (this path has no compare-and-swap) and is fired after
+  // the table pays. The real fix is an SQL guard on the add RPCs (a migration — OPEN-ITEMS).
   const unsentUnits = await kitchenDraftUnits(cart.id);
   if (staffSettleBlockedByUnsent(session.mode, unsentUnits)) {
     await releaseSettlementFor(cart.id, attemptId);

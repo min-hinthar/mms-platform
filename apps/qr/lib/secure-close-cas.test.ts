@@ -43,6 +43,16 @@ vi.mock("./lock", () => ({
     return Promise.resolve({ released: true, error: null });
   },
 }));
+// Phase 2c · review (R5) — the settle gate's read, answered EXPLICITLY (see settle-cash-cas.test):
+// unmocked, the fake DB's answer sent `kitchenDraftUnits` down its fail-open path on every case.
+let unsentUnits = 0;
+let unsentReads = 0;
+vi.mock("./unsent-read", () => ({
+  kitchenDraftUnits: () => {
+    unsentReads += 1;
+    return Promise.resolve(unsentUnits);
+  },
+}));
 vi.mock("./tax", () => ({ lineTax: () => 0 }));
 vi.mock("./order-lines", () => ({
   insertOrIncLine: () => Promise.resolve(),
@@ -102,6 +112,8 @@ vi.mock("@mms/db/server", () => ({
 const { closeSecureTab } = await import("./staff-cart");
 
 beforeEach(() => {
+  unsentUnits = 0;
+  unsentReads = 0;
   lockCalls.length = 0;
   created.length = 0;
   inFlight = null;
@@ -114,6 +126,8 @@ describe("closeSecureTab — the confirm's quote is compared before any charge (
     const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
     expect(r).toEqual({ ok: true });
     expect(created).toEqual([{ amount: 3868 }]);
+    // Through the gate's REAL branch (nothing unsent), never its fail-open one.
+    expect(unsentReads).toBe(1);
   });
 
   it("a moved quote refuses with `moved` and the server's figure — no PaymentIntent, and the freeze released under its own owner", async () => {
@@ -159,5 +173,29 @@ describe("closeSecureTab — the retry after an unknown outcome is refused TRUTH
     expect(r.error).toMatch(/started at the register/);
     expect(created).toEqual([]);
     expect(lockCalls).toEqual([]);
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("closeSecureTab — the settle gate answers BEFORE the compare-and-swap (R5)", () => {
+  it("unsent dishes AND a moved quote: refused as `unsent`, no PaymentIntent, the freeze released under its own owner", async () => {
+    // MUTATION (p2c-reg2/cas-suite-close-gate-deleted): delete the gate — `moved`, and the re-tap
+    // charges the card on file for three dishes nobody sent; red.
+    // MUTATION (p2c-reg2/cas-suite-close-gate-after-the-cas): gate after the compare — `moved`; red.
+    unsentUnits = 3;
+    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4210 });
+    expect(r).toMatchObject({ ok: false, code: "unsent", units: 3 });
+    expect(created).toEqual([]);
+    expect(lockCalls).toEqual([
+      { op: "acquire", owner: lockCalls[0]!.owner },
+      { op: "release", owner: lockCalls[0]!.owner },
+    ]);
+  });
+
+  it("unsent dishes with an EQUAL quote are refused too", async () => {
+    unsentUnits = 1;
+    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 3868 });
+    expect(r).toMatchObject({ ok: false, code: "unsent", units: 1 });
+    expect(created).toEqual([]);
   });
 });

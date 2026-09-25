@@ -338,7 +338,9 @@ describe("CloseSecureTabButton — the settle gate (refused while dishes are uns
 describe("CloseSecureTabButton — a refusal's figure is settled by the page's NEXT read (R1)", () => {
   const triggerAt = (m: string) =>
     screen.getByRole("button", {
-      name: new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", m.replace(/[$.]/g, "\\$&"))}`),
+      name: new RegExp(
+        `^${STAFF["settle.card.trigger"].en.replace("{m}", m.replace(/[$.]/g, "\\$&"))}`,
+      ),
     });
   it("add-then-remove before the re-read: the read that began AFTER the refusal re-opens the confirm on $42.10", async () => {
     closeSecureTab.mockResolvedValueOnce({

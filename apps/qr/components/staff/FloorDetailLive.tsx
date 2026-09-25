@@ -1131,9 +1131,9 @@ export function FloorDetailLive({
               blocked={settleBlocked}
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}
+              running={runningClose}
               readTicket={readTicket}
               readsStarted={readsStarted}
-              running={runningClose}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the

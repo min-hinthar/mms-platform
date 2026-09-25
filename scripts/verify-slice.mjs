@@ -7614,8 +7614,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — after a 'moved' refusal the sheet quotes the SERVER's figure (not optimistic: what it just derived). Keeping the stale prop, Settle reads the old total and every re-tap is refused again until the poll catches up",
-    find: "            setQuote({ cents: res.totalCents, basis });\n",
-    replace: "            setQuote({ cents: quoted, basis });\n",
+    find: "            setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });\n",
+    replace: "            setQuote({ cents: quoted, basis, raisedAt: readsStarted?.() ?? readTicket });\n",
   },
   {
     id: "p2c-register/cash-lost-response-reads-as-refusal",
