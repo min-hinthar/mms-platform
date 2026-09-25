@@ -861,8 +861,11 @@ export function FloorDetailLive({
                   <MsgText lang={lang} msg={readerStatus.msg} />
                 </span>
                 {/* Outranked in what is SAID, never in what is SHOWN: a frozen view must not look
-                    live (S9), so the frozen line stays on screen, hidden from the reader's ears. */}
-                {degraded && (
+                    live (S9), so the frozen line stays on screen, hidden from the reader's ears —
+                    and so does a standing send line (critic finding: "Couldn't send" vanished the
+                    moment a reader collect started). What is SHOWN keeps the region's own visible
+                    order below the settle line: degraded, else the send line. */}
+                {degraded ? (
                   <span lang={lang} aria-hidden="true">
                     {frozenBoardCopy(
                       lang,
@@ -872,7 +875,11 @@ export function FloorDetailLive({
                       degraded.cause,
                     )}
                   </span>
-                )}
+                ) : sendNote ? (
+                  <span aria-hidden="true">
+                    <MsgText lang={lang} msg={sendNote.msg} />
+                  </span>
+                ) : null}
               </>
             ) : degraded ? (
               <span lang={lang}>

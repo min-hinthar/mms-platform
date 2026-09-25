@@ -63,7 +63,11 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/staff/table/s1",
 }));
 // Phase 2a · send — the table page now mounts the console's Send; its server action is inert here.
-vi.mock("@/lib/staff-send", () => ({ staffFireCart: vi.fn(), staffUndoFire: vi.fn() }));
+const staffFireCart = vi.fn();
+vi.mock("@/lib/staff-send", () => ({
+  staffFireCart: (...a: unknown[]) => staffFireCart(...(a as [])),
+  staffUndoFire: vi.fn(),
+}));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { FloorDetailLive } = await import("./FloorDetailLive");
@@ -436,5 +440,34 @@ describe("FloorDetailLive — the paying banner names WHO holds the money (P2w, 
     const text = bannerOf({ paymentHolder: null });
     expect(text).toContain(ts("en", "settle.inflight.unsure"));
     expect(text).not.toContain(ts("en", "table.detail.payingPhone.cash"));
+  });
+});
+
+describe("FloorDetailLive — a send line stays SHOWN while the reader's status is SAID (critic finding)", () => {
+  it("a standing 'Couldn't send' is still on screen (aria-hidden) while the reader panel speaks", async () => {
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    sessionStorage.setItem(
+      "mms-terminal-collect:s1",
+      JSON.stringify({ paymentIntentId: "pi_1", totalCents: 4210 }),
+    );
+    mountWith(SETTLEABLE);
+    await tick(0);
+    await tick(0);
+    staffFireCart.mockResolvedValueOnce({ ok: false, reason: "failed" });
+    await act(async () => {
+      fireEvent.click(document.querySelector<HTMLButtonElement>(".staff-send button")!);
+    });
+    await tick(0);
+    const region = orderRegion();
+    const couldnt = ts("en", "table.send.err.failed");
+    // SAID: the reader's status (the settle line outranks a send line in what is spoken).
+    expect(region.querySelector(".sr-only")?.textContent).toBe(
+      ts("en", "settle.reader.status.waiting"),
+    );
+    // MUTATION (by hand): drop the send arm from the reader branch — "Couldn't send" vanishes from
+    // the screen the moment a reader collect starts; red.
+    const shown = [...region.querySelectorAll('[aria-hidden="true"]')].map((n) => n.textContent);
+    expect(shown).toEqual([couldnt]);
+    staffFireCart.mockReset();
   });
 });
