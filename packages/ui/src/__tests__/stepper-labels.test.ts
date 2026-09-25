@@ -23,7 +23,7 @@ const LABELS = {
   remove: "မုန့်ဟင်းခါး ကို ဖျက်",
   increase: "မုန့်ဟင်းခါး တစ်ခု ထပ်ထည့်",
   soldOut: "မုန့်ဟင်းခါး ကုန်သွားပြီ",
-  max: "မုန့်ဟင်းခါး အများဆုံး ဖြစ်ပြီ",
+  max: (n: number) => `မုန့်ဟင်းခါး အများဆုံး ${n}`,
 };
 
 describe("Stepper — labels", () => {
@@ -34,7 +34,14 @@ describe("Stepper — labels", () => {
     expect(names({ qty: 1, labels: LABELS })).toEqual([LABELS.remove, LABELS.increase]);
     // Sold out and at the maximum each take their own label.
     expect(names({ qty: 2, labels: LABELS, soldOut: true })[1]).toBe(LABELS.soldOut);
-    expect(names({ qty: 5, max: 5, labels: LABELS })[1]).toBe(LABELS.max);
+    expect(names({ qty: 5, max: 5, labels: LABELS })[1]).toBe(LABELS.max(5));
+  });
+
+  it("the maximum's name is handed the REAL ceiling — a caller never restates the number", () => {
+    // MUTATION: a label that states its own number (the staff editor once wrote 99 beside the
+    // primitive's default) — a ceiling of 7 announced as 99; red.
+    expect(names({ qty: 7, max: 7, labels: LABELS })[1]).toBe("မုန့်ဟင်းခါး အများဆုံး 7");
+    expect(names({ qty: 99, labels: LABELS })[1]).toBe("မုန့်ဟင်းခါး အများဆုံး 99");
   });
 
   it("a caller that passes no labels renders exactly as before (the diner cart)", () => {

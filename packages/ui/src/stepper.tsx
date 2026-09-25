@@ -80,10 +80,18 @@ export function Stepper({
    * ── Phase 2c · pad ── every name WHOLE, for a caller with its own dictionary (the staff line
    * editor, Burmese-first). ALL-OR-NOTHING: the three base names come together, so a control can
    * never announce one tongue on "−" and another on "+". `soldOut` / `max` are optional and fall
-   * back to `soldOutLabel` / the default. `disabledLabel` still wins while `disabled` (the reason a
-   * refused tap gives). A caller passing nothing — the diner cart — renders exactly as before.
+   * back to `soldOutLabel` / the default. `max` is handed the REAL ceiling, so a caller's name can
+   * never state a number this control does not enforce. `disabledLabel` still wins while `disabled`
+   * (the reason a refused tap gives). A caller passing nothing — the diner cart — renders exactly
+   * as before.
    */
-  labels?: { decrease: string; remove: string; increase: string; soldOut?: string; max?: string };
+  labels?: {
+    decrease: string;
+    remove: string;
+    increase: string;
+    soldOut?: string;
+    max?: (max: number) => string;
+  };
 }) {
   const removing = qty <= min;
   const incDisabled = disabled || qty >= max || soldOut;
@@ -139,7 +147,7 @@ export function Stepper({
             : soldOut
               ? (labels?.soldOut ?? soldOutLabel ?? `${name} is sold out`)
               : qty >= max
-                ? (labels?.max ?? `Maximum ${max} ${name}`)
+                ? (labels?.max?.(max) ?? `Maximum ${max} ${name}`)
                 : (labels?.increase ?? incrementLabel ?? `Increase ${name} quantity`)
         }
         style={{

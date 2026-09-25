@@ -454,8 +454,8 @@ function stepperLabels(lang: StaffLang, x: string) {
     remove: tf(lang, "table.line.a11y.remove", { x }),
     increase: tf(lang, "table.line.a11y.more", { x }),
     soldOut: tf(lang, "table.line.a11y.soldOut", { x }),
-    // The editor leaves the primitive's default ceiling (99) in place; the name says the same number.
-    max: tf(lang, "table.line.a11y.max", { x, n: 99 }),
+    // The primitive hands in its REAL ceiling — the name never restates the number (one binding).
+    max: (n: number) => tf(lang, "table.line.a11y.max", { x, n }),
   };
 }
 
