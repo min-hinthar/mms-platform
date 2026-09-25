@@ -9094,6 +9094,30 @@ const MUTANTS = [
     replace:
       '  if (staffSettleBlockedByUnsent("dinein", unsentUnits)) {\n    await releaseSettlementFor(cart.id, attempt);',
   },
+  {
+    id: "p2c-reg2/checkout-refused-tap-not-renumbered",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 2c · review (open question) — each refused tap renumbers the Bill's region; not renumbered, a second tap sets the same string, React skips it, and a screen reader hears nothing for it",
+    find: "    setStatusSeq((n) => n + 1);\n",
+    replace: "",
+  },
+  {
+    id: "p2c-reg2/checkout-region-not-keyed",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 2c · review (open question) — the region's text is keyed on the refusal's number; unkeyed, a repeated sentence is the same DOM node and is never said again",
+    find: "              <span key={statusSeq}>{payError ?? status}</span>\n",
+    replace: "              <span>{payError ?? status}</span>\n",
+  },
+  {
+    id: "p2c-reg2/checkout-refusal-under-a-pay-error",
+    file: "apps/qr/components/Checkout.tsx",
+    suite: "components/Checkout.test.tsx",
+    why: "Phase 2c · review (open question) — a refused tap clears a standing pay error (the region renders payError ?? status); kept, the tap's reason is hidden behind a stale failure",
+    find: "  const sayRefusal = (text: string) => {\n    setPayError(null);\n",
+    replace: "  const sayRefusal = (text: string) => {\n",
+  },
 ];
 
 const args = new Set(process.argv.slice(2));
