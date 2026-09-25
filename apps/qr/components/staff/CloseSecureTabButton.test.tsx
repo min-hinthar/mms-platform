@@ -124,3 +124,39 @@ describe("CloseSecureTabButton — Buttons, never native `disabled` (Phase 2c ·
     });
   });
 });
+
+describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 2c · register, P2aa)", () => {
+  it("the charge carries the total the confirm SHOWED as a compare-only quote", async () => {
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    const { charge } = mount();
+    await charge();
+    // MUTATION: drop `quotedCents` — the server's compare never runs; red.
+    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4210 });
+  });
+
+  it("a moved total names both figures, re-reads the page, quotes the server's figure, and the re-tap sends it", async () => {
+    closeSecureTab.mockResolvedValueOnce({
+      ok: false,
+      code: "moved",
+      totalCents: 4265,
+      error: "The total changed — check the order, then take payment again.",
+    });
+    const { charge } = mount();
+    await charge();
+    expect(screen.getByRole("alert").textContent).toBe(
+      STAFF["settle.cash.moved"].en.replace("{old}", "$42.10").replace("{m}", "$42.65"),
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    // The confirm closed (focus back on the trigger), and the trigger now reads the server's figure.
+    const trigger = screen.getByRole("button", {
+      name: new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.65")}`),
+    });
+    expect(document.activeElement).toBe(trigger);
+    fireEvent.click(trigger);
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.65/ }));
+    });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4265 });
+  });
+});

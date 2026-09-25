@@ -551,7 +551,7 @@ export async function settleCash(raw: unknown): Promise<SettleCashResult> {
   }
 }
 
-export type CloseSecureTabResult = { ok: true } | { ok: false; error: string };
+export type CloseSecureTabResult = { ok: true } | SettleCashRefusal; // P2aa: the cash settle's refusal union — `moved` is the "Charge $x" confirm's compare-and-swap
 
 /**
  * Close a SECURE tab off-session (S3.2): charge the saved card-on-file for the final total. Staff-
@@ -572,7 +572,8 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   // Deliberately NOT destructuring `tipCents`: a secure-tab close settles the AUTHORIZED amount and
   // adds no tip (see the "final total, NO added tip" note below). Naming it here would read as if
   // tab-close tips were supported and merely forgotten.
-  const { sessionId } = parsed.data;
+  // `quotedCents` is COMPARE-ONLY (P2aa): the total the confirm showed, never an amount.
+  const { sessionId, quotedCents } = parsed.data;
 
   const { session, cart, unavailable } = await openCartFor(sessionId);
   if (unavailable) return { ok: false, error: STAFF_WRITE_OUTAGE };
@@ -635,6 +636,20 @@ export async function closeSecureTab(raw: unknown): Promise<CloseSecureTabResult
   if (amount <= 0) {
     await releaseSettlementFor(cart.id, attempt);
     return { ok: false, error: "There’s nothing on this table to settle." };
+  }
+  // Phase 2c · register (P2aa) — the COMPARE-AND-SWAP, as on the cash settle: the confirm quoted the
+  // last-polled total; `amount` is the live one. A mismatch refuses BEFORE any PaymentIntent exists,
+  // naming the server's figure, and releases this attempt's freeze here — this path has no blanket
+  // `finally` (its success arm deliberately HOLDS the freeze for the webhook). The quote is never
+  // read into `amount`.
+  if (quotedCents !== undefined && quotedCents !== amount) {
+    await releaseSettlementFor(cart.id, attempt);
+    return {
+      ok: false,
+      code: "moved",
+      totalCents: amount,
+      error: "The total changed — check the order, then take payment again.",
+    };
   }
 
   // ⚠️ HOISTED OUT OF THE TRY, and the reason is money (Codex round 1 on #275, P2). `getStripe()`

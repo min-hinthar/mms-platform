@@ -14,7 +14,11 @@ import { useStaffLang } from "./StaffLangProvider";
  * than the write-outage twin, whose "that change wasn’t saved" would be false for a charge that may
  * have landed.
  */
-type CloseError = { kind: "server"; text: string } | { kind: "local" };
+type CloseError =
+  | { kind: "server"; text: string }
+  | { kind: "local" }
+  // Phase 2c · register (P2aa) — the compare-and-swap refused: both figures, nothing charged.
+  | { kind: "moved"; from: number; to: number };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -47,6 +51,11 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
+  // P2aa — the server's figure after a `moved` refusal, held for display only WHILE the prop still
+  // reads what it read at the refusal (`basis`): a render-time derivation, no effect. The server
+  // re-checks every tap, and the first detail read that moves the prop retires it.
+  const [moved, setMoved] = useState<{ basis: number; to: number } | null>(null);
+  const shownTotal = moved && totalCents === moved.basis ? moved.to : totalCents;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -64,9 +73,12 @@ export function CloseSecureTabButton({
     inFlight.current = true;
     setBusy(true);
     setError(null);
+    // The figure the confirm is showing (COMPARE-ONLY on the server) and the prop it came from.
+    const quote = shownTotal;
+    const basis = totalCents;
     let res: Awaited<ReturnType<typeof closeSecureTab>>;
     try {
-      res = await closeSecureTab({ sessionId });
+      res = await closeSecureTab({ sessionId, quotedCents: quote });
     } catch (e) {
       // Phase 2a · register — a REJECTED action used to latch the confirm on "Charging…" with both
       // buttons disabled until a reload. Clear busy, close the confirm (the effect above returns
@@ -82,6 +94,14 @@ export function CloseSecureTabButton({
       inFlight.current = false;
       setBusy(false);
       setConfirming(false);
+      if (res.code === "moved") {
+        // Nothing was charged. Quote the server's figure (what it just derived — not optimistic),
+        // name both in the alert, and re-read the page; the re-tap is compared again.
+        setMoved({ basis, to: res.totalCents });
+        setError({ kind: "moved", from: quote, to: res.totalCents });
+        onChanged?.();
+        return;
+      }
       setError({ kind: "server", text: res.error });
       return;
     }
@@ -105,7 +125,7 @@ export function CloseSecureTabButton({
             <Chrome
               lang={lang}
               k="settle.card.chargeQ"
-              vars={{ m: fmt(totalCents) }}
+              vars={{ m: fmt(shownTotal) }}
               echo="stack"
             />{" "}
             {/* The same sentence the cash settle closes with — one key, so a K15 correction lands
@@ -132,7 +152,7 @@ export function CloseSecureTabButton({
               <Chrome
                 lang={lang}
                 k="settle.card.chargeAmount"
-                vars={{ m: fmt(totalCents) }}
+                vars={{ m: fmt(shownTotal) }}
                 echo="stack"
               />
             </Button>
@@ -147,7 +167,7 @@ export function CloseSecureTabButton({
           aria-describedby="secure-close-hint"
           onClick={() => setConfirming(true)}
         >
-          <Chrome lang={lang} k="settle.card.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
+          <Chrome lang={lang} k="settle.card.trigger" vars={{ m: fmt(shownTotal) }} echo="stack" />
         </Button>
       )}
       <p id="secure-close-hint" style={hint}>
@@ -157,6 +177,13 @@ export function CloseSecureTabButton({
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
           {error.kind === "server" ? (
             <OutageText lang={lang} error={error.text} />
+          ) : error.kind === "moved" ? (
+            <Chrome
+              lang={lang}
+              k="settle.cash.moved"
+              vars={{ old: fmt(error.from), m: fmt(error.to) }}
+              echo={false}
+            />
           ) : (
             <Chrome lang={lang} k="settle.card.unknown" echo={false} />
           )}

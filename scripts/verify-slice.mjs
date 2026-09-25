@@ -7198,9 +7198,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2a · register — a REJECTED closeSecureTab (the connection dropped mid-charge) must clear busy, close the confirm and say the outcome is unknown. Let it escape and the card latches on 'Charging…' with focus on <body> until a reload, and the one true sentence — the card may or may not have been charged — is never said",
-    find: "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n",
+    find: "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n    } catch (e) {\n",
     replace:
-      "      res = await closeSecureTab({ sessionId });\n    } catch (e) {\n      throw e;\n",
+      "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n    } catch (e) {\n      throw e;\n",
   },
   // ── Phase 2b · kitchen ──
   {
@@ -7629,8 +7629,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · register — a landed card-on-file close re-reads the PAGE's detail (`onChanged`). Without it the table keeps its live settle controls for up to a poll interval after the charge was asked for",
-    find: "    onChanged?.();\n",
-    replace: "",
+    find: "    onChanged?.();\n  }\n\n  return (",
+    replace: "  }\n\n  return (",
   },
   {
     id: "p2c-register/reader-status-never-said",
@@ -7655,6 +7655,30 @@ const MUTANTS = [
     why: "Phase 2c · register — a landed reader charge re-reads the page's own detail (`onChanged`), which replaced a `router.refresh()` that updated nothing the page reads",
     find: "          onChanged?.();\n",
     replace: "",
+  },
+  {
+    id: "p2c-register/tab-close-cas-deleted",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/secure-close-cas.test.ts",
+    why: "Phase 2c · register (P2aa) — the card-on-file close compares the confirm's quote before any PaymentIntent exists. Without it an off-session charge is minted for a total the staff never saw, on a guest who is not there to question it",
+    find: "  if (quotedCents !== undefined && quotedCents !== amount) {\n",
+    replace: "  if (false) {\n",
+  },
+  {
+    id: "p2c-register/tab-close-moved-strands-freeze",
+    file: "apps/qr/lib/staff-cart.ts",
+    suite: "lib/secure-close-cas.test.ts",
+    why: "Phase 2c · register (P2aa) — this path has no blanket `finally` (the success arm HOLDS the freeze for the webhook), so the moved refusal must release it itself. Without the release the table strands frozen for the whole TTL after a refusal that charged nothing",
+    find: '    await releaseSettlementFor(cart.id, attempt);\n    return {\n      ok: false,\n      code: "moved",\n      totalCents: amount,\n',
+    replace: '    return {\n      ok: false,\n      code: "moved",\n      totalCents: amount,\n',
+  },
+  {
+    id: "p2c-register/tab-close-quote-dropped",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "Phase 2c · register (P2aa) — the confirm sends the total it SHOWED as `quotedCents` (compare-only). Dropped, the server's compare never runs and the card on file is charged a total nobody read",
+    find: "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n",
+    replace: "      res = await closeSecureTab({ sessionId });\n",
   },
 ];
 
