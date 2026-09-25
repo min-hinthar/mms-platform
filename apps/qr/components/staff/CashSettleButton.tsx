@@ -21,6 +21,8 @@ import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { sheetCloseLabel } from "./SheetCloseLabel";
 import { useStaffLang } from "./StaffLangProvider";
+// ── Phase 2c · gate ──
+import { settleBlockedMsg } from "@/lib/staff-send-view";
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
@@ -29,12 +31,14 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  *  moving off the frozen quote while the sheet is open; `inflight` is the server refusing while money
  *  is already moving on the table, with WHO holds it (P2w — a dictionary key per holder, never the
  *  server's English); `unknown` is a REJECTED action — the response was lost, so the settle may
- *  have landed (P2ab). */
+ *  have landed (P2ab); `unsent` is the settle gate refusing (Phase 2c · gate — dishes the kitchen
+ *  never got), with the server's own count. */
 type SheetError =
   | { kind: "server"; text: string }
   | { kind: "moved"; from: number; to: number }
   | { kind: "inflight"; holder: InFlightHolder }
-  | { kind: "unknown" };
+  | { kind: "unknown" }
+  | { kind: "unsent"; units: number };
 
 /** What the settle hands UP when a paid card follows (the parent adds `isCounter` and `cartId`). */
 export type CashSettled = {
@@ -85,6 +89,10 @@ export function CashSettleButton({
   onSettled,
   onChanged,
   onOutcomeUnknown,
+  // Named `gateBlocked` inside: `blocked` below is the SHEET's binding (`cashSettleBlocked`).
+  blocked: gateBlocked = false,
+  blockedNoteId,
+  onBlockedTap,
 }: {
   sessionId: string;
   totalCents: number;
@@ -119,6 +127,16 @@ export function CashSettleButton({
    *  holds a counter order's closed-bounce on it (critic finding: a landed counter settle closes the
    *  session behind it, and the bounce yanked the cashier to the floor mid-sheet). */
   onOutcomeUnknown?: (unknown: boolean) => void;
+  /** Phase 2c · gate — the settle gate holds (`staffSettleBlockedByUnsent`, read by the page from
+   *  `detail.send`): the trigger stays rendered with its amount but is `aria-disabled`, described by
+   *  the page's note, and a tap opens NOTHING — it hands up (`onBlockedTap`). */
+  blocked?: boolean;
+  /** The page's note that says why — prepended to the trigger's description while blocked. */
+  blockedNoteId?: string;
+  /** A refused tap (`null` — the page's own count is the reading), or the server's `unsent` refusal
+   *  (its count) once the sheet has closed: the page says why in its one region and moves focus to
+   *  the fix (the Send). */
+  onBlockedTap?: (units: number | null) => void;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -204,6 +222,11 @@ export function CashSettleButton({
   useEffect(() => {
     if (kept > 0) settleRef.current?.focus();
   }, [kept]);
+  // Phase 2c · gate — a server `unsent` refusal (a guest's dish landed after the page's last read)
+  // is said INSIDE the sheet (its one alert: the page's region is hidden behind the modal), and the
+  // jump to the Send waits for the sheet to close — the close hands focus to the fix instead of back
+  // to this trigger. A ref, read by the close handler; the server's count rides it.
+  const unsentJump = useRef<number | null>(null);
 
   function confirm() {
     if (inFlight.current) return;
@@ -220,6 +243,7 @@ export function CashSettleButton({
     inFlight.current = true;
     haptic("commit"); // at the tap — the gesture, not the network — with the busy label beside it
     setError(null);
+    unsentJump.current = null; // a new attempt owes no jump until it is refused for this reason
     // The figure the cashier is looking at (the frozen quote), and the prop the page read — both
     // captured at the tap, so a refusal can name the one and keep the other as the quote's basis.
     const quoted = shownTotal;
@@ -260,6 +284,15 @@ export function CashSettleButton({
             // P2w — said in the device language, naming who holds the money (the typed code; the
             // English `error` is for a bundle older than it).
             setError({ kind: "inflight", holder: res.holder });
+            return;
+          }
+          if (res.code === "unsent") {
+            // Phase 2c · gate — nothing recorded (the freeze released on the server). Said here in
+            // the dictionary's words with the server's count; the close takes the cashier to the
+            // Send, and the page re-reads so its note appears under the triggers.
+            setError({ kind: "unsent", units: res.units });
+            unsentJump.current = res.units;
+            onChanged?.();
             return;
           }
           setError({ kind: "server", text: res.error });
@@ -318,9 +351,21 @@ export function CashSettleButton({
         block
         busy={landed}
         busyLabel={<Chrome lang={lang} k="settle.cash.settling" echo={false} />}
-        aria-describedby="settle-hint"
+        // Phase 2c · gate — refused while dishes are unsent: the ATTRIBUTE (spread only when set,
+        // so the primitive's own busy state is never erased) plus the handler's guard below, never
+        // native `disabled`; the page's note is read first.
+        {...(gateBlocked ? { "aria-disabled": true } : {})}
+        aria-describedby={
+          gateBlocked && blockedNoteId ? `${blockedNoteId} settle-hint` : "settle-hint"
+        }
         onClick={() => {
+          if (gateBlocked) {
+            // Opens no sheet: the page says why and takes the cashier to the Send.
+            onBlockedTap?.(null);
+            return;
+          }
           setError(null); // a refusal read in the last sheet is not this attempt's
+          unsentJump.current = null;
           // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
           // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
           // while the page has not re-read yet (`openQuote`). The tip is kept.
@@ -359,7 +404,16 @@ export function CashSettleButton({
           closeLabel={sheetCloseLabel(lang)}
           onCloseAutoFocus={(e) => {
             e.preventDefault();
-            if (!handoffLandedRef.current) triggerRef.current?.focus();
+            if (handoffLandedRef.current) return;
+            // Phase 2c · gate — the sheet closed over an `unsent` refusal: the page takes the
+            // cashier to the Send (and says why in its region) instead of back to this trigger.
+            const units = unsentJump.current;
+            unsentJump.current = null;
+            if (units !== null && onBlockedTap) {
+              onBlockedTap(units);
+              return;
+            }
+            triggerRef.current?.focus();
           }}
         >
           <div style={confirmBody}>
@@ -631,6 +685,13 @@ export function CashSettleButton({
                       lang={lang}
                       k={inFlightMsg(alertMsg.holder).k}
                       vars={inFlightMsg(alertMsg.holder).vars}
+                      echo={false}
+                    />
+                  ) : alertMsg.kind === "unsent" ? (
+                    <Chrome
+                      lang={lang}
+                      k={settleBlockedMsg(alertMsg.units, false).k}
+                      vars={settleBlockedMsg(alertMsg.units, false).vars}
                       echo={false}
                     />
                   ) : (

@@ -214,3 +214,80 @@ describe("CloseSecureTabButton — a refusal mid-payment is said in the device l
     expect(alert).not.toContain(english);
   });
 });
+
+// ── Phase 2c · gate ──
+describe("CloseSecureTabButton — the settle gate (refused while dishes are unsent)", () => {
+  const triggerName = new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.10")}`);
+
+  it("blocked: aria-disabled (never native), read with the page's note first, and a tap opens NO confirm — it hands up once", () => {
+    const onBlockedTap = vi.fn();
+    render(
+      <StaffLangProvider lang="en">
+        <CloseSecureTabButton
+          sessionId="s1"
+          totalCents={4210}
+          blocked
+          blockedNoteId="settle-unsent-note"
+          onBlockedTap={onBlockedTap}
+        />
+      </StaffLangProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger.getAttribute("aria-disabled")).toBe("true");
+    expect(trigger.hasAttribute("disabled")).toBe(false);
+    expect(trigger.getAttribute("aria-describedby")).toBe("settle-unsent-note secure-close-hint");
+    fireEvent.click(trigger);
+    // MUTATION (secure-close/unsent-tap-opens-the-confirm): drop the handler's guard — the "Charge
+    // $x" confirm opens over dishes nobody sent, one tap from an off-session charge; red.
+    expect(screen.queryByRole("group")).toBeNull();
+    expect(closeSecureTab).not.toHaveBeenCalled();
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(null);
+  });
+
+  it("not blocked: no aria-disabled from the gate", () => {
+    // MUTATION (secure-close/unsent-trigger-always-dimmed): spread aria-disabled regardless; red.
+    render(
+      <StaffLangProvider lang="en">
+        <CloseSecureTabButton sessionId="s1" totalCents={4210} />
+      </StaffLangProvider>,
+    );
+    const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger.getAttribute("aria-disabled")).toBeNull();
+    expect(trigger.getAttribute("aria-describedby")).toBe("secure-close-hint");
+  });
+
+  it("a server `unsent` refusal renders the RUNNING BILL's sentence in Burmese with its count, hands the jump up once, and never pulls focus back to the trigger", async () => {
+    const english = "Some dishes haven’t gone to the kitchen.";
+    closeSecureTab.mockResolvedValueOnce({ ok: false, code: "unsent", units: 2, error: english });
+    const onBlockedTap = vi.fn(() => {
+      // The page's jump: focus moves to the order's lines (a stand-in heading here).
+      document.getElementById("stand-in-order-h")!.focus();
+    });
+    render(
+      <StaffLangProvider lang="my">
+        <h2 id="stand-in-order-h" tabIndex={-1}>
+          order
+        </h2>
+        <CloseSecureTabButton sessionId="s1" totalCents={4210} onBlockedTap={onBlockedTap} />
+      </StaffLangProvider>,
+    );
+    fireEvent.click(screen.getAllByRole("button")[0]!);
+    const charge = screen.getAllByRole("button").find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+    // MUTATION (secure-close/unsent-said-in-english): drop the `unsent` arm — the server's English
+    // passes through on a Burmese console; red.
+    const said = tf("my", "table.send.settleBlocked.tab.many", { n: 2 });
+    expect(document.body.textContent).toContain(said);
+    expect(document.body.textContent).not.toContain(english);
+    expect(screen.queryByRole("alert")).toBeNull();
+    // MUTATION (secure-close/unsent-refusal-never-jumps): drop the hand-up — staff are left on a
+    // refused close with the lines to remove somewhere above; red.
+    expect(onBlockedTap).toHaveBeenCalledTimes(1);
+    expect(onBlockedTap).toHaveBeenCalledWith(2);
+    // The confirm's close does not steal focus back from the page's jump.
+    expect(document.activeElement).toBe(document.getElementById("stand-in-order-h"));
+  });
+});
