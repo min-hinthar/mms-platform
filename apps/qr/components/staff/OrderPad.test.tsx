@@ -360,6 +360,50 @@ describe("an unknown outcome — the SAME key, never a second plate", () => {
   });
 });
 
+describe("a sheet add queued behind a hung add — its origin is never held past 15s", () => {
+  it("the sheet stops being busy 15s after ITS tap, says the outcome is unknown, and a late refusal is still said", async () => {
+    const first = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(first.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await flush(5_000);
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find(
+        (b) => b.textContent?.includes("$14.50") || b.getAttribute("aria-busy") === "true",
+      )!;
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    expect(addBtn().getAttribute("aria-busy")).toBe("true");
+    // Queued behind the hung add: nothing dispatched yet (Next runs actions one at a time).
+    expect(addItem).toHaveBeenCalledTimes(1);
+    await flush(15_500);
+    // 15s after the SHEET's tap: the sheet is free again and says the outcome is unknown.
+    expect(addBtn().getAttribute("aria-busy")).toBeNull();
+    expect(dialog.textContent).toContain(STAFF["browse.add.unconfirmed"].en);
+    // Its ghost is still simply in line — only a dispatched add reads "Checking…".
+    const beefGhost = ghosts().find((g) => g.textContent?.includes("Beef Curry"))!;
+    expect(beefGhost.dataset.state).toBe("flying");
+    // The hung add answers; the queued one dispatches and is REFUSED after the sheet gave up
+    // waiting — the pad's own region says it, so it is never lost in silence.
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "paying" });
+    await act(async () => {
+      first.resolve({ ok: true });
+    });
+    await flush();
+    expect(addItem).toHaveBeenCalledTimes(2);
+    expect(ghosts().some((g) => g.textContent?.includes("Beef Curry"))).toBe(false);
+    expect(region().textContent).toContain("Beef Curry");
+  });
+});
+
 describe("the drains — the Send and Take payment wait for the dish tapped a beat before", () => {
   it("Send awaits the add before it fires", async () => {
     const add = deferred<StaffWriteResult>();

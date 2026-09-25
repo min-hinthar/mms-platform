@@ -139,16 +139,32 @@ export function usePadWrites({
     [apply, readsRef],
   );
 
-  /** Queue one attempt at `key`; resolves at its answer or at 15s after it was DISPATCHED. */
+  /**
+   * Queue one attempt at `key`. The returned outcome resolves at its answer — or 15s after the TAP
+   * with no answer ("unconfirmed"), even while it is still QUEUED behind a hung add: its origin (the
+   * options sheet holds itself busy on it) must never wait longer than that on someone else's hang.
+   * The GHOST goes "Checking…" only 15s after its own DISPATCH: until then it is simply in line.
+   */
   const enqueue = useCallback(
     (key: string): Promise<PadAddOutcome> =>
       new Promise<PadAddOutcome>((resolveOutcome) => {
+        let resolved = false;
+        const resolveOnce = (o: PadAddOutcome) => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(tapTimer);
+          // The origin stops waiting here: whatever this attempt says LATER is the pad's to say.
+          if (o === "unconfirmed") quiet.current.delete(key);
+          resolveOutcome(o);
+        };
+        // Declared after `resolveOnce` reads it: every call to it runs later (a timer, the chain).
+        const tapTimer = setTimeout(() => resolveOnce("unconfirmed"), ADD_UNCONFIRMED_MS);
         chain.current = chain.current.then(
           () =>
             new Promise<void>((done) => {
               const req = requests.current.get(key);
               if (!req) {
-                resolveOutcome("refused");
+                resolveOnce("refused");
                 done();
                 return;
               }
@@ -156,7 +172,7 @@ export function usePadWrites({
               const timer = setTimeout(() => {
                 if (answered) return;
                 apply({ kind: "timeout", key });
-                resolveOutcome("unconfirmed");
+                resolveOnce("unconfirmed");
                 wake();
               }, ADD_UNCONFIRMED_MS);
               staffAddItem({
@@ -178,7 +194,7 @@ export function usePadWrites({
                   answered = true;
                   clearTimeout(timer);
                   handle(key, req, v);
-                  resolveOutcome(v.kind);
+                  resolveOnce(v.kind);
                   done();
                   wake();
                 });
