@@ -68,6 +68,7 @@ export function TerminalSettleButton({
   onBlockedTap,
   running = false,
   gateLive,
+  onChanged,
 }: {
   sessionId: string;
   totalCents: number;
@@ -83,6 +84,10 @@ export function TerminalSettleButton({
   /** A refused tap (`null` — the page's count is the reading), or the server's `unsent` refusal
    *  (its count): the page says why in its one region and moves focus to the Send. */
   onBlockedTap?: (units: number | null) => void;
+  /** Codex round 2 (P2) — the page's own re-read. A raced `unsent` refusal means the page's detail
+   *  is stale (a dish landed after its last read): without a re-read the Send the refusal points at
+   *  may not exist yet, and staff wait for the next poll to act on the fix they were just told. */
+  onChanged?: () => void;
   /** Phase 2c · gate — the bill is a card-on-file running bill (the page's ONE binding,
    *  `settlePrimary(tab) === "secureTab"`): a raced refusal says the running bill's sentence, the
    *  same one the page's note and region say — never a second sentence for the same fact. */
@@ -128,7 +133,10 @@ export function TerminalSettleButton({
         );
         // Phase 2c · gate — a raced refusal (a guest's dish landed after the page's last read):
         // the page says it in its one region and takes the cashier to the Send.
-        if (res.code === "unsent") onBlockedTap?.(res.units);
+        if (res.code === "unsent") {
+          onChanged?.();
+          onBlockedTap?.(res.units);
+        }
         return;
       }
       onStarted({ paymentIntentId: res.paymentIntentId, totalCents: res.totalCents });

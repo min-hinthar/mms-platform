@@ -713,6 +713,24 @@ describe("CashSettleButton — a tip intent arriving under an open sheet is froz
   });
 });
 
+describe("CashSettleButton — the tip chips' base is frozen with the quote (Codex round 2, P2)", () => {
+  it("a subtotal moving under an open sheet does not move the percentage chips; the next open reads the new base", async () => {
+    const { open, cancel, rerender } = mount();
+    let dialog = open();
+    const chip20 = () => within(dialog).getByRole("button", { name: /^20%/ });
+    expect(chip20().textContent).toContain("$8.00");
+    // A discount lands from the guest's phone: the page re-reads a new tip base under the sheet.
+    // MUTATION: read the live prop — "20% · $8.00" becomes "20% · $7.00" mid-count; red.
+    rerender({ tipBaseCents: 3500 });
+    expect(chip20().textContent).toContain("$8.00");
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    dialog = open();
+    expect(chip20().textContent).toContain("$7.00");
+  });
+});
+
 describe("CashSettleButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
   it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
     const english = "A payment started at the register on this table hasn’t finished.";

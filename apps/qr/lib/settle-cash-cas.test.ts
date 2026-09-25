@@ -200,7 +200,7 @@ describe("settleCash — the quote the cashier read is compared inside the freez
   it.each([
     ["negative", -1],
     ["fractional", 3868.5],
-    ["past the bound", 10_000_001],
+    ["past the bound", Number.MAX_SAFE_INTEGER + 1],
   ])("a %s quote is refused at the schema — nothing is frozen, nothing settles", async (_w, q) => {
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: q });
     expect(r).toEqual({ ok: false, error: "Invalid request." });
@@ -249,5 +249,24 @@ describe("settleCash — the settle gate answers BEFORE the compare-and-swap (R5
     const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 3868 });
     expect(r).toMatchObject({ ok: false, code: "unsent", units: 1 });
     expect(settled()).toBe(false);
+  });
+});
+
+describe("quotedCents admits every total an order can reach (Codex round 2, P2)", () => {
+  it("a large legitimate total parses; a negative or fractional quote does not", async () => {
+    const { settleCashInput } =
+      await vi.importActual<typeof import("@mms/db/schemas")>("@mms/db/schemas");
+    // One $5,000 dish × 99 = $495,000 — computed, not transcribed.
+    const big = 500_000 * 99;
+    // MUTATION: a $100,000 ceiling — every settle of this order is refused as invalid; red.
+    expect(
+      settleCashInput.safeParse({ sessionId: SESSION, tipCents: 0, quotedCents: big }).success,
+    ).toBe(true);
+    expect(
+      settleCashInput.safeParse({ sessionId: SESSION, tipCents: 0, quotedCents: -1 }).success,
+    ).toBe(false);
+    expect(
+      settleCashInput.safeParse({ sessionId: SESSION, tipCents: 0, quotedCents: 1.5 }).success,
+    ).toBe(false);
   });
 });

@@ -1149,6 +1149,7 @@ export function FloorDetailLive({
                 onBlockedTap={(units) => onSettleBlocked("reader", units)}
                 running={runningClose}
                 gateLive={settleGate !== null}
+                onChanged={onChange}
               />
             )}
             {detail.tab === "trust" && (

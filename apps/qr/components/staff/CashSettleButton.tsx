@@ -178,7 +178,15 @@ export function CashSettleButton({
   // the page caught up with the server's figure, so a later move BACK reads as the move it is.
   // Phase 2c · review (R1) — and a read that began after a refusal settles the refusal's figure.
   const reconciled = reconcileQuote(quote, totalCents, readTicket);
-  if (reconciled !== quote) setQuote(reconciled);
+  // Codex round 2 (P2) — the tip base the percentage chips read is frozen WITH the quote: a
+  // subtotal or discount moving under an open sheet must not move "20% · $8.42" while every other
+  // figure holds. It follows the prop only where the quote itself moves (open, adopt, reconcile).
+  const [tipBaseAtOpen, setTipBaseAtOpen] = useState<number | null>(tipBaseCents);
+  if (reconciled !== quote) {
+    setQuote(reconciled);
+    setTipBaseAtOpen(tipBaseCents);
+  }
+  const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;
   // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
   const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
     .cents;
@@ -259,6 +267,7 @@ export function CashSettleButton({
       // naming both stays, and nothing is recorded. The next tap settles the figure now shown.
       haptic("pick");
       setQuote({ cents: drift.to, basis: drift.to });
+      setTipBaseAtOpen(tipBaseCents);
       setError({ kind: "moved", from: drift.from, to: drift.to });
       return;
     }
@@ -396,6 +405,7 @@ export function CashSettleButton({
           // while the page has not re-read yet (`openQuote`). The tip is kept.
           setTendered("");
           setQuote(openQuote(reconciled, totalCents));
+          setTipBaseAtOpen(tipBaseCents);
           setChipPop(null);
           setConfirming(true);
         }}
@@ -473,12 +483,12 @@ export function CashSettleButton({
                 arithmetic at the counter. They fill the field (they do not settle), so the amount
                 stays visible and adjustable before anything is recorded. */}
               <div role="group" aria-label={sx(lang, "settle.a11y.tipQuick")} style={tipChipRow}>
-                {tipPresets(tipBaseCents ?? 0)
-                  .filter((p) => tipWithinAmountCap(Math.round((tipBaseCents ?? 0) * p.rate)))
+                {tipPresets(shownTipBase ?? 0)
+                  .filter((p) => tipWithinAmountCap(Math.round((shownTipBase ?? 0) * p.rate)))
                   .map((p) => {
                     // The SAME base and the SAME rounding the diner and kiosk use, so an identical
                     // label means an identical amount wherever the guest happens to be standing.
-                    const cents = Math.round((tipBaseCents ?? 0) * p.rate);
+                    const cents = Math.round((shownTipBase ?? 0) * p.rate);
                     // Lit while the FIELD holds this chip's amount — the field is the single source of
                     // the value (the chip only fills it), so the pressed state is derived, never stored,
                     // and hand-editing the field unlights the chip the moment they diverge (the

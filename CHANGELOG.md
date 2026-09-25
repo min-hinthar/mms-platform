@@ -257,6 +257,17 @@ a mutant, all KILLED. No migration.
 - **P2 — the counter name typed while Take payment waited was thrown away.** The name is now read
   from the field as it is after the wait.
 
+**Codex round 2 (on `21bca2b`: 4 × P2) — fixed, red-first, each with a mutant:**
+
+- **The tip chips' base now freezes with the quote.** A discount landing while the cash sheet was
+  open moved "20% · $8.00" while every other figure held.
+- **A card-reader refusal over unsent dishes re-reads the page**, so the Send it points at is there
+  at once, not after the next poll.
+- **The pad's ticket closes while Take payment is leaving.** A quantity change or removal started
+  during the wait was left pending under a page that was going away.
+- **`quotedCents` admits every total an order can reach.** A $100,000 cap on a compare-only field
+  refused every settle of a legitimately larger order as an invalid request.
+
 ### Phase 2b — the kitchen ticket and the live console (2026-09-24)
 
 Built as two parallel worktree branches (`p2b/kitchen` · `p2b/feedback`) merged here, then the

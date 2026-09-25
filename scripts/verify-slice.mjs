@@ -7663,8 +7663,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · register — a landed reader charge re-reads the page's own detail (`onChanged`), which replaced a `router.refresh()` that updated nothing the page reads",
-    find: "          onChanged?.();\n",
-    replace: "",
+    find: "          onDone(isCounter ? { orderId: res.orderId, totalCents: res.totalCents } : null);\n          onChanged?.();\n",
+    replace:
+      "          onDone(isCounter ? { orderId: res.orderId, totalCents: res.totalCents } : null);\n",
   },
   {
     id: "p2c-register/tab-close-cas-deleted",
@@ -8503,8 +8504,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — a raced `unsent` refusal hands the jump up so the page says why and focuses the Send. Dropped, the cashier is left on a refused reader button",
-    find: '        if (res.code === "unsent") onBlockedTap?.(res.units);\n',
-    replace: "",
+    find: "          onChanged?.();\n          onBlockedTap?.(res.units);\n",
+    replace: "          onChanged?.();\n",
   },
   {
     id: "secure-close/unsent-tap-opens-the-confirm",
@@ -9336,6 +9337,39 @@ const MUTANTS = [
     why: "Phase 2c · Codex round 1 (P2) — the save reads the LATEST name. From the render that built the callback, it saves the call-out as it was when Take payment was tapped",
     find: "    const value = nameRef.current.trim();\n",
     replace: "    const value = name.trim();\n",
+  },
+  // ── Phase 2c · Codex round 2 ──
+  {
+    id: "cashsettle/codex2-tip-base-live-under-the-sheet",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · Codex round 2 (P2) — the percentage chips read the tip base frozen with the quote. Live, a discount landing mid-count moves '20% · $8.00' while every other figure holds",
+    find: "  const shownTipBase = confirming ? tipBaseAtOpen : tipBaseCents;\n",
+    replace: "  const shownTipBase = tipBaseCents;\n",
+  },
+  {
+    id: "terminal-ui/codex2-raced-unsent-no-reread",
+    file: "apps/qr/components/staff/TerminalSettle.tsx",
+    suite: "components/staff/TerminalSettle.test.tsx",
+    why: "Phase 2c · Codex round 2 (P2) — a raced unsent refusal re-reads the page. Without it the Send it points at may not exist until the next poll",
+    find: "          onChanged?.();\n          onBlockedTap?.(res.units);\n",
+    replace: "          onBlockedTap?.(res.units);\n",
+  },
+  {
+    id: "orderpad/codex2-ticket-writable-while-leaving",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Phase 2c · Codex round 2 (P2) — the ticket's writes close while Take payment leaves. Open, a quantity change starts under a page that is leaving, its answer said to nobody",
+    find: '  const canWrite = open && !paying && settlePhase === "idle";\n',
+    replace: "  const canWrite = open && !paying;\n",
+  },
+  {
+    id: "schemas/codex2-quote-capped-below-a-real-total",
+    file: "packages/db/src/schemas.ts",
+    suite: "lib/settle-cash-cas.test.ts",
+    why: "Phase 2c · Codex round 2 (P2) — a compare-only quote must admit every total an order can reach. Capped at $100,000, every settle of a large legitimate order is refused as an invalid request",
+    find: "max(Number.MAX_SAFE_INTEGER).optional(),",
+    replace: "max(10_000_000).optional(),",
   },
 ];
 

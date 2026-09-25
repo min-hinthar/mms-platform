@@ -630,7 +630,10 @@ export const settleCashInput = z.object({
    * Terminal's `settleCard` parses it too and IGNORES it — its button never sends one: the reader
    * shows the server's own figure to the guest, who approves that amount on the device.
    */
-  quotedCents: z.number().int().min(0).max(10_000_000).optional(),
+  // Codex round 2 (P2): no ceiling of its own below what an order can total (a $5,000 dish × 99 is
+  // already past $100,000) — a compare-only field bounded tighter than the figure it is compared
+  // with refused every settle of a legitimately large order as an invalid request.
+  quotedCents: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
 });
 
 /** Terminal poll/cancel (W6c) — the register UI tracks / cancels a reader collect it started. The

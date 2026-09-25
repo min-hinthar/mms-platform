@@ -210,7 +210,11 @@ export function OrderPad({
   const counts = pendingCounts(writes.pending);
   const open = detail.cartId != null && !detail.settled;
   const paying = detail.paymentInFlight;
-  const canWrite = open && !paying;
+  const [settlePhase, setSettlePhase] = useState<PadSettlePhase>("idle");
+  // Codex round 2 (P2) — the ticket's own writes are closed while Take payment is on its way out
+  // (draining, saving the name, opening payment): a quantity change or removal started then would
+  // be left pending under a page that is leaving, its refusal or reconciliation said to nobody.
+  const canWrite = open && !paying && settlePhase === "idle";
   const blocker = pendingBlocker(writes.pending);
   // A dish on the ticket, named as the console renders it (a hold names a LINE by its id).
   const lineDish = (lineId: string, fallback: string) => {
@@ -632,7 +636,6 @@ export function OrderPad({
   }, [sessionId, notify]);
 
   // ── Take payment ───────────────────────────────────────────────────────────────────────────────
-  const [settlePhase, setSettlePhase] = useState<PadSettlePhase>("idle");
   const settleInFlight = useRef(false);
   // One tap past a failed name save goes on without it (a rushed counter is never blocked on a name).
   const skipName = useRef(false);

@@ -272,6 +272,26 @@ describe("TerminalSettleButton — the settle gate (refused while dishes are uns
     // The page's ONE region says it; this line is shown, never a second announcement.
     expect(screen.queryByRole("alert")).toBeNull();
   });
+  it("a raced `unsent` refusal re-reads the page's detail so the Send it points at exists (Codex round 2, P2)", async () => {
+    settleCard.mockResolvedValueOnce({ ok: false, code: "unsent", units: 1, error: "x" });
+    const onChanged = vi.fn();
+    render(
+      <StaffLangProvider lang="en">
+        <TerminalSettleButton
+          sessionId="s1"
+          totalCents={4210}
+          onStarted={vi.fn()}
+          onBlockedTap={vi.fn()}
+          onChanged={onChanged}
+        />
+      </StaffLangProvider>,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getAllByRole("button")[0]!);
+    });
+    // MUTATION: no re-read — the page keeps its stale detail (no Send, no new line) until the poll; red.
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
   // ── the critic's findings (Phase 2c · gate, round 2) ──
   const raced = { ok: false, code: "unsent", units: 2, error: "Some dishes haven’t gone." };
   const said = (running: boolean) =>

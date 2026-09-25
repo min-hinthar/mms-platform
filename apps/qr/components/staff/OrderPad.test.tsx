@@ -746,11 +746,17 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
     await act(async () => {
       fireEvent.click(mohinga());
     });
+    // The note editor was opened (still clean) before the tap; staff type in it while the button
+    // waits. (Opening a NEW editor during the wait is closed — Codex round 2: the ticket's writes
+    // shut while Take payment leaves.)
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note — Mohinga" }));
+    });
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
     await act(async () => {
       fireEvent.click(settleBtn());
     });
-    // The note editor is ON the ticket; staff type while the button waits.
-    const field = await openNote();
+    fireEvent.change(field, { target: { value: "no peanuts" } });
     await act(async () => {
       add.resolve({ ok: true });
     });
@@ -833,6 +839,27 @@ describe("Take payment says what it is actually doing while busy", () => {
     // was clean then) and the page leaves with "Aye" thrown away; red.
     expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
     expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+  });
+
+  it("the ticket's own writes are closed while Take payment is on its way out (Codex round 2, P2)", async () => {
+    addItem.mockReturnValueOnce(new Promise(() => {}));
+    mount(counterPayable(), { counter: true });
+    const more = () =>
+      screen.getByRole("button", {
+        name: STAFF["table.line.a11y.more"].en.replace("{x}", "Mohinga"),
+      });
+    expect(more().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    // MUTATION: leave the ticket writable during the drain — a quantity change starts under a page
+    // that is about to leave, its answer said to nobody; red.
+    expect(more().getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(more());
+    expect(setQty).not.toHaveBeenCalled();
   });
 
   it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
