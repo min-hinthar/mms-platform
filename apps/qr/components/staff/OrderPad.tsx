@@ -911,4 +911,3 @@ function itemName(i: PadCatalogItem) {
   return { name: i.nameEn, nameMy: i.nameMy };
 }
 
-export type { PadCatalogItem };

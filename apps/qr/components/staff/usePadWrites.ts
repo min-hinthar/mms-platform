@@ -39,7 +39,7 @@ import {
 
 /** How long an add may go unanswered before its ghost reads "Checking…". A hang detector, not a
  *  latency budget — the same 15s as `raceTimeout` (lib/staff-outage.ts), measured there. */
-export const ADD_UNCONFIRMED_MS = 15_000;
+const ADD_UNCONFIRMED_MS = 15_000;
 
 export type PadAddRequest = {
   itemId: string;

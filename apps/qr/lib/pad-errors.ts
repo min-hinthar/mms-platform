@@ -146,4 +146,3 @@ export function padSentenceNotice(text: string): PadNotice {
   };
 }
 
-export const PAD_ADD_ERR = ADD_ERR;

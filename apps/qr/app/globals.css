@@ -13234,6 +13234,10 @@ a.aisle-tile {
 .pad-shell[data-view="order"] .pad-dock-settle {
   display: block;
 }
+/* A counter order has no Send: Take payment IS the primary slot, and there is no settle row. */
+.pad-shell[data-counter][data-view] .pad-dock {
+  grid-template-areas: "view primary";
+}
 
 /* The phone tier: one pane at a time, and the dock's hints are spoken, not drawn (the bar is one
    64px row; a hint below it would sit off the screen). */
@@ -13309,6 +13313,9 @@ a.aisle-tile {
       "primary"
       "settle";
   }
+  .pad-shell[data-counter][data-view] .pad-dock {
+    grid-template-areas: "primary";
+  }
   .pad-view {
     display: none;
   }
@@ -13328,6 +13335,10 @@ a.aisle-tile {
   .pad-shell[data-view] .pad-dock {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas: "settle primary";
+  }
+  .pad-shell[data-counter][data-view] .pad-dock {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "primary";
   }
 }
 /* The desktop register: a wider ticket, the search FIELD always shown beside the rail, a bounded shell. */
