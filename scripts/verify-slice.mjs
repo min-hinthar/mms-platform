@@ -8421,8 +8421,9 @@ const MUTANTS = [
     file: "apps/qr/lib/order-pad.ts",
     suite: "lib/order-pad.test.ts",
     why: "Phase 2c · gate — while a write is still landing the unsent count is stale, and the fix is the write (Try again, or wait). Ranked above waiting, a lost add reads 'send them first' and a Send taps into the same held add",
-    find: "      : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0\n        ? \"waiting\"",
-    replace: "      : !staffSettleBlockedByUnsent(i.mode, i.unsentUnits) &&\n          (i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0)\n        ? \"waiting\"",
+    find: '      : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0\n        ? "waiting"',
+    replace:
+      '      : !staffSettleBlockedByUnsent(i.mode, i.unsentUnits) &&\n          (i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0)\n        ? "waiting"',
   },
   {
     id: "pad/unsent-reason-uncounted",
@@ -8445,7 +8446,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · gate — the dimmed attribute is the announcement: without it a screen-reader cashier hears a live 'Take cash' whose tap jumps somewhere else",
-    find: "        {...(gateBlocked ? { \"aria-disabled\": true } : {})}\n",
+    find: '        {...(gateBlocked ? { "aria-disabled": true } : {})}\n',
     replace: "",
   },
   {
@@ -8453,15 +8454,15 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · gate — the gate dims the trigger only while it holds. Always spread, every cash settle reads as refused",
-    find: "        {...(gateBlocked ? { \"aria-disabled\": true } : {})}\n",
-    replace: "        {...{ \"aria-disabled\": true }}\n",
+    find: '        {...(gateBlocked ? { "aria-disabled": true } : {})}\n',
+    replace: '        {...{ "aria-disabled": true }}\n',
   },
   {
     id: "cashsettle/unsent-said-in-english",
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · gate — a server `unsent` refusal is a typed code rendered through its dictionary key with the server's count. Rendered from `error`, a Burmese console is told why in English",
-    find: "          if (res.code === \"unsent\") {\n            // Phase 2c · gate — nothing recorded",
+    find: '          if (res.code === "unsent") {\n            // Phase 2c · gate — nothing recorded',
     replace: "          if (false) {\n            // Phase 2c · gate — nothing recorded",
   },
   {
@@ -8485,7 +8486,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — the dimmed attribute is the announcement; without it the reader button reads live over unsent dishes",
-    find: "        {...(blocked ? { \"aria-disabled\": true } : {})}\n",
+    find: '        {...(blocked ? { "aria-disabled": true } : {})}\n',
     replace: "",
   },
   {
@@ -8493,15 +8494,15 @@ const MUTANTS = [
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — the reader's `unsent` refusal renders the dictionary sentence with the count. Folded into the server arm, it is English on a Burmese console and a second alert beside the page's region",
-    find: "            : res.code === \"unsent\"\n              ? { kind: \"unsent\", units: res.units }\n              : { kind: \"server\", text: res.error },",
-    replace: "            : { kind: \"server\", text: res.error },",
+    find: '            : res.code === "unsent"\n              ? { kind: "unsent", units: res.units }\n              : { kind: "server", text: res.error },',
+    replace: '            : { kind: "server", text: res.error },',
   },
   {
     id: "terminal-ui/unsent-refusal-never-jumps",
     file: "apps/qr/components/staff/TerminalSettle.tsx",
     suite: "components/staff/TerminalSettle.test.tsx",
     why: "Phase 2c · gate — a raced `unsent` refusal hands the jump up so the page says why and focuses the Send. Dropped, the cashier is left on a refused reader button",
-    find: "        if (res.code === \"unsent\") onBlockedTap?.(res.units);\n",
+    find: '        if (res.code === "unsent") onBlockedTap?.(res.units);\n',
     replace: "",
   },
   {
@@ -8517,7 +8518,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · gate — the dimmed attribute is the announcement; without it the card-on-file close reads live over unsent dishes",
-    find: "          {...(blocked ? { \"aria-disabled\": true } : {})}\n",
+    find: '          {...(blocked ? { "aria-disabled": true } : {})}\n',
     replace: "",
   },
   {
@@ -8525,7 +8526,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · gate — the close's `unsent` refusal renders the running bill's dictionary sentence. From `error`, it is English on a Burmese console and never offers removing the dishes",
-    find: "      if (res.code === \"unsent\") {\n        // Phase 2c · gate — nothing charged",
+    find: '      if (res.code === "unsent") {\n        // Phase 2c · gate — nothing charged',
     replace: "      if (false) {\n        // Phase 2c · gate — nothing charged",
   },
   {
@@ -8549,16 +8550,17 @@ const MUTANTS = [
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2c · gate — the page computes the gate ONCE and hands it to every trigger. Not passed to cash, the primary settle opens its sheet over unsent dishes",
-    find: "              blocked={settleBlocked}\n              blockedNoteId={SETTLE_UNSENT_NOTE_ID}\n              onBlockedTap={(units) => onSettleBlocked(\"cash\", units)}",
-    replace: "              blocked={false}\n              blockedNoteId={SETTLE_UNSENT_NOTE_ID}\n              onBlockedTap={(units) => onSettleBlocked(\"cash\", units)}",
+    find: '              blocked={settleBlocked}\n              blockedNoteId={SETTLE_UNSENT_NOTE_ID}\n              onBlockedTap={(units) => onSettleBlocked("cash", units)}',
+    replace:
+      '              blocked={false}\n              blockedNoteId={SETTLE_UNSENT_NOTE_ID}\n              onBlockedTap={(units) => onSettleBlocked("cash", units)}',
   },
   {
     id: "floor-detail/unsent-tab-close-jumps-to-send",
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
     why: "Phase 2c · gate — the running-bill close's refusal goes to the LINES (remove them if the guest has left) in the running bill's words. Routed as cash, it jumps to the Send and tells staff to cook for a table that may be empty",
-    find: "onSettleBlocked(\"tab\", units)",
-    replace: "onSettleBlocked(\"cash\", units)",
+    find: 'onSettleBlocked("tab", units)',
+    replace: 'onSettleBlocked("cash", units)',
   },
   {
     id: "floor-detail/unsent-line-never-shown",
@@ -8613,8 +8615,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/OrderPad.tsx",
     suite: "components/staff/OrderPad.test.tsx",
     why: "Phase 2c · gate — on a phone the unsent dishes are listed in the order view, right above the bar's Send. Left on the menu view, the Send is focused with nothing on screen saying which dishes it will fire",
-    find: "      if (now.block === \"unsent\") {\n        flushSync(() => setView(\"order\"));\n",
-    replace: "      if (now.block === \"unsent\") {\n",
+    find: '      if (now.block === "unsent") {\n        flushSync(() => setView("order"));\n',
+    replace: '      if (now.block === "unsent") {\n',
   },
   {
     id: "checkout/unsent-counter-door-open",
