@@ -284,8 +284,8 @@ describe("padSettle — Take payment", () => {
     expect(padSettle(settleIn({ settleTotalCents: null })).showAmount).toBe(false);
   });
 
-  it("a tap is ACCEPTED while an add is flying — the pad drains it first", () => {
-    const s = padSettle(settleIn({ pending: { ...NONE, flying: 1 } }));
+  it("a tap is ACCEPTED while an add is flying on a counter order — the pad drains it first", () => {
+    const s = padSettle(settleIn({ mode: "pickup", pending: { ...NONE, flying: 1 } }));
     // MUTATION: refusing the tap while anything flies — a cashier must wait out every round trip
     // before paying; red.
     expect(s.enabled).toBe(true);
@@ -294,7 +294,22 @@ describe("padSettle — Take payment", () => {
   });
 
   it("the first add ever still flying counts as something to pay for", () => {
-    expect(padSettle(settleIn({ itemCount: 0, pending: { ...NONE, flying: 1 } })).block).toBeNull();
+    expect(
+      padSettle(settleIn({ mode: "pickup", itemCount: 0, pending: { ...NONE, flying: 1 } })).block,
+    ).toBeNull();
+  });
+
+  it("at a dine-in table an add still on its way IS an unsent dish (Codex round 1, P2)", () => {
+    // The server count cannot see it yet; a staff add takes the session's fulfilment, so it lands
+    // as a dine-in draft. MUTATION: count only the server's units — the tap drains and leaves for a
+    // payment section the gate then refuses on; red.
+    expect(padSettle(settleIn({ unsentUnits: 0, pending: { ...NONE, flying: 1 } })).block).toBe(
+      "unsent",
+    );
+    expect(padSettle(settleIn({ unsentUnits: 0, pending: { ...NONE, unseen: 1 } })).block).toBe(
+      "unsent",
+    );
+    expect(padSettle(settleIn({ unsentUnits: 0 })).block).toBeNull();
   });
 
   it("an add whose fate is unknown holds it — 'waiting'", () => {

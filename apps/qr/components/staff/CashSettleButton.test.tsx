@@ -687,6 +687,32 @@ describe("CashSettleButton — the quote is FROZEN when the sheet opens (critic 
   });
 });
 
+describe("CashSettleButton — a tip intent arriving under an open sheet is frozen with the quote (Codex round 1, P1)", () => {
+  it("the field, the due and the settle keep what the cashier read; the new intent is taken on the next open", async () => {
+    settleCash.mockReturnValueOnce(hang());
+    const { open, cancel, settle, field, rerender } = mount({ intendedTipCents: null });
+    open();
+    expect(field("cash-tip").value).toBe("");
+    // The kiosk guest answers the tip prompt while the cashier is counting change.
+    // MUTATION: apply the intent while the sheet is open — the field fills with 5.00, the due
+    // becomes $47.10 and the tap records a tip the cashier never read; red.
+    rerender({ intendedTipCents: 500 });
+    expect(field("cash-tip").value).toBe("");
+    expect(settle().textContent).toBe(take("$42.10"));
+    expect(document.getElementById("cash-tip-kiosk")).toBeNull();
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    open();
+    expect(field("cash-tip").value).toBe("5.00");
+    expect(settle().textContent).toBe(take("$47.10"));
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500, quotedCents: 4210 });
+  });
+});
+
 describe("CashSettleButton — a refusal mid-payment is said in the device language (P2w, critic finding)", () => {
   it("the typed `inflight` refusal renders its holder's key in Burmese — never the server's English", async () => {
     const english = "A payment started at the register on this table hasn’t finished.";

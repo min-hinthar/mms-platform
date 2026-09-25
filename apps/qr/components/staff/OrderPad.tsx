@@ -596,10 +596,19 @@ export function OrderPad({
   const [savedName, setSavedName] = useState((initialName ?? "").trim());
   const [savingName, setSavingName] = useState(false);
   const nameDirty = name.trim() !== savedName;
+  // Codex round 1 (P2) — the LATEST name, for Take payment's decision after its drain: the field
+  // stays editable while it waits, and a render-time `name` captured at the tap would save the old
+  // call-out (or skip a new one) and leave with the visible name thrown away.
+  const nameRef = useRef(name);
+  const savedNameRef = useRef(savedName);
+  useEffect(() => {
+    nameRef.current = name;
+    savedNameRef.current = savedName;
+  }, [name, savedName]);
   // ── Phase 2c · review fixes · pad2 ── Save is never a live-looking no-op (P11).
   const nameSave = padNameSave(name, savedName);
   const saveName = useCallback(async (): Promise<boolean> => {
-    const value = name.trim();
+    const value = nameRef.current.trim();
     setSavingName(true);
     try {
       const r = await setCartCustomerName({ sessionId, name: value });
@@ -620,7 +629,7 @@ export function OrderPad({
     } finally {
       setSavingName(false);
     }
-  }, [name, sessionId, notify]);
+  }, [sessionId, notify]);
 
   // ── Take payment ───────────────────────────────────────────────────────────────────────────────
   const [settlePhase, setSettlePhase] = useState<PadSettlePhase>("idle");
@@ -651,7 +660,8 @@ export function OrderPad({
     tab,
     note: note ? lineDish(note.lineId, note.name) : null,
     blocker: b ? { name: dishName(b), state: b.state === "lost" ? "lost" : "unconfirmed" } : null,
-    unsent: detail.send.sendable,
+    // The count `padSettle` refused on: the server's drafts AND the adds still on their way.
+    unsent: detail.send.sendable + writes.counts().flying + writes.counts().unseen,
   });
   // The field a note hold points at — in the order view, which a phone shows only after the flip.
   const focusNote = (lineId: string) => {
@@ -707,7 +717,10 @@ export function OrderPad({
       stopSettle();
       return;
     }
-    if (nameToSave) {
+    // Read AFTER the drain, from the field as it is now (a name typed while it waited is saved).
+    const nameNow =
+      counterOrder && nameRef.current.trim() !== savedNameRef.current && !skipName.current;
+    if (nameNow) {
       toPhase("saving");
       if (!(await saveName())) {
         skipName.current = true;

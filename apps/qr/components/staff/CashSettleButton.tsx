@@ -197,9 +197,16 @@ export function CashSettleButton({
   // useState initializer never re-runs). Sync the first non-null intent into the field UNLESS the
   // cashier already typed — their hands beat the wire, and a sync must never overwrite a human.
   const tipTouched = useRef(false);
+  // Phase 2c · Codex round 1 (P1) — the intent is FROZEN with the quote while the sheet is open: a
+  // tip arriving by realtime after the cashier read "Take $X · Change $Y" would otherwise re-quote
+  // the due, the quick cash and the change under their hands, and the tap would record a tip they
+  // never saw. It is picked up when the sheet closes (the next open quotes it).
+  const [intentShown, setIntentShown] = useState(intendedTipCents);
   useEffect(() => {
+    if (confirming) return;
+    setIntentShown(intendedTipCents);
     if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));
-  }, [intendedTipCents]);
+  }, [intendedTipCents, confirming]);
   // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal
   // comma, "1,234.56" is US grouping. Phase 2a moved that rule to `lib/money-input`, and moved it
   // OUT OF THE KEYSTROKE: judged per key, "5," had no digits after the comma yet, so the comma was
@@ -523,23 +530,19 @@ export function CashSettleButton({
                   setTip(sanitizeMoneyInput(e.target.value));
                 }}
                 aria-describedby={
-                  !tipValid
-                    ? "cash-tip-cap"
-                    : intendedTipCents != null
-                      ? "cash-tip-kiosk"
-                      : undefined
+                  !tipValid ? "cash-tip-cap" : intentShown != null ? "cash-tip-kiosk" : undefined
                 }
                 aria-invalid={!tipValid || undefined}
               />
               {/* Says WHERE the number came from. A pre-filled amount with no explanation reads as an
                 app-invented charge; naming the guest's choice makes it something to confirm. */}
-              {intendedTipCents != null && (
+              {intentShown != null && (
                 <p id="cash-tip-kiosk" style={note}>
-                  {intendedTipCents > 0 ? (
+                  {intentShown > 0 ? (
                     <Chrome
                       lang={lang}
                       k="settle.cash.kioskChose"
-                      vars={{ m: fmt(intendedTipCents) }}
+                      vars={{ m: fmt(intentShown) }}
                       echo="stack"
                     />
                   ) : (

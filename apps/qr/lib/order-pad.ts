@@ -262,7 +262,12 @@ export function padSettle(i: PadSettleInput): PadSettle {
       : i.pending.unconfirmed + i.pending.lost > 0 || i.sendBusy || i.lines.writing > 0
         ? "waiting"
         : // Phase 2c · gate — AFTER waiting: while a write is pending the count is stale.
-          staffSettleBlockedByUnsent(i.mode, i.unsentUnits)
+          // Codex round 1 (P2): an add still on its way (or landed but not yet read) is a DRAFT the
+          // server count cannot see yet — a staff add takes the session's fulfilment, so at a
+          // dine-in table it is an unsent dish. Counted here, a tap while it flies is refused on
+          // `unsent` (and jumps to the Send, which drains it) instead of draining into a page the
+          // gate then refuses on.
+          staffSettleBlockedByUnsent(i.mode, i.unsentUnits + inFlight)
           ? "unsent"
           : i.itemCount === 0 && inFlight === 0
             ? "empty"

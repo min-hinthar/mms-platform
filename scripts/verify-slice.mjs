@@ -8414,7 +8414,7 @@ const MUTANTS = [
     file: "apps/qr/lib/order-pad.ts",
     suite: "lib/order-pad.test.ts",
     why: "Phase 2c · gate — the pad's Take payment is a settle door too. Live over unsent dishes, it opens a payment section whose every button refuses — the pad is where the Send is",
-    find: "          staffSettleBlockedByUnsent(i.mode, i.unsentUnits)\n",
+    find: "          staffSettleBlockedByUnsent(i.mode, i.unsentUnits + inFlight)\n",
     replace: "          false\n",
   },
   {
@@ -9294,6 +9294,39 @@ const MUTANTS = [
     why: "Phase 2c · review (open question) — a refused tap clears a standing pay error (the region renders payError ?? status); kept, the tap's reason is hidden behind a stale failure",
     find: "  const sayRefusal = (text: string) => {\n    setPayError(null);\n",
     replace: "  const sayRefusal = (text: string) => {\n",
+  },
+  // ── Phase 2c · Codex round 1 ──
+  {
+    id: "pad/codex1-unsent-blind-to-flying-adds",
+    file: "apps/qr/lib/order-pad.ts",
+    suite: "lib/order-pad.test.ts",
+    why: "Phase 2c · Codex round 1 (P2) — an add still on its way at a dine-in table is an unsent draft the server count cannot see yet. Blind to it, Take payment drains the add and leaves for a payment section the gate then refuses on",
+    find: "          staffSettleBlockedByUnsent(i.mode, i.unsentUnits + inFlight)\n",
+    replace: "          staffSettleBlockedByUnsent(i.mode, i.unsentUnits)\n",
+  },
+  {
+    id: "cashsettle/codex1-intent-live-under-the-sheet",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · Codex round 1 (P1) — a kiosk tip intent arriving while the sheet is open is frozen with the quote. Applied live, the due, the quick cash and the change move under a cashier already counting, and the tap records a tip they never read",
+    find: "    if (confirming) return;\n    setIntentShown(intendedTipCents);\n",
+    replace: "    setIntentShown(intendedTipCents);\n",
+  },
+  {
+    id: "orderpad/codex1-name-decided-at-the-tap",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Phase 2c · Codex round 1 (P2) — the counter name is decided AFTER Take payment's drain, from the field as it is. Decided at the tap, a call-out typed while it waited is skipped and the page leaves with it thrown away",
+    find: "      counterOrder && nameRef.current.trim() !== savedNameRef.current && !skipName.current;\n",
+    replace: "      nameToSave;\n",
+  },
+  {
+    id: "orderpad/codex1-name-saved-from-a-stale-render",
+    file: "apps/qr/components/staff/OrderPad.tsx",
+    suite: "components/staff/OrderPad.test.tsx",
+    why: "Phase 2c · Codex round 1 (P2) — the save reads the LATEST name. From the render that built the callback, it saves the call-out as it was when Take payment was tapped",
+    find: "    const value = nameRef.current.trim();\n",
+    replace: "    const value = name.trim();\n",
   },
 ];
 

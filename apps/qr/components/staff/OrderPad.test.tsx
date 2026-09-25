@@ -180,6 +180,22 @@ const payable = () => {
   return d;
 };
 
+/** A counter (pickup) order with one dish — no settle gate, so Take payment drains a flying add and
+ *  goes (a dine-in table refuses on `unsent` instead: Codex round 1, P2). */
+const counterPayable = () => {
+  const d = detail({
+    label: "reg-ab12",
+    mode: "pickup",
+    lines: [line({ id: "l1", fulfillment: "togo", sendable: false })],
+    itemCount: 1,
+    runningSubtotalCents: 1450,
+    settleTotalCents: 1581,
+    send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: true },
+  });
+  getTableDetail.mockResolvedValue({ kind: "detail", detail: d });
+  return d;
+};
+
 function deferred<T>() {
   let resolve!: (v: T) => void;
   const promise = new Promise<T>((r) => {
@@ -488,10 +504,10 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     expect(region().textContent).toBe(STAFF["table.send.hold.add"].en.replace("{x}", "Mohinga"));
   });
 
-  it("Take payment is accepted while an add flies, drains it, then goes to the table's payment section", async () => {
+  it("on a counter order Take payment is accepted while an add flies, drains it, then goes to payment", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
-    mount(payable());
+    mount(counterPayable(), { counter: true });
     await act(async () => {
       fireEvent.click(mohinga());
     });
@@ -510,6 +526,23 @@ describe("the drains — the Send and Take payment wait for the dish tapped a be
     });
     await flush();
     expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+  });
+
+  it("at a dine-in table Take payment while an add flies is refused on unsent and jumps to the Send (Codex round 1, P2)", async () => {
+    addItem.mockReturnValueOnce(new Promise(() => {}));
+    mount(payable());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    await flush();
+    // MUTATION: count only the server's drafts — the tap drains and navigates to a payment section
+    // the gate refuses on; red.
+    expect(push).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["table.send.settleBlocked.one"].en.replace("{n}", "1"));
+    expect(document.activeElement).toBe(sendBtn());
   });
 
   it("with nothing pending, Take payment names the server's total", () => {
@@ -709,7 +742,7 @@ describe("Take payment never drops a typed kitchen note (the allergy line)", () 
   it("a note typed WHILE Take payment waited on a dish is read again before it leaves", async () => {
     const add = deferred<StaffWriteResult>();
     addItem.mockReturnValueOnce(add.promise);
-    mount(payable());
+    mount(counterPayable(), { counter: true });
     await act(async () => {
       fireEvent.click(mohinga());
     });
@@ -777,9 +810,34 @@ describe("Take payment says what it is actually doing while busy", () => {
     expect(push).toHaveBeenCalledTimes(2);
   });
 
+  it("a counter name typed WHILE Take payment waited is the one saved (Codex round 1, P2)", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    setName.mockResolvedValueOnce({ ok: true });
+    mount(counterPayable(), { counter: true });
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    // The field is still editable while the button waits on the dish.
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "Aye" },
+    });
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    // MUTATION: decide the save from the name captured at the tap — the call-out is skipped (it
+    // was clean then) and the page leaves with "Aye" thrown away; red.
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "Aye" });
+    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+  });
+
   it("an add on its way: 'Waiting for the last dish…' while it drains", async () => {
     addItem.mockReturnValueOnce(new Promise(() => {}));
-    mount(payable());
+    mount(counterPayable(), { counter: true });
     await act(async () => {
       fireEvent.click(mohinga());
     });
