@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import { applyPromoForTable, clearPromoForTable, type StaffPromoReason } from "@/lib/staff-promo";
 import type { StaffKey } from "@/lib/i18n/staff";
 import type { StaffLang } from "@/lib/staff-lang";
+import { buttonClass } from "@mms/ui";
 import { Chrome } from "./Chrome";
 
 /**
@@ -258,8 +259,10 @@ export function StaffPromoControl({
             />
             <button
               type="submit"
-              className="staff-btn"
-              style={applyBtn}
+              // Phase 2c · register — a SECONDARY: the settle section right below owns the page's one
+              // filled action (§20), and this was a fourth accent fill above it. The dim and the
+              // press are `.ui-btn`'s; the refusal is still the attribute + the form's guard below.
+              className={buttonClass({ variant: "secondary", size: "sm" })}
               // `aria-disabled` does NOT stop a submit (the rule `Checkout.tsx` states at its own
               // Apply button) — the form's `onSubmit` guard below is what actually refuses one.
               aria-disabled={busy !== null || !code.trim() || undefined}
@@ -324,16 +327,6 @@ const input: CSSProperties = {
   color: "var(--tx)",
   fontSize: "var(--fs-body)",
   textTransform: "uppercase",
-};
-const applyBtn: CSSProperties = {
-  minHeight: 44,
-  padding: "0 var(--s5)",
-  borderRadius: "var(--r-sm)",
-  border: "1px solid var(--ac)",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontWeight: "var(--fw-bold)",
-  cursor: "pointer",
 };
 const removeBtn: CSSProperties = {
   marginTop: "var(--s3)",

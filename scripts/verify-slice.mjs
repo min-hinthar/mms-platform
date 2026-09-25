@@ -7180,9 +7180,9 @@ const MUTANTS = [
     id: "p2a-register/cash-tip-overlong-reads-as-zero",
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
-    why: "Phase 2a · register (blind review) — a null read WITH a digit in it is more than seven whole-dollar digits, past any cap. Treated like digit-free text it is a valid ZERO tip: the settle goes through and the cashier's typed tip is silently dropped",
-    find: "  const tipValid = tipParsed != null ? tipCents <= 100000 : !/\\d/.test(tip);\n",
-    replace: "  const tipValid = tipParsed != null ? tipCents <= 100000 : true;\n",
+    why: "Phase 2a · register (blind review) — a null read WITH a digit in it is more than seven whole-dollar digits, past any cap. Treated like digit-free text it is a valid ZERO tip: the settle goes through and the cashier's typed tip is silently dropped. (Re-anchored in Phase 2c: the cap moved into `cashSettleBlocked`, which reads an overlong tip as over the cap — the meaning is the same flag.)",
+    find: "  const tipOverlong = tipParsed == null && /\\d/.test(tip);\n",
+    replace: "  const tipOverlong = false;\n",
   },
   {
     id: "p2a-register/cash-tip-field-drops-commas-per-keystroke",

@@ -12726,3 +12726,160 @@ a.aisle-tile {
 .staff-col.staff-col-dock {
   padding-bottom: calc(var(--tap-bump) + var(--s8) + env(safe-area-inset-bottom, 0px));
 }
+
+/* ── Phase 2c · register ── the cash moment and the paid card (DESIGN-LANGUAGE §29) ──────────────
+   Tokens only; NO new animation (the paid card rides `.mms-rise`, the chip-filled change figure
+   `.mms-pop` — both already in their reduced-motion blocks), so no new RM block is owed. */
+
+/* The settle section: ONE primary first, every trigger an xl block Button, one gap between them. */
+.staff-settle {
+  display: grid;
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+
+/* Quick cash: Exact + three round-ups in ONE row of equal columns (≈81px each at 390, ≈94px on a
+   tablet) — the taps a cashier makes, at the counter's tap height. */
+.reg-tender-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--s2);
+}
+/* A cash chip is a `.staff-chip` (its rest + the ONE lit cap through the shared pressed rule) at the
+   counter's tap height. It declares NO fill of its own — the pressed selector list stays the one
+   place a chip's selection is painted (KdsBoard.test's one-fill guard). A tile, not a pill: a 64px
+   pill at a quarter of the sheet reads as an oval. */
+.staff-chip-cash {
+  flex-direction: column;
+  gap: 0;
+  min-height: var(--tap-bump);
+  padding: 0 var(--s1);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-snug);
+}
+.staff-chip-cash .staff-chip-amount {
+  font-size: var(--fs-sm);
+}
+
+/* The tender's readout — a receipt row (dotted leader) whose height is RESERVED, so nothing below it
+   jumps as it fills. A description of Settle, never a live region. */
+.reg-change {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: calc(var(--fs-h2) * 1.4);
+}
+.reg-change-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin: 0;
+}
+.reg-change-row dt {
+  color: var(--t2);
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+.reg-change-row dd {
+  margin: 0;
+  color: var(--tx);
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-heavy);
+  font-variant-numeric: tabular-nums;
+}
+/* Short: the WORD and the figure in warn, bold — never a shake (a shake invites a re-tap). */
+.reg-change-short dt,
+.reg-change-short dd {
+  color: var(--warn);
+  font-weight: var(--fw-bold);
+}
+.reg-change-exact {
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-body);
+}
+
+/* The paid card: a focused region (never a status region) whose name carries its facts. Stacked on a
+   phone; from 40em a counter card sets the rows beside the #CODE and its call-out, with the way back
+   spanning below. */
+.staff-handoff {
+  display: grid;
+  gap: var(--s4);
+  margin-top: var(--s4);
+  padding: var(--s5);
+  outline: none;
+}
+.staff-handoff-rows {
+  display: grid;
+  gap: var(--s3);
+  min-width: 0;
+}
+.staff-handoff-title {
+  margin: 0;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-snug);
+}
+.staff-handoff-check {
+  color: var(--ok);
+}
+.staff-handoff-dl {
+  display: grid;
+  gap: var(--s1);
+  margin: 0;
+}
+.staff-handoff-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: var(--fs-body);
+}
+.staff-handoff-row dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.staff-handoff-row-change dt {
+  font-weight: var(--fw-bold);
+}
+.staff-handoff-row-change dd {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+}
+.staff-handoff-row-collect dt,
+.staff-handoff-row-collect dd {
+  color: var(--warn);
+  font-weight: var(--fw-bold);
+}
+.staff-handoff-call {
+  display: grid;
+  gap: var(--s1);
+  align-content: center;
+  text-align: center;
+}
+.staff-handoff-code {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-heavy);
+  letter-spacing: var(--track-caps);
+}
+.staff-handoff-callout {
+  margin: 0;
+  color: var(--t2);
+  font-size: var(--fs-sm);
+}
+@media (min-width: 40em) {
+  .staff-handoff-counter {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+  }
+  .staff-handoff-counter .staff-handoff-done {
+    grid-column: 1 / -1;
+  }
+}

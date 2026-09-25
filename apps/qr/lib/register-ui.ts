@@ -30,3 +30,25 @@ export function handoffStillCurrent(
 ): boolean {
   return h.isCounter || liveCartId == null || liveCartId === h.cartId;
 }
+
+/**
+ * The paid card's data — the CANONICAL shape (plan: register × tablet-split). Set by
+ * `FloorDetailLive` from the cash settle's persisted figures (`CashSettleButton.onSettled`) or a
+ * counter reader settle (`TerminalCollectPanel.onDone`), and — in 2d — serialized by the pane's
+ * sessionStorage stash (whose parser validates every field below). Display-only: nothing here is
+ * ever sent back as an amount.
+ */
+export type Handoff = {
+  orderId: string;
+  /** The PERSISTED all-in total (tip included). */
+  totalCents: number;
+  /** The persisted tip; null when the settle path records none (the reader). */
+  tipCents: number | null;
+  /** What the cashier said was handed over; null when no tender was entered. */
+  tenderedCents: number | null;
+  /** A counter order: #CODE, the call-out and "Back to the counter"; it also holds the closed-table
+   *  bounce while it stands (a counter session closes behind its settle). */
+  isCounter: boolean;
+  /** The cart that paid — `handoffStillCurrent` hides a table's card once a different one opens. */
+  cartId: string | null;
+};

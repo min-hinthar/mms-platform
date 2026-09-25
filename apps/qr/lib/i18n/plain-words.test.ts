@@ -35,6 +35,10 @@ const BANNED: readonly RegExp[] = [
   /\bexpo\b/i,
   /\bthe pass\b/i,
   /\bauthori[sz]/i,
+  // ── Phase 2c · register ── "Take payment" (never settle) and "Running bill" (never tab) in
+  // visible copy; code identifiers and dictionary KEYS keep their names (keys are not values).
+  /\bsettl(e|ed|es|ing|ement)\b/i,
+  /\btabs?\b/i,
 ];
 
 /** key → why its English legitimately matches a banned pattern. Empty is the goal, not a rule. */
@@ -156,6 +160,9 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "at the pass",
         "authorized",
         "Authorise",
+        "settle again",
+        "Settled",
+        "Close tab",
       ];
       for (const h of hits)
         expect(
@@ -175,6 +182,10 @@ describe("plain words — no kitchen slang or payments jargon in any English a p
         "author",
         "1860",
         "Table 186",
+        "table",
+        "Tablet",
+        "Take payment",
+        "stable",
       ];
       for (const m of misses)
         expect(

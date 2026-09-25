@@ -26,10 +26,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const onChanged = vi.fn();
 function mount() {
   render(
     <StaffLangProvider lang="en">
-      <CloseSecureTabButton sessionId="s1" totalCents={4210} />
+      <CloseSecureTabButton sessionId="s1" totalCents={4210} onChanged={onChanged} />
     </StaffLangProvider>,
   );
   const trigger = () =>
@@ -61,6 +62,7 @@ describe("CloseSecureTabButton — a rejected close never latches", () => {
     expect(alert.textContent).toBe(STAFF["settle.card.unknown"].en);
     expect(alert.textContent).not.toContain(STAFF_WRITE_OUTAGE);
     expect(refresh).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
     expect(logged).toHaveBeenCalled();
   });
 
@@ -87,6 +89,38 @@ describe("CloseSecureTabButton — a rejected close never latches", () => {
     closeSecureTab.mockResolvedValueOnce({ ok: true });
     await charge();
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(refresh).toHaveBeenCalledTimes(1);
+    // Phase 2c — the landed close re-reads the PAGE's detail (`onChanged`); `router.refresh()`
+    // updated nothing FloorDetailLive reads. MUTATION: drop the call — red.
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+describe("CloseSecureTabButton — Buttons, never native `disabled` (Phase 2c · register, K35)", () => {
+  it("trigger, Cancel and Charge are @mms/ui Buttons; while charging, Charge is busy and Cancel refuses — no native disabled anywhere", async () => {
+    let resolve!: (v: { ok: true }) => void;
+    closeSecureTab.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    const { trigger } = mount();
+    expect(trigger().classList.contains("ui-btn-primary")).toBe(true);
+    fireEvent.click(trigger());
+    const charge = screen.getByRole("button", { name: /^Charge \$42\.10/ });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    expect(charge.classList.contains("ui-btn")).toBe(true);
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+    const busy = document.querySelector('[aria-busy="true"]')!;
+    expect(busy.textContent).toBe(STAFF["settle.card.charging"].en);
+    expect(cancel.getAttribute("aria-disabled")).toBe("true");
+    // The whole component, not one control: K35 is "no native disabled on a tapped control".
+    expect(document.querySelectorAll("[disabled]")).toHaveLength(0);
+    // A second tap while charging never asks twice.
+    await act(async () => {
+      fireEvent.click(busy);
+    });
+    expect(closeSecureTab).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      resolve({ ok: true });
+    });
   });
 });

@@ -11,12 +11,15 @@ import { STAFF_WRITE_OUTAGE } from "@/lib/staff-outage";
  * K29(b) — the cash confirm is the shared sheet. What the move had to keep, and what it changed
  * on purpose (see the component's docblock): the trigger's place, the tip wiring, a refusal read
  * INSIDE the sheet, §17 on Cancel/Settle, and a handoff that UNMOUNTS the sheet rather than
- * closing it (the parent's #CODE card must be focused on an un-hidden page).
+ * closing it (the parent's paid card must be focused on an un-hidden page).
+ *
+ * Phase 2c · register — the cash moment: quick cash, the optional tender and its readout, keep the
+ * change as a FILL, the compare-and-swap's `moved` refusal, and the parent's own refresh
+ * (`onChanged`) in place of a `router.refresh()` that updated nothing this control reads.
  */
 const settleCash = vi.fn();
 vi.mock("@/lib/staff-cart", () => ({ settleCash: (...a: unknown[]) => settleCash(...(a as [])) }));
-const refresh = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("@/lib/haptics", () => ({ haptic: () => {} }));
 
 /** Radix Presence compares `event.animationName` through `CSS.escape`; jsdom has no `CSS`. */
 if (typeof globalThis.CSS === "undefined" || typeof globalThis.CSS.escape !== "function")
@@ -57,32 +60,57 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+/**
+ * A settle that is still in flight when the case ends. NOT a bare `new Promise(() => {})`: React 19
+ * ENTANGLES every transition with any async action still pending — globally, across roots — so a
+ * never-settling action left behind by one case keeps every later case's `pending` true forever
+ * (the moved-total case read "Taking payment…" only when it ran after one). Each is settled in
+ * `afterEach`, after the tree is gone.
+ */
+const hanging: Array<() => void> = [];
+function hang() {
+  const d = deferred<{ ok: false; error: string }>();
+  hanging.push(() => d.resolve({ ok: false, error: "ended" }));
+  return d.promise;
+}
+
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { CashSettleButton } = await import("./CashSettleButton");
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  await act(async () => {
+    for (const end of hanging.splice(0)) end();
+  });
   vi.clearAllMocks();
   vi.restoreAllMocks();
+  // A `…Once` answer a case queued but never consumed must not leak into the next case.
+  settleCash.mockReset();
 });
 
 /** The confirm button leads with the amount ("Take $42.10"); the trigger ("Take cash · …") does not. */
 const SETTLE_AMOUNT = STAFF["settle.cash.settleAmount"].en.replace("{m}", "$");
 
 function mount(props: Partial<Parameters<typeof CashSettleButton>[0]> = {}) {
-  const onHandoff = vi.fn();
-  render(
+  const onSettled = vi.fn();
+  const onChanged = vi.fn();
+  const view = (p: Partial<Parameters<typeof CashSettleButton>[0]>) => (
     <StaffLangProvider lang="en">
       <CashSettleButton
         sessionId="s1"
         totalCents={4210}
         tipBaseCents={4000}
         handoff
-        onHandoff={onHandoff}
-        {...props}
+        onSettled={onSettled}
+        onChanged={onChanged}
+        {...p}
       />
-    </StaffLangProvider>,
+    </StaffLangProvider>
   );
+  const r = render(view(props));
+  /** Re-render with new props (the parent's detail read moving `totalCents`). */
+  const rerender = (p: Partial<Parameters<typeof CashSettleButton>[0]>) =>
+    r.rerender(view({ ...props, ...p }));
   const trigger = () =>
     screen.getByRole("button", { name: STAFF["settle.cash.trigger"].en.replace("{m}", "$42.10") });
   const open = () => {
@@ -96,8 +124,39 @@ function mount(props: Partial<Parameters<typeof CashSettleButton>[0]> = {}) {
   const cancel = () => screen.getByRole("button", { name: "Cancel" });
   /** The trigger AFTER a landed settle — the only busy word left once the sheet is gone. */
   const settling = () => screen.getByRole("button", { name: STAFF["settle.cash.settling"].en });
-  return { trigger, open, settle, cancel, settling, onHandoff };
+  const field = (id: "cash-tip" | "cash-tendered") =>
+    document.getElementById(id) as HTMLInputElement;
+  /** One change event per key — the path real hands take (a paste is one event). */
+  const type = (id: "cash-tip" | "cash-tendered", text: string) => {
+    fireEvent.change(field(id), { target: { value: "" } });
+    for (const ch of text) fireEvent.change(field(id), { target: { value: field(id).value + ch } });
+  };
+  const cashChips = () =>
+    within(screen.getByRole("group", { name: STAFF["settle.a11y.cashQuick"].en }))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+  const chip = (name: string | RegExp) =>
+    within(screen.getByRole("group", { name: STAFF["settle.a11y.cashQuick"].en })).getByRole(
+      "button",
+      { name },
+    );
+  return {
+    trigger,
+    open,
+    settle,
+    cancel,
+    settling,
+    onSettled,
+    onChanged,
+    field,
+    type,
+    cashChips,
+    chip,
+    rerender,
+  };
 }
+
+const take = (m: string) => STAFF["settle.cash.settleAmount"].en.replace("{m}", m);
 
 describe("CashSettleButton — the confirm is a sheet", () => {
   it("the trigger opens the named sheet; Cancel closes it and hands focus back to the trigger even though the tap never focused it", async () => {
@@ -141,10 +200,10 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(within(again).queryByRole("alert")).toBeNull();
   });
 
-  it("a settle that REJECTS (a lost connection) is a refusal read in the sheet — never a locked sheet", async () => {
+  it("a settle that REJECTS (a lost connection) says the outcome is UNKNOWN, re-reads the detail, and never locks the sheet (P2ab)", async () => {
     settleCash.mockRejectedValueOnce(new Error("fetch failed"));
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { open, settle } = mount();
+    const { open, settle, onChanged } = mount();
     const dialog = open();
     await act(async () => {
       fireEvent.click(settle());
@@ -152,7 +211,14 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     // MUTATION: drop the try/catch around `settleCash` — nothing sets the error, the lock is
     // whatever React does with an escaped action, and the alert below is absent; red.
     expect(screen.getByRole("dialog")).toBe(dialog);
-    expect(within(dialog).getByRole("alert").textContent).toContain(STAFF_WRITE_OUTAGE);
+    // P2ab — deliberately rewritten: the response can be lost AFTER the settle committed, so the
+    // write-outage twin ("that change wasn't saved") would be false. MUTATION: set the old outage
+    // sentence (or any server text) in the catch — red.
+    const alert = within(dialog).getByRole("alert").textContent;
+    expect(alert).toBe(STAFF["settle.cash.unknown"].en);
+    expect(alert).not.toContain(STAFF_WRITE_OUTAGE);
+    // …and the detail is re-read, so a settle that DID land renders this control away.
+    expect(onChanged).toHaveBeenCalledTimes(1);
     expect(settle().getAttribute("aria-busy")).toBeNull();
     expect(settle().getAttribute("aria-disabled")).toBeNull();
     expect(logged).toHaveBeenCalled();
@@ -160,15 +226,16 @@ describe("CashSettleButton — the confirm is a sheet", () => {
 
   it("while the settle runs: Settle is aria-disabled + aria-busy and refuses a second tap; the ✕ says so; a landed handoff UNMOUNTS the sheet and leaves focus for the parent's card", async () => {
     stubComputedStyle();
-    const d = deferred<{ ok: true; orderId: string; totalCents: number }>();
+    const d = deferred<{ ok: true; orderId: string; totalCents: number; tipCents: number }>();
     settleCash.mockReturnValueOnce(d.promise);
-    const { open, settle, settling, onHandoff } = mount();
+    const { open, settle, settling, onSettled, onChanged } = mount();
     open();
     await act(async () => {
       fireEvent.click(settle());
     });
     expect(settleCash).toHaveBeenCalledTimes(1);
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0 });
+    // The quote rides along — COMPARE-ONLY: the pre-tip total the cashier read, never a price.
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
     expect(settle().getAttribute("aria-busy")).toBe("true");
     expect(settle().getAttribute("aria-disabled")).toBe("true");
     expect(settle().textContent).toBe(STAFF["settle.cash.settling"].en);
@@ -183,13 +250,20 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     // MUTATION: drop `if (!canSettle) return` from `confirm()` — two settles, red.
     expect(settleCash).toHaveBeenCalledTimes(1);
     await act(async () => {
-      d.resolve({ ok: true, orderId: "o1", totalCents: 4210 });
+      d.resolve({ ok: true, orderId: "o1", totalCents: 4210, tipCents: 0 });
     });
     // MUTATION: `{!landed && …}` → always render the sheet — closed, not unmounted, it is HELD by
     // the stubbed exit animation (no `animationend` fired here), so the dialog is still there; red.
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(onHandoff).toHaveBeenCalledWith({ orderId: "o1", totalCents: 4210, changeCents: null });
-    expect(refresh).toHaveBeenCalledTimes(1);
+    // A counter order's card follows every settle — no tender entered, so none is claimed.
+    expect(onSettled).toHaveBeenCalledWith({
+      orderId: "o1",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: null,
+    });
+    // The parent's OWN refresh — the detail lives in its state, not in an RSC payload.
+    expect(onChanged).toHaveBeenCalledTimes(1);
     // §17 — the trigger stays, reads busy and refuses; the attribute is the pinned half (with the
     // sheet unmounted, the handler's early return has no observable effect of its own).
     // MUTATION: drop `aria-disabled={landed || undefined}` — a live-looking control after the
@@ -203,10 +277,10 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(document.activeElement).toBe(document.body);
   });
 
-  it("a table's settle (no handoff) lands the same way: the sheet UNMOUNTS, the trigger reads busy and takes focus", async () => {
+  it("a table's settle with NO tender lands the quiet way: the sheet UNMOUNTS, no card, the trigger reads busy and takes focus", async () => {
     stubComputedStyle();
-    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o1", totalCents: 4210 });
-    const { open, settle, settling, onHandoff } = mount({ handoff: false });
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o1", totalCents: 4210, tipCents: 0 });
+    const { open, settle, settling, onSettled, onChanged } = mount({ handoff: false });
     open();
     await act(async () => {
       fireEvent.click(settle());
@@ -215,8 +289,8 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     // re-armed Settle inside it, or held busy for a re-fetch this control does not own, is the
     // trap §16 names. MUTATION: skip `setLanded(true)` on the non-handoff path; red.
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(onHandoff).not.toHaveBeenCalled();
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(onSettled).not.toHaveBeenCalled();
+    expect(onChanged).toHaveBeenCalledTimes(1);
     expect(settling().getAttribute("aria-disabled")).toBe("true");
     await settleFocus();
     // Nothing else owns focus on this path: the busy trigger is the cashier's place.
@@ -224,26 +298,28 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     expect(document.activeElement).toBe(settling());
   });
 
-  it("a quick-tip chip fills the field and lights; the settle carries its cents, nothing else", async () => {
-    settleCash.mockReturnValueOnce(new Promise(() => {}));
-    const { open, settle } = mount();
+  it("a quick-tip chip fills the field and lights; the settle carries its cents and the QUOTE — a guard, never a price", async () => {
+    settleCash.mockReturnValueOnce(hang());
+    const { open, settle, cashChips } = mount();
     const dialog = open();
     const chip = within(dialog).getByRole("button", { name: /^20%/ });
     fireEvent.click(chip);
     expect((document.getElementById("cash-tip") as HTMLInputElement).value).toBe("8.00");
     expect(chip.getAttribute("aria-pressed")).toBe("true");
-    expect(settle().textContent).toBe(
-      STAFF["settle.cash.settleAmount"].en.replace("{m}", "$50.10"),
-    );
+    expect(settle().textContent).toBe(take("$50.10"));
+    // The quick-cash row re-derives from what is DUE (total + tip), not the pre-tip total.
+    expect(cashChips()).toEqual(["Exact$50.10", "$51", "$55", "$60"]);
     await act(async () => {
       fireEvent.click(settle());
     });
-    // MUTATION: `tipCents: 0` in the call — red. The amount itself never travels (server-derived).
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 800 });
+    // Deliberately rewritten (Phase 2c): the payload now carries `quotedCents`, the PRE-tip total the
+    // cashier read — compared by the server, never charged. MUTATION: `tipCents: 0` in the call — red;
+    // drop `quotedCents` — red (a stale quote would be recorded silently).
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 800, quotedCents: 4210 });
   });
 
   it("'5,00' typed KEY BY KEY into the tip records 500 cents — never 50000", async () => {
-    settleCash.mockReturnValueOnce(new Promise(() => {}));
+    settleCash.mockReturnValueOnce(hang());
     const { open, settle } = mount();
     const dialog = open();
     const field = document.getElementById("cash-tip") as HTMLInputElement;
@@ -268,7 +344,7 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     });
     // MUTATION: restore the per-keystroke comma drop in the field's onChange — the field builds
     // "500" and the settle carries 50000; red.
-    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500 });
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 500, quotedCents: 4210 });
   });
 
   it("a tip past seven whole-dollar digits is refused as over the cap, never read as zero", async () => {
@@ -294,6 +370,181 @@ describe("CashSettleButton — the confirm is a sheet", () => {
     });
     // MUTATION: drop `tipValid` from `canSettle` — the settle is sent, red.
     expect(settleCash).not.toHaveBeenCalled();
+  });
+});
+
+describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LANGUAGE §29)", () => {
+  it("quick cash reads Exact then three round-ups, computed from what is due", () => {
+    const { open, cashChips } = mount();
+    open();
+    // $42.10 → Exact · $43 · $45 · $50 (quickCashTenders, pinned by value in register-math.test).
+    expect(cashChips()).toEqual(["Exact$42.10", "$43", "$45", "$50"]);
+  });
+
+  it("a chip FILLS the tender and lights; typing the same amount lights it too (by value); the readout says the change", () => {
+    const { open, chip, field, type } = mount();
+    const dialog = open();
+    fireEvent.click(chip("$50"));
+    expect(field("cash-tendered").value).toBe("50.00");
+    expect(chip("$50").getAttribute("aria-pressed")).toBe("true");
+    const readout = document.getElementById("cash-readout")!;
+    expect(readout.textContent).toBe(`${STAFF["settle.cash.changeLabel"].en}$7.90`);
+    // A chip fill pops the figure once (kit idiom, RM-escorted); typing never does.
+    expect(readout.querySelector("dd")?.classList.contains("mms-pop")).toBe(true);
+    type("cash-tendered", "50");
+    expect(chip("$50").getAttribute("aria-pressed")).toBe("true");
+    expect(readout.querySelector("dd")?.classList.contains("mms-pop")).toBe(false);
+    // Exact lights while the field holds exactly what is due.
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Exact/ }));
+    expect(chip(/^Exact/).getAttribute("aria-pressed")).toBe("true");
+    expect(readout.textContent).toBe(STAFF["settle.cash.exactNone"].en);
+  });
+
+  it("a SHORT tender blocks Settle — aria-disabled, described by the short row and its hint — and the tap is refused", async () => {
+    const { open, settle, type } = mount();
+    open();
+    type("cash-tendered", "40");
+    expect(document.getElementById("cash-readout")!.textContent).toBe(
+      `${STAFF["settle.cash.shortLabel"].en}$2.10`,
+    );
+    // MUTATION: Settle's `disabled` ignores the one binding — a live Settle beside "Short $2.10"; red.
+    expect(settle().getAttribute("aria-disabled")).toBe("true");
+    expect(settle().getAttribute("aria-describedby")).toBe("cash-readout cash-short-hint");
+    expect(document.getElementById("cash-short-hint")!.textContent).toBe(
+      STAFF["settle.cash.shortHint"].en,
+    );
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).not.toHaveBeenCalled();
+  });
+
+  it("the tender is OPTIONAL: empty or a typed 0 leaves Settle live and says nothing", () => {
+    const { open, settle, type } = mount();
+    open();
+    expect(settle().getAttribute("aria-disabled")).toBeNull();
+    expect(document.getElementById("cash-readout")!.textContent).toBe("");
+    type("cash-tendered", "0");
+    expect(settle().getAttribute("aria-disabled")).toBeNull();
+    expect(document.getElementById("cash-readout")!.textContent).toBe("");
+    // Settle is described by the readout only once there is something to read.
+    expect(settle().getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("KEYSTROKE: '5,00' and '12,50' typed one key at a time are $5 and $12.50 in Settle's label", () => {
+    const { open, settle, type } = mount();
+    open();
+    type("cash-tip", "5,00");
+    expect(settle().textContent).toBe(take("$47.10"));
+    type("cash-tip", "12,50");
+    expect(settle().textContent).toBe(take("$54.60"));
+  });
+
+  it("keep the change is a FILL: the tip becomes the change, the readout says exact, focus goes to Settle — nothing is recorded", async () => {
+    const { open, settle, type, field } = mount();
+    const dialog = open();
+    type("cash-tendered", "50");
+    const keep = within(dialog).getByRole("button", {
+      name: STAFF["settle.cash.keepChange"].en.replace("{m}", "$7.90"),
+    });
+    // An action, not a state.
+    expect(keep.getAttribute("aria-pressed")).toBeNull();
+    await act(async () => {
+      fireEvent.click(keep);
+    });
+    expect(field("cash-tip").value).toBe("7.90");
+    expect(document.getElementById("cash-readout")!.textContent).toBe(
+      STAFF["settle.cash.exactNone"].en,
+    );
+    expect(settle().textContent).toBe(take("$50.00"));
+    // It unmounted under its own tap — the cashier's place is the next thing to do.
+    expect(within(dialog).queryByRole("button", { name: /^Keep the change/ })).toBeNull();
+    expect(document.activeElement).toBe(settle());
+    // A fill, never a commit.
+    expect(settleCash).not.toHaveBeenCalled();
+  });
+
+  it("a MOVED total: the alert names both figures, the sheet quotes the server's, the parent re-reads, and the re-tap quotes the new figure", async () => {
+    settleCash.mockResolvedValueOnce({
+      ok: false,
+      code: "moved",
+      totalCents: 4265,
+      error: "The total changed — check the order, then take payment again.",
+    });
+    const { open, settle, onChanged, cashChips, rerender } = mount();
+    const dialog = open();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      STAFF["settle.cash.moved"].en.replace("{old}", "$42.10").replace("{m}", "$42.65"),
+    );
+    expect(onChanged).toHaveBeenCalledTimes(1);
+    // MUTATION: never adopt the server's figure (`shownTotal = totalCents`) — Settle still reads the
+    // stale $42.10 and the re-tap is refused again, forever while the poll lags; red.
+    expect(settle().textContent).toBe(take("$42.65"));
+    expect(cashChips()[0]).toBe("Exact$42.65");
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenLastCalledWith({
+      sessionId: "s1",
+      tipCents: 0,
+      quotedCents: 4265,
+    });
+    // The parent's read moves the prop to a THIRD figure: the prop is the truth again (the held
+    // figure retires the moment the prop stops reading what it read at the refusal).
+    rerender({ totalCents: 4300 });
+    expect(settle().textContent).not.toBe(take("$42.65"));
+  });
+
+  it("Cancel and reopen: the tender (and a held figure) start clean; the tip is kept", async () => {
+    const { open, cancel, type, field } = mount();
+    open();
+    type("cash-tendered", "50");
+    type("cash-tip", "2");
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    open();
+    expect(field("cash-tendered").value).toBe("");
+    expect(field("cash-tip").value).toBe("2");
+  });
+
+  it("no money input is focused on open — the pad never rises over Settle", () => {
+    const { open, field } = mount();
+    open();
+    expect(document.activeElement).not.toBe(field("cash-tip"));
+    expect(document.activeElement).not.toBe(field("cash-tendered"));
+  });
+
+  it("a TABLE settle with a tender hands the card up (the change is the fact the cashier still needs) and leaves focus to it", async () => {
+    stubComputedStyle();
+    settleCash.mockResolvedValueOnce({ ok: true, orderId: "o2", totalCents: 4210, tipCents: 0 });
+    const { open, settle, settling, onSettled, type } = mount({ handoff: false });
+    open();
+    type("cash-tendered", "50");
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    // MUTATION: hand a card up only on `handoff` — a table's change figure vanishes at the tap; red.
+    expect(onSettled).toHaveBeenCalledWith({
+      orderId: "o2",
+      totalCents: 4210,
+      tipCents: 0,
+      tenderedCents: 5000,
+    });
+    await settleFocus();
+    expect(document.activeElement).not.toBe(settling());
+  });
+
+  it("every action is a Button — no native `disabled` anywhere in the sheet or on the trigger", () => {
+    const { open, trigger } = mount();
+    expect(trigger().classList.contains("ui-btn")).toBe(true);
+    const dialog = open();
+    expect(dialog.querySelectorAll("[disabled]")).toHaveLength(0);
+    expect(document.querySelectorAll("button[disabled]")).toHaveLength(0);
   });
 });
 

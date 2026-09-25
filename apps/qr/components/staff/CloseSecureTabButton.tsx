@@ -1,8 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { useRouter } from "next/navigation";
 import { closeSecureTab } from "@/lib/staff-cart";
-import { Card } from "@mms/ui";
+import { Button, Card, type ButtonVariant } from "@mms/ui";
 import { sx } from "@/lib/staff-labels";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
@@ -24,18 +23,29 @@ const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
  * (parity with CashSettleButton); the server (closeSecureTab) re-derives the amount + holds the settle
  * mutex, mints the off_session PI, and the webhook fulfills. A decline surfaces here as an honest
  * "settle by cash or a fresh card" — the tab is never stranded paid. No tip is added off-session.
+ *
+ * Phase 2c · register — every control is a `@mms/ui` Button (aria-disabled + aria-busy, never native
+ * `disabled`, K35), the trigger is the settle section's primary on a secure running bill
+ * (`settlePrimary`), and a landed close re-reads the PAGE's detail (`onChanged`) — `router.refresh()`
+ * updated nothing `FloorDetailLive` reads.
  */
 export function CloseSecureTabButton({
   sessionId,
   totalCents,
+  variant = "primary",
+  onChanged,
 }: {
   sessionId: string;
   totalCents: number;
+  variant?: Extract<ButtonVariant, "primary" | "secondary">;
+  /** The parent's own detail refresh (debounced). */
+  onChanged?: () => void;
 }) {
   const lang = useStaffLang();
-  const router = useRouter();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
+  const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
@@ -50,6 +60,8 @@ export function CloseSecureTabButton({
   }, [confirming]);
 
   async function confirm() {
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     let res: Awaited<ReturnType<typeof closeSecureTab>>;
@@ -60,18 +72,23 @@ export function CloseSecureTabButton({
       // buttons disabled until a reload. Clear busy, close the confirm (the effect above returns
       // focus to the trigger) and say the one true thing: we don't know whether the card was charged.
       console.error("[CloseSecureTabButton] close rejected — outcome unknown", e);
+      inFlight.current = false;
       setBusy(false);
       setConfirming(false);
       setError({ kind: "local" });
       return;
     }
     if (!res.ok) {
+      inFlight.current = false;
       setBusy(false);
       setConfirming(false);
       setError({ kind: "server", text: res.error });
       return;
     }
-    router.refresh(); // the off-session charge fulfills via webhook; the live detail re-fetches to paid
+    // The off-session charge fulfills via the webhook; the page's detail re-reads (the freeze makes it
+    // read-only at once, and paid when the webhook lands). The confirm stays "Charging…" until the
+    // settle section re-renders away — the guard stays spent, so a second charge cannot be asked.
+    onChanged?.();
   }
 
   return (
@@ -95,39 +112,43 @@ export function CloseSecureTabButton({
                 on both surfaces at once. */}
             <Chrome lang={lang} k="settle.cash.closesTab" echo="stack" />
           </p>
-          <div style={{ display: "flex", gap: "var(--s3)" }}>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
+          <div style={{ display: "flex", gap: "var(--s3)", alignItems: "stretch" }}>
+            <Button
+              variant="secondary"
+              size="lg"
               disabled={busy}
-              style={cancelBtn}
+              onClick={() => setConfirming(false)}
             >
               <Chrome lang={lang} k="settle.cancel" echo={false} />
-            </button>
-            <button type="button" onClick={confirm} disabled={busy} style={payBtn}>
-              {busy ? (
-                <Chrome lang={lang} k="settle.card.charging" echo={false} />
-              ) : (
-                <Chrome
-                  lang={lang}
-                  k="settle.card.chargeAmount"
-                  vars={{ m: fmt(totalCents) }}
-                  echo="stack"
-                />
-              )}
-            </button>
+            </Button>
+            <Button
+              variant="primary"
+              size="xl"
+              style={{ flex: 1 }}
+              busy={busy}
+              busyLabel={<Chrome lang={lang} k="settle.card.charging" echo={false} />}
+              onClick={confirm}
+            >
+              <Chrome
+                lang={lang}
+                k="settle.card.chargeAmount"
+                vars={{ m: fmt(totalCents) }}
+                echo="stack"
+              />
+            </Button>
           </div>
         </Card>
       ) : (
-        <button
+        <Button
           ref={triggerRef}
-          type="button"
-          onClick={() => setConfirming(true)}
+          variant={variant}
+          size="xl"
+          block
           aria-describedby="secure-close-hint"
-          style={{ ...payBtn, width: "100%" }}
+          onClick={() => setConfirming(true)}
         >
           <Chrome lang={lang} k="settle.card.trigger" vars={{ m: fmt(totalCents) }} echo="stack" />
-        </button>
+        </Button>
       )}
       <p id="secure-close-hint" style={hint}>
         <Chrome lang={lang} k="settle.card.hint" echo="stack" />
@@ -145,28 +166,6 @@ export function CloseSecureTabButton({
   );
 }
 
-const payBtn: CSSProperties = {
-  minHeight: 48,
-  padding: "0 20px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid transparent",
-  background: "var(--ac)",
-  color: "var(--oa)",
-  fontSize: "var(--fs-body)",
-  fontWeight: "var(--fw-bold)",
-  cursor: "pointer",
-};
-const cancelBtn: CSSProperties = {
-  minHeight: 48,
-  padding: "0 20px",
-  borderRadius: "var(--r-full)",
-  border: "1px solid var(--bd)",
-  background: "var(--cd)",
-  color: "var(--tx)",
-  fontSize: "var(--fs-body)",
-  fontWeight: "var(--fw-semibold)",
-  cursor: "pointer",
-};
 // Surface (bg/border/radius/shadow) comes from `.card` via <Card>; this is layout only.
 const confirmCard: CSSProperties = {
   display: "flex",
@@ -175,7 +174,7 @@ const confirmCard: CSSProperties = {
   padding: "var(--s4)",
 };
 const hint: CSSProperties = {
-  margin: "8px 0 0",
+  margin: "var(--s2) 0 0",
   fontSize: "var(--fs-sm)",
   color: "var(--t3)",
   minHeight: 16,

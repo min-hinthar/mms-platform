@@ -822,8 +822,6 @@ export const STAFF = {
     en: "Paying by card? The guest closes the running bill from their phone — it’s paid when that payment goes through.",
     my: "ကတ်နဲ့ ရှင်းမလား။ ဧည့်သည်က သူ့ဖုန်းကနေ စာရင်းပိတ်ပါမယ် — ငွေရောက်တာနဲ့ ရှင်းပြီးပါမယ်။",
   },
-  "table.detail.handoff.paid": { en: "Paid · {m}", my: "ရှင်းပြီး · {m}" },
-  "table.detail.handoff.change": { en: "change {m}", my: "အကြွေ {m}" },
   "table.detail.handoff.callout": {
     en: "The number we call when it’s ready — it’s on the kitchen ticket and the ready board.",
     my: "လာယူဖို့ ခေါ်မယ့် နံပါတ် — မီးဖိုချောင် အော်ဒါစာရွက်နဲ့ အော်ဒါ ဘုတ်မှာ ပါပါတယ်။",
@@ -844,9 +842,7 @@ export const STAFF = {
     en: "Open a running bill for this table",
     my: "ဒီစားပွဲအတွက် စာရင်းဖွင့်",
   },
-  "table.detail.a11y.settle": { en: "Take payment for this table", my: "ဒီစားပွဲ ငွေရှင်း" },
   "table.detail.a11y.merge": { en: "Merge this table", my: "ဒီစားပွဲကို ပေါင်းစည်း" },
-  "table.detail.a11y.paid": { en: "Order paid", my: "အော်ဒါ ငွေရှင်းပြီး" },
 
   // ═══ P2 PR B · expo ═══════════════════════════════════════════════════════════
   // ── expo / bagging station: aria-only names (no visible text to contain) ───
@@ -1720,9 +1716,9 @@ export const STAFF = {
   "settle.cash.settling": { en: "Taking payment…", my: "ရှင်းနေပါတယ်…" },
   "settle.cash.settleAmount": { en: "Take {m}", my: "{m} ရှင်း" }, // K15-HIGH — the tap that takes the money
   "settle.cash.hint": {
-    en: "Includes sales tax. A cash tip is handled separately.",
-    my: "ရောင်းခွန် ပါဝင်ပါတယ်။ ငွေသား အပိုကြေးကို သီးခြား ကိုင်တွယ်ပါတယ်။",
-  }, // grounded: cart `rowTax` (ရောင်းခွန်)
+    en: "Includes sales tax. Add a cash tip in the next step.",
+    my: "ရောင်းခွန် ပါဝင်ပါတယ်။ ငွေသား အပိုကြေးကို နောက်တစ်ဆင့်မှာ ထည့်ပါ။",
+  }, // grounded: cart `rowTax` (ရောင်းခွန်) · Phase 2c: the old "handled separately" was false since W17c-2 (the tip is recorded); MY a K15 draft
 
   // ── cash settle: the tip the cashier was handed ──────────────────────────
   "settle.cash.tipLabel": { en: "Cash tip (optional)", my: "ငွေသား အပိုကြေး (ထည့်ချင်မှ)" },
@@ -1745,8 +1741,6 @@ export const STAFF = {
 
   // ── cash settle: the counter handoff (tendered → change) ─────────────────
   "settle.cash.tenderedLabel": { en: "Cash received (optional)", my: "လက်ခံရရှိငွေ (ထည့်ချင်မှ)" },
-  "settle.cash.change": { en: "Change: {m}", my: "ပြန်အမ်းငွေ: {m}" }, // K15-HIGH — money handed back across the counter
-  "settle.cash.notEnough": { en: "Not enough yet.", my: "ငွေ မလုံလောက်သေးပါ။" },
 
   // ── closing a secure tab against the card on file ────────────────────────
   "settle.card.trigger": {
@@ -2824,6 +2818,69 @@ export const STAFF = {
     en: "{x} marked handed over.",
     my: "{x} ကို လွှဲပေးပြီး လို့ မှတ်ပြီးပြီ။",
   },
+  // ── Phase 2c · register ──
+  // The cash moment (DESIGN-LANGUAGE §29), the paid card and the settle section. Every MY value in
+  // this block is a Claude-authored K15 draft pending Min's native check, EXCEPT where a `grounded:`
+  // comment names its in-repo source. "Change" (money handed back) is အကြွေ everywhere — ပြန်အမ်း is
+  // this console's REFUND verb (owner decision 5), so `settle.cash.change` (ပြန်အမ်းငွေ) is retired
+  // with its last reader. Money rides {m}/{old} (Latin); no value carries a digit.
+  // The settle section's heading — the `?settle=1` landing's focus target (it replaces the section's
+  // aria-only name, table.detail.a11y.settle, retired here). grounded: that key's ငွေရှင်း.
+  "table.detail.settle.title": { en: "Take payment", my: "ငွေရှင်း" },
+  // The quick-cash row: "Exact" and the group's name. grounded: settle.a11y.tipQuick (အမြန်ရွေး).
+  "settle.cash.exact": { en: "Exact", my: "အတိအကျ" },
+  "settle.a11y.cashQuick": { en: "Quick cash amounts", my: "ငွေသား အမြန်ရွေး" },
+  // The readout under the tender (dt · dd). grounded: the paid card's old "change" (အကြွေ), retired here.
+  "settle.cash.changeLabel": { en: "Change", my: "အကြွေ" }, // K15-HIGH — the money handed back across the counter
+  "settle.cash.shortLabel": { en: "Short", my: "လိုငွေ" }, // K15-HIGH — the drawer would be short by this
+  "settle.cash.shortHint": {
+    en: "Collect the rest, or correct the amount.",
+    my: "ကျန်ငွေ ထပ်ယူပါ၊ ဒါမှမဟုတ် ပမာဏ ပြင်ပါ။",
+  },
+  "settle.cash.exactNone": { en: "Exact — no change", my: "အတိအကျ — အကြွေ မပြန်ရပါ" }, // K15-HIGH — tells the cashier to hand nothing back
+  // A FILL, never a commit: the tap writes the change into the tip field above; {m} is the change
+  // being kept (the readout's own figure).
+  "settle.cash.keepChange": {
+    en: "Keep the change as tip · {m}",
+    my: "အကြွေကို အပိုကြေး ထား · {m}",
+  }, // K15-HIGH — one tap records the change as the team's tip
+  // The compare-and-swap refusal (`code: "moved"`): {old} is the figure the cashier read, {m} the
+  // one the server just derived. Shared by the cash sheet and the card-on-file close.
+  "settle.cash.moved": {
+    en: "The total changed from {old} to {m} — check the order, then take payment again.",
+    my: "စုစုပေါင်း {old} ကနေ {m} ပြောင်းသွားပါတယ် — အော်ဒါ စစ်ပြီးမှ ပြန်ရှင်းပါ။",
+  }, // K15-HIGH — nothing was recorded; the figure to collect is the new one
+  // P2ab — a cash settle whose response was LOST (the action rejected): it may have landed, so the
+  // write-outage twin ("that change wasn’t saved") would be false. settle.card.unknown's shape; the
+  // sheet re-reads the detail as it says this.
+  "settle.cash.unknown": {
+    en: "The connection dropped, so we don’t know if this payment was recorded. If the order shows paid in a moment, it went through — if it doesn’t, try again.",
+    my: "ချိတ်ဆက်မှု ပြတ်သွားလို့ ဒီငွေရှင်းတာ မှတ်ပြီးပြီလား မသိရပါ။ ခဏနေ အော်ဒါက ငွေရှင်းပြီး လို့ ပြရင် ရှင်းပြီးပါပြီ — မပြရင် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — read while a settle's outcome is unknown; a misread takes the money twice
+  // The paid card (HandoffCard). Its Total and Tip rows reuse floor.settled.row.total / .tip, and its
+  // Change row reuses settle.cash.changeLabel — one word per concept on every money surface.
+  "table.detail.handoff.title": { en: "Paid", my: "ငွေရှင်းပြီး" }, // grounded: settle.reader.paid
+  "table.detail.handoff.tendered": { en: "Cash received", my: "လက်ခံရရှိငွေ" }, // grounded: settle.cash.tenderedLabel
+  "table.detail.handoff.collect": { en: "Still to collect", my: "ထပ်ယူရန် ကျန်" }, // K15-HIGH — money the guest still owes
+  "table.detail.handoff.done": { en: "Back to the counter", my: "ကောင်တာကို ပြန်သွား" },
+  // The reader's status line, now spoken through the page's ONE region (P2r) instead of a second
+  // `role="status"` in the collect panel — and bilingual for the first time (they were English
+  // literals; the panel's own comment left them for the owner of this region change).
+  "settle.reader.status.waiting": {
+    en: "Waiting for the guest to tap or insert their card…",
+    my: "ဧည့်သည် ကတ်ကို ကပ်တာ ဒါမှမဟုတ် ထည့်တာကို စောင့်နေပါတယ်…",
+  },
+  "settle.reader.status.blind": {
+    en: "Can’t reach the card processor right now — the reader may still be live. Hold on, or cancel.",
+    my: "ကတ်ငွေပေးချေမှုစနစ်ကို အခု ချိတ်မရပါ — ကတ်စက်က အလုပ်လုပ်နေတုန်း ဖြစ်နိုင်ပါတယ်။ ခဏစောင့်ပါ၊ ဒါမှမဟုတ် ဖျက်ပါ။",
+  }, // K15-HIGH — the reader may still take the card; another tender now can collect twice
+  "settle.reader.status.recording": { en: "Recording the order…", my: "အော်ဒါ မှတ်နေပါတယ်…" },
+  "settle.reader.status.recordingLong": {
+    en: "The charge went through, but the order isn’t recorded yet. Don’t charge again — note the amount and check Orders in a minute.",
+    my: "ငွေဖြတ်ပြီးပါပြီ၊ ဒါပေမဲ့ အော်ဒါ မမှတ်ရသေးပါ။ ထပ်မဖြတ်ပါနဲ့ — ပမာဏကို မှတ်ထားပြီး တစ်မိနစ်အတွင်း အော်ဒါများ ကို စစ်ပါ။",
+  }, // K15-HIGH — the guest HAS paid; a second charge collects twice
+  "settle.reader.status.failed": { en: "The payment didn’t go through.", my: "ငွေရှင်းလို့ မရပါ။" }, // grounded: settle.reader.failedTitle
+  "settle.reader.status.canceled": { en: "Nothing was charged.", my: "ဘာငွေမှ မဖြတ်ခဲ့ပါ။" }, // K15-HIGH — tells staff another tender is safe
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -2947,7 +3004,6 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "promo.err.locked",
   "promo.worth",
   "settle.card.chargeQ",
-  "settle.cash.change",
   "settle.cash.overCap",
   "settle.cash.settleAmount",
   "settle.cash.take",
@@ -2987,6 +3043,17 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "kds.86.hint",
   // ── Phase 2b · feedback ──
   "shell.net.offline",
+  // ── Phase 2c · register ──
+  "settle.cash.changeLabel",
+  "settle.cash.shortLabel",
+  "settle.cash.exactNone",
+  "settle.cash.keepChange",
+  "settle.cash.moved",
+  "settle.cash.unknown",
+  "table.detail.handoff.collect",
+  "settle.reader.status.blind",
+  "settle.reader.status.recordingLong",
+  "settle.reader.status.canceled",
 ]);
 
 /**
