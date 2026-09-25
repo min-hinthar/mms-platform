@@ -28,11 +28,14 @@ afterEach(() => {
 
 const onChanged = vi.fn();
 function mount() {
-  render(
+  const view = (totalCents: number) => (
     <StaffLangProvider lang="en">
-      <CloseSecureTabButton sessionId="s1" totalCents={4210} onChanged={onChanged} />
-    </StaffLangProvider>,
+      <CloseSecureTabButton sessionId="s1" totalCents={totalCents} onChanged={onChanged} />
+    </StaffLangProvider>
   );
+  const r = render(view(4210));
+  /** The page's detail re-read moving the prop (the confirm may be open). */
+  const rerender = (totalCents: number) => r.rerender(view(totalCents));
   const trigger = () =>
     screen.getByRole("button", {
       name: new RegExp(`^${STAFF["settle.card.trigger"].en.replace("{m}", "\\$42\\.10")}`),
@@ -43,7 +46,7 @@ function mount() {
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
     });
   };
-  return { trigger, charge };
+  return { trigger, charge, rerender };
 }
 
 describe("CloseSecureTabButton — a rejected close never latches", () => {
@@ -158,5 +161,28 @@ describe("CloseSecureTabButton — the confirm's quote and a MOVED total (Phase 
       fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.65/ }));
     });
     expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4265 });
+  });
+});
+
+describe("CloseSecureTabButton — the confirm's figure is FROZEN when it opens (critic finding)", () => {
+  it("a total that moves while the confirm is open never changes the charge silently: the alert names both, the tap adopts, only the NEXT tap charges", async () => {
+    const { trigger, rerender } = mount();
+    fireEvent.click(trigger());
+    rerender(4610);
+    // MUTATION: bind the confirm to the live prop — it reads "Charge $46.10" with no announcement,
+    // and the tap sends a quote that equals the live total, so the compare passes unread; red.
+    const charge = screen.getByRole("button", { name: /^Charge \$42\.10/ });
+    const moved = STAFF["settle.cash.moved"].en.replace("{old}", "$42.10").replace("{m}", "$46.10");
+    expect(screen.getByRole("alert").textContent).toBe(moved);
+    await act(async () => {
+      fireEvent.click(charge);
+    });
+    // MUTATION: drop the drift arm — the old quote goes to the server; red.
+    expect(closeSecureTab).not.toHaveBeenCalled();
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$46\.10/ }));
+    });
+    expect(closeSecureTab).toHaveBeenCalledWith({ sessionId: "s1", quotedCents: 4610 });
   });
 });

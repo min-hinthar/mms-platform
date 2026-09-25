@@ -7198,9 +7198,9 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2a · register — a REJECTED closeSecureTab (the connection dropped mid-charge) must clear busy, close the confirm and say the outcome is unknown. Let it escape and the card latches on 'Charging…' with focus on <body> until a reload, and the one true sentence — the card may or may not have been charged — is never said",
-    find: "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n    } catch (e) {\n",
+    find: "      res = await closeSecureTab({ sessionId, quotedCents: quoted });\n    } catch (e) {\n",
     replace:
-      "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n    } catch (e) {\n      throw e;\n",
+      "      res = await closeSecureTab({ sessionId, quotedCents: quoted });\n    } catch (e) {\n      throw e;\n",
   },
   // ── Phase 2b · kitchen ──
   {
@@ -7597,7 +7597,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — the sheet sends the figure the cashier READ as `quotedCents` (compare-only). Dropped, the server's compare-and-swap never runs and a moved total is recorded silently",
-    find: "          res = await settleCash({ sessionId, tipCents, quotedCents: quote });\n",
+    find: "          res = await settleCash({ sessionId, tipCents, quotedCents: quoted });\n",
     replace: "          res = await settleCash({ sessionId, tipCents });\n",
   },
   {
@@ -7613,8 +7613,8 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · register — after a 'moved' refusal the sheet quotes the SERVER's figure (not optimistic: what it just derived). Keeping the stale prop, Settle reads the old total and every re-tap is refused again until the poll catches up",
-    find: "  const shownTotal = moved && totalCents === moved.basis ? moved.to : totalCents;\n",
-    replace: "  const shownTotal = totalCents;\n",
+    find: "            setQuote({ cents: res.totalCents, basis });\n",
+    replace: "            setQuote({ cents: quoted, basis });\n",
   },
   {
     id: "p2c-register/cash-lost-response-reads-as-refusal",
@@ -7685,7 +7685,7 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
     suite: "components/staff/CloseSecureTabButton.test.tsx",
     why: "Phase 2c · register (P2aa) — the confirm sends the total it SHOWED as `quotedCents` (compare-only). Dropped, the server's compare never runs and the card on file is charged a total nobody read",
-    find: "      res = await closeSecureTab({ sessionId, quotedCents: quote });\n",
+    find: "      res = await closeSecureTab({ sessionId, quotedCents: quoted });\n",
     replace: "      res = await closeSecureTab({ sessionId });\n",
   },
   {
@@ -7728,6 +7728,71 @@ const MUTANTS = [
     find: "  if (inFlight) return { ok: false, error: await inFlightRefusalFor(cart, inFlight, session.id) };\n\n  // Atomically freeze",
     replace:
       '  if (inFlight)\n    return { ok: false, error: "Someone’s already paying on their phone — wait for that to finish." };\n\n  // Atomically freeze',
+  },
+  // The QUOTE is frozen when a confirm opens (critic finding: the total moved under an open sheet).
+  {
+    id: "p2c-register/quote-drift-never-said",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "Phase 2c · register — a total that moves while the confirm is open is a DRIFT naming both figures. Never said, the sheet keeps the frozen figure in silence and the tap is refused by the server with no warning first",
+    find: "  if (!q || liveCents === q.cents || liveCents === q.basis) return null;\n",
+    replace: "  if (q || !q) return null;\n",
+  },
+  {
+    id: "p2c-register/quote-drift-on-refusal-basis",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "Phase 2c · register — after a `moved` refusal the page still reads the refused figure until its re-read lands; that is not a drift. Read as one, every refusal is followed by a false 'changed from $42.65 to $42.10'",
+    find: "  if (!q || liveCents === q.cents || liveCents === q.basis) return null;\n",
+    replace: "  if (!q || liveCents === q.cents) return null;\n",
+  },
+  {
+    id: "p2c-register/quote-reopen-drops-server-figure",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "Phase 2c · register — a reopen before the page re-reads keeps the SERVER's figure a refusal handed back. Dropped, the sheet reopens on the stale total the server just refused, and every tap is refused again until the poll catches up",
+    find: "  if (prev && liveCents === prev.basis) return prev;\n",
+    replace: "",
+  },
+  {
+    id: "p2c-register/quote-never-reconciled",
+    file: "apps/qr/lib/register-math.ts",
+    suite: "lib/register-math.test.ts",
+    why: "Phase 2c · register — once the page catches up with the server's figure, a move BACK to the old one is a drift. Never reconciled, it reads as the stale basis and the sheet quotes the wrong total in silence",
+    find: "  if (q && liveCents === q.cents && q.basis !== q.cents) return { cents: q.cents, basis: q.cents };\n",
+    replace: "",
+  },
+  {
+    id: "p2c-register/cash-quote-live-bound",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — the sheet's figures are FROZEN at open. Bound to the live prop, a guest's drink turns 'Change $7.90' into 'Change $3.90' in silence after the $7.90 was handed back, and the tap quotes the new total so the server's compare passes",
+    find: "  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))\n    .cents;\n",
+    replace: "  const shownTotal = totalCents;\n",
+  },
+  {
+    id: "p2c-register/cash-drift-tap-settles",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · register — a tap while the figures disagree ADOPTS the new figure and records nothing. Without the arm it sends the stale quote, and the cashier's first sight of the new total is a refusal",
+    find: "    if (drift && !pending) {\n",
+    replace: "    if (false) {\n",
+  },
+  {
+    id: "p2c-register/tab-close-quote-live-bound",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "Phase 2c · register — the card-on-file confirm's figure is FROZEN at open. Bound to the live prop, 'Charge $x' changes under the thumb and the quote equals the live total, so the compare passes a charge nobody read",
+    find: "  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))\n    .cents;\n",
+    replace: "  const shownTotal = totalCents;\n",
+  },
+  {
+    id: "p2c-register/tab-close-drift-tap-charges",
+    file: "apps/qr/components/staff/CloseSecureTabButton.tsx",
+    suite: "components/staff/CloseSecureTabButton.test.tsx",
+    why: "Phase 2c · register — a Charge tap while the figures disagree adopts the new total and charges nothing. Without the arm it sends the stale quote to an off-session charge",
+    find: "    if (drift) {\n",
+    replace: "    if (false) {\n",
   },
 ];
 

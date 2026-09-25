@@ -241,3 +241,51 @@ export function handoffRows(
   else rows.push({ k: "change", cents: tender.kind === "change" ? tender.changeCents : 0 });
   return rows;
 }
+
+// ── The quote (Phase 2c · register, critic finding: the figure moved UNDER an open sheet) ─────────
+/**
+ * The figure a settle confirm QUOTES — frozen when the confirm OPENS, so the amount the cashier reads
+ * (and counts change against) never moves under their hands. The prop behind it is live: the page
+ * re-reads its detail ~0.4s after any realtime change, sheet open or not, so a guest adding a drink
+ * from their phone used to turn "Take $42.10 · Change $7.90" into "Take $46.10 · Change $3.90" with
+ * no announcement — and the tap then QUOTED the new figure, so the server's compare-and-swap passed
+ * a total recorded after $7.90 had already been handed back. Frozen, the tap sends what was READ.
+ *
+ * `basis` is the live figure the quote was last reconciled with — equal to `cents`, except for the
+ * beat after a server `moved` refusal: the sheet then quotes the SERVER's figure while the prop still
+ * reads what the refused tap read, until the page's re-read lands. Not optimistic — that figure is
+ * what the server just derived — and the next tap is compared again regardless.
+ */
+export type SettleQuote = { cents: number; basis: number };
+
+/**
+ * Opening a confirm freezes the live figure — unless the live figure still reads the basis of a quote
+ * a server refusal replaced (the re-read has not landed), when the server's figure stands.
+ */
+export function openQuote(prev: SettleQuote | null, liveCents: number): SettleQuote {
+  if (prev && liveCents === prev.basis) return prev;
+  return { cents: liveCents, basis: liveCents };
+}
+
+/**
+ * The live figure caught up with the quote (the re-read after a refusal landed): the quote's basis
+ * becomes its own figure, so a LATER move back to the old figure reads as the move it is. Returns
+ * the SAME object when nothing changes (a render-time adjustment must be able to tell).
+ */
+export function reconcileQuote(q: SettleQuote | null, liveCents: number): SettleQuote | null {
+  if (q && liveCents === q.cents && q.basis !== q.cents) return { cents: q.cents, basis: q.cents };
+  return q;
+}
+
+/**
+ * The live figure moved off the quote while the confirm was open: `from` is what the cashier read,
+ * `to` the figure the page now holds. Null while the live figure is the quote, or still the basis a
+ * refusal left (the page has not re-read yet — the server's figure IS the newer one).
+ */
+export function quoteDrift(
+  q: SettleQuote | null,
+  liveCents: number,
+): { from: number; to: number } | null {
+  if (!q || liveCents === q.cents || liveCents === q.basis) return null;
+  return { from: q.cents, to: liveCents };
+}

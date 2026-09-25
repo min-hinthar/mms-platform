@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { closeSecureTab } from "@/lib/staff-cart";
 import { Button, Card, type ButtonVariant } from "@mms/ui";
 import { sx } from "@/lib/staff-labels";
+import { openQuote, quoteDrift, reconcileQuote, type SettleQuote } from "@/lib/register-math";
 import { Chrome, OutageText } from "./Chrome";
 import { useStaffLang } from "./StaffLangProvider";
 
@@ -17,7 +18,8 @@ import { useStaffLang } from "./StaffLangProvider";
 type CloseError =
   | { kind: "server"; text: string }
   | { kind: "local" }
-  // Phase 2c · register (P2aa) — the compare-and-swap refused: both figures, nothing charged.
+  // Phase 2c · register (P2aa) — the compare-and-swap refused, or the page's total moved off the
+  // confirm's frozen figure while it was open: both figures, nothing charged.
   | { kind: "moved"; from: number; to: number };
 
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -51,11 +53,21 @@ export function CloseSecureTabButton({
   // The tap-time guard — a REF read when the finger lands, beside the `busy` the Button renders.
   const inFlight = useRef(false);
   const [error, setError] = useState<CloseError | null>(null);
-  // P2aa — the server's figure after a `moved` refusal, held for display only WHILE the prop still
-  // reads what it read at the refusal (`basis`): a render-time derivation, no effect. The server
-  // re-checks every tap, and the first detail read that moves the prop retires it.
-  const [moved, setMoved] = useState<{ basis: number; to: number } | null>(null);
-  const shownTotal = moved && totalCents === moved.basis ? moved.to : totalCents;
+  // The QUOTE (lib/register-math `SettleQuote`) — frozen when the confirm OPENS, so "Charge $x"
+  // charges the figure staff READ, never the prop the page's re-read moves under an open confirm (the
+  // critic's finding, the cash sheet's twin). A server `moved` refusal replaces it with the server's
+  // figure until the page catches up (`basis`).
+  const [quote, setQuote] = useState<SettleQuote | null>(null);
+  // Render-time adjustment (guarded set-during-render): the page caught up with the server's figure.
+  const reconciled = reconcileQuote(quote, totalCents);
+  if (reconciled !== quote) setQuote(reconciled);
+  // Closed, the figure the confirm WOULD open on (the trigger's label); open, the frozen one.
+  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
+    .cents;
+  // The page's total moved off the open confirm's figure: the alert names both, and the next tap
+  // ADOPTS the new figure (it charges nothing).
+  const drift = confirming ? quoteDrift(reconciled, totalCents) : null;
+  const alertMsg: CloseError | null = drift ? { kind: "moved", ...drift } : error;
   const triggerRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLDivElement>(null);
 
@@ -70,15 +82,22 @@ export function CloseSecureTabButton({
 
   async function confirm() {
     if (inFlight.current) return;
+    if (drift) {
+      // The total moved while the confirm was open: this tap ADOPTS the new figure in front of
+      // staff (the label re-reads it, the sentence naming both stays); nothing is charged.
+      setQuote({ cents: drift.to, basis: drift.to });
+      setError({ kind: "moved", from: drift.from, to: drift.to });
+      return;
+    }
     inFlight.current = true;
     setBusy(true);
     setError(null);
-    // The figure the confirm is showing (COMPARE-ONLY on the server) and the prop it came from.
-    const quote = shownTotal;
+    // The figure the confirm is showing (COMPARE-ONLY on the server) and the prop the page read.
+    const quoted = shownTotal;
     const basis = totalCents;
     let res: Awaited<ReturnType<typeof closeSecureTab>>;
     try {
-      res = await closeSecureTab({ sessionId, quotedCents: quote });
+      res = await closeSecureTab({ sessionId, quotedCents: quoted });
     } catch (e) {
       // Phase 2a · register — a REJECTED action used to latch the confirm on "Charging…" with both
       // buttons disabled until a reload. Clear busy, close the confirm (the effect above returns
@@ -97,8 +116,8 @@ export function CloseSecureTabButton({
       if (res.code === "moved") {
         // Nothing was charged. Quote the server's figure (what it just derived — not optimistic),
         // name both in the alert, and re-read the page; the re-tap is compared again.
-        setMoved({ basis, to: res.totalCents });
-        setError({ kind: "moved", from: quote, to: res.totalCents });
+        setQuote({ cents: res.totalCents, basis });
+        setError({ kind: "moved", from: quoted, to: res.totalCents });
         onChanged?.();
         return;
       }
@@ -169,7 +188,12 @@ export function CloseSecureTabButton({
           size="xl"
           block
           aria-describedby="secure-close-hint"
-          onClick={() => setConfirming(true)}
+          onClick={() => {
+            // The quote FREEZES here: the live figure, or the server's a refusal handed back while
+            // the page has not re-read yet (`openQuote`).
+            setQuote(openQuote(reconciled, totalCents));
+            setConfirming(true);
+          }}
         >
           <Chrome lang={lang} k="settle.card.trigger" vars={{ m: fmt(shownTotal) }} echo="stack" />
         </Button>
@@ -177,15 +201,15 @@ export function CloseSecureTabButton({
       <p id="secure-close-hint" style={hint}>
         <Chrome lang={lang} k="settle.card.hint" echo="stack" />
       </p>
-      {error && (
+      {alertMsg && (
         <p role="alert" style={{ ...hint, marginTop: 4, color: "var(--warn)" }}>
-          {error.kind === "server" ? (
-            <OutageText lang={lang} error={error.text} />
-          ) : error.kind === "moved" ? (
+          {alertMsg.kind === "server" ? (
+            <OutageText lang={lang} error={alertMsg.text} />
+          ) : alertMsg.kind === "moved" ? (
             <Chrome
               lang={lang}
               k="settle.cash.moved"
-              vars={{ old: fmt(error.from), m: fmt(error.to) }}
+              vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
               echo={false}
             />
           ) : (

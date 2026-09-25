@@ -6,7 +6,10 @@ import {
   changeDue,
   handoffRows,
   laDayStartIso,
+  openQuote,
   quickCashTenders,
+  quoteDrift,
+  reconcileQuote,
   summarizeDay,
   tenderState,
 } from "./register-math";
@@ -294,5 +297,52 @@ describe("handoffRows — the paid card's receipt rows, zero-gated, in order", (
   it("no tender: the total alone (the reader's counter card, a counter exact settle)", () => {
     expect(handoffRows(1347, null, null)).toEqual([{ k: "total", cents: 1347 }]);
     expect(handoffRows(1347, 0, 0)).toEqual([{ k: "total", cents: 1347 }]);
+  });
+});
+
+describe("the settle quote — frozen at open, never moved under the cashier (Phase 2c · register)", () => {
+  it("opening freezes the live figure", () => {
+    expect(openQuote(null, 4210)).toEqual({ cents: 4210, basis: 4210 });
+    // A reopen after the page re-read a new figure adopts it — a new attempt reads a new total.
+    expect(openQuote({ cents: 4210, basis: 4210 }, 4610)).toEqual({ cents: 4610, basis: 4610 });
+  });
+
+  it("a reopen before the re-read keeps the SERVER's figure a refusal handed back", () => {
+    // MUTATION: always freeze the prop — the sheet reopens on the stale $42.10 the server just
+    // refused, and every tap is refused again until the poll catches up; red.
+    const refused = { cents: 4265, basis: 4210 };
+    expect(openQuote(refused, 4210)).toBe(refused);
+  });
+
+  it("a live figure that moves off the quote is a DRIFT naming both — never a silent new label", () => {
+    // MUTATION: `return null` — the sheet's figures stay frozen but nothing tells the cashier the
+    // order changed, and the tap sends a quote the server will refuse with no warning first; red.
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4610)).toEqual({ from: 4210, to: 4610 });
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4200)).toEqual({ from: 4210, to: 4200 });
+  });
+
+  it("no drift while the live figure is the quote, or still the basis a refusal left", () => {
+    expect(quoteDrift(null, 4610)).toBeNull();
+    expect(quoteDrift({ cents: 4210, basis: 4210 }, 4210)).toBeNull();
+    // The server said 4265; the page still reads 4210 until its re-read lands — not a drift.
+    // MUTATION: drop the basis arm — a false "changed from $42.65 to $42.10" after every refusal; red.
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4210)).toBeNull();
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4265)).toBeNull();
+    // A third figure is a drift from what the sheet SHOWS (the server's), not from the old prop.
+    expect(quoteDrift({ cents: 4265, basis: 4210 }, 4300)).toEqual({ from: 4265, to: 4300 });
+  });
+
+  it("once the page catches up with the server's figure, a move BACK to the old one is a drift", () => {
+    const refused = { cents: 4265, basis: 4210 };
+    const caughtUp = reconcileQuote(refused, 4265);
+    // MUTATION: never reconcile — the guest removes the item, the page reads $42.10 again, and it
+    // looks like the stale basis: the sheet keeps quoting $42.65 in silence; red.
+    expect(caughtUp).toEqual({ cents: 4265, basis: 4265 });
+    expect(quoteDrift(caughtUp, 4210)).toEqual({ from: 4265, to: 4210 });
+    // Nothing to reconcile → the SAME object (a render-time adjustment must be able to tell).
+    expect(reconcileQuote(refused, 4210)).toBe(refused);
+    const settled = { cents: 4210, basis: 4210 };
+    expect(reconcileQuote(settled, 4210)).toBe(settled);
+    expect(reconcileQuote(null, 4210)).toBeNull();
   });
 });

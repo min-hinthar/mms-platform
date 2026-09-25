@@ -493,10 +493,15 @@ describe("CashSettleButton — the cash moment (Phase 2c · register, DESIGN-LAN
       tipCents: 0,
       quotedCents: 4265,
     });
-    // The parent's read moves the prop to a THIRD figure: the prop is the truth again (the held
-    // figure retires the moment the prop stops reading what it read at the refusal).
+    // Deliberately rewritten (critic finding — the figure moved UNDER the open sheet): the parent's
+    // read moving the prop to a THIRD figure no longer swaps the label silently. The sheet keeps
+    // the figure it quotes and the alert names both; the drift section below pins the rest.
+    // (Settle itself reads "Taking payment…" — the re-tap above is still in the air.)
     rerender({ totalCents: 4300 });
-    expect(settle().textContent).not.toBe(take("$42.65"));
+    expect(cashChips()[0]).toBe("Exact $42.65");
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      STAFF["settle.cash.moved"].en.replace("{old}", "$42.65").replace("{m}", "$43.00"),
+    );
   });
 
   it("Cancel and reopen: the tender (and a held figure) start clean; the tip is kept", async () => {
@@ -611,5 +616,71 @@ describe("the handoff card's focus is the parent's — parsed, not trusted", () 
     walk(sf);
     // MUTATION: comment the focus line out in FloorDetailLive, or key the effect on `[]` — red.
     expect(focusEffects).toHaveLength(1);
+  });
+});
+
+describe("CashSettleButton — the quote is FROZEN when the sheet opens (critic finding)", () => {
+  it("a total that moves while the sheet is open never changes the figures silently: the alert names both, the tap adopts the new figure explicitly, and only the NEXT tap settles it", async () => {
+    const { open, settle, chip, cashChips, rerender } = mount();
+    const dialog = open();
+    // The cashier takes $50 for $42.10 and reads "Change $7.90".
+    fireEvent.click(chip("$50"));
+    const readout = document.getElementById("cash-readout")!;
+    expect(readout.textContent).toBe(`${STAFF["settle.cash.changeLabel"].en}$7.90`);
+    // A guest adds a $4 drink from their phone; the page's re-read moves the prop under the sheet.
+    rerender({ totalCents: 4610 });
+    // MUTATION: bind the sheet's figures to the live prop — the label reads "Take $46.10" and the
+    // readout "Change $3.90" with no announcement, $7.90 already handed back; red.
+    expect(settle().textContent).toBe(take("$42.10"));
+    expect(readout.textContent).toBe(`${STAFF["settle.cash.changeLabel"].en}$7.90`);
+    expect(cashChips()[0]).toBe("Exact $42.10");
+    const moved = STAFF["settle.cash.moved"].en.replace("{old}", "$42.10").replace("{m}", "$46.10");
+    expect(within(dialog).getByRole("alert").textContent).toBe(moved);
+    // Settle is described by the alert while the figures disagree.
+    expect(settle().getAttribute("aria-describedby")).toContain("cash-alert");
+    // The tap ADOPTS the new figure — it records nothing.
+    // MUTATION: drop the drift arm in `confirm()` — the tap sends the old quote to the server; red.
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).not.toHaveBeenCalled();
+    expect(settle().textContent).toBe(take("$46.10"));
+    expect(readout.textContent).toBe(`${STAFF["settle.cash.changeLabel"].en}$3.90`);
+    // The sentence stays on screen after the adopt: both figures are still what just happened.
+    expect(within(dialog).getByRole("alert").textContent).toBe(moved);
+    settleCash.mockReturnValueOnce(hang());
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4610 });
+  });
+
+  it("the settle carries the quote READ at open — a prop that moved and came back is no drift and no new figure", async () => {
+    settleCash.mockReturnValueOnce(hang());
+    const { open, settle, rerender } = mount();
+    const dialog = open();
+    rerender({ totalCents: 4610 });
+    rerender({ totalCents: 4210 });
+    expect(within(dialog).queryByRole("alert")).toBeNull();
+    await act(async () => {
+      fireEvent.click(settle());
+    });
+    expect(settleCash).toHaveBeenCalledWith({ sessionId: "s1", tipCents: 0, quotedCents: 4210 });
+  });
+
+  it("a new attempt opens on the live figure", async () => {
+    const { open, cancel, settle, rerender } = mount();
+    open();
+    await act(async () => {
+      fireEvent.click(cancel());
+    });
+    rerender({ totalCents: 4610 });
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: STAFF["settle.cash.trigger"].en.replace("{m}", "$46.10"),
+      }),
+    );
+    expect(settle().textContent).toBe(take("$46.10"));
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

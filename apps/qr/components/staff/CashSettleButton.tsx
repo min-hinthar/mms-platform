@@ -4,8 +4,12 @@ import { settleCash } from "@/lib/staff-cart";
 import {
   cashSettleBlocked,
   changeAsTipCents,
+  openQuote,
   quickCashTenders,
+  quoteDrift,
+  reconcileQuote,
   tenderState,
+  type SettleQuote,
 } from "@/lib/register-math";
 import { centsToField, noteLabel, parseMoneyCents, sanitizeMoneyInput } from "@/lib/money-input";
 import { tipPresets, tipWithinAmountCap } from "@/lib/tip";
@@ -20,8 +24,9 @@ import { useStaffLang } from "./StaffLangProvider";
 const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 /** What the sheet's ONE alert says. `server` is a sentence `settleCash` returned (through
- *  `<OutageText>`); `moved` is the compare-and-swap refusal, naming both figures; `unknown` is a
- *  REJECTED action — the response was lost, so the settle may have landed (P2ab). */
+ *  `<OutageText>`); `moved` names both figures — the compare-and-swap refusal, or the page's total
+ *  moving off the frozen quote while the sheet is open; `unknown` is a REJECTED action — the
+ *  response was lost, so the settle may have landed (P2ab). */
 type SheetError =
   | { kind: "server"; text: string }
   | { kind: "moved"; from: number; to: number }
@@ -122,12 +127,22 @@ export function CashSettleButton({
   const [landed, setLanded] = useState(false);
   const handoffLandedRef = useRef(false);
   const [error, setError] = useState<SheetError | null>(null);
-  // The compare-and-swap's answer, held for display: the server's figure replaces the stale prop in
-  // the label, the chips and the readout — but only WHILE the prop still reads what it read when the
-  // refusal came back (`basis`). A render-time derivation, no effect: the first detail read that
-  // moves the prop retires it, and the server re-checks every tap regardless.
-  const [moved, setMoved] = useState<{ basis: number; to: number } | null>(null);
-  const shownTotal = moved && totalCents === moved.basis ? moved.to : totalCents;
+  // The QUOTE (lib/register-math `SettleQuote`) — frozen when the sheet OPENS, so every figure in it
+  // (the question, the chips, the readout, Settle's label, the `quotedCents` the tap sends) is the
+  // figure the cashier READ, never the prop the page's ~0.4s re-read keeps moving under an open
+  // sheet (the critic's finding: "Change $7.90" became "Change $3.90" in silence, after the $7.90 was
+  // handed back). A server `moved` refusal replaces it with the server's figure.
+  const [quote, setQuote] = useState<SettleQuote | null>(null);
+  // Render-time adjustment (React's guarded set-during-render, as FloorDetailLive's `seenDetail`):
+  // the page caught up with the server's figure, so a later move BACK reads as the move it is.
+  const reconciled = reconcileQuote(quote, totalCents);
+  if (reconciled !== quote) setQuote(reconciled);
+  // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
+  const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
+    .cents;
+  // The page's total moved off the quote while the sheet is open: said in the sheet's one alert,
+  // naming both figures, and the next tap ADOPTS the new figure (it records nothing).
+  const drift = confirming ? quoteDrift(reconciled, totalCents) : null;
   const [tendered, setTendered] = useState("");
   // W17c-2 — the cash tip the cashier was handed. Unlike every other amount in this app it IS typed
   // by a human, because nothing on the server can derive it: only the person who took the cash knows
@@ -179,20 +194,30 @@ export function CashSettleButton({
   }, [kept]);
 
   function confirm() {
-    if (inFlight.current || !canSettle) return;
+    if (inFlight.current) return;
+    if (drift && !pending) {
+      // The total moved while the sheet was open: this tap ADOPTS the new figure explicitly — the
+      // label, the chips and the readout re-derive from it in front of the cashier, the sentence
+      // naming both stays, and nothing is recorded. The next tap settles the figure now shown.
+      haptic("pick");
+      setQuote({ cents: drift.to, basis: drift.to });
+      setError({ kind: "moved", from: drift.from, to: drift.to });
+      return;
+    }
+    if (!canSettle) return;
     inFlight.current = true;
     haptic("commit"); // at the tap — the gesture, not the network — with the busy label beside it
     setError(null);
-    // The figure the cashier is looking at, and the prop it was derived from — both captured at the
-    // tap, so a refusal can name the one and retire the other.
-    const quote = shownTotal;
+    // The figure the cashier is looking at (the frozen quote), and the prop the page read — both
+    // captured at the tap, so a refusal can name the one and keep the other as the quote's basis.
+    const quoted = shownTotal;
     const basis = totalCents;
     const tenderAtTap = tenderedCents != null && tenderedCents > 0 ? tenderedCents : null;
     startSettle(async () => {
       try {
         let res: Awaited<ReturnType<typeof settleCash>>;
         try {
-          res = await settleCash({ sessionId, tipCents, quotedCents: quote });
+          res = await settleCash({ sessionId, tipCents, quotedCents: quoted });
         } catch (e) {
           // P2ab — a REJECTED action is an UNKNOWN outcome, not a refusal: the response can be lost
           // AFTER `mms_fulfill_cash_order` committed, so "that change wasn't saved" would be false.
@@ -211,8 +236,8 @@ export function CashSettleButton({
           if (res.code === "moved") {
             // Nothing was recorded. Quote the server's figure at once (not optimistic — it is what the
             // server just derived) and re-read the detail; the re-tap quotes it and is re-checked.
-            setMoved({ basis, to: res.totalCents });
-            setError({ kind: "moved", from: quote, to: res.totalCents });
+            setQuote({ cents: res.totalCents, basis });
+            setError({ kind: "moved", from: quoted, to: res.totalCents });
             onChanged?.();
             return;
           }
@@ -245,7 +270,7 @@ export function CashSettleButton({
     });
   }
 
-  const settleDescribedBy =
+  const settleReasons =
     blocked === "tipCap"
       ? "cash-tip-cap"
       : blocked === "short"
@@ -253,6 +278,12 @@ export function CashSettleButton({
         : tender.kind !== "none"
           ? "cash-readout"
           : undefined;
+  // While the figures disagree, Settle is described by the alert that names both (what its tap does).
+  const settleDescribedBy = drift
+    ? ["cash-alert", settleReasons].filter(Boolean).join(" ")
+    : settleReasons;
+  // The alert: a live drift outranks a stored outcome — it is the fact the cashier must act on now.
+  const alertMsg: SheetError | null = drift ? { kind: "moved", ...drift } : error;
 
   return (
     <div>
@@ -270,9 +301,10 @@ export function CashSettleButton({
         onClick={() => {
           setError(null); // a refusal read in the last sheet is not this attempt's
           // A new attempt starts clean: the tender belongs to the guest in front of the cashier, and
-          // a held "moved" figure is replaced by the prop the re-read brought. The tip is kept.
+          // the quote FREEZES here — the live figure, or the server's figure a refusal handed back
+          // while the page has not re-read yet (`openQuote`). The tip is kept.
           setTendered("");
-          setMoved(null);
+          setQuote(openQuote(reconciled, totalCents));
           setChipPop(null);
           setConfirming(true);
         }}
@@ -280,7 +312,7 @@ export function CashSettleButton({
         <Chrome
           lang={lang}
           k={isTab ? "settle.cash.triggerTab" : "settle.cash.trigger"}
-          vars={{ m: fmt(totalCents) }}
+          vars={{ m: fmt(shownTotal) }}
           echo="stack"
         />
       </Button>
@@ -586,15 +618,15 @@ export function CashSettleButton({
             {/* The ONE alert on this control, inside the sheet where the tap was — a second copy under
                 the trigger would mount at the start of the exit, under the sheet's own `aria-hidden`,
                 unannounced (the blind pass); Cancel and the trigger clear it. */}
-            {error && (
-              <p role="alert" style={{ ...hint, margin: 0, color: "var(--warn)" }}>
-                {error.kind === "server" ? (
-                  <OutageText lang={lang} error={error.text} />
-                ) : error.kind === "moved" ? (
+            {alertMsg && (
+              <p id="cash-alert" role="alert" style={{ ...hint, margin: 0, color: "var(--warn)" }}>
+                {alertMsg.kind === "server" ? (
+                  <OutageText lang={lang} error={alertMsg.text} />
+                ) : alertMsg.kind === "moved" ? (
                   <Chrome
                     lang={lang}
                     k="settle.cash.moved"
-                    vars={{ old: fmt(error.from), m: fmt(error.to) }}
+                    vars={{ old: fmt(alertMsg.from), m: fmt(alertMsg.to) }}
                     echo={false}
                   />
                 ) : (
