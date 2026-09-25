@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { STAFF_DOOR_TARGET } from "@/lib/staff-door";
 import { frozenBoardCopy } from "@/lib/staff-outage";
 import { SETTLE_MINUTES } from "@/lib/inflight-refusal";
+import { SETTLE_TTL_MS } from "@/lib/lock-ttl";
 import type { TableDetail, TableDetailResult, TableLineView } from "@/lib/floor-types";
 
 /**
@@ -876,6 +877,275 @@ describe("FloorDetailLive — the settle gate: every settle door refuses while d
     } finally {
       if (had) proto.scrollIntoView = prior;
       else delete proto.scrollIntoView;
+    }
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("FloorDetailLive — a refusal's figure is settled by the page's NEXT read, not only by its figure (R1)", () => {
+  /** A promise the case resolves by hand — a detail read still in the air. */
+  function held() {
+    let resolve!: (r: TableDetailResult) => void;
+    const promise = new Promise<TableDetailResult>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+  const movedLine = (from: string, to: string) =>
+    tf("en", "settle.cash.moved", { old: from, m: to });
+  const moved = { ok: false, code: "moved", totalCents: 4265, error: "moved" };
+
+  // The guest adds a drink (the server refuses the $42.10 tap at $42.65) and removes it before the
+  // page re-reads. Read #1 is IN THE AIR when the refusal comes back — it may predate the drink, so
+  // it settles nothing; read #2 began after the refusal and reads $42.10 again: THAT is the truth.
+  it("the cash sheet: read #1 (in the air at the refusal) keeps the server's figure; read #2 says the move back", async () => {
+    let answerSettle!: (v: unknown) => void;
+    settleCash.mockImplementationOnce(() => new Promise((r) => (answerSettle = r)));
+    mountWith(SETTLEABLE);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = () =>
+      within(dialog)
+        .getAllByRole("button")
+        .find((b) => b.classList.contains("ui-btn-primary"))!;
+    const r1 = held();
+    const r2 = held();
+    let n = 0;
+    answer = () => (++n === 1 ? r1.promise : r2.promise);
+    await act(async () => {
+      fireEvent.click(take());
+    });
+    await tick(5000); // read #1 starts — in the air
+    await act(async () => {
+      answerSettle(moved);
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.10", "$42.65"));
+    await tick(400); // the refusal's re-read is queued behind read #1
+    await act(async () => {
+      r1.resolve({ kind: "detail", detail: { ...SETTLEABLE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-cash-reads-started-dropped): the page hands no read clock's
+    // "started" mark — the refusal is marked with the committed ticket, read #1 settles it, and a
+    // false "changed from $42.65 to $42.10" is said over the server's own figure; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.10", "$42.65"));
+    expect(take().textContent).toContain("$42.65");
+    await act(async () => {
+      r2.resolve({ kind: "detail", detail: { ...SETTLEABLE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-cash-read-ticket-dropped): the page hands no ticket — the quote
+    // sticks on $42.65 forever while the table is $42.10 again; red.
+    expect(within(dialog).getByRole("alert").textContent).toBe(movedLine("$42.65", "$42.10"));
+  });
+
+  it("the card-on-file close: read #1 keeps the trigger on the server's figure; read #2 puts $42.10 back", async () => {
+    let answerClose!: (v: unknown) => void;
+    closeSecureTab.mockImplementationOnce(() => new Promise((r) => (answerClose = r)));
+    const SECURE: TableDetail = { ...SETTLEABLE, tab: "secure" };
+    mountWith(SECURE);
+    const trigger = () => settleButtons()[0]!;
+    fireEvent.click(trigger());
+    const r1 = held();
+    const r2 = held();
+    let n = 0;
+    answer = () => (++n === 1 ? r1.promise : r2.promise);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
+    });
+    await tick(5000); // read #1 starts — in the air
+    await act(async () => {
+      answerClose(moved);
+    });
+    expect(trigger().textContent).toContain("$42.65");
+    await tick(400);
+    await act(async () => {
+      r1.resolve({ kind: "detail", detail: { ...SECURE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-close-reads-started-dropped): read #1 settles the refusal; red.
+    expect(trigger().textContent).toContain("$42.65");
+    await act(async () => {
+      r2.resolve({ kind: "detail", detail: { ...SECURE } });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-close-read-ticket-dropped): the trigger stays $42.65; red.
+    expect(trigger().textContent).toContain("$42.10");
+  });
+});
+
+describe("FloorDetailLive — a lost counter cash settle's 'most likely went through' is bounded (R2)", () => {
+  const COUNTER: TableDetail = { ...SETTLEABLE, label: "reg-7f3a", tableNumber: null };
+  /** A counter cash settle whose response is lost, then Cancel — the order still reads open. */
+  async function lostThenCancel(extra: { terminalReady?: boolean } = {}) {
+    settleCash.mockRejectedValueOnce(new Error("fetch failed"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...COUNTER } });
+    mountWith(COUNTER, extra);
+    fireEvent.click(settleButtons()[0]!);
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const take = within(dialog)
+      .getAllByRole("button")
+      .find((b) => b.classList.contains("ui-btn-primary"))!;
+    await act(async () => {
+      fireEvent.click(take);
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(ts("en", "settle.cash.unknown"));
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    });
+    await tick(400); // the lost settle's re-read: the order is still open
+  }
+  const unknownNotice = () =>
+    screen.queryByRole("region", { name: ts("en", "settle.cash.unknownClosed") });
+
+  it("the READER takes the payment afterwards: its close is the reader's paid card, never 'the payment most likely went through'", async () => {
+    await lostThenCancel({ terminalReady: true });
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_9", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({
+      ok: true,
+      state: "succeeded",
+      orderId: "o-00c0ffee",
+      totalCents: 4210,
+    });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!); // Card on the reader
+    });
+    await tick(0);
+    await tick(0);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2c-reg2/floor-unknown-survives-the-reader): keep the mark when the reader starts —
+    // the reader's own close is announced as the lost CASH settle having most likely gone through,
+    // and "find it on the floor before taking payment again" sends the cashier hunting; red.
+    expect(unknownNotice()).toBeNull();
+    // The reader's paid card holds the bounce, as it always did.
+    expect(screen.getByRole("region", { name: /Paid/ })).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("cancelled, and the order closes long after the settle could have landed (cleared from another tablet): back to the floor, no claim", async () => {
+    await lostThenCancel();
+    // Reads keep showing the order OPEN past the freeze's lifetime — the settle never landed.
+    await tick(SETTLE_TTL_MS + 5000);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2c-reg2/floor-unknown-never-read-out): the page never runs the reads through
+    // `settleUnknownAfterRead` — the close is held and said as "most likely went through"; red.
+    expect(unknownNotice()).toBeNull();
+    expect(replace).toHaveBeenCalledWith(STAFF_DOOR_TARGET.counter);
+    vi.restoreAllMocks();
+  });
+
+  it("a read that STARTED inside the window proves nothing, even when it answers after it", async () => {
+    await lostThenCancel(); // the mark is set at T; we are at T+400, every read so far "open"
+    await tick(SETTLE_TTL_MS - 10_000 - 400); // T + TTL − 10s
+    let answerA!: (r: TableDetailResult) => void;
+    let answerB!: (r: TableDetailResult) => void;
+    let n = 0;
+    answer = () =>
+      new Promise<TableDetailResult>((r) => {
+        if (++n === 1) answerA = r;
+        else answerB = r;
+      });
+    await tick(5000); // read A starts within 5s — inside the window — and hangs
+    await tick(6000); // T + TTL + 1s: A still in the air; the polls queue one more read
+    await act(async () => {
+      answerA({ kind: "detail", detail: { ...COUNTER } }); // A answers "open", after the window
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    await act(async () => {
+      answerB({ kind: "closed" });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // MUTATION (p2c-reg2/floor-unknown-read-timed-at-its-answer): time the read by when it ANSWERED
+    // — read A (begun inside the window) clears the mark, and a settle that landed after A's
+    // snapshot is then bounced to the floor as if nothing had happened; red.
+    expect(unknownNotice()).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("reads that show the order PAID never clear it, however late — that is a landed settle", async () => {
+    await lostThenCancel();
+    // The settle landed; the counter session's own close is late (its after() missed).
+    answer = () =>
+      Promise.resolve({ kind: "detail", detail: { ...COUNTER, cartId: null, settled: true } });
+    await tick(SETTLE_TTL_MS + 5000);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2c-reg2/floor-unknown-cleared-by-a-paid-read): read every detail as an open cart —
+    // the paid reads clear the mark and the landed settle's close bounces the cashier to the floor
+    // with the #CODE never shown; red.
+    expect(unknownNotice()).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+
+  it("a close INSIDE that window is still held and said (the settle may have landed)", async () => {
+    await lostThenCancel();
+    await tick(60_000);
+    answer = () => Promise.resolve({ kind: "closed" });
+    await tick(5000);
+    // MUTATION (p2c-reg2/floor-unknown-cleared-by-any-open-read): the reads right after the rejection
+    // clear the mark — a late-landing settle's close bounces the cashier to the floor; red.
+    expect(unknownNotice()).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});
+
+describe("FloorDetailLive — the reader's money status is never masked by a stale refusal (R3)", () => {
+  it("a line-edit refusal standing in the region gives way when the reader starts speaking — and to each status after", async () => {
+    // A to-go draft keeps a stepper on screen without gating the settle (it cooks at payment).
+    const TOGO: TableDetail = {
+      ...SETTLEABLE,
+      lines: [{ ...line("l1", "Mohinga"), fulfillment: "togo" }],
+      itemCount: 1,
+      send: { sendable: 0, staffAdded: 0, togoDraft: 1, inKitchen: false, foodDraft: false },
+    };
+    answer = () => Promise.resolve({ kind: "detail", detail: { ...TOGO } });
+    staffSetQty.mockResolvedValue({ ok: false, error: "That line just changed." });
+    mountWith(TOGO, { terminalReady: true });
+    const inc = document
+      .getElementById("order-h")!
+      .closest("section")!
+      .querySelectorAll<HTMLButtonElement>(".mms-stepper-btn")[1]!;
+    await act(async () => {
+      fireEvent.click(inc);
+    });
+    await tick(0);
+    expect(orderRegion().textContent).toBe("That line just changed.");
+    // The cashier moves on to the reader.
+    settleCard.mockResolvedValueOnce({ ok: true, paymentIntentId: "pi_3", totalCents: 4210 });
+    terminalStatus.mockResolvedValue({ ok: true, state: "collecting" });
+    await act(async () => {
+      fireEvent.click(settleButtons()[1]!);
+    });
+    await tick(0);
+    await tick(0);
+    // MUTATION (p2c-reg2/floor-reader-status-under-a-stale-refusal): the status leaves the refusal
+    // standing — it outranks the reader, so a screen-reader cashier never hears "Waiting for the
+    // guest…", nor later "The payment didn't go through" / "Don't charge again"; red.
+    expect(orderRegion().textContent).toBe(ts("en", "settle.reader.status.waiting"));
+    // The next status is heard too (the charge is declined).
+    terminalStatus.mockResolvedValue({ ok: true, state: "failed", error: null });
+    await tick(5000);
+    expect(orderRegion().textContent).toBe(ts("en", "settle.reader.status.failed"));
+    expect(polite()).toHaveLength(1);
+  });
+});
+
+describe("FloorDetailLive — the programmatic focus landings keep the focus ring (R4)", () => {
+  it("neither the settle heading (?settle=1) nor the order heading (its fallback, the catch-all, the gate's jump) suppresses the outline inline", async () => {
+    mountWith(SETTLEABLE, { focusSettle: true });
+    await tick(0);
+    expect(document.activeElement).toBe(document.getElementById("settle-h"));
+    // An inline `outline: none` outranks the global `:focus-visible` rule, so a keyboard cashier
+    // landing here saw no ring at all (WCAG 2.4.7). The ring itself is globals.css's :focus-visible.
+    for (const id of ["settle-h", "order-h"]) {
+      const h = document.getElementById(id)!;
+      expect(h.style.outline).toBe("");
+      expect(h.style.outlineStyle).toBe("");
     }
   });
 });

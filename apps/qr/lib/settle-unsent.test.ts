@@ -7,8 +7,11 @@ import { UNSENT_SETTLE_REFUSAL } from "./settle-refusal";
  *
  * A cash settle or a card-on-file close used to charge for AND fire every unsent draft — a dessert
  * added but never sent was billed, then cooked after the table had left. The check runs UNDER the
- * freeze (nothing can add or fire between the verdict and the charge), BEFORE the totals, and a
- * refusal releases the freeze it took, scoped to its own attempt.
+ * freeze, BEFORE the totals, and a refusal releases the freeze it took, scoped to its own attempt.
+ * (Phase 2c · review, R7 — this used to say "nothing can add or fire between the verdict and the
+ * charge". False: the add paths check the freeze with a read before their write, and the insert RPC
+ * guards only `status = 'open'`, so an add can land after the verdict. The cash settle and the
+ * running-bill close refuse that through their compare-and-swap; the reader has none — OPEN-ITEMS.)
  *
  * The DB fake answers the unsent read with ROWS, so the count is the real
  * `kitchenDraftUnitsFromRows` (dine-in drafts only) and the mode is the real session's: a to-go
@@ -232,6 +235,36 @@ describe("closeSecureTab — the running-bill close is gated too, before any Pay
   it("a fully sent running bill charges the server's total", async () => {
     tabType = "secure";
     rows = [{ state: "fired", fulfillment: "dinein", qty: 3 }];
+    const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 });
+    expect(r).toEqual({ ok: true });
+    expect(ops).toContain("pi.create:4368");
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("the counter's exemption is the MODE's — not a coincidence of to-go rows (R6)", () => {
+  // Every case above that pins the exemption uses to-go drafts, which count 0 in ANY mode — so
+  // replacing `session.mode` with "dinein" at either door survived. A pickup (counter) session
+  // holding DINE-IN-fulfilment drafts separates the two: the rows count, and only the mode exempts.
+  const COUNTER = { id: SESSION, mode: "pickup", qr_code: "reg-7K2Q" };
+
+  it("settleCash — a counter order with dine-in drafts still settles", async () => {
+    // MUTATION (p2c-reg2/cash-gate-ignores-the-mode): read the gate with "dinein" — the counter,
+    // which cooks when it is PAID, can never take cash for this order; red.
+    session = COUNTER;
+    rows = [{ state: "draft", fulfillment: "dinein", qty: 2 }];
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 4368 });
+    expect(r).toMatchObject({ ok: true, orderId: "order-1" });
+    expect(cashRecorded()).toBe(true);
+    // The rows were read and DID count — the mode is what let it through.
+    expect(ops).toContain("unsent-read");
+  });
+
+  it("closeSecureTab — a counter order with dine-in drafts still charges", async () => {
+    // MUTATION (p2c-reg2/tab-close-gate-ignores-the-mode): the same, at the running-bill close; red.
+    session = COUNTER;
+    tabType = "secure";
+    rows = [{ state: "draft", fulfillment: "dinein", qty: 2 }];
     const r = await closeSecureTab({ sessionId: SESSION, quotedCents: 4368 });
     expect(r).toEqual({ ok: true });
     expect(ops).toContain("pi.create:4368");

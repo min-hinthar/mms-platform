@@ -94,6 +94,8 @@ export function CashSettleButton({
   blockedNoteId,
   onBlockedTap,
   running = false,
+  readTicket = 0,
+  readsStarted,
 }: {
   sessionId: string;
   totalCents: number;
@@ -142,6 +144,12 @@ export function CashSettleButton({
    *  `settlePrimary(tab) === "secureTab"`): a raced refusal in the sheet says the running bill's
    *  sentence, the one the page's note and region say — never a second sentence for one fact. */
   running?: boolean;
+  /** Phase 2c · review (R1) — the page's read clock: the ticket of the detail `totalCents` came
+   *  from. A `moved` refusal's figure stands until a read that began AFTER the refusal commits. */
+  readTicket?: number;
+  /** The last detail read STARTED (the page's ref) — called when a refusal lands, never in render:
+   *  a read already in the air then may predate the move, so it cannot settle the refusal. */
+  readsStarted?: () => number;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -168,7 +176,8 @@ export function CashSettleButton({
   const [quote, setQuote] = useState<SettleQuote | null>(null);
   // Render-time adjustment (React's guarded set-during-render, as FloorDetailLive's `seenDetail`):
   // the page caught up with the server's figure, so a later move BACK reads as the move it is.
-  const reconciled = reconcileQuote(quote, totalCents);
+  // Phase 2c · review (R1) — and a read that began after a refusal settles the refusal's figure.
+  const reconciled = reconcileQuote(quote, totalCents, readTicket);
   if (reconciled !== quote) setQuote(reconciled);
   // Closed, it is the figure the sheet WOULD open on (the trigger's label); open, the frozen one.
   const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
@@ -280,7 +289,9 @@ export function CashSettleButton({
           if (res.code === "moved") {
             // Nothing was recorded. Quote the server's figure at once (not optimistic — it is what the
             // server just derived) and re-read the detail; the re-tap quotes it and is re-checked.
-            setQuote({ cents: res.totalCents, basis });
+            // `raisedAt` — the page's read clock NOW (R1): only a read that starts after this may
+            // settle the server's figure, whatever that read brings back.
+            setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });
             setError({ kind: "moved", from: quoted, to: res.totalCents });
             onChanged?.();
             return;

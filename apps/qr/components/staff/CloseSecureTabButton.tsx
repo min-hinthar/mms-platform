@@ -53,6 +53,8 @@ export function CloseSecureTabButton({
   blockedNoteId,
   onBlockedTap,
   gateLive,
+  readTicket = 0,
+  readsStarted,
 }: {
   sessionId: string;
   totalCents: number;
@@ -72,6 +74,10 @@ export function CloseSecureTabButton({
    *  retired (a send, a later read with nothing unsent, another setter): the raced line never
    *  outlives it. Omitted (no page): the line lives until the table reads blocked or the next tap. */
   gateLive?: boolean;
+  /** Phase 2c · review (R1) — the page's read clock (see CashSettleButton): the committed detail's
+   *  ticket, and the last read STARTED (called when a refusal lands, never in render). */
+  readTicket?: number;
+  readsStarted?: () => number;
 }) {
   const lang = useStaffLang();
   const [confirming, setConfirming] = useState(false);
@@ -90,7 +96,8 @@ export function CloseSecureTabButton({
   // figure until the page catches up (`basis`).
   const [quote, setQuote] = useState<SettleQuote | null>(null);
   // Render-time adjustment (guarded set-during-render): the page caught up with the server's figure.
-  const reconciled = reconcileQuote(quote, totalCents);
+  // Phase 2c · review (R1) — and a read that began after a refusal settles the refusal's figure.
+  const reconciled = reconcileQuote(quote, totalCents, readTicket);
   if (reconciled !== quote) setQuote(reconciled);
   // Closed, the figure the confirm WOULD open on (the trigger's label); open, the frozen one.
   const shownTotal = (confirming && reconciled ? reconciled : openQuote(reconciled, totalCents))
@@ -152,7 +159,8 @@ export function CloseSecureTabButton({
       if (res.code === "moved") {
         // Nothing was charged. Quote the server's figure (what it just derived — not optimistic),
         // name both in the alert, and re-read the page; the re-tap is compared again.
-        setQuote({ cents: res.totalCents, basis });
+        // `raisedAt` (R1): only a read that starts after this refusal may settle the figure.
+        setQuote({ cents: res.totalCents, basis, raisedAt: readsStarted?.() ?? readTicket });
         setError({ kind: "moved", from: quoted, to: res.totalCents });
         onChanged?.();
         return;

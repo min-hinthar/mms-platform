@@ -3047,9 +3047,15 @@ export const STAFF = {
     en: "Someone’s already paying on their phone — wait for that to finish.",
     my: "ဧည့်သည်တစ်ယောက် ဖုန်းကနေ ငွေရှင်းနေပါတယ် — ပြီးတဲ့အထိ စောင့်ပါ။",
   }, // K15-HIGH — tells staff not to take money while a guest pays
+  // Phase 2c · review fixes · reg2 — the tail no longer says "try again": `closeSecureTab` keys each
+  // off-session PaymentIntent per ATTEMPT, so a retry after the freeze lapses mints a second charge,
+  // and a charge whose webhook is late reads exactly like one that never landed. Past the wait, the
+  // owner checks the card payments first. MY re-drafted (K15): ထပ်ငွေမယူခင် grounded in
+  // settle.cash.unknownClosed, ကတ်ငွေပေးချေမှု in settle.reader.status.blind, ပိုင်ရှင် in the
+  // cash-refund refusal ("tell the owner").
   "settle.inflight.register": {
-    en: "A payment started at the register on this table hasn’t finished — don’t take cash or another card yet. If it went through, it finishes by itself shortly; if it hasn’t finished in {n} minutes, try again.",
-    my: "ဒီစားပွဲအတွက် ကောင်တာမှာ စထားတဲ့ ငွေရှင်းမှု မပြီးသေးပါ — ငွေသား ဒါမှမဟုတ် နောက်ကတ်တစ်ခု မယူပါနဲ့ဦး။ ငွေဖြတ်ပြီးသားဆိုရင် ခဏနေ အလိုလို ပြီးသွားပါမယ်၊ {n} မိနစ်အတွင်း မပြီးရင် ထပ်စမ်းပါ။",
+    en: "A payment started at the register on this table hasn’t finished — don’t take cash or another card yet. If it went through, it finishes by itself shortly. If it still hasn’t finished in {n} minutes, ask the owner to check the card payments before you take payment again.",
+    my: "ဒီစားပွဲအတွက် ကောင်တာမှာ စထားတဲ့ ငွေရှင်းမှု မပြီးသေးပါ — ငွေသား ဒါမှမဟုတ် နောက်ကတ်တစ်ခု မယူပါနဲ့ဦး။ ငွေဖြတ်ပြီးသားဆိုရင် ခဏနေ အလိုလို ပြီးသွားပါမယ်။ {n} မိနစ်အတွင်း မပြီးရင် ထပ်ငွေမယူခင် ကတ်ငွေပေးချေမှုတွေကို ပိုင်ရှင်ကို စစ်ခိုင်းပါ။",
   }, // K15-HIGH — a second payment now can collect twice
   "settle.inflight.unsure": {
     en: "A payment on this table is already going through — on a guest’s phone or at the register. Don’t take another payment until it finishes.",

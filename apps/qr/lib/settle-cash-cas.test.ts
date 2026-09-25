@@ -53,6 +53,18 @@ vi.mock("./lock", () => ({
     return Promise.resolve({ released: true, error: null });
   },
 }));
+// Phase 2c · review (R5) — the settle gate's read, answered EXPLICITLY. Unmocked, the fake DB below
+// answered it with a count shape, `kitchenDraftUnits` took its read-FAILURE path (0, fail-open) and
+// every case here ran through the gate's outage branch — green with the gate deleted, or moved
+// after the compare. Each case now says how many dine-in dishes are unsent (0 unless it says).
+let unsentUnits = 0;
+let unsentReads = 0;
+vi.mock("./unsent-read", () => ({
+  kitchenDraftUnits: () => {
+    unsentReads += 1;
+    return Promise.resolve(unsentUnits);
+  },
+}));
 vi.mock("./tax", () => ({ lineTax: () => 0 }));
 vi.mock("./order-lines", () => ({
   insertOrIncLine: () => Promise.resolve(),
@@ -125,6 +137,8 @@ const { settleCash } = await import("./staff-cart");
 const settled = () => rpcCalls.includes("mms_fulfill_cash_order");
 
 beforeEach(() => {
+  unsentUnits = 0;
+  unsentReads = 0;
   inFlight = null;
   cartFreeze = { settle_at: null, settle_by: null };
   rpcCalls.length = 0;
@@ -140,6 +154,8 @@ describe("settleCash — the quote the cashier read is compared inside the freez
     const r = await settleCash({ sessionId: SESSION, tipCents: 500, quotedCents: 3868 });
     expect(r).toEqual({ ok: true, orderId: "order-1", totalCents: 4368, tipCents: 500 });
     expect(settled()).toBe(true);
+    // Through the gate's REAL branch (nothing unsent), never its fail-open one.
+    expect(unsentReads).toBe(1);
   });
 
   it("a quote that moved refuses with `moved` and the server's figure, BEFORE the RPC — and the freeze is released under the owner that took it", async () => {
@@ -204,6 +220,34 @@ describe("settleCash — refused mid-payment, TRUTHFULLY and as a typed code (P2
     expect(r.error).not.toMatch(/their phone/);
     // Refused BEFORE the freeze: nothing taken, nothing recorded.
     expect(lockCalls).toEqual([]);
+    expect(settled()).toBe(false);
+  });
+});
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("settleCash — the settle gate answers BEFORE the compare-and-swap (R5)", () => {
+  it("unsent dishes AND a moved quote: refused as `unsent` — the gate decides first, the totals are never read, the freeze is released", async () => {
+    // MUTATION (p2c-reg2/cas-suite-cash-gate-deleted): delete the gate — the moved quote answers
+    // `moved` and a later re-tap records the order over two dishes nobody sent; red.
+    // MUTATION (p2c-reg2/cas-suite-cash-gate-after-the-cas): run the gate after the compare — the
+    // cashier is told the total moved (and re-taps into the gate) instead of the fix; red.
+    unsentUnits = 2;
+    const r = await settleCash({ sessionId: SESSION, tipCents: 500, quotedCents: 4368 });
+    expect(r).toMatchObject({ ok: false, code: "unsent", units: 2 });
+    expect(settled()).toBe(false);
+    expect(totalsCalls).toEqual([]);
+    const acquired = lockCalls.filter((c) => c.op === "acquire");
+    expect(acquired).toHaveLength(1);
+    expect(lockCalls).toEqual([
+      { op: "acquire", cartId: CART, owner: acquired[0]!.owner },
+      { op: "release", cartId: CART, owner: acquired[0]!.owner },
+    ]);
+  });
+
+  it("unsent dishes with an EQUAL quote are refused too — the compare passing is no licence", async () => {
+    unsentUnits = 1;
+    const r = await settleCash({ sessionId: SESSION, tipCents: 0, quotedCents: 3868 });
+    expect(r).toMatchObject({ ok: false, code: "unsent", units: 1 });
     expect(settled()).toBe(false);
   });
 });

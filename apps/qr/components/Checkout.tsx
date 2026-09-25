@@ -850,6 +850,17 @@ export function Checkout({
   const scheduleEchoRefresh = useCoalescedRefresh(refresh);
   useCartRealtime(cartId, anon?.accessToken ?? "", scheduleEchoRefresh);
   const [payError, setPayError] = useState<string | null>(null);
+  // Phase 2c · review fixes · reg2 — a REFUSED tap re-says its reason every time. A second tap on a
+  // dimmed door set the same string, React skipped the same-value state, the region did not change
+  // and a screen reader heard nothing. Each refusal renumbers the region's text (`statusSeq`, the
+  // key below), so the same sentence is a new DOM node — a new announcement; it also clears a
+  // standing pay error (the region's own rule: each handler clears the other first).
+  const [statusSeq, setStatusSeq] = useState(0);
+  const sayRefusal = (text: string) => {
+    setPayError(null);
+    setStatus(text);
+    setStatusSeq((n) => n + 1);
+  };
   /**
    * A refusal waiting for its frame — WITH the landing predicate that produced it (Codex round 5).
    *
@@ -3657,8 +3668,9 @@ export function Checkout({
                 onClick={() => {
                   if (payFrozen) return;
                   if (sendBlocksPay) {
-                    // The note above says why; the status line repeats it for a tap that missed it.
-                    setStatus(
+                    // The note above says why; the status line repeats it for a tap that missed it
+                    // — on EVERY tap (`sayRefusal`, Phase 2c · review).
+                    sayRefusal(
                       "Send everything to the kitchen first — then the bill is ready to pay.",
                     );
                     return;
@@ -3723,7 +3735,8 @@ export function Checkout({
                   sendBlocksPay && !payFrozen
                     ? () =>
                         // The host is told to send; a guest is told who does (the note's split).
-                        setStatus(
+                        // Said again on every tap (`sayRefusal`, Phase 2c · review).
+                        sayRefusal(
                           counterUnsentTapCopy(
                             canSendToKitchen ? null : (hostName ?? TABLE_STARTER),
                           ),
@@ -3811,7 +3824,9 @@ export function Checkout({
                 color: payError ? "var(--warn)" : "var(--t2)",
               }}
             >
-              {payError ?? status}
+              {/* Keyed on `statusSeq` (Phase 2c · review): a refused tap renumbers it, so a repeated
+                  sentence remounts and is said again. */}
+              <span key={statusSeq}>{payError ?? status}</span>
             </p>
           </>
         )}

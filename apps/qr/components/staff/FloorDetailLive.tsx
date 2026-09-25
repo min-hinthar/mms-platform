@@ -50,6 +50,7 @@ import { MsgText, type StaffMsg } from "./StaffMsg";
 import { useStaffSend } from "./useStaffSend";
 // ── Phase 2c · register ──
 import { handoffStillCurrent, settlePrimary, type Handoff } from "@/lib/register-ui";
+import { settleUnknownAfterRead } from "@/lib/register-math";
 import { inFlightMsg } from "@/lib/inflight-refusal";
 import { HandoffCard } from "./HandoffCard";
 import type { ReaderStatus } from "./TerminalSettle";
@@ -126,6 +127,10 @@ export function FloorDetailLive({
   // Every detail read takes a ticket; the committed detail's ticket rides beside it (see `sendNote`).
   const reads = useRef(0);
   const [readTicket, setReadTicket] = useState(0);
+  // Phase 2c · review (R1) — the last read STARTED, for a settle refusal to mark itself with (read
+  // in the refusal's handler, never during render): only a read that begins after it may settle
+  // the server's figure.
+  const readsStarted = useCallback(() => reads.current, []);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const orderHeadingRef = useRef<HTMLHeadingElement>(null);
 
@@ -137,7 +142,14 @@ export function FloorDetailLive({
   // floor is HELD (a ref the button sets through `onOutcomeUnknown`, read by `refresh`) and the page
   // says so where the settle was (`closedAfterUnknown`), instead of yanking the cashier to the floor
   // mid-sheet with the promised "the order shows paid" never shown anywhere.
-  const settleUnknown = useRef(false);
+  //
+  // Phase 2c · review (R2) — the mark is WHEN the page learned the outcome was unknown (device ms),
+  // not a bare flag, and it ends: a committed read that STARTED after the settle could last land and
+  // still shows the cart open proves it never did (`settleUnknownAfterRead`, lib/register-math),
+  // and a reader collect that STARTS proves it too (see `setTerminalCollect`). Before, only a later
+  // answered CASH attempt cleared it, so a close hours later — cleared from another tablet, or paid
+  // on the reader — was said as "the payment most likely went through".
+  const settleUnknown = useRef<number | null>(null);
   const [closedAfterUnknown, setClosedAfterUnknown] = useState(false);
   const closedNoticeRef = useRef<HTMLElement>(null);
   const canWrite = detail.cartId != null && !detail.paymentInFlight && !closedAfterUnknown;
@@ -186,6 +198,11 @@ export function FloorDetailLive({
     (c: TerminalCollect | null) => {
       setTerminalCollectState(c);
       if (!c) setReaderStatus(null);
+      // Phase 2c · review (R2) — a reader collect STARTED: `settleCard` took the settle freeze on an
+      // OPEN cart, which a landed cash settle would have paid (and which a cash settle still holding
+      // its own freeze would have refused), so a lost cash settle before it can no longer land. Its
+      // close is the reader's, never "the payment most likely went through".
+      if (c) settleUnknown.current = null;
       try {
         if (c) sessionStorage.setItem(`mms-terminal-collect:${sessionId}`, JSON.stringify(c));
         else sessionStorage.removeItem(`mms-terminal-collect:${sessionId}`);
@@ -196,6 +213,16 @@ export function FloorDetailLive({
     // `setReaderStatus` is named for the React Compiler (the `setSendNote` note below): it IS stable.
     [sessionId, setReaderStatus],
   );
+  // Phase 2c · review (R3) — the reader's status is a SETTER of the one region, like every other: a
+  // change is the newer fact (a charge in progress, declined, landed-but-unrecorded — K15-HIGH money
+  // sentences), so it clears a standing `writeError`. That refusal (a line edit, a promo) outranks
+  // the settle line and nothing else ever expired it, so a screen-reader cashier who met one before
+  // starting the reader never heard the reader at all. A refusal raised DURING a collect still
+  // speaks, until the reader's next status.
+  const onReaderStatus = useCallback((s: ReaderStatus) => {
+    setReaderStatus(s);
+    setWriteError(null);
+  }, []);
   const handoffRef = useRef<HTMLElement>(null);
   // The webhook's counter-session close races the panel's poll: a `closed` verdict must not bounce
   // to the floor while the collect panel / handoff card IS the live surface — the cashier would
@@ -261,11 +288,18 @@ export function FloorDetailLive({
         // This read's ticket — committed WITH its detail (one batched render), so the send line can
         // tell a read that began after it from one already in the air (`sendNoteAfterCommit`).
         const ticket = ++reads.current;
+        // Phase 2c · review (R2) — when this read STARTED (the unknown-outcome bound reads it).
+        const startedAtMs = Date.now();
         try {
           // raceTimeout (W10b): a hung poll must degrade into the catch path, not freeze inFlight.
           const res = await raceTimeout(getTableDetail(sessionId));
           if (!alive.current) return;
           if (res.kind === "detail") {
+            // Phase 2c · review (R2) — an open cart read after the lost settle could last land.
+            settleUnknown.current = settleUnknownAfterRead(settleUnknown.current, {
+              startedAtMs,
+              cartOpen: res.detail.cartId != null && !res.detail.settled,
+            });
             setDetail(res.detail);
             setReadTicket(ticket);
             fails.current = 0;
@@ -279,7 +313,7 @@ export function FloorDetailLive({
             // Phase 2a · tablet: the floor BY NAME — a bare `/staff` resolves by the door cookie.
             // Phase 2c · register: HELD while a counter cash settle's outcome is unknown — the close
             // is then most likely that settle landing (see `settleUnknown`); the page says so.
-            if (settleUnknown.current) setClosedAfterUnknown(true);
+            if (settleUnknown.current !== null) setClosedAfterUnknown(true);
             else if (!terminalFlowLive.current) {
               router.replace(STAFF_DOOR_TARGET.counter);
               router.refresh();
@@ -672,7 +706,10 @@ export function FloorDetailLive({
               id="order-h"
               ref={orderHeadingRef}
               tabIndex={-1}
-              style={{ ...sectionH, outline: "none" }}
+              // Phase 2c · review (R4) — no inline `outline: none`: it outranked the global
+              // `:focus-visible` ring on the catch-all's, `?settle=1`'s fallback and the settle
+              // gate's jump target. The browser shows the ring only for keyboard-origin focus.
+              style={sectionH}
             >
               {/* `echo={false}`: this heading names the region through aria-labelledby AND is the
                 focus target the catch-all restores to — an echo would put both scripts in both. */}
@@ -905,7 +942,9 @@ export function FloorDetailLive({
 
               writeError > settle line > degraded > send warn > send ok
 
-            - writeError — a line edit or promo refusal the person just caused.
+            - writeError — a line edit or promo refusal the person just caused. Every other setter
+              clears it, and so does each reader status change (Phase 2c · review, R3): the reader's
+              money sentences are the newer fact, never masked by a refusal from before the collect.
             - settle line — the settle gate's "send them first" warn (Phase 2c · gate: a refused
               settle tap, or a server `unsent`), rendered VISIBLY — it is the sentence beside the
               Send the tap just jumped to; else the reader's status while its collect panel is live
@@ -1064,6 +1103,8 @@ export function FloorDetailLive({
                 blocked={settleBlocked}
                 blockedNoteId={SETTLE_UNSENT_NOTE_ID}
                 onBlockedTap={(units) => onSettleBlocked("tab", units)}
+                readTicket={readTicket}
+                readsStarted={readsStarted}
                 gateLive={settleGate !== null}
               />
             )}
@@ -1083,7 +1124,7 @@ export function FloorDetailLive({
               onOutcomeUnknown={
                 isCounter
                   ? (unknown) => {
-                      settleUnknown.current = unknown;
+                      settleUnknown.current = unknown ? Date.now() : null;
                     }
                   : undefined
               }
@@ -1091,6 +1132,8 @@ export function FloorDetailLive({
               blockedNoteId={SETTLE_UNSENT_NOTE_ID}
               onBlockedTap={(units) => onSettleBlocked("cash", units)}
               running={runningClose}
+              readTicket={readTicket}
+              readsStarted={readsStarted}
             />
             {/* W6c: card-present on the reader — only when the reader env is configured. The collect
               window itself renders BELOW, outside this open-cart conditional (it must survive the
@@ -1144,7 +1187,7 @@ export function FloorDetailLive({
             sessionId={sessionId}
             collect={terminalCollect}
             isCounter={isCounter}
-            onStatus={setReaderStatus}
+            onStatus={onReaderStatus}
             onChanged={onChange}
             onDone={(h) => {
               setTerminalCollect(null);
@@ -1259,12 +1302,13 @@ const wrap: CSSProperties = { maxWidth: 640, margin: "0 auto" };
 // Phase 2c · gate — the settle gate's note; every trigger's `aria-describedby` names it first.
 const SETTLE_UNSENT_NOTE_ID = "settle-unsent-note";
 // Phase 2c · register — the settle section's heading: the page's section-heading voice, and a focus
-// target (the `?settle=1` landing), so no outline of its own beyond the focus ring rule.
+// target (the `?settle=1` landing). Phase 2c · review (R4): it carries NO outline of its own — an
+// inline `outline: none` outranked the global `:focus-visible` ring, so a keyboard landing showed
+// nothing.
 const settleHeading: CSSProperties = {
   fontSize: "var(--fs-sm)",
   margin: 0,
   color: "var(--t2)",
-  outline: "none",
 };
 // P7·1b — the staff bar is the page's header; the constants below style the content beneath it.
 const header: CSSProperties = { marginBottom: "var(--s5)" };

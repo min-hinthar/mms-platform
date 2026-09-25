@@ -333,3 +333,52 @@ describe("CloseSecureTabButton — the settle gate (refused while dishes are uns
     expect(document.body.textContent).not.toContain(said);
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("CloseSecureTabButton — a refusal's figure is settled by the page's NEXT read (R1)", () => {
+  const triggerAt = (m: string) =>
+    screen.getByRole("button", {
+      name: new RegExp(
+        `^${STAFF["settle.card.trigger"].en.replace("{m}", m.replace(/[$.]/g, "\\$&"))}`,
+      ),
+    });
+  it("add-then-remove before the re-read: the read that began AFTER the refusal re-opens the confirm on $42.10", async () => {
+    closeSecureTab.mockResolvedValueOnce({
+      ok: false,
+      code: "moved",
+      totalCents: 4265,
+      error: "The total changed — check the order, then take payment again.",
+    });
+    const el = (totalCents: number, readTicket: number) => (
+      <StaffLangProvider lang="en">
+        <CloseSecureTabButton
+          sessionId="s1"
+          totalCents={totalCents}
+          onChanged={onChanged}
+          readTicket={readTicket}
+          readsStarted={() => Math.max(readTicket, 4)}
+        />
+      </StaffLangProvider>
+    );
+    // Read #3 committed; read #4 already in the air when the refusal comes back.
+    const { rerender } = render(el(4210, 3));
+    fireEvent.click(triggerAt("$42.10"));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
+    });
+    expect(triggerAt("$42.65")).toBeTruthy();
+    // MUTATION (p2c-reg2/tab-close-refusal-raised-at-the-committed-read): read #4 (in the air at
+    // the refusal) would settle it and put the pre-refusal $42.10 back on the trigger; red.
+    rerender(el(4210, 4));
+    expect(triggerAt("$42.65")).toBeTruthy();
+    // Read #5 began after the refusal — the guest removed the item: the trigger reads $42.10 again.
+    // MUTATION (p2c-reg2/tab-close-quote-ignores-the-read-clock): the trigger keeps $42.65; red.
+    rerender(el(4210, 5));
+    fireEvent.click(triggerAt("$42.10"));
+    closeSecureTab.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /^Charge \$42\.10/ }));
+    });
+    expect(closeSecureTab).toHaveBeenLastCalledWith({ sessionId: "s1", quotedCents: 4210 });
+  });
+});
