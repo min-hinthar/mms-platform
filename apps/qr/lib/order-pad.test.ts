@@ -557,8 +557,8 @@ describe("padSettle — the settle gate: Take payment waits for everything to be
     expect(padSettleReason("unsent", { tab: false, note: null, blocker: null, unsent: 3 })).toEqual(
       { k: "table.send.settleBlocked.many", vars: { n: 3 } },
     );
-    expect(
-      padSettleReason("unsent", { tab: true, note: null, blocker: null, unsent: 1 }).k,
-    ).toBe("table.send.settleBlocked.one");
+    expect(padSettleReason("unsent", { tab: true, note: null, blocker: null, unsent: 1 }).k).toBe(
+      "table.send.settleBlocked.one",
+    );
   });
 });

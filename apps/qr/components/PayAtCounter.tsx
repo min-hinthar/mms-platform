@@ -24,11 +24,16 @@ export function PayAtCounterButton({
   disabled,
   busy,
   onClick,
+  onRefusedTap,
 }: {
-  /** The pay freeze (`payFrozen`) — the same predicate the card CTA reads. */
+  /** The pay freeze (`payFrozen`) — the same predicate the card CTA reads — or, since Phase 2c ·
+   *  gate, dishes still to send (`sendBlocksPay`, the card CTA's own gate). */
   disabled: boolean;
   busy: boolean;
   onClick: () => void;
+  /** Phase 2c · gate — a tap on the refused button says why (the Bill's status line), never nothing:
+   *  the note above already names the dishes; this repeats it for a tap that missed it. */
+  onRefusedTap?: () => void;
 }) {
   return (
     <button
@@ -37,7 +42,11 @@ export function PayAtCounterButton({
       aria-disabled={disabled || undefined}
       aria-busy={busy || undefined}
       onClick={() => {
-        if (disabled || busy) return;
+        if (busy) return;
+        if (disabled) {
+          onRefusedTap?.();
+          return;
+        }
         onClick();
       }}
       style={{
