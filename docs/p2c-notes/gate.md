@@ -175,6 +175,14 @@ packages/db 1 = 158 files, 988 mutants):
   re-anchored one) · `pad` 65 · `settle/` 62 · `terminal` 23 · `counter` 29 · `staff-send-view/` 19 ·
   `checkout` 10 — every one KILLED, no STALE, no orphans. The full 1028-mutant run (with the gate) is
   integration's.
+- **verify:slice after round 2** (`--no-gate`, one run at a time, tree clean after each):
+  `--only=unsent` **74 caught** (round 1's 40 + the 28 new + the six older `unsent` mutants) ·
+  `p2c-register/` 55 · `counter/` 7 · `p2a-register/` 9 (the non-gate mutants on the files round 2
+  edited: the three settle triggers, `counter-pay-state.ts`, `counter-pay.ts`) — every one KILLED, no
+  STALE, no orphans; `check:mutant-anchors` clean (1056 anchors, 160 files). `Checkout.tsx`'s 38
+  non-gate mutants were not re-run: round 2 changed only its `onRefusedTap` closure and one import,
+  and its suite only GAINED a test, so no earlier kill can have been lost. The full 1056-mutant run
+  (with the gate) is integration's.
 
 ## 5 · Owner-visible behaviour changes
 
