@@ -8558,7 +8558,7 @@ const MUTANTS = [
     id: "floor-detail/unsent-tab-close-jumps-to-send",
     file: "apps/qr/components/staff/FloorDetailLive.tsx",
     suite: "components/staff/FloorDetailLive.test.tsx",
-    why: "Phase 2c · gate — the running-bill close's refusal goes to the LINES (remove them if the guest has left) in the running bill's words. Routed as cash, it jumps to the Send and tells staff to cook for a table that may be empty",
+    why: "Phase 2c · gate — the running-bill close's refusal goes to the LINES (remove them if the guest has left). Routed as cash, it jumps to the Send and points staff at cooking for a table that may be empty",
     find: 'onSettleBlocked("tab", units)',
     replace: 'onSettleBlocked("cash", units)',
   },

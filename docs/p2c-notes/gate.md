@@ -25,6 +25,13 @@ units }` — a member of each door's refusal union, decided by where it happened
   its own attempt took (cash through its `finally`; the running-bill close and the reader
   explicitly, before any PaymentIntent exists). The unsent read fails OPEN: a blip falls back to the
   old settle-fires behaviour, never a stranded table.
+- **The diner's counter ask fails OPEN on both of its reads — and that is safe.** `requestCounterPay`
+  reads `host_seat` and the unsent drafts beside its count; either read failing reads as "no host" /
+  "nothing unsent" and the ask goes through. The ask moves no money: every charge behind it still
+  refuses on its own — the Bill's card pay at create-intent (`payBlockedByUnsent`, the same binding),
+  and the register's settle doors under their freeze (the staff gate above). A blip therefore lights
+  the floor for a table the register will then refuse at the counter, never a charge over unsent
+  dishes. (Pinned: `counter-pay/unsent-host-read-fails-closed`.)
 - **A gated trigger stays rendered, with its amount.** It is dimmed by `aria-disabled` (a spread,
   so the primitive's own busy state is never erased) plus its handler's own guard — never native
   `disabled` — and its `aria-describedby` reads the page's note first. The note
@@ -34,9 +41,13 @@ units }` — a member of each door's refusal union, decided by where it happened
 - **A refused tap names the fix and goes there.** The page's ONE polite region says the sentence at
   the SETTLE rank, VISIBLY (writeError > settle line > degraded > send warn > send ok; within the
   settle rank the gate's line, else the reader's status), and focus lands on the fix: the Send for
-  cash or the reader (scrolled to centre, `auto` under reduced motion, then focused with
-  `preventScroll`), the order heading for a running-bill close — the guest may have left, so the
-  sentence offers "remove them" beside "send them". The line retires on a send outcome, on any other
+  cash or the reader (scrolled to centre — the region line sits right under it), the order heading
+  for a running-bill close (scrolled to the TOP — the lines to remove are below it); `auto` under
+  reduced motion, then focused with `preventScroll`. **One sentence per bill, whichever door was
+  tapped:** the note, the region line and every trigger's raced line read ONE binding,
+  `runningClose = settlePrimary(tab) === "secureTab"` (the same one that renders the close) — a
+  card-on-file running bill says "send them, or remove them if the guest has left" everywhere,
+  every other bill "send them first, then take payment". The line retires on a send outcome, on any other
   setter, or on a LATER read that shows nothing unsent — never on a read already in the air when it
   was raised (`settleGateAfterCommit`, `sendNote`'s `raisedAt` rule); it names the live count once
   the page has read the drafts, the server's own count before that (`settleGateUnits`).
@@ -44,14 +55,23 @@ units }` — a member of each door's refusal union, decided by where it happened
   sentence with the SERVER's count, never the server's English: inside the cash sheet's one alert
   (the page's region is hidden behind the modal), the jump waiting for the sheet's close; beside the
   reader and running-bill triggers as plain shown text (the page's region says it — no second
-  alert), giving way to the page's note once the page has read the drafts.
+  alert). That raced line is DROPPED — not merely hidden — the moment the page catches up: the page
+  reads the table blocked (its note owns the sentence from then on) or the page's own gate line
+  retires (`gateLive` false: a send, a later read with nothing unsent, another setter). Hidden, it
+  came back under a live trigger after the dishes were sent or removed.
 - **The pad's Take payment ranks the gate after the write holds:** `paying > note > waiting > unsent
   > empty` — while a write is still landing the count is stale and the write is the fix. A refused
   > tap says the reason once through the pad's one Toast, flips a phone to the order view (where the
   > unsent dishes are listed, right above the bar's Send) and focuses the pad's Send.
 - **The diner's counter button keeps the Pay button's rule:** `disabled={payFrozen || sendBlocksPay}`
   on the Bill; the unsent note renders on the same Bill stage the button does, and a tap on the
-  dimmed button repeats the reason in the Bill's status line.
+  dimmed button repeats the reason in the Bill's status line — to the host as the fix ("Send
+  everything to the kitchen first — then pay at the counter."), to a guest as WHO sends ("{host}
+  sends everything to the kitchen first — …"), the note's own split (`counterUnsentTapCopy`). The
+  server's refusal goes to whoever asked, so it orders nobody: "Everything has to go to the kitchen
+  first — then pay at the counter."
+- **The note takes body leading** (`--lh-normal`, as the staff hints around it): its English wraps to
+  two lines at 390px; the Burmese run carries its own `--lh-my` (`.chrome-my`).
 
 ## 2 · CHANGELOG
 
@@ -81,14 +101,15 @@ Existing rows this branch changes:
 
 New rows:
 
-| Sev | Item                                                                     | Why / where                                                                                                                                                                                                                                                                                                                                     |
-| --- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| med | Kiosk dine-in handoffs will need a Send before cash once un-parked       | The kiosk (PARKED, A1) mints dine-in handoffs that carry a `host_seat`; under the settle gate the register's cash refuses them while their drafts are unsent. When the kiosk is un-parked, either the kiosk fires its round or the register's first step is the Send (spec risk, carried).                                                      |
-| low | The pad's Take payment after a drained add lands on a gated table        | A tap while an add FLIES is accepted (the pad drains it); at a dine-in table the landed dish is a new unsent draft, but the pad decided before the drain and navigates to `?settle=1`, where the table page's note and dimmed triggers say it. Correct, one screen late; re-deciding after the drain needs a fresh detail read before the push. |
-| low | A host table's diner drafts hold the register until staff send or remove | `staffSettleBlockedByUnsent` has no hostless/host exemption (the console can always send), so a diner's own unsent round at a host table blocks every staff settle; the fix is the Send (which fires the diner's round too — the mixed note says so) or removing the lines. Measure how often a cashier meets it on a real shift.               |
-| low | A raced cash refusal is said twice                                       | A server `unsent` on the cash sheet is said by the sheet's alert (the page is behind the modal), then again by the page's region when the close jumps to the Send. The second is a new moment (after the cashier's own close), but a screen-reader cashier hears the sentence twice.                                                            |
-| low | Measure the gate's note and dimmed triggers on a device                  | No browser here. Owed: 390/768/1024 · en/my · Light/Night screenshots of the settle section with the note (the Burmese running-bill sentence is the longest, ~2 lines at 390), the centred scroll to the Send from a cash tap on a phone, and the pad's refused Take payment flipping to the order view.                                        |
-| low | The diner's counter refusal is English-only                              | `COUNTER_PAY_REFUSAL_COPY.unsent` follows its siblings (the diner's counter copy is English; the Bill's unsent note above it is bilingual). A Burmese twin belongs with the rest of that map in the diner dictionary.                                                                                                                           |
+| Sev | Item                                                                       | Why / where                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --- | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| med | Kiosk dine-in handoffs will need a Send before cash once un-parked         | The kiosk (PARKED, A1) mints dine-in handoffs that carry a `host_seat`; under the settle gate the register's cash refuses them while their drafts are unsent. When the kiosk is un-parked, either the kiosk fires its round or the register's first step is the Send (spec risk, carried).                                                                                                                                                                                                                                                                                                                  |
+| low | The pad's Take payment after a drained add lands on a gated table          | A tap while an add FLIES is accepted (the pad drains it); at a dine-in table the landed dish is a new unsent draft, but the pad decided before the drain and navigates to `?settle=1`, where the table page's note and dimmed triggers say it. Correct, one screen late; re-deciding after the drain needs a fresh detail read before the push.                                                                                                                                                                                                                                                             |
+| low | A host table's diner drafts hold the register until staff send or remove   | `staffSettleBlockedByUnsent` has no hostless/host exemption (the console can always send), so a diner's own unsent round at a host table blocks every staff settle; the fix is the Send (which fires the diner's round too — the mixed note says so) or removing the lines. Measure how often a cashier meets it on a real shift.                                                                                                                                                                                                                                                                           |
+| low | A raced cash refusal is said twice                                         | A server `unsent` on the cash sheet is said by the sheet's alert (the page is behind the modal), then again by the page's region when the close jumps to the Send. The second is a new moment (after the cashier's own close), but a screen-reader cashier hears the sentence twice.                                                                                                                                                                                                                                                                                                                        |
+| low | Measure the gate's note and dimmed triggers on a device                    | No browser here. Owed: 390/768/1024 · en/my · Light/Night screenshots of the settle section with the note (the Burmese running-bill sentence is the longest, ~2 lines at 390; the note now takes `--lh-normal`), the centred scroll to the Send from a cash tap on a phone, the running-bill close's jump (the order heading scrolled to the TOP: on a phone with a long order the region line at the order's foot and the note may still be below the fold — the sentence was on screen beside the tapped trigger, and the region says it), and the pad's refused Take payment flipping to the order view. |
+| low | The Bill's Pay button tells a guest "Send everything to the kitchen first" | Phase 1b copy (the Pay CTA's blocked label and its tap line in `Checkout.tsx`), the same class as the counter refusal fixed here: only the host can send. The gate reworded only its own door (the counter); the Pay button's two strings should take the same host/guest split (`counterUnsentTapCopy`'s shape).                                                                                                                                                                                                                                                                                           |
+| low | The diner's counter refusal is English-only                                | `COUNTER_PAY_REFUSAL_COPY.unsent` and `counterUnsentTapCopy` follow their siblings (the diner's counter copy is English; the Bill's unsent note above it is bilingual). A Burmese twin belongs with the rest of that map in the diner dictionary.                                                                                                                                                                                                                                                                                                                                                           |
 
 ## 4 · Mutate-set / CLAUDE.md enumeration changes
 
@@ -124,6 +145,27 @@ packages/db 1 = 158 files, 988 mutants):
   `floor-detail/unsent-line-never-retires`, `pad-ui/unsent-tap-leaves-focus`,
   `pad-ui/unsent-tap-stays-on-the-menu`, `checkout/unsent-counter-door-open`,
   `checkout/unsent-counter-tap-silent`.
+- **Round 2 (the critic's findings): 1028 → 1056 (+28)**, appended to the same gate block (after a
+  one-line comment, before the array's end); every id still contains `unsent`. No file joins the
+  mutate set (160 files, measured). Ids: the ORDERING on all three staff doors —
+  `settle/cash-unsent-read-before-the-freeze`, `settle/cash-unsent-read-after-the-totals`,
+  `settle/tab-close-unsent-read-before-the-freeze`, `settle/tab-close-unsent-read-after-the-totals`,
+  `terminal/card-unsent-read-before-the-freeze`, `terminal/card-unsent-read-after-the-totals`; the
+  two ids round 1's tests cited but never built — `terminal-ui/unsent-trigger-always-dimmed`,
+  `secure-close/unsent-trigger-always-dimmed`; the missing pass-throughs and arms —
+  `floor-detail/unsent-reader-gate-not-passed`, `floor-detail/unsent-close-gate-not-passed`,
+  `pad/unsent-outranks-paying`, `pad/unsent-outranks-note`,
+  `counter-pay/unsent-host-read-fails-closed`; the raced line's lifetime —
+  `terminal-ui/unsent-raced-line-never-dropped`, `terminal-ui/unsent-raced-line-outlives-the-page`,
+  `terminal-ui/unsent-raced-line-outlives-the-gate`, `secure-close/unsent-raced-line-never-dropped`,
+  `secure-close/unsent-raced-line-outlives-the-page`, `secure-close/unsent-raced-line-outlives-the-gate`;
+  one sentence per bill — `terminal-ui/unsent-running-ignored`, `cashsettle/unsent-running-ignored`,
+  `floor-detail/unsent-note-variant-ignored`, `floor-detail/unsent-region-variant-by-trigger`,
+  `floor-detail/unsent-reader-variant-not-passed`, `floor-detail/unsent-cash-variant-not-passed`;
+  the lines jump — `floor-detail/unsent-lines-jump-centred`; the counter copy —
+  `counter-pay-state/unsent-guest-told-to-send`, `checkout/unsent-counter-guest-told-to-send`. The
+  `why` of `floor-detail/unsent-tab-close-jumps-to-send` dropped "in the running bill's words" (the
+  sentence no longer depends on the door); the mutant is still killed by the focus target.
 - **Re-anchored (meaning kept):** `p2c-register/cas-refusal-outside-the-freeze` — it found the
   register's seam comment ("The settle gate's unsent-dishes check sits HERE"), which is now the
   gate's own check; it anchors on the check's first comment line inside the same `try`, and still
@@ -146,13 +188,21 @@ packages/db 1 = 158 files, 988 mutants):
 - **If a guest adds a dish while the cash sheet is open,** "Take $x" is refused with that sentence
   inside the sheet; closing the sheet goes straight to the Send.
 - **The card reader and the card-on-file close** refuse the same way (nothing is charged, nothing is
-  frozen afterwards).
+  frozen afterwards). If a guest's dish landed a moment before the tap, the refusal's sentence shows
+  under that button until the page catches up — then only the note says it, and once the dishes are
+  sent or removed nothing says it.
+- **On a running bill with a card on file** every gate sentence is the same one ("…— send them, or
+  remove them if the guest has left."), whichever button was tapped. Tapping the dimmed card-on-file
+  close scrolls the order's heading to the top of the screen, its dishes below it.
 - **Order pad:** at a table with unsent dishes, Take payment is dimmed with the same sentence;
   tapping it says so and puts the finger on Send to kitchen (on a phone it shows the order first).
 - **Diner Bill:** "Pay at the counter" is dimmed while the table still has dishes to send (the note
-  above already says "Send them to the kitchen, then pay the bill."); tapping it says "Send
-  everything to the kitchen first — then pay at the counter." The server refuses the ask the same
-  way. Tables with no host (nobody at the table can send) are never held.
+  above already says "Send them to the kitchen, then pay the bill." to the host, "{host} sends them —
+  then the bill is ready to pay." to a guest); tapping it says "Send everything to the kitchen first —
+  then pay at the counter." to the host and "{host} sends everything to the kitchen first — then pay
+  at the counter." to a guest. The server refuses the ask the same way ("Everything has to go to the
+  kitchen first — then pay at the counter."). Tables with no host (nobody at the table can send) are
+  never held.
 - Counter (walk-up / phone) orders and to-go dishes are unaffected — they cook when they are paid.
 
 ## 6 · K15 strings
@@ -171,7 +221,10 @@ noted. All four are K15-HIGH (in `STAFF_K15_HIGH`) and form two plural pairs in
 Grounded: မပို့ရသေး (`table.line.notSent`), ငွေရှင်း (`table.detail.settle.title` — "Take payment"),
 ဖျက် (`table.line.a11y.remove` — "Remove", itself grounded on `table.loss.title.void`), ဟင်း · ခု (the
 pad's dish and count words). No key retired. No pad-only key: the pad's `unsent` reason renders the
-table page's own sentence (one fact, one sentence).
+table page's own sentence (one fact, one sentence). Round 2 (the critic's findings) added no staff
+key; the diner's counter refusal is English (no K15 row): `COUNTER_PAY_REFUSAL_COPY.unsent` now
+reads "Everything has to go to the kitchen first — then pay at the counter.", and
+`counterUnsentTapCopy` holds the two tap sentences.
 
 ## 7 · Deviations from spec
 
@@ -201,11 +254,16 @@ table page's own sentence (one fact, one sentence).
 8. **`requestCounterPay` keeps its count query as its own statement** (a promise passed into the
    `Promise.all` with the host read and the unsent read), so the `counter/ask-counts-voided-lines`
    anchor stays byte-identical.
-9. **One ordering mutant was not built:** "the unsent read hoisted above the freeze" needs two
-   regions changed (delete inside, insert above), and a verify-slice mutant is one find/replace. The
-   order is pinned by `lib/settle-unsent.test.ts` asserting the call SEQUENCE
-   (`acquire → unsent-read → release`), and `p2c-register/cas-refusal-outside-the-freeze` was
-   re-anchored onto the gate's new first line inside the try (meaning kept).
+9. **The ordering is mutated on all three staff doors (corrected — round 1 said it could not be).**
+   Round 1 claimed "the unsent read hoisted above the freeze" needed two regions changed. It does
+   not: a `find` may span lines, and inserting an early check above the acquire (anchored on the
+   acquire plus its next line, unique per function) moves the effective verdict above the freeze;
+   swapping one contiguous region puts the totals read first. Six mutants —
+   `settle/cash-unsent-read-{before-the-freeze,after-the-totals}`,
+   `settle/tab-close-unsent-read-{…}`, `terminal/card-unsent-read-{…}` — each killed by the
+   SEQUENCE assertions in `lib/settle-unsent.test.ts` / `lib/terminal.test.ts`
+   (`acquire → unsent-read → release`). `p2c-register/cas-refusal-outside-the-freeze` stays
+   re-anchored onto the gate's first line inside the try (meaning kept).
 10. **Fixtures moved because the gate changed what "ready to pay" means.** `FloorDetailLive.test`'s
     `SETTLEABLE` (the register's) held two unsent dine-in drafts; it is now fully sent, and the one
     case that needs a Send on screen builds its table from `DETAIL`'s drafts. Four `OrderPad.test`
@@ -217,8 +275,36 @@ table page's own sentence (one fact, one sentence).
     for every new text pair to be pinned.
 12. **FloorDetailLive and OrderPad joined the mutate set** (the register left FloorDetailLive out
     while two areas edited it in wave 1; in wave 2 only the gate does).
+13. **Round 2 (the critic's findings) widened three component APIs:** `TerminalSettleButton`
+    gained `running` and `gateLive`, `CloseSecureTabButton` `gateLive`, `CashSettleButton`
+    `running`. `gateLive` (the page's `settleGate !== null`) is what lets a raced line be dropped when
+    the dishes are removed before the page ever read them — `blocked` alone never flips there.
+    `running` is passed rather than re-derived, so the page's ONE binding (`runningClose`) decides
+    every sentence. `SettleGateNote.trigger` stays (it records the tapped door) but no longer picks
+    the sentence.
+14. **The running-bill jump scrolls to `block: "start"`**, the Send jump keeps `"center"` — decided
+    by the target (`target === orderHeadingRef.current`), so a cash tap whose Send is absent (it
+    falls back to the heading) also lands the heading at the top.
+15. **The counter's copy split** (`counterUnsentTapCopy`, a pure function in
+    `lib/counter-pay-state.ts`): beyond the scope's `COUNTER_PAY_REFUSAL_COPY.unsent`, the tap on the
+    dimmed button is role-aware because only the host can send; the server's shared sentence is
+    worded true for both roles.
 
 ## 9 · LEARNINGS candidates
+
+- **A hidden error is not a cleared one.** A child that renders `error && !blocked` keeps the error
+  in state while the parent's prop hides it; the prop flipping back resurrects a stale sentence.
+  Drop the state at render time the moment its fact is superseded (the guarded set-during-render
+  pattern), and give the child the parent's liveness when the parent may never show the blocked
+  state at all.
+- **`useRouter: () => ({ … })` in a test mock is a NEW object per render,** so every `useCallback`
+  keyed on the router (FloorDetailLive's `refresh`) changes each render, and the poll effect's
+  cleanup clears the 400ms debounced re-read on every render. The close's `onChanged` re-read never
+  fired in the test; the 5s poll did. Real Next routers are stable — make the mock's object stable, or
+  drive reads with the poll tick.
+- **A read that returns the SAME object is a React bail-out, not a read.** A fake that answers every
+  poll with one constant `detail` never trips the page's `seenDetail !== detail` supersede logic;
+  answer each read with a fresh copy, as a real fetch does.
 
 - **A manual red-check is `commit → mutate → git checkout -- <file>`, never `edit → mutate →
 checkout`.** The checkout restores the COMMITTED file, so an uncommitted addition to the same file
@@ -234,3 +320,17 @@ checkout`.** The checkout restores the COMMITTED file, so an uncommitted additio
   continuation as `setConfirming(false)`) moved focus first and the effect pulled it back a frame
   later. A ref set BEFORE the close (`jumpOwnsFocus`) hands the restore over; the mutant
   `secure-close/unsent-close-steals-focus-back` pins it.
+
+## Critic findings — rejected
+
+Round 2's eight findings were all verified against the code and all fixed (see §7.9 and §7.13–15).
+One part of one finding's EVIDENCE did not hold, recorded here so the next reader does not re-derive
+it:
+
+- **Finding 8 (the note's leading) — the Padauk half.** The finding said the note "carries a stacked
+  Burmese echo" at the heading token, "tight for Padauk". On an English console `Chrome` renders the
+  English alone (`if (lang === "en") return <>{en}</>`, `components/staff/Chrome.tsx`); on a Burmese
+  one the Burmese is the PRIMARY run, a `span.chrome-my[lang=my]` that sets its own
+  `line-height: var(--lh-my)` (globals.css `.chrome-my` and the global `[lang="my"]` rule), with the
+  English as the echo (`.chrome-en`, a block). So Padauk was never at `--lh-snug`; the ENGLISH was,
+  in both languages — which is the part fixed (`--lh-normal`).
