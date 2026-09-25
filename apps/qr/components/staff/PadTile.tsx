@@ -1,7 +1,6 @@
 "use client";
-import { memo } from "react";
+import { memo, useId } from "react";
 import { Badge, Icon } from "@mms/ui";
-import { al } from "@/lib/staff-labels";
 import type { TileAction, PadTileBlock } from "@/lib/order-pad";
 import type { StaffLang } from "@/lib/staff-lang";
 import { Chrome } from "./Chrome";
@@ -14,7 +13,12 @@ import { Chrome } from "./Chrome";
  * options corner. The main tap ADDS one with no modifiers (`add`), opens the options sheet
  * (`choose` — a required choice), or refuses and says so (`soldOut`). Every visible run is in the
  * accessible name (WCAG 2.5.3): the verb the tile shows or implies, then the dish as drawn, its
- * price and the confirmed count.
+ * price, the confirmed count and what is still on its way.
+ *
+ * ── Phase 2c · review fixes · pad2 ── the name is `aria-labelledby` over the tile's OWN runs (P9),
+ * never one flattened string: the lead and the echo keep their own `lang` (a flattened aria-label
+ * handed the Myanmar run to the English voice), the verb is in the device's tongue, and the dim `+N`
+ * is in the name with the word for what it counts.
  *
  * The confirmed `×N` badge is the SERVER's (§21: a count is a claim only from a view that saw the
  * cart); the dim `+N` is what is still on its way. The `+` disc pops on the tap (`popKey`), and a
@@ -44,17 +48,20 @@ export type PadTileProps = {
 };
 
 function PadTileImpl(p: PadTileProps) {
-  const subject = [p.lead, p.echo, p.price, p.confirmed > 0 ? `×${p.confirmed}` : null]
-    .filter((x): x is string => x !== null)
-    .join(", ");
-  // Three whole al() calls (the verb key a literal on each branch), matching the three marks.
+  const uid = useId();
+  const run = (part: string) => `${uid}-${part}`;
   const soldOut = p.action === "soldOut";
-  const choose = p.action === "choose";
-  const name = soldOut
-    ? al(p.lang, { kind: "subject", verb: "browse.add.verb.soldOut", subject }).aria
-    : choose
-      ? al(p.lang, { kind: "subject", verb: "browse.verb.choose", subject }).aria
-      : al(p.lang, { kind: "subject", verb: "browse.add.verb.add", subject }).aria;
+  // The name, in reading order: the verb, the dish as drawn (lead, echo), the price, the counts.
+  const labelledBy = [
+    run("verb"),
+    run("lead"),
+    p.echo !== null ? run("echo") : null,
+    run("price"),
+    p.confirmed > 0 ? run("count") : null,
+    p.pending > 0 ? run("pending") : null,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(" ");
   const refused = soldOut || p.block !== null;
   return (
     <li className="pad-tile" data-soldout={p.action === "soldOut" || undefined}>
@@ -62,22 +69,42 @@ function PadTileImpl(p: PadTileProps) {
         type="button"
         className="pad-tile-main staff-press"
         data-action={p.action}
-        aria-label={name}
+        aria-labelledby={labelledBy}
         aria-disabled={refused || undefined}
         onClick={() => p.onMain(p.id)}
       >
-        <span className="pad-tile-name" lang={p.leadLang}>
+        {/* An add tile SHOWS its verb only as a + glyph (aria-hidden): the word is spoken here. */}
+        {p.action === "add" && (
+          <span id={run("verb")} className="sr-only">
+            <Chrome lang={p.lang} k="browse.add.verb.add" />
+          </span>
+        )}
+        <span id={run("lead")} className="pad-tile-name" lang={p.leadLang}>
           {p.lead}
         </span>
         {p.echo !== null && (
-          <span className="pad-tile-echo" lang={p.echoLang ?? undefined}>
+          <span id={run("echo")} className="pad-tile-echo" lang={p.echoLang ?? undefined}>
             {p.echo}
           </span>
         )}
         <span className="pad-tile-foot">
-          <span className="pad-tile-price">{p.price}</span>
-          {p.confirmed > 0 && <Badge tone="accent">×{p.confirmed}</Badge>}
-          {p.pending > 0 && <span className="pad-tile-pending">+{p.pending}</span>}
+          <span id={run("price")} className="pad-tile-price">
+            {p.price}
+          </span>
+          {p.confirmed > 0 && (
+            <span id={run("count")}>
+              <Badge tone="accent">×{p.confirmed}</Badge>
+            </span>
+          )}
+          {p.pending > 0 && (
+            <span id={run("pending")} className="pad-tile-pending">
+              +{p.pending}
+              <span className="sr-only">
+                {" "}
+                <Chrome lang={p.lang} k="pad.ghost.adding" />
+              </span>
+            </span>
+          )}
           {p.action === "add" ? (
             <span
               key={`pop-${p.popKey}`}
@@ -92,11 +119,11 @@ function PadTileImpl(p: PadTileProps) {
               </span>
             </span>
           ) : p.action === "choose" ? (
-            <span className="pad-tile-choose">
+            <span id={run("verb")} className="pad-tile-choose">
               <Chrome lang={p.lang} k="browse.verb.choose" />
             </span>
           ) : (
-            <span className="pad-tile-soldout">
+            <span id={run("verb")} className="pad-tile-soldout">
               <Chrome lang={p.lang} k="browse.add.verb.soldOut" />
             </span>
           )}

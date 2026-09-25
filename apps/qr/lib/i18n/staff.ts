@@ -3095,6 +3095,40 @@ export const STAFF = {
     en: "{n} dishes haven’t gone to the kitchen — send them, or remove them if the guest has left.",
     my: "မီးဖိုချောင်ကို မပို့ရသေးတဲ့ ဟင်း {n} ခု ရှိပါတယ် — ပို့ပါ၊ ဒါမှမဟုတ် ဧည့်သည် ပြန်သွားပြီဆိုရင် ဖျက်ပါ။",
   }, // K15-HIGH — a running bill with dishes nobody sent; misread, a guest who left is charged for them
+  // ── Phase 2c · review fixes · pad2 ──
+  // Every MY value below is a Claude-authored K15 draft pending Min's native check; the words are
+  // grounded in the pad's own: စနစ်နဲ့ ဆက်သွယ်မရပါ (pad.err.add.outage), အော်ဒါကို စစ်ပါ
+  // (pad.err.add.unconfirmed), ထပ်စမ်း (pad.ghost.verb.retry), အော်ဒါ ပြန်ဖွင့် (pad.reload),
+  // စစ်နေ (pad.ghost.checking), အဖြေ (table.send.hold.add), ငွေရှင်းနေပါတယ် (pad.paused).
+  // A RETRY of an add whose outcome was unknown, refused before the add-key ledger: the refusal is
+  // about the retry only — the first attempt may have landed — so it says the dish MAY be on and why
+  // the retry could not run, never "didn't go on" (which invites a new tap, a new key, a second plate).
+  "pad.err.retry.outage": {
+    en: "We can’t reach the system — {x} may already be on the order. Check the order, or try again.",
+    my: "စနစ်နဲ့ ဆက်သွယ်မရပါ — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် ထပ်စမ်းပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.retry.paying": {
+    en: "A guest is paying for this table — {x} may already be on the order. Check the order.",
+    my: "ဧည့်သည်တစ်ယောက် ဒီစားပွဲအတွက် ငွေရှင်းနေပါတယ် — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  "pad.err.retry.failed": {
+    en: "That didn’t go through — {x} may already be on the order. Check the order, or reload it.",
+    my: "မအောင်မြင်ပါ — {x} အော်ဒါထဲ ရောက်ပြီးသား ဖြစ်နိုင်ပါတယ်။ အော်ဒါကို စစ်ပါ၊ ဒါမှမဟုတ် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  // 15s with no answer: the ghost reads "Checking…" and the ticket offers "Reload the order" — said
+  // ONCE through the pad's one region, so a screen-reader user hears what a sighted one sees.
+  "pad.err.add.checking": {
+    en: "No answer yet about {x} — still checking. If it stays, reload the order.",
+    my: "{x} အတွက် အဖြေ မရသေးပါ — စစ်နေဆဲပါ။ ဒီအတိုင်း ကြာနေရင် အော်ဒါ ပြန်ဖွင့်ပါ။",
+  }, // K15-HIGH — an add that may have landed; a misread re-add cooks and charges a second dish
+  // The phone's view button while an add's answer was lost: the fix, never "Adding…".
+  "pad.bar.check": { en: "Check the order", my: "အော်ဒါကို စစ်ပါ" },
+  // A counter order's name Save with nothing typed and nothing saved — why it refuses (the walk-up
+  // name is optional, owner decision).
+  "pad.name.empty": {
+    en: "Type a name to save — it’s optional.",
+    my: "သိမ်းဖို့ နာမည် ရိုက်ပါ — မထည့်လည်း ရပါတယ်။",
+  },
 } as const satisfies Record<string, Entry>;
 
 export type StaffKey = keyof typeof STAFF;
@@ -3293,6 +3327,11 @@ export const STAFF_K15_HIGH: ReadonlySet<StaffKey> = new Set<StaffKey>([
   "table.send.settleBlocked.many",
   "table.send.settleBlocked.tab.one",
   "table.send.settleBlocked.tab.many",
+  // ── Phase 2c · review fixes · pad2 ──
+  "pad.err.retry.outage",
+  "pad.err.retry.paying",
+  "pad.err.retry.failed",
+  "pad.err.add.checking",
 ]);
 
 /**

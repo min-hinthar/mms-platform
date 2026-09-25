@@ -13062,7 +13062,6 @@ a.aisle-tile {
   font-family: var(--font-display);
   font-size: var(--fs-h3);
   font-weight: var(--fw-bold);
-  outline: none;
 }
 .pad-name {
   flex: 1 1 100%;
@@ -13616,4 +13615,31 @@ a.aisle-tile {
      heading token (--lh-snug) packed them tight (critic finding). The Burmese echo sets its own
      --lh-my (.chrome-my). */
   line-height: var(--lh-normal);
+}
+
+/* ── Phase 2c · review fixes · pad2 ── */
+/* The ticket's heading is a PROGRAMMATIC focus target ("Skip to the order", the phone's view flip,
+   the pad's focus catch-all). Its outline goes only for a focus that is not focus-visible (a tap):
+   a keyboard landing keeps the global ring (WCAG 2.4.7). A bare `outline: none` here sat later than
+   `:focus-visible` at equal specificity and won (pinned: lib/pad-shell-contract.test.ts). */
+.pad-ticket-title:focus:not(:focus-visible) {
+  outline: none;
+}
+/* The reflow tier (WCAG 1.4.10): at 400% zoom a laptop viewport is 320×256 CSS px — and a small
+   phone in landscape is close — where the bar, the tools and the dock alone fill the app shell and
+   its panes get nothing. Below 20em of height the shell becomes a DOCUMENT: the page scrolls as a
+   whole (the bar stays the only sticky element, §17), the panes stop scrolling on their own and the
+   dock follows the ticket. A starting threshold, unmeasured in a browser (docs/p2c-notes). */
+@media (max-height: 20em) {
+  .pad-main {
+    height: auto;
+    overflow: visible;
+  }
+  .pad-tiles,
+  .pad-ticket-body {
+    overflow-y: visible;
+  }
+  .pad-ticket {
+    overflow: visible;
+  }
 }

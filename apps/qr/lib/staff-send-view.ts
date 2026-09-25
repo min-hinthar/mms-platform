@@ -279,7 +279,9 @@ export type StaffUndoResult =
 
 /** A region line: a dictionary key (rendered through <MsgText>), or the outage sentence, whose
  *  Burmese twin `<OutageText>` supplies. Structurally the staff `StaffMsg`. */
-export type SendMsg = { k: StaffKey; vars?: Record<string, number> } | string;
+// ── Phase 2c · review fixes · pad2 ── `vars` may carry a dish name: the send controller says a hold
+// found AFTER the pad's drain (`sendHoldMsg` — "{x}" is the dish), not only counts.
+export type SendMsg = { k: StaffKey; vars?: Record<string, string | number> } | string;
 
 /** What the send slot hands the page's ONE region, or `signin` (the page goes to login). */
 export type SendNotice = { tone: "ok" | "warn"; msg: SendMsg } | "signin";

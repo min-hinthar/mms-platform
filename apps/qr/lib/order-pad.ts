@@ -11,7 +11,7 @@ import {
 // ── Phase 2c · gate ──
 import { settleBlockedMsg } from "./staff-send-view";
 import { staffSettleBlockedByUnsent } from "./checkout-stage";
-import type { PendingCounts } from "./pad-pending";
+import type { PendingAdd, PendingCounts } from "./pad-pending";
 import type { StaffLang } from "./staff-lang";
 import type { StaffKey } from "./i18n/staff";
 
@@ -358,18 +358,78 @@ export function padSendView(
   };
 }
 
-export type PadTileBlock = "closed" | "paying" | "waiting";
+export type PadTileBlock = "closed" | "paying" | "waiting" | "settling" | "held";
 
 /** When a tile tap is refused without dispatching. A guest paying pauses adding (the server would
  *  refuse); an UNCONFIRMED add holds every tile because Next runs actions one at a time — the hung
- *  request queues each later one behind it. A LOST add answered, so the queue is free. */
+ *  request queues each later one behind it. A LOST add answered, so the queue is free — for every
+ *  OTHER dish (`held` is this dish's own, below).
+ *
+ *  ── Phase 2c · review fixes · pad2 ── `settling`: Take payment is on its way out (draining, saving
+ *  the name, opening payment) — an add tapped now would land after the drain, be announced to a
+ *  screen that is leaving, and never be retracted. `held`: THIS dish has an add whose fate is unknown
+ *  (`padDishHold`) — a new tap mints a new add key, and if the first one landed that is a second
+ *  plate. Its fix is "Try again" on the ghost (the SAME key) or a reload, never another tap. */
 export function padTileBlock(i: {
   open: boolean;
   paying: boolean;
   pending: PendingCounts;
+  settling: boolean;
+  dishHeld: boolean;
 }): PadTileBlock | null {
   if (!i.open) return "closed";
   if (i.paying) return "paying";
   if (i.pending.unconfirmed > 0) return "waiting";
+  if (i.settling) return "settling";
+  if (i.dishHeld) return "held";
   return null;
+}
+
+// ── Phase 2c · review fixes · pad2 ──
+
+/**
+ * The add on THIS dish whose fate is unknown — lost (its answer said it may have committed, or the
+ * action threw) or unconfirmed (no answer yet) — which refuses any NEW attempt at the dish: a new
+ * attempt is a new add key, and the ledger dedupes only the same key, so if the first landed the
+ * dish goes on twice. `key` is the attempt being asked for: a retry of the held attempt itself (its
+ * own key — "Try again", or the options sheet's same choice again) is never refused by its own hold.
+ * A FLYING add is not unknown (its answer is coming), so a second tap on it is a second dish.
+ */
+export function padDishHold(
+  pending: readonly PendingAdd[],
+  itemId: string,
+  key: string | null = null,
+): PendingAdd | null {
+  return (
+    pending.find(
+      (p) =>
+        p.itemId === itemId && (p.state === "lost" || p.state === "unconfirmed") && p.key !== key,
+    ) ?? null
+  );
+}
+
+/**
+ * The phone's view button's pending word — what the adds on their way ARE, never "Adding…" over an
+ * add whose answer was lost (nothing is coming: it names the fix) or that has gone unanswered for
+ * 15s (the ghost's own "Checking…"). The most urgent first: a lost add needs a hand.
+ */
+export function padViewStatus(p: PendingCounts): StaffKey | null {
+  if (p.lost > 0) return "pad.bar.check";
+  if (p.unconfirmed > 0) return "pad.ghost.checking";
+  if (p.flying + p.unseen > 0) return "pad.ghost.adding";
+  return null;
+}
+
+export type PadNameSave = "save" | "saved" | "empty";
+
+/**
+ * A counter order's name Save. `saved`: the field holds what the server holds (the word "Saved ✓",
+ * refused). `empty`: nothing typed and nothing saved — there is nothing to save, so it refuses and
+ * says why (the name is optional), never a live-looking Save that does nothing. Anything else saves —
+ * an emptied field over a saved name CLEARS it.
+ */
+export function padNameSave(value: string, saved: string): PadNameSave {
+  const v = value.trim();
+  if (v !== saved) return "save";
+  return v === "" ? "empty" : "saved";
 }

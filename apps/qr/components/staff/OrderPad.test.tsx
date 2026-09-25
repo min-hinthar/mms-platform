@@ -44,7 +44,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push, refresh, replace: vi.fn() }),
   usePathname: () => "/staff/table/S/add",
 }));
-vi.mock("./StaffBar", () => ({ StaffBar: () => <header data-testid="bar" /> }));
+// The REAL StaffBar (P13 — the one-region test counts every region the page mounts, the bar's
+// included); only its two server actions are stubbed.
+vi.mock("@/lib/staff-lang-actions", () => ({ setStaffLang: vi.fn() }));
+vi.mock("@/lib/staff-pin-actions", () => ({ lockConsole: vi.fn() }));
 
 const { StaffLangProvider } = await import("./StaffLangProvider");
 const { OrderPad } = await import("./OrderPad");
@@ -273,10 +276,16 @@ describe("the add moment — claimed at the tap, written once, under its own key
   it("the view has exactly ONE live region, ONE ticket, and no natively disabled button", async () => {
     addItem.mockReturnValue(new Promise(() => {}));
     mount(detail({ paymentInFlight: false }));
+    // Every region the page mounts — the REAL StaffBar's included (P13). Only a DIALOG is excluded,
+    // and deliberately: the options sheet is a modal view of its own, with its own one region (its
+    // `role="status"` line, M82), and the pad's Toast stays live beside it (see "the options sheet
+    // never hides the pad's region" below). No dialog is open in this test.
     const live = () =>
       [...document.querySelectorAll('[role="status"],[role="alert"],[aria-live]')].filter(
         (e) => !e.closest('[role="dialog"]'),
       );
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.querySelector(".staff-bar")).not.toBeNull();
     // MUTATION: a per-tile alert or a status line in the ticket — a second region; red.
     expect(live()).toHaveLength(1);
     expect(document.querySelectorAll(".pad-ticket")).toHaveLength(1);
@@ -970,5 +979,478 @@ describe("the settle gate on the pad — Take payment waits for everything to be
     // finger still on a refused button and the Send somewhere else on the screen; red.
     expect(document.querySelector(".pad-shell")!.getAttribute("data-view")).toBe("order");
     expect(document.activeElement).toBe(sendBtn());
+  });
+});
+
+// ── Phase 2c · review fixes · pad2 ──
+/** A catalog with a second quick-add dish, so "only THIS dish is held" can be seen. */
+const WITH_TEA = {
+  kind: "ok" as const,
+  items: [...CATALOG.items, dish({ id: "t1", nameEn: "Tea", categorySort: 10 })],
+};
+const tea = () => tile(/^Add — Tea|Tea/);
+const tryAgain = () => screen.getByRole("button", { name: /^Try again — / });
+/** One Mohinga whose add answered "unconfirmed" — lost: it may already be on the order. */
+async function lostMohinga(initial: TableDetail = ONE(), opts: { catalog?: unknown } = {}) {
+  addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+  mount(initial, opts);
+  await act(async () => {
+    fireEvent.click(mohinga());
+  });
+  await flush();
+  expect(ghosts()[0]!.dataset.state).toBe("lost");
+  return (addItem.mock.calls[0]![0] as { addKey: string }).addKey;
+}
+const keyOf = (i: number) => (addItem.mock.calls[i]![0] as { addKey: string }).addKey;
+
+describe("P1 — a dish whose add is UNKNOWN is never added again under a new key", () => {
+  it("a re-tap on the lost dish is refused and names the fix; another dish stays live", async () => {
+    await lostMohinga(ONE(), { catalog: WITH_TEA });
+    expect(mohinga().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    // MUTATION (pad2/tile-tap-ignores-the-dish-hold): the tap mints a NEW key — if the first add
+    // landed, the table is billed and cooked two Mohinga; red.
+    expect(addItem).toHaveBeenCalledTimes(1);
+    expect(region().textContent).toBe(tf("en", "table.send.hold.lost", { x: "Mohinga" }));
+    // The options corner is the same door: refused too, no sheet.
+    await act(async () => {
+      fireEvent.click(mohinga().closest("li")!.querySelector<HTMLButtonElement>(".pad-tile-opts")!);
+    });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // Only THIS dish — a lost Mohinga never stalls the Tea (`pad/lost-add-blocks-the-tiles`).
+    addItem.mockResolvedValueOnce({ ok: true });
+    expect(tea().getAttribute("aria-disabled")).toBeNull();
+    await act(async () => {
+      fireEvent.click(tea());
+    });
+    expect(addItem).toHaveBeenCalledTimes(2);
+    expect((addItem.mock.calls[1]![0] as { menuItemId: string }).menuItemId).toBe("t1");
+  });
+
+  it("the options sheet: an unknown add, the sheet closed and opened again — refused, no new key", async () => {
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    await act(async () => {
+      fireEvent.click(
+        [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+          b.textContent?.includes("$14.50"),
+        )!,
+      );
+    });
+    await flush();
+    expect(dialog.textContent).toContain(STAFF["browse.add.unconfirmed"].en);
+    await act(async () => {
+      fireEvent.keyDown(dialog, { key: "Escape" });
+    });
+    await flush(1000);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    // MUTATION: reopening resets the held key — the same choice again mints a NEW key; red.
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(region().textContent).toBe(tf("en", "table.send.hold.lost", { x: "Beef Curry" }));
+    expect(addItem).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("P2 — a RETRY refused before the ledger leaves the add unknown, under the SAME key", () => {
+  it("Try again answered 'outage' keeps the ghost lost, says it may be on, keeps the key", async () => {
+    const first = await lostMohinga();
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "outage" });
+    await act(async () => {
+      fireEvent.click(tryAgain());
+    });
+    await flush();
+    expect(addItem).toHaveBeenCalledTimes(2);
+    expect(keyOf(1)).toBe(first);
+    // MUTATION (pad2/retry-reads-first-attempt): the retry's refusal read as definite — the ghost
+    // goes, "Mohinga didn't go on", and the next tap mints a new key; red.
+    expect(ghosts()).toHaveLength(1);
+    expect(ghosts()[0]!.dataset.state).toBe("lost");
+    expect(region().textContent).toBe(tf("en", "pad.err.retry.outage", { x: "Mohinga" }));
+    expect(region().textContent).not.toContain("didn’t go on");
+    // The dish is still held (a re-tap would be a new key), and Try again still rides the first key.
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    expect(addItem).toHaveBeenCalledTimes(2);
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "paying" });
+    await act(async () => {
+      fireEvent.click(tryAgain());
+    });
+    await flush();
+    expect(keyOf(2)).toBe(first);
+    expect(region().textContent).toBe(tf("en", "pad.err.retry.paying", { x: "Mohinga" }));
+    expect(ghosts()[0]!.dataset.state).toBe("lost");
+  });
+
+  it("a closed order answering the retry is still no verdict on the first attempt", async () => {
+    const first = await lostMohinga();
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "closed" });
+    await act(async () => {
+      fireEvent.click(tryAgain());
+    });
+    await flush();
+    expect(keyOf(1)).toBe(first);
+    expect(ghosts()[0]!.dataset.state).toBe("lost");
+    expect(region().textContent).toBe(tf("en", "pad.err.retry.failed", { x: "Mohinga" }));
+  });
+
+  it("the options sheet: a refused retry keeps the held key — the same choice again rides it", async () => {
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+        b.textContent?.includes("$14.50"),
+      )!;
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "outage" });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    // The sheet says why the retry could not run — and that the dish may already be on.
+    expect(dialog.textContent).toContain(tf("en", "pad.err.retry.outage", { x: "Beef Curry" }));
+    addItem.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    // MUTATION: the held key dropped on the retry's refusal — the third try mints a NEW key; red.
+    expect(addItem).toHaveBeenCalledTimes(3);
+    expect(keyOf(2)).toBe(keyOf(0));
+  });
+});
+
+describe("P1/P2 — the options sheet and the ghost, on one unknown add", () => {
+  /** Beef Curry through the sheet, answered "unconfirmed": lost, its refusals the sheet's own. */
+  async function lostBeef() {
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "unconfirmed" });
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(dialog.querySelector<HTMLButtonElement>("button[aria-pressed]")!);
+    const addBtn = () =>
+      [...dialog.querySelectorAll<HTMLButtonElement>("button")].find((b) =>
+        b.textContent?.includes("$"),
+      )!;
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    expect(ghosts()[0]!.dataset.state).toBe("lost");
+    return { dialog, addBtn };
+  }
+
+  it("a DIFFERENT choice for the dish, while its add is unknown, is refused — never a new key", async () => {
+    const { dialog, addBtn } = await lostBeef();
+    // A kitchen note makes it a different intent (a different add, by 2a's rule).
+    fireEvent.change(dialog.querySelector<HTMLInputElement>("#staff-mod-note")!, {
+      target: { value: "no onion" },
+    });
+    await act(async () => {
+      fireEvent.click(addBtn());
+    });
+    await flush();
+    // MUTATION (pad2/sheet-new-key-over-a-held-dish): the new intent mints a NEW key while the
+    // first may have landed — a second curry; red.
+    expect(addItem).toHaveBeenCalledTimes(1);
+    expect(dialog.textContent).toContain(tf("en", "table.send.hold.lost", { x: "Beef Curry" }));
+  });
+
+  it("Try again on the ghost of a SHEET add says its outcome in the pad's region (the sheet is gone)", async () => {
+    const { dialog } = await lostBeef();
+    await act(async () => {
+      fireEvent.keyDown(dialog, { key: "Escape" });
+    });
+    await flush(1000);
+    addItem.mockResolvedValueOnce({ ok: false, error: "x", code: "outage" });
+    await act(async () => {
+      fireEvent.click(tryAgain());
+    });
+    await flush();
+    expect(keyOf(1)).toBe(keyOf(0));
+    // MUTATION (pad2/ghost-retry-said-to-the-sheet): the retry keeps the sheet's quiet flag — its
+    // refusal is said to a sheet that is closed, i.e. to nobody; red.
+    expect(region().textContent).toBe(tf("en", "pad.err.retry.outage", { x: "Beef Curry" }));
+  });
+});
+
+describe("P3 — the Send re-reads the note hold AFTER its drain", () => {
+  it("a kitchen note typed while the Send waited on a dish holds the fire and says so", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await flush(400);
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await act(async () => {
+      fireEvent.click(sendBtn());
+    });
+    // The Send is draining; the server types the allergy on the unsent dish meanwhile.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Note — Mohinga" }));
+    });
+    const field = document.querySelector<HTMLInputElement>('[data-note-for="l1"]')!;
+    fireEvent.change(field, { target: { value: "no peanuts" } });
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    // MUTATION (pad2/send-fires-past-a-late-note): the hold read only at the tap — the dish fires
+    // with the allergy still in the field, and the save after it is refused (draft-only); red.
+    expect(fire).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(tf("en", "table.send.hold.note", { x: "Mohinga" }));
+    expect(document.activeElement).toBe(field);
+    expect(sendBtn().getAttribute("aria-busy")).toBeNull();
+  });
+});
+
+describe("P4 — nothing is added while Take payment is on its way out", () => {
+  it("while the name saves: a tile tap is refused and says what Take payment is doing", async () => {
+    const save = deferred<{ ok: true }>();
+    setName.mockReturnValueOnce(save.promise);
+    mount(
+      detail({
+        label: "reg-ab12",
+        mode: "pickup",
+        lines: [line({ id: "l1", sendable: false })],
+        itemCount: 1,
+        settleTotalCents: 1581,
+      }),
+      { counter: true },
+    );
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "Aye" },
+    });
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    expect(settleBtn().textContent).toBe(STAFF["pad.settle.savingName"].en);
+    // MUTATION (pad2/tap-ignores-the-settle): the tile adds after the drain — its outcome is said to
+    // a screen that is leaving, and the "Added" claim is never retracted; red.
+    expect(mohinga().getAttribute("aria-disabled")).toBe("true");
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    expect(addItem).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["pad.settle.savingName"].en);
+    await act(async () => {
+      save.resolve({ ok: true });
+    });
+    await flush();
+    expect(push).toHaveBeenCalledWith(`/staff/table/${SESSION}?settle=1`);
+  });
+
+  it("while payment opens: a tile tap is refused", async () => {
+    mount(payable());
+    await act(async () => {
+      fireEvent.click(settleBtn());
+    });
+    expect(push).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    expect(addItem).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["pad.settle.opening"].en);
+  });
+});
+
+describe("P5 — a hung detail read is never piled on", () => {
+  it("no new read starts while the last one is still unanswered; its answer kicks the next", async () => {
+    const hung = deferred<TableDetailResult>();
+    getTableDetail.mockReturnValue(hung.promise);
+    mount(ONE());
+    await flush(5_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    // Past the 15s give-up, and several 5s polls later.
+    // MUTATION (pad2/detail-read-piles-on-a-hung-one): the timeout frees the next read — each one
+    // queues behind the hung action in Next's serialized queue, and the pile grows every 5s; red.
+    await flush(40_000);
+    expect(getTableDetail).toHaveBeenCalledTimes(1);
+    getTableDetail.mockResolvedValue({ kind: "detail", detail: ONE() });
+    await act(async () => {
+      hung.resolve({ kind: "detail", detail: ONE() });
+    });
+    await flush();
+    // The polls it refused are owed one fresh read, at once.
+    expect(getTableDetail).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("P6 — a hung add is SAID, and so is the retry that lands", () => {
+  it("15s with no answer: the region says it is not confirmed yet; a late ok says it is on", async () => {
+    const add = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(add.promise);
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    await flush(16_000);
+    // MUTATION (pad2/hang-said-to-nobody): the ghost turns "Checking…" (aria-hidden) with no word
+    // in the region — a screen-reader user last heard "Added"; red.
+    expect(region().textContent).toBe(tf("en", "pad.err.add.checking", { x: "Mohinga" }));
+    await act(async () => {
+      add.resolve({ ok: true });
+    });
+    await flush();
+    expect(region().textContent).toBe(tf("en", "browse.added", { n: 1, x: "Mohinga" }));
+  });
+
+  it("a Try again that lands says so", async () => {
+    await lostMohinga();
+    addItem.mockResolvedValueOnce({ ok: true });
+    await act(async () => {
+      fireEvent.click(tryAgain());
+    });
+    await flush();
+    // MUTATION (pad2/retry-ok-silent): the retry lands in silence under "We couldn't confirm"; red.
+    expect(region().textContent).toBe(tf("en", "browse.added", { n: 1, x: "Mohinga" }));
+  });
+});
+
+describe("P7 — focus never falls to the page when a pad control goes", () => {
+  it("Try again keeps focus on its own control (busy), and the ghost leaving hands it to the order", async () => {
+    await lostMohinga();
+    const retry = deferred<StaffWriteResult>();
+    addItem.mockReturnValueOnce(retry.promise);
+    const btn = tryAgain();
+    btn.focus();
+    await act(async () => {
+      fireEvent.click(btn);
+    });
+    // MUTATION: the ghost swaps its button for an aria-hidden span — focus drops to <body>; red.
+    expect(document.activeElement).toBe(btn);
+    expect(btn.isConnected).toBe(true);
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      retry.resolve({ ok: true });
+    });
+    await flush();
+    expect(ghosts()).toHaveLength(0);
+    // The catch-all: the ticket's heading, never <body>.
+    expect(document.activeElement).toBe(document.querySelector(".pad-ticket-title"));
+  });
+});
+
+describe("P8 — the phone's view button says what the adds ARE", () => {
+  it("a lost add: 'Check the order', never 'Adding…'", async () => {
+    await lostMohinga();
+    const view = document.querySelector<HTMLButtonElement>(".pad-view")!;
+    // MUTATION (pad2/view-lost-said-adding): "Adding…" over an answer that came back; red.
+    expect(view.textContent).toContain(STAFF["pad.bar.check"].en);
+    expect(view.textContent).not.toContain(STAFF["pad.ghost.adding"].en);
+  });
+
+  it("an unconfirmed add: 'Checking…'", async () => {
+    addItem.mockReturnValueOnce(new Promise(() => {}));
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    const view = () => document.querySelector<HTMLButtonElement>(".pad-view")!;
+    expect(view().textContent).toContain(STAFF["pad.ghost.adding"].en);
+    await flush(16_000);
+    expect(view().textContent).toContain(STAFF["pad.ghost.checking"].en);
+  });
+});
+
+describe("P9 — a tile's name keeps each script's language and counts what is on its way", () => {
+  it("named by its lang-tagged runs; the pending +N is in the name", async () => {
+    addItem.mockReturnValueOnce(new Promise(() => {}));
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(mohinga());
+    });
+    const btn = mohinga();
+    const ids = btn.getAttribute("aria-labelledby")!.split(" ");
+    const runs = ids.map((id) => document.getElementById(id)!);
+    // MUTATION: one flattened aria-label — the English voice reads the Myanmar run; red.
+    expect(btn.hasAttribute("aria-label")).toBe(false);
+    expect(runs.find((r) => r.textContent === "မုန့်ဟင်းခါး")?.getAttribute("lang")).toBe("my");
+    expect(runs.find((r) => r.textContent === "Mohinga")?.getAttribute("lang")).toBe("en");
+    // WCAG 2.5.3: the visible "+1" is in the name, with what it counts.
+    expect(screen.getAllByRole("button", { name: /\+1 Adding…/ })).toContain(btn);
+    expect(screen.getAllByRole("button", { name: /^Add Mohinga/ })).toContain(btn);
+  });
+});
+
+describe("P11 — a counter name's Save with nothing to save refuses, and says why", () => {
+  it("empty field, nothing saved: aria-disabled with the reason; a tap says it once", async () => {
+    mount(
+      detail({ label: "reg-ab12", mode: "pickup", lines: [line({ id: "l1", sendable: false })] }),
+      { counter: true },
+    );
+    const save = screen.getByRole("button", { name: STAFF["browse.name.save"].en });
+    // MUTATION (pad2/name-empty-reads-saved): a live-looking Save that does nothing; red.
+    expect(save.getAttribute("aria-disabled")).toBe("true");
+    expect(document.getElementById(save.getAttribute("aria-describedby")!)?.textContent).toBe(
+      STAFF["pad.name.empty"].en,
+    );
+    await act(async () => {
+      fireEvent.click(save);
+    });
+    expect(setName).not.toHaveBeenCalled();
+    expect(region().textContent).toBe(STAFF["pad.name.empty"].en);
+  });
+
+  it("an emptied field over a saved name CLEARS it", async () => {
+    setName.mockResolvedValueOnce({ ok: true });
+    render(
+      <StaffLangProvider lang="en">
+        <main>
+          <OrderPad
+            sessionId={SESSION}
+            initialDetail={detail({ label: "reg-ab12", mode: "pickup" })}
+            catalog={CATALOG as never}
+            counterOrder
+            initialName="Aye"
+            hasPin={false}
+          />
+        </main>
+      </StaffLangProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(STAFF["browse.name.label"].en), {
+      target: { value: "" },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: STAFF["browse.name.save"].en }));
+    });
+    await flush();
+    expect(setName).toHaveBeenCalledWith({ sessionId: SESSION, name: "" });
+    expect(region().textContent).toBe(STAFF["browse.name.cleared"].en);
+  });
+});
+
+describe("open question — the options sheet never hides the pad's one region", () => {
+  it("while the sheet is open, the Toast region is outside every aria-hidden subtree", async () => {
+    mount(ONE());
+    await act(async () => {
+      fireEvent.click(tile(/Beef Curry/));
+    });
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    // Radix's modal sweep hides the page, but exempts `[aria-live]` — the Toast carries it, so a
+    // late refusal of a queued add is still spoken while the sheet is up.
+    expect(region().closest('[aria-hidden="true"]')).toBeNull();
+    expect(region().getAttribute("aria-live")).toBe("polite");
   });
 });

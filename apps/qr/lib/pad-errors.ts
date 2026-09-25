@@ -80,7 +80,7 @@ export type PadAddRefusal =
 export type PadAddVerdict =
   | { kind: "ok" }
   | { kind: "refused"; err: PadAddRefusal }
-  | { kind: "unknown" };
+  | { kind: "unknown"; retry?: PadRetryErrKey };
 
 type AddRefusal = { ok: false; error: string; code?: StaffWriteCode };
 
@@ -163,5 +163,39 @@ export function padSentenceNotice(text: string): PadNotice {
     quiet: false,
     kind: "correction",
     msg: text,
+  };
+}
+
+// ── Phase 2c · review fixes · pad2 ──
+/** Why a RETRY of an unknown add could not run — each sentence says the dish MAY already be on. */
+const RETRY_ERR = {
+  outage: "pad.err.retry.outage",
+  paying: "pad.err.retry.paying",
+  failed: "pad.err.retry.failed",
+} as const satisfies Record<string, StaffKey>;
+
+export type PadRetryErrKey = (typeof RETRY_ERR)[keyof typeof RETRY_ERR];
+
+/**
+ * The answer to a RETRY ("Try again", or the options sheet's same choice again) of an add whose
+ * outcome was UNKNOWN. Every definite refusal `staffAddItem` can give is decided BEFORE the add-key
+ * ledger (the gate, the cart read, the payment mutex, pricing) or by the insert's own "not open"
+ * guard — so it is definite about the RETRY only and says nothing about the FIRST attempt, which may
+ * have committed. Read as definite, the ghost went, the key was dropped and "{x} didn't go on"
+ * invited a new tap under a new key: a second plate, cooked and charged. So the attempt stays
+ * unknown (lost, same key) and the sentence says why the retry could not run and that the dish may
+ * already be on. A sign-in ask stays what it is: the console leaves for the login page.
+ */
+export function padRetryVerdict(v: PadAddVerdict): PadAddVerdict {
+  if (v.kind !== "refused" || v.err.kind === "signin") return v;
+  const code = v.err.kind === "key" ? v.err.code : undefined;
+  return {
+    kind: "unknown",
+    retry:
+      code === "outage"
+        ? RETRY_ERR.outage
+        : code === "paying"
+          ? RETRY_ERR.paying
+          : RETRY_ERR.failed,
   };
 }
