@@ -110,8 +110,9 @@ export function StaffModSheet({
   return (
     // M82 — `busy` while the add is in flight. The refusal from `staffAddItem` ("This table is
     // mid-payment — wait until they've finished.") is rendered ONLY inside this sheet, and
-    // deliberately so: `StaffMenuBrowser` routes it here with the comment "the page-level one is
-    // behind the modal scrim". Dismissing mid-add destroys the one surface that message has, so the
+    // deliberately so: the order pad (`OrderPad`, a `quietRefusal` attempt on `usePadWrites`)
+    // routes it here, because the pad's one region sits behind the modal scrim. Dismissing mid-add
+    // destroys the one surface that message has, so the
     // server is told nothing and the item is simply not there. `pending` is the parent's transition
     // flag, threaded down.
     <Sheet

@@ -1,8 +1,9 @@
 import type { StaffWriteCode } from "./staff-add-outcome";
 
 /**
- * Phase 2a (Codex round 1, P1) — the ADD KEY's lifetime on the staff add surfaces
- * (`StaffAddButton`, `StaffMenuBrowser`).
+ * Phase 2a (Codex round 1, P1) — the ADD KEY's lifetime on the staff add surfaces (since Phase 2c,
+ * the order pad: `OrderPad`'s options sheet reads `keyForAttempt` / `heldAfter`, and `usePadWrites`
+ * sends a key it already holds again).
  *
  * `staffAddItem` takes an `addKey` that rides the existing scan-event ledger (`p_scan_id`, claimed in
  * the same transaction as the write), so resending the SAME key can never add a dish twice. The
