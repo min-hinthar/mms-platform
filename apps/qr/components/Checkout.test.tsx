@@ -1980,3 +1980,69 @@ describe("Phase 1c — a Remove that was a “−” a moment ago ignores the ta
     expect(h.setQty).toHaveBeenCalledWith(LINE, 0);
   });
 });
+
+// ── Phase 2c · review fixes · reg2 ──
+describe("a refused tap re-says its reason on every tap (review open question)", () => {
+  const HOST = {
+    mode: "dinein",
+    mySeat: MY_SEAT,
+    myRole: "host" as const,
+    members: [{ seat: MY_SEAT, name: "Me", role: "host" as const }],
+    tableNumber: 7,
+  };
+  /** Mutations inside the Bill's one polite region, from the moment this is called. */
+  function watchRegion(text: string) {
+    const region = screen.getAllByRole("status").find((r) => r.textContent === text)!;
+    expect(region).toBeTruthy();
+    const records: MutationRecord[] = [];
+    const obs = new MutationObserver((r) => records.push(...r));
+    obs.observe(region, { childList: true, subtree: true, characterData: true });
+    return {
+      region,
+      changes: () => {
+        records.push(...obs.takeRecords());
+        return records.length;
+      },
+      stop: () => obs.disconnect(),
+    };
+  }
+
+  it("a SECOND tap on the dimmed 'Pay at the counter' changes the region again — the same sentence is said twice", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const counter = screen.getByRole("button", { name: /Pay at the counter/i });
+    const said = "Send everything to the kitchen first — then pay at the counter.";
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    const w = watchRegion(said);
+    await act(async () => {
+      fireEvent.click(counter);
+    });
+    // MUTATION (p2c-reg2/checkout-refused-tap-not-renumbered): set the same string again — React
+    // skips a same-value state, nothing in the region changes, and a screen reader hears nothing
+    // for the second tap; red.
+    expect(w.changes()).toBeGreaterThan(0);
+    expect(w.region.textContent).toBe(said);
+    w.stop();
+  });
+
+  it("the Pay button's own blocked tap re-says too — the same region, the same rule", async () => {
+    mount({ splitContext: HOST, initialItems: [{ ...ITEM, lineState: "draft" }] });
+    fireEvent.click(screen.getByRole("button", { name: /View bill/i }));
+    const pay = screen.getByRole("button", { name: /Send everything to the kitchen first/i });
+    const said = "Send everything to the kitchen first — then the bill is ready to pay.";
+    await act(async () => {
+      fireEvent.click(pay);
+    });
+    const w = watchRegion(said);
+    await act(async () => {
+      fireEvent.click(pay);
+    });
+    // MUTATION (p2c-reg2/checkout-region-not-keyed): the region's text is not keyed on the tap —
+    // the second tap changes nothing; red.
+    expect(w.changes()).toBeGreaterThan(0);
+    expect(w.region.textContent).toBe(said);
+    w.stop();
+  });
+});
