@@ -12847,6 +12847,8 @@ a.aisle-tile {
   display: flex;
   gap: var(--s2);
   overflow-x: auto;
+  /* W22c — a rail flicked back to its start must not walk the diner out through the back gesture */
+  overscroll-behavior-x: contain;
   margin-inline-end: calc(var(--s4) * -1);
   padding-inline-end: var(--s4);
   scroll-padding-inline: var(--s4);
@@ -12870,7 +12872,7 @@ a.aisle-tile {
   grid-area: pane;
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
   padding: 0 var(--s4) var(--s4);
 }
 .pad-section + .pad-section {
@@ -13081,7 +13083,7 @@ a.aisle-tile {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-y: contain;
   margin-top: var(--s2);
 }
 .pad-ticket-group-h {
