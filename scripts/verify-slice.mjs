@@ -9309,8 +9309,17 @@ const MUTANTS = [
     file: "apps/qr/components/staff/CashSettleButton.tsx",
     suite: "components/staff/CashSettleButton.test.tsx",
     why: "Phase 2c · Codex round 1 (P1) — a kiosk tip intent arriving while the sheet is open is frozen with the quote. Applied live, the due, the quick cash and the change move under a cashier already counting, and the tap records a tip they never read",
-    find: "    if (confirming) return;\n    setIntentShown(intendedTipCents);\n",
-    replace: "    setIntentShown(intendedTipCents);\n",
+    find: "    if (confirming) return;\n    if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));\n",
+    replace:
+      "    if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));\n",
+  },
+  {
+    id: "cashsettle/codex1-intent-note-live-under-the-sheet",
+    file: "apps/qr/components/staff/CashSettleButton.tsx",
+    suite: "components/staff/CashSettleButton.test.tsx",
+    why: "Phase 2c · Codex round 1 (P1) — the 'guest chose a tip' line holds with the field while the sheet is open. Following the prop, it names a tip the field and the due do not carry",
+    find: "  if (!confirming && intentShown !== intendedTipCents) setIntentShown(intendedTipCents);\n",
+    replace: "  if (intentShown !== intendedTipCents) setIntentShown(intendedTipCents);\n",
   },
   {
     id: "orderpad/codex1-name-decided-at-the-tap",

@@ -202,9 +202,11 @@ export function CashSettleButton({
   // the due, the quick cash and the change under their hands, and the tap would record a tip they
   // never saw. It is picked up when the sheet closes (the next open quotes it).
   const [intentShown, setIntentShown] = useState(intendedTipCents);
+  // A render-time adjustment (never an effect's synchronous setState): closed, the shown intent
+  // follows the prop; open, it holds.
+  if (!confirming && intentShown !== intendedTipCents) setIntentShown(intendedTipCents);
   useEffect(() => {
     if (confirming) return;
-    setIntentShown(intendedTipCents);
     if (intendedTipCents != null && !tipTouched.current) setTip(centsToField(intendedTipCents));
   }, [intendedTipCents, confirming]);
   // W21d (Codex P1 on #183, then its P2 on #193) — commas are AMBIGUOUS: "5,00" is a decimal

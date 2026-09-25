@@ -245,6 +245,18 @@ a mutant, all KILLED. No migration.
   lib · 3 API routes · 21 components · 1 `packages/db`) · 3993 qr + 228 ui tests · `check:docs` and
   `format:check` clean. The full 1108-mutant run with the gate belongs to the integration step.
 
+**Codex round 1 (on `8ac405a`: 1 × P1, 2 × P2) — fixed, red-first, each with a mutant:**
+
+- **P1 — the cash sheet froze its total but not the guest's tip.** A kiosk tip arriving while the
+  cash sheet was open re-quoted what to take, the quick-cash buttons and the change under a cashier
+  already counting, and the tap then recorded a tip they never read. The tip is now frozen with the
+  total while the sheet is open and is picked up on the next open.
+- **P2 — Take payment while a dish was still being added at a dine-in table.** It waited for the
+  dish, then opened a payment section the settle gate refused on. A dish on its way now counts as
+  unsent: the pad says "send it first" and jumps to the Send.
+- **P2 — the counter name typed while Take payment waited was thrown away.** The name is now read
+  from the field as it is after the wait.
+
 ### Phase 2b — the kitchen ticket and the live console (2026-09-24)
 
 Built as two parallel worktree branches (`p2b/kitchen` · `p2b/feedback`) merged here, then the
