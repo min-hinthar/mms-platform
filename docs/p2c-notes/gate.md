@@ -128,8 +128,11 @@ packages/db 1 = 158 files, 988 mutants):
   register's seam comment ("The settle gate's unsent-dishes check sits HERE"), which is now the
   gate's own check; it anchors on the check's first comment line inside the same `try`, and still
   hoists the moved compare above the `try` (the refusal then skips the freeze's `finally`).
-- **verify:slice at this head** — see the self-audit (`--only=unsent`: 46 caught, no orphans; the
-  register and pad prefixes re-run on the touched files).
+- **verify:slice at this head** (`--no-gate`, one run per prefix, tree clean after each):
+  `--only=unsent` 46 caught (the 40 new + six older `unsent` mutants) · `p2c-register/` 55 (incl. the
+  re-anchored one) · `pad` 65 · `settle/` 62 · `terminal` 23 · `counter` 29 · `staff-send-view/` 19 ·
+  `checkout` 10 — every one KILLED, no STALE, no orphans. The full 1028-mutant run (with the gate) is
+  integration's.
 
 ## 5 · Owner-visible behaviour changes
 
@@ -208,7 +211,11 @@ table page's own sentence (one fact, one sentence).
     case that needs a Send on screen builds its table from `DETAIL`'s drafts. Four `OrderPad.test`
     cases about Take payment's own life (drain, busy words, the late note) now run on a table whose
     only dish is a to-go draft (`payable()`), since `ONE()`'s dine-in draft is gated.
-11. **FloorDetailLive and OrderPad joined the mutate set** (the register left FloorDetailLive out
+11. **Two contrast pairs pinned in `packages/ui` (`contrast-audit.test.ts`, one labelled block):**
+    `--warn` on `--pg` and on the staff page's 5% `--tx` rule line, both themes — the note's
+    sentence (watched red with `--warnb` as the foreground). Not in the spec; the shared rules ask
+    for every new text pair to be pinned.
+12. **FloorDetailLive and OrderPad joined the mutate set** (the register left FloorDetailLive out
     while two areas edited it in wave 1; in wave 2 only the gate does).
 
 ## 9 · LEARNINGS candidates
