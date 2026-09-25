@@ -565,7 +565,8 @@ export function OrderPad({
         hostName={detail.members.find((m) => m.isHost)?.name ?? null}
         bare={padSend.bare}
       />
-    ) : sendable ? (
+    ) : detail.mode === "dinein" ? (
+      // Nothing to send (or the order is paid): the way back to the table, never an empty slot.
       <Button
         variant="primary"
         size="xl"
